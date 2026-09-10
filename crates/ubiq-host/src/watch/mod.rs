@@ -59,7 +59,14 @@ pub struct Watcher {
 }
 
 /// Start watching `job.root`. Fails only if the platform watcher refuses the root.
-pub fn start(job: Job) -> notify::Result<Watcher> {
+pub fn start(mut job: Job) -> notify::Result<Watcher> {
+    // `notify` reports canonical paths, and `classify` strips this root off them: a root reached
+    // through a symlink — `/tmp`, `/var` and a home under one on macOS — would strip nothing and
+    // every event would be dropped. Canonicalise once, here, rather than trust the catalogue's
+    // spelling.
+    if let Ok(canonical) = job.root.canonicalize() {
+        job.root = canonical;
+    }
     let (events, queue) = flume::unbounded::<notify::Event>();
     let mut watcher = notify::recommended_watcher(move |result: notify::Result<notify::Event>| {
         if let Ok(event) = result {

@@ -45,6 +45,8 @@ fn agent(id: AgentId, session: SessionId, name: &str, activity: Activity) -> Wor
         model: "Opus 4.6".to_string(),
         context_pct: 5,
         persistent: false,
+        accept_all: false,
+        debug_dump: None,
         thread: Vec::new(),
     }
 }

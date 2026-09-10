@@ -322,6 +322,7 @@ impl Harness for Copilot {
             child,
             cwd,
             provisioned.resume.as_deref(),
+            provisioned.model.as_deref(),
         )?))
     }
 }

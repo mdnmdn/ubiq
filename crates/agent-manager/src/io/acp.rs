@@ -752,7 +752,10 @@ fn from_command(value: &Value) -> CommandInfo {
     }
 }
 
-fn from_config_option(value: &Value) -> ConfigOption {
+/// One ACP `configOptions` entry. `pub(crate)` because
+/// [`super::acp_client`] synthesises the same shape from an agent's vendor
+/// blocks and must not grow a second copy of this mapping.
+pub(crate) fn from_config_option(value: &Value) -> ConfigOption {
     ConfigOption {
         id: str_field(value, "id").unwrap_or_default(),
         name: str_field(value, "name").unwrap_or_default(),

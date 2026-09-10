@@ -1036,6 +1036,14 @@ impl AppState {
         // there. Re-asked whenever the provider changes — see `set_assist_provider`.
         this.bus.send(Message::GetAssist);
 
+        // A window that boots already pointed at a project never calls `activate_project`, and
+        // `OpenedProject` is the only thing that tells the host a project is live — it is what
+        // starts the filesystem watch. Without this, a restored project has no watch and every
+        // change on disk needs a manual refresh.
+        if let Some(project_id) = project {
+            this.bus.send(Message::OpenedProject { project_id });
+        }
+
         // Whatever the registry says this window holds, it now holds — including the pane a
         // project gets when it is first entered. A window opening on nothing spawns nothing.
         this.sync_projects(cx);

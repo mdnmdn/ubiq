@@ -199,6 +199,16 @@ option's own `name` and differentiated by its `kind` — allow from reject, with
 marked as lasting. `kind` decides only how a button reads: the `option_id` is opaque, echoed back
 unchanged, and nothing on this side interprets it or remembers a choice.
 
+**A conversation set to accept everything is shown no ask at all.** The three-dots menu's
+*Accept all* (`SetConversationAcceptAll`, described with the rest of the menu on the agents screen) is answered
+in the host: the harness asks what it always asks, the host replies with the plain allow, and no
+`ConvUpdate::PermissionRequest` reaches the window. Never shown rather than shown and then
+withdrawn, because a prompt here is joined to a tool call in a transcript and nothing takes one
+back. What that costs is that the transcript holds tool calls whose authorisation the reader was
+never offered — the reason the flag is per conversation, off by default, and labelled on the menu
+while it is on. A request the harness offers no allowing option for arrives as normal and is drawn
+as normal.
+
 **The request carries an id and little else, so the prompt reads the call it is attached to.** The
 `tool_call` on a request is a patch whose id is the only field guaranteed present, so the title, the
 content and the diff are read off the call the transcript already holds. A request naming a call
@@ -517,6 +527,8 @@ field the filter. A grouped, searchable, partly-inert list was already what that
 | A conversation reports a total but no cached figure, or a total of zero | The cache ring is not drawn; a ring at nothing over nothing is not a reading |
 | The turn is cancelled while asks are up | The outstanding set is dropped, the prompts and the strip go with it, and the host answers every one of them as cancelled before the cancel reaches the harness |
 | The harness ends or is unloaded while an ask is up | The prompts go with the process; there is nothing left waiting on an answer |
+| The conversation accepts everything and the harness offers no allowing option | The host emits the request unchanged, and it is drawn and answered like any other |
+| Accept-all is switched on while an ask is up | The prompt on screen stays and is answered by hand; the flag governs the asks that follow, and nothing retracts a prompt the transcript holds |
 
 ## Related docs
 

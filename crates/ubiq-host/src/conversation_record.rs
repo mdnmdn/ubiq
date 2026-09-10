@@ -80,6 +80,21 @@ pub struct ConversationRecord {
     /// from this one boolean.
     #[serde(default)]
     pub persistent: bool,
+    /// Whether every permission this conversation's harness asks for is answered `allow` here,
+    /// without the ask reaching a window.
+    ///
+    /// On the row rather than in the launch recipe because it is a property of the *conversation*
+    /// and not of any one process: a harness that is unloaded and resumed is the same
+    /// conversation, and a user who said "stop asking me" said it about the conversation.
+    #[serde(default)]
+    pub accept_all: bool,
+    /// Whether this conversation's traffic is being written to a file.
+    ///
+    /// The flag is durable; the file is not. Each launch opens its own capture, appending to the
+    /// same deterministic name, so a conversation left dumping goes on dumping across a restart
+    /// without the path having to be stored beside the flag.
+    #[serde(default)]
+    pub debug_dump: bool,
     /// The conversation this one was forked from, where it was forked. Kept so a transcript that
     /// starts mid-thought can say what it came from.
     #[serde(default)]
@@ -222,6 +237,8 @@ mod tests {
             next_seq: 42,
             title: Some("Fixing the parser".to_string()),
             persistent: true,
+            accept_all: false,
+            debug_dump: false,
             forked_from: None,
             agent_home: AgentHome::Inherit,
         }

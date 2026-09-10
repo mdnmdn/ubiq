@@ -2,7 +2,19 @@
 
 Stable id: `grok`
 Display name: Grok CLI
-Vendor: superagent-ai (community; npm `@vibe-kit/grok-cli`, binary `grok`) — talks to xAI's Grok API. Not affiliated with xAI Corp.
+Vendor: **xAI** — the official `grok` CLI (Rust binary), talking to xAI's own Grok API.
+
+> **Identity correction (verified 2026-09-10):** earlier revisions of this document described a
+> *different* program — the community project `superagent-ai/grok-cli`, published to npm as
+> `@vibe-kit/grok-cli`, which happens to install a same-named `grok` binary. The harness actually
+> installed and driven by `crates/agent-manager/src/harness/grok.rs` is xAI's own official CLI,
+> version **1.0.13**, captured live on 2026-09-10 — see
+> [`_docs/wip/grok-acp-capture.md`](../../../../_docs/wip/grok-acp-capture.md) for the raw frames.
+> Sections below are corrected where the capture contradicts the old npm-CLI assumptions (binary
+> identity, on-disk layout, CLI surface, ACP behaviour, model/reasoning, permissions). Sections not
+> yet re-verified against 1.0.13 (Sub-agents, MCP servers, Skills, Slash commands, most of
+> Authentication) still describe the npm CLI's documented behaviour and are marked unverified
+> inline — treat them as unconfirmed for the installed binary until re-checked.
 
 ## Quick reference
 
@@ -10,33 +22,45 @@ Vendor: superagent-ai (community; npm `@vibe-kit/grok-cli`, binary `grok`) — t
 |---------------|--------------------------------------------------------------------------------|
 | Stable id     | `grok`                                                                          |
 | Display name  | Grok CLI                                                                        |
-| Vendor        | superagent-ai/grok-cli (community, open-source; uses xAI's Grok API)           |
-| Global root   | `~/.grok/` (no override env var documented as of 2026-07-09)                    |
-| Project root  | `<repo>/.grok/settings.json`, `<repo>/AGENTS.md`, `<repo>/.agents/skills/`      |
-| Config format | JSON (`user-settings.json`, `settings.json`), Markdown (`AGENTS.md`, `SKILL.md`) |
+| Vendor        | xAI (official CLI, Rust binary; verified 2026-09-10, version 1.0.13)           |
+| Global root   | `~/.grok/` — `auth.json`, `config.toml`, `docs/user-guide/*.md`, `sessions/`, `bin/` (verified 2026-09-10) |
+| Project root  | `<repo>/.grok/settings.json`, `<repo>/AGENTS.md`, `<repo>/.agents/skills/` (unverified against 1.0.13 — carried over from the npm CLI) |
+| Config format | TOML (`config.toml`, verified); JSON (`auth.json`, verified); other files below unverified |
 
-There is **no official xAI first-party terminal coding agent** as of
-2026-07-09. The most widely used and documented Grok terminal agent is
-the community project **`superagent-ai/grok-cli`**, published to npm as
-**`@vibe-kit/grok-cli`** with the binary **`grok`**. Recent releases also
-ship a shell installer and a Bun global package (`grok-dev`); all three
-distributions install the same `grok` command. This doc is written
-against `superagent-ai/grok-cli`.
+There **is** an official xAI first-party terminal coding agent: the `grok` CLI, a Rust binary,
+distinct from the community npm package `@vibe-kit/grok-cli` (`superagent-ai/grok-cli`) that an
+earlier revision of this document assumed. Both install a command literally named `grok`, which is
+almost certainly why the two got conflated — check `grok --version` against `1.0.13` (or later) to
+confirm which one is on `PATH`. Everything below describes the xAI binary except where noted
+otherwise.
 
 ## On-disk layout
 
-### Global (`~/.grok/`)
+### Global (`~/.grok/`) — verified 2026-09-10
+
+The live 1.0.13 install carries, at `~/.grok/`:
 
 ```
 ~/.grok/
-├── user-settings.json        # global settings: apiKey, defaultModel, mcpServers, subAgents, telegram, hooks (mode 0600)
-└── workspace-trust.json      # per-directory trust decisions (permission model)
+├── auth.json                 # OAuth credential (cached_token), plaintext JSON
+├── config.toml                # global config
+├── docs/
+│   └── user-guide/*.md        # the bundled user guide (e.g. 15-agent-mode.md, 22-permissions-and-safety.md)
+├── sessions/                   # saved conversation sessions
+└── bin/                        # (present; contents not inventoried)
 
-# Skills (Agent Skills open standard), user tier:
+# Skills (Agent Skills open standard), user tier — unverified against 1.0.13,
+# carried over from the npm CLI's documented layout:
 ~/.agents/skills/<name>/SKILL.md
 ```
 
-### Project (`<repo>/`)
+`user-settings.json` and `workspace-trust.json`, both load-bearing in the npm CLI's layout, have
+**not** been confirmed present or absent for the official binary — do not assume either exists
+until checked live. `agent-manager`'s provisioner (`harness/grok.rs`) still writes MCP config to
+`<HOME>/.grok/user-settings.json` on the assumption the official binary reads the same file; this
+has not been re-verified against 1.0.13 (see "MCP servers" below).
+
+### Project (`<repo>/`) — unverified against 1.0.13
 
 ```
 <repo>/
@@ -50,6 +74,10 @@ against `superagent-ai/grok-cli`.
 # Skills (Agent Skills open standard), project tier:
 <repo>/.agents/skills/<name>/SKILL.md
 ```
+
+This project-tier layout is carried over from the npm CLI and has not been re-verified against the
+official binary; `agent-manager`'s `Grok::provision` relies only on the global tier (`HOME`
+relocation) today, so a project-tier mismatch would not currently affect provisioning.
 
 Notes:
 
@@ -65,16 +93,26 @@ Notes:
 The global config directory `~/.grok/` is derived from the OS home
 directory. **No `GROK_CONFIG_DIR`-style override env var is documented
 as of 2026-07-09** (checked the repo README and DeepWiki config
-reference). To relocate the global tier a coordinator must set `HOME`
-(and, on Windows, the platform home) for the child process.
+reference for the npm CLI; not re-checked for the official binary, but
+`harness/grok.rs`'s Class-C isolation lever — relocating `HOME`
+wholesale — is unaffected either way since that is its only lever
+regardless of a config-dir override existing). To relocate the global
+tier a coordinator must set `HOME` (and, on Windows, the platform home)
+for the child process.
 
-Model resolution order (highest first), per the config reference:
+Model resolution order (highest first) — the `-m`/`--model` and
+`--reasoning-effort` entries are verified 2026-09-10 against 1.0.13; the
+rest is carried over from the npm CLI and unverified:
 
-1. `GROK_MODEL` environment variable.
-2. `-m` / `--model` CLI flag (single run).
-3. Project settings — `.grok/settings.json` → `model`.
-4. User settings — `~/.grok/user-settings.json` → `defaultModel`.
-5. Built-in `DEFAULT_MODEL` fallback.
+1. `GROK_MODEL` environment variable (npm CLI; unverified for 1.0.13).
+2. `-m` / `--model <id>` CLI flag (verified 2026-09-10) — for `grok agent
+   stdio`, this and `--reasoning-effort <level>` go *between* `agent` and
+   `stdio`: `grok agent --model grok-4.6 --reasoning-effort high stdio`
+   (see "ACP mode" below).
+3. Project settings — `.grok/settings.json` → `model` (npm CLI; unverified).
+4. User settings — `~/.grok/user-settings.json` → `defaultModel` (npm CLI; unverified).
+5. Built-in default (verified: `grok-4.6` is the current default via `session/new`'s
+   `models.currentModelId`).
 
 API key resolution (observed order): `-k` / `--api-key` flag →
 `GROK_API_KEY` env → `apiKey` in `~/.grok/user-settings.json`.
@@ -94,8 +132,8 @@ override user settings per key.
 | Agents         | full    | `~/.grok/user-settings.json` → `subAgents[]`                          |
 | Slash commands | partial | Built-in TUI commands only; no documented custom-command file format  |
 | Auth           | full    | `GROK_API_KEY` / `-k` / `apiKey`; `GROK_BASE_URL` for endpoint         |
-| Permissions    | partial | Workspace trust (`~/.grok/workspace-trust.json`) + sandbox flags; no allow/deny rule file |
-| Structured I/O | full    | ACP v1 over `grok agent stdio`; generic `AcpBridge`, multi-turn         |
+| Permissions    | partial | `--permission-mode <mode>` (6 values, passthrough only, verified 2026-09-10); `--always-approve`/`_meta.yoloMode` on the ACP path; no allow/deny rule file |
+| Structured I/O | partial | ACP over `grok agent stdio`; generic `AcpBridge`. Verified 2026-09-10 that `session/new` **requires** a preceding `authenticate` call the bridge does not make today, and that models/reasoning arrive in vendor `_meta` shapes the bridge does not read — see "ACP mode" below and `_docs/wip/grok-acp-capture.md` |
 | Policies       | full    | `AGENTS.md` (always-on instruction content)                           |
 
 "Support" is the `agent-manager` view of how completely the feature is
@@ -321,8 +359,36 @@ mode, so headless/CI runs only need the env vars set.
 
 ## Permissions
 
-Grok CLI does **not** expose an allow/deny/ask rule file. Its permission
-surface is two mechanisms:
+Corrected 2026-09-10 against the installed 1.0.13 binary and its bundled user guide
+(`~/.grok/docs/user-guide/15-agent-mode.md`, `22-permissions-and-safety.md`; see
+`_docs/wip/grok-acp-capture.md` §4). The npm CLI's workspace-trust/sandbox-flag model described
+below has **not** been re-verified and may not apply to the official binary at all.
+
+The official binary's permission surface has three layers, none of which is an allow/deny rule
+file:
+
+1. **Top-level `--permission-mode <mode>`** (verified 2026-09-10) — one of `default`,
+   `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`, `plan`. This is the TUI/headless
+   passthrough lever; `Grok::modes()` lists these six and `Grok::unattended_mode()` names
+   `bypassPermissions` as the ask-nothing one.
+2. **`--always-approve`** (alias `--yolo`, verified 2026-09-10) — an *agent-mode* flag, i.e. it
+   goes between `agent` and the transport name (`grok agent --always-approve stdio`), and is
+   process-wide auto-approval for both the TUI and `grok agent stdio`.
+3. **Per-session `_meta.yoloMode: true`** on `session/new` (verified 2026-09-10) — the ACP-only,
+   per-conversation equivalent of `--always-approve`; `_meta.autoMode: true` selects Grok's `auto`
+   mode instead. Also documented on `session/new` `_meta`: `rules`, `systemPromptOverride`,
+   `agentProfile`.
+
+**`grok agent stdio` (the structured/ACP path) has no `--permission-mode` selector at all** — that
+flag exists only at the top level, outside agent mode. `Grok::provision`'s `IoModes::Structured`
+arm therefore emits `--model`/`--reasoning-effort` (both accepted between `agent` and `stdio`) but
+deliberately no permission flag; `spec.policy.permission_mode` only reaches the process on the
+passthrough path, as `--permission-mode <id>` in top-level argv. Wiring `_meta.yoloMode` into the
+ACP bridge's `session/new` call is a change to `io/acp_client.rs`, out of this harness module's
+scope.
+
+The npm CLI's workspace-trust + sandbox-flag description (unverified for 1.0.13, kept for
+reference):
 
 1. **Workspace trust** — `~/.grok/workspace-trust.json` records per-
    directory trust decisions. Running `grok` in an untrusted directory
@@ -331,12 +397,6 @@ surface is two mechanisms:
    `--verify`): `--sandbox` / `--no-sandbox`, `--allow-net`,
    `--allow-host <host>`, `--port <n>`. These gate network and host
    access for sandboxed runs rather than per-tool approval.
-
-**No unattended auto-approve / permission-bypass flag** (a
-`--dangerously-skip-permissions` / `--yolo` equivalent) is documented as
-of 2026-07-09. For unattended runs the documented path is `--batch-api`
-(xAI Batch API) and/or pre-trusting the workspace so no interactive
-trust prompt blocks the run.
 
 ## Policies / Rules / Memory
 
@@ -401,41 +461,60 @@ If a coordinator needs the exact per-field JSON shape, capture a live
 
 ### ACP mode (`grok agent stdio`)
 
-`grok agent stdio` starts Grok as an **Agent Client Protocol v1 endpoint** on
-its own stdio, speaking newline-delimited JSON-RPC 2.0. This is the launch
-`am` drives for every structured run of this harness, through the
-harness-neutral `AcpBridge` (`src/io/acp_client.rs`) rather than any
-Grok-specific wire — see [`../io-modes.md`](../io-modes.md).
+`grok agent stdio` starts Grok as a real **Agent Client Protocol endpoint** on its own stdio,
+speaking newline-delimited JSON-RPC 2.0 — captured live 2026-09-10 (`grok` 1.0.13). This is the
+launch `am` drives for every structured run of this harness, through the harness-neutral
+`AcpBridge` (`src/io/acp_client.rs`) rather than any Grok-specific wire — see
+[`../io-modes.md`](../io-modes.md) and, for the full captured frames, `_docs/wip/grok-acp-capture.md`
+(authoritative over the summary below; this section will go stale before that capture does).
 
-Structured argv is exactly:
+Structured argv, verified 2026-09-10:
 
 ```
-grok agent stdio [passthrough_args...]
+grok agent [--model <id>] [--reasoning-effort <level>] stdio [passthrough_args...]
 ```
 
-Nothing else is on the command line. There is no `--prompt`, because the
-prompt is a `session/prompt` request over the wire; no `--session`, because a
-resume is `session/load` against the id the previous run reported; and no
-`-m`, because the model is expected to be a `session/set_config_option` with
-`category: "model"`. Passthrough argv is unchanged by any of this.
+`agent`'s own options — including `-m`/`--model` and `--reasoning-effort` (alias `--effort`) —
+go **between `agent` and `stdio`**, not after it; putting them after `stdio` does not work. There
+is still no `--prompt` (the prompt is a `session/prompt` request over the wire) and no `--session`
+(a resume is `session/load` against the id the previous run reported).
 
-The `--format json` NDJSON stream above stays **unused**. Its event names are
-documented but its per-field shapes are not, and inventing them is guesswork
-a coordinator would then depend on. ACP's shapes are specified, which is the
-reason this harness went to ACP rather than to a Grok-specific NDJSON bridge.
+Four behaviours the capture establishes that `src/io/acp_client.rs` does not yet handle — listed
+here for reference; fixing the bridge itself is out of this harness module's scope:
 
-**None of this is verified against the installed binary.** `grok agent stdio`
-is a reported subcommand rather than a captured one, the handshake and every
-frame are written to `_docs/references/acp-protocol.md`, and whether this mode
-accepts `--model` at all is unknown. Pinning it against a live run belongs in
-[`../test-runs/`](../test-runs/).
+- **`authenticate` is mandatory.** `session/new` fails with `-32000 "Authentication required"`
+  unless `{"method":"authenticate","params":{"methodId":"cached_token"}}` precedes it. The bridge
+  never sends it today, so every Grok ACP conversation dies at `session/new`.
+- **Models and reasoning effort arrive in vendor shapes**, not the ACP-standard `configOptions`/
+  `modes` the bridge reads: `session/new`'s `_meta["x.ai/sessionConfig"].options` mixes
+  `category: "model"` and `category: "mode"` entries (Grok calls reasoning effort a "mode" — it is
+  not a permission mode). Setting either is `session/set_mode` (effort) or `session/set_model`
+  (model); `session/set_config_option`, the only setter the bridge sends, names an option Grok
+  never advertises.
+- **No permission mode over ACP** — see "Permissions" above.
+- **Subagents stream on a second `sessionId`** rather than the `subagent_spawned` extension the
+  bridge's `is_delegate` heuristic expects, so a delegate's transcript (and its prompt) currently
+  renders as ordinary user/assistant turns instead of a nested delegate.
+
+The `--format json` NDJSON stream (below) stays **unused** for structured runs: its event names
+are documented but its per-field shapes are not, and ACP's shapes are specified — the reason this
+harness goes through ACP rather than a Grok-specific NDJSON bridge.
 
 ### Model & reasoning at launch
 
-- Model: `-m` / `--model <id>`, or `GROK_MODEL` env. No separate
-  reasoning-effort flag is documented; effort is a property of the model
-  id (e.g. `grok-code-fast-1`). Cross-reference Authentication for the
-  provider credential.
+Verified 2026-09-10 against 1.0.13:
+
+- **Model:** `-m`/`--model <id>` (passthrough, top-level) or `--model <id>` between `agent` and
+  `stdio` (agent mode / ACP). Currently offered ids: `grok-4.6`, `grok-4.5` (`grok models` lists
+  them). `GROK_MODEL` env is carried over from the npm CLI and unverified for 1.0.13.
+- **Reasoning effort:** `--reasoning-effort <level>` (alias `--effort`), same placement rule as
+  `--model`. Values are per-model: `grok-4.6` accepts `xhigh | high | medium | low` (default
+  `high`); `grok-4.5` accepts `high | medium | low`. This is a real, separate flag — the npm CLI's
+  "effort is a property of the model id, no separate flag" claim does not hold for the official
+  binary.
+- `RunSpec::thinking` (`crates/agent-manager/src/spec.rs`) is the harness-neutral field
+  `Grok::provision` reads for this; see `harness/grok.rs`'s `IoModes::Structured` and
+  `IoModes::Passthrough` arms.
 
 ### MCP at launch
 
@@ -477,13 +556,24 @@ caller: `session/request_permission` is an agent-to-client request, and
 ### Model discovery & selection (agent-manager)
 
 > How `am <harness> --list-models` enumerates models and `am <harness> --model <id>`
-> selects one. Facts verified against the installed binary on 2026-07-10.
+> selects one.
 
-- **Discover (list models):** `~/.grok/models_cache.json` (JSON file, `models` key contains model objects keyed by id). No documented CLI command; cache is populated on first authenticated run. Needs network/auth: yes (to refresh from xAI API).
-- **Select at launch (passthrough):** `-m` / `--model <id>` CLI flag, or `GROK_MODEL` environment variable.
-- **Model id format:** Kebab-case identifiers (lowercase alphanumerics and hyphens).
-- **Example ids (verified):** `grok-build`, `grok-composer-2.5-fast`.
-- **Default model:** Resolved per precedence (highest first): `GROK_MODEL` env → `-m` flag → `.grok/settings.json` → `model` key → `~/.grok/user-settings.json` → `defaultModel` key → built-in fallback.
+> **Correction (verified 2026-09-10):** the official binary has a real `grok models` CLI
+> command — there is no `~/.grok/models_cache.json` to read instead (that file belonged to the
+> npm CLI this section originally described). `Grok::discover_models` (`harness/grok.rs`) now
+> shells out to `grok models` and parses model ids off stdout. The exact output layout has not
+> been captured verbatim, so the parser is a best-effort token scan for `grok-<version>`-shaped
+> words rather than a format-specific one; tighten it once a real capture of the command's stdout
+> exists.
+
+- **Discover (list models):** `grok models` (verified 2026-09-10 that the command exists; its
+  exact output format is not yet captured). Needs network/auth: unconfirmed.
+- **Select at launch (passthrough):** `-m` / `--model <id>` CLI flag (verified). `GROK_MODEL`
+  environment variable is carried over from the npm CLI and unverified for 1.0.13.
+- **Select at launch (agent mode / ACP):** `--model <id>` between `agent` and `stdio` (verified
+  2026-09-10 — see "ACP mode" above).
+- **Model id format:** e.g. `grok-4.6`, `grok-4.5` (verified 2026-09-10).
+- **Default model:** `grok-4.6`, per `session/new`'s `models.currentModelId` (verified 2026-09-10).
 
 ## Format quirks / gotchas
 
@@ -509,8 +599,10 @@ caller: `session/request_permission` is an agent-to-client request, and
   sub-agents or skills.
 - **No allow/deny permission rules.** Permission is workspace trust +
   sandbox flags; there is no per-tool rule file.
-- **No auto-approve flag.** Pre-trust the workspace or use `--batch-api`
-  for unattended runs.
+- **Superseded — there IS an auto-approve flag.** `--always-approve`/`--yolo` (agent mode) and
+  `_meta.yoloMode` (per ACP session) both exist, verified 2026-09-10 — see "Permissions" above.
+  The npm CLI's "no auto-approve flag, pre-trust the workspace or use `--batch-api`" claim below
+  does not hold for the official binary; kept for reference against the npm CLI only.
 - **Prompt is an argv flag** (`--prompt <text>`), not a positional arg
   and not stdin. This differs from opencode (positional) and CodeBuddy
   (stdin NDJSON).
@@ -520,14 +612,13 @@ caller: `session/request_permission` is an agent-to-client request, and
 - **Relocating `HOME` isolates config but has been observed NOT to isolate
   session/log writes.** A real launch with `HOME` set to an ephemeral dir
   still wrote to the user's real `~/.grok/sessions/…` and `~/.grok/logs/…` —
-  a known non-invasiveness gap, not yet closed. Likely mechanism (verified
-  as general Node.js/macOS behavior, not confirmed against grok-cli's exact
-  source for the build that showed the leak): Node's `os.homedir()` honors
-  `$HOME`, but `os.userInfo().homedir` — a common choice for session/log/state
-  paths — always resolves the real home via the OS user database (`getpwuid`)
-  and ignores `$HOME` entirely; no environment variable overrides this. Until
-  verified otherwise against the installed binary, treat the isolation lever
-  as config/skills-only, not full-home isolation.
+  a known non-invasiveness gap, not yet closed. The *mechanism* previously
+  written here (Node's `os.homedir()` vs. `os.userInfo().homedir`) assumed a
+  Node.js binary; the 2026-09-10 capture confirms the installed `grok` is a
+  **Rust** binary, so that explanation does not apply and is removed. Why the
+  leak happens for the Rust binary is unconfirmed — re-verify against 1.0.13.
+  Until then, treat the isolation lever as config/skills-only, not full-home
+  isolation.
 
 ## Renderer notes (planned)
 
@@ -573,6 +664,11 @@ structured run sidesteps both by going through ACP instead.
 
 ## Sources
 
+- [`_docs/wip/grok-acp-capture.md`](../../../../_docs/wip/grok-acp-capture.md) — live capture
+  against the installed `grok` 1.0.13 (xAI, Rust), 2026-09-10: binary identity, `~/.grok/` layout,
+  `grok agent [options] stdio` argv, ACP `authenticate`/model/mode/subagent behaviour,
+  `--permission-mode` values, `--always-approve`/`_meta.yoloMode`. **Authoritative over the rest of
+  this document** wherever the two disagree.
 - Repo README — <https://github.com/superagent-ai/grok-cli> — canonical:
   install (`install.sh` / `bun add -g grok-dev`), binary `grok`,
   `--prompt`/`-p`, `--format json` event names (`step_start`, `text`,

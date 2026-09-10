@@ -67,13 +67,7 @@ fn a_saved_host_has_no_field_a_token_could_land_in() {
             .keys()
             .map(String::as_str)
             .collect::<std::collections::BTreeSet<_>>(),
-        std::collections::BTreeSet::from([
-            "id",
-            "name",
-            "address",
-            "scheme",
-            "trust_insecure"
-        ]),
+        std::collections::BTreeSet::from(["id", "name", "address", "scheme", "trust_insecure"]),
         "a saved host must carry nothing beyond identity and connectivity \u{2014} in particular, no token"
     );
 }

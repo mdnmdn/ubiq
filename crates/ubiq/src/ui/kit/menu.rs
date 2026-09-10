@@ -448,6 +448,11 @@ pub struct ContextItem {
     /// A glyph drawn before the row's label, from either icon set. The label is drawn either
     /// way: the icon anchors a row, it never stands in for its name.
     pub icon: Option<Icon>,
+    /// What the row cannot say in its label. A menu row is one short verb wide — a file path, a
+    /// full account name, the reason a row is dead — is longer than the panel, so it hovers
+    /// instead of widening every row to fit the one. Not a second label: a row whose *name* is in
+    /// its tooltip is a row nobody reads.
+    pub tooltip: Option<SharedString>,
 }
 
 impl ContextItem {
@@ -457,6 +462,7 @@ impl ContextItem {
             enabled: true,
             separator: false,
             icon: None,
+            tooltip: None,
         }
     }
 
@@ -473,6 +479,14 @@ impl ContextItem {
         self
     }
 
+    /// Hang on this row the fact its label has no room for — the path a dump is being written to,
+    /// where the row can only afford to say `Stop dumping`. Shown on hover whether or not the row
+    /// is enabled: a dead row is often the one a reader most wants explained.
+    pub fn tooltip(mut self, text: impl Into<SharedString>) -> Self {
+        self.tooltip = Some(text.into());
+        self
+    }
+
     /// The line between two groups of rows — what tells "start this" from "show me that".
     pub fn separator() -> Self {
         Self {
@@ -480,6 +494,7 @@ impl ContextItem {
             enabled: false,
             separator: true,
             icon: None,
+            tooltip: None,
         }
     }
 }
@@ -555,6 +570,15 @@ pub fn context_panel(
                 );
             }
             row = row.child(item.label);
+
+            // Hung on the row itself rather than on the label, so hovering anywhere across the
+            // full width — including the dead part left of a short verb — answers it. The row
+            // already carries an `.id`, which is what a tooltip needs.
+            if let Some(tooltip) = item.tooltip {
+                row = row.tooltip(move |window, cx| {
+                    gpui_component::tooltip::Tooltip::new(tooltip.clone()).build(window, cx)
+                });
+            }
 
             if enabled {
                 row = row

@@ -380,6 +380,7 @@ impl Harness for Codex {
                 child,
                 cwd,
                 provisioned.resume.as_deref(),
+                provisioned.model.as_deref(),
             )?));
         }
         Ok(Box::new(crate::io::codex::CodexBridge::new(child, cwd)?))

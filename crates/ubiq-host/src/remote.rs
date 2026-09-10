@@ -89,7 +89,9 @@ pub fn serve_tls(
     let certs: Vec<rustls::pki_types::CertificateDer<'static>> =
         rustls_pemfile::certs(&mut &*cert_pem)
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "could not read --tls-cert"))?;
+            .map_err(|_| {
+                io::Error::new(io::ErrorKind::InvalidInput, "could not read --tls-cert")
+            })?;
     if certs.is_empty() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -99,7 +101,10 @@ pub fn serve_tls(
     let key = rustls_pemfile::private_key(&mut &*key_pem)
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "could not read --tls-key"))?
         .ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidInput, "--tls-key holds no private key")
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "--tls-key holds no private key",
+            )
         })?;
     let config = rustls::ServerConfig::builder_with_provider(tls_provider())
         .with_safe_default_protocol_versions()
@@ -204,7 +209,10 @@ struct TlsPair {
 
 impl Read for SharedTls {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let mut pair = self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut pair = self
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let TlsPair { conn, sock } = &mut *pair;
         rustls::Stream::new(conn, sock).read(buf)
     }
@@ -212,13 +220,19 @@ impl Read for SharedTls {
 
 impl Write for SharedTls {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let mut pair = self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut pair = self
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let TlsPair { conn, sock } = &mut *pair;
         rustls::Stream::new(conn, sock).write(buf)
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        let mut pair = self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut pair = self
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let TlsPair { conn, sock } = &mut *pair;
         rustls::Stream::new(conn, sock).flush()
     }

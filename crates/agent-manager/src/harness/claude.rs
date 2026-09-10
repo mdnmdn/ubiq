@@ -513,6 +513,7 @@ impl Harness for Claude {
                 child,
                 cwd,
                 provisioned.resume.as_deref(),
+                provisioned.model.as_deref(),
             )?));
         }
         Ok(Box::new(crate::io::JsonlBridge::new(child)?))

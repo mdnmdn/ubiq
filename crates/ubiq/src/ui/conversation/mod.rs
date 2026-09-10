@@ -292,30 +292,49 @@ pub fn lifecycle(conversation: &Conversation) -> Lifecycle {
     }
 }
 
+/// Which row of [`lifecycle_menu_rows`] the dump toggle is. Named because [`lifecycle_menu`] has
+/// to reach back into the built list to hang the file's path on that one row, and a bare `7` there
+/// is the position-matching skew the list itself exists to prevent.
+pub const LIFECYCLE_DUMP_ROW: usize = 7;
+
 /// The rows the lifecycle menu draws, in order — Stop, Abort, Unload, Resume, Fork, the
-/// persistence toggle, Delete — each with whether it applies. A pure reading of the conversation's
-/// own state, pulled out of [`lifecycle_header`] so the enable/disable rule is testable on its own:
-/// Stop only while a turn is running, Abort and Unload only while launched, Resume only while not,
-/// Delete always (ending applies whatever the state).
+/// persistence toggle, the accept-all toggle, the dump toggle, Delete — each with whether it
+/// applies. A pure reading of the conversation's own state, pulled out of [`lifecycle_header`] so
+/// the enable/disable rule is testable on its own: Stop only while a turn is running, Abort and
+/// Unload only while launched, Resume only while not, Delete always (ending applies whatever the
+/// state).
 ///
 /// **Stop and Abort are different verbs.** Stop interrupts the *turn* and leaves the harness to
 /// take the next one; Abort kills the *process*, which is what is left when a harness has stopped
 /// answering and Stop has nothing to interrupt it with. Abort keeps the conversation, so Resume
 /// brings it back — it is Delete that is irreversible, and only Delete is confirmed.
 ///
-/// **Delete stays last** — the two new rows are not destructive, and a menu whose irreversible verb
-/// is somewhere in the middle is a menu clicked by muscle memory into the wrong row.
+/// **The last three toggles are grouped and Delete stays last** — none of the toggles is
+/// destructive, and a menu whose irreversible verb is somewhere in the middle is a menu clicked by
+/// muscle memory into the wrong row. So a toggle added later goes above Delete, never below it.
+///
+/// **Accept-all and the dump are always enabled, unlike persistence.** Both are Ubiq's own
+/// overrides — the host answers every permission request itself, and the host writes the traffic to
+/// a file — so neither asks anything of the harness and neither has a harness that cannot do it.
+/// Persistence is the row that reads the harness (`keeps_sessions`), and it is the only one.
 ///
 /// **One list of pairs, not two arrays.** There were two — labels and enablement — and they were a
 /// row apart from disagreeing, because [`AppState::pick_conversation_menu`] dispatches by position:
-/// a row added to one copy and not the other is a menu whose rows do the wrong thing. The
-/// persistence label is the reason the labels can no longer be a `const`, and a dynamic label is
-/// exactly what would have made that skew easy, so the two are built together here.
+/// a row added to one copy and not the other is a menu whose rows do the wrong thing. The toggles'
+/// labels are the reason the labels can no longer be a `const`, and a dynamic label is exactly what
+/// would have made that skew easy, so the two are built together here.
+///
+/// **Three plain `bool` parameters rather than one options struct.** They are read once, at the one
+/// call site, and each is a single flip of a single row's wording; a struct would name the same
+/// three facts twice and give a caller somewhere to leave one of them at its default without
+/// noticing.
 pub fn lifecycle_menu_rows(
     conversation: &Conversation,
     persistent: bool,
+    accept_all: bool,
+    dumping: bool,
     keeps_sessions: bool,
-) -> [(String, bool); 7] {
+) -> [(String, bool); 9] {
     [
         ("Stop".to_string(), conversation.run != Run::Idle),
         ("Abort".to_string(), conversation.launched),
@@ -338,6 +357,26 @@ pub fn lifecycle_menu_rows(
             // Keeping the run directory of a harness that keeps its sessions elsewhere would
             // preserve nothing, so the row is drawn dead rather than refused after the click.
             keeps_sessions,
+        ),
+        // Always enabled: Ubiq answers the requests itself, so there is no harness support to
+        // check and nothing to draw dead.
+        (
+            if accept_all {
+                "Stop accepting all".to_string()
+            } else {
+                "Accept all".to_string()
+            },
+            true,
+        ),
+        // Always enabled for the same reason: the file is Ubiq's, written from traffic it already
+        // has in hand.
+        (
+            if dumping {
+                "Stop dumping".to_string()
+            } else {
+                "Dump messages".to_string()
+            },
+            true,
         ),
         ("Delete".to_string(), true),
     ]
@@ -393,11 +432,15 @@ pub fn lifecycle_menu(
     let id = conversation.id;
     let entity = cx.entity();
 
-    // The persistence row's label says which way the toggle goes, and that lives on the work
-    // record rather than on the conversation — see [`persistence_mark`].
-    let items: Vec<ContextItem> = lifecycle_menu_rows(
+    // Each toggle's label says which way it goes, and all three of those facts live on the work
+    // record rather than on the conversation — see [`persistence_mark`], [`accepts_all`] and
+    // [`dump_path`].
+    let dump = dump_path(app, id, cx);
+    let mut items: Vec<ContextItem> = lifecycle_menu_rows(
         conversation,
         is_persistent(app, id, cx),
+        accepts_all(app, id, cx),
+        dump.is_some(),
         keeps_sessions(app, conversation, cx),
     )
     .into_iter()
@@ -406,6 +449,17 @@ pub fn lifecycle_menu(
         if enabled { item } else { item.disabled() }
     })
     .collect();
+
+    // The dump row's tooltip is the only place the file's path is ever said. The host picks the
+    // file and reports it back on the record, so `Stop dumping` on its own would tell the user
+    // that something is being written and nothing about where to read it; a path is far too long
+    // to be a menu row's label, and this is what a tooltip on a row is for.
+    if let Some(path) = dump {
+        let path = SharedString::from(path);
+        if let Some(row) = items.get_mut(LIFECYCLE_DUMP_ROW) {
+            *row = row.clone().tooltip(path);
+        }
+    }
 
     let mut row = div().flex().flex_none().items_center().child(
         div()
@@ -500,6 +554,31 @@ fn is_persistent(app: &AppState, id: AgentId, cx: &App) -> bool {
     app.work(cx)
         .and_then(|work| work.agent(id))
         .is_some_and(|agent| agent.persistent)
+}
+
+/// Whether every permission request on this conversation is being answered with allow, unasked.
+///
+/// **On the record, not on [`Conversation`]**, for [`is_persistent`]'s reason: the host owns the
+/// override — it is the host that answers the requests, and it keeps answering them for an agent no
+/// surface is currently drawing — so the work snapshot is where the truth is and the window only
+/// reads it.
+fn accepts_all(app: &AppState, id: AgentId, cx: &App) -> bool {
+    app.work(cx)
+        .and_then(|work| work.agent(id))
+        .is_some_and(|agent| agent.accept_all)
+}
+
+/// Where this conversation's traffic is being written, or `None` for one nobody asked to capture.
+///
+/// **The path, not a flag.** It is the host that chooses the file — the window asks for a dump and
+/// is told afterwards where it went — so a bool here would answer *whether* and leave the one thing
+/// the user needs, *where*, with nowhere to be read from. [`lifecycle_menu`] puts it on the row's
+/// tooltip; being on the record rather than on [`Conversation`] is [`is_persistent`]'s reason
+/// again.
+fn dump_path(app: &AppState, id: AgentId, cx: &App) -> Option<String> {
+    app.work(cx)
+        .and_then(|work| work.agent(id))
+        .and_then(|agent| agent.debug_dump.clone())
 }
 
 /// Whether this conversation's harness keeps its own session store where Ubiq can keep or copy it.

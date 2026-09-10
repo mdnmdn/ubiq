@@ -11,14 +11,20 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use agent_manager::io::{
-    AgentEvent, AgentInput, AgentInputSink, Content, IoBridge, StopReason as LibStop, ToolCall,
-    ToolCallUpdate, ToolKind, ToolStatus,
+    AgentEvent, AgentInput, AgentInputSink, Content, IoBridge, PermissionOutcome,
+    StopReason as LibStop, ToolCall, ToolCallUpdate, ToolKind, ToolStatus,
 };
-use ubiq_host::conversation::Conversation;
+use ubiq_host::conversation::{ConvFlags, Conversation};
 use ubiq_proto::bus::{self, Client, HostEnd, To};
 use ubiq_proto::conversation::{ConvContent, ConvUpdate, StopReason, ToolStatus as WireStatus};
 use ubiq_proto::messages::Message;
 use ubiq_proto::work::AgentId;
+
+/// Neither of Ubiq's own overrides, which is what every conversation here runs with: the pump's
+/// behaviour under them is the subject of the one test that turns one on.
+fn flags() -> Arc<ConvFlags> {
+    ConvFlags::new(AgentId::generate(), false, false)
+}
 
 /// Long enough for a thread to be scheduled on a loaded machine.
 const PATIENCE: Duration = Duration::from_secs(5);
@@ -215,7 +221,7 @@ fn what_the_harness_says_reaches_the_bus_in_order() {
     ]);
 
     let host = host_end.mailbox(To::Client(client.id()));
-    let conversation = Conversation::start(id, Box::new(bridge), host, 0, None, false);
+    let conversation = Conversation::start(id, Box::new(bridge), host, 0, None, false, flags());
     let messages = drain(&client, 4);
 
     let seqs: Vec<u64> = messages
@@ -273,8 +279,15 @@ fn a_tool_call_and_its_completion_keep_the_same_id() {
     ]);
 
     let host = host_end.mailbox(To::Client(client.id()));
-    let conversation =
-        Conversation::start(AgentId::generate(), Box::new(bridge), host, 0, None, false);
+    let conversation = Conversation::start(
+        AgentId::generate(),
+        Box::new(bridge),
+        host,
+        0,
+        None,
+        false,
+        flags(),
+    );
     let messages = drain(&client, 3);
 
     let Message::ConversationUpdate { update, .. } = &messages[0] else {
@@ -306,8 +319,15 @@ fn a_prompt_reaches_a_bridge_the_pump_thread_owns() {
     let (bridge, sent) = Scripted::new(Vec::new());
 
     let host = host_end.mailbox(To::Client(client.id()));
-    let conversation =
-        Conversation::start(AgentId::generate(), Box::new(bridge), host, 0, None, false);
+    let conversation = Conversation::start(
+        AgentId::generate(),
+        Box::new(bridge),
+        host,
+        0,
+        None,
+        false,
+        flags(),
+    );
     assert!(conversation.accepts_input());
 
     conversation.prompt("do the thing".to_string()).unwrap();
@@ -324,8 +344,15 @@ fn a_prompt_reaches_a_bridge_the_pump_thread_owns() {
 fn a_one_shot_harness_refuses_a_second_turn() {
     let (_hub, host_end, client) = bus_pair();
     let host = host_end.mailbox(To::Client(client.id()));
-    let conversation =
-        Conversation::start(AgentId::generate(), Box::new(OneShot), host, 0, None, false);
+    let conversation = Conversation::start(
+        AgentId::generate(),
+        Box::new(OneShot),
+        host,
+        0,
+        None,
+        false,
+        flags(),
+    );
 
     assert!(!conversation.accepts_input());
     assert!(conversation.prompt("again".to_string()).is_err());
@@ -349,6 +376,7 @@ fn two_conversations_share_one_bus_without_interleaving() {
         0,
         None,
         false,
+        flags(),
     );
     let b = Conversation::start(
         second,
@@ -357,6 +385,7 @@ fn two_conversations_share_one_bus_without_interleaving() {
         0,
         None,
         false,
+        flags(),
     );
 
     let messages = drain(&client, 6);
@@ -386,8 +415,15 @@ fn a_pump_continues_from_its_start_seq() {
     let (bridge, _) = Scripted::new(vec![text("hello")]);
 
     let host = host_end.mailbox(To::Client(client.id()));
-    let conversation =
-        Conversation::start(AgentId::generate(), Box::new(bridge), host, 41, None, false);
+    let conversation = Conversation::start(
+        AgentId::generate(),
+        Box::new(bridge),
+        host,
+        41,
+        None,
+        false,
+        flags(),
+    );
     let messages = drain(&client, 1);
 
     let Message::ConversationUpdate { seq, .. } = &messages[0] else {
@@ -406,7 +442,7 @@ fn a_quiet_stop_sends_no_conversation_ended_and_returns_the_last_seq() {
     let (bridge, tx) = Cancellable::new();
 
     let host = host_end.mailbox(To::Client(client.id()));
-    let conversation = Conversation::start(id, Box::new(bridge), host, 0, None, false);
+    let conversation = Conversation::start(id, Box::new(bridge), host, 0, None, false, flags());
 
     tx.send(Some(text("hello"))).unwrap();
     tx.send(Some(text("again"))).unwrap();
@@ -441,7 +477,7 @@ fn a_stop_that_is_not_quiet_still_sends_conversation_ended() {
     let (bridge, _tx) = Cancellable::new();
 
     let host = host_end.mailbox(To::Client(client.id()));
-    let conversation = Conversation::start(id, Box::new(bridge), host, 0, None, false);
+    let conversation = Conversation::start(id, Box::new(bridge), host, 0, None, false, flags());
     conversation.stop(false);
 
     let messages = drain(&client, 1);
@@ -457,7 +493,7 @@ fn a_relaunch_after_an_unload_continues_the_conversations_own_sequence() {
     let (bridge, tx) = Cancellable::new();
 
     let host = host_end.mailbox(To::Client(client.id()));
-    let conversation = Conversation::start(id, Box::new(bridge), host, 0, None, false);
+    let conversation = Conversation::start(id, Box::new(bridge), host, 0, None, false, flags());
     tx.send(Some(text("hello"))).unwrap();
     drain(&client, 1);
     let last_seq = conversation.stop(true);
@@ -471,6 +507,7 @@ fn a_relaunch_after_an_unload_continues_the_conversations_own_sequence() {
         last_seq + 1,
         None,
         false,
+        flags(),
     );
     let messages = drain(&client, 1);
     assert!(matches!(
@@ -497,8 +534,15 @@ fn the_opening_reply_is_gathered_whole_and_published_when_the_turn_ends() {
     ]);
 
     let host = host_end.mailbox(To::Client(client.id()));
-    let conversation =
-        Conversation::start(AgentId::generate(), Box::new(bridge), host, 0, None, false);
+    let conversation = Conversation::start(
+        AgentId::generate(),
+        Box::new(bridge),
+        host,
+        0,
+        None,
+        false,
+        flags(),
+    );
     // Draining past the turn's own update means the pump has already published: the publish
     // happens before the send that carries `TurnEnded` onto the bus.
     drain(&client, 6);
@@ -518,9 +562,163 @@ fn a_turn_of_only_subagent_prose_publishes_no_opening_reply() {
     let (bridge, _) = Scripted::new(vec![subagent_text("I read every file."), turn_ended()]);
 
     let host = host_end.mailbox(To::Client(client.id()));
-    let conversation =
-        Conversation::start(AgentId::generate(), Box::new(bridge), host, 0, None, false);
+    let conversation = Conversation::start(
+        AgentId::generate(),
+        Box::new(bridge),
+        host,
+        0,
+        None,
+        false,
+        flags(),
+    );
     drain(&client, 3);
 
     assert_eq!(conversation.first_reply(), None);
+}
+
+/// One permission request the harness offers a plain allow for.
+fn permission(request_id: &str) -> AgentEvent {
+    AgentEvent::PermissionRequest {
+        request_id: request_id.to_string(),
+        tool_call: ToolCallUpdate {
+            id: "call-1".to_string(),
+            ..ToolCallUpdate::default()
+        },
+        options: vec![
+            agent_manager::io::PermissionOption {
+                option_id: "reject".to_string(),
+                name: "No".to_string(),
+                kind: agent_manager::io::PermissionKind::RejectOnce,
+            },
+            agent_manager::io::PermissionOption {
+                option_id: "allow-once".to_string(),
+                name: "Yes".to_string(),
+                kind: agent_manager::io::PermissionKind::AllowOnce,
+            },
+        ],
+    }
+}
+
+/// With `accept_all` on, the host answers the ask itself and the window never hears of it.
+///
+/// **Not shown and then auto-answered.** A permission update is drawn as a live prompt on the tool
+/// call it authorises and nothing retracts one, so emitting it would leave every surface holding a
+/// prompt already decided. The answer is the plain allow the request offered — `AllowOnce`, not
+/// the standing `AllowAlways` that would outlive the flag.
+#[test]
+fn accept_all_answers_the_permission_and_emits_nothing() {
+    let (_hub, host_end, client) = bus_pair();
+    let id = AgentId::generate();
+    let (bridge, sent) = Scripted::new(vec![permission("req-1"), text("carrying on")]);
+
+    let host = host_end.mailbox(To::Client(client.id()));
+    let _conversation = Conversation::start(
+        id,
+        Box::new(bridge),
+        host,
+        0,
+        None,
+        false,
+        ConvFlags::new(id, true, false),
+    );
+    // Two events in, one update out: the permission is answered here and never sent.
+    let messages = drain(&client, 2);
+    assert!(
+        !messages.iter().any(|message| matches!(
+            message,
+            Message::ConversationUpdate { update, .. }
+                if matches!(**update, ConvUpdate::PermissionRequest { .. })
+        )),
+        "an accepted permission should never reach the window: {messages:#?}",
+    );
+
+    let answered = sent.lock().unwrap().clone();
+    assert!(
+        answered.iter().any(|input| matches!(
+            input,
+            AgentInput::AnswerPermission { request_id, outcome, .. }
+                if request_id == "req-1"
+                    && matches!(outcome, PermissionOutcome::Selected { option_id } if option_id == "allow-once")
+        )),
+        "the harness should have been told to allow it: {answered:#?}",
+    );
+}
+
+/// A request offering nothing that allows anything is shown as normal. The flag says which of the
+/// offered answers to give, never that one must be invented.
+#[test]
+fn accept_all_shows_a_request_it_has_no_allowing_answer_for() {
+    let (_hub, host_end, client) = bus_pair();
+    let id = AgentId::generate();
+    let refusals = AgentEvent::PermissionRequest {
+        request_id: "req-2".to_string(),
+        tool_call: ToolCallUpdate {
+            id: "call-1".to_string(),
+            ..ToolCallUpdate::default()
+        },
+        options: vec![agent_manager::io::PermissionOption {
+            option_id: "reject".to_string(),
+            name: "No".to_string(),
+            kind: agent_manager::io::PermissionKind::RejectOnce,
+        }],
+    };
+    let (bridge, _) = Scripted::new(vec![refusals]);
+
+    let host = host_end.mailbox(To::Client(client.id()));
+    let _conversation = Conversation::start(
+        id,
+        Box::new(bridge),
+        host,
+        0,
+        None,
+        false,
+        ConvFlags::new(id, true, false),
+    );
+    let messages = drain(&client, 1);
+    assert!(
+        matches!(
+            &messages[0],
+            Message::ConversationUpdate { update, .. }
+                if matches!(**update, ConvUpdate::PermissionRequest { .. })
+        ),
+        "expected the request to be drawn, got {:#?}",
+        messages[0],
+    );
+}
+
+/// The capture writes one JSON object per update to a file named for the agent, in the folder the
+/// process-wide tape dumps into.
+#[test]
+fn the_capture_writes_the_conversation_to_a_file() {
+    let (_hub, host_end, client) = bus_pair();
+    let id = AgentId::generate();
+    let (bridge, _) = Scripted::new(vec![text("into the file")]);
+
+    let host = host_end.mailbox(To::Client(client.id()));
+    let conversation = Conversation::start(
+        id,
+        Box::new(bridge),
+        host,
+        0,
+        None,
+        false,
+        ConvFlags::new(id, false, true),
+    );
+    let path = ubiq_host::conversation::ConvFlags::dump_path_for(id);
+    assert_eq!(
+        conversation.flags().dump_path(),
+        Some(path.display().to_string()),
+        "the open capture should name the file it is writing",
+    );
+    drain(&client, 2);
+    // Closing the capture drops the sender, which is what ends the writer thread — so the file is
+    // whole once this returns.
+    conversation.flags().set_debug_dump(false);
+
+    let written = std::fs::read_to_string(&path).expect("the capture file");
+    let _ = std::fs::remove_file(&path);
+    let line = written.lines().next().expect("one line at least");
+    let parsed: serde_json::Value = serde_json::from_str(line).expect("one JSON object per line");
+    assert_eq!(parsed["kind"], "ConversationUpdate");
+    assert_eq!(parsed["agent"], id.to_string());
 }

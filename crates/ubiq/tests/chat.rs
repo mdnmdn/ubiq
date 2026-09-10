@@ -184,6 +184,8 @@ fn an_agent(id: AgentId, name: &str) -> WorkAgent {
         model: String::new(),
         context_pct: 0,
         persistent: false,
+        accept_all: false,
+        debug_dump: None,
         thread: Vec::new(),
     }
 }

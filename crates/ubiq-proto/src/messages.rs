@@ -1187,6 +1187,37 @@ pub enum Message {
         agent_id: AgentId,
         persistent: bool,
     },
+    /// Answer every permission this conversation's harness asks for with `allow`, in the host,
+    /// before the ask reaches a window.
+    ///
+    /// Not folded into [`Message::SetAgentConfig`], and **not the harness's own permission mode**,
+    /// for the reason [`Message::SetConversationPersistent`] is not: that message carries options
+    /// the harness advertised, under ids the harness chose, and the host forwards them without
+    /// knowing what they mean. This is Ubiq's own override laid on top of whatever mode the
+    /// harness is in — the harness has never heard of it, goes on asking exactly as before, and
+    /// only the answer changes. It therefore works the same way for every harness, including one
+    /// whose modes offer nothing like it.
+    ///
+    /// A request offering no allowing option is shown to the window as normal: the flag says which
+    /// answer to give, never that some answer must be invented.
+    SetConversationAcceptAll {
+        agent_id: AgentId,
+        accept_all: bool,
+    },
+    /// Write this conversation's traffic to a file — the harness's own frames and the bus messages
+    /// about it — for reading afterwards.
+    ///
+    /// Ubiq's own property of the conversation, on the same terms as
+    /// [`Message::SetConversationPersistent`]: nothing about it reaches the child process. It is
+    /// the process-wide tape narrowed to one agent and written from the first frame on, in the
+    /// same one-object-per-line shape [`crate::bus::Tape::dump`] writes, into the same folder.
+    ///
+    /// The path is reported back on [`WorkAgent::debug_dump`], which is how a window says where to
+    /// look.
+    SetConversationDebugDump {
+        agent_id: AgentId,
+        debug_dump: bool,
+    },
     /// Bring a conversation back from its run directory — either the one it left behind, or a copy
     /// of somebody else's.
     ///

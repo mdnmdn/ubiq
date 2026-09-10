@@ -5,7 +5,7 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-09-09
+updated: 2026-09-10
 verified: 2026-09-09
 depends_on: [tech-architecture]
 review_cycle: quarterly
@@ -1830,6 +1830,39 @@ case-insensitive string matching rather than an enum. A derived accent also mean
 hand-tune one of its six hued tokens against its own ground: what it can choose is the seed, and the
 correction is the same function for every palette. Project swatches stay outside the axis (`D19`),
 so those literals are still per palette.
+
+### D98 — Accepting every permission and capturing the traffic are Ubiq's flags on the conversation, answered in the host
+
+Two per-conversation booleans sit on `ConversationRecord` beside `persistent` and travel on
+`WorkAgent`: `accept_all`, which answers every permission request with the plain allow, and
+`debug_dump`, which writes that conversation's traffic to a file. Neither is a harness option.
+Neither reaches the child process, neither is a `SetAgentConfig` under an id the harness
+advertised, and neither is the harness's own permission mode: the harness is launched in whatever
+mode it was going to be launched in, asks exactly what it would ask, and the only thing that
+changes is who answers. `Message::SetConversationAcceptAll` and `Message::SetConversationDebugDump`
+follow `SetConversationPersistent` end to end — durable row, `AgentChanged` broadcast, a row in the
+conversation's three-dots menu. The accept-all short-circuit is in the conversation pump
+(`crates/ubiq-host/src/conversation.rs`), which answers the request itself and **emits no
+`ConvUpdate::PermissionRequest` at all**, rather than emitting one and answering it afterwards.
+
+**Why:** a mode is one harness's vocabulary and not every harness has one that means this, so
+folding accept-all into `SetAgentConfig` would give a control that works for some harnesses and
+silently does nothing for others. Answering in the host makes it mean the same thing everywhere,
+including for a harness whose modes offer nothing like it, and it composes with the mode instead of
+overwriting a pick the user made. The capture is the same argument from the other side: the
+process-wide tape owns the shape and the folder, so narrowing it to one agent is a flag
+and a sink, not a second format — and it is Ubiq's traffic being captured, which no harness could
+report. Never showing the ask, rather than showing and retracting it, is forced: a permission is
+drawn as a live prompt on the tool call it authorises, and nothing in the transcript retracts one.
+
+**Cost.** Ubiq's override and the harness's own mode can disagree — a harness in its strictest mode
+still has every request allowed, and the mode picker gives no hint of it, so the menu row's label
+is the only place the truth is written. The transcript then holds tool calls whose authorisation
+the reader was never offered and cannot audit afterwards, which is the price of not drawing a
+prompt nobody can answer. And the capture is a second writer into the tape folder, unbounded and
+running until the flag goes off: nothing rotates it, and nothing stops two conversations filling a
+disk. Both are opt-in, per conversation, and off by default, which is what keeps the price paid
+only by whoever asked for it.
 
 ## Related docs
 

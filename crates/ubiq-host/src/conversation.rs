@@ -27,6 +27,8 @@
 //! whoever is multiplexing. Here that is the `agent_id` this module stamps on
 //! every message — the same role a `sessionId` plays in ACP, one layer up.
 
+use std::io::Write;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -35,7 +37,7 @@ use std::time::SystemTime;
 use agent_manager::io::{
     AgentEvent, AgentInput, AgentInputSink, AgentKill, Content, IoBridge, PermissionOutcome,
 };
-use ubiq_proto::bus::Mailbox;
+use ubiq_proto::bus::{Direction, Mailbox};
 use ubiq_proto::conversation::{
     ConfigCategory, ConfigChoice, ConfigOption, ConfigValue, ConvContent, ConvUpdate,
     PermissionKind, PermissionOption, PlanEntry, PlanPriority, PlanStatus, RateLimitRecord,
@@ -70,6 +72,178 @@ pub struct UsageMeter {
     pub harness: String,
     /// Empty when the harness ran as its own default identity.
     pub account: String,
+}
+
+/// Ubiq's own two overrides on a conversation, shared between the coordinator that flips them and
+/// the pump thread that obeys them.
+///
+/// **Neither is a harness option.** A harness's own settings travel as `SetAgentConfig` under ids
+/// the harness advertised, and the host forwards them without knowing what they mean. These two
+/// the host means itself: the harness is launched in whatever mode it was going to be launched in,
+/// goes on asking exactly as before, and never learns that anything is different. That is what
+/// makes them work identically for every harness, including one whose modes offer nothing like
+/// them.
+///
+/// Held behind an `Arc` because the pump is what sees a permission request and an update, and the
+/// coordinator is what is told to flip a flag — the same shared-fact shape `outstanding` uses.
+pub struct ConvFlags {
+    /// The agent these belong to, for the capture's filename and its lines.
+    id: AgentId,
+    /// Read on the pump thread once per permission request; written by the coordinator. An atomic
+    /// rather than a lock, because the read is on the harness's own path.
+    accept_all: AtomicBool,
+    /// The capture, while there is one. `None` — the normal case — is a conversation nobody asked
+    /// to record, and costs one uncontended lock per message.
+    dump: Mutex<Option<DumpSink>>,
+    /// The capture's own line counter, so a file has a sequence of its own rather than borrowing
+    /// the transcript's — an inbound message has no `seq` to borrow.
+    dump_seq: AtomicU64,
+}
+
+/// An open capture: where it is going, and the thread taking it there.
+///
+/// **The writer is a thread and not this one.** A capture is a debugging aid and a disk is not
+/// bounded by anything a conversation can see, so writing inline would put an unbounded wait
+/// between a harness and the window — the one thing the pump exists not to do. Lines go into an
+/// unbounded channel and the thread drains it; dropping the sender is what ends the thread, so
+/// turning the flag off is a `None` written here and nothing else.
+struct DumpSink {
+    path: PathBuf,
+    lines: flume::Sender<String>,
+}
+
+impl ConvFlags {
+    /// The flags a launch starts with, as the conversation's durable row records them.
+    pub fn new(id: AgentId, accept_all: bool, debug_dump: bool) -> Arc<Self> {
+        let flags = Arc::new(Self {
+            id,
+            accept_all: AtomicBool::new(accept_all),
+            dump: Mutex::new(None),
+            dump_seq: AtomicU64::new(0),
+        });
+        if debug_dump {
+            flags.set_debug_dump(true);
+        }
+        flags
+    }
+
+    /// Where a conversation's capture goes, whether or not one is open.
+    ///
+    /// **Deterministic, and beside the process-wide tape's own dumps.** One folder to look in, one
+    /// name per agent, and a conversation that is unloaded and resumed appends to the file it was
+    /// already writing instead of scattering a run across a file per launch.
+    pub fn dump_path_for(id: AgentId) -> PathBuf {
+        ubiq_proto::bus::tape_dir().join(format!("ubiq-conv-{id}.jsonl"))
+    }
+
+    pub fn accept_all(&self) -> bool {
+        self.accept_all.load(Ordering::Relaxed)
+    }
+
+    pub fn set_accept_all(&self, accept_all: bool) {
+        self.accept_all.store(accept_all, Ordering::Relaxed);
+    }
+
+    /// Whether a capture is open. Read before the work of serialising a message, so a conversation
+    /// nobody is recording pays a lock and a branch.
+    pub fn dumping(&self) -> bool {
+        self.dump.lock().is_ok_and(|held| held.is_some())
+    }
+
+    /// Open the capture, or close it. Answers the path while one is open, which is what the window
+    /// shows — a file the user cannot find is a file that was not written.
+    ///
+    /// A file that will not open is logged and the flag reads off: a debugging aid that fails
+    /// silently is worse than one that refuses, and a refused capture must not also claim a path.
+    pub fn set_debug_dump(&self, on: bool) -> Option<String> {
+        let Ok(mut held) = self.dump.lock() else {
+            return None;
+        };
+        if !on {
+            *held = None;
+            return None;
+        }
+        if let Some(open) = held.as_ref() {
+            return Some(open.path.display().to_string());
+        }
+        let path = Self::dump_path_for(self.id);
+        let file = match std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+        {
+            Ok(file) => file,
+            Err(error) => {
+                tracing::warn!(agent = %self.id, path = %path.display(), %error, "no capture file");
+                return None;
+            }
+        };
+        let (lines, incoming) = flume::unbounded::<String>();
+        let name = format!("dump-{}", self.id);
+        if thread::Builder::new()
+            .name(name)
+            .spawn(move || {
+                let mut file = file;
+                for line in incoming {
+                    let _ = file.write_all(line.as_bytes());
+                }
+            })
+            .is_err()
+        {
+            tracing::warn!(agent = %self.id, "no thread for the capture");
+            return None;
+        }
+        let shown = path.display().to_string();
+        *held = Some(DumpSink { path, lines });
+        Some(shown)
+    }
+
+    /// The path of the capture that is open, if one is.
+    pub fn dump_path(&self) -> Option<String> {
+        self.dump
+            .lock()
+            .ok()
+            .and_then(|held| held.as_ref().map(|open| open.path.display().to_string()))
+    }
+
+    /// Record one message, in the direction it crossed.
+    ///
+    /// The line is [`ubiq_proto::bus::dump_line`]'s, unchanged: this is the process-wide tape
+    /// narrowed to one agent and written from the first frame rather than the last five hundred,
+    /// so the same `jq` reads either file.
+    pub fn record(&self, direction: Direction, message: &Message) {
+        let Ok(held) = self.dump.lock() else {
+            return;
+        };
+        let Some(open) = held.as_ref() else {
+            return;
+        };
+        let Ok(value) = serde_json::to_value(message) else {
+            return;
+        };
+        let kind = value
+            .get("type")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("Unknown")
+            .to_string();
+        let raw = match message {
+            Message::ConversationUpdate { raw, .. } => raw.clone(),
+            _ => None,
+        };
+        let seq = self.dump_seq.fetch_add(1, Ordering::Relaxed);
+        let line = ubiq_proto::bus::dump_line(
+            seq,
+            SystemTime::now(),
+            direction,
+            &kind,
+            Some(&self.id.to_string()),
+            &value.to_string(),
+            raw.as_deref(),
+        );
+        // A full channel is impossible and a closed one means the writer is gone; either way the
+        // conversation carries on. Nothing waits on a disk here.
+        let _ = open.lines.send(line);
+    }
 }
 
 /// A running conversation, as the coordinator holds it.
@@ -127,6 +301,9 @@ pub struct Conversation {
     /// `None` until the first turn ends. Written exactly once, so a conversation that goes on
     /// talking does not keep re-offering itself to be named.
     first_reply: Arc<Mutex<Option<String>>>,
+    /// Ubiq's own two overrides — see [`ConvFlags`]. Held here as well as in the pump so the
+    /// coordinator, which owns this side, can flip one on a running conversation.
+    flags: Arc<ConvFlags>,
 }
 
 /// The agent's first message, while the pump is still gathering it.
@@ -152,6 +329,10 @@ impl Conversation {
     /// says nothing on its way out and the coordinator decides what that means. It is what a
     /// one-shot harness is started with, because a `ConversationEnded` after every answer is
     /// exactly what makes such a harness read as dead.
+    ///
+    /// `flags` are Ubiq's own two overrides, as the conversation's durable row records them. They
+    /// are made by the caller rather than here because the coordinator answers a request to flip
+    /// one whether or not a harness is running.
     pub fn start(
         id: AgentId,
         bridge: Box<dyn IoBridge>,
@@ -159,6 +340,7 @@ impl Conversation {
         start_seq: u64,
         usage: Option<UsageMeter>,
         quiet: bool,
+        flags: Arc<ConvFlags>,
     ) -> Self {
         let input = bridge.input();
         let kill = bridge.killer();
@@ -174,6 +356,10 @@ impl Conversation {
         let pump_session = session.clone();
         let first_reply = Arc::new(Mutex::new(None));
         let pump_first_reply = first_reply.clone();
+        let pump_flags = flags.clone();
+        // The pump answers a permission itself when `accept_all` is on, and the way in is the
+        // same detached sink a prompt takes — the bridge it is reading cannot also be written to.
+        let pump_input = input.clone();
         let pump = thread::Builder::new()
             .name(format!("agent-{id}"))
             .spawn(move || {
@@ -189,6 +375,8 @@ impl Conversation {
                     pump_session,
                     pump_first_reply,
                     usage,
+                    pump_flags,
+                    pump_input,
                 )
             })
             .ok();
@@ -204,7 +392,13 @@ impl Conversation {
             outstanding,
             session,
             first_reply,
+            flags,
         }
+    }
+
+    /// Ubiq's own two overrides, for the coordinator to flip one on a running conversation.
+    pub fn flags(&self) -> &Arc<ConvFlags> {
+        &self.flags
     }
 
     /// The harness's own session id, once it has named one. `None` until its `SessionStarted`
@@ -280,12 +474,12 @@ impl Conversation {
     /// `updated_input` is always `None`: the response carries an option id and nothing else, so
     /// there is no editing of a tool's input on this path and no place to put one.
     pub fn answer_permission(&self, request_id: String, option_id: String) -> anyhow::Result<()> {
-        self.forget_outstanding(&request_id);
-        self.send(AgentInput::AnswerPermission {
+        answer_permission_through(
+            self.input.as_ref(),
+            &self.outstanding,
             request_id,
-            outcome: PermissionOutcome::Selected { option_id },
-            updated_input: None,
-        })
+            option_id,
+        )
     }
 
     /// Everything still waiting, emptied — a request answered once must not be answered twice.
@@ -295,12 +489,6 @@ impl Conversation {
             // A poisoned lock means the pump panicked mid-record. The list is of no further use
             // and this harness is finished; cancelling it is still worth doing.
             Err(_) => Vec::new(),
-        }
-    }
-
-    fn forget_outstanding(&self, request_id: &str) {
-        if let Ok(mut held) = self.outstanding.lock() {
-            held.retain(|held| held.as_str() != request_id);
         }
     }
 
@@ -375,6 +563,52 @@ impl Conversation {
     }
 }
 
+/// Answer one permission request by naming an option, and forget it was outstanding.
+///
+/// **One path, two callers.** The coordinator answers a request the window chose an option for;
+/// the pump answers one itself when `accept_all` is on. Both must do exactly the same two things
+/// — drop the id from `outstanding`, then send — because a request left in that list is answered
+/// a second time as cancelled the moment the turn is interrupted.
+fn answer_permission_through(
+    sink: Option<&Arc<dyn AgentInputSink>>,
+    outstanding: &Mutex<Vec<String>>,
+    request_id: String,
+    option_id: String,
+) -> anyhow::Result<()> {
+    if let Ok(mut held) = outstanding.lock() {
+        held.retain(|held| held.as_str() != request_id);
+    }
+    let sink =
+        sink.ok_or_else(|| anyhow::anyhow!("this harness takes no input after it is launched"))?;
+    sink.send(AgentInput::AnswerPermission {
+        request_id,
+        outcome: PermissionOutcome::Selected { option_id },
+        updated_input: None,
+    })
+}
+
+/// The option a plain "allow" reads as, out of the ones a request offered.
+///
+/// `AllowOnce` first, because `accept_all` is Ubiq's decision about *this* ask and not a standing
+/// grant written into the harness's own memory of the conversation — an `AllowAlways` outlives the
+/// flag being turned off. It is the fallback all the same: a request that offers only the standing
+/// form is still a request the flag was turned on to answer.
+///
+/// `None` is a request offering nothing that allows anything. Nothing is invented for it — see the
+/// pump.
+fn allowing_option(options: &[agent_manager::io::PermissionOption]) -> Option<String> {
+    use agent_manager::io::PermissionKind as Kind;
+    options
+        .iter()
+        .find(|option| matches!(option.kind, Kind::AllowOnce))
+        .or_else(|| {
+            options
+                .iter()
+                .find(|option| matches!(option.kind, Kind::AllowAlways))
+        })
+        .map(|option| option.option_id.clone())
+}
+
 /// The pump thread: read the bridge until it ends, and put everything it says
 /// on the bus.
 // One thread entry point called from exactly one place; a struct to carry its arguments would be
@@ -392,6 +626,8 @@ fn pump(
     session: Arc<Mutex<Option<String>>>,
     first_reply: Arc<Mutex<Option<String>>>,
     usage: Option<UsageMeter>,
+    flags: Arc<ConvFlags>,
+    input: Option<Arc<dyn AgentInputSink>>,
 ) {
     let mut seq = start_seq;
     let mut stop_reason = StopReason::EndTurn;
@@ -434,6 +670,34 @@ fn pump(
             && let Ok(mut held) = session.lock()
         {
             *held = Some(session_id.clone());
+        }
+
+        // `accept_all`: the host answers the ask itself, here, and the window never hears of it.
+        //
+        // **Not shown and then auto-answered.** A `ConvUpdate::PermissionRequest` is drawn as a
+        // live prompt on the tool call it authorises and there is no update that retracts one, so
+        // emitting it would leave every surface holding a prompt that is already answered, with
+        // the buttons still live. Nothing is hidden by the silence: the tool call itself is in the
+        // transcript, with whatever the harness did under it.
+        //
+        // A request offering nothing that allows anything falls through to the window unchanged —
+        // the flag says which of the offered answers to give, never that one must be invented.
+        if let AgentEvent::PermissionRequest {
+            request_id,
+            options,
+            ..
+        } = &event
+            && flags.accept_all()
+            && let Some(option_id) = allowing_option(options)
+        {
+            let request_id = request_id.clone();
+            tracing::debug!(agent = %id, request = %request_id, "permission accepted by the host");
+            if let Err(error) =
+                answer_permission_through(input.as_ref(), &outstanding, request_id, option_id)
+            {
+                tracing::warn!(agent = %id, %error, "an accepted permission went unanswered");
+            }
+            continue;
         }
 
         // Written before the update goes out, so a cancel that arrives the instant the window
@@ -497,12 +761,17 @@ fn pump(
         seq += 1;
         seq_counter.store(seq, Ordering::Relaxed);
         tracing::debug!(agent = %id, seq, update = ?update, "conversation update");
-        let listening = out.send(Message::ConversationUpdate {
+        let message = Message::ConversationUpdate {
             agent_id: id,
             seq,
             update: Box::new(update),
             raw,
-        });
+        };
+        // The capture, when one is open: the update and the harness's own frame behind it, handed
+        // to a writer thread. Recorded before the send rather than after, so the file's order is
+        // the order the pump saw — and it costs a lock and a branch when nothing is recording.
+        flags.record(Direction::Outbound, &message);
+        let listening = out.send(message);
 
         // A meter that refuses is logged and dropped, on the same bargain `Usage::open` makes: a
         // read-only config root costs the user their token history, not their session.
@@ -1286,8 +1555,9 @@ mod tests {
     /// neither.
     fn recording() -> (Conversation, Arc<Mutex<Vec<AgentInput>>>) {
         let seen = Arc::new(Mutex::new(Vec::new()));
+        let id = AgentId::generate();
         let conversation = Conversation {
-            id: AgentId::generate(),
+            id,
             input: Some(Arc::new(Recorder { seen: seen.clone() })),
             pump: None,
             kill: None,
@@ -1297,6 +1567,7 @@ mod tests {
             outstanding: Arc::new(Mutex::new(Vec::new())),
             session: Arc::new(Mutex::new(None)),
             first_reply: Arc::new(Mutex::new(None)),
+            flags: ConvFlags::new(id, false, false),
         };
         (conversation, seen)
     }

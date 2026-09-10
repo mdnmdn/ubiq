@@ -556,6 +556,8 @@ fn card(
         model: "Opus 4.6".to_string(),
         context_pct: ((tokens / 200_000.0) * 100.0).round() as u8,
         persistent: false,
+        accept_all: false,
+        debug_dump: None,
         // One line each: the last thing the agent said, which is also what its card prints.
         thread: vec![Turn {
             from: Speaker::Agent,

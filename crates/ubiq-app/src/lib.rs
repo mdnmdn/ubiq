@@ -205,7 +205,10 @@ pub fn run(boot: Boot) {
                     std::process::exit(2);
                 });
                 let key_pem = std::fs::read(&key_path).unwrap_or_else(|error| {
-                    eprintln!("ubiq: could not read --tls-key {}: {error}", key_path.display());
+                    eprintln!(
+                        "ubiq: could not read --tls-key {}: {error}",
+                        key_path.display()
+                    );
                     std::process::exit(2);
                 });
                 match ubiq_host::remote::serve_tls(hub, serve.bind, &cert_pem, &key_pem) {
@@ -519,7 +522,9 @@ fn announce(serving: &ubiq_host::remote::Serving) {
     println!();
     println!("Anyone who reaches this port with that token gets a terminal on this machine.");
     if serving.tls {
-        println!("The connection is encrypted; the UI verifies the certificate unless told to trust it.");
+        println!(
+            "The connection is encrypted; the UI verifies the certificate unless told to trust it."
+        );
     } else {
         println!("The connection is not encrypted — tunnel it if the network is not trusted.");
     }
@@ -682,8 +687,12 @@ mod tests {
             serve.tls,
             Some((PathBuf::from("cert.pem"), PathBuf::from("key.pem")))
         );
-        let serve = serve_bind(argv(&["--serve", "--tls-cert=cert.pem", "--tls-key=key.pem"]))
-            .expect("a bind");
+        let serve = serve_bind(argv(&[
+            "--serve",
+            "--tls-cert=cert.pem",
+            "--tls-key=key.pem",
+        ]))
+        .expect("a bind");
         assert_eq!(serve.bind.port(), SERVE_PORT);
         assert!(serve.tls.is_some());
     }

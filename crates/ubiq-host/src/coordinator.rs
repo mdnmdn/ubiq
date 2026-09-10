@@ -29,7 +29,7 @@ use crate::assist::{self, Assist, providers::Providers};
 use crate::cli_shortcut;
 use crate::config::ConfigRoot;
 use crate::connectors::{Answer, Connectors};
-use crate::conversation::{Conversation, UsageMeter};
+use crate::conversation::{ConvFlags, Conversation, UsageMeter};
 use crate::conversation_record::{self, ConversationRecord};
 use crate::files::{self, Files};
 use crate::git::{self, Git};
@@ -995,6 +995,7 @@ impl Coordinator {
     }
 
     fn dispatch(&mut self, client: ClientId, message: Message) {
+        self.capture_inbound(&message);
         match message {
             Message::SpawnWorkspace {
                 session_id,
@@ -1862,6 +1863,18 @@ impl Coordinator {
             } => {
                 self.set_conversation_persistent(client, agent_id, persistent);
             }
+            Message::SetConversationAcceptAll {
+                agent_id,
+                accept_all,
+            } => {
+                self.set_conversation_accept_all(client, agent_id, accept_all);
+            }
+            Message::SetConversationDebugDump {
+                agent_id,
+                debug_dump,
+            } => {
+                self.set_conversation_debug_dump(client, agent_id, debug_dump);
+            }
             Message::ReviveConversation {
                 source,
                 agent_id,
@@ -1995,6 +2008,8 @@ impl Coordinator {
             model: String::new(),
             context_pct: 0,
             persistent: false,
+            accept_all: false,
+            debug_dump: None,
             thread: Vec::new(),
         };
         // The window's own session, named after the project it is open on: the work's sessions are
@@ -2230,9 +2245,31 @@ impl Coordinator {
         // announce that as the conversation ending — `finish_one_shot_turn` decides what it
         // means, and says `ConversationUnloaded` instead.
         let quiet = !self.agents.multi_turn(&pending.agent_type);
-        let conversation =
-            Conversation::start(agent_id, bridge, mailbox, pending.next_seq, usage, quiet);
+        // Ubiq's own two overrides, out of the durable row: they are properties of the
+        // conversation and not of any one process, so a launch reads them rather than being told
+        // them. A conversation with no row yet has neither.
+        let held = conversation_record::load(&self.sessions(), agent_id);
+        let flags = ConvFlags::new(
+            agent_id,
+            held.as_ref().is_some_and(|row| row.accept_all),
+            held.as_ref().is_some_and(|row| row.debug_dump),
+        );
+        // The capture the launch just opened, so the window can say where it is. Nothing else
+        // reports it: the flag was set while the conversation had no process to open a file.
+        let dump_path = flags.dump_path();
+        let conversation = Conversation::start(
+            agent_id,
+            bridge,
+            mailbox,
+            pending.next_seq,
+            usage,
+            quiet,
+            flags,
+        );
         self.conversations.insert(agent_id, conversation);
+        if dump_path.is_some() {
+            self.publish_conversation_flags(agent_id, |agent| agent.debug_dump = dump_path);
+        }
         self.agents_this_run += 1;
         true
     }
@@ -2339,6 +2376,151 @@ impl Coordinator {
         if let Some(agent) = changed {
             self.host
                 .send(To::Everyone, Message::AgentChanged { project_id, agent });
+        }
+    }
+
+    /// Answer every permission this conversation asks for, or stop.
+    ///
+    /// **Ubiq's own override, not the harness's permission mode.** The harness stays in whatever
+    /// mode it was launched in and goes on asking; what changes is who answers, and where. A mode
+    /// is `Message::SetAgentConfig` and reaches the child process; this never does — which is why
+    /// it works the same for a harness whose modes offer nothing like it. The short-circuit itself
+    /// is in `conversation.rs`'s pump, on the one path every harness's requests come down.
+    ///
+    /// Refused for nothing: unlike persistence, this asks nothing of the harness.
+    fn set_conversation_accept_all(
+        &mut self,
+        client: ClientId,
+        agent_id: AgentId,
+        accept_all: bool,
+    ) {
+        if !self.drives(client, agent_id) {
+            return;
+        }
+        let sessions = self.sessions();
+        let Some(mut row) = conversation_record::load(&sessions, agent_id) else {
+            tracing::warn!(agent = %agent_id, "no conversation row to accept permissions on");
+            return;
+        };
+        row.accept_all = accept_all;
+        conversation_record::save(&sessions, agent_id, &row);
+        // The live harness, where there is one. A conversation with none takes the flag at its
+        // next launch, out of the row that was just written.
+        if let Some(conversation) = self.conversations.get(&agent_id) {
+            conversation.flags().set_accept_all(accept_all);
+        }
+        self.publish_conversation_flags(agent_id, |agent| agent.accept_all = accept_all);
+    }
+
+    /// Write this conversation's traffic to a file, or stop writing it.
+    ///
+    /// The capture is the process-wide tape narrowed to one agent: the same line shape, in the
+    /// same folder, from the first frame rather than the last five hundred. Opening it is the live
+    /// conversation's job — `ConvFlags` owns the file and the thread that writes it — and this
+    /// only records the wish and reports where it landed.
+    ///
+    /// **The path is reported on the record, and it is what the menu row reads as the flag.** An
+    /// unloaded conversation has no open file, and answering `None` for one would leave the row
+    /// marked on disk and drawn off — the toggle would refuse to flip. So the deterministic name
+    /// stands in: it is where the traffic lands at the next launch, which is the honest answer to
+    /// "where is it going".
+    fn set_conversation_debug_dump(
+        &mut self,
+        client: ClientId,
+        agent_id: AgentId,
+        debug_dump: bool,
+    ) {
+        if !self.drives(client, agent_id) {
+            return;
+        }
+        let sessions = self.sessions();
+        let Some(mut row) = conversation_record::load(&sessions, agent_id) else {
+            tracing::warn!(agent = %agent_id, "no conversation row to dump");
+            return;
+        };
+        row.debug_dump = debug_dump;
+        conversation_record::save(&sessions, agent_id, &row);
+        let path = match self.conversations.get(&agent_id) {
+            // A live harness opens the file here, and answers with the name only if it opened —
+            // a capture that was refused must not also claim a path.
+            Some(conversation) => conversation.flags().set_debug_dump(debug_dump),
+            // No harness to open anything. The name is deterministic, so the window can still say
+            // where this conversation's traffic lands the next time it runs — and the row reads
+            // as marked, which is what was asked for.
+            None => debug_dump.then(|| ConvFlags::dump_path_for(agent_id).display().to_string()),
+        };
+        if let Some(path) = &path {
+            tracing::info!(agent = %agent_id, %path, "conversation capture");
+        }
+        self.publish_conversation_flags(agent_id, |agent| agent.debug_dump = path);
+    }
+
+    /// Mirror a flag onto the live `WorkAgent` and tell every window.
+    ///
+    /// Shared by the two flags above because the shape is the whole of what they have in common:
+    /// the durable row is what any decision reads, and this exists only so the menu that flipped
+    /// the flag redraws with it flipped.
+    fn publish_conversation_flags(
+        &mut self,
+        agent_id: AgentId,
+        set: impl FnOnce(&mut ubiq_proto::work::WorkAgent),
+    ) {
+        let Some((_, project_id)) = self.conversation_owners.get(&agent_id).copied() else {
+            return;
+        };
+        let changed = self.work.live_agent_mut(project_id, agent_id).map(|agent| {
+            set(agent);
+            Box::new(agent.clone())
+        });
+        if let Some(agent) = changed {
+            self.host
+                .send(To::Everyone, Message::AgentChanged { project_id, agent });
+        }
+    }
+
+    /// Put a message the window sent into the capture of the conversation it is about, when that
+    /// conversation is recording one.
+    ///
+    /// **The whole inbound half of a conversation's traffic passes through here**, which is why it
+    /// is one call at the top of `dispatch` rather than a line in each handler: a handler that
+    /// forgot it would leave a file with answers and no questions. The agent id is lifted out of
+    /// the serialised payload the way the tape lifts it, so a message family added later is
+    /// captured without this being touched.
+    ///
+    /// Nothing is serialised unless something is recording, and the terminal families are skipped
+    /// outright: a conversation never sends one, and encoding every chunk to find that out is the
+    /// stall the bus exists to avoid.
+    fn capture_inbound(&self, message: &Message) {
+        if matches!(
+            message,
+            Message::TerminalOutput { .. }
+                | Message::TerminalInput { .. }
+                | Message::TerminalResize { .. }
+        ) {
+            return;
+        }
+        if !self
+            .conversations
+            .values()
+            .any(|conversation| conversation.flags().dumping())
+        {
+            return;
+        }
+        let Ok(value) = serde_json::to_value(message) else {
+            return;
+        };
+        let Some(agent_id) = value
+            .get("payload")
+            .and_then(|payload| payload.get("agent_id"))
+            .and_then(serde_json::Value::as_str)
+            .and_then(|agent| agent.parse::<AgentId>().ok())
+        else {
+            return;
+        };
+        if let Some(conversation) = self.conversations.get(&agent_id) {
+            conversation
+                .flags()
+                .record(ubiq_proto::bus::Direction::Inbound, message);
         }
     }
 
@@ -2640,6 +2822,8 @@ impl Coordinator {
             next_seq: pending.next_seq,
             title: held.as_ref().and_then(|row| row.title.clone()),
             persistent: held.as_ref().is_some_and(|row| row.persistent),
+            accept_all: held.as_ref().is_some_and(|row| row.accept_all),
+            debug_dump: held.as_ref().is_some_and(|row| row.debug_dump),
             forked_from: held.and_then(|row| row.forked_from),
             // What the run was composed under, read from the settings rather than from `Agents`.
             // **The two must agree**: `Agents::set_policy` was handed this same field, and is given
@@ -4123,6 +4307,8 @@ mod tests {
             model: String::new(),
             context_pct: 0,
             persistent: false,
+            accept_all: false,
+            debug_dump: None,
             thread: Vec::new(),
         };
         let session = WorkSession {
@@ -4161,6 +4347,7 @@ mod tests {
             last_seq,
             None,
             false,
+            ConvFlags::new(agent_id, false, false),
         );
         coordinator.conversations.insert(agent_id, conversation);
 
@@ -4456,6 +4643,88 @@ mod tests {
             !session_dir.exists(),
             "so do the row and the library's record beside it"
         );
+    }
+
+    /// Both of Ubiq's own flags make the same round trip the persistence one does: the durable
+    /// row is what any later decision reads, the live conversation is told so it acts on it at
+    /// once, and every window hears an `AgentChanged` so the menu that flipped the flag redraws
+    /// with it flipped.
+    #[test]
+    fn accepting_all_permissions_is_written_to_the_row_and_the_live_conversation() {
+        let (mut coordinator, client) = test_coordinator();
+        let (agent_id, _project_id) = seed_live_conversation(&mut coordinator, &client, 0);
+        coordinator.remember_conversation(agent_id);
+        while client.from_host().try_recv().is_ok() {}
+
+        coordinator.dispatch(
+            client.id(),
+            Message::SetConversationAcceptAll {
+                agent_id,
+                accept_all: true,
+            },
+        );
+
+        let row = conversation_record::load(&coordinator.sessions(), agent_id).expect("a row");
+        assert!(row.accept_all, "the durable row is what a launch reads");
+        assert!(
+            coordinator.conversations[&agent_id].flags().accept_all(),
+            "the running harness's requests should be answered from this moment, not the next launch"
+        );
+        let sent: Vec<Message> =
+            std::iter::from_fn(|| client.from_host().try_recv().ok()).collect();
+        assert!(
+            sent.iter().any(|message| matches!(
+                message,
+                Message::AgentChanged { agent, .. } if agent.id == agent_id && agent.accept_all
+            )),
+            "expected an AgentChanged carrying the flag, got {sent:?}"
+        );
+    }
+
+    /// The capture answers with the file it writes, because a window that cannot say where the
+    /// traffic went is a debugging aid nobody can use.
+    #[test]
+    fn dumping_a_conversation_reports_the_file_it_writes() {
+        let (mut coordinator, client) = test_coordinator();
+        let (agent_id, _project_id) = seed_live_conversation(&mut coordinator, &client, 0);
+        coordinator.remember_conversation(agent_id);
+        while client.from_host().try_recv().is_ok() {}
+
+        coordinator.dispatch(
+            client.id(),
+            Message::SetConversationDebugDump {
+                agent_id,
+                debug_dump: true,
+            },
+        );
+
+        let row = conversation_record::load(&coordinator.sessions(), agent_id).expect("a row");
+        assert!(row.debug_dump);
+        let expected = ConvFlags::dump_path_for(agent_id).display().to_string();
+        let sent: Vec<Message> =
+            std::iter::from_fn(|| client.from_host().try_recv().ok()).collect();
+        assert!(
+            sent.iter().any(|message| matches!(
+                message,
+                Message::AgentChanged { agent, .. }
+                    if agent.id == agent_id && agent.debug_dump.as_deref() == Some(expected.as_str())
+            )),
+            "expected an AgentChanged naming {expected}, got {sent:?}"
+        );
+
+        // Turning it off closes the capture and takes the path with it.
+        coordinator.dispatch(
+            client.id(),
+            Message::SetConversationDebugDump {
+                agent_id,
+                debug_dump: false,
+            },
+        );
+        assert!(
+            !coordinator.conversations[&agent_id].flags().dumping(),
+            "the capture should be closed"
+        );
+        let _ = std::fs::remove_file(ConvFlags::dump_path_for(agent_id));
     }
 
     /// Deleting a conversation is the one ending that is not `ConversationEnded` — that message

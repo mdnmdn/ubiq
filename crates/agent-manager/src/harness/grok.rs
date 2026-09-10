@@ -4,8 +4,13 @@
 //! "Skills", "Authentication", "Orchestration / headless invocation") into a
 //! [`Harness`] impl.
 //!
-//! The isolation lever (Class C — no config lever): Grok CLI
-//! (`superagent-ai/grok-cli`, npm `@vibe-kit/grok-cli`) has **no
+//! The installed binary is xAI's official `grok` CLI (Rust), version 1.0.13 as of the
+//! 2026-09-10 capture — **not** the npm `@vibe-kit/grok-cli` this module originally assumed.
+//! See `_docs/wip/grok-acp-capture.md` for what was verified live and `_docs/harness/grok.md`
+//! for the corrected reference. The identity swap does not change the isolation story below:
+//! both programs anchor on `~/.grok/` and `~/.agents/skills/`.
+//!
+//! The isolation lever (Class C — no config lever): Grok CLI has **no
 //! `GROK_CONFIG_DIR`-style override** — its global config dir (`~/.grok/`)
 //! and user-tier skills (`~/.agents/skills/`) are derived from the OS home.
 //! So provisioning always relocates `HOME` to the ephemeral `dir`:
@@ -31,17 +36,18 @@
 //! isolate config/skill reads (`user-settings.json`, `.agents/skills/`) but
 //! NOT session/log writes — a real launch was seen writing to the user's
 //! real `~/.grok/sessions/…` and `~/.grok/logs/…` even with `HOME` set to the
-//! ephemeral dir. No verified env-var lever closes this: Grok CLI is
-//! Node-based, and Node's `os.homedir()` honors `$HOME` while
-//! `os.userInfo().homedir` (a common choice for session/log/state dirs)
-//! always resolves the real home via the OS user database (`getpwuid`),
-//! which no environment variable can override. See `_docs/harness/grok.md`
-//! § "Format quirks / gotchas" for detail. Do not add speculative
-//! `XDG_*`/config-dir env vars to `provision`'s `Launch.env` to try to fix
-//! this without first verifying, against the actual installed binary, that
-//! they (a) redirect session/log writes AND (b) still let Grok read the
-//! injected config this provisioner writes under `<dir>/.grok/` — an
-//! unverified lever risks silently breaking MCP/skill injection instead.
+//! ephemeral dir. No verified env-var lever closes this. That observation
+//! predates the 2026-09-10 capture (which confirms the installed binary is
+//! Rust, not Node — see above), so the original Node `os.homedir()` /
+//! `os.userInfo().homedir` explanation for *why* no env var closes it no
+//! longer holds; the gap itself has not been re-verified against the real
+//! binary. See `_docs/harness/grok.md` § "Format quirks / gotchas" for
+//! detail. Do not add speculative `XDG_*`/config-dir env vars to
+//! `provision`'s `Launch.env` to try to fix this without first verifying,
+//! against the actual installed binary, that they (a) redirect session/log
+//! writes AND (b) still let Grok read the injected config this provisioner
+//! writes under `<dir>/.grok/` — an unverified lever risks silently breaking
+//! MCP/skill injection instead.
 //!
 //! Grok has no non-invasive always-on memory slot (its `AGENTS.md` is
 //! merged from the git root down to cwd — the user's real project, which a
@@ -57,10 +63,11 @@
 //! protocol"), which is precisely why the structured path went to ACP
 //! instead.
 //!
-//! **This has not been verified against the installed binary.** Grok is not
-//! installed on the machine this was written on, so `grok agent stdio` is a
-//! reported rather than a captured fact: the first live capture may correct
-//! the argv (and the model-selection call noted in `provision`).
+//! Verified 2026-09-10 against the installed `grok` 1.0.13 binary (see
+//! `_docs/wip/grok-acp-capture.md`): `grok agent stdio` is a real ACP endpoint,
+//! and the agent-mode flags (`-m/--model`, `--reasoning-effort`,
+//! `--always-approve`) go *between* `agent` and `stdio`, not after it — see
+//! `provision`'s `IoModes::Structured` arm.
 
 use std::path::Path;
 
@@ -116,47 +123,68 @@ impl Harness for Grok {
         }
     }
 
-    /// Grok has no `models` CLI command; it caches the models its login can
-    /// use in `~/.grok/models_cache.json` (refreshed from the xAI API on an
-    /// authenticated run). Read that cache — the `models` object is keyed by
-    /// model id, each entry carrying an `info.description`/`info.name`.
+    /// Corrected per the 2026-09-10 capture (`_docs/wip/grok-acp-capture.md`): the installed
+    /// binary is xAI's official `grok` 1.0.13, not the npm `@vibe-kit/grok-cli` this module
+    /// previously assumed, and it has an explicit `grok models` command (there is no
+    /// `~/.grok/models_cache.json` to read instead). Shell out to it and parse the ids off
+    /// stdout, the same shape `Copilot::discover_models` uses for `copilot help config`.
+    ///
+    /// The output layout was captured from 1.0.13 on 2026-09-10 and is written out in
+    /// [`parse_model_ids`], which reads the bulleted `Available models:` list and falls back to
+    /// a token scan if that section is not there to read.
     fn discover_models(&self) -> Result<Vec<super::ModelInfo>> {
-        let home = directories::BaseDirs::new()
-            .map(|b| b.home_dir().to_path_buf())
-            .ok_or_else(|| anyhow::anyhow!("could not determine the home directory"))?;
-        let cache = home.join(".grok").join("models_cache.json");
-        if !cache.exists() {
+        let output = std::process::Command::new(self.command())
+            .arg("models")
+            .output()
+            .with_context(|| "running `grok models` (is the grok binary on PATH?)")?;
+        if !output.status.success() {
             anyhow::bail!(
-                "no Grok model cache at {} — run `grok` once (authenticated) to populate it",
-                cache.display()
+                "`grok models` failed ({}): {}",
+                output.status,
+                String::from_utf8_lossy(&output.stderr).trim()
             );
         }
-        let content = std::fs::read_to_string(&cache)
-            .with_context(|| format!("reading {}", cache.display()))?;
-        let parsed: serde_json::Value = serde_json::from_str(&content)
-            .with_context(|| format!("parsing {}", cache.display()))?;
-        let models = parsed
-            .get("models")
-            .and_then(|m| m.as_object())
-            .ok_or_else(|| anyhow::anyhow!("no 'models' object in {}", cache.display()))?;
-        let mut out: Vec<super::ModelInfo> = models
-            .iter()
-            .map(|(id, v)| {
-                let info = v.get("info");
-                let desc = info
-                    .and_then(|i| i.get("description"))
-                    .or_else(|| info.and_then(|i| i.get("name")))
-                    .and_then(|d| d.as_str())
-                    .map(str::to_string);
-                super::ModelInfo {
-                    id: id.clone(),
-                    description: desc,
-                    default: false,
-                }
-            })
-            .collect();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let ids = parse_model_ids(&stdout);
+        if ids.is_empty() {
+            anyhow::bail!(
+                "no model ids found in `grok models` output — its format may have changed; \
+                 re-verify against the installed binary"
+            );
+        }
+        let mut out: Vec<super::ModelInfo> = ids.into_iter().map(super::ModelInfo::new).collect();
         out.sort_by(|a, b| a.id.cmp(&b.id));
         Ok(out)
+    }
+
+    /// The six values Grok's own top-level `--permission-mode <mode>` accepts (verified against
+    /// the bundled user guide and `grok --help`, 1.0.13 — see
+    /// `_docs/wip/grok-acp-capture.md` §4). Fixed CLI enum, not probed — see
+    /// [`super::Harness::modes`]. Only meaningful on the passthrough path: `grok agent stdio`
+    /// (the structured/ACP seam) has no permission-mode selector at all, just
+    /// `--always-approve`/`_meta.yoloMode` (see `provision`'s `IoModes::Structured` arm).
+    fn modes(&self) -> Vec<super::ModeInfo> {
+        [
+            ("default", "Default"),
+            ("acceptEdits", "Accept edits"),
+            ("auto", "Auto"),
+            ("dontAsk", "Don't ask"),
+            ("bypassPermissions", "Bypass permissions"),
+            ("plan", "Plan"),
+        ]
+        .into_iter()
+        .map(|(id, label)| super::ModeInfo {
+            id: id.to_string(),
+            label: label.to_string(),
+            description: None,
+        })
+        .collect()
+    }
+
+    /// `bypassPermissions` is Grok's own name for asking nothing — see
+    /// [`super::Harness::unattended_mode`].
+    fn unattended_mode(&self) -> Option<&'static str> {
+        Some("bypassPermissions")
     }
 
     fn provision(&self, spec: &RunSpec, dir: &Path) -> Result<Launch> {
@@ -218,18 +246,34 @@ impl Harness for Grok {
         // into the prompt text rather than written to disk.
         let args = match spec.io {
             IoModes::Structured => {
-                // Structured mode: `grok agent stdio [args...]` — an ACP
-                // endpoint, driven by `crate::io::AcpBridge`. Everything a
+                // Structured mode: `grok agent [options] stdio [args...]` — an
+                // ACP endpoint, driven by `crate::io::AcpBridge`. Everything a
                 // passthrough run puts in argv moves onto the wire here: the
                 // prompt is a `session/prompt`, and a resume is a
                 // `session/load` (from `Provisioned::resume`), so neither
                 // `--prompt` nor `--session` belongs on this argv.
-                let mut structured_args = vec!["agent".to_string(), "stdio".to_string()];
-                // NOTE: no `-m <model>` here. Whether `grok agent stdio`
-                // accepts the model flag is unverified against the real
-                // binary; the model is expected to be a
-                // `session/set_config_option` with `category: "model"`
-                // instead. Needs a live capture to confirm.
+                //
+                // Per the 2026-09-10 capture (`_docs/wip/grok-acp-capture.md`
+                // §3), `grok agent stdio` DOES take agent-mode flags, but only
+                // *between* `agent` and `stdio` — `grok agent --model
+                // grok-4.6 --reasoning-effort high --always-approve stdio`.
+                // Putting `-m`/`--reasoning-effort` after `stdio` (as this
+                // used to assume they'd arrive via `session/set_config_option`
+                // instead) does not work. There is no `--permission-mode` for
+                // this path at all: Grok's only ACP-side permission lever is
+                // `--always-approve`/`_meta.yoloMode` (see §4), neither of
+                // which `spec.policy.permission_mode` maps onto today, so no
+                // permission flag is emitted here.
+                let mut structured_args = vec!["agent".to_string()];
+                if let Some(model) = &spec.model {
+                    structured_args.push("--model".to_string());
+                    structured_args.push(model.clone());
+                }
+                if let Some(effort) = &spec.thinking {
+                    structured_args.push("--reasoning-effort".to_string());
+                    structured_args.push(effort.clone());
+                }
+                structured_args.push("stdio".to_string());
                 structured_args.extend(spec.passthrough_args.clone());
                 if seeded_prompt(spec).is_some() {
                     tracing::debug!(
@@ -247,6 +291,22 @@ impl Harness for Grok {
                 if let Some(model) = &spec.model {
                     args.push("-m".to_string());
                     args.push(model.clone());
+                }
+                // Reasoning effort: `--reasoning-effort <level>` (top-level
+                // flag, same spelling as the agent-mode one — see
+                // `_docs/wip/grok-acp-capture.md` §3-4). Only added when set.
+                if let Some(effort) = &spec.thinking {
+                    args.push("--reasoning-effort".to_string());
+                    args.push(effort.clone());
+                }
+                // Permission mode: `--permission-mode <mode>`, one of the six
+                // values `Grok::modes` lists. Only added when the spec names
+                // one, so unpolicied runs keep byte-identical argv.
+                if let Some(policy) = &spec.policy
+                    && let Some(mode) = &policy.permission_mode
+                {
+                    args.push("--permission-mode".to_string());
+                    args.push(mode.clone());
                 }
                 // Resume: `--session <id>` (Grok also accepts
                 // `--session latest`). Only added when a resume id is set, so
@@ -352,6 +412,7 @@ impl Harness for Grok {
             child,
             cwd,
             provisioned.resume.as_deref(),
+            provisioned.model.as_deref(),
         )?))
     }
 }
@@ -423,6 +484,70 @@ fn build_mcp_servers(mcps: &[McpRef]) -> Result<serde_json::Map<String, Value>> 
         }
     }
     Ok(servers)
+}
+
+/// The model ids in `grok models` stdout, deduped in first-seen order.
+///
+/// The format, captured from 1.0.13 on 2026-09-10:
+///
+/// ```text
+/// Default model: grok-4.6
+///
+/// Available models:
+///   * grok-4.6 (default)
+///   - grok-4.5
+/// ```
+///
+/// The bulleted list under `Available models:` is what is read: the first
+/// token of every line whose first non-space character is `*` or `-`. A
+/// custom model (`11-custom-models.md`) carries whatever id its provider
+/// entry names, so the id is taken as written rather than filtered on a
+/// `grok-` prefix.
+///
+/// **Fallback**: if that section yields nothing — the wording changed, or the
+/// binary printed only the default line — every token shaped like
+/// `grok-<something>` anywhere in the output is taken instead, which is what
+/// keeps a format change from emptying the picker outright.
+fn parse_model_ids(text: &str) -> Vec<String> {
+    let mut ids = Vec::new();
+    let mut listing = false;
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.eq_ignore_ascii_case("available models:") {
+            listing = true;
+            continue;
+        }
+        if !listing {
+            continue;
+        }
+        // A blank line ends the list; so does anything that is not a bullet.
+        let Some(rest) = trimmed.strip_prefix(['*', '-']) else {
+            if !trimmed.is_empty() {
+                listing = false;
+            }
+            continue;
+        };
+        if let Some(id) = rest.split_whitespace().next()
+            && !ids.iter().any(|seen| seen == id)
+        {
+            ids.push(id.to_string());
+        }
+    }
+    if !ids.is_empty() {
+        return ids;
+    }
+    for line in text.lines() {
+        for word in line.split_whitespace() {
+            let cleaned = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '-' && c != '.');
+            if cleaned.len() > "grok-".len()
+                && cleaned.starts_with("grok-")
+                && !ids.iter().any(|id| id == cleaned)
+            {
+                ids.push(cleaned.to_string());
+            }
+        }
+    }
+    ids
 }
 
 #[cfg(test)]
@@ -811,12 +936,14 @@ mod tests {
     }
 
     #[test]
-    fn provision_structured_is_agent_stdio_without_prompt_session_or_model() {
+    fn provision_structured_is_agent_stdio_without_prompt_or_session_but_carries_model_and_effort()
+    {
         let config_dir = tempfile::TempDir::new().unwrap();
         let mut spec = RunSpec::new("grok".to_string(), PathBuf::from("."));
         spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
         spec.io = IoModes::Structured;
-        spec.model = Some("grok-4".to_string());
+        spec.model = Some("grok-4.6".to_string());
+        spec.thinking = Some("high".to_string());
         spec.resume = Some("sess-1".to_string());
         spec.initial = Some(Instructions {
             instructions: None,
@@ -826,11 +953,134 @@ mod tests {
         let grok = Grok::new();
         let launch = grok.provision(&spec, config_dir.path()).unwrap();
 
-        assert_eq!(launch.args[0], "agent");
-        assert_eq!(launch.args[1], "stdio");
-        // The prompt, the resume and the model all travel over the wire.
+        // The model and reasoning effort go BETWEEN `agent` and `stdio`, per
+        // the captured `grok agent --model … --reasoning-effort … stdio` argv.
+        assert_eq!(
+            launch.args,
+            vec![
+                "agent",
+                "--model",
+                "grok-4.6",
+                "--reasoning-effort",
+                "high",
+                "stdio",
+            ]
+        );
+        // The prompt and the resume still travel over the wire, not argv.
         assert!(!launch.args.contains(&"--prompt".to_string()));
         assert!(!launch.args.contains(&"--session".to_string()));
-        assert!(!launch.args.contains(&"-m".to_string()));
+    }
+
+    #[test]
+    fn provision_structured_without_model_or_thinking_is_bare_agent_stdio() {
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("grok".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.io = IoModes::Structured;
+
+        let grok = Grok::new();
+        let launch = grok.provision(&spec, config_dir.path()).unwrap();
+
+        assert_eq!(launch.args, vec!["agent", "stdio"]);
+    }
+
+    #[test]
+    fn provision_passthrough_adds_reasoning_effort_and_permission_mode_when_set() {
+        use crate::spec::Policy;
+
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("grok".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+        spec.model = Some("grok-4.6".to_string());
+        spec.thinking = Some("xhigh".to_string());
+        spec.policy = Some(Policy {
+            permission_mode: Some("bypassPermissions".to_string()),
+            ..Default::default()
+        });
+
+        let grok = Grok::new();
+        let launch = grok.provision(&spec, config_dir.path()).unwrap();
+
+        let idx = |flag: &str| launch.args.iter().position(|a| a == flag).unwrap();
+        assert_eq!(
+            launch.args.get(idx("-m") + 1),
+            Some(&"grok-4.6".to_string())
+        );
+        assert_eq!(
+            launch.args.get(idx("--reasoning-effort") + 1),
+            Some(&"xhigh".to_string())
+        );
+        assert_eq!(
+            launch.args.get(idx("--permission-mode") + 1),
+            Some(&"bypassPermissions".to_string())
+        );
+    }
+
+    #[test]
+    fn provision_passthrough_without_thinking_or_policy_omits_the_flags() {
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("grok".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
+
+        let grok = Grok::new();
+        let launch = grok.provision(&spec, config_dir.path()).unwrap();
+
+        assert!(!launch.args.contains(&"--reasoning-effort".to_string()));
+        assert!(!launch.args.contains(&"--permission-mode".to_string()));
+    }
+
+    #[test]
+    fn modes_lists_the_six_permission_modes_with_bypass_as_unattended() {
+        let grok = Grok::new();
+        let ids: Vec<String> = grok.modes().into_iter().map(|m| m.id).collect();
+        assert_eq!(
+            ids,
+            vec![
+                "default",
+                "acceptEdits",
+                "auto",
+                "dontAsk",
+                "bypassPermissions",
+                "plan",
+            ]
+        );
+        assert_eq!(grok.unattended_mode(), Some("bypassPermissions"));
+        assert!(ids.contains(&grok.unattended_mode().unwrap().to_string()));
+    }
+
+    #[test]
+    fn parse_model_ids_reads_the_captured_listing() {
+        // Verbatim `grok models` stdout, 1.0.13, captured 2026-09-10. The
+        // `Default model:` line names an id the list repeats, so the dedupe
+        // and the bullet-only rule are both exercised here.
+        let text = "Default model: grok-4.6\n\nAvailable models:\n  * grok-4.6 (default)\n  \
+                    - grok-4.5\n";
+        assert_eq!(
+            super::parse_model_ids(text),
+            vec!["grok-4.6".to_string(), "grok-4.5".to_string()]
+        );
+    }
+
+    #[test]
+    fn parse_model_ids_keeps_an_id_that_is_not_grok_prefixed() {
+        let text = "Available models:\n  * grok-4.6 (default)\n  - my-proxy/llama-70b\n";
+        assert_eq!(
+            super::parse_model_ids(text),
+            vec!["grok-4.6".to_string(), "my-proxy/llama-70b".to_string()]
+        );
+    }
+
+    #[test]
+    fn parse_model_ids_falls_back_to_a_token_scan_without_a_listing() {
+        let text = "Available models:\n  grok-4.6  (default)\n  grok-4.5\n";
+        assert_eq!(
+            super::parse_model_ids(text),
+            vec!["grok-4.6".to_string(), "grok-4.5".to_string()]
+        );
+    }
+
+    #[test]
+    fn parse_model_ids_no_matches_returns_empty() {
+        assert_eq!(super::parse_model_ids("nothing here"), Vec::<String>::new());
     }
 }

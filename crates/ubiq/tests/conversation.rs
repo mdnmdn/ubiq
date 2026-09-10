@@ -170,6 +170,8 @@ fn an_agent(id: AgentId) -> WorkAgent {
         model: String::new(),
         context_pct: 0,
         persistent: false,
+        accept_all: false,
+        debug_dump: None,
         thread: Vec::new(),
     }
 }
@@ -990,7 +992,8 @@ fn a_thought_level_missing_from_the_new_options_is_forgotten(cx: &mut TestAppCon
 
 /// The three-dots menu's own rule, pulled out where it can be checked without rendering it: Stop
 /// only while a turn runs, Abort and Unload only while launched, Resume only while it is not, Fork
-/// only while nothing is in flight, Delete always — and Delete last, whatever else is added.
+/// only while nothing is in flight, the accept-all and dump toggles always (they ask nothing of
+/// the harness), Delete always — and Delete last, whatever else is added.
 #[test]
 fn the_lifecycle_menu_disables_resume_while_launched_and_unload_once_it_is_not() {
     use ubiq::ui::conversation::lifecycle_menu_rows;
@@ -1005,22 +1008,42 @@ fn the_lifecycle_menu_disables_resume_while_launched_and_unload_once_it_is_not()
     // session store the harness is appending to.
     conversation.launched = true;
     conversation.run = Run::Working;
-    let [stop, abort, unload, resume, fork, persist, delete] =
-        lifecycle_menu_rows(&conversation, false, true);
+    let [
+        stop,
+        abort,
+        unload,
+        resume,
+        fork,
+        persist,
+        accept,
+        dump,
+        delete,
+    ] = lifecycle_menu_rows(&conversation, false, false, false, true);
     assert!(stop.1, "a turn is running");
     assert!(abort.1, "there is a process to kill");
     assert!(unload.1, "the harness is up");
     assert!(!resume.1, "already launched");
     assert!(!fork.1, "a turn is in flight");
     assert_eq!(persist.0, "Make persistent", "not kept yet");
+    assert_eq!(accept.0, "Accept all", "not overriding yet");
+    assert_eq!(dump.0, "Dump messages", "nothing is being written yet");
     assert_eq!(delete.0, "Delete", "the destructive verb stays last");
     assert!(delete.1, "always enabled");
 
     // Unloaded: no turn to stop, nothing to unload, Resume is what applies now.
     conversation.launched = false;
     conversation.run = Run::Idle;
-    let [stop, abort, unload, resume, fork, persist, delete] =
-        lifecycle_menu_rows(&conversation, true, true);
+    let [
+        stop,
+        abort,
+        unload,
+        resume,
+        fork,
+        persist,
+        accept,
+        dump,
+        delete,
+    ] = lifecycle_menu_rows(&conversation, true, true, true, true);
     assert!(!stop.1, "nothing is running");
     assert!(!abort.1, "there is no process left to kill");
     assert!(!unload.1, "there is no harness to unload");
@@ -1030,13 +1053,22 @@ fn the_lifecycle_menu_disables_resume_while_launched_and_unload_once_it_is_not()
         persist.0, "Stop persisting",
         "the label says which way it goes"
     );
+    assert_eq!(
+        accept.0, "Stop accepting all",
+        "the label says which way it goes"
+    );
+    assert_eq!(dump.0, "Stop dumping", "the label says which way it goes");
     assert!(delete.1, "always enabled");
 
     // A harness that keeps its sessions outside the run directory — grok — can be neither kept
     // nor forked, because Ubiq would be keeping and copying a directory that holds none of it.
-    let [_, _, _, _, fork, persist, delete] = lifecycle_menu_rows(&conversation, false, false);
+    // The other two toggles are Ubiq's own and answer to no harness, so they stay live.
+    let [_, _, _, _, fork, persist, accept, dump, delete] =
+        lifecycle_menu_rows(&conversation, false, false, false, false);
     assert!(!fork.1, "a copy would share one store rather than diverge");
     assert!(!persist.1, "keeping the directory would preserve nothing");
+    assert!(accept.1, "Ubiq answers the requests, not the harness");
+    assert!(dump.1, "Ubiq writes the file, not the harness");
     assert!(delete.1, "delete is still the user's to press");
 }
 

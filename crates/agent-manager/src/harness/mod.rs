@@ -1018,6 +1018,7 @@ mod tests {
             ephemeral: true,
             login_origin: None,
             resume: None,
+            model: None,
             #[cfg(feature = "inproc-mcp")]
             inproc_servers: Vec::new(),
         };

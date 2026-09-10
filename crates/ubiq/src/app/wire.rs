@@ -1147,12 +1147,12 @@ impl AppState {
                     .any(|column| open.agents.active_agent(column) == Some(agent_id))
                     || open.chats.iter().any(|tab| tab.attached == Some(agent_id));
                 let on_screen = elsewhere || shown;
-                // Read before `open`'s borrow ends below — the bell for the conversation nobody
-                // has on screen, per `G198`. A permission ask is worth the interruption whoever it
-                // is for, a delegate included: it still blocks a turn somebody has to answer. A
-                // turn ending is the *main* agent's alone — a delegate's turns fold into the
-                // transcript rather than closing with their own `TurnEnded`, so `parent` is what
-                // tells the two apart.
+                // Read before `open`'s borrow ends below — the bell, per `G198`. A permission ask
+                // is worth the interruption whoever it is for, a delegate included: it still
+                // blocks a turn somebody has to answer. A turn ending is the *main* agent's alone
+                // — a delegate's turns fold into the transcript rather than closing with their
+                // own `TurnEnded`, so `parent` is what tells the two apart — and it is the bell
+                // for the conversation nobody has on screen.
                 let agent_name = open.work.agent(agent_id).map(|a| a.name.clone());
                 let is_delegate = open
                     .work
@@ -1161,29 +1161,36 @@ impl AppState {
                 if on_screen {
                     self.draw_conversation(agent_id, streaming, cx);
                 }
-                if !shown {
-                    if wants_permission {
-                        let mut request = NotificationRequest::warning(
-                            Family::Agents,
-                            "Wants permission to continue.",
-                        )
-                        .with_category("permission")
-                        .with_link(UbiqLink::Agent(agent_id));
-                        if let Some(name) = agent_name.clone() {
-                            request = request.with_actor(name);
-                        }
-                        self.raise_notification(request);
+                // A permission ask is raised **whether or not the conversation is on screen**,
+                // and it is the one notification that also leaves the window. Every other bell
+                // here reports something that already happened, so a surface already drawing it
+                // has said it; an ask is a question that blocks the turn until somebody answers,
+                // and the surface drawing it may be behind another window, on another screen, or
+                // scrolled away from the prompt. `shown` says a pane exists, never that the user
+                // is looking at it. A mute rule on `Agents · permission` is how somebody who does
+                // not want this turns it off.
+                if wants_permission {
+                    let mut request = NotificationRequest::warning(
+                        Family::Agents,
+                        "Wants permission to continue.",
+                    )
+                    .with_category("permission")
+                    .with_link(UbiqLink::Agent(agent_id))
+                    .with_os();
+                    if let Some(name) = agent_name.clone() {
+                        request = request.with_actor(name);
                     }
-                    if turn_ended && !is_delegate {
-                        let mut request =
-                            NotificationRequest::info(Family::Agents, "The turn finished.")
-                                .with_category("turn")
-                                .with_link(UbiqLink::Agent(agent_id));
-                        if let Some(name) = agent_name {
-                            request = request.with_actor(name);
-                        }
-                        self.raise_notification(request);
+                    self.raise_notification(request);
+                }
+                if !shown && turn_ended && !is_delegate {
+                    let mut request =
+                        NotificationRequest::info(Family::Agents, "The turn finished.")
+                            .with_category("turn")
+                            .with_link(UbiqLink::Agent(agent_id));
+                    if let Some(name) = agent_name {
+                        request = request.with_actor(name);
                     }
+                    self.raise_notification(request);
                 }
                 if let Some(queued) = next_prompt {
                     self.send_prompt(agent_id, queued.text);

@@ -563,11 +563,11 @@ impl AppState {
     }
 
     /// Pick a row of the lifecycle menu, in the order it draws them: 0 Stop, 1 Abort, 2 Unload,
-    /// 3 Resume, 4 Fork, 5 the persistence toggle, 6 Delete. The order is
-    /// [`crate::ui::conversation::lifecycle_menu_rows`]'s and nothing else's — the rows are
-    /// dispatched by position, so the two are read together or not at all. Delete does not act
-    /// here — it raises a confirm instead, being the one destructive, irreversible verb of the
-    /// seven.
+    /// 3 Resume, 4 Fork, 5 the persistence toggle, 6 the accept-all toggle, 7 the dump toggle,
+    /// 8 Delete. The order is [`crate::ui::conversation::lifecycle_menu_rows`]'s and nothing
+    /// else's — the rows are dispatched by position, so the two are read together or not at all.
+    /// Delete does not act here — it raises a confirm instead, being the one destructive,
+    /// irreversible verb of the nine.
     pub fn pick_conversation_menu(
         &mut self,
         agent_id: AgentId,
@@ -582,7 +582,9 @@ impl AppState {
             3 => self.resume_agent(agent_id, cx),
             4 => self.fork_conversation(agent_id, cx),
             5 => self.toggle_conversation_persistent(agent_id, cx),
-            6 => {
+            6 => self.toggle_conversation_accept_all(agent_id, cx),
+            7 => self.toggle_conversation_debug_dump(agent_id, cx),
+            8 => {
                 self.workbench.confirm_end_conversation = Some(agent_id);
                 cx.notify();
             }
@@ -601,6 +603,46 @@ impl AppState {
         self.bus.send(Message::SetConversationPersistent {
             agent_id,
             persistent: !persistent,
+        });
+        cx.notify();
+    }
+
+    /// Answer every permission request on this conversation with allow, without showing any of
+    /// them — or stop doing so. The host does the answering; nothing about it is decided here.
+    ///
+    /// Nothing is drawn optimistically, for [`Self::toggle_conversation_persistent`]'s reason: the
+    /// host owns the record, and the row's wording turns over when the work snapshot says it did.
+    /// A label that flips on the click and back on the refusal would be worse than one that waits
+    /// — and worse here than there, because what it would be wrong about is whether the next
+    /// question gets asked at all.
+    pub fn toggle_conversation_accept_all(&mut self, agent_id: AgentId, cx: &mut Context<Self>) {
+        let accept_all = self
+            .work(cx)
+            .and_then(|work| work.agent(agent_id))
+            .is_some_and(|agent| agent.accept_all);
+        self.bus.send(Message::SetConversationAcceptAll {
+            agent_id,
+            accept_all: !accept_all,
+        });
+        cx.notify();
+    }
+
+    /// Start writing this conversation's traffic to a file, or stop. The window asks for the dump
+    /// and is told afterwards where it went: the host chooses the path and reports it back on
+    /// `WorkAgent::debug_dump`, which is both what the menu row's wording reads and what its
+    /// tooltip says.
+    ///
+    /// So the message carries a `bool` and the record carries a path, and nothing is drawn
+    /// optimistically — for [`Self::toggle_conversation_persistent`]'s reason, and because there
+    /// is no path to draw until the host has picked one.
+    pub fn toggle_conversation_debug_dump(&mut self, agent_id: AgentId, cx: &mut Context<Self>) {
+        let dumping = self
+            .work(cx)
+            .and_then(|work| work.agent(agent_id))
+            .is_some_and(|agent| agent.debug_dump.is_some());
+        self.bus.send(Message::SetConversationDebugDump {
+            agent_id,
+            debug_dump: !dumping,
         });
         cx.notify();
     }

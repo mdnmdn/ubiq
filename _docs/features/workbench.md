@@ -234,18 +234,33 @@ pickers return, exactly as a conversation that has not launched yet reads.
 Resume (`ResumeConversation`) starts the harness again under the same agent, with no prompt. Delete
 (`EndConversation`) ends the conversation outright, taking the run directory and the transcript with
 it, and is the one item confirmed before it fires rather than acted on the click — it is the only
-irreversible one of the seven.
+irreversible one of the nine.
 Fork (`ReviveConversation` with a fresh `agent_id`) copies the run directory and launches a second
-agent in the copy from this point on, leaving the source untouched; the persistence row
-(`SetConversationPersistent`) marks the conversation as one that outlives the window, its label
-reading *Make persistent* or *Stop persisting* by which way the toggle goes. Both sit before Delete,
-because neither is destructive and the irreversible verb stays last. Each item disables
-rather than disappears when it does not apply — Stop only while a turn runs, Abort and Unload only
+agent in the copy from this point on, leaving the source untouched.
+
+**Three toggles sit between Fork and Delete, and they are Ubiq's own rather than the harness's.**
+The persistence row (`SetConversationPersistent`) marks the conversation as one that outlives the
+window, reading *Make persistent* or *Stop persisting* by which way it goes. The accept-all row
+(`SetConversationAcceptAll`) reads *Accept all* or *Stop accepting all*, and while it is on the host
+answers every permission the harness asks for and the window is never shown the ask — the chat
+document holds what that does to the transcript. The dump row
+(`SetConversationDebugDump`) reads *Dump messages* or *Stop dumping* and writes that one
+conversation's traffic to a file; the host answers where, and the row carries the path as its
+tooltip, because a capture the user cannot find is a capture that did not happen. All three sit
+before Delete, because none is destructive and the irreversible verb stays last — which is where a
+toggle added later goes too. **Only the persistence row reads the harness**: it is drawn dead for a
+harness that keeps its sessions outside the run directory (`keeps_sessions`), since keeping that
+directory would preserve nothing, while the other two are always enabled because Ubiq answers and
+Ubiq writes, and no harness has to support either.
+
+**Each item disables rather than disappears when it does not apply** — Stop only while a turn runs, Abort and Unload only
 while launched, Resume only while it is not, Fork only while nothing is in flight (copying a session
 store mid-append tears the last record), Delete always — so the menu's shape never changes under
-the cursor. The labels and their enablement are one list of pairs,
+the cursor. The nine labels and their enablement are one list of pairs,
 `ui::conversation::lifecycle_menu_rows`, because `AppState::pick_conversation_menu` dispatches by
-position and a row in one copy of the list and not another is a menu whose rows do the wrong thing. See [`sessions-and-workspaces.md`](./sessions-and-workspaces.md) for what unload keeps that
+position and a row in one copy of the list and not another is a menu whose rows do the wrong thing.
+`ui::conversation::LIFECYCLE_DUMP_ROW` names the one row the menu reaches back into to hang the
+capture's path on, for the same reason. See [`sessions-and-workspaces.md`](./sessions-and-workspaces.md) for what unload keeps that
 delete does not.
 
 **The bench is computed, not stored.** It is every agent the host reports that no column is showing,
@@ -2581,9 +2596,11 @@ explorer's. `reveal_agent()`, `group_agent_into()`, `bench_agent()`, `select_col
 `settle_tab_drag()` are the drag, the last putting down a tab whose drag ended where no drop handler
 sees it. `steer_column()` is the one thing this screen sends through the Enter key, and appends
 nothing itself; `close_all_conversations()` is `bench_agent()` for every tab in every column, not
-`end_conversation()`. The lifecycle menu's five rows resolve by position through
+`end_conversation()`. The lifecycle menu's nine rows resolve by position through
 `pick_conversation_menu()` onto `cancel_turn()`, `abort_agent()`, `unload_agent()`,
-`resume_agent()` and the confirm `end_conversation()` fires from. `fill_columns()` gives each composer its placeholder and its draft, drained in
+`resume_agent()`, `fork_conversation()`, `toggle_conversation_persistent()`,
+`toggle_conversation_accept_all()`, `toggle_conversation_debug_dump()` and the confirm
+`end_conversation()` fires from. `fill_columns()` gives each composer its placeholder and its draft, drained in
 `render` for the reason `fill_task_form()` is: `set_placeholder` and `set_value` both need a window,
 and an arriving message, a project switch and a jump from another screen have none. `MenuId::AgentBench`
 carries the column its `+` was clicked in, because a row of columns has one each and only one menu

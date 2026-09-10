@@ -16,11 +16,13 @@
 //! whole contract: which binary, which arguments and which credentials are
 //! [`crate::harness`]'s business, at provisioning time.
 //!
-//! **This has not been pinned against a live ACP agent in this tree.** No
-//! ACP-speaking harness binary is installed on the machine this was written
-//! on, so every frame below is written to the spec reference rather than to a
-//! capture. The first real session may correct it; the places most likely to
-//! move are the ones flagged in prose here rather than silently guessed.
+//! **Only Grok has been pinned against a live agent.** `grok agent stdio` was
+//! captured frame by frame (`_docs/wip/grok-acp-capture.md`), and what it
+//! showed is that a real agent states its models, its modes and its subagents
+//! in vendor shapes the spec does not name — see [`session_config`] and
+//! [`attribute`]. Everything else below is still written to the spec
+//! reference rather than to a capture, and the first real session with
+//! another agent may correct it.
 //!
 //! This is **core** (always compiled, no feature gate): only `std::process`,
 //! `std::sync`, `std::thread`, `std::fs`, `serde_json` and `tracing` are
@@ -89,8 +91,10 @@
 //!
 //! ### Request/response correlation
 //!
-//! Every outbound request that *does* block ([`initialize`], `session/new`,
-//! `session/load`, `session/set_config_option`) takes a fresh id from an
+//! Every outbound request that *does* block (`initialize`, `authenticate`,
+//! `session/new`, `session/load`, and the three setters —
+//! `session/set_config_option`, `session/set_model`, `session/set_mode`)
+//! takes a fresh id from an
 //! `AtomicI64` and registers an `mpsc::Sender` in the shared pending map
 //! **before** the line is written, so the reader can never observe the
 //! response before someone is ready for it. The wait is always
@@ -189,9 +193,9 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 use super::{
-    AgentEvent, AgentInput, AgentInputSink, ConfigSetting, Content, IoBridge, Origin,
-    PermissionKind, PermissionOption, PermissionOutcome, Spend, StopReason, ToolCall,
-    ToolCallUpdate, ToolKind, ToolStatus,
+    AgentEvent, AgentInput, AgentInputSink, ConfigCategory, ConfigChoice, ConfigOption,
+    ConfigSetting, ConfigValue, Content, IoBridge, Origin, PermissionKind, PermissionOption,
+    PermissionOutcome, Spend, StopReason, ToolCall, ToolCallUpdate, ToolKind, ToolStatus,
 };
 
 /// How long the handshake waits for `initialize` / `session/new` /
@@ -247,6 +251,27 @@ struct PromptCaps {
     embedded_context: bool,
 }
 
+/// Which mechanism advertised a config option — and therefore, which method
+/// sets it back.
+///
+/// ACP's `configOptions` is one mechanism for every knob, but an agent that
+/// predates it (or never adopted it) states its model and its mode in vendor
+/// blocks with dedicated setters. [`session_config`] flattens all of them into
+/// one option list; this is the memo of where each entry came from, so
+/// [`AgentInput::SetConfigOption`] can address the right method rather than
+/// naming an option the agent never advertised.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConfigSource {
+    /// A real `configOptions` entry — `session/set_config_option`.
+    Option,
+    /// The `models` block or an `x.ai/sessionConfig` `model` group —
+    /// `session/set_model`.
+    Model,
+    /// The legacy `modes` block or an `x.ai/sessionConfig` `mode` group —
+    /// `session/set_mode`.
+    Mode,
+}
+
 /// What the reader thread has to remember across notifications, because ACP
 /// does not carry it on the wire.
 ///
@@ -271,6 +296,12 @@ struct ReaderState {
     /// The `category: "model"` config option's current value, so a usage
     /// report can name a model ACP never puts on the report itself.
     model: Option<String>,
+    /// The session's config options as the interface sees them, each beside
+    /// the mechanism that advertised it — which is also the method that sets
+    /// it back. See [`ConfigSource`]. Kept whole rather than as a lookup
+    /// table because an agent-initiated change re-emits the *set*, not the
+    /// one option that moved.
+    config: Vec<(ConfigOption, ConfigSource)>,
     /// The last `used`/`size` a `usage_update` reported, so the turn's own
     /// spend report can state the same occupancy rather than reading as a
     /// context window that just emptied. `(0, 0)` until one arrives — which
@@ -347,6 +378,13 @@ impl AcpBridge {
     /// `cwd` becomes the session's `cwd`, which ACP requires to be absolute;
     /// a relative path is resolved against the process's working directory.
     ///
+    /// `model` is the model the run asked for. An ACP agent takes no model on
+    /// its command line that it honours for a stdio session — Grok's
+    /// `--model` is accepted and then ignored — so the choice is made over the
+    /// wire after `session/new`, through the same setter an interactive change
+    /// uses. A model the agent does not offer is a warning, not a failure: the
+    /// run continues on the agent's own default.
+    ///
     /// Errors (without hanging — every step is timeout-bounded) if:
     /// - `child`'s stdin/stdout are not piped (a programmer error —
     ///   [`super::spawn_piped`] always pipes both);
@@ -359,7 +397,12 @@ impl AcpBridge {
     /// On any handshake error the partially-built bridge — reader thread and
     /// child process included — is torn down by [`Drop`] as the function
     /// returns.
-    pub fn new(mut child: Child, cwd: &Path, resume: Option<&str>) -> crate::Result<Self> {
+    pub fn new(
+        mut child: Child,
+        cwd: &Path,
+        resume: Option<&str>,
+        model: Option<&str>,
+    ) -> crate::Result<Self> {
         let stdin = child
             .stdin
             .take()
@@ -404,15 +447,20 @@ impl AcpBridge {
             agent_capabilities: Value::Null,
         };
 
-        bridge.handshake(&cwd, resume)?;
+        bridge.handshake(&cwd, resume, model)?;
 
         Ok(bridge)
     }
 
     /// `initialize` → `session/new` (or `session/load`), recording the agent's
-    /// capabilities and session id and emitting the two events the result
-    /// implies.
-    fn handshake(&mut self, cwd: &str, resume: Option<&str>) -> crate::Result<()> {
+    /// capabilities and session id, putting the session on the requested
+    /// `model`, and emitting the two events the result implies.
+    fn handshake(
+        &mut self,
+        cwd: &str,
+        resume: Option<&str>,
+        model: Option<&str>,
+    ) -> crate::Result<()> {
         let init = rpc_request(
             &self.shared,
             "initialize",
@@ -442,18 +490,37 @@ impl AcpBridge {
             .and_then(Value::as_bool)
             .unwrap_or(false);
 
-        // Authentication is *not* attempted. This bridge cannot drive an
-        // interactive or OAuth login, and `am` settles credentials at
-        // provisioning time (`crate::harness`), so a non-empty `authMethods`
-        // is information rather than a step. If auth really is required the
-        // agent rejects `session/new` with -32000, and that surfaces below as
-        // a `new()` failure naming the methods it advertised.
+        // Authentication, but only the non-interactive kind. `am` settles
+        // credentials at provisioning time (`crate::harness`), and this bridge
+        // cannot drive an OAuth or device-code login — so the one method it
+        // will use is the one the agent itself nominates as the default
+        // (Grok's `cached_token`, which reads `~/.grok/auth.json` and asks
+        // nothing). Anything else stays information rather than a step, and
+        // surfaces as a `session/new` -32000 below.
+        //
+        // A failed `authenticate` is *not* fatal here: `session/new` is the
+        // authority on whether the session can start, and its error names the
+        // methods the agent advertised, which is the diagnosable message.
         let auth_methods = auth_method_ids(&init);
-        if !auth_methods.is_empty() {
-            tracing::debug!(
-                methods = ?auth_methods,
-                "acp agent advertises auth methods; not attempting `authenticate`"
-            );
+        match default_auth_method(&init) {
+            Some(method_id) => {
+                if let Err(err) = rpc_request(
+                    &self.shared,
+                    "authenticate",
+                    json!({"methodId": method_id}),
+                    HANDSHAKE_TIMEOUT,
+                ) {
+                    tracing::warn!(%method_id, %err, "acp `authenticate` failed");
+                }
+            }
+            None if !auth_methods.is_empty() => {
+                tracing::warn!(
+                    methods = ?auth_methods,
+                    "acp agent advertises auth methods but names no default; not attempting \
+                     `authenticate`"
+                );
+            }
+            None => {}
         }
 
         let (method, params) = match resume {
@@ -509,11 +576,21 @@ impl AcpBridge {
         // transcript wants exactly those events. It does mean a resumed
         // conversation re-emits its history, in order, ahead of the
         // `SessionStarted` below.
-        for ev in session_events(&session_id, &result) {
-            if let AgentEvent::SessionStarted { model, .. } = &ev
-                && let Ok(mut state) = self.shared.state.lock()
-            {
-                state.model.clone_from(model);
+        // The model list is also on `initialize`'s `_meta.modelState`, in the
+        // same shape, so an agent whose `session/new` omits it still names its
+        // models.
+        let init_models = init.get("_meta").and_then(|meta| meta.get("modelState"));
+        let mut setup = session_events(&session_id, &result, init_models);
+        {
+            let mut state = state_of(&self.shared);
+            state.config = std::mem::take(&mut setup.config);
+        }
+        // Over the wire, and before anything is emitted: the events below must
+        // state the model the session is actually on.
+        apply_requested_model(&self.shared, model, &mut setup.events);
+        for ev in setup.events {
+            if let AgentEvent::SessionStarted { model, .. } = &ev {
+                state_of(&self.shared).model.clone_from(model);
             }
             emit(&self.shared.tx, ev, None);
         }
@@ -637,6 +714,17 @@ fn initialize_params() -> Value {
     })
 }
 
+/// The auth method the agent nominates as its default — the one it says needs
+/// no interaction. `_meta.defaultAuthMethodId` is the only carrier: ACP names
+/// no field for it, so an agent that does not volunteer one is not
+/// authenticated by this client at all.
+fn default_auth_method(init: &Value) -> Option<String> {
+    init.get("_meta")
+        .and_then(|meta| meta.get("defaultAuthMethodId"))
+        .and_then(Value::as_str)
+        .map(String::from)
+}
+
 /// The `authMethods` ids the agent advertised, or empty if it advertised none.
 fn auth_method_ids(init: &Value) -> Vec<String> {
     init.get("authMethods")
@@ -712,21 +800,27 @@ fn lexically_normal(path: &Path) -> PathBuf {
 /// setup — a tool call is only named when it happens, and there is no
 /// subagent vocabulary at all — so guessing would be worse than saying
 /// nothing.
-fn session_events(session_id: &str, result: &Value) -> Vec<AgentEvent> {
-    let config = result.get("configOptions").filter(|c| !c.is_null());
-    // The mode lives in one of two places: the legacy `modes` block, or a
-    // config option with `category: "mode"`. §10 of the reference calls
-    // config options the successor and `modes` the deprecated sibling, but an
-    // agent may still send only the latter.
+fn session_events(session_id: &str, result: &Value, init_models: Option<&Value>) -> SessionSetup {
+    let config = session_config(result, init_models);
+    // The mode lives in one of three places: the legacy `modes` block, a
+    // config option with `category: "mode"`, or a vendor block. §10 of the
+    // reference calls config options the successor and `modes` the deprecated
+    // sibling, but an agent may still send only the latter — and Grok sends
+    // neither.
     let mode = result
         .get("modes")
         .and_then(|modes| modes.get("currentModeId"))
         .and_then(Value::as_str)
         .map(String::from)
-        .or_else(|| config.and_then(|c| config_current_value(c, "mode")));
+        .or_else(|| current_of(&config, &ConfigCategory::Mode));
     // ACP has no model field anywhere; the model is a config option with
     // `category: "model"`, and its `currentValue` is the model id.
-    let model = config.and_then(|c| config_current_value(c, "model"));
+    let model = result
+        .get("models")
+        .and_then(|models| models.get("currentModelId"))
+        .and_then(Value::as_str)
+        .map(String::from)
+        .or_else(|| current_of(&config, &ConfigCategory::Model));
 
     let mut events = vec![AgentEvent::SessionStarted {
         session_id: Some(session_id.to_string()),
@@ -735,12 +829,230 @@ fn session_events(session_id: &str, result: &Value) -> Vec<AgentEvent> {
         tools: Vec::new(),
         agents: Vec::new(),
     }];
-    if let Some(config) = config
-        && let Some(ev) = config_option_update(config)
-    {
+    if let Some(ev) = config_event(&config) {
         events.push(ev);
     }
-    events
+    SessionSetup { events, config }
+}
+
+/// What `session/new`'s result implies: the events to emit, and the config
+/// the reader has to remember to route a later set.
+struct SessionSetup {
+    events: Vec<AgentEvent>,
+    config: Vec<(ConfigOption, ConfigSource)>,
+}
+
+/// Every knob the session advertised, whichever mechanism it used, flattened
+/// into one option list beside the [`ConfigSource`] that will set each back.
+///
+/// The precedence is the reference's own: `configOptions` is the successor and
+/// wins outright — an agent that sends it has said everything it has to say.
+/// Only failing that are the vendor blocks read, and those *compose*: Grok
+/// states its models in `models` and its reasoning efforts in
+/// `_meta["x.ai/sessionConfig"]`, and a session that offers both should offer
+/// both. An id already claimed by an earlier source is not claimed twice.
+fn session_config(
+    result: &Value,
+    init_models: Option<&Value>,
+) -> Vec<(ConfigOption, ConfigSource)> {
+    if let Some(options) = result
+        .get("configOptions")
+        .filter(|c| !c.is_null())
+        .and_then(Value::as_array)
+    {
+        return options
+            .iter()
+            .map(|option| (super::acp::from_config_option(option), ConfigSource::Option))
+            .collect();
+    }
+
+    let mut config = Vec::new();
+    let entries = |block: &Value, key: &str| {
+        block
+            .get(key)
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
+    };
+
+    if let Some(modes) = result.get("modes").filter(|m| !m.is_null())
+        && let Some(option) = vendor_select(
+            "mode",
+            "Mode",
+            ConfigCategory::Mode,
+            modes.get("currentModeId").and_then(Value::as_str),
+            &entries(modes, "availableModes"),
+            "id",
+        )
+    {
+        config.push((option, ConfigSource::Mode));
+    }
+
+    if let Some(models) = result
+        .get("models")
+        .filter(|m| !m.is_null())
+        .or(init_models.filter(|m| !m.is_null()))
+        && let Some(option) = vendor_select(
+            "model",
+            "Model",
+            ConfigCategory::Model,
+            models.get("currentModelId").and_then(Value::as_str),
+            &entries(models, "availableModels"),
+            "modelId",
+        )
+    {
+        config.push((option, ConfigSource::Model));
+    }
+
+    for (option, source) in xai_config(result) {
+        if !config.iter().any(|(known, _)| known.id == option.id) {
+            config.push((option, source));
+        }
+    }
+    config
+}
+
+/// One select option out of a vendor `{current…Id, available…[]}` block —
+/// `modes` keyed by `id`, `models` keyed by `modelId`.
+///
+/// An empty list is no option at all: a picker with nothing to pick is worse
+/// than silence, and the current value alone already reaches the interface on
+/// [`AgentEvent::SessionStarted`].
+fn vendor_select(
+    id: &str,
+    name: &str,
+    category: ConfigCategory,
+    current: Option<&str>,
+    entries: &[Value],
+    value_key: &str,
+) -> Option<ConfigOption> {
+    let options: Vec<ConfigChoice> = entries
+        .iter()
+        .filter_map(|entry| {
+            let value = entry.get(value_key).and_then(Value::as_str)?;
+            Some(ConfigChoice {
+                value: value.to_string(),
+                name: str_any(entry, &["name", "label"]).unwrap_or_else(|| value.to_string()),
+                description: entry
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .map(String::from),
+                group: None,
+            })
+        })
+        .collect();
+    let first = options.first()?.value.clone();
+    Some(ConfigOption {
+        id: id.to_string(),
+        name: name.to_string(),
+        description: None,
+        category: Some(category),
+        value: ConfigValue::Select {
+            current_value: current.map_or(first, String::from),
+            options,
+        },
+    })
+}
+
+/// Grok's `_meta["x.ai/sessionConfig"].options[]` — one flat list of
+/// `{id, category, label, selected}` — as one select option per category.
+///
+/// Note what Grok calls things: its `category: "mode"` is the *reasoning
+/// effort*, not a permission mode. That is still the mode setter's business
+/// (`session/set_mode` takes a reasoning-effort id), so the naming is
+/// followed rather than corrected.
+fn xai_config(result: &Value) -> Vec<(ConfigOption, ConfigSource)> {
+    let Some(entries) = result
+        .get("_meta")
+        .and_then(|meta| meta.get("x.ai/sessionConfig"))
+        .and_then(|config| config.get("options"))
+        .and_then(Value::as_array)
+    else {
+        return Vec::new();
+    };
+    // First-seen order, so the interface draws the categories in the order
+    // the agent listed them.
+    let mut groups: Vec<(String, Vec<Value>)> = Vec::new();
+    for entry in entries {
+        let Some(category) = entry.get("category").and_then(Value::as_str) else {
+            continue;
+        };
+        match groups.iter_mut().find(|(name, _)| name == category) {
+            Some((_, group)) => group.push(entry.clone()),
+            None => groups.push((category.to_string(), vec![entry.clone()])),
+        }
+    }
+    groups
+        .into_iter()
+        .filter_map(|(category, group)| {
+            let (name, kind, source) = match category.as_str() {
+                "model" => ("Model", ConfigCategory::Model, ConfigSource::Model),
+                "mode" => ("Mode", ConfigCategory::Mode, ConfigSource::Mode),
+                other => (
+                    other,
+                    ConfigCategory::Other(other.to_string()),
+                    ConfigSource::Option,
+                ),
+            };
+            let current = group
+                .iter()
+                .find(|entry| entry.get("selected").and_then(Value::as_bool) == Some(true))
+                .and_then(|entry| entry.get("id"))
+                .and_then(Value::as_str)
+                .map(String::from);
+            let option = vendor_select(&category, name, kind, current.as_deref(), &group, "id")?;
+            Some((option, source))
+        })
+        .collect()
+}
+
+/// The current value of the first option in `category`.
+fn current_of(
+    config: &[(ConfigOption, ConfigSource)],
+    category: &ConfigCategory,
+) -> Option<String> {
+    config
+        .iter()
+        .find(|(option, _)| option.category.as_ref() == Some(category))
+        .and_then(|(option, _)| match &option.value {
+            ConfigValue::Select { current_value, .. } => Some(current_value.clone()),
+            ConfigValue::Boolean { .. } => None,
+        })
+}
+
+/// Point the first option in `category` at `value`, where it has that choice
+/// — an agent-initiated change names a value, not an option id.
+fn set_current(
+    config: &mut [(ConfigOption, ConfigSource)],
+    category: &ConfigCategory,
+    value: &str,
+) {
+    for (option, _) in config
+        .iter_mut()
+        .filter(|(option, _)| option.category.as_ref() == Some(category))
+    {
+        if let ConfigValue::Select { current_value, .. } = &mut option.value {
+            *current_value = value.to_string();
+        }
+    }
+}
+
+/// The whole config set as the one event that states it. `None` when there is
+/// nothing to state — an empty update would read as "the agent withdrew every
+/// choice".
+fn config_event(config: &[(ConfigOption, ConfigSource)]) -> Option<AgentEvent> {
+    (!config.is_empty()).then(|| AgentEvent::ConfigOptionUpdate {
+        options: config.iter().map(|(option, _)| option.clone()).collect(),
+    })
+}
+
+/// The reader state, poisoned or not: every field in it is a memo that a
+/// panicking reader cannot corrupt into anything worse than a stale value.
+fn state_of(shared: &Shared) -> std::sync::MutexGuard<'_, ReaderState> {
+    match shared.state.lock() {
+        Ok(state) => state,
+        Err(poisoned) => poisoned.into_inner(),
+    }
 }
 
 /// The `currentValue` of the first config option in `category`, where it is a
@@ -879,24 +1191,189 @@ fn write_input(shared: &Shared, input: AgentInput) -> crate::Result<()> {
         }
 
         AgentInput::SetConfigOption { config_id, value } => {
-            let result = rpc_request(
-                shared,
-                "session/set_config_option",
-                set_config_params(&session_id, &config_id, &value),
-                REQUEST_TIMEOUT,
-            )?;
-            // The result is always the *complete* option set with current
-            // values, since setting one option can change another — so it is
-            // exactly a `ConfigOptionUpdate`, built through the same mapping
-            // as the notification form.
-            if let Some(options) = result.get("configOptions")
-                && let Some(ev) = config_option_update(options)
-            {
+            if let Some(ev) = set_config_option(shared, &config_id, &value)? {
                 emit(&shared.tx, ev, None);
             }
             Ok(())
         }
     }
+}
+
+/// Set one config option, by whichever method the option's own
+/// [`ConfigSource`] says, and hand back the [`AgentEvent::ConfigOptionUpdate`]
+/// that follows — the caller decides when to emit it.
+///
+/// Which method sets an option back is a property of where it came from, not
+/// of its id: an agent that stated its models in a `models` block accepts
+/// `session/set_model` and names no config option at all. An id with no memo
+/// behind it — a caller's own, or one from before this bridge learned the
+/// session's config — keeps the spec method.
+fn set_config_option(
+    shared: &Shared,
+    config_id: &str,
+    value: &ConfigSetting,
+) -> crate::Result<Option<AgentEvent>> {
+    let session_id = shared.session_id.get().cloned().unwrap_or_default();
+    let source = state_of(shared)
+        .config
+        .iter()
+        .find(|(option, _)| option.id == config_id)
+        .map(|(_, source)| *source);
+    if let ConfigSetting::Text(text) = value {
+        match source {
+            Some(ConfigSource::Model) => {
+                return set_vendor(
+                    shared,
+                    "session/set_model",
+                    json!({"sessionId": session_id, "modelId": text}),
+                    &ConfigCategory::Model,
+                    text,
+                );
+            }
+            Some(ConfigSource::Mode) => {
+                return set_vendor(
+                    shared,
+                    "session/set_mode",
+                    json!({"sessionId": session_id, "modeId": text}),
+                    &ConfigCategory::Mode,
+                    text,
+                );
+            }
+            _ => {}
+        }
+    }
+    let result = rpc_request(
+        shared,
+        "session/set_config_option",
+        set_config_params(&session_id, config_id, value),
+        REQUEST_TIMEOUT,
+    )?;
+    // The result is always the *complete* option set with current values,
+    // since setting one option can change another — so it is exactly a
+    // `ConfigOptionUpdate`, built through the same mapping as the
+    // notification form.
+    Ok(result.get("configOptions").and_then(config_option_update))
+}
+
+/// Put the session on the model the run asked for, and restate `events` — the
+/// handshake's own, not yet emitted — as what the session actually ended up
+/// on.
+///
+/// A `--model` on an ACP agent's command line does not reach a stdio session
+/// (Grok accepts the flag and starts on its default anyway), so the choice is
+/// made here, through the same per-source dispatch an interactive
+/// [`AgentInput::SetConfigOption`] uses.
+///
+/// Three cases ask for nothing: no model was requested, it is already the
+/// current one, or the agent advertised no models at all — an agent that names
+/// no models cannot be asked to change one. A model that is *not* among the
+/// ones on offer is a `warn!` and the agent's own default: a run that starts
+/// on the wrong model is better than one that does not start.
+fn apply_requested_model(shared: &Shared, requested: Option<&str>, events: &mut [AgentEvent]) {
+    let Some(requested) = requested else {
+        return;
+    };
+
+    let advertised = state_of(shared)
+        .config
+        .iter()
+        .find(|(option, _)| option.category.as_ref() == Some(&ConfigCategory::Model))
+        .and_then(|(option, _)| match &option.value {
+            ConfigValue::Select {
+                current_value,
+                options,
+            } => Some((
+                option.id.clone(),
+                current_value.clone(),
+                options
+                    .iter()
+                    .map(|choice| choice.value.clone())
+                    .collect::<Vec<_>>(),
+            )),
+            ConfigValue::Boolean { .. } => None,
+        });
+    let Some((config_id, current, choices)) = advertised.filter(|(_, _, c)| !c.is_empty()) else {
+        tracing::debug!(
+            %requested,
+            "acp agent advertises no model choice; leaving the session on its own model"
+        );
+        return;
+    };
+    if current == requested {
+        return;
+    }
+    if !choices.iter().any(|choice| choice == requested) {
+        tracing::warn!(
+            %requested,
+            offered = ?choices,
+            "acp agent does not offer the requested model; keeping the agent's default"
+        );
+        return;
+    }
+
+    let value = ConfigSetting::Text(requested.to_string());
+    let update = match set_config_option(shared, &config_id, &value) {
+        Ok(update) => update,
+        Err(err) => {
+            tracing::warn!(
+                %requested,
+                %err,
+                "setting the requested model on the acp session failed; keeping the agent's default"
+            );
+            return;
+        }
+    };
+
+    // What the session is *now* on: the setter's own option set where it gave
+    // one, else the memo it just updated. Either way the events below state
+    // the outcome rather than the request.
+    let options = match update {
+        Some(AgentEvent::ConfigOptionUpdate { options }) => options,
+        _ => state_of(shared)
+            .config
+            .iter()
+            .map(|(option, _)| option.clone())
+            .collect(),
+    };
+    let model = options
+        .iter()
+        .find(|option| option.category.as_ref() == Some(&ConfigCategory::Model))
+        .and_then(|option| match &option.value {
+            ConfigValue::Select { current_value, .. } => Some(current_value.clone()),
+            ConfigValue::Boolean { .. } => None,
+        });
+    state_of(shared).model.clone_from(&model);
+    for ev in events {
+        match ev {
+            AgentEvent::SessionStarted { model: started, .. } => started.clone_from(&model),
+            AgentEvent::ConfigOptionUpdate { options: stated } => stated.clone_from(&options),
+            _ => {}
+        }
+    }
+}
+
+/// `session/set_model` or `session/set_mode`, then the config state that
+/// follows from it.
+///
+/// Neither method answers with the option set the way
+/// `session/set_config_option` does — they answer `null` — so the new current
+/// value is recorded here and the whole set restated from the memo. Without
+/// that the interface would show the old selection until the agent happened
+/// to volunteer a notification.
+fn set_vendor(
+    shared: &Shared,
+    method: &str,
+    params: Value,
+    category: &ConfigCategory,
+    value: &str,
+) -> crate::Result<Option<AgentEvent>> {
+    rpc_request(shared, method, params, REQUEST_TIMEOUT)?;
+    let mut state = state_of(shared);
+    set_current(&mut state.config, category, value);
+    if category == &ConfigCategory::Model {
+        state.model = Some(value.to_string());
+    }
+    Ok(config_event(&state.config))
 }
 
 /// `session/cancel` — a **notification**, so no `id` key at all.
@@ -1747,6 +2224,9 @@ fn slice_lines(text: &str, line: Option<u64>, limit: Option<u64>) -> String {
 /// ignored, and **none of them is ever answered** — a notification has no id
 /// to answer.
 fn take_notification(shared: &Shared, method: &str, value: &Value, raw: &Arc<str>) -> bool {
+    if method == "_x.ai/session_notification" {
+        return model_changed(shared, value.get("params").unwrap_or(&Value::Null));
+    }
     if method != "session/update" {
         return true;
     }
@@ -1788,7 +2268,111 @@ fn session_update(shared: &Shared, params: &Value) -> Option<AgentEvent> {
         return Some(ev);
     }
     let ev = super::from_acp(&update)?;
-    Some(attribute(shared, params, &update, ev))
+    let ev = attribute(shared, params, &update, ev);
+    user_chunk(shared, params, ev)
+}
+
+/// The one event that cannot be attributed, and therefore sometimes cannot be
+/// shown: [`AgentEvent::UserMessageChunk`] carries no [`Origin`].
+///
+/// Two drops, both because the alternative renders as a turn the user never
+/// took:
+/// - a chunk on a **child** session is the delegate's prompt, which the spawn
+///   call already shows as its input;
+/// - a chunk that is wholly a `<system-reminder>` block is the harness talking
+///   to the model (Grok announces a finished background subagent that way).
+///   A block wrapped around real text is stripped and the rest kept.
+fn user_chunk(shared: &Shared, params: &Value, ev: AgentEvent) -> Option<AgentEvent> {
+    let AgentEvent::UserMessageChunk {
+        content,
+        message_id,
+    } = ev
+    else {
+        return Some(ev);
+    };
+    if is_child_session(shared, params) {
+        return None;
+    }
+    let Content::Text { text } = &content else {
+        return Some(AgentEvent::UserMessageChunk {
+            content,
+            message_id,
+        });
+    };
+    let stripped = strip_system_reminder(text);
+    if stripped.is_empty() {
+        return None;
+    }
+    Some(AgentEvent::UserMessageChunk {
+        content: Content::Text { text: stripped },
+        message_id,
+    })
+}
+
+/// Whether this notification's envelope names a session other than the
+/// bridge's own. Only answerable once the handshake has recorded that id —
+/// before then, everything is the main session by definition.
+fn is_child_session(shared: &Shared, params: &Value) -> bool {
+    let session = params.get("sessionId").and_then(Value::as_str);
+    match (shared.session_id.get(), session) {
+        (Some(main), Some(session)) => main != session,
+        _ => false,
+    }
+}
+
+/// `text` with a leading or trailing `<system-reminder>…</system-reminder>`
+/// block removed, repeatedly, and trimmed. Empty means there was nothing but
+/// reminders.
+fn strip_system_reminder(text: &str) -> String {
+    const OPEN: &str = "<system-reminder>";
+    const CLOSE: &str = "</system-reminder>";
+    let mut rest = text.trim();
+    loop {
+        if let Some(tail) = rest.strip_prefix(OPEN)
+            && let Some((_, after)) = tail.split_once(CLOSE)
+        {
+            rest = after.trim();
+            continue;
+        }
+        if rest.ends_with(CLOSE)
+            && let Some(at) = rest.rfind(OPEN)
+        {
+            rest = rest[..at].trim();
+            continue;
+        }
+        break;
+    }
+    rest.to_string()
+}
+
+/// Grok's `_x.ai/session_notification`, the vendor twin of
+/// `current_mode_update` and `config_option_update`: the agent changed the
+/// model or the reasoning effort by itself (a `/model` command in its own UI,
+/// or a fallback), and says so with values rather than with an option set.
+///
+/// The answer is to restate the whole config from the memo, which is the only
+/// place the *choices* still live — the notification names none.
+fn model_changed(shared: &Shared, params: &Value) -> bool {
+    let update = params.get("update").unwrap_or(params);
+    if update.get("sessionUpdate").and_then(Value::as_str) != Some("model_changed") {
+        return true;
+    }
+    let ev = {
+        let mut state = state_of(shared);
+        if let Some(model) = update.get("model_id").and_then(Value::as_str) {
+            set_current(&mut state.config, &ConfigCategory::Model, model);
+            state.model = Some(model.to_string());
+        }
+        // Grok's "mode" *is* the reasoning effort. See [`xai_config`].
+        if let Some(effort) = update.get("reasoning_effort").and_then(Value::as_str) {
+            set_current(&mut state.config, &ConfigCategory::Mode, effort);
+        }
+        config_event(&state.config)
+    };
+    match ev {
+        Some(ev) => emit(&shared.tx, ev, None),
+        None => true,
+    }
 }
 
 /// Record or forget a subagent session from the ACP subagent extension's two
@@ -1881,6 +2465,18 @@ fn attribute(shared: &Shared, params: &Value, update: &Value, mut ev: AgentEvent
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_string();
+    // The general rule, and the one that needs no extension at all: an
+    // envelope naming neither the bridge's own session nor a session already
+    // known is a child, and the delegate that opened last is whose it is.
+    // Grok never announces the child — the first frame *is* the announcement.
+    if !session.is_empty()
+        && shared.session_id.get().is_some_and(|main| main != &session)
+        && !state.subagents.contains_key(&session)
+        && let Some((_, name)) = state.delegates.last().cloned()
+    {
+        let name = name.unwrap_or_else(|| session.clone());
+        state.subagents.insert(session.clone(), name);
+    }
     let child = state
         .subagents
         .get(&session)
@@ -1920,12 +2516,25 @@ fn attribute(shared: &Shared, params: &Value, update: &Value, mut ev: AgentEvent
             // The delegate's own call belongs to whoever opened it, not to itself.
             return ev;
         }
-        AgentEvent::ToolCallUpdate { update } => {
+        AgentEvent::ToolCallUpdate { update: patch } => {
+            // A spawn that names its child in its own result is the reliable
+            // registration: the child's transcript may arrive long after the
+            // call closed (Grok's background subagents), by which time the
+            // open-delegate heuristic has nothing left to point at.
+            if let Some((id, name)) = state
+                .delegates
+                .iter()
+                .find(|(id, _)| id == &patch.id)
+                .map(|(id, name)| (id.clone(), name.clone()))
+                && let Some(child) = subagent_id_in(update)
+            {
+                state.subagents.insert(child, name.unwrap_or(id));
+            }
             if matches!(
-                update.status,
+                patch.status,
                 Some(ToolStatus::Completed | ToolStatus::Failed)
             ) {
-                state.delegates.retain(|(id, _)| id != &update.id);
+                state.delegates.retain(|(id, _)| id != &patch.id);
             }
             return ev;
         }
@@ -1956,11 +2565,46 @@ fn attribute(shared: &Shared, params: &Value, update: &Value, mut ev: AgentEvent
 /// `_meta` tool name the reference adapter emits
 /// (`_meta.claudeCode.toolName`), or the call's own title or name.
 fn is_delegate(update: &Value, title: &str) -> bool {
-    let named =
-        |name: &str| name.eq_ignore_ascii_case("task") || name.eq_ignore_ascii_case("agent");
-    super::acp::meta_string(update, &["toolName"]).is_some_and(|name| named(&name))
+    let named = |name: &str| {
+        name.eq_ignore_ascii_case("task")
+            || name.eq_ignore_ascii_case("agent")
+            || name.eq_ignore_ascii_case("spawn_subagent")
+    };
+    // Grok names the *kind*, not the tool: `_meta["x.ai/tool"].kind`.
+    let vendor_kind = update
+        .get("_meta")
+        .and_then(|meta| meta.get("x.ai/tool"))
+        .and_then(|tool| tool.get("kind"))
+        .and_then(Value::as_str)
+        == Some("task");
+    vendor_kind
+        || super::acp::meta_string(update, &["toolName"]).is_some_and(|name| named(&name))
         || named(title)
         || str_any(update, &["name"]).is_some_and(|name| named(&name))
+}
+
+/// The child session a spawn's own result names — Grok writes
+/// `subagent_id: <uuid>` into the tool call's completion text, and that is the
+/// only place the parent's transcript and the child's stream are ever tied
+/// together.
+fn subagent_id_in(update: &Value) -> Option<String> {
+    let text = update
+        .get("content")
+        .and_then(Value::as_array)?
+        .iter()
+        .filter_map(|item| {
+            item.get("content")
+                .and_then(|content| content.get("text"))
+                .and_then(Value::as_str)
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let (_, rest) = text.split_once("subagent_id:")?;
+    let id = rest
+        .split_whitespace()
+        .next()?
+        .trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '-' && c != '_');
+    (!id.is_empty()).then(|| id.to_string())
 }
 
 /// The first of `keys` present on `value` as a string.
@@ -2034,6 +2678,30 @@ mod tests {
 
     fn raw_of(value: &Value) -> Arc<str> {
         Arc::from(value.to_string().as_str())
+    }
+
+    /// Stand in for the agent: answer the next `count` requests off the
+    /// writer's queue with an empty result, and hand back the frames that
+    /// were asked. Without it a blocking `rpc_request` in a test burns
+    /// [`REQUEST_TIMEOUT`].
+    fn answer_requests(
+        shared: &Arc<Shared>,
+        written: mpsc::Receiver<Option<Value>>,
+        count: usize,
+    ) -> std::thread::JoinHandle<Vec<Value>> {
+        let shared = Arc::clone(shared);
+        std::thread::spawn(move || {
+            let mut frames = Vec::new();
+            while frames.len() < count {
+                let Ok(Some(frame)) = written.recv_timeout(REQUEST_TIMEOUT) else {
+                    break;
+                };
+                let response = json!({"jsonrpc":"2.0","id":frame["id"].clone(),"result":{}});
+                deliver_response(&shared, &frame["id"], &response, &raw_of(&response));
+                frames.push(frame);
+            }
+            frames
+        })
     }
 
     // ── the turn ───────────────────────────────────────────────────────
@@ -2450,6 +3118,124 @@ mod tests {
         assert_eq!(origin(&chunk), Default::default());
     }
 
+    /// Grok announces no subagent at all: the spawn is an ordinary tool call
+    /// (`_meta["x.ai/tool"].kind == "task"`) whose result names the child, and
+    /// the child's transcript then arrives on its own envelope `sessionId`.
+    /// Both routes have to land on the same attribution.
+    #[test]
+    fn a_grok_child_session_is_attributed_to_the_spawn_that_opened_it() {
+        let (shared, _written, _events) = test_shared(&temp_root("grokchild"));
+        let _ = shared.session_id.set("main".to_string());
+
+        let spawn = parse(
+            r#"{"sessionId":"main","update":{"sessionUpdate":"tool_call",
+                "toolCallId":"call_1","title":"spawn_subagent","status":"in_progress",
+                "rawInput":{"subagent_type":"explore","description":"look around"},
+                "_meta":{"x.ai/tool":{"name":"spawn_subagent","kind":"task"}}}}"#,
+        );
+        let Some(AgentEvent::ToolCall { call }) = session_update(&shared, &spawn) else {
+            panic!("expected the spawn to be a tool call");
+        };
+        assert_eq!(call.kind, ToolKind::Delegate);
+
+        // The result names the child, and the call closes — after which the
+        // open-delegate heuristic has nothing left, so the registration is
+        // what carries the attribution.
+        let done = parse(
+            r#"{"sessionId":"main","update":{"sessionUpdate":"tool_call_update",
+                "toolCallId":"call_1","status":"completed","content":[
+                  {"type":"content","content":{"type":"text",
+                   "text":"started\nsubagent_id: child_9\n"}}]}}"#,
+        );
+        assert!(session_update(&shared, &done).is_some());
+
+        let chunk = parse(
+            r#"{"sessionId":"child_9","update":{"sessionUpdate":"agent_message_chunk",
+                "content":{"type":"text","text":"looking"}}}"#,
+        );
+        let Some(AgentEvent::AgentMessageChunk { origin, .. }) = session_update(&shared, &chunk)
+        else {
+            panic!("expected the child's chunk");
+        };
+        assert_eq!(origin.parent_tool_use_id.as_deref(), Some("child_9"));
+        assert_eq!(origin.subagent_type.as_deref(), Some("explore"));
+    }
+
+    /// A child's `user_message_chunk` is the delegate's prompt and carries no
+    /// origin to say so, and a `<system-reminder>` on the main session is the
+    /// harness talking to the model. Neither is a turn the user took.
+    #[test]
+    fn a_user_chunk_is_dropped_when_it_is_not_the_users() {
+        let (shared, _written, _events) = test_shared(&temp_root("userchunk"));
+        let _ = shared.session_id.set("main".to_string());
+        // An open delegate, so the child session registers lazily.
+        state_of(&shared)
+            .delegates
+            .push(("call_1".to_string(), Some("explore".to_string())));
+
+        let chunk = |session: &str, text: &str| {
+            session_update(
+                &shared,
+                &json!({"sessionId": session, "update": {
+                    "sessionUpdate": "user_message_chunk",
+                    "content": {"type": "text", "text": text},
+                }}),
+            )
+        };
+        assert!(chunk("child_9", "go and look").is_none());
+        assert!(
+            chunk(
+                "main",
+                "<system-reminder>Background subagent completed successfully</system-reminder>"
+            )
+            .is_none()
+        );
+        let Some(AgentEvent::UserMessageChunk { content, .. }) = chunk(
+            "main",
+            "<system-reminder>noise</system-reminder>\nfix the bug",
+        ) else {
+            panic!("expected the user's own text to survive");
+        };
+        assert_eq!(content, Content::text("fix the bug"));
+    }
+
+    /// Grok changes the model by itself and says so with values, not with an
+    /// option set — the whole set is restated from the memo.
+    #[test]
+    fn a_vendor_model_change_restates_the_config() {
+        let (shared, _written, events) = test_shared(&temp_root("modelchanged"));
+        let result = parse(
+            r#"{"sessionId":"s1","models":{"currentModelId":"grok-4.6","availableModels":[
+                  {"modelId":"grok-4.6"},{"modelId":"grok-4.5"}]},
+                "_meta":{"x.ai/sessionConfig":{"options":[
+                  {"id":"high","category":"mode","label":"High","selected":true},
+                  {"id":"low","category":"mode","label":"Low","selected":false}]}}}"#,
+        );
+        state_of(&shared).config = session_events("s1", &result, None).config;
+
+        assert!(take_notification(
+            &shared,
+            "_x.ai/session_notification",
+            &parse(
+                r#"{"params":{"sessionId":"s1","update":{"sessionUpdate":"model_changed",
+                    "model_id":"grok-4.5","reasoning_effort":"low"}}}"#
+            ),
+            &raw_of(&Value::Null),
+        ));
+        let Ok(Some((AgentEvent::ConfigOptionUpdate { options }, _))) = events.try_recv() else {
+            panic!("expected the config to be restated");
+        };
+        let current: Vec<_> = options
+            .iter()
+            .map(|option| match &option.value {
+                ConfigValue::Select { current_value, .. } => current_value.clone(),
+                ConfigValue::Boolean { .. } => String::new(),
+            })
+            .collect();
+        assert_eq!(current, vec!["grok-4.5".to_string(), "low".to_string()]);
+        assert_eq!(state_of(&shared).model.as_deref(), Some("grok-4.5"));
+    }
+
     /// Every ACP agent states the turn's tokens on the `session/prompt`
     /// response and nowhere else, in three different places and two different
     /// conventions for what `inputTokens` includes. All three are pinned from
@@ -2700,7 +3486,7 @@ mod tests {
                   {"id":"model","name":"Model","category":"model","type":"select",
                    "currentValue":"opus","options":[{"value":"opus","name":"Opus"}]}]}"#,
         );
-        let events = session_events("sess_1", &result);
+        let events = session_events("sess_1", &result, None).events;
         let AgentEvent::SessionStarted {
             session_id,
             model,
@@ -2730,7 +3516,9 @@ mod tests {
                   {"id":"mode","name":"Mode","category":"mode","type":"select",
                    "currentValue":"code","options":[]}]}"#,
         );
-        let AgentEvent::SessionStarted { mode, .. } = &session_events("sess_2", &result)[0] else {
+        let AgentEvent::SessionStarted { mode, .. } =
+            &session_events("sess_2", &result, None).events[0]
+        else {
             panic!("expected a session to start");
         };
         assert_eq!(mode.as_deref(), Some("code"));
@@ -2739,7 +3527,284 @@ mod tests {
     #[test]
     fn a_session_with_no_config_options_emits_only_the_start() {
         let result = parse(r#"{"sessionId":"sess_3"}"#);
-        assert_eq!(session_events("sess_3", &result).len(), 1);
+        assert_eq!(session_events("sess_3", &result, None).events.len(), 1);
+    }
+
+    /// Grok states its models in a vendor `models` block and no
+    /// `configOptions` at all: without this the interface is handed no model
+    /// picker, which is the "no model, no mode" report.
+    #[test]
+    fn session_events_read_the_vendor_models_block() {
+        let result = parse(
+            r#"{"sessionId":"sess_4","models":{"currentModelId":"grok-4.6","availableModels":[
+                  {"modelId":"grok-4.6","name":"Grok 4.6","description":"the latest"},
+                  {"modelId":"grok-4.5","name":"Grok 4.5"}]}}"#,
+        );
+        let setup = session_events("sess_4", &result, None);
+        let AgentEvent::SessionStarted { model, .. } = &setup.events[0] else {
+            panic!("expected a session to start, got {:?}", setup.events);
+        };
+        assert_eq!(model.as_deref(), Some("grok-4.6"));
+        let (option, source) = &setup.config[0];
+        assert_eq!(*source, ConfigSource::Model);
+        assert_eq!(option.id, "model");
+        assert_eq!(option.category, Some(ConfigCategory::Model));
+        let ConfigValue::Select {
+            current_value,
+            options,
+        } = &option.value
+        else {
+            panic!("expected a select, got {:?}", option.value);
+        };
+        assert_eq!(current_value, "grok-4.6");
+        assert_eq!(options.len(), 2);
+        assert_eq!(options[0].name, "Grok 4.6");
+        assert_eq!(options[0].description.as_deref(), Some("the latest"));
+    }
+
+    /// Grok's reasoning efforts arrive only in `_meta["x.ai/sessionConfig"]`,
+    /// as a flat list keyed by `category` — one select option per category,
+    /// composing with the `models` block rather than replacing it.
+    #[test]
+    fn an_x_ai_session_config_yields_both_a_model_and_a_mode() {
+        let result = parse(
+            r#"{"sessionId":"sess_5",
+                "models":{"currentModelId":"grok-4.6","availableModels":[
+                  {"modelId":"grok-4.6","name":"Grok 4.6"}]},
+                "_meta":{"x.ai/sessionConfig":{"options":[
+                  {"id":"grok-4.6","category":"model","label":"Grok 4.6","selected":true},
+                  {"id":"xhigh","category":"mode","label":"Extra High Effort","selected":false},
+                  {"id":"high","category":"mode","label":"High Effort","selected":true}]}}}"#,
+        );
+        let setup = session_events("sess_5", &result, None);
+        let ids: Vec<_> = setup
+            .config
+            .iter()
+            .map(|(option, source)| (option.id.as_str(), *source))
+            .collect();
+        assert_eq!(
+            ids,
+            vec![("model", ConfigSource::Model), ("mode", ConfigSource::Mode)]
+        );
+        assert_eq!(
+            current_of(&setup.config, &ConfigCategory::Mode).as_deref(),
+            Some("high")
+        );
+        let AgentEvent::SessionStarted { model, mode, .. } = &setup.events[0] else {
+            panic!("expected a session to start, got {:?}", setup.events);
+        };
+        assert_eq!(model.as_deref(), Some("grok-4.6"));
+        assert_eq!(mode.as_deref(), Some("high"));
+        assert!(
+            matches!(setup.events[1], AgentEvent::ConfigOptionUpdate { .. }),
+            "expected a config update, got {:?}",
+            setup.events
+        );
+    }
+
+    /// The model list is on `initialize`'s `_meta.modelState` too, so a
+    /// `session/new` that omits it still names the models.
+    #[test]
+    fn the_initialize_model_state_backs_a_session_that_names_none() {
+        let init_models =
+            parse(r#"{"currentModelId":"grok-4.5","availableModels":[{"modelId":"grok-4.5"}]}"#);
+        let setup = session_events(
+            "sess_6",
+            &parse(r#"{"sessionId":"sess_6"}"#),
+            Some(&init_models),
+        );
+        assert_eq!(
+            current_of(&setup.config, &ConfigCategory::Model).as_deref(),
+            Some("grok-4.5")
+        );
+    }
+
+    /// The agent nominates the method that needs no interaction; nothing else
+    /// is ever attempted.
+    #[test]
+    fn the_default_auth_method_is_the_one_the_agent_nominates() {
+        let init = parse(
+            r#"{"protocolVersion":1,
+                "authMethods":[{"id":"cached_token"},{"id":"grok.com"}],
+                "_meta":{"defaultAuthMethodId":"cached_token"}}"#,
+        );
+        assert_eq!(default_auth_method(&init).as_deref(), Some("cached_token"));
+        assert_eq!(
+            auth_method_ids(&init),
+            vec!["cached_token".to_string(), "grok.com".to_string()]
+        );
+        let no_default = parse(r#"{"authMethods":[{"id":"grok.com"}]}"#);
+        assert_eq!(default_auth_method(&no_default), None);
+    }
+
+    /// A set is dispatched by where the option came from, not by its id: a
+    /// vendor-sourced model is `session/set_model`, a vendor-sourced mode is
+    /// `session/set_mode`, and an id with no memo keeps the spec method.
+    #[test]
+    fn a_vendor_option_is_set_through_its_own_method() {
+        let (shared, written, _events) = test_shared(&temp_root("setvendor"));
+        let _ = shared.session_id.set("sess_1".to_string());
+        let result = parse(
+            r#"{"sessionId":"sess_1",
+                "models":{"currentModelId":"grok-4.6","availableModels":[
+                  {"modelId":"grok-4.6"},{"modelId":"grok-4.5"}]},
+                "_meta":{"x.ai/sessionConfig":{"options":[
+                  {"id":"high","category":"mode","label":"High","selected":true},
+                  {"id":"low","category":"mode","label":"Low","selected":false}]}}}"#,
+        );
+        state_of(&shared).config = session_events("sess_1", &result, None).config;
+
+        // Each of these is a blocking request, so something has to answer it.
+        let answers = answer_requests(&shared, written, 3);
+        let set = |id: &str, value: &str| {
+            write_input(
+                &shared,
+                AgentInput::SetConfigOption {
+                    config_id: id.to_string(),
+                    value: ConfigSetting::Text(value.to_string()),
+                },
+            )
+            .unwrap();
+        };
+        set("model", "grok-4.5");
+        set("mode", "low");
+        set("thinking", "on");
+
+        let frames = answers.join().unwrap();
+        let methods: Vec<_> = frames
+            .iter()
+            .map(|frame| frame["method"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            methods,
+            vec![
+                "session/set_model",
+                "session/set_mode",
+                "session/set_config_option"
+            ]
+        );
+        assert_eq!(
+            frames[0]["params"],
+            json!({"sessionId":"sess_1","modelId":"grok-4.5"})
+        );
+        assert_eq!(
+            frames[1]["params"],
+            json!({"sessionId":"sess_1","modeId":"low"})
+        );
+    }
+
+    // ── the model the run asked for ────────────────────────────────────
+
+    /// A session on Grok's shape: two models in the vendor block, currently
+    /// on `grok-4.6`, with the handshake's own (not yet emitted) events.
+    fn model_session(tag: &str) -> (Arc<Shared>, mpsc::Receiver<Option<Value>>, Vec<AgentEvent>) {
+        let (shared, written, _events) = test_shared(&temp_root(tag));
+        let _ = shared.session_id.set("sess_1".to_string());
+        let result = parse(
+            r#"{"sessionId":"sess_1",
+                "models":{"currentModelId":"grok-4.6","availableModels":[
+                  {"modelId":"grok-4.6"},{"modelId":"grok-4.5"}]}}"#,
+        );
+        let mut setup = session_events("sess_1", &result, None);
+        state_of(&shared).config = std::mem::take(&mut setup.config);
+        (shared, written, setup.events)
+    }
+
+    /// The model reported by a handshake's events — the two places that have
+    /// to agree.
+    fn reported(events: &[AgentEvent]) -> (Option<String>, Option<String>) {
+        let started = events.iter().find_map(|ev| match ev {
+            AgentEvent::SessionStarted { model, .. } => Some(model.clone()),
+            _ => None,
+        });
+        let stated = events.iter().find_map(|ev| match ev {
+            AgentEvent::ConfigOptionUpdate { options } => {
+                options
+                    .iter()
+                    .find_map(|option| match (&option.category, &option.value) {
+                        (
+                            Some(ConfigCategory::Model),
+                            ConfigValue::Select { current_value, .. },
+                        ) => Some(current_value.clone()),
+                        _ => None,
+                    })
+            }
+            _ => None,
+        });
+        (started.flatten(), stated)
+    }
+
+    /// Asking for the model the session already runs sends nothing: a
+    /// no-op set would still cost a round trip on every launch.
+    #[test]
+    fn the_requested_model_that_is_already_current_sends_nothing() {
+        let (shared, written, mut events) = model_session("model-current");
+        apply_requested_model(&shared, Some("grok-4.6"), &mut events);
+        assert!(frames(&written).is_empty());
+        assert_eq!(
+            reported(&events),
+            (Some("grok-4.6".to_string()), Some("grok-4.6".to_string()))
+        );
+    }
+
+    /// The bug this exists for: Grok ignores `--model` for an `agent stdio`
+    /// session, so the choice is made over the wire — through the vendor
+    /// setter the `models` block implies — and both events report the model
+    /// the session actually ended up on.
+    #[test]
+    fn a_requested_model_on_offer_is_set_over_the_wire() {
+        let (shared, written, mut events) = model_session("model-set");
+        let answers = answer_requests(&shared, written, 1);
+        apply_requested_model(&shared, Some("grok-4.5"), &mut events);
+
+        let frames = answers.join().unwrap();
+        assert_eq!(frames.len(), 1, "frames were: {frames:?}");
+        assert_eq!(frames[0]["method"], "session/set_model");
+        assert_eq!(
+            frames[0]["params"],
+            json!({"sessionId":"sess_1","modelId":"grok-4.5"})
+        );
+        assert_eq!(
+            reported(&events),
+            (Some("grok-4.5".to_string()), Some("grok-4.5".to_string()))
+        );
+        assert_eq!(state_of(&shared).model.as_deref(), Some("grok-4.5"));
+    }
+
+    /// A model the agent never offered is a warning, not a failure: the
+    /// session starts on the agent's own default and says so.
+    #[test]
+    fn a_requested_model_not_on_offer_keeps_the_agents_default() {
+        let (shared, written, mut events) = model_session("model-unknown");
+        apply_requested_model(&shared, Some("grok-9"), &mut events);
+        assert!(frames(&written).is_empty());
+        assert_eq!(
+            reported(&events),
+            (Some("grok-4.6".to_string()), Some("grok-4.6".to_string()))
+        );
+    }
+
+    #[test]
+    fn no_requested_model_sets_nothing() {
+        let (shared, written, mut events) = model_session("model-none");
+        apply_requested_model(&shared, None, &mut events);
+        assert!(frames(&written).is_empty());
+        assert_eq!(
+            reported(&events),
+            (Some("grok-4.6".to_string()), Some("grok-4.6".to_string()))
+        );
+    }
+
+    /// An agent that names no models at all cannot be asked to change one.
+    #[test]
+    fn a_session_that_advertises_no_models_is_left_alone() {
+        let (shared, written, _events) = test_shared(&temp_root("model-silent"));
+        let _ = shared.session_id.set("sess_1".to_string());
+        let mut setup = session_events("sess_1", &parse(r#"{"sessionId":"sess_1"}"#), None);
+        state_of(&shared).config = std::mem::take(&mut setup.config);
+        apply_requested_model(&shared, Some("grok-4.5"), &mut setup.events);
+        assert!(frames(&written).is_empty());
+        assert_eq!(reported(&setup.events).0, None);
     }
 
     // ── prompt content ─────────────────────────────────────────────────

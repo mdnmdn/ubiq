@@ -509,7 +509,11 @@ the explorer share in `files.rs`, and the one dropdown mechanism every menu in t
 plus the context menu a right-click, or a control that has no room for a trigger, raises at the
 pointer: that same panel, opened at a point rather than under a chip. Its rows are labels, a
 disabled label, or a separator — a hairline that still takes an index, because a menu's rows and the
-actions behind them are matched by position. `kit::Picker` may carry a filter field of its own,
+actions behind them are matched by position. A row may also carry `ContextItem::tooltip(...)`, which
+`context_panel` draws on hover: the place for a fact too long for a label and too specific to guess
+at, such as the file the conversation menu's dump row is writing. A tooltip never carries the row's
+meaning — the label says what the row does, and a row whose label needs the hover to be understood
+is a label that wants rewriting. `kit::Picker` may carry a filter field of its own,
 through `.search(&state, focused)` — one `Entity<InputState>` drawn at the top of the panel, in the
 same `field(...)` shape `project_menu.rs`'s hand-rolled search uses. The picker never filters: the
 caller narrows `items` and keeps a parallel values list in lockstep before building the picker, so
@@ -574,6 +578,10 @@ it is not kept. The two answer different questions: the dot says what the conver
 anchor says whether it will still be here after a restart, and folding the second into the first
 would cost the dot the one reading it is scanned for. `persistent` lives on the `WorkAgent` record
 rather than on `Conversation`, so both surfaces read it off the work projection they already hold.
+`accept_all` and `debug_dump` live there for the same reason — `ui::conversation::accepts_all` and
+`dump_path` read them — but neither earns a glyph beside the dot: they are states the three-dots
+menu names in words, and a second and third mark on a tab strip would spend the glance the dot is
+there for.
 
 **A row that gathers several controls this way drops their labels for tooltips, not for a second
 icon set.** The chat panel's toolbar is icon-only: the lifecycle menu and the change-agent chevron

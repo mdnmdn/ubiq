@@ -41,6 +41,12 @@ pub struct Provisioned {
     /// never read this; an ACP harness resumes over the wire (`session/load`), so
     /// its bridge needs the id after provisioning has already happened.
     pub resume: Option<String>,
+    /// The model this run asked for, when one was named — copied from
+    /// [`crate::spec::RunSpec::model`]. Most harnesses put the model in argv and
+    /// never read this; an ACP harness sets the model over the wire after
+    /// `session/new`, so its bridge needs the value after provisioning has
+    /// already happened.
+    pub model: Option<String>,
     /// In-process MCP servers started for this run. Kept alive for the
     /// run's lifetime; dropping a `Provisioned` shuts them down. Only
     /// present when the `inproc-mcp` feature is enabled.
@@ -57,6 +63,7 @@ impl Clone for Provisioned {
             ephemeral: self.ephemeral,
             login_origin: self.login_origin.clone(),
             resume: self.resume.clone(),
+            model: self.model.clone(),
         }
     }
 }
@@ -105,6 +112,7 @@ pub fn provision(
             ephemeral,
             login_origin,
             resume: spec.resume.clone(),
+            model: spec.model.clone(),
             inproc_servers,
         })
     }
@@ -123,6 +131,7 @@ pub fn provision(
             ephemeral,
             login_origin,
             resume: spec.resume.clone(),
+            model: spec.model.clone(),
         })
     }
 }

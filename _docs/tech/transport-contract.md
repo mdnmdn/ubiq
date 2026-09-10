@@ -7,7 +7,7 @@ summary: The complete message set the UI and the coordinator exchange — the pa
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
 updated: 2026-09-10
 verified: 2026-09-10
-code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/wire.rs]
+code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
 ---
@@ -610,6 +610,8 @@ is what multiplexes several of them down one channel.
 | `AbortConversation` | UI → host | `agent_id` | `ConversationUnloaded` |
 | `ResumeConversation` | UI → host | `agent_id` | `ConvUpdate::Started`, or nothing if already live |
 | `SetConversationPersistent` | UI → host | `agent_id`, `persistent` | `AgentChanged` |
+| `SetConversationAcceptAll` | UI → host | `agent_id`, `accept_all` | `AgentChanged` |
+| `SetConversationDebugDump` | UI → host | `agent_id`, `debug_dump` | `AgentChanged` |
 | `ReviveConversation` | UI → host | `source`, `agent_id`, `project_id`, `session_id` | `ConversationStarted` or `ConversationError` |
 | `ConversationStarted` | host → UI | `project_id`, `agent`, `session`, `accepts_input` | — |
 | `ConversationUpdate` | host → UI | `agent_id`, `seq`, `update` | — |
@@ -650,6 +652,41 @@ they mean. Persistence is Ubiq's own property of the conversation — whether it
 directory outlive the window and survive a restart. The harness has never heard of it, and nothing
 about it reaches the child process. It lands on the record as `WorkAgent.persistent`, so every
 surface that draws an agent draws the mark from what it already holds.
+
+**Three flags are Ubiq's own, and they are set the same way.** `SetConversationPersistent`,
+`SetConversationAcceptAll` and `SetConversationDebugDump` each name one agent and one boolean, each
+is written onto that conversation's durable row, and each is answered by one `AgentChanged`
+carrying the whole `WorkAgent` back — `Coordinator::publish_conversation_flags` in
+`crates/ubiq-host/src/coordinator.rs` is the one place that mirror and that broadcast are written.
+A conversation with no live harness takes the flag at its next launch, out of the row that was just
+written, so setting one never depends on a process being up. None of the three is a
+`SetAgentConfig`, and the reason is the same for all three: the harness has no option id for any of
+them and is told nothing about them.
+
+**`SetConversationAcceptAll` is not the harness's permission mode.** A mode is one harness's own
+vocabulary, carried as a `SetAgentConfig` under an id that harness advertised; this is Ubiq's
+override laid on top of whichever mode the harness is in. The harness asks exactly what it would ask
+otherwise and only the answer changes, which is what makes the flag mean the same thing for every
+harness, including one whose modes offer nothing like it. The host's conversation pump answers an
+`AgentEvent::PermissionRequest` itself — `answer_permission_through` in
+`crates/ubiq-host/src/conversation.rs`, choosing the option `allowing_option` reads as a plain
+allow, `AllowOnce` before `AllowAlways` — and emits no `ConvUpdate::PermissionRequest` at all. **The
+request is never shown rather than shown and then answered**, because the interface draws a
+permission as a live prompt on the tool call it authorises and nothing retracts one. A request
+offering no allowing option is emitted to the window unchanged: the flag says which answer to give,
+never that an answer must be invented. `D98` is the decision and its costs.
+
+**`SetConversationDebugDump` narrows the process-wide tape to one agent.** The capture holds the
+`ConvUpdate`s with the raw harness frame behind each, plus every inbound message naming that agent —
+`Coordinator::capture_inbound`, called at the top of `dispatch`, is what catches the second half in
+one place rather than a line per handler. Lines are `crates/ubiq-proto/src/bus.rs`'s own
+`dump_line`, written into the folder `tape_dir` names, so one reader parses either file; `ConvFlags`
+in `crates/ubiq-host/src/conversation.rs` owns the capture and writes it from a thread behind an
+unbounded channel, because a slow disk must never sit between a harness and the window. The file is
+named for the agent, so a conversation unloaded and resumed appends to the one it was writing.
+**The answer is a path, not a boolean**: `WorkAgent.debug_dump` carries where the capture is going
+while one is open and `None` otherwise, because a capture the user cannot find is a capture that did
+not happen.
 
 **There is deliberately no `max_subagents` here.** No harness has a flag for it, so there is
 nothing for the host to pass; the interface says it to the agent instead, as a directive folded in
@@ -869,7 +906,7 @@ Forty-three records travel inside payloads.
 | `TaskRecord` | `id`, `session?`, `status`, `priority`, `shape`, `title`, `description`, `steps[]`, `created_at`, `updated_at` |
 | `Step` | `id`, `title`, `state`, `owner?` |
 | `WorkSession` | `id`, `name`, `branch`, `worktree` |
-| `WorkAgent` | `id`, `session`, `task?`, `parent?`, `name`, `summary?`, `role`, `activity`, `note`, `branch`, `tokens`, `harness`, `model`, `context_pct`, `thread[]` |
+| `WorkAgent` | `id`, `session`, `task?`, `parent?`, `name`, `summary?`, `role`, `activity`, `note`, `branch`, `tokens`, `harness`, `model`, `context_pct`, `persistent`, `accept_all`, `debug_dump?`, `thread[]` |
 | `Turn` | `from`, `text` |
 
 | `ConvUpdate` | one of: `Started`, `UserChunk`, `AgentChunk`, `ThoughtChunk`, `ToolCall`, `ToolCallUpdate`, `Plan`, `ConfigOptions`, `ModeChanged`, `Title`, `Usage`, `RateLimit`, `PermissionRequest`, `TurnEnded`, `Compacted` |

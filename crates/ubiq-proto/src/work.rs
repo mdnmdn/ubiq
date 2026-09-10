@@ -397,6 +397,25 @@ pub struct WorkAgent {
     /// each of them holding a second thing and keeping it in step with the first.
     #[serde(default)]
     pub persistent: bool,
+    /// Whether every permission this conversation's harness asks for is answered `allow` by the
+    /// host, without the ask ever reaching a window.
+    ///
+    /// Ubiq's own override, not the harness's permission mode: the harness keeps whatever mode it
+    /// was launched in and goes on asking, and this is the answer it gets. Mirrored here beside
+    /// [`WorkAgent::persistent`] for the same reason — the menu that flips it is drawn from the
+    /// record, on every surface that draws an agent.
+    #[serde(default)]
+    pub accept_all: bool,
+    /// Where this conversation's traffic goes, while anyone has asked for it. `None` — the normal
+    /// case — is a conversation nobody asked to capture.
+    ///
+    /// A path rather than a flag, because a capture the user cannot find is a capture that did not
+    /// happen: the host names the file and the window shows the name. Nothing in the interface
+    /// opens it; it is a string to read and copy. `Some` is also what the menu row reads as "this
+    /// is being captured", so a conversation with no live harness carries the name its next launch
+    /// writes to rather than nothing at all.
+    #[serde(default)]
+    pub debug_dump: Option<String>,
     /// What has been said to and by this agent. Nothing answers it, which is what the thread says
     /// in as many words: a fabricated reply is the one thing a screen with no live agent must not
     /// draw.

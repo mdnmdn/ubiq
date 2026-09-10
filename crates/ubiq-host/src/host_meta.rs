@@ -107,14 +107,10 @@ fn sample_memory(meta: &mut HostMeta) {
         // coordinator's.
         thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
         sys.refresh_cpu_usage();
-        (
-            nonzero(sys.total_memory()),
-            nonzero(sys.free_memory()),
-            {
-                let load = sys.global_cpu_usage();
-                (load.is_finite() && load >= 0.0).then_some(load)
-            },
-        )
+        (nonzero(sys.total_memory()), nonzero(sys.free_memory()), {
+            let load = sys.global_cpu_usage();
+            (load.is_finite() && load >= 0.0).then_some(load)
+        })
     });
     if let Ok((total, free, load)) = result {
         meta.mem_total_bytes = total;
@@ -144,12 +140,8 @@ fn disk_free(path: &std::path::Path) -> Option<u64> {
                 }
             }
         }
-        best.map(|(_, free)| free).or_else(|| {
-            disks
-                .list()
-                .first()
-                .map(|disk| disk.available_space())
-        })
+        best.map(|(_, free)| free)
+            .or_else(|| disks.list().first().map(|disk| disk.available_space()))
     });
     result.ok().flatten()
 }

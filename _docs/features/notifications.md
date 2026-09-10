@@ -169,18 +169,26 @@ shift when a count appears. The icon bundle has no `BellOff`, so a mute control 
 before the list it is drawn in.
 
 `crates/ubiq/src/ui/sink/style.rs` has a Notifications group in the kitchen sink that raises one of
-each shape, which is still the only thing that exercises the desktop path. `G198` narrows to the two
-producers still missing: a pane exiting non-zero, and a clone that failed.
+each shape. `G198` narrows to the two producers still missing: a pane exiting non-zero, and a clone
+that failed.
 
 **Raising one from anywhere** is `AppState::raise_notification(NotificationRequest)` in the
 interface and a `Centre::raise` call in the host. Nothing raises a notification by drawing one. The
 `ConversationUpdate` arm in `crates/ubiq/src/app/wire.rs` is the first real caller: it raises a
-warning, `Family::Agents`, when a conversation nobody has on screen wants permission — any
-conversation, a delegate's own included, since the ask still blocks a turn somebody has to answer —
-and an info when the main agent's own turn ends, narrowed away from a delegate's by the work
-record's `parent`, since a delegate's turns fold into the transcript rather than closing with their
-own `TurnEnded`. Both carry an `UbiqLink::Agent` and are skipped outright where something on screen
-is already drawing that conversation.
+warning, `Family::Agents`, when a conversation wants permission — any conversation, a delegate's
+own included, since the ask still blocks a turn somebody has to answer — and an info when the main
+agent's own turn ends, narrowed away from a delegate's by the work record's `parent`, since a
+delegate's turns fold into the transcript rather than closing with their own `TurnEnded`. Both
+carry an `UbiqLink::Agent`.
+
+**A permission ask is the one that is never skipped, and the one that leaves the window.** The turn
+ending is not raised where something on screen is already drawing that conversation — it reports
+something that has already happened, and the surface has said it. An ask is a question that blocks
+the turn until somebody answers it, and a surface drawing it may be behind another window, on
+another screen, or scrolled away from the prompt: being on screen is not being read. So it is
+raised whatever is drawn, and it is the only real producer that sets `os`, so the desktop is told
+as well as the bell. A mute rule on `Agents · permission` is how somebody who does not want that
+turns it off.
 
 ## Failure
 

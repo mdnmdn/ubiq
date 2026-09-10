@@ -299,6 +299,7 @@ impl Harness for Opencode {
             child,
             cwd,
             provisioned.resume.as_deref(),
+            provisioned.model.as_deref(),
         )?))
     }
 }

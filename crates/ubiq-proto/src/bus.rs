@@ -648,7 +648,10 @@ impl TapeInner {
 }
 
 /// Where a dump lands: the folder [`TAPE_DIR_ENV`] names, or the machine's temporary one.
-fn tape_dir() -> std::path::PathBuf {
+///
+/// Public because a per-conversation capture lands in the same folder: one place to look, whether
+/// the dump was of the ring or of one agent.
+pub fn tape_dir() -> std::path::PathBuf {
     std::env::var_os(TAPE_DIR_ENV)
         .map(std::path::PathBuf::from)
         .unwrap_or_else(std::env::temp_dir)
@@ -657,7 +660,10 @@ fn tape_dir() -> std::path::PathBuf {
 /// One line of a dump: the entry's own fields, with the message embedded as an object where it
 /// still parses. A truncated body is written as a string instead, because half an object is not
 /// one and a reader deserves to see which it got.
-fn dump_line(
+///
+/// Public because the host's per-conversation capture writes the same lines into a file of its
+/// own — one shape, so one `jq` reads either.
+pub fn dump_line(
     seq: u64,
     at: SystemTime,
     direction: Direction,

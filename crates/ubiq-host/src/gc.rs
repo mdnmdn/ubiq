@@ -200,6 +200,8 @@ mod tests {
             next_seq: 0,
             title: None,
             persistent,
+            accept_all: false,
+            debug_dump: false,
             forked_from: None,
             agent_home: AgentHome::Inherit,
         }

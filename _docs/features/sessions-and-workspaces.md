@@ -5,9 +5,9 @@ kind: feature
 status: draft
 summary: A session is a named piece of work that owns a folder and outlives the agents inside it; a workspace is one running agent within it, and the two have separate lifecycles.
 read_when: you are changing how sessions are created, attached to, persisted, or how an agent is spawned into one
-updated: 2026-09-08
-verified: 2026-09-08
-code_anchors: [crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/agent-manager/src/session.rs]
+updated: 2026-09-10
+verified: 2026-09-10
+code_anchors: [crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/agent-manager/src/session.rs]
 depends_on: [tech-transport]
 review_cycle: monthly
 ---
@@ -89,6 +89,16 @@ one thing it is still owed is a redraw for Claude Code's native bridge, which re
 and replays no transcript. Old records for unmarked conversations are collected after
 `HostSettings.retain_conversations_days`; a marked one is never collected on a timer, only by an
 explicit delete.
+
+**The row carries every flag that is Ubiq's rather than the harness's**, and persistence is one of
+three. `ConversationRecord` in `crates/ubiq-host/src/conversation_record.rs` holds `persistent`
+beside `accept_all` — every permission the harness asks for answered with allow, in the host,
+unasked — and `debug_dump`, that one conversation's traffic written to a file. All three default to
+false where the row does not name them, all three are flipped from the conversation's own
+three-dots menu, and none of them reaches the child process: the harness is launched the way it
+would be launched regardless and learns nothing. Because a flag is on the row rather than on the
+running conversation, a launch reads it back — a conversation unloaded and resumed keeps accepting,
+and keeps writing to the capture it was writing. `D98` is the decision and its costs.
 
 **Unload is not delete.** A conversation's harness can be killed without ending the conversation —
 `UnloadConversation`, answered by `ConversationUnloaded` — and unlike a pane close or

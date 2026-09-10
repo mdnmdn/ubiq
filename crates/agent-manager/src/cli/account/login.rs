@@ -94,6 +94,7 @@ pub(super) fn cmd_login(
             // A capture writes the login; there is nothing seeded to harvest back.
             login_origin: None,
             resume: None,
+            model: None,
             #[cfg(feature = "inproc-mcp")]
             inproc_servers: Vec::new(),
         };
