@@ -2316,7 +2316,8 @@ exception, since the explorer panel is already in the tree the moment IDE mode i
 opening a closed left reveals it rather than spawning anything. `new_terminal()` is the titlebar's
 own New terminal shortcut: it calls `toggle_region()` when the bottom is shut, and spawns a pane
 itself only when the region was already open or was reopened onto panes still in it, so opening
-onto true emptiness is never given two panes by two different callers. `open_new_agent_direct()` is
+onto true emptiness is never given two panes by two different callers. A chevron beside it opens
+the same new-pane menu the terminal `+` offers, with its shells, harnesses and runnable tools. `open_new_agent_direct()` is
 the titlebar's New agent shortcut, making the same `aim_start()` call `pick_new_agent_menu()` makes
 for the `+` menu's first row, with that menu's own first stage skipped. A panel reaches the dock
 through a `Window` and a message does not come with one, so both halves of a panel's life queue and

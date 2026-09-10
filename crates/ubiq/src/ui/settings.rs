@@ -25,8 +25,8 @@ use ubiq_proto::settings::AgentHome;
 use crate::app::{AppState, HostEntry, HostId, HostRef, host_menu_rows, host_row_label};
 use crate::state::settings::{
     AccountDialog, AiProviderForm, AssistInfo, CliShortcut, ConnectApp, ConnectStep,
-    ConnectorDialog, LoginStep, MarkdownOpen, SettingsSection, connect_error_note, describe_status,
-    magnitude,
+    ConnectorDialog, LoginStep, MarkdownOpen, SettingsSection, ToolEditScope, connect_error_note,
+    describe_status, magnitude,
 };
 use crate::theme;
 use crate::theme::{Family, Role};
@@ -164,6 +164,7 @@ fn nav_icon(item: SettingsSection) -> Icon {
         SettingsSection::Assist => IconName::Cpu.into(),
         SettingsSection::Connectors => UbiqIcon::FamilyConnectors.into(),
         SettingsSection::Hosts => UbiqIcon::HostRemote.into(),
+        SettingsSection::Tools => IconName::Play.into(),
         SettingsSection::CommandLine => IconName::SquareTerminal.into(),
     }
 }
@@ -179,6 +180,7 @@ fn body(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         SettingsSection::Assist => assist(app, cx),
         SettingsSection::Connectors => connectors(app, cx),
         SettingsSection::Hosts => hosts_section(app, cx),
+        SettingsSection::Tools => crate::ui::tools::panel(app, cx, ToolEditScope::System),
         SettingsSection::CommandLine => command_line(app, cx),
     };
 

@@ -21,7 +21,7 @@ use crate::files::{
 use crate::git::{self, GitCommit, GitEntry, GitNested, GitRef, GitRollup, RepoOverview};
 use crate::ids::{
     AiProviderId, CloneId, ConnectId, ConnectionId, NotificationId, OauthAppId, PaneId, ProjectId,
-    RepoQueryId, SearchId, SessionId, StepId, SuggestId, TaskId,
+    RepoQueryId, SearchId, SessionId, StepId, SuggestId, TaskId, ToolId,
 };
 use crate::notifications::{
     Level, MuteFor, MuteScope, Notification, NotificationRequest, Notifications,
@@ -31,6 +31,7 @@ use crate::repos::{CloneError, CloneRequest, CloneStage, RemoteRepo, RepoSource}
 use crate::search::{self, Batch, Query, Source};
 use crate::settings::SettingsLayer;
 use crate::stats::HostStats;
+use crate::tools::{ListedTool, ToolDef};
 use crate::work::{AgentId, Priority, Shape, Status, TaskRecord, WorkAgent, WorkSession};
 
 /// Everything either half may say. The variant name travels in `type`, the body in `payload`.
@@ -104,6 +105,36 @@ pub enum Message {
     /// The user closed the pane: the harness is killed and reaped.
     CloseWorkspace {
         pane_id: PaneId,
+    },
+    /// Run a configured tool in this project's folder: a pane running the tool's command with
+    /// its arguments and environment, titled with the tool's name. Answered with
+    /// [`Message::WorkspaceSpawned`], or [`Message::ToolError`] when the tool is unknown, not
+    /// for this platform, or has nothing to run.
+    RunTool {
+        session_id: SessionId,
+        project_id: ProjectId,
+        scope: Scope,
+        id: ToolId,
+    },
+    /// A tool run was refused before a pane existed. The interface was never told of a pane,
+    /// so this is a log line rather than a tab to close — the same standing a refused spawn's
+    /// [`Message::PaneError`] has.
+    ToolError {
+        project_id: Option<ProjectId>,
+        error: String,
+    },
+    /// The runnable tools for the new-pane menu: this machine's, and one project's.
+    /// Answered with [`Message::ToolsListed`].
+    ListTools {
+        project_id: Option<ProjectId>,
+    },
+    /// What can be run here. `system` is the machine-wide list, `project` the project's own;
+    /// the new-pane menu offers the applicable rows of both. `applicable` is the answering
+    /// host's own platform per tool — a remote host's answer names what runs *there*, which
+    /// the interface cannot know, so the host stamps it.
+    ToolsListed {
+        system: Vec<ListedTool>,
+        project: Vec<ListedTool>,
     },
 
     /// What the host is, said once to each window as it attaches. The interface cannot read disk,
@@ -597,6 +628,10 @@ pub enum Message {
         /// [`IndexChange`] for why this is not an `Option<Option<_>>`.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         index: Option<IndexChange>,
+        /// The project's own runnable tools. Absent leaves them as they are; `Some` replaces
+        /// the whole list.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tools: Option<Vec<ToolDef>>,
     },
     /// Re-point a record at a folder that moved, keeping its id, colour and history. Unlike
     /// [`Message::UpdateProject`] this changes truth, so it can answer [`Message::ProjectError`].
@@ -1540,6 +1575,7 @@ impl Message {
     pub fn project_id(&self) -> Option<ProjectId> {
         match self {
             Message::SpawnWorkspace { project_id, .. }
+            | Message::RunTool { project_id, .. }
             | Message::ForgetProject { project_id, .. }
             | Message::UpdateProject { project_id, .. }
             | Message::LocateProject { project_id, .. }
@@ -1601,6 +1637,8 @@ impl Message {
                 ..
             } => Some(*project_id),
             Message::ProjectError { project_id, .. } => *project_id,
+            Message::ToolError { project_id, .. } => *project_id,
+            Message::ListTools { project_id, .. } => *project_id,
             _ => None,
         }
     }
@@ -1854,4 +1892,8 @@ pub struct WorkspaceInfo {
     pub cols: u16,
     pub rows: u16,
     pub running: bool,
+    /// Keep the pane open after the process ends instead of closing it: a tool run with
+    /// "wait on exit". Absent on answers from older hosts, which never set it.
+    #[serde(default)]
+    pub wait_on_exit: bool,
 }

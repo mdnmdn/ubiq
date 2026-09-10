@@ -11,6 +11,7 @@ use gpui_component::{Icon, IconName, Sizable as _, Size};
 use ubiq_proto::notifications::{Level, UbiqLink};
 
 use crate::app::{AppState, NavBack, NavForward};
+use crate::state::MenuId;
 use crate::theme;
 use crate::ui::kit::{UbiqIcon, badge, field, icon_button, mono};
 use crate::ui::navigator;
@@ -167,6 +168,26 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                         .h_full()
                         .tooltip(move |window, cx| {
                             gpui_component::tooltip::Tooltip::new("New terminal").build(window, cx)
+                        }),
+                    )
+                    // The chevron beside it: the same new-pane menu the terminal `+` opens,
+                    // with its shells, harnesses and runnable tools. The button runs the
+                    // default shell; this says what else this machine can run here.
+                    .child(
+                        icon_button(
+                            "new-terminal-menu",
+                            IconName::ChevronDown,
+                            app.workbench.open_menu == Some(MenuId::NewPane),
+                            cx.listener(|this, event: &ClickEvent, _, cx| {
+                                let at =
+                                    (f32::from(event.position().x), f32::from(event.position().y));
+                                this.open_new_pane_menu(at, cx);
+                            }),
+                        )
+                        .h_full()
+                        .tooltip(move |window, cx| {
+                            gpui_component::tooltip::Tooltip::new("Run in a new pane")
+                                .build(window, cx)
                         }),
                     )
                 })

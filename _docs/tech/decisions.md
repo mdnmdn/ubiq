@@ -6,7 +6,7 @@ status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
 updated: 2026-09-10
-verified: 2026-09-09
+verified: 2026-09-10
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -1916,6 +1916,34 @@ not what a delete should produce on its own.
 **Cost.** The rule is not uniform: "closing a view ends nothing" carries an exception a
 reader has to know, and the delete arm is the one place in the UI where a host message removes
 furniture the user arranged. A reader who deletes a conversation and wanted the tab back mints one.
+
+### D101 — Runnable tools ride whole-record writes, and wait-on-exit keeps the tab
+
+A runnable tool is a row the user wrote: a name, a command, arguments, environment, platforms and a
+wait flag. Machine-wide rows live in `HostSettings.tools`, a project's own in
+`ProjectRecord.tools`, and both are replaced whole — through `SetSettings` and
+`UpdateProject.tools` — on the `agent_commands` and `search_excludes` precedent: nothing runs
+unattended from either list, so there is no concurrent writer for a whole-list write to clobber. A
+run is `RunTool` with the row's scope and id; the host resolves it, checks it against its own
+platform, spawns the command with its arguments and environment in the project's folder, and answers
+`WorkspaceSpawned` with the row's name as the tab's title seed. `ToolsListed` stamps each row with
+whether it runs on the answering host, because a remote host's platform is a fact the interface
+cannot know and the menu must not offer what cannot run there. Wait-on-exit is interface-side: on
+`PaneExited` a waiting pane dims its dot through `pane_stopped()` and the tab stays with its output
+until it is closed, so closing — the tab's × through `close_pane()` — stays the one path that ends
+a pane, and the host learns of it through the same `CloseWorkspace` as every other close.
+
+**Why:** a per-field update protocol would buy nothing here — a row is edited as a row, and two
+windows editing two rows are both whole-list writes that last-writer-wins the same way any settings
+write does. Stamping applicability on the host keeps platform knowledge in the one half that has it,
+instead of teaching the interface every platform string a future host might answer with. Keeping the
+wait on the interface side keeps the host's exit path single: no prompt to inject into the
+pseudo-terminal, no second kind of pane ending to reap.
+
+**Cost:** two windows editing different rows at once lose one edit to the other's write, the same
+standing as every other whole-record write in the settings. A waiting pane holds its
+pseudo-terminal until its tab is closed, so a forgotten build tab is a held descriptor — closed by
+the same × that closes everything else.
 
 ## Related docs
 

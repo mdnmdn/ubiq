@@ -1015,6 +1015,7 @@ fn naming_a_temporary_project_makes_it_durable() {
         custom_colour: None,
         search_excludes: None,
         index: None,
+        tools: None,
     });
     loop {
         match ui.from_host().recv_timeout(PATIENCE) {

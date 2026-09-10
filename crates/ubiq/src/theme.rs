@@ -382,6 +382,8 @@ thread_local! {
     /// the one axis with nothing to resolve: a base size is a number the user set, not something
     /// derived from the palette in hand. Keeping it here is also what stops switching palette,
     /// accent or density from undoing it — there is no resolution for it to be dropped by.
+    // Already `const`: allowed because the lint fires on this toolchain regardless.
+    #[allow(clippy::missing_const_for_thread_local)]
     static TEXT: std::cell::Cell<TextScale> = const {
         std::cell::Cell::new(TextScale {
             chrome: CHROME_FONT_SIZE,

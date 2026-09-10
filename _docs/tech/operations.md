@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: Prerequisites, the complete command reference, what a first build costs, the checks a change has to pass before it lands, and the runbook for a tool an agent cannot run.
 read_when: you are setting the project up, running or testing it, adding a command, or an agent reports that it cannot run a tool
-updated: 2026-09-09
-verified: 2026-09-09
+updated: 2026-09-10
+verified: 2026-09-10
 code_anchors: [Justfile, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/isolate.rs, _tools/docs.py, _tools/icns.py, _tools/Info.plist, _devops/scripts/bundle-version.sh, crates/ubiq-app/src/lib.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-app/build.rs, crates/ubiq-app/res/ubiq-app.rc, crates/ubiq-app/res/AppIcon.ico, .github/workflows/create-release.yml, .github/workflows/release-macos.yml, .github/workflows/release-windows.yml]
 depends_on: [tech-structure]
 review_cycle: monthly
@@ -48,6 +48,13 @@ the terminal it was started in, reports through the same log writer on standard 
 `just dev` uses, and runs until it is stopped. It also takes no part in the one-application-per-root
 handoff — handing its arguments to a window running elsewhere would leave nothing listening — so a
 headless host and a local window can share a machine, though not usefully a config root.
+
+**On Windows a plain launch leaves its console behind.** `ubiq` with no serve flag detaches
+through `detach_console` in `crates/ubiq-app/src/lib.rs`, so a launch from Explorer or a shortcut
+is a window and nothing else; a launch from a terminal keeps that terminal's window but reports
+nothing more into it. Every `--serve` spelling stays attached, with the banner on stdout and the
+log writer on standard error. A bootstrap failure in a detached run raises a dialog (`gui_fatal`)
+rather than writing to a console that is gone. Other platforms are untouched.
 
 `--serve` binds every interface, which is the point of the bare flag; `--serve=127.0.0.1:7420` is
 how a tunnel-only setup is spelled. `--serve`'s own value is always attached with `=`, never a

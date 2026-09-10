@@ -19,6 +19,7 @@ use ubiq_proto::ids::ProjectId;
 use ubiq_proto::projects::{IndexChange, IndexLevel};
 
 use crate::app::AppState;
+use crate::state::settings::ToolEditScope;
 use crate::state::sink::{
     ColourField, PROJECT_ABOUT, PROJECT_ABOUT_LIMIT, PROJECT_BRANCH, PROJECT_COLOUR, PROJECT_MARK,
     PROJECT_NAME, PROJECT_PATH, ProjectNav, hex_string, hsv_to_rgb,
@@ -290,15 +291,32 @@ fn header(
 fn nav(app: &AppState, form: Form, cx: &mut Context<AppState>) -> AnyElement {
     let current = match form {
         Form::Sink => app.sink.project.nav,
-        Form::Live => ProjectNav::General,
+        Form::Live => app
+            .workbench
+            .project_settings
+            .as_ref()
+            .map(|settings| settings.nav)
+            .unwrap_or(ProjectNav::General),
     };
-    let locked = form == Form::Live;
     let prefix = form.prefix();
+    // The live dialog is create-or-edit, not a page: it opens on General, and only an
+    // existing project answers to Tools — a folder not yet in the catalogue has no record
+    // to carry them.
+    let live_tools = form == Form::Live
+        && matches!(
+            app.workbench
+                .project_settings
+                .as_ref()
+                .map(|settings| &settings.mode),
+            Some(ProjectSettingsMode::Edit { .. })
+        );
     let items: Vec<AnyElement> = ProjectNav::all()
         .iter()
         .copied()
         .map(|item| {
-            let enabled = !locked || item == ProjectNav::General;
+            let enabled = form == Form::Sink
+                || item == ProjectNav::General
+                || (item == ProjectNav::Tools && live_tools);
             nav_item(
                 ElementId::Name(format!("{prefix}-nav-{}", item.label()).into()),
                 project_icon(item),
@@ -329,6 +347,7 @@ fn nav(app: &AppState, form: Form, cx: &mut Context<AppState>) -> AnyElement {
 fn project_icon(item: ProjectNav) -> IconName {
     match item {
         ProjectNav::General => IconName::Settings,
+        ProjectNav::Tools => IconName::Play,
         ProjectNav::Documentation => IconName::BookOpen,
         ProjectNav::Integrations => IconName::Network,
     }
@@ -337,10 +356,16 @@ fn project_icon(item: ProjectNav) -> IconName {
 fn body(app: &AppState, window: &Window, cx: &mut Context<AppState>, form: Form) -> AnyElement {
     let nav = match form {
         Form::Sink => app.sink.project.nav,
-        Form::Live => ProjectNav::General,
+        Form::Live => app
+            .workbench
+            .project_settings
+            .as_ref()
+            .map(|settings| settings.nav)
+            .unwrap_or(ProjectNav::General),
     };
     let content = match nav {
         ProjectNav::General => general(app, window, cx, form),
+        ProjectNav::Tools => project_tools(app, cx, form),
         ProjectNav::Documentation => documentation(),
         ProjectNav::Integrations => integrations(),
     };
@@ -372,6 +397,22 @@ fn form_project(app: &AppState, form: Form, _cx: &gpui::App) -> Option<ProjectId
             _ => None,
         },
     }
+}
+
+/// This project's own runnable tools, on top of the machine-wide rows.
+///
+/// Sent immediately on every save or remove, the same rule `index_row`'s pills follow — see
+/// `AppState::set_project_tools`. Only a project that already exists can carry tools: the Sink
+/// form and the Create mode are both about a project with no record yet.
+fn project_tools(app: &AppState, cx: &mut Context<AppState>, form: Form) -> AnyElement {
+    let Some(project) = form_project(app, form, cx) else {
+        return div()
+            .text_size(theme::font(Family::Chrome, Role::Label))
+            .text_color(theme::text_faint())
+            .child("Tools belong to a project in the catalogue — name this folder first.")
+            .into_any_element();
+    };
+    crate::ui::tools::panel(app, cx, ToolEditScope::Project(project))
 }
 
 /// This project's indexing level: four choices, because "follow the default" is one of them and is

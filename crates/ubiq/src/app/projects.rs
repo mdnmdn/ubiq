@@ -191,6 +191,7 @@ impl AppState {
             custom_colour: custom,
             search_excludes: None,
             index: None,
+            tools: None,
         });
         self.workbench.row_action = None;
         cx.notify();
@@ -214,6 +215,7 @@ impl AppState {
             custom_colour: None,
             search_excludes: None,
             index: Some(index),
+            tools: None,
         });
         cx.notify();
     }
@@ -240,6 +242,34 @@ impl AppState {
             custom_colour: None,
             search_excludes: Some(excludes),
             index: None,
+            tools: None,
+        });
+        cx.global_mut::<WindowRegistry>().apply(snapshot);
+        cx.notify();
+    }
+
+    /// Write a project's whole runnable-tools list, sending it at once and updating the
+    /// snapshot every window redraws from — the same immediacy `set_project_search_excludes`
+    /// gives the excludes, rather than waiting on the host's echo. The project tools panel
+    /// goes through here, so there is one place that sends the message and applies the answer.
+    pub fn set_project_tools(
+        &mut self,
+        project: ProjectId,
+        tools: Vec<ubiq_proto::tools::ToolDef>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(mut snapshot) = WindowRegistry::read(cx).project(project).cloned() else {
+            return;
+        };
+        snapshot.record.tools = tools.clone();
+        self.bus.send(Message::UpdateProject {
+            project_id: project,
+            name: None,
+            colour: None,
+            custom_colour: None,
+            search_excludes: None,
+            index: None,
+            tools: Some(tools),
         });
         cx.global_mut::<WindowRegistry>().apply(snapshot);
         cx.notify();
@@ -484,6 +514,7 @@ impl AppState {
                 swatch: colour,
                 ..ColourField::default()
             },
+            nav: ProjectNav::General,
         });
         self.fill_project_form = true;
         cx.notify();
@@ -518,6 +549,7 @@ impl AppState {
                 custom,
                 ..ColourField::default()
             },
+            nav: ProjectNav::General,
         });
         self.fill_project_form = true;
         cx.notify();

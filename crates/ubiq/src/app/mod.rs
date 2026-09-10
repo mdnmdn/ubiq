@@ -48,7 +48,7 @@ use crate::state::orchestration::{Algo, GraphView, Held, InspectorTab, Selection
 use crate::state::settings::{
     self as ui_settings, AccountDialog, AiProviderForm, AiTest, AppForm, AssistInfo, CertPrompt,
     CliShortcut, ConnectApp, ConnectState, ConnectStep, ConnectorDialog, LoginState, LoginStep,
-    MAX_LOGIN_LINKS, MarkdownOpen, PendingSecret, SettingsSection,
+    MAX_LOGIN_LINKS, MarkdownOpen, PendingSecret, SettingsSection, ToolEditScope, ToolEditor,
 };
 use crate::state::sink::{
     ColourField, ProjectNav, SettingsMenu, SettingsNav, SinkDoc, SinkModal, SinkSection, SinkState,
@@ -87,7 +87,7 @@ use ubiq_proto::files::{DiffBase, FileContents, FileError, PathOp};
 use ubiq_proto::git::{GitEntry, GitError as GitFailure, RepoOverview};
 use ubiq_proto::ids::{
     AiProviderId, ConnectId, ConnectionId, OauthAppId, PaneId, ProjectId, SearchId, SessionId,
-    StepId, SuggestId, TaskId,
+    StepId, SuggestId, TaskId, ToolId,
 };
 use ubiq_proto::messages::{CliShortcutAction, Message, ProfileInfo, Secret, WorkspaceInfo};
 use ubiq_proto::notifications::{
@@ -220,6 +220,9 @@ pub struct PaneState {
     pub title: String,
     /// Whether the harness behind the pane is still running.
     pub running: bool,
+    /// Keep the pane open after the process ends instead of closing it: a tool run with
+    /// "wait on exit", whose output stays readable until the tab is closed.
+    pub wait_on_exit: bool,
 }
 
 /// What the window keeps for one pane's terminal: the emulator, and the end of the bus its output
@@ -675,6 +678,14 @@ pub struct AppState {
     /// path a grant is added from. Both commit on Enter and on blur, the two search lists' rule.
     pub agent_home_input: Entity<InputState>,
     pub grant_path_input: Entity<InputState>,
+    /// The tool editor's four fields, shared by the machine-wide and per-project tools panels:
+    /// the name the tab says, the command, its parameters, and the environment as one
+    /// `KEY=VALUE` per line. They commit on Save rather than on Enter or blur, because a tool
+    /// is four fields and two choices, not one line.
+    pub tool_name_input: Entity<InputState>,
+    pub tool_command_input: Entity<InputState>,
+    pub tool_args_input: Entity<InputState>,
+    pub tool_env_input: Entity<TextareaState>,
     /// The project settings dialog's name field. Also what a picker row used to become while
     /// renaming; that editor now lives in the dialog.
     pub rename_input: Entity<InputState>,
@@ -1048,11 +1059,28 @@ fn is_terminal_defocus(keystroke: &gpui::Keystroke) -> bool {
 /// Public because it is the one part of a pane's tab that is a rule rather than a redraw, and
 /// `crates/ubiq/tests/new_pane.rs` asserts it without a window.
 pub fn pane_title(agent_type: &str, taken: &[String]) -> String {
-    let base = agent_type.rsplit('/').next().unwrap_or(agent_type);
+    let base = short_program_name(agent_type);
     (1..)
         .map(|n| format!("{base} {n}"))
         .find(|name| !taken.iter().any(|used| used == name))
         .unwrap_or_else(|| base.to_string())
+}
+
+/// The program without its path, its `.exe` suffix, or its long Windows name.
+///
+/// Both separators are split because a Windows program arrives as a full path
+/// (`C:\…\cmd.exe`), and both PowerShells answer to `psh`. Anything else keeps its stem, so a
+/// harness id or a Unix shell names itself exactly as before.
+fn short_program_name(agent_type: &str) -> &str {
+    let base = agent_type.rsplit(['/', '\\']).next().unwrap_or(agent_type);
+    let stem = base
+        .strip_suffix(".exe")
+        .or_else(|| base.strip_suffix(".EXE"))
+        .unwrap_or(base);
+    match stem.to_ascii_lowercase().as_str() {
+        "pwsh" | "powershell" => "psh",
+        _ => stem,
+    }
 }
 
 /// The disambiguating number `pane_title` appended, if the title still ends in one.

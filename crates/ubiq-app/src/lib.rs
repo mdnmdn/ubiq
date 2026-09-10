@@ -108,6 +108,18 @@ impl Default for Boot {
 /// The boot, entire: the console, the config root, the stores, the one host, the path intake,
 /// the component library and the palette, and the first window.
 pub fn run(boot: Boot) {
+    // Asked for before anything is started, because it decides what kind of process this is: a
+    // `--serve` run is a headless host that keeps its terminal, and anything else is the
+    // interface. Parsing takes no other effect — a bad flag exits while still attached — so
+    // doing it here rather than below changes nothing else. On Windows the interface leaves the
+    // console behind (see `detach_console`); a served run never does.
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let serve = serve_bind(args.iter().cloned());
+    #[cfg(windows)]
+    if serve.is_none() {
+        detach_console();
+    }
+
     // Before the window, before the host: anything either says on the way up belongs in the
     // console with everything else.
     log::install();
@@ -125,6 +137,11 @@ pub fn run(boot: Boot) {
         // A broken bootstrap must not fall back to the user's real catalogue and credentials, so
         // there is nothing to do but say so and stop.
         Err(error) => {
+            #[cfg(windows)]
+            if serve.is_none() {
+                // Detached above: no console left to say it in, so it gets a dialog instead.
+                gui_fatal(&format!("{error:#}"));
+            }
             eprintln!("ubiq: {error:#}");
             std::process::exit(2);
         }
@@ -148,11 +165,10 @@ pub fn run(boot: Boot) {
     // command line, a Finder or dock-icon open, a drop on the app icon while it is running — all
     // funnel through one channel, so whichever window answers sees exactly the same thing.
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let paths = argv_paths(std::env::args().skip(1), &cwd);
+    let paths = argv_paths(args.into_iter(), &cwd);
 
-    // Asked for before anything is started, because it decides what kind of process this is: a
-    // `--serve` run is a headless host, and everything below that belongs to a window is skipped.
-    let serve = serve_bind(std::env::args().skip(1));
+    // A `--serve` run is a headless host, and everything below that belongs to a window is
+    // skipped. Parsed above, before the Windows console decision.
 
     // Before anything is opened or started: a second `ubiq` under the same config root is a second
     // *process*, not a second application. It gives its paths to the one already running and is
@@ -313,6 +329,65 @@ pub fn run(boot: Boot) {
 
         cx.activate(true);
     });
+}
+
+/// Windows only: leave the console behind, so a plain launch is a window and nothing else.
+///
+/// The executable stays a console-subsystem binary — which is what keeps every `--serve` spelling
+/// working from a terminal exactly as before, with its banner on stdout and its log writer on
+/// standard error — and a served run never reaches this function. A console launch from Explorer
+/// flashes once and is gone; a launch from a terminal keeps that terminal's window (it owns it)
+/// but reports nothing more into it. No new dependency: the call below is linked straight
+/// from the system libraries every Windows process already carries.
+#[cfg(windows)]
+fn detach_console() {
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn FreeConsole() -> i32;
+    }
+    // A failure means there was no console to leave, which is already the state wanted.
+    unsafe {
+        FreeConsole();
+    }
+}
+
+/// Windows only: a broken bootstrap in a detached run has no console to report to, so it gets a
+/// dialog carrying what `eprintln!` would have said, and the same exit code.
+#[cfg(windows)]
+fn gui_fatal(message: &str) -> ! {
+    use std::os::windows::ffi::OsStrExt as _;
+
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn MessageBoxW(
+            hwnd: *mut std::ffi::c_void,
+            text: *const u16,
+            caption: *const u16,
+            kind: u32,
+        ) -> i32;
+    }
+
+    const MB_OK: u32 = 0x0;
+    const MB_ICONERROR: u32 = 0x10;
+
+    fn wide(text: &str) -> Vec<u16> {
+        std::ffi::OsStr::new(text)
+            .encode_wide()
+            .chain([0])
+            .collect()
+    }
+
+    let text = wide(message);
+    let caption = wide("Ubiq");
+    unsafe {
+        MessageBoxW(
+            std::ptr::null_mut(),
+            text.as_ptr(),
+            caption.as_ptr(),
+            MB_OK | MB_ICONERROR,
+        );
+    }
+    std::process::exit(2);
 }
 
 /// The flags that take a value, so a token following one of them is that value and never a path.

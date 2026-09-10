@@ -13,7 +13,7 @@
 use ubiq::app::{AppState, BusHub, DialogCancel};
 use ubiq::state::new_agent::OpenList;
 use ubiq::state::sink::ColourField;
-use ubiq::state::sink::SinkModal;
+use ubiq::state::sink::{ProjectNav, SinkModal};
 use ubiq::state::workbench::{FileDialog, ProjectSettings, ProjectSettingsMode};
 use ubiq::state::{MenuId, WindowRegistry};
 use ubiq_proto::work::AgentId;
@@ -54,6 +54,7 @@ fn escape_peels_one_layer_at_a_time(cx: &mut gpui::TestAppContext) {
                 path: "/tmp/x".to_string(),
             },
             colour: ColourField::default(),
+            nav: ProjectNav::General,
         });
         state.workbench.settings.open = true;
         state.workbench.confirm_end_conversation = Some(AgentId::generate());
@@ -186,8 +187,9 @@ fn the_composers_picker_draws_with_the_rail_off_the_sink(cx: &mut gpui::TestAppC
             temporary: false,
             created_at: chrono::Utc::now(),
             last_opened_at: None,
-            search_excludes: Vec::new(),
-            index: None,
+                search_excludes: Vec::new(),
+                index: None,
+                tools: Vec::new(),
         },
         health: ProjectHealth::Ok,
         open_panes: 0,

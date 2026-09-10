@@ -5,9 +5,9 @@ kind: feature
 status: draft
 summary: What a pane shows, how exactly one of them holds focus, how a resize reaches the harness, and how a pane is moved around the window's dock.
 read_when: you are changing where a pane sits, pane focus, resize, pane chrome, or how terminal bytes reach the screen
-updated: 2026-09-09
-verified: 2026-09-09
-code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/editor.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/new_pane_menu.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/pty/mod.rs, crates/ubiq-host/src/shells.rs, vendor/gpui-terminal/src/view.rs, vendor/gpui-terminal/src/render.rs, vendor/gpui-terminal/src/input.rs, vendor/gpui-terminal/src/mouse.rs, vendor/gpui-terminal/src/clipboard.rs, vendor/gpui-terminal/src/event.rs, vendor/gpui-terminal/src/terminal.rs]
+updated: 2026-09-10
+verified: 2026-09-10
+code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/editor.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/new_pane_menu.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/tools.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/pty/mod.rs, crates/ubiq-host/src/shells.rs, vendor/gpui-terminal/src/view.rs, vendor/gpui-terminal/src/render.rs, vendor/gpui-terminal/src/input.rs, vendor/gpui-terminal/src/mouse.rs, vendor/gpui-terminal/src/clipboard.rs, vendor/gpui-terminal/src/event.rs, vendor/gpui-terminal/src/terminal.rs]
 depends_on: [tech-transport]
 review_cycle: monthly
 ---
@@ -54,7 +54,9 @@ opening lands on true emptiness, rather than handing the user two panes for one 
 
 **A pane's tab is its program and a number.** `zsh 1`, `zsh 2`, `fish 1` — each program numbered in
 its own sequence, per project, from the lowest number no pane of that program is using. Closing
-`zsh 2` gives that name back to the next one rather than counting upwards for ever. **A typed-over
+`zsh 2` gives that name back to the next one rather than counting upwards for ever. A Windows shell
+is shortened — both PowerShells read `psh`, the command processor `cmd` — and a `.exe` suffix or a
+path never reaches the tab. A tool pane's tab is the tool's name numbered the same way. **A typed-over
 name replaces this until the pane closes.** The tab's right-click menu offers Rename…, the same
 single-field prompt every other rename in the window uses, seeded with the tab's current label; the
 name is kept in memory only, never written down, because a pane's id dies with its own process — the
@@ -71,7 +73,10 @@ installed is not offered. Above the shells, and separated from them, the menu of
 harness the harness library knows; picking one starts a composed agent rather than a program, which
 [`sessions-and-workspaces.md`](./sessions-and-workspaces.md) describes. A harness whose binary is
 not on this machine is offered as an unavailable row rather than left out, because the row is how a
-user learns it could be there. Below a separator — everything above it starts something — one row puts
+user learns it could be there. Below the shells, and separated from them the same way, the menu
+offers the runnable tools — named commands defined for the machine in Settings › Tools or for the
+project in its own settings; picking one starts a pane running that command in the project's
+folder, titled with the tool's name. A tool for another platform is not offered at all. Below a separator — everything above it starts something — one row puts
 the console on screen, which is the one thing on that menu that is not a pane. The `+` needs a
 project and is not drawn without one; the chevron is drawn either way, and with no project the
 console is the only row it offers, because a shell that cannot be started is not worth a row.
@@ -86,7 +91,8 @@ command to run, is started as itself.
 **Which shells exist is the host's answer, asked for and never assumed.** The interface may not look
 on disk, so it asks — as it attaches, and again every time the menu opens, which is what makes a
 shell installed since the window opened available without a restart. It asks for the agent types the
-same way, and for the same reason.
+same way, and for the same reason — and for the runnable tools with them, the machine-wide rows and
+the project's own, so a tool added in the settings is offered without a restart.
 
 **A pane's environment is whatever started it.** A shell inherits Ubiq's own, plus the `TERM` and
 `COLORTERM` every pane is given. A composed agent adds the variables that point it at the throwaway
@@ -186,7 +192,9 @@ immediately resized draws correctly; one that never learns its size does not.
 
 **An exited harness closes its pane.** Typing `exit` or sending EOF (Ctrl+D) ends the child, the
 coordinator reports `PaneExited`, and the tab goes with it — the same close path as the tab's ×.
-Closing a tab is still what kills a harness that has not already ended.
+Closing a tab is still what kills a harness that has not already ended. A tool run with wait on
+exit stays readable instead: the process ends, the dot reports the stop, and the tab stays with
+its output until it is closed.
 
 **A pane's chrome is its tab.** The title says which agent, and the dot beside it says whether the
 harness is still running. The pane itself carries that same state on the coloured left edge every
@@ -220,12 +228,16 @@ never stalls on whether anyone is looking at it.
 ## Contract
 
 The pane family of the transport contract: `TerminalOutput`, `TerminalInput`, `TerminalResize`,
-`Focus`, `PaneExited` and `PaneError`. A pane's own lifecycle uses two of the session family,
-`SpawnWorkspace` with its `WorkspaceSpawned` answer, and `CloseWorkspace`. `SpawnWorkspace` carries a
+`Focus`, `PaneExited` and `PaneError`. A pane's own lifecycle uses three of the session family,
+`SpawnWorkspace` with its `WorkspaceSpawned` answer, `RunTool` with the same answer naming the
+tool, and `CloseWorkspace`. `SpawnWorkspace` carries a
 `project_id` that is not optional and an optional `rel_path`, and it can answer `ProjectError`
-instead — a refusal names the project, because there is no pane yet to name. Which shell a pane runs
+instead — a refusal names the project, because there is no pane yet to name. A refused tool run
+answers `ToolError` instead, which is a log line rather than a tab. Which shell a pane runs
 is `SpawnWorkspace`'s existing `agent_type`, and the menu's own rows come from `ListShells` and its
-`ShellList` answer, whose `ShellInfo` carries a label, a program and whether it is the default. Variant names, payload
+`ShellList` answer, whose `ShellInfo` carries a label, a program and whether it is the default,
+and from `ListTools` and its `ToolsListed` answer, whose rows carry their scope and whether they
+run on the answering host. A project's own tools ride `UpdateProject.tools`, replaced whole. Variant names, payload
 fields, the byte-sequence rule and the per-pane ordering guarantee are owned by
 [`../tech/transport-contract.md`](../tech/transport-contract.md).
 
@@ -281,11 +293,13 @@ landed on and nothing else. `crates/ubiq/src/ui/new_pane_menu.rs` paints the men
 for the reason the file tab's menu is painted there — the skin does not name `AppState`, so it
 cannot draw a menu with state in it. **The rows themselves are `WorkbenchState::new_pane_rows()`**,
 which both the drawing and the pick read: a menu matched by position cannot have two lists.
-`pick_new_pane_menu()` maps a row back — a shell is `spawn_pane(Some(program), ..)`, the separator
+`pick_new_pane_menu()` maps a row back — a shell is `spawn_pane(Some(program), ..)`, a tool is
+`run_tool()` with the row's scope and id, the separator
 is a row and does nothing, and the console is `reveal_console()`, which is `dock::reveal()`: a
 panel already in the tree has its region brought back and its tab brought forward, and one that is
 not is added to its home region first. `AppState::toggle_region()` is where opening an empty pane
-region starts a pane, and `pane_title()` is where a tab gets its number.
+region starts a pane, and `pane_title()` is where a tab gets its number — a tool's name the same
+way a program does, through the same short-name rule.
 
 **`crates/ubiq-host/src/shells.rs` is the only place that knows what a shell is.** `available()`
 checks a fixed candidate list against `PATH`, the user's login shell's own `PATH` and the usual
@@ -341,6 +355,7 @@ The paths through the two halves, in call order:
 | What the user does | ui → state → orchestrator → pty |
 |---|---|
 | Opens a pane | `spawn_pane()` sends `SpawnWorkspace`, or does nothing when the window holds no project; the coordinator looks the record up, probes its folder, resolves the working directory, then `pty::spawn` opens a pseudo-terminal and starts the child, and the answer `WorkspaceSpawned` reaches `open_pane()`, which routes on its `project_id`, builds the emulator and queues a `PanelEdit::Open`; `settle_panels()` puts the panel in the region terminals live in on the next frame, because a panel reaches the dock through a window and a message does not come with one |
+| Runs a tool | `run_tool()` sends `RunTool` with the row's scope and id; the coordinator resolves the row, spawns its command, arguments and environment in the project's folder, and the answer `WorkspaceSpawned` carries the tool's name and its wait flag, which `open_pane()` numbers onto the tab and keeps on the pane |
 | Types | the emulator writes into `PaneInput`, which posts `TerminalInput`; the coordinator finds the pane's `Pty` and writes to the pseudo-terminal |
 | Watches output | `Pty::forward_output` puts a reader thread on the pseudo-terminal, sending `TerminalOutput` in fixed chunks; `receive()` hands the bytes to the pane's output sender, and the emulator reads them |
 | Resizes | the emulator measures its own bounds and its resize callback sends `TerminalResize`; `Pty::resize` sets the size and the kernel signals the harness |
@@ -366,9 +381,12 @@ stalled reader stalls the harness.
 | A panel is displaced by an arrangement being installed over it | Its pane is untouched. Only a closed tab closes a pane |
 | The harness exits | `PaneExited`; `close_pane()` takes the tab out of the dock. Focus moves to another pane, or to none if it was the last |
 | The harness exits while its pane is a background tab | The same close: the tab leaves that project's dock, and the pane the user is typing into is untouched |
+| A waiting tool's process exits | `PaneExited` dims the dot through `pane_stopped()` and the tab stays with its output; × still closes it through `close_pane()` |
+| A tool run is refused | `ToolError`: unknown row, wrong platform or empty command. A log line, no tab — the interface was never told of a pane |
 | The harness cannot be started | `PaneError` against a pane ID the UI never drew; no tab appears |
 | A spawn is asked for with no project open | Nothing is sent; there is no folder to start a harness in |
 | The shell list has not been answered yet | The menu offers the console row alone, and no separator. The list is asked for again on every open, so the next one has it |
+| The tool list has not been answered yet | The menu offers shells and harnesses alone. The list is asked for again on every open, beside them |
 | The pane region is opened with no project | Nothing is started; the region opens empty, and the chevron's menu still reaches the console |
 | A shell is uninstalled between the list and the pick | The spawn fails the way any unstartable program does: `PaneError` against a pane the UI never drew |
 | A spawn names a project whose folder has gone | `ProjectError`, and the picker's row is marked. No pseudo-terminal is opened and no tab appears |

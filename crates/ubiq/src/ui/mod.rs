@@ -43,6 +43,7 @@ pub mod status_bar;
 pub mod tab_menu;
 pub mod terminal;
 pub mod titlebar;
+pub mod tools;
 pub mod viewer;
 pub mod work;
 

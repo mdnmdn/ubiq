@@ -182,8 +182,9 @@ fn a_project() -> ProjectSnapshot {
             temporary: false,
             created_at: Utc::now(),
             last_opened_at: None,
-            search_excludes: Vec::new(),
-            index: None,
+                search_excludes: Vec::new(),
+                index: None,
+                tools: Vec::new(),
         },
         health: ProjectHealth::Ok,
         open_panes: 0,
@@ -748,6 +749,7 @@ fn exclude_from_search_adds_the_path_then_offers_to_add_it_back(cx: &mut TestApp
             custom_colour,
             search_excludes,
             index,
+            tools,
         } => Some((
             project_id,
             name,
@@ -755,6 +757,7 @@ fn exclude_from_search_adds_the_path_then_offers_to_add_it_back(cx: &mut TestApp
             custom_colour,
             search_excludes,
             index,
+            tools,
         )),
         _ => None,
     });
@@ -766,6 +769,7 @@ fn exclude_from_search_adds_the_path_then_offers_to_add_it_back(cx: &mut TestApp
             None,
             None,
             Some(vec!["src".to_string()]),
+            None,
             None
         )),
         "only the excludes change"

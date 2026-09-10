@@ -470,6 +470,7 @@ impl SettingsDemo {
 pub enum ProjectNav {
     #[default]
     General,
+    Tools,
     Documentation,
     Integrations,
 }
@@ -478,6 +479,7 @@ impl ProjectNav {
     pub fn all() -> &'static [ProjectNav] {
         &[
             ProjectNav::General,
+            ProjectNav::Tools,
             ProjectNav::Documentation,
             ProjectNav::Integrations,
         ]
@@ -494,8 +496,9 @@ impl ProjectNav {
 }
 
 /// Label and the count beside it, one row per [`ProjectNav`], in variant order.
-const PROJECT_NAV_COPY: [(&str, Option<u32>); 3] = [
+const PROJECT_NAV_COPY: [(&str, Option<u32>); 4] = [
     ("General", None),
+    ("Tools", None),
     ("Documentation", Some(4)),
     ("Integrations", Some(1)),
 ];

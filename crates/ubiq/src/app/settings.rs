@@ -1,5 +1,6 @@
 use super::*;
 use crate::state::new_agent::{NewAgentForm, Purpose};
+use ubiq_proto::tools::{ToolDef, parse_env};
 
 /// What a kept agent home is called when the choice is made before a name is typed. A home with
 /// no name is not a state the host can act on, so the choice never stores one.
@@ -291,6 +292,13 @@ impl AppState {
             // costs a directory listing.
             self.ask_cli_shortcut(CliShortcutAction::Query);
         }
+        if nav == SettingsSection::Tools {
+            // The machine-wide rows ride the Host layer, so a tool added in another window
+            // shows up here — the same freshness the connectors list asks for.
+            self.bus.send(Message::GetSettings {
+                layer: SettingsLayer::Host,
+            });
+        }
         cx.notify();
     }
 
@@ -468,6 +476,207 @@ impl AppState {
         grant.write = !grant.write;
         self.remember_host_settings();
         cx.notify();
+    }
+
+    /// The tools list a tool editor reads and writes: the machine-wide rows, or one project's
+    /// own. Project rows come from the registry's snapshot — the same record the project tools
+    /// panel draws — so the editor and the list never disagree.
+    pub fn tool_list(&self, scope: &ToolEditScope, cx: &App) -> Vec<ToolDef> {
+        match scope {
+            ToolEditScope::System => self.workbench.settings.host.tools.clone(),
+            ToolEditScope::Project(project) => WindowRegistry::read(cx)
+                .project(*project)
+                .map(|snapshot| snapshot.record.tools.clone())
+                .unwrap_or_default(),
+        }
+    }
+
+    /// Open a blank tool editor for this list. The textboxes are cleared: a half-filled form
+    /// from the other panel must not leak into a new row.
+    pub fn begin_add_tool(
+        &mut self,
+        scope: ToolEditScope,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.workbench.settings.tool_editor = Some(ToolEditor {
+            scope,
+            ..ToolEditor::default()
+        });
+        self.clear_tool_inputs(window, cx);
+        cx.notify();
+    }
+
+    /// Open the editor on an existing row, filling the textboxes from it.
+    pub fn begin_edit_tool(
+        &mut self,
+        scope: ToolEditScope,
+        id: ToolId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(tool) = self
+            .tool_list(&scope, cx)
+            .into_iter()
+            .find(|tool| tool.id == id)
+        else {
+            return;
+        };
+        let name = tool.name.clone();
+        let command = tool.command.clone();
+        let args = tool.args.clone();
+        let env = ubiq_proto::tools::format_env(&tool.env);
+        self.tool_name_input.update(cx, |input, cx| {
+            input.set_value(&name, window, cx);
+        });
+        self.tool_command_input.update(cx, |input, cx| {
+            input.set_value(&command, window, cx);
+        });
+        self.tool_args_input.update(cx, |input, cx| {
+            input.set_value(&args, window, cx);
+        });
+        self.tool_env_input.update(cx, |input, cx| {
+            input.set_value(&env, window, cx);
+        });
+        self.workbench.settings.tool_editor = Some(ToolEditor {
+            scope,
+            id: Some(id),
+            platforms: tool.platforms.clone(),
+            wait_on_exit: tool.wait_on_exit,
+        });
+        cx.notify();
+    }
+
+    /// Save the editor back to its list: replace the row, or push a new one with a minted id.
+    /// An empty name or command saves nothing — a tool with no name has no tab, and one with
+    /// no command has nothing to run.
+    pub fn save_tool_editor(&mut self, cx: &mut Context<Self>) {
+        let Some(editor) = self.workbench.settings.tool_editor.clone() else {
+            return;
+        };
+        let name = self.tool_name_input.read(cx).value().trim().to_string();
+        let command = self.tool_command_input.read(cx).value().trim().to_string();
+        if name.is_empty() || command.is_empty() {
+            return;
+        }
+        let args = self.tool_args_input.read(cx).value().trim().to_string();
+        let (env, _) = parse_env(&self.tool_env_input.read(cx).value());
+        let id = editor.id.unwrap_or_else(ToolId::generate);
+        let tool = ToolDef {
+            id,
+            name,
+            command,
+            args,
+            env,
+            platforms: editor.platforms,
+            wait_on_exit: editor.wait_on_exit,
+        };
+        match editor.scope {
+            ToolEditScope::System => {
+                let tools = &mut self.workbench.settings.host.tools;
+                match tools.iter_mut().find(|existing| existing.id == id) {
+                    Some(existing) => *existing = tool,
+                    None => tools.push(tool),
+                }
+                self.remember_host_settings();
+            }
+            ToolEditScope::Project(project) => {
+                let Some(mut tools) = WindowRegistry::read(cx)
+                    .project(project)
+                    .map(|snapshot| snapshot.record.tools.clone())
+                else {
+                    return;
+                };
+                match tools.iter_mut().find(|existing| existing.id == id) {
+                    Some(existing) => *existing = tool,
+                    None => tools.push(tool),
+                }
+                self.set_project_tools(project, tools, cx);
+            }
+        }
+        self.workbench.settings.tool_editor = None;
+        cx.notify();
+    }
+
+    /// Drop one tool row from its list. An open editor on that row goes with it.
+    pub fn remove_tool(&mut self, scope: ToolEditScope, id: ToolId, cx: &mut Context<Self>) {
+        match scope {
+            ToolEditScope::System => {
+                let tools = &mut self.workbench.settings.host.tools;
+                let before = tools.len();
+                tools.retain(|tool| tool.id != id);
+                if tools.len() != before {
+                    self.remember_host_settings();
+                }
+            }
+            ToolEditScope::Project(project) => {
+                let Some(mut tools) = WindowRegistry::read(cx)
+                    .project(project)
+                    .map(|snapshot| snapshot.record.tools.clone())
+                else {
+                    return;
+                };
+                let before = tools.len();
+                tools.retain(|tool| tool.id != id);
+                if tools.len() != before {
+                    self.set_project_tools(project, tools, cx);
+                }
+            }
+        }
+        if self
+            .workbench
+            .settings
+            .tool_editor
+            .as_ref()
+            .is_some_and(|editor| editor.id == Some(id))
+        {
+            self.workbench.settings.tool_editor = None;
+        }
+        cx.notify();
+    }
+
+    /// Flip one platform on the editor. Empty means everywhere, so switching the last one
+    /// off is "all platforms" rather than "none".
+    pub fn toggle_tool_platform(&mut self, platform: &str, cx: &mut Context<Self>) {
+        let Some(editor) = self.workbench.settings.tool_editor.as_mut() else {
+            return;
+        };
+        if editor.platforms.iter().any(|picked| picked == platform) {
+            editor.platforms.retain(|picked| picked != platform);
+        } else {
+            editor.platforms.push(platform.to_string());
+        }
+        cx.notify();
+    }
+
+    /// Flip "wait on exit" on the editor.
+    pub fn toggle_tool_wait(&mut self, cx: &mut Context<Self>) {
+        let Some(editor) = self.workbench.settings.tool_editor.as_mut() else {
+            return;
+        };
+        editor.wait_on_exit = !editor.wait_on_exit;
+        cx.notify();
+    }
+
+    /// Close the editor without saving.
+    pub fn cancel_tool_editor(&mut self, cx: &mut Context<Self>) {
+        self.workbench.settings.tool_editor = None;
+        cx.notify();
+    }
+
+    fn clear_tool_inputs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.tool_name_input.update(cx, |input, cx| {
+            input.set_value("", window, cx);
+        });
+        self.tool_command_input.update(cx, |input, cx| {
+            input.set_value("", window, cx);
+        });
+        self.tool_args_input.update(cx, |input, cx| {
+            input.set_value("", window, cx);
+        });
+        self.tool_env_input.update(cx, |input, cx| {
+            input.set_value("", window, cx);
+        });
     }
 
     /// Where a clone lands by default, and where an ephemeral one lands. Host-owned, so both
