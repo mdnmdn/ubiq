@@ -658,6 +658,10 @@ pub struct AppState {
     pub command_input: Entity<InputState>,
     /// The project menu's own search field.
     pub project_search: Entity<InputState>,
+    /// The "All projects" modal's own search field. Separate from `project_search` because the
+    /// two can be on screen in the same window at once — the modal is raised over the picker
+    /// row that opened it — and one field drawn twice is one field in two places.
+    pub all_projects_search: Entity<InputState>,
     /// The one buffer every `kit::Picker` that opts into search types into — a menu is one at a
     /// time, so one field suffices. Cleared and focused on open.
     pub picker_search: Entity<InputState>,

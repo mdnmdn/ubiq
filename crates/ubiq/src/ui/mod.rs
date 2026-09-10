@@ -8,6 +8,7 @@
 
 pub mod a2ui;
 pub mod agents;
+pub mod all_projects;
 pub mod board;
 pub mod chat;
 pub mod clone;

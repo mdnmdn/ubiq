@@ -89,6 +89,9 @@ impl AppState {
         let project_search =
             cx.new(|cx| InputState::new(window, cx).placeholder("Find a project\u{2026}"));
 
+        let all_projects_search =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Find a project\u{2026}"));
+
         let picker_search = cx.new(|cx| InputState::new(window, cx).placeholder("Filter\u{2026}"));
 
         let search_query =
@@ -707,6 +710,19 @@ impl AppState {
             },
         ));
 
+        subscriptions.push(cx.subscribe_in(
+            &all_projects_search,
+            window,
+            |this, input, event: &InputEvent, _window, cx| {
+                if matches!(event, InputEvent::Change)
+                    && let Some(state) = this.workbench.all_projects.as_mut()
+                {
+                    state.filter = input.read(cx).value().to_string();
+                    cx.notify();
+                }
+            },
+        ));
+
         // No field of the workbench's own mirrors this one: every `Picker` that opts into search
         // reads `picker_search` straight from the window at render time, so the only thing a
         // keystroke owes the rest of the window is the redraw that re-filters it.
@@ -952,6 +968,7 @@ impl AppState {
             new_step_input,
             command_input,
             project_search,
+            all_projects_search,
             picker_search,
             search_query,
             search_excludes_input,

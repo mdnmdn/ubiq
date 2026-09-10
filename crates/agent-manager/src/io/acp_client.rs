@@ -2059,9 +2059,7 @@ fn serve_request(shared: &Shared, id: Value, method: &str, value: &Value, raw: &
             if let AgentEvent::PermissionRequest { tool_call, .. } = &ev
                 && tool_call.kind == Some(ToolKind::Delegate)
             {
-                state_of(shared)
-                    .delegate_calls
-                    .insert(tool_call.id.clone());
+                state_of(shared).delegate_calls.insert(tool_call.id.clone());
             }
             if emit(&shared.tx, ev, Some(Arc::clone(raw))) {
                 return true;

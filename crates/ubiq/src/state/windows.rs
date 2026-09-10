@@ -240,12 +240,9 @@ impl WindowRegistry {
     pub fn groups(&self, id: WindowId, filter: &str) -> ProjectGroups {
         let needle = filter.trim().to_lowercase();
         let matches = |project: ProjectId| {
-            let Some(snapshot) = self.projects.get(&project) else {
-                return false;
-            };
-            needle.is_empty()
-                || snapshot.record.name.to_lowercase().contains(&needle)
-                || snapshot.record.path.to_lowercase().contains(&needle)
+            self.projects
+                .get(&project)
+                .is_some_and(|snapshot| matches_needle(snapshot, &needle))
         };
 
         let mut groups = ProjectGroups::default();
@@ -287,6 +284,18 @@ impl WindowRegistry {
         groups
     }
 
+    /// Every project in the catalogue whose name or path holds `filter`, in creation order — the
+    /// "All projects" modal's whole list, unlike [`Self::groups`] which only ever answers for one
+    /// window and splits by where each project is open.
+    pub fn all_matching(&self, filter: &str) -> Vec<ProjectId> {
+        let needle = filter.trim().to_lowercase();
+        self.projects
+            .values()
+            .filter(|snapshot| matches_needle(snapshot, &needle))
+            .map(|snapshot| snapshot.record.id)
+            .collect()
+    }
+
     /// Take a project out of whatever window holds it. A project is open in one window at a time,
     /// so every open goes through here first.
     fn release(&mut self, project: ProjectId) {
@@ -294,6 +303,14 @@ impl WindowRegistry {
             remove(slot, project);
         }
     }
+}
+
+/// Whether a project's name or path holds a lowercase needle. An empty needle matches everything,
+/// which is what leaves an unfiltered picker or modal showing the whole list.
+fn matches_needle(snapshot: &ProjectSnapshot, needle: &str) -> bool {
+    needle.is_empty()
+        || snapshot.record.name.to_lowercase().contains(needle)
+        || snapshot.record.path.to_lowercase().contains(needle)
 }
 
 /// Remove a project from one slot, keeping `active` on a project that still exists.

@@ -234,6 +234,14 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .as_ref()
                 .map(|_| crate::ui::clone::render(app, window, cx)),
         )
+        // The "All projects" modal, raised from the picker's History group — painted here on the
+        // same terms as the clone modal just above.
+        .children(
+            app.workbench
+                .all_projects
+                .as_ref()
+                .map(|_| crate::ui::all_projects::render(app, window, cx)),
+        )
         // The file question a gesture in the explorer or a save on an untitled buffer asked —
         // painted here rather than from either, because both raise the same one.
         .children(

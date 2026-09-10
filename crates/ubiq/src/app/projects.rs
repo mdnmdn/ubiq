@@ -601,6 +601,23 @@ impl AppState {
         cx.notify();
     }
 
+    /// Open the "All projects" modal — the picker's History group hands off here once it has
+    /// more than it can show. The picker's own menu closes with it: the modal draws over the
+    /// window root, not over the row that raised it, so a menu left open behind it would be a
+    /// stale trigger with nothing above it any more.
+    pub fn open_all_projects(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.close_menu(cx);
+        self.workbench.all_projects = Some(crate::state::AllProjectsState::default());
+        let field = self.all_projects_search.clone();
+        field.update(cx, |input, cx| input.set_value("", window, cx));
+        cx.notify();
+    }
+
+    pub fn close_all_projects(&mut self, cx: &mut Context<Self>) {
+        self.workbench.all_projects = None;
+        cx.notify();
+    }
+
     // ── Boot, and what is remembered ────────────────────────────────
 
     /// Take a project on the first catalogue that arrives.

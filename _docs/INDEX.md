@@ -83,7 +83,7 @@ states the boundary once.
 | [Notifications](./features/notifications.md) | One bell in the titlebar over a host-owned history — a level, an origin and an optional link per notification, a badge that counts the unread, a flash that carries a click straight to where it points, and mute rules by scope, level and duration that also decide what the desktop hears. | 2026-09-10 |
 | [Panes and terminals](./features/panes-and-terminals.md) | What a pane shows, how exactly one of them holds focus, how a resize reaches the harness, and how a pane is moved around the window's dock. | 2026-09-09 |
 | [Sessions and workspaces](./features/sessions-and-workspaces.md) | A session is a named piece of work that owns a folder and outlives the agents inside it; a workspace is one running agent within it, and the two have separate lifecycles. | 2026-09-10 |
-| [Stats](./features/stats.md) | The Control screen — five readings of the running host on one page, and the usage meter on the other, whose tables exist and whose producer does not. | 2026-09-08 |
+| [Stats](./features/stats.md) | The Control screen — five readings of the running host on one page, and the usage meter on the other, whose tables exist and whose producer does not. | 2026-09-10 |
 | [The workbench](./features/workbench.md) | The window's shell — the activity rail and its modes, the dock of movable panels the user arranges around the centre, the file explorer and editor a project owns, the Git screen of refs, history and uncommitted changes, the agents screen of parallel columns, the orchestration graph and the tasks board the rail's other built modes hold, the kitchen sink the application tests itself against, the file picker any screen raises to choose a path, the empty state a window with no project shows, and the status bar that reports on all of it. | 2026-09-10 |
 
 ### Tech
@@ -91,7 +91,7 @@ states the boundary once.
 | Document | What it is | Verified |
 |---|---|---|
 | [Backlog](./backlog.md) | Every open question, known gap and deferred item across the project, in one register. | 2026-09-10 |
-| [The agent-manager boundary](./tech/agent-manager.md) | What the embedded harness-management library owns, what Ubiq owns, how the application consumes it, and the rule that keeps the two from growing into each other. | 2026-09-09 |
+| [The agent-manager boundary](./tech/agent-manager.md) | What the embedded harness-management library owns, what Ubiq owns, how the application consumes it, and the rule that keeps the two from growing into each other. | 2026-09-10 |
 | [Architecture](./tech/architecture.md) | The two halves — coordinator and UI — the single bus between them, the rules neither may break, and why the split is drawn before it is needed. | 2026-09-09 |
 | [Code map](./tech/code-map.md) | Generated map of the application's source tree, and the inverted index from every file to the documents that anchor it. | 2026-09-08 |
 | [Decision register](./tech/decisions.md) | One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library. | 2026-09-09 |
@@ -100,7 +100,7 @@ states the boundary once.
 | [Project structure](./tech/project-structure.md) | Every folder in the workspace, what belongs in it, what must never go in it, and the two crates' division of labour. | 2026-09-08 |
 | [Transport contract](./tech/transport-contract.md) | The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, profile, command-line, host browse, connector, repository, assist and notification families, the framing rules, and the procedure for adding a variant. | 2026-09-10 |
 | [UI and design](./tech/ui-and-design.md) | The GPUI rendering model, the complete theme token set and the rule that no colour escapes it, how a palette is switched, the shape every surface, modal and dialog is drawn in, the page every primitive is looked at on, and the design assets screens are built against. | 2026-09-10 |
-| [Version control](./tech/version-control.md) | How the host reads a project's repository — the rule that Ubiq creates a repository or reads one and never writes into one, where a clone runs, discovery and scope, the git worker's two queues and its per-project caches, the three shapes it answers with, the commit-graph lane engine, the refresh discipline that narrows the staleness window, and the ceilings and assumptions the model rests on. | 2026-09-09 |
+| [Version control](./tech/version-control.md) | How the host reads a project's repositories — the rule that Ubiq creates a repository or reads one and never writes into one, where a clone runs, upward discovery and scope, the bounded downward walk that finds the repositories inside a project and merges them into one map, the git worker's two queues and its per-project caches, the three shapes it answers with, the commit-graph lane engine, the refresh discipline that narrows the staleness window, and the ceilings and assumptions the model rests on. | 2026-09-10 |
 
 ### References
 

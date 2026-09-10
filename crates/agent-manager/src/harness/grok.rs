@@ -164,7 +164,9 @@ impl Harness for Grok {
     /// low` is confirmed honoured by `grok agent stdio` (§7). Fixed CLI/API enum, not probed —
     /// the same stance [`Grok::modes`] takes for permission modes — so every model
     /// [`Self::discover_models`] answers gets the same four levels rather than a second probe.
-    fn discover_thinking(&self) -> Result<std::collections::BTreeMap<String, super::ModelThinking>> {
+    fn discover_thinking(
+        &self,
+    ) -> Result<std::collections::BTreeMap<String, super::ModelThinking>> {
         let levels: Vec<super::ThinkingLevel> = ["xhigh", "high", "medium", "low"]
             .into_iter()
             .map(|value| super::ThinkingLevel {

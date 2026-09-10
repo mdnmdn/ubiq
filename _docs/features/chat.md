@@ -7,7 +7,7 @@ summary: Editor-like chat tabs — many, movable to any dockable region, each a 
 read_when: you are changing a chat tab, the control that starts or attaches a conversation, or which conversation a tab shows
 updated: 2026-09-10
 verified: 2026-09-10
-code_anchors: [crates/ubiq/src/ui/chat/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/state/prefs.rs]
+code_anchors: [crates/ubiq/src/ui/chat/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/app/projects.rs]
 depends_on: [feat-workbench]
 review_cycle: monthly
 ---
@@ -20,7 +20,9 @@ A harness in a terminal shows what an agent is doing; a chat tab shows what it w
 it concluded, beside the code rather than in another window. It is IDE furniture and leaves with
 the mode. Unlike every other panel IDE mode draws, it comes in many instances at once: a chat tab is
 a perspective on a conversation the host owns, not a conversation of its own, so many may be open —
-each attached to a different run, or to none — and closing one ends nothing.
+each attached to a different run, or to none — and closing one ends nothing. The relation holds in
+one direction only: deleting the conversation closes every tab looking at it, because there is then
+nothing to be a perspective on.
 
 ## Behaviour
 
@@ -106,9 +108,11 @@ tab, attached to nothing, because that is the one place the window has to decide
 empty region opens onto. A *pinned* tab is the one exception: pinning is protection from close and
 nothing else, so the shared tab menu's Pin (or Rename) still work but its Close row is gone, the
 same as any other tab — `AppState::tab_names` and `AppState::pinned_tabs`, in memory only, because a
-`ChatId` is reminted every run. **The attachment is what survives one**: `ViewPrefs.chats` remembers
-which agent each tab held, and a restore revives it where the conversation was marked persistent
-(`D97`) and draws the empty tab where it was not.
+`ChatId` is reminted every run. **A persistent attachment is what survives one**: `ViewPrefs.chats`
+remembers which agent each *persistently* attached tab held — a tab whose conversation the host was
+not asked to keep is written down as nothing, exactly as an unattached tab is, because the boot
+sweep deletes the run directory and reviving the tab would draw an empty panel over a conversation
+that is gone (`D97`). So a restart brings back exactly the tabs whose conversations the host kept.
 
 **Every chat tab draws from the same shared conversation view.** What a tab shows for its attachment
 is `crates/ubiq/src/ui/conversation`, the transcript, the tool blocks, the footer and the composer
@@ -148,6 +152,15 @@ the blocks *on screen* rather than over all of them — while a delegate's trans
 agent writing below it is not the tail of anything the reader can see, and following it would
 scroll a transcript nothing was added to.
 
+**Being on the tail is sticky: only the reader takes a transcript off it.** The one movement content
+cannot cause is the offset *rising* between two frames, so that — by more than `TAIL_SLACK`, and
+only while there is still something below the viewport — is what says the reader left, and the
+follow resumes the moment they are back within the slack. Growth alone never ends it: a row that
+lays out taller than it last measured raises the list's maximum while the pinned offset stays where
+it was, which looks exactly like a reader who scrolled away and would otherwise kill the follow for
+the rest of the turn. The frame after the transcript pins itself to the bottom is discounted for the
+same reason, since that pin is clamped at paint and reads back as a large move nobody made.
+
 **A transcript scrolled away from the tail carries one overlay, `Go to last message`.** It sits
 over the transcript's lower right rather than in the column, so nothing moves when it appears and
 the last line stays readable under it, and it is drawn only while there is something below the
@@ -169,6 +182,12 @@ drawn is an estimate of a line of prose per eighty characters. Either of the las
 the frame that draws it, which asks for one more, so an estimate lasts a frame. The plan also records which block each row stands for, which is how the strip above
 resolves a block to a row to scroll to.
 
+**Two things in the transcript fold, and their rules differ.** A run of same-kind tool calls needs
+three before folding pays and keeps its last card out; a run of reasoning folds unconditionally into
+one box. Both judge a run over the blocks *on screen* — contiguity is read across `visible_blocks()`,
+so another subagent's blocks, drawn nowhere, do not break a run, while a sentence or a tool call
+between two thoughts does.
+
 **A run of the same kind of tool call is folded to its last card.** Three or more consecutive tool
 blocks of one kind — `GROUP_MIN` — are drawn as the last of them plus one `tool_group` row standing
 for the ones before it, wearing that kind's own colour and reading `N earlier calls`, which opens on
@@ -181,15 +200,17 @@ turn that deadlocks. Which runs are open is `Conversation::open_groups`, keyed b
 call id — UI arrangement the host never hears about, like a tool block's own open flag — toggled
 through `AppState::toggle_conversation_tool_group`.
 
-**A thinking block is a disclosure, open while it is being written and closed once something else
-starts.** `ConvBlock::Thought` carries its own `open`, expanded the moment its first chunk arrives
-and collapsed by `Conversation::end_open_thought` the instant a different block starts, a turn ends
-or the harness compacts — a thought is drawn expanded only while it is the one thing left to follow;
-once anything else is being written there is nothing left to watch, and it folds the same way a
-finished run of tool calls does. A reader who toggles one by hand is remembered in
-`Conversation::touched_thoughts`, keyed by the block's index, so that block's state is never
-overridden again — a thought the reader reopened to read is not closed under them by the next
-chunk. Toggled through `AppState::toggle_conversation_thought`.
+**A run of reasoning is one bordered `THINKING` box, and the box is a disclosure.** Every
+consecutive `ConvBlock::Thought` on screen is a child of the same box rather than a box of its own,
+with no floor to reach first: where a harness chose to flush its reasoning is not something the
+reader asked about, and a stack of identical frames says only that it flushed several times. The box
+is expanded while the thinking is the one thing still being written — the run is read by its last
+block's own `open` — and `Conversation::end_open_thought` collapses it to the caption alone the
+instant a different block starts, a turn ends or the harness compacts, because once anything else is
+being written there is nothing left to watch. Clicking the caption moves the whole run, never half a
+box, and marks every block in it in `Conversation::touched_thoughts`, so the reader's choice is
+never overridden by the next chunk. Toggled through
+`AppState::toggle_conversation_thought_group`.
 
 **A permission ask is drawn on the tool call it authorises, not in a dialog.** A harness that stops
 to ask stops mid-operation, and the operation is already on screen: the prompt is joined to that
@@ -366,11 +387,21 @@ Unloaded, or Ended — derived rather than stored, so nothing new sits on `Conve
 reader to do something, so it is read before `run`, and `Working` therefore never carries
 `Activity::NeedsYou`. `Unloaded` and `Starting` are both `launched == false`; the transcript,
 `blocks`, is what tells them apart, because a harness that is gone still leaves what it said and one
-never started leaves nothing. The glyph is a `kit::status_dot`, no new primitive, coloured by
-`lifecycle_colour` — **yellow needs you, blue is working, green is idle, grey has stopped**, four
-readings and only four, since what a dot read at a glance has to answer is whether this conversation
-wants the reader; the tooltip is one or two words, `Unloaded`, `Working · Tools`, never a
-sentence — replacing the muted line P7 drew above the composer for the same fact.
+never started leaves nothing. The colour is `lifecycle_colour` — **yellow needs you, blue is
+working, green is idle, grey has stopped**, four readings and only four, since what a mark read at a
+glance has to answer is whether this conversation wants the reader; the tooltip is one or two words,
+`Unloaded`, `Working · Tools`, never a sentence — replacing the muted line P7 drew above the
+composer for the same fact.
+
+**A chat tab wears the same dot its conversation wears anywhere else, and two of its readings
+blink.** The tab strip draws `ui::conversation::lifecycle_dot` — a `kit::status_dot` and nothing
+new — coloured by `lifecycle_colour` and faded slowly in and out where `lifecycle_pulses` says so,
+which is `Waiting` and `Working` alone: those two are the states something is expected to happen
+in, and a still dot at the edge of vision on a strip nobody is looking at does not say that. It is
+slow and shallow on purpose — a hint, not an alarm, the running turn being watched at the tail
+instead — and it stops entirely for a reader who asked the system for reduced motion. A tab
+attached to nothing has no dot: there is no state to report. See
+[`ui-and-design.md`](../tech/ui-and-design.md) for the rule the element belongs to.
 
 **Each tab owns a composer of its own, from the same fixed pool a column draws from.** The window
 builds `COMPOSER_SLOTS` text areas — `0..COLUMNS_MAX` for columns, the range above it for chat tabs
@@ -428,9 +459,13 @@ reopen a tab the user has since closed on purpose; it is called from `enter_proj
 before the work has arrived, and from the `WorkList` answer, which is when it has.
 
 `Message::ConversationDeleted` — the answer to `EndConversation` — is handled in `app/wire.rs`: the
-conversation and its `WorkAgent` are dropped from the project, and any chat tab attached to it is
-detached (its `attached` cleared) rather than closed, since the tab is a view and an unattached view
-is what a fresh `+` produces too.
+conversation and its `WorkAgent` are dropped from the project, it is pruned out of any column, and
+every chat tab attached to it is **closed** — `AppState::close_chat_tab_in`, which takes the
+project id rather than reading the window's, because the delete can arrive while the window is
+looking at somewhere else. Closing goes through that method rather than dropping the `ChatTab` row,
+so the dock leaf leaves the tree and the composer slot is cleared before it is handed on. A detached
+tab would be an empty panel left where a conversation used to be, which is what a fresh `+`
+produces *on request* and not what a delete should leave behind (`D100`).
 
 **Rows and the actions behind them are matched by position**, the rule every menu in this window
 follows, so `state::chat::chat_picks` builds one list of `ChatPick`s — `New`, `Attach` or `Inert` —
@@ -460,9 +495,12 @@ fallback, and `needs_you_strip()` the answerable strip, with `waiting_count()` f
 `AppState::reveal_permission` in `crates/ubiq/src/app/agents.rs` is what the strip's label runs,
 taking the surface's own slot because the scroll belongs to the surface: the same conversation may
 be open in a column and a chat tab, and only the one that was clicked moves. The same module
-holds the rest of the transcript's own furniture: `transcript()` walks the visible blocks, folding
-each run of same-kind calls into one `tool_group()` row plus the run's last card — `one_block()` is
-the arm it reuses for a card it does not fold and for the ones it unfolds — `writing_mark()` is the
+holds the rest of the transcript's own furniture: `plan_rows()` is the row walk, lifted out of
+`transcript()` so both folds can be tested without an element — one `RowKind` per row, `Group` for a
+run of same-kind calls and `Thinking` for a run of reasoning — and `transcript()` draws what it
+planned; `tool_group()` is the `N earlier calls` row, `thought_group()` the bordered `THINKING` box
+over a whole run, `one_block()` the arm reused for a card that is not folded and for the ones a fold
+opens; `writing_mark()` is the
 tail's running mark, and `tail_signature()` is what the follow-the-tail scroll compares, read over
 the visible blocks it is handed and folding in `conversation.pending.len()` beside the block count
 and the run, since a pending prompt moves nothing else it reads. `build_row()` carries the gutter and
@@ -472,13 +510,20 @@ that size enter a row's signature. `to_tail_button()` is
 the overlay, on `AppState::scroll_transcript_to_tail`. `state::conversation::TranscriptScroll` is
 the rest: `sync()` is the once-a-frame decision — save the outgoing transcript's position, restore
 this one's, follow the tail only for a reader on it — with `away()` for the overlay, `request()`
-and `take_request()` for the block the strip asked to be taken to, and `to_tail()`. `AppState`
+and `take_request()` for the block the strip asked to be taken to, and `to_tail()`. The follow rule
+is two free functions beside it, `off_bottom()` for whether there is anything below the viewport and
+`away_reading()` for the sticky answer over that plus the frame's own rise, with `TAIL_SLACK` as the
+slack both allow and `own_move` marking the frame after `to_bottom()` pinned the offset itself.
+`AppState`
 holds one per composer slot as `transcript_scrolls`, indexed exactly as `column_inputs` is; every
 field of it is interior-mutable, because `render` holds `&AppState` and these are readings of the
-last frame rather than state the application owns. The fold's
+last frame rather than state the application owns. The tool fold's
 open set is `Conversation::open_groups` with `toggle_group()` beside it in
 `crates/ubiq/src/state/conversation.rs`, reached from the row through
-`AppState::toggle_conversation_tool_group` in `crates/ubiq/src/app/agents.rs`. `footer()` reads
+`AppState::toggle_conversation_tool_group` in `crates/ubiq/src/app/agents.rs`; the reasoning fold
+has no open set of its own — the run is read off its last block, moved by
+`Conversation::toggle_thought_group` over the run's indices and remembered in `touched_thoughts`,
+reached through `AppState::toggle_conversation_thought_group`. `footer()` reads
 `show_cache_ring` off the workbench's UI settings and draws the cache ring from `cached_tokens()`
 over `total_tokens()` — or, on a delegate's transcript, from `Conversation::subagent_tokens()`,
 with `delegate_spend_tip()` for the tooltip that says which grain the figure is banked at; `stop_button()` is the composer's square, on `AppState::cancel_turn`, beside
@@ -523,6 +568,8 @@ field the filter. A grouped, searchable, partly-inert list was already what that
 | A permission request offers no lasting allow | The strip draws Yes and No and no All; a third button answering with the plain allow would be a control that lies about lasting |
 | A delegate's transcript is being read | `tot` and the cache ring are that delegate's spend, banked by subagent type; no context ring is drawn, because no harness reports a delegate's own occupancy |
 | The transcript is scrolled up while the conversation goes on writing | It stays where it was put, the `Go to last message` overlay appears, and the follow resumes once the reader is back on the tail |
+| A row lays out taller than it last measured while the transcript sits on the tail | The follow holds: content growing raises the list's maximum, and only the offset rising says the reader moved |
+| The conversation a chat tab is attached to is deleted, in this project or another | Every tab on it closes, dock leaf and composer slot with it — the one host event that ends a view |
 | A permission request offers no option of the reading ⌘⌥Y or ⌘⌥N asks for | The keyboard does nothing; the buttons the harness did offer are still there to press |
 | A conversation reports a total but no cached figure, or a total of zero | The cache ring is not drawn; a ring at nothing over nothing is not a reading |
 | The turn is cancelled while asks are up | The outstanding set is dropped, the prompts and the strip go with it, and the host answers every one of them as cancelled before the cancel reaches the harness |
@@ -534,7 +581,7 @@ field the filter. A grouped, searchable, partly-inert list was already what that
 
 - [`workbench.md`](./workbench.md) — the dock a chat tab is one panel in, and the composer slot pool it shares with a column
 - [`../tech/transport-contract.md`](../tech/transport-contract.md) — the conversation family an attached tab speaks
-- [`../tech/decisions.md`](../tech/decisions.md) — `D61`, why a tab is exclusive per surface and not per conversation
+- [`../tech/decisions.md`](../tech/decisions.md) — `D61`, why a tab is exclusive per surface and not per conversation, and `D100`, the one event that closes a view
 - [`../tech/ui-and-design.md`](../tech/ui-and-design.md) — the tokens the transcript and its blocks are coloured from
 - [`../tech/agent-manager.md`](../tech/agent-manager.md) — who owns harness knowledge, for the rows the start half offers
 

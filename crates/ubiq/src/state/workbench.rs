@@ -131,6 +131,18 @@ pub struct ProjectSettings {
     pub colour: ColourField,
 }
 
+/// The "All projects" modal, while it is up.
+///
+/// A picker row is one line, and the picker itself only ever shows nine of history before it
+/// hands off — this is where the rest of the catalogue is read, searched and acted on. Its own
+/// filter rather than a share of `project_filter`: the two fields are on screen at different
+/// times, but a modal raised over the picker must not go blank because the row that opened it
+/// had typed something into the other one.
+#[derive(Default)]
+pub struct AllProjectsState {
+    pub filter: String,
+}
+
 /// Every menu in the window. Exactly one may be open, so the shell keeps a single `Option`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum MenuId {
@@ -317,6 +329,10 @@ pub struct WorkbenchState {
     /// clone has no project yet, and the two questions — "which repository" and "what is this
     /// project called here" — are asked in different places.
     pub clone_project: Option<CloneState>,
+    /// The "All projects" modal, while it is up. Raised from the picker's History group when it
+    /// hides more than it shows — beside `clone_project` for the same reason: a question raised
+    /// over the window, answered from its own state rather than the picker's.
+    pub all_projects: Option<AllProjectsState>,
     /// The New agent modal, while it is up. Beside `clone_project` because it is the same kind of
     /// thing: a question raised over the window, answered once, and carrying its own pickers'
     /// open state because a modal is redrawn from state on every frame.
@@ -434,6 +450,7 @@ impl Default for WorkbenchState {
             row_action: None,
             project_settings: None,
             clone_project: None,
+            all_projects: None,
             new_agent: None,
             agent_preambles: Default::default(),
             remote_connect: None,

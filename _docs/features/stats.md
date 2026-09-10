@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: The Control screen — five readings of the running host on one page, and the usage meter on the other, whose tables exist and whose producer does not.
 read_when: you are changing what the Control screen reports, the usage meter's schema or its buckets, or the one thing the interface polls the host for
-updated: 2026-09-06
-verified: 2026-09-08
+updated: 2026-09-10
+verified: 2026-09-10
 code_anchors: [crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/messages.rs, crates/ubiq-host/src/store/usage.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/state/stats.rs, crates/ubiq/src/ui/stats.rs, crates/ubiq/src/app/stats.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/tests/stats.rs, crates/ubiq-host/tests/usage.rs]
 depends_on: [tech-transport, feat-workbench, tech-structure]
 review_cycle: monthly
@@ -53,9 +53,10 @@ launch's own dimensions — project, harness, account — are both in hand; the 
 conversation update, so it could not write them. **Occupancy is a level and spend is a flow**: a
 report that only moves the context ring writes nothing, because a zero row would claim the harness
 said "nothing spent" when it said nothing at all. Claude Code reports spend per model at the end of
-a turn; Codex, Copilot and opencode report none today, so they contribute no rows — and the page
-still draws its empty state rather than seeding a plausible figure into a screen whose whole job is
-to report real ones.
+a turn, and so does every ACP endpoint that states a token count on its `session/prompt` response —
+`claude-code-acp` and `copilot` at `result.usage`, `grok` at `result._meta.usage`. Codex reports
+none, an agent that states nothing contributes no rows, and the page draws its empty state rather
+than seeding a plausible figure into a screen whose whole job is to report real ones.
 
 **The meter is a database, kept beside the catalogue rather than in the cache.** It lives at
 `<config root>/usage.db`. `cache/` is defined as everything that can be re-derived by asking again,

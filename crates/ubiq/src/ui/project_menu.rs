@@ -51,6 +51,11 @@ const ROW_FURNITURE: f32 = 170.0;
 const NAME_ADVANCE: f32 = 6.9;
 const PATH_ADVANCE: f32 = 6.3;
 
+/// How many of History the panel draws before it hands the rest off to the "All projects" modal.
+/// A menu is a glance, not a browse — past nine rows it is no longer faster than the modal it
+/// would otherwise never be worth opening.
+const HISTORY_SHOWN: usize = 9;
+
 /// Whether a row has room for its path beside its name.
 ///
 /// **The name wins.** A path is the answer to "which of these two is it", which only matters while
@@ -103,10 +108,16 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
 /// reads as part of that answer; the letter is about the window. Its own box, in the project's
 /// tint, so the two still read as one piece of chrome. Absent while the session has one window,
 /// which has nothing to be told apart from.
+///
+/// It takes the strip's full height, like the chip beside it, and is separated from it by a single
+/// pixel: two boxes of the same height reading as one piece, with the seam visible. Its left edge
+/// touches the window's, because there is nothing there to be separated from.
 pub fn window_badge(app: &AppState, cx: &App) -> Option<impl IntoElement> {
     app.several_windows(cx).then(|| {
         div()
-            .size(px(26.))
+            .h_full()
+            .w(px(26.))
+            .mr(px(1.))
             .flex()
             .flex_none()
             .items_center()
@@ -195,23 +206,29 @@ fn panel(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElem
                 .map(|(project, label, id)| row(app, *project, Group::Elsewhere(*label, *id), cx))
                 .collect(),
         );
-
-        body = group(
-            body,
-            "History",
-            groups
-                .history
-                .iter()
-                .map(|project| row(app, *project, Group::History, cx))
-                .collect(),
-        );
     }
 
-    // Always drawn, because on a first run it is the only thing there is to do.
+    // The three ways in, ahead of History rather than after it: what is already open answers
+    // "where is everything", and how to add to that list is one topic, read together. History is
+    // what has piled up, and reads better as the thing the panel ends on. Always drawn, because
+    // on a first run it is the only thing there is to do.
     body = body
         .child(add_row(cx))
         .child(clone_row(cx))
         .child(remote_row(app, cx));
+
+    if !empty {
+        let mut history_rows: Vec<AnyElement> = groups
+            .history
+            .iter()
+            .take(HISTORY_SHOWN)
+            .map(|project| row(app, *project, Group::History, cx))
+            .collect();
+        if groups.history.len() > HISTORY_SHOWN {
+            history_rows.push(others_row(cx));
+        }
+        body = group(body, "History", history_rows);
+    }
 
     deferred(
         anchored()
@@ -617,6 +634,32 @@ fn remote_row(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         ))
 }
 
+/// History's own tenth row, drawn only when the group is hiding more than it shows: the way to
+/// the rest of the catalogue, searchable and with its own actions, rather than a panel that just
+/// keeps growing.
+fn others_row(cx: &mut Context<AppState>) -> AnyElement {
+    div()
+        .id("project-history-others")
+        .h(px(30.))
+        .px_2()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap_2()
+        .cursor_pointer()
+        .hover(|this| this.bg(theme::hover()))
+        .child(
+            div()
+                .flex_1()
+                .min_w(px(0.))
+                .text_size(theme::font(Family::Chrome, Role::Body))
+                .text_color(theme::text_muted())
+                .child("Others\u{2026}"),
+        )
+        .on_click(cx.listener(|this, _, window, cx| this.open_all_projects(window, cx)))
+        .into_any_element()
+}
+
 /// What the host last refused to do. Dismissible, because it is history the moment it is read.
 fn banner(error: String, cx: &mut Context<AppState>) -> impl IntoElement {
     div()
@@ -663,7 +706,7 @@ fn window_mark(label: char, colour: gpui::Rgba) -> impl IntoElement {
         .child(label.to_string())
 }
 
-fn action(
+pub(crate) fn action(
     id: String,
     icon: IconName,
     tooltip: &'static str,

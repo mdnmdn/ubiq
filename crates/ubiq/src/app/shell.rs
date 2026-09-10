@@ -505,6 +505,8 @@ impl AppState {
             self.close_file_dialog(cx);
         } else if self.workbench.clone_project.is_some() {
             self.close_clone(cx);
+        } else if self.workbench.all_projects.is_some() {
+            self.close_all_projects(cx);
         } else if settings.ai_remove.is_some() {
             // The three provider layers, in reverse paint order — `ui::shell` draws the form,
             // then the test, then the removal question, so Escape takes them the other way up.
