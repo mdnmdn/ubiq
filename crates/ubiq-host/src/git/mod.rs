@@ -16,6 +16,7 @@
 
 pub mod graph;
 pub mod history;
+pub mod nested;
 pub mod observe;
 
 pub use observe::{Observation, WorkingTree, observe};
@@ -220,6 +221,7 @@ fn answer(state: &mut State, job: Job) {
                             generation,
                             entries: tree.entries,
                             rollups: tree.rollups,
+                            repos: tree.repos,
                             truncated: tree.truncated,
                         });
                     }
@@ -323,9 +325,12 @@ fn observation(
     full: bool,
 ) -> Result<Observation, GitError> {
     if !ensure_repo(state, job.project_id, &job.root)? {
+        // No repository of the project's own is an ordinary answer, and it does not mean there is
+        // nothing to draw: a folder holding several independent clones still has badges inside
+        // each of them. The downward walk runs either way.
         return Ok(Observation {
             overview: None,
-            tree: None,
+            tree: observe::nested_only(&job.root, full),
         });
     }
     let cached = state

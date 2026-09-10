@@ -225,6 +225,8 @@ impl AppState {
                 let Some(blob) = value else { return };
                 if let Some(ui) = ui_settings::decode(&blob) {
                     self.workbench.settings.ui = ui;
+                    // The blob can land after a project is open, so the trees are told again.
+                    self.sync_explorer_hidden(cx);
                     cx.notify();
                 }
             }
@@ -307,6 +309,29 @@ impl AppState {
         self.workbench.settings.ui.explorer_preview = !self.workbench.settings.ui.explorer_preview;
         self.remember_settings();
         cx.notify();
+    }
+
+    /// Show or hide dotfiles in the explorer. Global rather than per project: it is a reading
+    /// habit, not a fact about one tree.
+    pub fn toggle_explorer_hidden(&mut self, cx: &mut Context<Self>) {
+        self.workbench.settings.ui.explorer_hidden = !self.workbench.settings.ui.explorer_hidden;
+        self.remember_settings();
+        self.sync_explorer_hidden(cx);
+        cx.notify();
+    }
+
+    /// Push the switch onto every tree this window holds, and run the filter walk again where one
+    /// is typed: the cached hits were walked under the other rule and key on the needle alone.
+    pub(super) fn sync_explorer_hidden(&mut self, cx: &mut Context<Self>) {
+        let on = self.workbench.settings.ui.explorer_hidden;
+        let mut changed = false;
+        for open in self.projects.values_mut() {
+            changed |= open.explorer.set_show_hidden(on);
+        }
+        let filter = self.workbench.file_filter.clone();
+        if changed && !filter.trim().is_empty() {
+            self.spawn_explorer_filter(filter, cx);
+        }
     }
 
     /// Show or hide the window-capture control. Off removes the keystroke with it — a

@@ -7,8 +7,9 @@
 //! Two scopes out of one recursive watch, filtered rather than watched selectively — a selective
 //! watch would have to be re-registered every time a directory appears:
 //!
-//! - anything under `.git/` never reaches `changed`; if it is `HEAD`, `MERGE_HEAD`, `index` or
-//!   under `refs/`, it sets `repository` on the next flush instead
+//! - anything under a `.git/` — the project's own, a nested clone's, or a submodule's git
+//!   directory — never reaches `changed`; if it is `HEAD`, `MERGE_HEAD`, `index` or under
+//!   `refs/`, it sets `repository` on the next flush instead
 //! - everything else is dropped if the project's ignore rules exclude it
 //!
 //! Events are coalesced by path over a 150ms quiet window, and the batch is bounded like a search
@@ -171,15 +172,12 @@ fn classify(
         return None;
     }
 
-    if let Some(inner) = rel.strip_prefix(".git/") {
-        return match inner {
-            "HEAD" | "MERGE_HEAD" | "index" => Some(Change::Repository),
-            _ if inner.starts_with("refs/") => Some(Change::Repository),
-            _ => None,
-        };
-    }
-    if rel == ".git" {
-        return None;
+    // A `.git` **anywhere** under the project, not only at its root: a nested clone's plumbing
+    // (`sub/.git/HEAD`) and a submodule's git directory (`.git/modules/sub/HEAD`) are both
+    // repository moves, and neither is ever a project file. The repository *above* the project
+    // keeps its `.git` outside the watched root, so a change there is still undetected (`G125`).
+    if let Some(inner) = under_git_dir(&rel) {
+        return plumbing(inner).then_some(Change::Repository);
     }
 
     if let Some(ignore) = ignore
@@ -190,6 +188,39 @@ fn classify(
         return None;
     }
     Some(Change::File(rel))
+}
+
+/// What is left of `rel` after the first `.git` component, or `None` if there is not one.
+///
+/// The `.git` directory itself answers `Some("")`, which is not a plumbing move.
+fn under_git_dir(rel: &str) -> Option<&str> {
+    let mut rest = rel;
+    loop {
+        let (head, tail) = match rest.split_once('/') {
+            Some((head, tail)) => (head, tail),
+            None => (rest, ""),
+        };
+        if head == ".git" {
+            return Some(tail);
+        }
+        if tail.is_empty() {
+            return None;
+        }
+        rest = tail;
+    }
+}
+
+/// Whether a path inside a git directory is one the refresh cares about.
+///
+/// `HEAD`, `MERGE_HEAD`, `index` and anything under a `refs/` — at the top of the git directory,
+/// or under `modules/<name>/` where a submodule's own HEAD actually lands. Everything else in
+/// there (`objects/`, `index.lock`, `logs/`) says nothing the interface would redraw for.
+fn plumbing(inner: &str) -> bool {
+    if inner.is_empty() {
+        return false;
+    }
+    let tail = inner.rsplit('/').next().unwrap_or(inner);
+    matches!(tail, "HEAD" | "MERGE_HEAD" | "index") || inner.split('/').any(|part| part == "refs")
 }
 
 /// The project's ignore rules, as one matcher.

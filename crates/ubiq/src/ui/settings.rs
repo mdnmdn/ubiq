@@ -486,6 +486,17 @@ fn file_explorer(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
             )
             .into_any_element(),
         ),
+        setting_row(
+            "Show hidden files",
+            "Dotfiles and dot-folders in the tree, the flat list and the filter. Off, they are \
+             not rows at all — the eye in the explorer's header is the same switch.",
+            check_box(
+                "app-settings-explorer-hidden",
+                app.workbench.settings.ui.explorer_hidden,
+                cx.listener(|this, _, _, cx| this.toggle_explorer_hidden(cx)),
+            )
+            .into_any_element(),
+        ),
         folder_row(
             "Default project folder",
             "Where a clone lands unless the clone modal is pointed somewhere else.",

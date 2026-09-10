@@ -51,6 +51,7 @@ document; file it instead.
 - Say what the tree actually does. A `status: draft` document describes a settled design; the gaps
   between it and the code are rows in `_docs/backlog.md`, not hedges in prose.
 - Keep it simple as possible, don't overengineer
+- it is possible that other people and agents are working in the same worktree: don't stash/revert updates you don't known about
 - Use tools and scripts in a smart way: always use the most efficient way to do the operation: if it's cheper using 
   default tools, use them, if it's better or safer using bash or script use them, if an operation is batched or complex
   evaulate to create a new `_tools`

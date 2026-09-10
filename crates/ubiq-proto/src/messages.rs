@@ -18,7 +18,7 @@ use crate::files::{
     DiffBase, DirListing, FileContents, FileDiff, FileError, FileVersion, HostDirEntry,
     HostPathError, PathOp,
 };
-use crate::git::{self, GitCommit, GitEntry, GitRef, GitRollup, RepoOverview};
+use crate::git::{self, GitCommit, GitEntry, GitNested, GitRef, GitRollup, RepoOverview};
 use crate::ids::{
     AiProviderId, CloneId, ConnectId, ConnectionId, NotificationId, OauthAppId, PaneId, ProjectId,
     RepoQueryId, SearchId, SessionId, StepId, SuggestId, TaskId,
@@ -901,11 +901,18 @@ pub enum Message {
     },
     /// Paths that have something to say, plus a rollup for every ancestor directory of those
     /// paths. A row not in the map is clean. `generation` is how a stale walk is discarded.
+    ///
+    /// One map covers every repository the project holds. `repos` names the ones nested inside it,
+    /// so the interface can draw the boundary the merged paths no longer show: a folder that is a
+    /// repository of its own, and the head it is on. A project with no repository above it can
+    /// still answer with entries here, when the repositories it holds are all below it.
     GitWorkingTree {
         project_id: ProjectId,
         generation: u64,
         entries: Vec<GitEntry>,
         rollups: Vec<GitRollup>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        repos: Vec<GitNested>,
         truncated: bool,
     },
     /// A repository that exists and could not be read.

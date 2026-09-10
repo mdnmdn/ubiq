@@ -14,9 +14,12 @@ use git2::{
 };
 use ubiq_proto::files::LIST_HIDE;
 use ubiq_proto::git::{
-    AHEAD_BEHIND_CAP, GitCounts, GitEntry, GitError, GitHead, GitMark, GitOperation, GitPathChange,
-    GitRemote, GitRollup, GitSubmodule, GitSubmoduleState, MAX_WORKING_TREE, RepoOverview,
+    AHEAD_BEHIND_CAP, GitCounts, GitEntry, GitError, GitHead, GitMark, GitNested, GitOperation,
+    GitPathChange, GitRemote, GitRollup, GitSubmodule, GitSubmoduleState, MAX_WORKING_TREE,
+    RepoOverview,
 };
+
+use super::nested;
 
 /// What one look at a project found.
 pub struct Observation {
@@ -25,9 +28,15 @@ pub struct Observation {
 }
 
 /// Paths that have something to say, and the directory rollups the explorer cannot derive itself.
+///
+/// One map for the whole project, however many repositories it holds: a nested repository's paths
+/// are prefixed with its own root and merged in, and `repos` is where the boundary is drawn
+/// (`D99`).
 pub struct WorkingTree {
     pub entries: Vec<GitEntry>,
     pub rollups: Vec<GitRollup>,
+    /// The repositories below the project, whose entries are already merged into `entries`.
+    pub repos: Vec<GitNested>,
     pub truncated: bool,
 }
 
@@ -45,10 +54,28 @@ pub fn observe(root: &Path, generation: u64, full: bool) -> Result<Observation, 
     let Some(repo) = open(root)? else {
         return Ok(Observation {
             overview: None,
-            tree: None,
+            tree: nested_only(root, full),
         });
     };
     observe_repo(root, &repo, generation, full)
+}
+
+/// The working tree of a project that has no repository of its own but holds some.
+///
+/// A folder holding several independent clones is a real project: there is no overview to draw,
+/// and the badges inside each clone are still the truth. `None` when nothing was found, which is
+/// what an ordinary folder answers.
+pub fn nested_only(root: &Path, full: bool) -> Option<WorkingTree> {
+    if !full {
+        return None;
+    }
+    let found = nested::discover(root);
+    if found.roots.is_empty() {
+        return None;
+    }
+    let mut entries = Vec::new();
+    let repos = merge_nested(root, &found.roots, &[], &mut entries);
+    Some(finish(entries, repos, found.truncated))
 }
 
 pub(crate) fn observe_repo(
@@ -62,10 +89,20 @@ pub(crate) fn observe_repo(
     let (head, (upstream, ahead, behind)) = head_and_tracking(repo)?;
     let operation = operation(repo.state());
 
+    let submodules = submodules(repo, &scoped_to);
+
     let (counts, tree) = if full && !is_bare {
-        let tree = working_tree(repo, &scoped_to)?;
-        let counts = counts_of(&tree.entries);
-        (Some(counts), Some(tree))
+        let (mut entries, mut truncated) = status_entries(repo, &scoped_to)?;
+        let found = nested::discover(root);
+        truncated |= found.truncated;
+        drop_nested_roots(&mut entries, &found.roots);
+        // The project's own counts are its own repository's: the outer repository's account of
+        // itself, with the folders it does not own dropped and nothing nested merged in yet. The
+        // status bar reads the branch it names, not the sum of every clone below it.
+        let counts = counts_of(&entries);
+        let pinned: Vec<&str> = submodules.iter().map(|sm| sm.rel_path.as_str()).collect();
+        let repos = merge_nested(root, &found.roots, &pinned, &mut entries);
+        (Some(counts), Some(finish(entries, repos, truncated)))
     } else {
         (None, None)
     };
@@ -81,7 +118,7 @@ pub(crate) fn observe_repo(
         is_bare,
         generation,
         remotes: remotes(repo),
-        submodules: submodules(repo, &scoped_to),
+        submodules,
     };
 
     Ok(Observation {
@@ -263,7 +300,119 @@ fn operation(state: RepositoryState) -> Option<GitOperation> {
     }
 }
 
-fn working_tree(repo: &Repository, scoped_to: &str) -> Result<WorkingTree, GitError> {
+/// Walk every repository in `roots`, prefix its paths with its own project-relative root, and
+/// merge them into `entries`.
+///
+/// Each repository is walked with an **empty** scope: the project's prefix is a fact about the
+/// *outer* repository and means nothing inside this one. `drop_nested_roots` has already taken the
+/// outer repository's own entry off these folders.
+///
+// ponytail: no handle is cached. `Repository::open` on an exact working-tree root takes no upward
+// walk, and the worker's cache is keyed by `ProjectId` alone — a cache holding one handle per
+// nested root is a bigger change than this needs. `G226` is the row if the repeat cost is ever
+// measured to matter.
+fn merge_nested(
+    root: &Path,
+    roots: &[String],
+    pinned: &[&str],
+    entries: &mut Vec<GitEntry>,
+) -> Vec<GitNested> {
+    if roots.is_empty() {
+        return Vec::new();
+    }
+    let mut repos = Vec::with_capacity(roots.len());
+    for rel_root in roots {
+        let submodule = pinned.contains(&rel_root.as_str());
+        let Ok(repo) = Repository::open(root.join(rel_root)) else {
+            // One broken clone must not blank the project's badges: it is reported with no counts
+            // and contributes no entries, and every other repository is still walked.
+            repos.push(GitNested {
+                rel_path: rel_root.clone(),
+                // A repository that will not open has no HEAD to name, and an unborn branch with
+                // no name is the wire's shape for "no commit to point at".
+                head: GitHead::Unborn(String::new()),
+                submodule,
+                counts: None,
+            });
+            continue;
+        };
+        let head = match head_and_tracking(&repo) {
+            Ok((head, _)) => head,
+            Err(_) => GitHead::Unborn(String::new()),
+        };
+        let walked = if repo.is_bare() {
+            None
+        } else {
+            status_entries(&repo, "").ok()
+        };
+        let Some((inner, _)) = walked else {
+            repos.push(GitNested {
+                rel_path: rel_root.clone(),
+                head,
+                submodule,
+                counts: None,
+            });
+            continue;
+        };
+        repos.push(GitNested {
+            rel_path: rel_root.clone(),
+            head,
+            submodule,
+            counts: Some(counts_of(&inner)),
+        });
+        entries.extend(inner.into_iter().map(|mut entry| {
+            entry.rel_path = format!("{rel_root}/{}", entry.rel_path);
+            entry
+        }));
+    }
+    repos
+}
+
+/// Take the outer repository's own account of a nested repository's folder out of `entries`.
+///
+/// An independent tree is one `Untracked` directory to the outer repository, and the interface
+/// pushes an untracked directory's status onto every child — which is why every file in a nested
+/// clone read as untracked. The nested repository's own entries and rollup supply that folder's
+/// badge instead.
+fn drop_nested_roots(entries: &mut Vec<GitEntry>, roots: &[String]) {
+    if roots.is_empty() {
+        return;
+    }
+    entries.retain(|entry| !roots.iter().any(|root| at_or_under(&entry.rel_path, root)));
+}
+
+/// Whether `path` is `root` itself or something below it.
+fn at_or_under(path: &str, root: &str) -> bool {
+    path == root
+        || path
+            .strip_prefix(root)
+            .is_some_and(|rest| rest.starts_with('/'))
+}
+
+/// Cap the merged entry set, roll it up, and say honestly whether anything was cut.
+///
+/// The rollups are computed over the *merged* set, so a folder holding a nested repository gets
+/// the badge that repository's own changes earn it.
+fn finish(mut entries: Vec<GitEntry>, repos: Vec<GitNested>, mut truncated: bool) -> WorkingTree {
+    if !repos.is_empty() {
+        entries.sort_by(|a, b| a.rel_path.cmp(&b.rel_path));
+    }
+    if entries.len() > MAX_WORKING_TREE {
+        entries.truncate(MAX_WORKING_TREE);
+        truncated = true;
+    }
+    let rollups = rollups_of(&entries);
+    WorkingTree {
+        entries,
+        rollups,
+        repos,
+        truncated,
+    }
+}
+
+/// One repository's status walk, project-relative. Bounded by [`MAX_WORKING_TREE`] on its own, so
+/// no single repository can fill the merged map on its way to being capped again.
+fn status_entries(repo: &Repository, scoped_to: &str) -> Result<(Vec<GitEntry>, bool), GitError> {
     let mut opts = StatusOptions::new();
     opts.include_untracked(true)
         .recurse_untracked_dirs(false)
@@ -314,12 +463,7 @@ fn working_tree(repo: &Repository, scoped_to: &str) -> Result<WorkingTree, GitEr
         });
     }
 
-    let rollups = rollups_of(&entries);
-    Ok(WorkingTree {
-        entries,
-        rollups,
-        truncated,
-    })
+    Ok((entries, truncated))
 }
 
 fn index_change(status: Status, found: &git2::StatusEntry<'_>) -> Option<GitPathChange> {

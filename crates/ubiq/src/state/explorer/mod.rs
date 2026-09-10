@@ -10,9 +10,13 @@
 //! into; the list is every match the host has already named, flat, each with the folder it came
 //! from. Which one is on screen is the user's choice. A filter finds rather than prunes: every
 //! folder already listed is walked while one is typed, and a folder with nothing matching under it
-//! drops out instead of drawing as empty. The listings themselves are filled in the background
-//! when the project opens, so a search reads a cache rather than waiting on the host — except the
-//! walk's skip set, which is how `node_modules` stays one row. Filtering a large cache is done
+//! drops out instead of drawing as empty. A branch a filter found is drawn open, and stays
+//! collapsible: shutting one while filtering records a per-filter override that is dropped with
+//! the filter, never the persisted set of open folders. Dotfiles are a switch over all of it —
+//! off, a hidden node and its subtree are not rows at all. The listings themselves are filled in
+//! the background when the project opens, so a search reads a cache rather than waiting on the
+//! host — except the walk's skip set, which is how `node_modules` stays one row.
+//! Filtering a large cache is done
 //! off the frame, after a short debounce, so typing a letter does not stall the window.
 //!
 //! **Git state is an `Option`, and `None` is not "clean".** Until a working-tree map has arrived,
@@ -29,7 +33,22 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use ubiq_proto::files::{DirEntry, DirListing, EntryKind, WALK_SKIP};
-use ubiq_proto::git::{GitEntry, GitMark, GitRollup};
+use ubiq_proto::git::{GitEntry, GitMark, GitNested, GitRollup};
+
+/// What a folder that is a repository of its own draws after its name.
+///
+/// A nested repository's paths are merged into the one project-relative map, so nothing else on
+/// the row says where one repository ends and the next begins. This is that boundary: the head as
+/// a short label, and whether the outer repository pins it. A submodule and an independent tree
+/// are both repositories here — the flag is a word in a tooltip, not a second colour.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NestedRepo {
+    /// `HEAD` as [`crate::state::git::head_label`] words it. Empty for a repository the host
+    /// could not read.
+    pub head: String,
+    /// The outer repository pins this one as a submodule.
+    pub submodule: bool,
+}
 
 /// How a file stands against the index. The explorer tints the name and shows a single-letter
 /// badge from this, never from wording alone.
@@ -110,6 +129,9 @@ pub struct FileNode {
     pub size: Option<u64>,
     /// What version control says about the file, when anything does.
     pub git: Option<GitStatus>,
+    /// Set when this folder is a repository of its own. Baked onto the node beside `git`, so a
+    /// row built off the frame from a snapshot carries it too.
+    pub repo: Option<NestedRepo>,
     /// Whether the host will open or list it. Something it will not follow — a symlink out of the
     /// project, a socket, a device — is drawn faint rather than hidden, because a tree with rows
     /// missing is a tree that lies.
@@ -137,6 +159,7 @@ impl FileNode {
             kind,
             size: entry.size,
             git: None,
+            repo: None,
             readable: entry.kind != EntryKind::Other,
         }
     }
@@ -244,6 +267,9 @@ pub enum ExplorerPressed {
     Open { path: String },
     /// A folder was opened that the host has never listed.
     Listing { path: String },
+    /// A folder was opened or shut while a filter is typed. The rows for it are the background
+    /// walk's, keyed on the needle and the view alone, so the window has to run that walk again.
+    Refiltered,
     /// The context menu went away.
     Dismissed,
     /// Escape on an empty menu with a filter: the field should go back to blank.
@@ -399,6 +425,9 @@ pub struct Row {
     /// The host's ceiling cut this folder's listing short.
     pub truncated: bool,
     pub git: Option<GitStatus>,
+    /// Set when the row is a folder that is a repository of its own: the branch icon and the head
+    /// label drawn after the name. Not `trailing`, which is the list's parent-path suffix.
+    pub repo: Option<NestedRepo>,
     pub readable: bool,
     /// Whether the keyboard is on this row. Selection is the open file; the cursor is only where
     /// the next key lands, and the two are drawn differently because they mean different things.
@@ -414,6 +443,10 @@ pub enum Toggle {
     Listing,
     /// Now open or shut, and nothing needs asking.
     Done,
+    /// A per-filter override flipped: the folder is drawn open or shut under the filter that is
+    /// typed, and the background walk has to run again. The cached hits key on the needle and the
+    /// view alone, so nothing else would rebuild them.
+    Refiltered,
     /// No such folder in the tree.
     Missing,
 }
@@ -468,6 +501,15 @@ pub struct ExplorerState {
     cache_asked: HashSet<String>,
     /// The last background filter result. Drawn instead of walking the tree on the frame.
     filter_hits: Option<FilterHits>,
+    /// Folders the user shut *while filtering*. A filter draws every matching folder open, so
+    /// this is the override that says otherwise — and it is deliberately not the persisted
+    /// `expanded` flag, because shutting a branch to read a search result is not a decision about
+    /// how the tree is left. Cleared with the filter.
+    filter_collapsed: HashSet<String>,
+    /// Whether dotfiles are drawn. Off, a hidden node is skipped with its whole subtree, in every
+    /// producer of rows and in the background prefetch. The interface derives hidden from the
+    /// name — the wire carries no flag for it.
+    show_hidden: bool,
     /// Incremented every time a filter job starts or is cancelled, so a slow walk cannot land on
     /// a query the user has already left.
     filter_job: u64,
@@ -481,6 +523,11 @@ pub struct ExplorerState {
     /// has been read; with it a row not in `git_marks` is clean.
     git_known: bool,
     git_generation: u64,
+    /// The repositories inside the project, by their project-relative root folder. Two things at
+    /// once: what the folder's row draws, and where inheritance stops — a nested root's children
+    /// are accounted for by its own repository, so an outer untracked or ignored status must not
+    /// bleed across the boundary the merged map no longer shows.
+    git_repos: HashMap<String, NestedRepo>,
 }
 
 /// What a background filter walk returns. `needle` is trimmed and lowercased, matching `rows`.
@@ -499,6 +546,10 @@ pub struct FilterSnap {
     pub view: ExplorerView,
     cursor: Option<String>,
     selected: Option<String>,
+    /// The per-filter overrides and the dotfile switch travel with the snapshot: without them the
+    /// walk draws a branch the user shut, or a dotfile the user is not looking at.
+    filter_collapsed: HashSet<String>,
+    show_hidden: bool,
 }
 
 mod filter;

@@ -52,7 +52,7 @@ pub use dock::{ChatId, PanelClass, PanelKind, Region};
 pub use editor::{EditorPaneState, FileBody, FileLanguage, OpenFile, SaveState};
 pub use explorer::{
     ExplorerAction, ExplorerEntry, ExplorerKey, ExplorerMenu, ExplorerPressed, ExplorerState,
-    ExplorerView, FileNode, Follow, GitStatus, NodeKind, Row, Toggle,
+    ExplorerView, FileNode, Follow, GitStatus, NestedRepo, NodeKind, Row, Toggle,
 };
 pub use file_picker::{
     Commit, FilePickerState, PickKind, PickerCount, PickerNode, PickerOwner, PickerRequest,

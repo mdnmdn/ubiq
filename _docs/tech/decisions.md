@@ -1864,6 +1864,41 @@ running until the flag goes off: nothing rotates it, and nothing stops two conve
 disk. Both are opt-in, per conversation, and off by default, which is what keeps the price paid
 only by whoever asked for it.
 
+### D99 — A project may hold repositories below it, and they are merged into one map rather than listed
+
+The project's own repository is still found by walking **upward** (`Repository::discover`), and it
+is still the one the overview, the refs and the log are about. What changes is what happens below:
+a bounded downward walk (`git/nested.rs`) finds every folder inside the project holding a `.git` —
+a directory, or the gitlink *file* a submodule and a linked worktree both appear as — and each one
+found is **walked and merged into the project's single working-tree map**, its paths prefixed with
+its own project-relative root. The rollups are recomputed over the merged set, so a folder holding
+a nested clone gets the badge that clone's own changes earn it. `GitNested` is the boundary made
+explicit: one row per repository inside the project, carrying its `HEAD`, whether the outer
+repository pins it as a submodule, and its own counts. `GitSubmodule` is untouched — it stays the
+outer repository's account of what it pins — and the two lists overlap by design.
+
+**Why:** the explorer draws **one** tree, so one map is the only shape that decorates it. The
+alternative — listing a nested repository the way a submodule is listed, and leaving its files out
+of the map — is what the tree did before, and it produced a wrong answer rather than an absent
+one: the outer repository reports an independent nested clone as a single `Untracked` directory, the
+interface pushes an untracked directory's status onto every child, and so every file in a nested
+clone read as untracked no matter what its own repository said. Dropping the outer repository's
+entry at that folder and merging the nested repository's own walk in its place is what fixes that,
+and it cannot be done by a list. `GitNested` exists because the merge would otherwise erase the
+boundary entirely: the interface has to be able to say which repository a path belongs to without
+holding a repository identity of its own.
+
+**Cost, and there are three.** The walk is **bounded and says so** — 32 roots and eight levels of
+depth — so a project with more repositories than that, or one deeper than that, reports `truncated`
+rather than the truth, and there is no way to ask for the rest. Each nested repository is
+**opened per refresh and not cached**: `Repository::open` on an exact root takes no upward walk, and
+the worker's cache is keyed by `ProjectId` alone, so caching handles here is a change to the cache's
+shape rather than a line of code (`G226`). And the merged map is one number of facts about several
+repositories: `MAX_WORKING_TREE` is applied *after* the merge, so a noisy nested clone can crowd the
+outer repository's own paths out of the map, and the project's counts on the overview deliberately
+stay the outer repository's own rather than a sum nobody asked for. Everything the Git screen draws
+from refs and history stays single-repository (`G125`).
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce

@@ -21,13 +21,13 @@ impl ExplorerState {
 
     /// What a click on a row means: a folder in the tree opens, a file is the thing to open, and
     /// a folder in the list is only where the cursor lands — there is no depth to walk into.
-    pub fn click(&mut self, path: &str) -> ExplorerPressed {
+    pub fn click(&mut self, path: &str, filter: &str) -> ExplorerPressed {
         self.set_cursor(path);
         // The project's own row has no node behind it, and clicking it means collapse or expand
         // the whole tree — there is nothing to open.
         if path.is_empty() {
             return match self.view {
-                ExplorerView::Tree => self.toggle_result(""),
+                ExplorerView::Tree => self.toggle_result("", filter),
                 ExplorerView::List => ExplorerPressed::Ignored,
             };
         }
@@ -40,7 +40,7 @@ impl ExplorerState {
         }
         if is_dir {
             if self.view == ExplorerView::Tree {
-                return self.toggle_result(path);
+                return self.toggle_result(path, filter);
             }
             return ExplorerPressed::Moved;
         }
@@ -49,12 +49,13 @@ impl ExplorerState {
         }
     }
 
-    fn toggle_result(&mut self, path: &str) -> ExplorerPressed {
-        match self.toggle(path) {
+    fn toggle_result(&mut self, path: &str, filter: &str) -> ExplorerPressed {
+        match self.toggle_drawn(path, filter) {
             Toggle::Listing => ExplorerPressed::Listing {
                 path: path.to_string(),
             },
             Toggle::Done => ExplorerPressed::Moved,
+            Toggle::Refiltered => ExplorerPressed::Refiltered,
             Toggle::Missing => ExplorerPressed::Ignored,
         }
     }
@@ -112,12 +113,14 @@ impl ExplorerState {
             return ExplorerPressed::Ignored;
         }
 
-        if self.needs_listing(&row.path) {
-            return self.toggle_result(&row.path);
+        // A folder nothing is known about is asked for, which only happens with no filter typed:
+        // under one, a folder the walk drew is asked about by `unlisted_hits` instead.
+        if self.needs_listing(&row.path) && filter.trim().is_empty() {
+            return self.toggle_result(&row.path, filter);
         }
 
-        if !self.is_expanded(&row.path) && filter.trim().is_empty() {
-            return self.toggle_result(&row.path);
+        if !self.drawn_expanded(&row.path, filter) {
+            return self.toggle_result(&row.path, filter);
         }
 
         match rows.get(at + 1).filter(|next| next.depth > row.depth) {
@@ -140,10 +143,11 @@ impl ExplorerState {
             return ExplorerPressed::Ignored;
         }
 
-        // While a filter is typed every folder is drawn open, so shutting one would change nothing
-        // on screen. Stepping out still means something, and that is what it does.
-        if row.is_dir && self.is_expanded(&row.path) && filter.trim().is_empty() {
-            return self.toggle_result(&row.path);
+        // A folder drawn open is shut — under a filter that is the per-filter override, and the
+        // branch's matches go off screen with its own row left as the way back in. A folder
+        // already shut is stepped out of instead.
+        if row.is_dir && self.drawn_expanded(&row.path, filter) {
+            return self.toggle_result(&row.path, filter);
         }
 
         let depth = row.depth;
@@ -167,7 +171,7 @@ impl ExplorerState {
         }
         if row.is_dir {
             if self.view == ExplorerView::Tree {
-                return self.toggle_result(&row.path);
+                return self.toggle_result(&row.path, filter);
             }
             return ExplorerPressed::Moved;
         }

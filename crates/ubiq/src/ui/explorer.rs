@@ -11,9 +11,9 @@ use gpui::{
     Render, Rgba, SharedString, StatefulInteractiveElement, Styled, Window, div, point,
     prelude::FluentBuilder, px,
 };
-use gpui_component::IconName;
 use gpui_component::InteractiveElementExt;
 use gpui_component::input::Input;
+use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use crate::app::{AppState, MIN_QUERY};
 use crate::state::{ExplorerKey, ExplorerView, Follow, GitStatus, MenuId, Row};
@@ -21,8 +21,8 @@ use crate::theme;
 use crate::ui::eid;
 use crate::ui::empty::empty_panel;
 use crate::ui::kit::{
-    ContextItem, badge, context_menu, disclosure, elided, elided_with, file_row, filter_bar,
-    icon_button, kind_icon, mono, panel, panel_header, twisty, view_switch,
+    ContextItem, UbiqIcon, badge, context_menu, disclosure, elided, elided_with, file_row,
+    filter_bar, icon_button, kind_icon, mono, panel, panel_header, twisty, view_switch,
 };
 
 /// The colour a row's name and dot take from its git state. Status is never shown by wording alone.
@@ -287,6 +287,12 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
                     IconName::ChevronsUpDown,
                     false,
                     cx.listener(|this, _, _, cx| this.collapse_explorer(cx)),
+                ))
+                .child(icon_button(
+                    "explorer-hidden",
+                    IconName::Eye,
+                    app.workbench.settings.ui.explorer_hidden,
+                    cx.listener(|this, _, _, cx| this.toggle_explorer_hidden(cx)),
                 )),
         ))
         .children(bookmarks_section(app, cx))
@@ -450,6 +456,41 @@ fn line(
 
     if let Some(text) = row.git.and_then(GitStatus::badge) {
         line = line.child(badge(text, git_colour(row.git)));
+    }
+
+    // A folder that is a repository of its own says so, in both views: the merged map draws real
+    // badges inside it and nothing else would show where it begins. A submodule and an
+    // independent tree read the same, and differ by one word in the tooltip.
+    if let Some(repo) = &row.repo {
+        let kind = match repo.submodule {
+            true => "submodule",
+            false => "repository",
+        };
+        let tip: SharedString = match repo.head.is_empty() {
+            true => format!("{kind} (unreadable)").into(),
+            false => format!("{kind} \u{2014} {}", repo.head).into(),
+        };
+        let mut mark = div()
+            .id(eid("explorer-repo", &row.path))
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(3.))
+            .child(
+                Icon::new(UbiqIcon::GitBranch)
+                    .with_size(Size::XSmall)
+                    .text_color(theme::text_faint()),
+            );
+        if !repo.head.is_empty() {
+            mark = mark.child(
+                mono(repo.head.clone(), theme::text_faint())
+                    .text_size(theme::font(theme::Family::Content, theme::Role::Meta))
+                    .flex_none(),
+            );
+        }
+        line = line.child(mark.tooltip(move |window, cx| {
+            gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx)
+        }));
     }
 
     if row.loading && row.expanded {

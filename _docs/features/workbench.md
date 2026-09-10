@@ -1313,7 +1313,12 @@ name without case, each row saying which folder it came from. **The view switch 
 is the one control that says which arrangement is on**, and what was typed survives the toggle: one
 filter field sits over both, under the header. A filter finds rather than prunes: every folder
 already listed is walked while one is typed, and a folder with nothing matching under it drops out
-instead of drawing as empty. **The field starts searching at three characters**, because one or two
+instead of drawing as empty. **A branch a filter found is drawn open and stays collapsible**: the
+twisty and the arrow keys still work while a query is typed, and shutting one takes its matches off
+screen and leaves its own row as the way back in. That is a per-filter override, dropped when the
+field clears — shutting a branch to read one search result is not a decision about how the tree is
+left, so the folders the window writes down are untouched, and a branch drawn shut stops being
+prefetched. **The field starts searching at three characters**, because one or two
 letters match nearly everything in a project and cost a full walk to answer with a screen the user
 has to narrow anyway — anything shorter is treated as an empty field and the tree is left alone. A
 hit on a folder the host has never listed is asked for, so a matched folder answers with its
@@ -1326,6 +1331,16 @@ not clone or walk the cache on the keystroke: the field keeps the draft, the las
 screen, and after a short pause one snapshot — an `Arc` of the tree, not a copy — is walked on the
 background executor. Clearing the field is immediate. Clicking a folder in
 the tree expands it; clicking a file opens it; a folder in the list is only where the cursor lands.
+
+**Hidden files are off by default, and one switch shows them.** The eye at the end of the panel
+header is that switch, and the same one is a row in application settings — it is a reading habit
+rather than a fact about one project, so it is global and every open tree follows it at once. With
+it off a dotfile is not a row at all: a hidden folder takes its whole subtree with it, in the tree,
+in the flat list and in what the filter can reach, and the background cache does not list a folder
+the tree would not draw. Hidden is read from the name — a leading dot, the same rule the host
+applies when it browses a machine — because the wire carries no flag for it, and it is a separate
+thing from `LIST_HIDE`, which drops junk like `.DS_Store` from *every* listing whatever this switch
+says.
 
 **The project is the tree's first row.** It carries the project's name, sits above everything with a
 twisty of its own, and collapsing it puts the whole tree away behind one handle. Its path is the
@@ -1473,8 +1488,18 @@ row's right edge, aligned under its fellows by a spacer after the name, with no 
 in: a path in the map gets a status, a path not in it is clean, and until a map has
 arrived every row is unmarked because nothing has been read. An untracked or ignored directory
 paints every child the same, because git does not look inside and a child not in the map is not
-clean. Clean and unread draw the same on the row; the status bar's branch is how a repository is
-known. A project that is not a repository draws no badges and no branch.
+clean, but that inheritance stops at a nested repository's own root: its files carry their own
+status from the merged map, not the outer folder's, so an untracked directory holding a clean
+nested repository does not paint that repository's files untracked. Clean and unread draw the same
+on the row; the status bar's branch is how a repository is known. A project that is not a
+repository draws no badges and no branch.
+
+**A folder that is itself a repository carries a branch label of its own.** In both the tree and
+the list, a `git-branch` icon and the head's label — the branch name, `detached <id>`, or the
+unborn branch's name — follow the folder's name, faint and small, whether the repository is a
+submodule or an independent clone nested inside the project; only the row's tooltip says which,
+reading "submodule — <head>" or "repository — <head>", or "<kind> (unreadable)" for a repository
+the host could not open.
 
 **A tab exists from the click that asked for the file.** It appears at once, says it is reading, and
 fills when the bytes arrive — so a click has an effect, a second click cannot ask for the same file
@@ -2752,7 +2777,12 @@ uses, and tints, badges and dots a row from `GitStatus`. `apply_git()` takes a `
 projects each pair onto that enum; `merge()` re-paints so an expand is not unmarked until the next
 refresh. A stale generation is discarded. An untracked or ignored directory in the map is inherited
 by every child `paint_git()` walks, which is what makes expanding a new folder mark the files
-inside it.
+inside it — except across a nested repository's boundary, where `paint_nodes` resets the inherited
+status to `None` at the nested root, since that folder's children already carry their real status
+in the merged map. `apply_git()` also keeps `repos: Vec<GitNested>` in a `git_repos` map keyed by
+each nested repository's project-relative root, cleared by `clear_git()`; `ui/explorer.rs` reads it
+to draw the branch label after a folder's name, and `state::git::head_label` — also what
+`ui/status_bar.rs` calls for the project's own branch — turns a `GitHead` into that same string.
 
 `state/editor.rs` names the component library, unlike its neighbours, because a file's buffer *is*
 its state: `FileBody` is either `Loading`, the `Text` of a buffer with the bytes the host sent beside

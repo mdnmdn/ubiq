@@ -29,7 +29,9 @@ use std::collections::HashSet;
 
 use chrono::{DateTime, Utc};
 use ubiq_proto::files::{DiffBase, FileDiff};
-use ubiq_proto::git::{GitCommit, GitEntry, GitPathChange, GitRef, GitRefKind, GitSubmodule};
+use ubiq_proto::git::{
+    GitCommit, GitEntry, GitHead, GitPathChange, GitRef, GitRefKind, GitSubmodule,
+};
 
 use crate::state::when;
 
@@ -243,6 +245,17 @@ impl Side {
             Side::Staged => "Staged",
             Side::Unstaged => "Unstaged",
         }
+    }
+}
+
+/// What `HEAD` reads as in one short label: a branch name, a detached short id, or the branch an
+/// unborn repository is on. Stated once so the status bar and the explorer's nested-repository
+/// rows cannot word the same fact differently. Empty for a repository the host could not read.
+pub fn head_label(head: &GitHead) -> String {
+    match head {
+        GitHead::Branch(name) => name.clone(),
+        GitHead::Detached { short_id } => format!("detached {short_id}"),
+        GitHead::Unborn(name) => name.clone(),
     }
 }
 

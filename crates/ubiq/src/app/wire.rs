@@ -800,10 +800,14 @@ impl AppState {
                 generation,
                 entries,
                 rollups,
+                repos,
                 truncated,
             } => {
                 let open = self.projects.get_mut(&project_id)?;
-                if !open.explorer.apply_git(generation, &entries, &rollups) {
+                if !open
+                    .explorer
+                    .apply_git(generation, &entries, &rollups, &repos)
+                {
                     return None;
                 }
                 open.git_truncated = truncated;

@@ -21,10 +21,13 @@ impl ExplorerState {
             cache_asked: HashSet::new(),
             filter_hits: None,
             filter_job: 0,
+            filter_collapsed: HashSet::new(),
+            show_hidden: false,
             git_marks: HashMap::new(),
             git_inherit: HashSet::new(),
             git_known: false,
             git_generation: 0,
+            git_repos: HashMap::new(),
         }
     }
 
@@ -93,6 +96,8 @@ impl ExplorerState {
         tree.view = snap.view;
         tree.cursor = snap.cursor;
         tree.selected = snap.selected;
+        tree.filter_collapsed = snap.filter_collapsed;
+        tree.show_hidden = snap.show_hidden;
         tree.root_listed = true;
         tree.rows(filter)
     }
@@ -140,6 +145,7 @@ impl ExplorerState {
             loading: !self.root_listed,
             truncated: self.truncated,
             git: None,
+            repo: None,
             readable: true,
             on_cursor: self.cursor.as_deref() == Some(""),
             trailing: String::new(),
@@ -153,6 +159,9 @@ impl ExplorerState {
             return;
         }
         for node in nodes {
+            if self.is_skipped(node) {
+                continue;
+            }
             if node.is_dir() {
                 let (expanded, loading, truncated) = dir_flags(node);
                 out.push(self.row(node, depth, expanded, loading, truncated, String::new()));
@@ -167,6 +176,12 @@ impl ExplorerState {
 
     /// One walk, not a subtree test per folder: the old `subtree_matches` was quadratic, which is
     /// what a letter in the field was paying for.
+    ///
+    /// A folder a filter reached is drawn **open by default** — its children are what the user is
+    /// looking for — but the children are only appended when it is open, so shutting it while
+    /// filtering hides them and leaves its own row as the way back in. The subtree is still walked
+    /// either way, because whether the branch has anything matching under it is what decides
+    /// whether its row is drawn at all.
     fn tree_rows_filtered(
         &self,
         nodes: &[FileNode],
@@ -175,6 +190,9 @@ impl ExplorerState {
         out: &mut Vec<Row>,
     ) {
         for node in nodes {
+            if self.is_skipped(node) {
+                continue;
+            }
             if node.is_dir() {
                 let mut kids = Vec::new();
                 if let NodeKind::Dir { children, .. } = &node.kind {
@@ -183,8 +201,11 @@ impl ExplorerState {
                 let self_match = node.path.to_lowercase().contains(needle);
                 if self_match || !kids.is_empty() {
                     let (_, loading, truncated) = dir_flags(node);
-                    out.push(self.row(node, depth, true, loading, truncated, String::new()));
-                    out.append(&mut kids);
+                    let expanded = !self.filter_collapsed.contains(&node.path);
+                    out.push(self.row(node, depth, expanded, loading, truncated, String::new()));
+                    if expanded {
+                        out.append(&mut kids);
+                    }
                 }
                 continue;
             }
@@ -199,7 +220,7 @@ impl ExplorerState {
     /// the answer to "which one is this", not the thing the eye is scanning.
     fn list_rows(&self, needle: &str) -> Vec<Row> {
         let mut flat = Vec::new();
-        collect_listed(&self.root, needle, &mut flat);
+        collect_listed(&self.root, needle, self.show_hidden, &mut flat);
         flat.sort_by_key(|node| node.name.to_lowercase());
         flat.into_iter()
             .map(|node| {
@@ -207,6 +228,12 @@ impl ExplorerState {
                 self.row(node, 0, expanded, loading, truncated, parent_of(&node.path))
             })
             .collect()
+    }
+
+    /// Whether a node is not drawn at all. A dotfile with the switch off takes its whole subtree
+    /// with it: a folder that is not a row has nowhere to hang children.
+    fn is_skipped(&self, node: &FileNode) -> bool {
+        !self.show_hidden && is_hidden(&node.name)
     }
 
     fn row(
@@ -227,6 +254,7 @@ impl ExplorerState {
             loading,
             truncated,
             git: node.git,
+            repo: node.repo.clone(),
             readable: node.readable,
             on_cursor: self.cursor.as_deref() == Some(node.path.as_str()),
             trailing,

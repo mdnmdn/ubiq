@@ -3,8 +3,11 @@ use super::*;
 impl AppState {
     /// Open or shut a folder, asking the host what is inside it the first time.
     ///
-    /// Which folders are open is persisted state, so a toggle is written down as well as drawn.
+    /// Which folders are open is persisted state, so a toggle is written down as well as drawn —
+    /// except while a filter is typed, where what a twisty flips is the per-filter override and
+    /// the answer on screen is a background walk that has to run again.
     pub fn toggle_folder(&mut self, path: String, cx: &mut Context<Self>) {
+        let filter = self.workbench.file_filter.clone();
         let Some(project) = self.project(cx) else {
             return;
         };
@@ -12,15 +15,23 @@ impl AppState {
             return;
         };
         open.explorer.set_cursor(&path);
-        // A folder opened for the first time knows nothing about what is inside it, and says so
-        // on the row until the host answers.
-        if open.explorer.toggle(&path) == Toggle::Listing {
-            open.explorer.set_loading(&path, true);
-            self.bus.send(Message::ProjectTree {
-                project_id: project,
-                rel_path: path.clone(),
-                depth: EXPAND_DEPTH,
-            });
+        match open.explorer.toggle_drawn(&path, &filter) {
+            // A folder opened for the first time knows nothing about what is inside it, and says
+            // so on the row until the host answers.
+            Toggle::Listing => {
+                open.explorer.set_loading(&path, true);
+                self.bus.send(Message::ProjectTree {
+                    project_id: project,
+                    rel_path: path.clone(),
+                    depth: EXPAND_DEPTH,
+                });
+            }
+            Toggle::Refiltered => {
+                self.spawn_explorer_filter(filter, cx);
+                cx.notify();
+                return;
+            }
+            Toggle::Done | Toggle::Missing => {}
         }
         self.remember(project, cx);
         cx.notify();
@@ -232,6 +243,13 @@ impl AppState {
                 self.ask_listing(project, path, cx);
                 true
             }
+            // The override changed, not the tree: nothing is persisted and nothing is asked for,
+            // the walk is what redraws it.
+            ExplorerPressed::Refiltered => {
+                self.spawn_explorer_filter(filter, cx);
+                cx.notify();
+                true
+            }
             ExplorerPressed::Dismissed => {
                 cx.notify();
                 true
@@ -271,11 +289,12 @@ impl AppState {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let filter = self.workbench.file_filter.clone();
         let pressed = {
             let Some(open) = self.open_project_mut(cx) else {
                 return;
             };
-            open.explorer.click(&path)
+            open.explorer.click(&path, &filter)
         };
         match pressed {
             ExplorerPressed::Open { path } => {
@@ -308,6 +327,11 @@ impl AppState {
             }
             ExplorerPressed::Moved => {
                 self.focus_explorer_tree(window, cx);
+                cx.notify();
+            }
+            ExplorerPressed::Refiltered => {
+                self.focus_explorer_tree(window, cx);
+                self.spawn_explorer_filter(filter, cx);
                 cx.notify();
             }
             ExplorerPressed::Ignored

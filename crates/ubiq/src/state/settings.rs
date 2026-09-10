@@ -146,6 +146,11 @@ pub struct UiSettings {
     /// Single click and Enter open a temporary preview tab. Off, they open permanently.
     #[serde(default = "default_true")]
     pub explorer_preview: bool,
+    /// Dotfiles in the explorer's tree, list and background prefetch. Off by default: a project's
+    /// dot-folders are not what the tree is for, and the switch is one click away in the header.
+    /// Hidden is read from the name here — the wire carries no flag for it.
+    #[serde(default)]
+    pub explorer_hidden: bool,
     /// The window-capture control in the titlebar, and its keystroke. Off removes both;
     /// the editor stays reachable by opening a PNG and by pasting one.
     #[serde(default = "default_true")]
@@ -181,6 +186,7 @@ impl Default for UiSettings {
         Self {
             schema: SCHEMA,
             explorer_preview: true,
+            explorer_hidden: false,
             capture_enabled: true,
             rail_projects: true,
             markdown_open: MarkdownOpen::Preview,

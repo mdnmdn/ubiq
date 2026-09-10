@@ -445,7 +445,7 @@ is a relative string.
 | `ProjectGitLog` | UI → host | `project_id`, `cursor?`, `count`, `rel_path?`, `first_parent` | `GitLogPage` or `GitError` |
 | `ProjectGitRefs` | UI → host | `project_id`, `with_tracking` | `GitRefs` or `GitError` |
 | `GitOverview` | host → UI | `project_id`, `overview?` | — |
-| `GitWorkingTree` | host → UI | `project_id`, `generation`, `entries[]`, `rollups[]`, `truncated` | — |
+| `GitWorkingTree` | host → UI | `project_id`, `generation`, `entries[]`, `rollups[]`, `repos[]`, `truncated` | — |
 | `GitError` | host → UI | `project_id`, `error` | — |
 | `GitLogPage` | host → UI | `project_id`, `cursor?`, `commits[]`, `next_cursor?` | — |
 | `GitRefs` | host → UI | `project_id`, `refs[]` | — |
@@ -464,6 +464,19 @@ rather than zero on a bare or unborn repository, and absent until a walk has run
 fetches from; `GitSubmodule` is a different repository, pinned at a commit, with remotes of its
 own. The overview carries both lists and flattens neither into the other, and a submodule outside
 the project's scope is omitted the way a file outside it never appears in a listing.
+
+**A nested repository is walked and merged, not listed.** `GitNested` names a repository whose
+working tree sits inside the project — a submodule the outer repository pins, or an independent
+clone the host knows only as one untracked folder — carrying its own `head` and, when the walk
+could read it, its own `counts`; `counts` absent means the repository could not be read, and it
+contributes no entries rather than failing the project's whole answer. Its paths join the one
+project-relative map on `GitWorkingTree.repos`, so the explorer draws a real badge on a file inside
+it, while `GitSubmodule` keeps its own account of what the outer repository pins — the two lists
+overlap by design, the same folder named on both. The walk is bounded by `MAX_NESTED_REPOS` (32)
+roots and eight levels of depth, past either of which the rest are not looked at and
+`GitWorkingTree.truncated` says so. A project holding no repository of its own but holding one or
+more nested clones still answers `GitOverview` with `overview: None` — only a full refresh's
+`entries`, `rollups` and `repos` say what is there.
 
 **The working-tree map carries only paths that have something to say.** A row not in the map is
 clean, once a map has arrived. An entry is a pair — how the index differs from HEAD, how the

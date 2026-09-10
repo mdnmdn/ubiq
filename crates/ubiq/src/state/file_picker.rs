@@ -299,10 +299,10 @@ pub fn forest_from_explorer(nodes: &[FileNode]) -> Vec<PickerNode> {
             path: node.path.clone(),
             size: node.size,
             readable: node.readable,
-            // The host's own listing already leaves hidden entries out by convention (see
-            // `LIST_HIDE`), so nothing here is ever actually hidden — carried anyway so a picker
-            // built from this forest and one filled from a host draw by the same rule.
-            hidden: false,
+            // A project listing carries no hidden flag — `LIST_HIDE` drops junk, not dotfiles —
+            // so it is read from the name here, the same rule the host applies when it browses.
+            // Without it the picker's own show-hidden switch would do nothing over a project.
+            hidden: node.name.starts_with('.'),
             listed: true,
             truncated: matches!(
                 &node.kind,

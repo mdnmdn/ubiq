@@ -112,6 +112,29 @@ pub struct GitSubmodule {
     pub state: GitSubmoduleState,
 }
 
+/// How many repositories inside the project one walk may find. Past it the rest are not looked at.
+pub const MAX_NESTED_REPOS: usize = 32;
+
+/// A repository whose working tree is *inside* the project: a submodule the outer repository pins,
+/// or an independent tree it knows only as one untracked folder.
+///
+/// The project's own repository is [`RepoOverview`] and is never a member of this list. A nested
+/// repository is **walked and merged** — its paths join the one project-relative map, so the
+/// explorer draws a real badge on a file inside it — while [`GitSubmodule`] stays what it was, the
+/// outer repository's own account of what it pins. The two lists overlap by design: the same folder
+/// is a pin on one and a repository on the other.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GitNested {
+    /// The repository's working-tree root, project-relative and forward-slashed. Never empty.
+    pub rel_path: String,
+    pub head: GitHead,
+    /// The outer repository pins this one as a submodule.
+    pub submodule: bool,
+    /// Absent, not zero, when the walk could not read the repository.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub counts: Option<GitCounts>,
+}
+
 /// How one side of a path differs: the index against HEAD, or the worktree against the index.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GitPathChange {

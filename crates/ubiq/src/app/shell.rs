@@ -32,6 +32,12 @@ impl AppState {
             let restore = parked.clone();
             self.projects
                 .insert(id, OpenProject::new(parked.unwrap_or_default()));
+            // The dotfile switch is the window's rather than the project's, so a tree opening now
+            // is told what the setting already says.
+            let hidden = self.workbench.settings.ui.explorer_hidden;
+            if let Some(open) = self.projects.get_mut(&id) {
+                open.explorer.set_show_hidden(hidden);
+            }
             // The tree is the host's, and a project shows nothing until it answers. One level:
             // what is inside a folder is asked for when the folder is opened.
             self.bus.send(Message::ProjectTree {

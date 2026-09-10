@@ -157,3 +157,53 @@ fn an_ignored_change_reaches_neither() {
         }
     }
 }
+
+/// A nested repository's plumbing is a repository move, and never a named file.
+///
+/// `classify` used to match `.git/` at the project root only, so `sub/.git/HEAD` leaked into
+/// `changed` as an ordinary path — which the contract says never happens.
+#[test]
+fn a_nested_git_write_raises_repository_and_names_no_file() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    fs::create_dir_all(root.join("sub/.git")).unwrap();
+
+    let (hub, host) = bus::hub();
+    let client = hub.connect();
+    let project_id = ProjectId::generate();
+    let _watcher = watch::start(watch::Job {
+        project_id,
+        root: root.clone(),
+        excludes: Vec::new(),
+        index: None,
+        reply_to: host.mailbox(To::Client(client.id())),
+    })
+    .expect("the watch to start");
+
+    fs::write(root.join("sub/.git/HEAD"), "ref: refs/heads/main\n").unwrap();
+
+    let deadline = Instant::now() + PATIENCE;
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        match client
+            .from_host()
+            .recv_timeout(left)
+            .expect("the watcher to report the repository move")
+        {
+            Message::ProjectFilesChanged {
+                changed,
+                repository,
+                ..
+            } => {
+                assert!(
+                    !changed.iter().any(|path| path.contains(".git")),
+                    "git plumbing leaked into changed: {changed:?}"
+                );
+                if repository {
+                    return;
+                }
+            }
+            other => panic!("unexpected message from the watcher: {other:?}"),
+        }
+    }
+}

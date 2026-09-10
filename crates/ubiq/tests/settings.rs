@@ -32,6 +32,7 @@ fn a_blob_survives_the_round_trip() {
     let settings = UiSettings {
         schema: settings::SCHEMA,
         explorer_preview: false,
+        explorer_hidden: true,
         capture_enabled: false,
         rail_projects: false,
         markdown_open: MarkdownOpen::Source,
@@ -48,6 +49,8 @@ fn missing_fields_open_on_defaults() {
     let blob = r#"{"schema":1}"#;
     let back = settings::decode(blob).expect("decodes");
     assert!(back.explorer_preview);
+    // A blob written before the dotfile switch existed opens with dotfiles hidden.
+    assert!(!back.explorer_hidden);
     assert!(back.capture_enabled);
     assert!(back.rail_projects);
     assert_eq!(back.markdown_open, MarkdownOpen::Preview);

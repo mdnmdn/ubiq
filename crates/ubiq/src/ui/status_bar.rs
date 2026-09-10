@@ -13,7 +13,7 @@ use gpui::{
     StatefulInteractiveElement, Styled, div, px,
 };
 
-use ubiq_proto::git::{AHEAD_BEHIND_CAP, GitCounts, GitHead, GitOperation};
+use ubiq_proto::git::{AHEAD_BEHIND_CAP, GitCounts, GitOperation};
 use ubiq_proto::work::Bucket;
 
 use crate::app::AppState;
@@ -313,11 +313,7 @@ fn git_readout(app: &AppState, cx: &App) -> Option<impl IntoElement> {
     if let Some(operation) = overview.operation {
         parts.push(operation_label(operation).to_string());
     }
-    parts.push(match &overview.head {
-        GitHead::Branch(name) => name.clone(),
-        GitHead::Detached { short_id } => format!("detached {short_id}"),
-        GitHead::Unborn(name) => name.clone(),
-    });
+    parts.push(crate::state::git::head_label(&overview.head));
     match (overview.ahead, overview.behind) {
         (Some(ahead), Some(behind)) if ahead > 0 || behind > 0 => {
             parts.push(format!("↑{} ↓{}", capped(ahead), capped(behind)));

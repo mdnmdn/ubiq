@@ -9,7 +9,7 @@ use std::path::Path;
 use std::process::Command;
 
 use tempfile::TempDir;
-use ubiq_host::git::observe;
+use ubiq_host::git::{nested, observe};
 use ubiq_proto::git::{GitHead, GitMark, GitPathChange, GitSubmoduleState};
 
 /// Run one git command in `dir`, ignoring whatever the machine's own configuration says.
@@ -393,4 +393,199 @@ fn an_ignored_directory_does_not_outrank_a_modified_sibling() {
         GitMark::Modified,
         "the ignored sibling outranked the modified file"
     );
+}
+
+// ── Repositories inside the project ─────────────────────────────
+//
+// A project may hold repositories below it: submodules the outer one pins, and independent trees
+// it knows only as one untracked folder. They are walked and merged into the one project-relative
+// map (`D99`), so these assert on `rel_path`s that carry the nested root as a prefix.
+
+/// An independent clone inside the project reports its own file statuses, not one untracked folder.
+#[test]
+fn a_nested_repository_is_walked_and_merged() {
+    let dir = repository();
+    let inner = dir.path().join("inner");
+    fs::create_dir(&inner).unwrap();
+    git(&inner, &["init", "-q", "-b", "main"]);
+    fs::write(inner.join("kept.txt"), b"kept\n").unwrap();
+    git(&inner, &["add", "kept.txt"]);
+    git(&inner, &["commit", "-q", "-m", "inner first"]);
+    fs::write(inner.join("kept.txt"), b"changed\n").unwrap();
+    fs::write(inner.join("fresh.txt"), b"fresh\n").unwrap();
+
+    let found = observe(dir.path(), 1, true).unwrap();
+    let tree = found.tree.expect("a working tree");
+    assert_eq!(
+        entry(&tree, "inner/kept.txt").mark(),
+        Some(GitMark::Modified)
+    );
+    assert_eq!(
+        entry(&tree, "inner/fresh.txt").mark(),
+        Some(GitMark::Untracked)
+    );
+    assert!(
+        tree.entries.iter().all(|e| e.rel_path != "inner"),
+        "the nested clone was reported as one untracked folder: {:?}",
+        tree.entries
+    );
+    let rollup = tree
+        .rollups
+        .iter()
+        .find(|r| r.rel_path == "inner")
+        .expect("inner should roll up from the nested repository's own changes");
+    assert_eq!(rollup.mark, GitMark::Modified);
+
+    let nested = tree
+        .repos
+        .iter()
+        .find(|r| r.rel_path == "inner")
+        .expect("the nested repository should be named");
+    assert_eq!(nested.head, GitHead::Branch("main".into()));
+    assert!(!nested.submodule, "an independent clone is not a submodule");
+    let counts = nested.counts.expect("a readable repository has counts");
+    assert_eq!(counts.modified, 1);
+    assert_eq!(counts.untracked, 1);
+
+    // The project's own counts stay the outer repository's own.
+    let outer = found.overview.unwrap().counts.unwrap();
+    assert_eq!(outer.modified, 0);
+    assert_eq!(outer.untracked, 0);
+}
+
+/// A folder that is no repository itself but holds one still answers a working tree.
+#[test]
+fn a_project_with_only_nested_repositories_answers_a_tree() {
+    let dir = TempDir::new().unwrap();
+    let inner = dir.path().join("clone");
+    fs::create_dir(&inner).unwrap();
+    git(&inner, &["init", "-q", "-b", "main"]);
+    fs::write(inner.join("new.txt"), b"new\n").unwrap();
+
+    let found = observe(dir.path(), 1, true).unwrap();
+    assert!(
+        found.overview.is_none(),
+        "there is no repository of its own"
+    );
+    let tree = found.tree.expect("a working tree from the nested clone");
+    assert_eq!(
+        entry(&tree, "clone/new.txt").mark(),
+        Some(GitMark::Untracked)
+    );
+    assert_eq!(tree.repos.len(), 1);
+    assert_eq!(tree.repos[0].rel_path, "clone");
+    assert_eq!(tree.repos[0].head, GitHead::Unborn("main".into()));
+}
+
+/// An initialised submodule is both a pin on the overview and a repository in the map.
+#[test]
+fn an_initialised_submodule_is_named_as_nested() {
+    let sub_origin = repository();
+    let dir = repository();
+    let sub_url = format!("file://{}", sub_origin.path().display());
+    git(
+        dir.path(),
+        &[
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            &sub_url,
+            "sub",
+        ],
+    );
+    git(dir.path(), &["commit", "-q", "-m", "add submodule"]);
+    fs::write(dir.path().join("sub/loose.txt"), b"loose\n").unwrap();
+
+    let found = observe(dir.path(), 1, true).unwrap();
+    let tree = found.tree.expect("a working tree");
+    let nested = tree
+        .repos
+        .iter()
+        .find(|r| r.rel_path == "sub")
+        .expect("the submodule is a repository inside the project");
+    assert!(nested.submodule, "the outer repository pins this one");
+    assert_eq!(nested.counts.expect("counts").untracked, 1);
+    assert_eq!(
+        entry(&tree, "sub/loose.txt").mark(),
+        Some(GitMark::Untracked)
+    );
+    assert_eq!(
+        found.overview.unwrap().submodules[0].rel_path,
+        "sub",
+        "the pin is still listed on the overview"
+    );
+}
+
+/// A folder holding a `.git` but nothing readable is reported without counts, not as an error.
+#[test]
+fn a_broken_nested_repository_keeps_the_project_answering() {
+    let dir = repository();
+    let broken = dir.path().join("broken");
+    fs::create_dir(&broken).unwrap();
+    fs::write(broken.join(".git"), b"gitdir: /nowhere/at/all\n").unwrap();
+    fs::write(dir.path().join("file.txt"), b"changed\n").unwrap();
+
+    let tree = observe(dir.path(), 1, true)
+        .unwrap()
+        .tree
+        .expect("a working tree");
+    assert_eq!(entry(&tree, "file.txt").mark(), Some(GitMark::Modified));
+    let nested = tree
+        .repos
+        .iter()
+        .find(|r| r.rel_path == "broken")
+        .expect("the broken clone is still named");
+    assert!(
+        nested.counts.is_none(),
+        "a repository that will not open has no counts"
+    );
+}
+
+/// The nested-root ceiling holds, and says so.
+#[test]
+fn the_nested_root_ceiling_holds() {
+    let dir = TempDir::new().unwrap();
+    for index in 0..(ubiq_proto::git::MAX_NESTED_REPOS + 3) {
+        let inner = dir.path().join(format!("r{index:02}"));
+        fs::create_dir(&inner).unwrap();
+        git(&inner, &["init", "-q", "-b", "main"]);
+    }
+    let found = nested::discover(dir.path());
+    assert_eq!(found.roots.len(), ubiq_proto::git::MAX_NESTED_REPOS);
+    assert!(found.truncated);
+}
+
+/// The depth ceiling holds: a repository below it is not looked for.
+#[test]
+fn the_depth_ceiling_holds() {
+    let dir = TempDir::new().unwrap();
+    let mut deep = dir.path().to_path_buf();
+    for level in 0..(nested::MAX_NESTED_DEPTH + 1) {
+        deep = deep.join(format!("d{level}"));
+    }
+    fs::create_dir_all(&deep).unwrap();
+    git(&deep, &["init", "-q", "-b", "main"]);
+
+    let found = nested::discover(dir.path());
+    assert!(
+        found.roots.is_empty(),
+        "a repository past the depth ceiling was walked: {:?}",
+        found.roots
+    );
+    assert!(found.truncated, "a ceiling reached is reported");
+}
+
+/// A repository inside a nested repository is that repository's business, not the project's.
+#[test]
+fn discovery_does_not_descend_into_a_repository() {
+    let dir = TempDir::new().unwrap();
+    let outer = dir.path().join("outer");
+    fs::create_dir_all(outer.join("deeper")).unwrap();
+    git(&outer, &["init", "-q", "-b", "main"]);
+    git(&outer.join("deeper"), &["init", "-q", "-b", "main"]);
+
+    let found = nested::discover(dir.path());
+    assert_eq!(found.roots, vec!["outer".to_string()]);
+    assert!(!found.truncated);
 }

@@ -9,7 +9,7 @@ use ubiq::state::explorer::{
     Toggle, menu_entries,
 };
 use ubiq_proto::files::{DirEntry, DirListing, EntryKind};
-use ubiq_proto::git::{GitEntry, GitMark, GitPathChange, GitRollup};
+use ubiq_proto::git::{GitEntry, GitHead, GitMark, GitNested, GitPathChange, GitRollup};
 
 fn rel(parent: &str, name: &str) -> String {
     if parent.is_empty() {
@@ -291,6 +291,97 @@ fn a_filter_finds_inside_shut_folders() {
     assert!(nothing[0].path.is_empty());
 }
 
+/// A branch a filter found is still collapsible. Shutting one takes its matches off screen and
+/// keeps its own row as the way back in — and it does that through a per-filter override, so the
+/// set of folders the window writes down is untouched.
+#[test]
+fn a_folder_shut_while_filtering_hides_its_matches_and_keeps_its_row() {
+    let mut tree = ExplorerState::empty();
+    tree.merge(listing("", vec![dir("", "src"), file("", "justfile")]));
+    tree.merge(listing(
+        "src",
+        vec![dir("src", "mainlib"), file("src", "main.rs")],
+    ));
+    assert!(!tree.rows("").iter().any(|row| row.path == "src/main.rs"));
+
+    // Found: the folder is drawn open and its matches are under it. `src/mainlib` matched and has
+    // never been listed, so the window is told to ask about it.
+    let found = tree.rows("main");
+    assert_eq!(
+        under_root(found.clone()),
+        ["src", "src/mainlib", "src/main.rs"]
+    );
+    assert_eq!(tree.unlisted_hits(&found), ["src/mainlib"]);
+
+    // Shut it while the filter is typed. The rows have to be walked again, which is what
+    // `Toggle::Refiltered` says.
+    assert_eq!(tree.toggle_drawn("src", "main"), Toggle::Refiltered);
+    let rows = tree.rows("main");
+    assert_eq!(under_root(rows.clone()), ["src"]);
+    assert!(!rows[1].expanded);
+    // A branch drawn shut is not a branch to prefetch: `src/mainlib` is no longer on screen.
+    assert!(tree.unlisted_hits(&rows).is_empty());
+    // The persisted set never heard about it, and an empty field draws the tree as it was.
+    assert!(tree.expanded().is_empty());
+
+    // Right opens it again, left shuts it: both arrows work while a filter is typed.
+    tree.set_cursor("src");
+    assert_eq!(
+        tree.press(ExplorerKey::Right, "main"),
+        ExplorerPressed::Refiltered
+    );
+    assert_eq!(
+        under_root(tree.rows("main")),
+        ["src", "src/mainlib", "src/main.rs"]
+    );
+    assert_eq!(
+        tree.press(ExplorerKey::Left, "main"),
+        ExplorerPressed::Refiltered
+    );
+    assert_eq!(under_root(tree.rows("main")), ["src"]);
+
+    // The override belongs to the filter that was typed, and goes away with it.
+    tree.clear_filter();
+    assert_eq!(
+        under_root(tree.rows("main")),
+        ["src", "src/mainlib", "src/main.rs"]
+    );
+}
+
+/// Dotfiles are off by default and are not rows at all — a hidden folder takes its subtree with
+/// it, in the tree, in the flat list and in what the background cache asks about.
+#[test]
+fn hidden_files_are_drawn_only_with_the_switch_on() {
+    let mut tree = ExplorerState::empty();
+    tree.merge(listing(
+        "",
+        vec![dir("", ".config"), file("", ".env"), file("", "justfile")],
+    ));
+    tree.merge(listing(
+        ".config",
+        vec![dir(".config", "themes"), file(".config", "ubiq.toml")],
+    ));
+
+    assert_eq!(names(&tree), ["justfile"]);
+    assert!(under_root(tree.rows("ubiq")).is_empty());
+    // A folder the tree will not draw is a folder the background cache does not list either.
+    assert!(tree.unlisted_for_cache().is_empty());
+
+    assert!(tree.set_show_hidden(true));
+    assert_eq!(names(&tree), [".config", ".env", "justfile"]);
+    assert_eq!(tree.unlisted_for_cache(), [".config/themes"]);
+    // The subtree comes back with it, and a filter reaches into it as into any other folder.
+    assert_eq!(
+        under_root(tree.rows("ubiq")),
+        [".config", ".config/ubiq.toml"]
+    );
+
+    // Setting what is already set changes nothing, so nothing is walked again for it.
+    assert!(!tree.set_show_hidden(true));
+    assert!(tree.set_show_hidden(false));
+    assert_eq!(names(&tree), ["justfile"]);
+}
+
 /// A filter that matches a folder the host has never listed answers with an empty folder, so the
 /// window is told which folders to ask about. The walk's skip set is left alone.
 #[test]
@@ -485,7 +576,7 @@ fn the_keyboard_collapses_the_project_row() {
     assert_eq!(tree.rows("").len(), 1);
 
     // A click on the row is the same toggle, and never an open.
-    assert_eq!(tree.click(""), ExplorerPressed::Moved);
+    assert_eq!(tree.click("", ""), ExplorerPressed::Moved);
     assert!(tree.rows("").len() > 1);
 }
 
@@ -939,6 +1030,7 @@ fn a_working_tree_map_marks_matching_rows_and_leaves_the_rest_clean() {
             rel_path: "src".to_string(),
             mark: GitMark::Modified,
         }],
+        &[],
     );
 
     let git_of = |tree: &ExplorerState, path: &str| {
@@ -972,6 +1064,7 @@ fn a_later_listing_keeps_the_marks() {
             rel_path: "src".to_string(),
             mark: GitMark::Untracked,
         }],
+        &[],
     );
 
     tree.merge(listing(
@@ -1007,6 +1100,7 @@ fn an_untracked_folder_marks_every_child() {
     tree.apply_git(
         1,
         &[git_entry("fresh/", Some(GitPathChange::Untracked), None)],
+        &[],
         &[],
     );
 
@@ -1070,6 +1164,7 @@ fn a_folder_that_only_contains_an_untracked_file_does_not_mark_its_other_childre
             rel_path: "src".to_string(),
             mark: GitMark::Untracked,
         }],
+        &[],
     );
 
     let git_of = |path: &str| {
@@ -1091,13 +1186,99 @@ fn a_stale_working_tree_is_discarded() {
         2,
         &[git_entry("a.txt", Some(GitPathChange::Modified), None)],
         &[],
+        &[],
     ));
     assert!(!tree.apply_git(
         1,
         &[git_entry("a.txt", Some(GitPathChange::Untracked), None)],
         &[],
+        &[],
     ));
     assert_eq!(tree.rows("")[1].git, Some(GitStatus::Modified));
+}
+
+fn nested(path: &str, head: &str, submodule: bool) -> GitNested {
+    GitNested {
+        rel_path: path.to_string(),
+        head: GitHead::Branch(head.to_string()),
+        submodule,
+        counts: None,
+    }
+}
+
+/// A repository inside the project is drawn on its own folder's row: the merged map draws real
+/// badges inside it, and nothing else would say where it begins.
+#[test]
+fn a_nested_repository_carries_its_head_on_its_folder_row() {
+    let mut tree = ExplorerState::empty();
+    tree.merge(listing("", vec![dir("", "vendor"), file("", "README.md")]));
+    tree.toggle("vendor");
+    tree.merge(listing("vendor", vec![dir("vendor", "lib")]));
+
+    tree.apply_git(1, &[], &[], &[nested("vendor/lib", "main", true)]);
+
+    let row_of = |path: &str| {
+        tree.rows("")
+            .into_iter()
+            .find(|row| row.path == path)
+            .expect("row is drawn")
+    };
+    let repo = row_of("vendor/lib").repo.expect("nested repository");
+    assert_eq!(repo.head, "main");
+    assert!(repo.submodule);
+    assert!(row_of("vendor").repo.is_none());
+    assert!(row_of("README.md").repo.is_none());
+}
+
+/// The boundary the merged map no longer shows: what is inside a nested repository is accounted
+/// for by that repository, so the outer one's untracked folder must not paint it.
+#[test]
+fn a_nested_repository_stops_an_outer_untracked_status() {
+    let mut tree = ExplorerState::empty();
+    tree.merge(listing("", vec![dir("", "fresh")]));
+    tree.toggle("fresh");
+    tree.merge(listing(
+        "fresh",
+        vec![file("fresh", "a.rs"), dir("fresh", "inner")],
+    ));
+    tree.toggle("fresh/inner");
+    tree.merge(listing("fresh/inner", vec![file("fresh/inner", "b.rs")]));
+
+    tree.apply_git(
+        1,
+        &[git_entry("fresh/", Some(GitPathChange::Untracked), None)],
+        &[],
+        &[nested("fresh/inner", "trunk", false)],
+    );
+
+    let git_of = |path: &str| {
+        tree.rows("")
+            .into_iter()
+            .find(|row| row.path == path)
+            .map(|row| row.git)
+    };
+    assert_eq!(git_of("fresh"), Some(Some(GitStatus::Untracked)));
+    assert_eq!(git_of("fresh/a.rs"), Some(Some(GitStatus::Untracked)));
+    assert_eq!(
+        git_of("fresh/inner/b.rs"),
+        Some(None),
+        "a file inside the nested repository inherited the outer status"
+    );
+}
+
+#[test]
+fn leaving_a_repository_forgets_the_nested_ones() {
+    let mut tree = ExplorerState::empty();
+    tree.merge(listing("", vec![dir("", "lib")]));
+    tree.apply_git(1, &[], &[], &[nested("lib", "main", false)]);
+    assert!(
+        tree.rows("")
+            .iter()
+            .any(|row| row.path == "lib" && row.repo.is_some())
+    );
+
+    tree.clear_git();
+    assert!(tree.rows("").iter().all(|row| row.repo.is_none()));
 }
 
 /// Backspace on macOS, Delete elsewhere: the row the keyboard is on is offered up for removal.

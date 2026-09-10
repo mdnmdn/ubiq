@@ -30,6 +30,54 @@ impl ExplorerState {
         }
     }
 
+    /// Open or shut a folder **as it is drawn**, which is not always the same as the folder's own
+    /// flag: while a filter is typed every matching branch is drawn open, and shutting one records
+    /// a per-filter override instead of changing what the window writes down. The answer says
+    /// which happened, because a re-walk is what redraws an override and a listing is what
+    /// redraws a real expand.
+    pub fn toggle_drawn(&mut self, path: &str, filter: &str) -> Toggle {
+        if filter.trim().is_empty() || self.view != ExplorerView::Tree {
+            return self.toggle(path);
+        }
+        // The project's own row has no override to carry: what it shuts is the whole tree, and
+        // that is the same flag filtered or not.
+        if path.is_empty() {
+            self.root_expanded = !self.root_expanded;
+            return Toggle::Refiltered;
+        }
+        if node_of(&self.root, path).is_none() {
+            return Toggle::Missing;
+        }
+        if !self.filter_collapsed.remove(path) {
+            self.filter_collapsed.insert(path.to_string());
+        }
+        Toggle::Refiltered
+    }
+
+    /// Whether a folder is drawn open right now — the override under a filter, the folder's own
+    /// flag otherwise. What the keyboard's left and right arrows read.
+    pub(super) fn drawn_expanded(&self, path: &str, filter: &str) -> bool {
+        if filter.trim().is_empty() || self.view != ExplorerView::Tree {
+            return self.is_expanded(path);
+        }
+        if path.is_empty() {
+            return self.root_expanded;
+        }
+        !self.filter_collapsed.contains(path)
+    }
+
+    /// Show or hide dotfiles. Answers whether it changed, and drops the hits when it did: they
+    /// were walked under the other rule and the caller has to run the walk again.
+    pub fn set_show_hidden(&mut self, on: bool) -> bool {
+        if self.show_hidden == on {
+            return false;
+        }
+        self.show_hidden = on;
+        self.filter_hits = None;
+        self.filter_job = self.filter_job.wrapping_add(1);
+        true
+    }
+
     /// Note that a listing is on its way, so the row can say so.
     pub fn set_loading(&mut self, path: &str, loading: bool) {
         if let Some(node) = node_mut(cow(&mut self.root), path)
@@ -83,11 +131,16 @@ impl ExplorerState {
     }
 
     /// Apply a working-tree map. A reply older than what is already held is discarded.
+    ///
+    /// `repos` are the repositories inside the project. Their paths are already merged into
+    /// `entries` and `rollups`; what the list adds is the boundary — a row to draw a branch on,
+    /// and a place for inheritance to stop.
     pub fn apply_git(
         &mut self,
         generation: u64,
         entries: &[GitEntry],
         rollups: &[GitRollup],
+        repos: &[GitNested],
     ) -> bool {
         if self.git_known && generation < self.git_generation {
             return false;
@@ -96,6 +149,18 @@ impl ExplorerState {
         self.git_known = true;
         self.git_marks.clear();
         self.git_inherit.clear();
+        self.git_repos = repos
+            .iter()
+            .map(|repo| {
+                (
+                    repo.rel_path.trim_end_matches('/').to_string(),
+                    NestedRepo {
+                        head: crate::state::git::head_label(&repo.head),
+                        submodule: repo.submodule,
+                    },
+                )
+            })
+            .collect();
         for entry in entries {
             if let Some(mark) = entry.mark() {
                 let status = GitStatus::from_mark(mark);
@@ -128,6 +193,7 @@ impl ExplorerState {
         self.git_generation = 0;
         self.git_marks.clear();
         self.git_inherit.clear();
+        self.git_repos.clear();
         self.paint_git();
     }
 
@@ -138,6 +204,7 @@ impl ExplorerState {
             known,
             &self.git_marks,
             &self.git_inherit,
+            &self.git_repos,
             None,
         );
     }
@@ -216,9 +283,11 @@ impl ExplorerState {
     /// A name in [`WALK_SKIP`] is left alone: the host would not descend into it on a deep walk,
     /// and asking for it explicitly would list `node_modules` in full. Folders already asked about
     /// are skipped too, so a failed listing is not asked twice.
+    /// A hidden folder is left alone too while the dotfile switch is off: listing a folder the
+    /// tree will not draw is a walk nobody asked for.
     pub fn unlisted_for_cache(&self) -> Vec<String> {
         let mut out = Vec::new();
-        collect_cache(&self.root, &self.cache_asked, &mut out);
+        collect_cache(&self.root, &self.cache_asked, self.show_hidden, &mut out);
         out
     }
 
@@ -226,10 +295,12 @@ impl ExplorerState {
     /// with nothing under it, because nothing under it is known yet.
     ///
     /// The walk's skip set is left alone, exactly as the background cache leaves it alone: a
-    /// search for `node_modules` is not a request to list it.
+    /// search for `node_modules` is not a request to list it. A folder shut under the filter is
+    /// left alone as well — it is drawn shut, so what is inside it is not on screen to ask for,
+    /// and the rows under it are not in `rows` at all.
     pub fn unlisted_hits(&self, rows: &[Row]) -> Vec<String> {
         rows.iter()
-            .filter(|row| row.is_dir && !row.path.is_empty() && row.readable)
+            .filter(|row| row.is_dir && row.expanded && !row.path.is_empty() && row.readable)
             .filter(|row| !self.cache_asked.contains(&row.path) && !walk_skipped(&row.path))
             .filter(|row| !self.is_folder_listed(&row.path))
             .map(|row| row.path.clone())
@@ -340,6 +411,7 @@ pub(super) fn paint_nodes(
     known: bool,
     marks: &HashMap<String, GitStatus>,
     inherit_from: &HashSet<String>,
+    repos: &HashMap<String, NestedRepo>,
     inherited: Option<GitStatus>,
 ) {
     for node in nodes {
@@ -348,13 +420,19 @@ pub(super) fn paint_nodes(
         } else {
             None
         };
+        node.repo = repos.get(&node.path).cloned();
         if let NodeKind::Dir { children, .. } = &mut node.kind {
-            let next = if inherit_from.contains(&node.path) {
+            // A nested repository is where inheritance stops: what is inside it is accounted for
+            // by its own repository and is already in the map, so an outer untracked or ignored
+            // status must not be pushed across the boundary.
+            let next = if node.repo.is_some() {
+                None
+            } else if inherit_from.contains(&node.path) {
                 node.git
             } else {
                 inherited
             };
-            paint_nodes(cow(children), known, marks, inherit_from, next);
+            paint_nodes(cow(children), known, marks, inherit_from, repos, next);
         }
     }
 }
@@ -391,8 +469,22 @@ pub(super) fn walk_skipped(path: &str) -> bool {
     path.split('/').any(|part| WALK_SKIP.contains(&part))
 }
 
-pub(super) fn collect_cache(nodes: &[FileNode], asked: &HashSet<String>, out: &mut Vec<String>) {
+/// A hidden entry, by the only rule there is: the wire carries no flag, so the interface reads the
+/// name — the same test the host's own browse family applies.
+pub(super) fn is_hidden(name: &str) -> bool {
+    name.starts_with('.')
+}
+
+pub(super) fn collect_cache(
+    nodes: &[FileNode],
+    asked: &HashSet<String>,
+    show_hidden: bool,
+    out: &mut Vec<String>,
+) {
     for node in nodes {
+        if !show_hidden && is_hidden(&node.name) {
+            continue;
+        }
         let NodeKind::Dir {
             listed,
             loading,
@@ -403,7 +495,7 @@ pub(super) fn collect_cache(nodes: &[FileNode], asked: &HashSet<String>, out: &m
             continue;
         };
         if *listed {
-            collect_cache(children, asked, out);
+            collect_cache(children, asked, show_hidden, out);
             continue;
         }
         if !node.readable || *loading || asked.contains(&node.path) || walk_skipped(&node.path) {
@@ -413,13 +505,21 @@ pub(super) fn collect_cache(nodes: &[FileNode], asked: &HashSet<String>, out: &m
     }
 }
 
-pub(super) fn collect_listed<'a>(nodes: &'a [FileNode], needle: &str, out: &mut Vec<&'a FileNode>) {
+pub(super) fn collect_listed<'a>(
+    nodes: &'a [FileNode],
+    needle: &str,
+    show_hidden: bool,
+    out: &mut Vec<&'a FileNode>,
+) {
     for node in nodes {
+        if !show_hidden && is_hidden(&node.name) {
+            continue;
+        }
         if needle.is_empty() || node.path.to_lowercase().contains(needle) {
             out.push(node);
         }
         if let NodeKind::Dir { children, .. } = &node.kind {
-            collect_listed(children, needle, out);
+            collect_listed(children, needle, show_hidden, out);
         }
     }
 }

@@ -26,6 +26,8 @@ impl ExplorerState {
             view: self.view,
             cursor: self.cursor.clone(),
             selected: self.selected.clone(),
+            filter_collapsed: self.filter_collapsed.clone(),
+            show_hidden: self.show_hidden,
         }
     }
 
@@ -57,9 +59,13 @@ impl ExplorerState {
     }
 
     /// Drop hits and cancel any walk still in flight. Clearing the field is immediate.
+    ///
+    /// The per-filter overrides go with it: a branch shut to read one search result says nothing
+    /// about the next one, and nothing about how the tree is left when the field is empty.
     pub fn clear_filter(&mut self) {
         self.filter_hits = None;
         self.filter_job = self.filter_job.wrapping_add(1);
+        self.filter_collapsed.clear();
     }
 
     fn reanchor_hits(&mut self) {

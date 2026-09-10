@@ -3,11 +3,11 @@ id: tech-version-control
 title: Version control
 kind: tech
 status: current
-summary: How the host reads a project's repository — the rule that Ubiq creates a repository or reads one and never writes into one, where a clone runs, discovery and scope, the git worker's two queues and its per-project caches, the three shapes it answers with, the commit-graph lane engine, the refresh discipline that narrows the staleness window, and the ceilings and assumptions the model rests on.
-read_when: you are extending version control, adding the write family, touching how a clone runs, or wondering why the commit graph's lane engine is hand-rolled rather than a dependency
-updated: 2026-09-09
-verified: 2026-09-09
-code_anchors: [crates/ubiq-proto/src/git.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/git/history.rs, crates/ubiq-host/src/git/graph.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq-host/src/repos/list.rs]
+summary: How the host reads a project's repositories — the rule that Ubiq creates a repository or reads one and never writes into one, where a clone runs, upward discovery and scope, the bounded downward walk that finds the repositories inside a project and merges them into one map, the git worker's two queues and its per-project caches, the three shapes it answers with, the commit-graph lane engine, the refresh discipline that narrows the staleness window, and the ceilings and assumptions the model rests on.
+read_when: you are extending version control, adding the write family, touching how a clone runs, working on a project that holds more than one repository, or wondering why the commit graph's lane engine is hand-rolled rather than a dependency
+updated: 2026-09-10
+verified: 2026-09-10
+code_anchors: [crates/ubiq-proto/src/git.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/git/nested.rs, crates/ubiq-host/src/git/history.rs, crates/ubiq-host/src/git/graph.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq-host/src/repos/list.rs]
 depends_on: [tech-architecture, tech-transport, tech-decisions, feat-workbench]
 review_cycle: monthly
 ---
@@ -50,8 +50,9 @@ The machinery that narrows that window (§6) is the feature. The walk being fast
 
 ## 2. What a repository is, and what it is not
 
-The repository is discovered **upward from the project's root** with `Repository::discover`, at the
-worker, once per project. Three shapes follow:
+**A project has one repository of its own, and may hold more inside it.** The one of its own is
+discovered **upward from the project's root** with `Repository::discover`, at the worker, once per
+project. Three shapes follow:
 
 - **No repository above the project** is an ordinary answer, not a failure: the overview is absent,
   and no branch and no badges are drawn.
@@ -61,15 +62,35 @@ worker, once per project. Three shapes follow:
   `project_rel()`. No absolute path leaves the host, and a change outside the project's prefix is
   not the project's business.
 
-`Repository::discover` finds the nearest `.git` and stops, so **one project has exactly one
-repository**. A linked worktree, or a repository nested inside another, is read as if it were the
-only one (`G125`).
+`Repository::discover` finds the nearest `.git` and stops, so the upward walk answers exactly one
+repository — the project's own, and the only one the overview, the refs and the log are about.
 
-Two things are **listed rather than merged**. A remote is a name and a URL the project's own
-repository fetches from. A submodule is a different repository, pinned at a commit, with remotes of
-its own: it is named on the overview, its state is reported, and it contributes nothing to the
-outer project's counts — the status walk excludes submodules, and a submodule outside the project's
-scope is omitted the way a file outside it never appears in a listing.
+**The repositories inside the project are found by walking down.** `git/nested.rs`'s `discover()`
+starts at the project's root and names every folder holding a `.git` — a directory, or the gitlink
+*file* a submodule and a linked worktree both appear as. It skips `WALK_SKIP`'s names, never
+descends into a repository once it has found one — a repository inside a repository inside the
+project is that repository's business — and is bounded twice: `MAX_NESTED_REPOS` (32) roots and
+`MAX_NESTED_DEPTH` (8) levels. Past either it stops looking, and the map arrives `truncated`.
+
+Each one found is **walked and merged into the project's one map** (`D99`): the nested repository's
+status walk runs with an empty scope, its paths are prefixed with its own project-relative root,
+the outer repository's own entry at that folder is dropped first, and the rollups are recomputed
+over the merged set. `GitNested` is the boundary — one row per repository inside the project,
+carrying its `HEAD`, whether the outer repository pins it as a submodule, and its own counts. A
+nested repository that will not open is reported there with **absent counts** and contributes no
+entries; one broken clone is not an error for the whole project.
+
+Nothing above requires a repository of the project's own. A folder holding several independent
+clones answers `overview: None` and a working tree all the same, which is why the downward walk runs
+before the upward walk's result is consulted.
+
+Two things are still **listed rather than merged**. A remote is a name and a URL the project's own
+repository fetches from. A submodule is a row on the overview: `GitSubmodule` is the outer
+repository's own account of what it pins — the commit, the URL, the state — and it stays what it
+was, because the status walk excludes submodules and a submodule outside the project's scope is
+omitted the way a file outside it never appears in a listing. The pin and the repository are two
+facts about the same folder, so an initialised submodule appears on **both** lists: named as a pin
+on the overview, and walked as a `GitNested` in the map.
 
 `git::web_url` turns a remote's URL into the page a browser would open, and is the whole of what
 Ubiq knows about providers: strip the scheme, the credentials and the `.git`, and every host but
@@ -131,7 +152,9 @@ defence if that invariant is ever violated (`G135`).
 **The overview** is cheap: `HEAD` as a branch name, a detached short id or an unborn branch name;
 the upstream and the ahead/behind pair when there is one; an operation in progress; whether the
 repository is bare; the remotes; the submodules in scope. Working-tree counts ride with a full
-refresh, and are absent rather than zero until a walk has run. This is what the status bar reads.
+refresh, and are absent rather than zero until a walk has run. They are the project's **own**
+repository's counts — the folders a nested repository owns are dropped and nothing nested is summed
+in, so the status bar reads the branch it names. This is what the status bar reads.
 
 **The working-tree map** is the status walk, and its rule is that it carries only paths that have
 something to say: **a path not in the map is clean**, once a map has arrived. An entry is the pair —
@@ -144,6 +167,12 @@ badge from children it has not asked for.
 Ignored directories are **collapsed**: the walk does not recurse into an ignored tree, so
 `target/` and `node_modules/` are one entry each rather than an unbounded fan-out. That is what
 keeps the map proportional to the change set rather than to the repository.
+
+The map is **one map for the project, however many repositories it holds**. Every repository §2
+found below the project is walked and merged into it, `MAX_WORKING_TREE` is applied to the merged
+set and `truncated` says whether anything was cut, and `repos` on `GitWorkingTree` names the
+repositories whose entries are in there. A noisy nested clone can therefore crowd the outer
+repository's own paths out of the map, which is the price of one map (`D99`).
 
 **The log** is a bounded, cursor-paged walk. A page starts at `HEAD` or at the cursor it was given,
 and the next cursor is the commit after the last one the page carried — absent at the end. An offset
@@ -207,7 +236,13 @@ Five triggers ask for a refresh, all from the interface, all through the same me
 
 The last is the one that catches an agent. `crates/ubiq-host/src/watch/mod.rs` classifies writes to
 `HEAD`, `MERGE_HEAD`, `index` and `refs/**` and raises the `repository` flag on the change
-notification; the interface turns that into a full refresh. A pane exiting is the coarser version of
+notification; the interface turns that into a full refresh. It finds the `.git` component
+**anywhere** in the project, so a nested clone's `sub/.git/HEAD` and a submodule's real git
+directory at `.git/modules/<name>/HEAD` both raise it, and nothing under any `.git` ever reaches
+`changed` as a file path. The flag stays a `bool`: a plumbing move anywhere asks for one full
+refresh, which is the right coarseness when the answer is one merged map. The repository *above*
+the project keeps its `.git` outside the watched root and is still undetected (`G125`). A pane
+exiting is the coarser version of
 the same idea — a harness that has finished is a harness that has finished writing.
 
 Refreshes coalesce at the queue (§3), and the answers are guarded by generation. Nothing polls.
@@ -219,7 +254,9 @@ none is measured against a repository of the size Ubiq is opened on (`G133`).
 
 | Constant | Bounds | Value | What passing it looks like |
 |---|---|---|---|
-| `MAX_WORKING_TREE` | Entries in one working-tree map | 2 000 | The map arrives `truncated` |
+| `MAX_WORKING_TREE` | Entries in one working-tree map, after the merge | 2 000 | The map arrives `truncated` |
+| `MAX_NESTED_REPOS` | Repositories one downward walk may find | 32 | The map arrives `truncated` |
+| `MAX_NESTED_DEPTH` | Levels below the project the walk looks | 8 | The map arrives `truncated` |
 | `AHEAD_BEHIND_CAP` | The ahead/behind walk | 99 | The interface draws `99+` |
 | `MAX_LOG_PAGE` | Commits in one log page | 200 | A larger request is clamped, not refused |
 | `PATH_SCAN_CEILING` | Commits scanned for a path-filtered page | 5 000 | The page comes back short |
@@ -233,6 +270,10 @@ none is measured against a repository of the size Ubiq is opened on (`G133`).
   diff in `crates/ubiq-host/src/files/diff.rs` runs its own discovery per request, uncached
   (`G130`). `D43` accepted a second comparison engine, not a second discovery walk on every file
   opened.
+- **A nested repository is opened on every full refresh.** Nothing caches those handles: the
+  worker's cache is keyed by `ProjectId` alone, and `Repository::open` on an exact root takes no
+  upward walk, so the cost is one open plus one status walk per nested repository per refresh and
+  has not been measured against a project holding many (`G226`).
 - **The ignore rules are read three times** — by libgit2 for the status walk, by the watch's own
   matcher, and by search's walker — and the three do not agree (`G110`).
 - **The project catalogue's health probe is filesystem-only.** `probe()` looks at the path, not at
@@ -265,10 +306,12 @@ they change a shape rather than fill a hole.
    handles (item 2) become a correctness hazard rather than a cost, and the missing staleness guard
    (item 1) stops being a display glitch and becomes a write racing a read. **Change the cache
    before the first write lands**, while nothing depends on its current shape.
-6. **Linked worktrees and nested repositories (`G125`).** Load-bearing in the same way discovery is:
-   it changes what "the project's repository" means, and every answer above is downstream of that.
-   Worth doing after the write family rather than before, because a write into the wrong worktree is
-   worse than a read from it.
+6. **What is left of `G125`.** The working-tree map is done: repositories below the project are
+   found, walked and merged (`D99`). What is open is a linked worktree read as if it were the only
+   repository, the repository *above* the project whose `.git` sits outside the watched root, and
+   the Git screen's refs, history and commit box, which are single-repository with no way to choose
+   which one. The last is the one that changes a shape, and it is worth doing after the write
+   family rather than before: a write into the wrong repository is worse than a read from it.
 7. **Joining an agent's turn to the commit it produced (`G134`).** The most interesting thing Ubiq
    could know: it is the one application in the category watching both the agent and the repository.
    It needs the log family it has and a link the work family does not carry.
