@@ -5,8 +5,8 @@ kind: wip
 status: current
 summary: What Ubiq keeps about a project so a search need not re-read it — a per-project level defaulting from an application setting, and a full-text index that selects candidate files for the existing content search rather than answering it. The full-text half is built; the symbol half the `full` level names is not, which is the gap this document exists to record.
 read_when: you are changing what Ubiq indexes, how a content search is answered, or what the indexing level means
-updated: 2026-09-06
-verified: 2026-09-08
+updated: 2026-09-10
+verified: 2026-09-10
 code_anchors: [crates/ubiq-host/src/index/mod.rs, crates/ubiq-host/src/index/text.rs, crates/ubiq-host/src/index/ceiling.rs, crates/ubiq-host/src/search/worker.rs, crates/ubiq-host/src/search/hits.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/sink/project.rs]
 depends_on: [tech-architecture, tech-transport, tech-structure, feat-workbench]
 ---
@@ -53,7 +53,7 @@ Nothing is written into the user's project folder at any level.
 
 ### How it resolves
 
-`HostSettings::index_level` (schema 5) is the application-wide value, `Light` when unset.
+`HostSettings::index_level` (schema 6) is the application-wide value, `Light` when unset.
 `ProjectRecord::index` is an `Option<IndexLevel>` — **an override, not a value**, so absent means
 "follow the setting" and moving the default moves every project that never said otherwise.
 `coordinator.rs::index_level` is the one place the two are resolved, and `settle_index` acts on the

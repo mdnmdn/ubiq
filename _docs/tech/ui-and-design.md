@@ -236,7 +236,7 @@ re-measurement fires the resize that tells the harness.
 
 **Everything from `EXPLORER_WIDTH` down does not scale.** Those are what a *fresh* window opens at;
 the drag is remembered per project inside the arrangement blob, so scaling them would fight a value
-the user already set.
+the user set.
 
 The Git screen's own four — `SIDEBAR_WIDTH`, `CHANGES_WIDTH`, `DIFF_HEIGHT` and the graph's
 `LANE_PITCH` — are in `state::git` rather than here, on the same reasoning `COLUMN_MIN_WIDTH` is in
@@ -519,14 +519,14 @@ same `field(...)` shape `project_menu.rs`'s hand-rolled search uses. The picker 
 caller narrows `items` and keeps a parallel values list in lockstep before building the picker, so
 `on_pick(index)` stays correct by construction, and an empty result after filtering draws one muted
 "No matches" row rather than a panel with nothing in it. `.disabled(indices)` marks rows drawn but
-not pickable — a conversation already attached to another chat tab, say — in the same faint,
+not pickable — a conversation attached to another chat tab, say — in the same faint,
 click-less style the context menu's own disabled label uses; a disabled row is never dropped from
 `items`, because a row that vanishes reads as gone rather than taken, and a picker's own selected
 row stays pickable even if the caller also passed its index to `.disabled(...)`.
 `.separators(indices)` draws the same hairline the context menu's own separator does at those rows
 instead of text, so a searchable picker can carry group headings — themselves plain `.disabled(...)`
 rows — in the one `items` list a caller builds and a pick indexes into, the way the agents screen's
-column `+` groups the bench from what is already on screen elsewhere. `.tooltip(text)` is what a
+column `+` groups the bench from what is on screen elsewhere. `.tooltip(text)` is what a
 picker drawn with no label says on hover — the chat header's chevron is one, and with no words on
 the trigger the hover is the only place the question it asks can go.
 
@@ -594,7 +594,7 @@ lifecycle dot, on the agents column's title and at the head of a chat tab, and n
 it is not kept. The two answer different questions: the dot says what the conversation is doing, the
 anchor says whether it will still be here after a restart, and folding the second into the first
 would cost the dot the one reading it is scanned for. `persistent` lives on the `WorkAgent` record
-rather than on `Conversation`, so both surfaces read it off the work projection they already hold.
+rather than on `Conversation`, so both surfaces read it off the work projection they hold.
 `accept_all` and `debug_dump` live there for the same reason — `ui::conversation::accepts_all` and
 `dump_path` read them — but neither earns a glyph beside the dot: they are states the three-dots
 menu names in words, and a second and third mark on a tab strip would spend the glance the dot is
@@ -603,7 +603,7 @@ there for.
 **A row that gathers several controls this way drops their labels for tooltips, not for a second
 icon set.** The chat panel's toolbar is icon-only: the lifecycle menu and the change-agent chevron
 keep their icon and lose `ghost_button`'s inline label, the label reappearing as the same hover
-tooltip every other icon-only control in the window already uses — the titlebar's panel toggles, the
+tooltip every other icon-only control in the window uses — the titlebar's panel toggles, the
 agents column tab's `×` (`Put on the bench`), the chevron's own `change agent`. Two controls that
 both add something must still read as different actions at a glance, so a row is never given the
 same icon twice with only the tooltip to tell them apart, and the dock's two `+` controls — a

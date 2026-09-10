@@ -17,7 +17,7 @@ and the one an agent's output invites constantly — a symbol named in a pane, a
 error in a log. This proposes that search: one query, run by the host over the project's files,
 streamed back as it is found, and drawn in the dock as a list of places to go.
 
-It is the wider half of [`find-in-file-proposal.md`](./find-in-file-proposal.md), and the two are
+It is the wider half of [`find-in-file-proposal.md`](../backlog/find-in-file-proposal.md), and the two are
 written to share one thing — the query and its four options — and nothing else. That one is a buffer
 already in the interface and crosses no bus; this one is a filesystem the interface may not touch.
 
@@ -109,8 +109,8 @@ once is cheaper than three documents each assuming its own.
 
 | | Matches | Scope | Runs in | Owned by |
 |---|---|---|---|---|
-| `⌘K` navigator | Names and paths | Everything addressable | The interface | [`ui-routing-proposal.md`](./completed/ui-routing-proposal.md) |
-| Find in file | Contents | One open buffer | The interface | [`find-in-file-proposal.md`](./find-in-file-proposal.md) |
+| `⌘K` navigator | Names and paths | Everything addressable | The interface | [`ui-routing-proposal.md`](ui-routing-proposal.md) |
+| Find in file | Contents | One open buffer | The interface | [`find-in-file-proposal.md`](../backlog/find-in-file-proposal.md) |
 | Project search | Contents | Every file in the project | The host | This document |
 
 **`⌘K` stays a navigator and never grows content matching.** It answers on the first keystroke from
@@ -278,7 +278,7 @@ and `(project, query)` is not an identity because the same query re-run over a c
 different search whose old batches must not be drawn into the new list. So the interface mints a
 `SearchId` with `ulid_id!` (`crates/ubiq-proto/src/ids.rs:43-92`) and **the interface discards every
 message naming a search it is not holding.** That is the same discipline the generation counter buys
-in [`../tech/version-control.md`](../tech/version-control.md), reached from the other direction.
+in [`../tech/version-control.md`](../../tech/version-control.md), reached from the other direction.
 
 **Batches are flushed on whichever comes first: 64 files, 512 hits, or 100ms.** Not one message per
 match, which would be twenty thousand messages for a common word, and not one message at the end,
@@ -325,7 +325,7 @@ line of code. `ui/logs.rs` is the precedent for a dock tab that is not a pane, a
 the shape the query bar takes.
 
 **A row is a destination.** Opening a hit is *go to this file at this line*, which is exactly what
-[`ui-routing-proposal.md`](./completed/ui-routing-proposal.md)'s `Destination` with an `L`-locus already names.
+[`ui-routing-proposal.md`](ui-routing-proposal.md)'s `Destination` with an `L`-locus already names.
 Until that lands the row calls `select_file()` and the caret follows on the next frame, and when it
 lands this becomes a one-line change and the results list also becomes linkable.
 
@@ -434,8 +434,8 @@ survive a project switch; and the knowledge base, which cannot be searched until
 
 ## Related docs
 
-- [`find-in-file-proposal.md`](./find-in-file-proposal.md) — the other half, and where the `Query` is second used
-- [`ui-routing-proposal.md`](./completed/ui-routing-proposal.md) — the `⌘K` navigator this stays out of, and the destination a result row becomes
-- [`../tech/architecture.md`](../tech/architecture.md) — the rules §5 and §7 obey
-- [`../tech/transport-contract.md`](../tech/transport-contract.md) — the four families this is a fifth beside
-- [`../features/workbench.md`](../features/workbench.md) — the dock the results tab joins
+- [`find-in-file-proposal.md`](../backlog/find-in-file-proposal.md) — the other half, and where the `Query` is second used
+- [`ui-routing-proposal.md`](ui-routing-proposal.md) — the `⌘K` navigator this stays out of, and the destination a result row becomes
+- [`../tech/architecture.md`](../../tech/architecture.md) — the rules §5 and §7 obey
+- [`../tech/transport-contract.md`](../../tech/transport-contract.md) — the four families this is a fifth beside
+- [`../features/workbench.md`](../../features/workbench.md) — the dock the results tab joins

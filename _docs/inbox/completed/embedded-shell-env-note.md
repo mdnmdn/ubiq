@@ -1,3 +1,14 @@
+---
+id: inbox-shell-env-note
+title: Note — non-login shell PATH and Shift+Enter in a pane
+kind: proposal
+status: proposal
+summary: Two confirmed root causes observed in Ubiq's own terminal pane — a spawned shell built with `CommandBuilder::new` never took the login-shell branch, so `.zprofile`/`.zlogin` PATH setup never ran; and `keystroke_to_bytes` sends Shift+Enter as plain Enter because it ignores the shift modifier. The login-shell half is fixed and documented in `panes-and-terminals.md` (`D49`, `G87`); the Shift+Enter half is still open, folded into `terminal-interaction-proposal.md`.
+read_when: a pane's shell is missing PATH entries a normal terminal has, or a harness cannot tell Shift+Enter from Enter
+updated: 2026-09-03
+depends_on: [inbox-terminal-interaction, feat-panes]
+---
+
 Observed running inside Ubiq's own terminal pane (2026-09-02): `.zshrc` sourcing throws
 `command not found: pyenv` / `jump` / `starship`, and `uv` (present at `/opt/homebrew/bin/uv`) is
 not on `PATH`, even though the same shell works fine in Terminal.app/iTerm. Shift+Enter also behaves

@@ -6,7 +6,7 @@ status: proposal
 summary: Fills the empty KB rail with a per-project curation of marked docs, a native explorer/reader/assistant panel, and an on-demand local web server — one process, one port, projects and shares told apart by URL segment — that serves the curated knowledge base or the whole project as a read-only, searchable site.
 read_when: you are building the KB rail mode, or deciding whether and how Ubiq exposes a project over HTTP
 updated: 2026-09-03
-depends_on: [tech-architecture, tech-structure, tech-transport, feat-workbench, feat-chat, wip-indexing, inbox-omni, inbox-markdown]
+depends_on: [tech-architecture, tech-structure, tech-transport, feat-workbench, feat-chat, wip-indexing, inbox-omni]
 ---
 
 # Proposal — KB mode and local web export
@@ -207,9 +207,9 @@ symbol-index ceiling.
 
 - [`../wip/indexing.md`](../wip/indexing.md) — the watcher and indexes this
   serves from
-- [`omni-search-proposal.md`](./omni-search-proposal.md) — `Source::Kb`, which this is what finally
+- [`omni-search-proposal.md`](completed/omni-search-proposal.md) — `Source::Kb`, which this is what finally
   gives content to search
-- [`markdown-rendering-proposal.md`](./markdown-rendering-proposal.md) — the native viewer the centre
+- `markdown-rendering-proposal.md` — the native viewer the centre
   pane reuses
 - [`../features/workbench.md`](../features/workbench.md) — rail modes and panel ownership
 - [`../features/chat.md`](../features/chat.md) — the assistant panel's dependency

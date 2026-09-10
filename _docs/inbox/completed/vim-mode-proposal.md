@@ -373,5 +373,5 @@ Phases 3–5 are refinements.
 
 ## Related docs
 
-- [`../features/workbench.md`](../features/workbench.md) — the editor and the tab strip this lives within
-- [`../tech/ui-and-design.md`](../tech/ui-and-design.md) — the theme tokens the cursor and status indicator use
+- [`../features/workbench.md`](../../features/workbench.md) — the editor and the tab strip this lives within
+- [`../tech/ui-and-design.md`](../../tech/ui-and-design.md) — the theme tokens the cursor and status indicator use

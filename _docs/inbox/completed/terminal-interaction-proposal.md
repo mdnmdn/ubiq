@@ -3,7 +3,7 @@ id: inbox-terminal-interaction
 title: Proposal — terminal interaction enhancements
 kind: proposal
 status: proposal
-summary: Unified plan for terminal pane interaction: keyboard pass-through audit, mouse text selection, copy/paste (building on the existing clipboard proposal), OS file drops, clickable hyperlinks, and a defocus escape chord.
+summary: "Unified plan for terminal pane interaction: keyboard pass-through audit, mouse text selection, copy/paste (building on the existing clipboard proposal), OS file drops, clickable hyperlinks, and a defocus escape chord."
 read_when: you are deciding how the user interacts with a focused terminal pane — selecting text, copying, pasting, dropping files, or leaving the terminal
 updated: 2026-09-02
 depends_on: [feat-panes, feat-workbench]
@@ -433,7 +433,7 @@ clipboard, file drops, and hyperlinks are local to the UI process.
 
 - [`terminal-clipboard-proposal.md`](./terminal-clipboard-proposal.md) — the full clipboard design
   this builds on
-- [`../features/panes-and-terminals.md`](../features/panes-and-terminals.md) — the pane rules this
+- [`../features/panes-and-terminals.md`](../../features/panes-and-terminals.md) — the pane rules this
   lives within
-- [`../tech/ui-and-design.md`](../tech/ui-and-design.md) — the theme tokens selection highlight uses
-- [`../backlog.md`](../backlog.md) — G22 covers mouse selection and scrollback as a known gap
+- [`../tech/ui-and-design.md`](../../tech/ui-and-design.md) — the theme tokens selection highlight uses
+- [`../backlog.md`](../../backlog.md) — G22 covers mouse selection and scrollback as a known gap

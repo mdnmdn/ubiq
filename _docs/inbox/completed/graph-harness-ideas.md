@@ -1,4 +1,15 @@
-Expanded and settled in [`agent-graph-final.md`](./agent-graph-final.md).
+---
+id: inbox-graph-harness-ideas
+title: Notes — an agent graph, workspaces and a PM orchestrator
+kind: proposal
+status: proposal
+summary: Raw brainstorm notes for a multi-agent graph — one-to-many running workspaces per project, a PM-like orchestrator agents talk to about starting tasks, three ways a task can run (direct agent, chained workflow, or a coordinator spawning sub-agents), a graphical view of the agent graph with per-agent status and read-only chat windows, and cross-harness agents identified and connected through injected MCP. Expanded and settled in `agent-graph-final.md`.
+read_when: you want the original brainstorm behind the agent graph proposal, before reading the settled design
+updated: 2026-09-03
+depends_on: [inbox-agent-graph-final]
+---
+
+Expanded and settled in [`agent-graph-final.md`](../backlog/agent-graph-final.md).
 The working area the notes call a "session" is a **workspace** there, so "session" can stay
 the harness conversation. A workspace is for a task, or just to code. The PM starts as an
 analyst that refines the brief.

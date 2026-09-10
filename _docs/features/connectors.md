@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: Named authenticated identities at GitHub, GitLab, Gitea, Azure DevOps, Atlassian and Google Workspace — cloud or self-hosted, several per provider — created by completing a flow, with the token in the OS keychain and an untrusted certificate resolved by pinning one confirmed fingerprint to the instance.
 read_when: you are changing how Ubiq authenticates against an external service, where those tokens live, or how a browser-based login reaches the application
-updated: 2026-09-08
-verified: 2026-09-08
+updated: 2026-09-10
+verified: 2026-09-10
 code_anchors: [crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-host/src/connectors/mod.rs, crates/ubiq-host/src/connectors/flow.rs, crates/ubiq-host/src/connectors/tls.rs, crates/ubiq-host/src/connectors/providers.rs, crates/ubiq-host/src/connectors/store.rs, crates/ubiq-host/src/connectors/app.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-host/src/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/app/settings.rs]
 depends_on: [tech-transport, tech-agent-manager, feat-workbench]
 review_cycle: quarterly

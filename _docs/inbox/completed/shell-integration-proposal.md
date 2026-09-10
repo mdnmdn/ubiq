@@ -38,7 +38,7 @@ all, so no paste of any kind exists outside the terminal's own `arboard` path.
 
 **Nothing on the bus creates, moves, copies or removes a path.** The file family is
 `ProjectTree`, `ReadProjectFile`, `WriteProjectFile`, `DiffProjectFile` and their answers, and that
-is the complete set ([`../tech/transport-contract.md`](../tech/transport-contract.md)). The
+is the complete set ([`../tech/transport-contract.md`](../../tech/transport-contract.md)). The
 explorer's context menu already draws *New file*, *New folder*, *Rename* and *Delete* and they do
 nothing but `cx.notify()` — the documented reason being that the menu should have somewhere to put
 them when the host grows the family. `G70` is that row in the backlog. **This proposal is what grows
@@ -69,7 +69,7 @@ the four gestures need is present and public:
 path* and *Open in Finder* join `snap.record.path` with the row's `rel_path` and hand the result to
 the clipboard or to `open -R` (`crates/ubiq/src/app/explorer.rs`). The project root
 travels in `ProjectRecord`, so the rule as
-[`architecture.md`](../tech/architecture.md) states it — no path crosses into UI code — is already
+[`architecture.md`](../../tech/architecture.md) states it — no path crosses into UI code — is already
 narrower in the tree than in the prose: what holds is that *no path the interface composes is ever
 sent back to the host*, and that every file operation is expressed as a project id and a relative
 path.
@@ -129,7 +129,7 @@ tab needs none, having no save path — the same `OpenFile`, `tab_key` and `Pane
 
 **What was actually wanted — a file opened without ceremony, with no project created, no catalogue
 row and no explorer — costs none of that.** §4 keeps the host round trip first proposed here; the
-guest tab that shipped is [`../features/workbench.md`](../features/workbench.md)'s to describe.
+guest tab that shipped is [`../features/workbench.md`](../../features/workbench.md)'s to describe.
 
 ## 4. Gesture A — a dropped file opens as a tab
 
@@ -175,7 +175,7 @@ the last one focused, and the rejected list is one notification naming the first
 ## 5. Gesture B — a dropped folder becomes a project
 
 A folder is a project, and the rules the picker already states settle almost all of it
-([`../features/workbench.md`](../features/workbench.md)):
+([`../features/workbench.md`](../../features/workbench.md)):
 
 - **A folder already in the catalogue opens rather than duplicating.** "Adding a folder already in
   the catalogue points at the project that is there rather than making a second" — a drop is an Add
@@ -395,7 +395,7 @@ internal explorer copy, cut, paste, duplicate, rename and delete.
 
 ## Related docs
 
-- [`../tech/architecture.md`](../tech/architecture.md) — the locality rules, and the workarea this proposal mirrors
-- [`../tech/transport-contract.md`](../tech/transport-contract.md) — the file family §9 extends, and the `rel_path` discipline
-- [`../features/workbench.md`](../features/workbench.md) — the explorer, the editor tabs, the project picker and the empty state
-- [`../backlog.md`](../backlog.md) — `G34` (nothing watches a folder), `G70` (the dead menu rows)
+- [`../tech/architecture.md`](../../tech/architecture.md) — the locality rules, and the workarea this proposal mirrors
+- [`../tech/transport-contract.md`](../../tech/transport-contract.md) — the file family §9 extends, and the `rel_path` discipline
+- [`../features/workbench.md`](../../features/workbench.md) — the explorer, the editor tabs, the project picker and the empty state
+- [`../backlog.md`](../../backlog.md) — `G34` (nothing watches a folder), `G70` (the dead menu rows)

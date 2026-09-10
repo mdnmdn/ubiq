@@ -7,7 +7,7 @@ summary: Prerequisites, the complete command reference, what a first build costs
 read_when: you are setting the project up, running or testing it, adding a command, or an agent reports that it cannot run a tool
 updated: 2026-09-10
 verified: 2026-09-10
-code_anchors: [Justfile, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/isolate.rs, _tools/docs.py, _tools/icns.py, _tools/Info.plist, _devops/scripts/bundle-version.sh, crates/ubiq-app/src/lib.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-app/build.rs, crates/ubiq-app/res/ubiq-app.rc, crates/ubiq-app/res/AppIcon.ico, .github/workflows/create-release.yml, .github/workflows/release-macos.yml, .github/workflows/release-windows.yml]
+code_anchors: [Justfile, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/isolate.rs, _tools/docs.py, _tools/icns.py, _tools/Info.plist, _devops/scripts/bundle-version.sh, crates/ubiq-app/src/lib.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-app/build.rs, crates/ubiq-app/res/ubiq-app.rc, .github/workflows/create-release.yml, .github/workflows/release-macos.yml, .github/workflows/release-windows.yml]
 depends_on: [tech-structure]
 review_cycle: monthly
 ---
@@ -188,7 +188,7 @@ Four variables affect a run:
 `UBIQ_VERSION` is exported near the top of the Justfile as `` `_devops/scripts/bundle-version.sh` ``,
 so every recipe's cargo invocations carry it into `option_env!("UBIQ_VERSION")` at compile time —
 see [`architecture.md`](./architecture.md) for the `version` module that reads it. The script's
-precedence: `UBIQ_VERSION` already in the environment, verbatim; else the git tag starting with `v`
+precedence: `UBIQ_VERSION` set in the environment, taken verbatim; else the git tag starting with `v`
 on a clean, tagged `HEAD`; else, with no git available, `dev-<cargo version>-<UTC timestamp>`; else
 `dev-<UTC timestamp>-<8-char git hash>`.
 

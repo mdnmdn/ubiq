@@ -14,7 +14,7 @@ depends_on: [feat-sessions, feat-workbench, feat-chat, tech-transport, tech-agen
 Ubiq today is a multiplexer: panes side by side, each an independent harness, related only by
 sharing a window. This proposes the layer above — several agents working one goal, knowing about
 each other, reporting what they are doing, drawn as a graph instead of a row. It is the settled
-version of [`graph-harness-ideas.md`](./graph-harness-ideas.md), and it replaces the two drafts
+version of [`graph-harness-ideas.md`](../completed/graph-harness-ideas.md), and it replaces the two drafts
 that expanded those notes; every fork they left open is closed here, and §15 lists the closures.
 
 **The line, stated once:** Ubiq hosts orchestration; it does not perform it. The one exception is
@@ -48,7 +48,7 @@ working area and *workspace* for one running agent. Both words move:
 
 The reasons, stated once. *Session* is spent twice — Ubiq's grouping and the harness library's
 resumable conversation — which is why `AGENTS.md` carries a rule whose entire content is that a
-document using the word must say which, and why [`../backlog.md`](../backlog.md) Q4 exists; a
+document using the word must say which, and why [`../backlog.md`](../../backlog.md) Q4 exists; a
 vocabulary that needs a disambiguation rule has already failed. *Workspace* is the word a user
 reaches for unprompted — a folder you work in — and the only thing blocking it is Ubiq spending it
 on the running agent, whose honest name is *agent*: the glossary's own definition, "one running
@@ -59,13 +59,13 @@ deleted rather than reworded.
 The cost is small and shrinking-proof: the session and workspace message families are documented
 and largely unimplemented — backlog row G19 says only three variants exist in code — so the rename
 is mostly a documentation edit today and will not be next year, and it rides
-the id sweep [`project-handling-proposal.md`](./project-handling-proposal.md) already plans.
+the id sweep [`project-handling-proposal.md`](../completed/project-handling-proposal.md) already plans.
 Nothing crosses into `agent-manager`: the library keeps calling its conversation a session, because
 that is the harness's own word and the crate is not ours to rename. The rename of the
 `feat-sessions` document itself is a librarian's move, filed to `_meta/feedback.md`.
 
-So: **Project** is [`project-handling-proposal.md`](./project-handling-proposal.md). **Workspace**
-is today's session — [`../features/sessions-and-workspaces.md`](../features/sessions-and-workspaces.md),
+So: **Project** is [`project-handling-proposal.md`](../completed/project-handling-proposal.md). **Workspace**
+is today's session — [`../features/sessions-and-workspaces.md`](../../features/sessions-and-workspaces.md),
 "a named piece of work that owns a folder" — and it grows fields rather than becoming a new
 concept. **Agent** is today's workspace: one harness, one directory, one terminal. **Task** and
 **role** are new, and they are the entire addition.
@@ -261,7 +261,7 @@ the PM is simply the role with everything on:
 | `mcps`, `skills`, `model`, `harness` | Bindings handed to the run spec |
 
 A role is a **binding**, in the sense
-[`config-persistence-proposal.md`](./config-persistence-proposal.md) uses: Ubiq stores the choice,
+[`config-persistence-proposal.md`](../config-persistence-proposal.md) uses: Ubiq stores the choice,
 the harness library owns what the choice refers to. A role names skills and MCP ids; it never
 contains one.
 
@@ -311,7 +311,7 @@ this scoped this way" has an answer and that conversation is it.
 
 ## 8. Identity, and the surface agents reach each other by
 
-[`../backlog.md`](../backlog.md) G7 says the MCP surface Ubiq exposes to hosted agents is a module
+[`../backlog.md`](../../backlog.md) G7 says the MCP surface Ubiq exposes to hosted agents is a module
 header and what it offers is undecided. This is the answer, and it is the mechanism the whole idea
 runs on: `crates/ubiq-host/src/mcp_server.rs`, hosted through the library's `inproc-mcp` feature
 and injected into every hosted run as an ordinary remote MCP server.
@@ -461,8 +461,8 @@ never promotes a stale observation. If it is not in a message, it is not on the 
 ## 11. The screen
 
 Two rail modes that currently render an empty page — G11 — and one extension to panes. The mockups
-[`agent-view-proposal.png`](./agent-view-proposal.png) and
-[`agent-view-proposal-with-tasks.png`](./agent-view-proposal-with-tasks.png) are the target
+`agent-view-proposal.png` and
+`agent-view-proposal-with-tasks.png` are the target
 picture: three tasks in three shapes under one PM, one canvas.
 
 **Agents mode is the graph** — a map of the people in the room, not a terminal layout, not a
@@ -505,7 +505,7 @@ pane, and one with no input path draws no composer; a hosted agent's transcript 
 read-only, and a read-only view never steals focus. That makes "open several chats, some
 read-only" fall out of machinery that exists rather than a second window manager; it answers Q6,
 since a pane names an agent and the agent names its parent; and it gives
-[`../features/chat.md`](../features/chat.md) something real behind it — G10.
+[`../features/chat.md`](../../features/chat.md) something real behind it — G10.
 
 The chat is a projection of structured events, never a parse of the terminal — D2 stands. This
 costs the overview's non-goal one clause: Ubiq still does not call a model or own a conversation;
@@ -685,12 +685,12 @@ project, per user, or both.
 
 ## Related docs
 
-- [`graph-harness-ideas.md`](./graph-harness-ideas.md) — the raw intent this settles
-- [`../features/sessions-and-workspaces.md`](../features/sessions-and-workspaces.md) — the layer §1 renames and §2 extends
-- [`../product/glossary.md`](../product/glossary.md) — where both renamed words are defined today
-- [`../features/panes-and-terminals.md`](../features/panes-and-terminals.md) — the pane rules a transcript pane inherits
-- [`../features/chat.md`](../features/chat.md), [`../features/workbench.md`](../features/workbench.md) — the panel a transcript pane reuses, and the rail modes this fills
-- [`../tech/transport-contract.md`](../tech/transport-contract.md) — where the two families land
-- [`../tech/agent-manager.md`](../tech/agent-manager.md) — hooks, structured I/O and in-process MCP are all its side of the line
-- [`project-handling-proposal.md`](./project-handling-proposal.md), [`config-persistence-proposal.md`](./config-persistence-proposal.md) — the host, the project, the ids and the bindings this assumes
-- [`../backlog.md`](../backlog.md) — G7, G10, G11, Q4 and Q6, which this answers
+- [`graph-harness-ideas.md`](../completed/graph-harness-ideas.md) — the raw intent this settles
+- [`../features/sessions-and-workspaces.md`](../../features/sessions-and-workspaces.md) — the layer §1 renames and §2 extends
+- [`../product/glossary.md`](../../product/glossary.md) — where both renamed words are defined today
+- [`../features/panes-and-terminals.md`](../../features/panes-and-terminals.md) — the pane rules a transcript pane inherits
+- [`../features/chat.md`](../../features/chat.md), [`../features/workbench.md`](../../features/workbench.md) — the panel a transcript pane reuses, and the rail modes this fills
+- [`../tech/transport-contract.md`](../../tech/transport-contract.md) — where the two families land
+- [`../tech/agent-manager.md`](../../tech/agent-manager.md) — hooks, structured I/O and in-process MCP are all its side of the line
+- [`project-handling-proposal.md`](../completed/project-handling-proposal.md), [`config-persistence-proposal.md`](../config-persistence-proposal.md) — the host, the project, the ids and the bindings this assumes
+- [`../backlog.md`](../../backlog.md) — G7, G10, G11, Q4 and Q6, which this answers

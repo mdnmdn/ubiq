@@ -7,7 +7,7 @@ summary: The compact YAML authoring format for the wireframes under `_docs/desig
 read_when: you are editing or rendering a wireframe, or adding a diagram to the documentation
 updated: 2026-08-31
 verified: 2026-08-31
-code_anchors: [_tools/excalidraw.py]
+code_anchors: [.claude/excalidraw.py]
 depends_on: [tech-ui]
 review_cycle: quarterly
 ---
@@ -16,7 +16,7 @@ review_cycle: quarterly
 
 A compact, YAML-based authoring format for [Excalidraw](https://excalidraw.com) diagrams,
 designed to be easy for humans and AI agents to write by hand. The companion CLI
-(`_tools/excalidraw.py`, fronted by `just diagram`) converts it to and from the native `.excalidraw` JSON, validates it,
+(`.claude/excalidraw.py`, fronted by `just diagram`) converts it to and from the native `.excalidraw` JSON, validates it,
 and renders SVG/PNG previews.
 
 ## Why
@@ -30,16 +30,16 @@ the converter generates everything else exactly the way Excalidraw's importer ex
 
 ```bash
 # render the bundled example to PNG
-uv run _tools/excalidraw.py to-image -i _docs/design/wireframe-opus/02-session.excalidraw.yaml -o /tmp/out.png
+uv run .claude/excalidraw.py to-image -i _docs/design/_old/wireframe-opus/02-session.excalidraw.yaml -o /tmp/out.png
 
 # author -> native, via a pipe
-cat diagram.yaml | uv run _tools/excalidraw.py to-excalidraw > diagram.excalidraw
+cat diagram.yaml | uv run .claude/excalidraw.py to-excalidraw > diagram.excalidraw
 
 # native -> simple (lossy), to inspect/edit an existing file
-uv run _tools/excalidraw.py from-excalidraw -i diagram.excalidraw -o diagram.yaml
+uv run .claude/excalidraw.py from-excalidraw -i diagram.excalidraw -o diagram.yaml
 
-uv run _tools/excalidraw.py validate -i diagram.yaml
-uv run _tools/excalidraw.py schema            # machine-readable JSON Schema
+uv run .claude/excalidraw.py validate -i diagram.yaml
+uv run .claude/excalidraw.py schema            # machine-readable JSON Schema
 ```
 
 The tool uses [PEP 723](https://peps.python.org/pep-0723/) inline dependencies, so `uv`
@@ -210,7 +210,7 @@ elements:
 
 ## Where the sources live
 
-The wireframes this format exists for are in `_docs/design/wireframe-opus/`, each shipping as YAML
+The wireframes this format exists for are in `_docs/design/_old/wireframe-opus/`, each shipping as YAML
 source, native diagram JSON, and a rendered PNG. That folder's `README.md` explains the screens and
 how to regenerate the combined board.
 

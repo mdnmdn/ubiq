@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: Every folder in the workspace, what belongs in it, what must never go in it, and the two crates' division of labour.
 read_when: you are adding a file and are not certain where it goes, or you are new to the repository
-updated: 2026-09-08
-verified: 2026-09-08
+updated: 2026-09-10
+verified: 2026-09-10
 code_anchors: [Cargo.toml, crates/ubiq-host/src/store/usage.rs, crates/ubiq/Cargo.toml, crates/ubiq-proto/Cargo.toml, crates/ubiq-host/Cargo.toml, crates/ubiq-app/Cargo.toml, vendor/gpui-terminal/Cargo.toml, _tools/icns.py]
 depends_on: [tech-architecture]
 review_cycle: quarterly
@@ -212,7 +212,6 @@ environment set up.
 | Script | Does |
 |---|---|
 | `_tools/docs.py` | Lints, indexes and drift-checks this library. Fronted by the `docs-*` recipes |
-| `_tools/excalidraw.py` | Converts, validates and renders the diagram format described in [`diagram-format.md`](./diagram-format.md) |
 | `_tools/icns.py` | Builds the macOS application icon from `assets/`. Fronted by `just icns`, consumed by `just bundle` |
 
 Nothing in `_tools/` is imported by the crates, and nothing in the crates is imported by it.

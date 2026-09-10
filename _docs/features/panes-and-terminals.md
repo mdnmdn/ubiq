@@ -148,7 +148,7 @@ kitty-protocol negotiation, which this emulator does not track.
 on an international layout (`` ` `` then `e`, giving `è`) only composes if the accent reaches the
 platform's composition machinery — `NSTextInputClient` on macOS, `WM_CHAR` and the IME on Windows,
 the forwarded key text and the IME on Linux — so `TerminalView` installs an `InputHandler` on the
-focused pane and `keystroke_to_bytes()` emits nothing for a plain printable key on any of them;
+focused pane and `gpui-terminal`'s own keystroke-to-bytes encoder emits nothing for a plain printable key on any of them;
 the composed text comes back as a commit and is written to the harness once. Emitting it on the
 keystroke path as well would type every character twice, which is what Windows and Linux panes
 did. Held keys repeat rather than opening the accent popover, and a pending composition is not
@@ -254,8 +254,8 @@ calls `focus_pane()` when the displayed tab is a terminal and `blur_panes()` whe
 is what makes "no pane holds the keyboard unless a terminal is focused" true by construction; and
 `on_removed()` waits a turn before it calls `close_pane()`, guarded by `on_added_to()`, because the
 library reports a closed tab and a displaced panel the same way and only one of them kills a
-harness. Which regions a terminal may sit in, and the tab, its dot and its close, belong to
-[`workbench.md`](./workbench.md).
+harness. Which regions a terminal may sit in, and the tab, its dot and its close, belong to the
+workbench document.
 
 **The panel's body is the emulator.** `crates/ubiq/src/ui/terminal.rs` draws it: `pane()` takes a
 pane ID and draws that pane's `TerminalView`, or the line a panel whose emulator has gone shows, and

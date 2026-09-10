@@ -304,12 +304,12 @@ each other.
 
 ## Related docs
 
-- [`tech/architecture.md`](../tech/architecture.md) — the crate boundary the FFI's placement answers
+- [`tech/architecture.md`](../../tech/architecture.md) — the crate boundary the FFI's placement answers
   to, and the rule that the coordinator renders nothing
-- [`tech/transport-contract.md`](../tech/transport-contract.md) — owns the message set; the `assist`
+- [`tech/transport-contract.md`](../../tech/transport-contract.md) — owns the message set; the `assist`
   family's tables and the six-step procedure for adding them
-- [`tech/agent-manager.md`](../tech/agent-manager.md) — owns every fact about harness configuration,
+- [`tech/agent-manager.md`](../../tech/agent-manager.md) — owns every fact about harness configuration,
   and the boundary an on-device model must not be modelled across
-- [`features/chat.md`](../features/chat.md) — owns the conversation and what names its tab
-- [`inbox/config-persistence-proposal.md`](./config-persistence-proposal.md) — the persistence
+- [`features/chat.md`](../../features/chat.md) — owns the conversation and what names its tab
+- [`inbox/config-persistence-proposal.md`](../config-persistence-proposal.md) — the persistence
   philosophy the two settings layers sit on top of

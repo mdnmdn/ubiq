@@ -140,14 +140,14 @@ every token while the root is one entity. Two steps, in order:
 - The history's pagination has a caller: a `Load more commits` row at the foot of the list sends
   `ProjectGitLog { cursor: log_cursor, .. }` through `AppState::load_more_git_log`, so history goes
   as far as it is read. `G129` and `G210` are closed with it, and
-  [`tech/version-control.md`](../tech/version-control.md) states the paged walk end to end.
+  [`tech/version-control.md`](../../tech/version-control.md) states the paged walk end to end.
 - Phase 1 is implemented: `uniform_list` for the diff body, the commit history, the three change
   lists and the outline; `gpui_component::v_virtual_list` for the transcript, whose `WINDOW_MIN`
   floor, `Built` rows and placeholder machinery are deleted. Two shortcuts it left are `G221` (the
   diff's assumed monospace advance) and `G222` (the flatten memoised where it is read).
   Refs are deliberately not virtualized — `G220` says why, and it is a trap worth reading before
   reaching for one `uniform_list` per section.
-- The rule is in [`tech/ui-and-design.md`](../tech/ui-and-design.md), with the consequence beside
+- The rule is in [`tech/ui-and-design.md`](../../tech/ui-and-design.md), with the consequence beside
   it: a uniform row cannot grow, so a long diff line is scrolled to rather than wrapped.
 - Phase 2 step 1 is implemented, and the coalescing is the frame's rather than a timer's:
   `Conversation::notify_due()` is true for the first delta of a burst and `drawn()` opens the next

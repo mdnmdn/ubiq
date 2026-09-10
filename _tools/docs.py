@@ -589,7 +589,9 @@ def check_l7(docs: list[Doc], report: LintReport) -> None:
     for doc in docs:
         if doc.path == index:
             continue
-        if str(doc.path.resolve()) not in linked:
+        # `inbox/` is raw input, excluded from the generated catalogue by design — its
+        # orphan criterion is age, checked below, not an `INDEX.md` listing.
+        if doc.folder != "inbox" and str(doc.path.resolve()) not in linked:
             report.add("L7", doc.rel, "orphan: not linked from `INDEX.md`")
         if doc.folder == "wip":
             updated = as_date(doc.meta.get("updated"))

@@ -44,13 +44,14 @@ that is already running — which starts a nested, not a fresh, shell.
 **The console panel opens on every window whether or not anyone asked for it.**
 `default_layout()` (`crates/ubiq/src/ui/dock/mod.rs:485`) builds `PanelKind::Logs` and installs it in
 the bottom region unconditionally, alongside the centre, explorer and chat panels. This is documented,
-current, deliberate behaviour — [`feat-logs`](../features/logs.md) states plainly: *"It is always
+current, deliberate behaviour — [`feat-logs`](../../features/logs.md) states plainly: *"It is always
 present and is never closed... It is drawn in every rail mode and with no project open, which is the
 state in which it is most worth reaching."* This proposal's lateral request — stop auto-opening it —
 **reverses that stated contract**, not just an implementation detail. It is called out here rather
 than folded quietly into the plan; whoever picks this up should treat the console's default
 visibility as its own decision, not a side effect of the shell-selector work, and update
-`feat-logs.md`'s Behaviour section explicitly if it goes ahead. Nothing about the ring, the sink, or
+[the logs document](../../features/logs.md)'s Behaviour section explicitly if it goes ahead.
+Nothing about the ring, the sink, or
 the panel's own toolbar changes — only whether the panel is in the arrangement on a fresh window.
 
 ## Proposal
@@ -71,7 +72,7 @@ there. This step alone already fixes the errors in
 
 **3. A small chevron (`v`) sits beside the "+", opening a menu of what else can be spawned here.**
 Reuse the one dropdown mechanism the window already has —
-[`crates/ubiq/src/ui/kit/menu.rs`](../../crates/ubiq/src/ui/kit/menu.rs), the same trigger-plus-
+[`crates/ubiq/src/ui/kit/menu.rs`](../../../crates/ubiq/src/ui/kit/menu.rs), the same trigger-plus-
 `deferred`-list `Picker`/`Action` pattern `file_tab_menu` uses off `open_file_tab_menu()`
 (`crates/ubiq/src/app/editor.rs`) — rather than introducing a second menu mechanism. The rows:
 
@@ -131,9 +132,9 @@ were not built to be extended with a list.
 
 ## Related docs
 
-- [`../features/panes-and-terminals.md`](../features/panes-and-terminals.md) — the new-pane control
+- [`../features/panes-and-terminals.md`](../../features/panes-and-terminals.md) — the new-pane control
   and `SpawnWorkspace`'s existing contract
-- [`../features/logs.md`](../features/logs.md) — the console panel's current, documented "always
+- [`../features/logs.md`](../../features/logs.md) — the console panel's current, documented "always
   present" behaviour that item 4 would reverse
 - [`./embedded-shell-env-note.md`](./embedded-shell-env-note.md) — the login-shell defect this
   proposal's item 1 fixes
@@ -145,7 +146,7 @@ were not built to be extended with a list.
 Items 1, 2 and 3 landed: the login-shell fix in `crates/ubiq-host/src/pty/mod.rs`, shell discovery
 in `crates/ubiq-host/src/shells.rs` behind `ListShells`/`ShellList`, and the chevron menu in
 `crates/ubiq/src/ui/new_pane_menu.rs`. The behaviour is
-[`../features/panes-and-terminals.md`](../features/panes-and-terminals.md)'s and the trade is `D49`.
+[`../features/panes-and-terminals.md`](../../features/panes-and-terminals.md)'s and the trade is `D49`.
 Item 4 landed too, asked for directly: the console is not in a fresh window's arrangement, it closes
 like any other panel, and the menu's `Logs` row is what puts it on screen. What the proposal did not
 foresee is that the control it adds is drawn on the pane region's own strip, so an empty region has

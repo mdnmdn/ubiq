@@ -339,6 +339,7 @@ the documents in its row.
 
 | File | Documents |
 |---|---|
+| `.claude/excalidraw.py` | [`diagram-format.md`](./diagram-format.md) |
 | `.github/workflows/create-release.yml` | [`operations.md`](./operations.md) |
 | `.github/workflows/release-macos.yml` | [`operations.md`](./operations.md) |
 | `.github/workflows/release-windows.yml` | [`operations.md`](./operations.md) |
@@ -347,7 +348,6 @@ the documents in its row.
 | `_devops/scripts/bundle-version.sh` | [`operations.md`](./operations.md) |
 | `_tools/Info.plist` | [`operations.md`](./operations.md) |
 | `_tools/docs.py` | [`operations.md`](./operations.md) |
-| `_tools/excalidraw.py` | [`diagram-format.md`](./diagram-format.md) |
 | `_tools/icns.py` | [`operations.md`](./operations.md), [`project-structure.md`](./project-structure.md) |
 | `_tools/icons.py` | [`ui-and-design.md`](./ui-and-design.md) |
 | `assets/icons/icons.yaml` | [`ui-and-design.md`](./ui-and-design.md) |
@@ -367,12 +367,11 @@ the documents in its row.
 | `crates/agent-manager/src/spec.rs` | [`agent-manager.md`](./agent-manager.md) |
 | `crates/ubiq-app/Cargo.toml` | [`project-structure.md`](./project-structure.md) |
 | `crates/ubiq-app/build.rs` | [`operations.md`](./operations.md) |
-| `crates/ubiq-app/res/AppIcon.ico` | [`operations.md`](./operations.md) |
 | `crates/ubiq-app/res/ubiq-app.rc` | [`operations.md`](./operations.md) |
 | `crates/ubiq-app/src/lib.rs` | [`features/logs.md`](../features/logs.md), [`architecture.md`](./architecture.md), [`operations.md`](./operations.md) |
 | `crates/ubiq-app/src/main.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq-host/Cargo.toml` | [`agent-manager.md`](./agent-manager.md), [`project-structure.md`](./project-structure.md) |
-| `crates/ubiq-host/src/agent.rs` | [`features/sessions-and-workspaces.md`](../features/sessions-and-workspaces.md), [`agent-manager.md`](./agent-manager.md), [`wip/agent-setup.md`](../wip/agent-setup.md) |
+| `crates/ubiq-host/src/agent.rs` | [`features/sessions-and-workspaces.md`](../features/sessions-and-workspaces.md), [`agent-manager.md`](./agent-manager.md), [`wip/agent-login-note.md`](../wip/agent-login-note.md), [`wip/agent-setup.md`](../wip/agent-setup.md) |
 | `crates/ubiq-host/src/assist/api.rs` | [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-host/src/assist/mod.rs` | [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-host/src/assist/providers.rs` | [`transport-contract.md`](./transport-contract.md) |

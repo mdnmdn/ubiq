@@ -3,7 +3,7 @@ id: wip-refactor-plan
 title: Pre-editions refactoring plan
 kind: wip
 status: current
-summary: Phases 0-3 are done and so are phase 4's composition root and preference round-trip; three phase-4 items remain, each blocked or deferred for a recorded reason, and every `just verify` check now passes but docs-lint — whose open question is what that lint should apply to, since 156 of its 161 failures are inbox documents.
+summary: Phases 0-3 are done and so are phase 4's composition root and preference round-trip; three phase-4 items remain, each blocked or deferred for a recorded reason, and every `just verify` check passes but docs-lint — whose open question is what that lint should apply to, since most of its failures are inbox documents.
 read_when: you are picking up refactoring work ahead of the editions split
 updated: 2026-09-04
 depends_on: [inbox-editions]

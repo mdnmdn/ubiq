@@ -97,7 +97,7 @@ so a Rust implementation beats a browser.
 **Editing is not a picture.** What no amount of painting reproduces is an *interaction model* —
 multi-select, eight-handle transform with rotation, arrow binding that survives moving the shape it
 points at, containers with reflowing text, grouping, alignment, snapping, the library, undo across
-all of it, and a format that keeps changing underneath. `_tools/excalidraw.py` and `scene.rs`
+all of it, and a format that keeps changing underneath. `.claude/excalidraw.py` and `scene.rs`
 reproduce the *read* subset and are honest about their limits. Reproducing the *write* half is not a
 bigger subset of the same job; it is reimplementing an application against a moving target.
 

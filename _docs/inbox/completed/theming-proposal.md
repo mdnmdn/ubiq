@@ -68,7 +68,7 @@ name, a `Mode { Dark, Light }`, the slug of its counterpart, and the tokens.
 - **`Mode` is what the component library and the highlighter are told.** `set_mode` today calls
   `gpui_component::Theme::change(mode, None, cx)`, which can only say dark or light. A third palette
   makes that insufficient rather than merely approximate, so the semantic-token handoff that
-  [`component-reuse-proposal.md`](./component-reuse-proposal.md) and `G211` already name as their
+  [`component-reuse-proposal.md`](../component-reuse-proposal.md) and `G211` already name as their
   blocking task becomes this proposal's prerequisite too. One function, in the one file allowed to
   name a colour.
 - **`counterpart` is what the titlebar's toggle follows**, replacing `ThemeId::toggled`. One click

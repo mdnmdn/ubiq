@@ -31,7 +31,7 @@ the transport contract makes the coordinator's process boundary cheap to move la
 half speaks anything but the contract. This proposal is what stops it waiting.
 
 **The architecture document already describes the shape.** From
-[`../tech/architecture.md`](../tech/architecture.md), "Why the split is drawn before it is needed":
+[`../tech/architecture.md`](../../tech/architecture.md), "Why the split is drawn before it is needed":
 *"A harness running on another host or in a container is structurally the same problem as a terminal
 stream crossing a machine boundary. The coordinator stops assuming the pseudo-terminal is local; the
 per-pane stream arrives over a network transport. The contract is identical, because a pane was
@@ -39,7 +39,7 @@ always a tagged bidirectional byte stream plus control messages."* That is this 
 written before it, at the level of a design commitment rather than a hint.
 
 **The transport contract already names the file family's seam for it.** From
-[`../tech/transport-contract.md`](../tech/transport-contract.md), in the file family: *"This is the
+[`../tech/transport-contract.md`](../../tech/transport-contract.md), in the file family: *"This is the
 file-level form of the rule that the UI never assumes the pseudo-terminal is local, and it is the
 seam a remote drone slots into: a project id and a relative path do not say which machine
 answered."* The word "drone" is already in the tree, naming the same thing this document designs.
@@ -70,7 +70,7 @@ and a `remote-shell` tool that call back into a project's drone. That is the MCP
 of why: the pane and file families already carry everything a remote shell or a remote file read
 needs, because neither one says which machine answered. Building a parallel "remote" protocol would
 mean two ways to open a shell and two ways to read a file, which is the outcome
-[`../tech/transport-contract.md`](../tech/transport-contract.md) and `D3` exist to prevent.
+[`../tech/transport-contract.md`](../../tech/transport-contract.md) and `D3` exist to prevent.
 
 ## 3. Reusing the contract, and the one thing it does not yet carry
 
@@ -82,7 +82,7 @@ project carrying a `RemoteOrigin` (host, user, remote root) routes the same requ
 project's drone connection instead. The interface draws a remote project exactly as it draws a local
 one — the same explorer, the same tabs, the same terminal panes — because nothing about `AppState` or
 `crates/ubiq/src/ui/` needed to learn that a machine boundary exists. That is rule 2 of
-[`../tech/architecture.md`](../tech/architecture.md) cashed in rather than bent: *"No path, no process
+[`../tech/architecture.md`](../../tech/architecture.md) cashed in rather than bent: *"No path, no process
 handle, no file descriptor crosses into UI code."* A drone is the thing on the other end of a stream
 the UI already only ever holds by ID.
 
@@ -350,8 +350,8 @@ Named by the request that seeded this proposal, and kept out on purpose rather t
 
 ## Related docs
 
-- [`../tech/architecture.md`](../tech/architecture.md) — rule 2, and the "remote harnesses" future this proposal cashes in
-- [`../tech/transport-contract.md`](../tech/transport-contract.md) — the pane and file families this reuses, and the framing rules a socket transport must honour
-- [`../tech/agent-manager.md`](../tech/agent-manager.md) — why a drone carries no harness knowledge, and where the future MCP connector's precedent lives
-- [`../tech/decisions.md`](../tech/decisions.md) — `D49` (shelling to a real shell), `D43` (why not shell to `git`), `D22` (closing ends a harness)
-- [`../backlog.md`](../backlog.md) — `D2` in the Deferred table, which this proposal is what stops deferring
+- [`../tech/architecture.md`](../../tech/architecture.md) — rule 2, and the "remote harnesses" future this proposal cashes in
+- [`../tech/transport-contract.md`](../../tech/transport-contract.md) — the pane and file families this reuses, and the framing rules a socket transport must honour
+- [`../tech/agent-manager.md`](../../tech/agent-manager.md) — why a drone carries no harness knowledge, and where the future MCP connector's precedent lives
+- [`../tech/decisions.md`](../../tech/decisions.md) — `D49` (shelling to a real shell), `D43` (why not shell to `git`), `D22` (closing ends a harness)
+- [`../backlog.md`](../../backlog.md) — `D2` in the Deferred table, which this proposal is what stops deferring

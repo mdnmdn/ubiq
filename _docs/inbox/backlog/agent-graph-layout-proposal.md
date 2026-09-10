@@ -37,7 +37,7 @@ today's: `SessionId` is the workspace's id, `WorkAgent::task` is the task an age
 
 **Coordinator** here means a card that spawned other cards and serves no task of its own — the
 project manager in the fixture, or a workspace's own lead. It is not
-[the coordinator](../product/glossary.md) that owns processes; that one draws nothing and has no
+[the coordinator](../../product/glossary.md) that owns processes; that one draws nothing and has no
 opinion about any of this.
 
 ## 1. Where it stands
@@ -410,7 +410,7 @@ Each phase ships on its own.
 ## Related docs
 
 - [`agent-graph-final.md`](./agent-graph-final.md) — the nesting this arranges, and the rename it uses
-- [`../features/workbench.md`](../features/workbench.md) — the agents screen, and what it draws today
-- [`../tech/decisions.md`](../tech/decisions.md) — `D41`, position is the interface's and membership is the host's
-- [`../tech/ui-and-design.md`](../tech/ui-and-design.md) — the tokens and shapes any new frame is drawn in
-- [`../backlog.md`](../backlog.md) — where the defects in §1 belong as rows until this lands
+- [`../features/workbench.md`](../../features/workbench.md) — the agents screen, and what it draws today
+- [`../tech/decisions.md`](../../tech/decisions.md) — `D41`, position is the interface's and membership is the host's
+- [`../tech/ui-and-design.md`](../../tech/ui-and-design.md) — the tokens and shapes any new frame is drawn in
+- [`../backlog.md`](../../backlog.md) — where the defects in §1 belong as rows until this lands

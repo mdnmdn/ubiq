@@ -12,7 +12,7 @@ depends_on: [tech-architecture, inbox-projects]
 # Proposal — configuration and persistence
 
 Everything Ubiq remembers between runs, and which half of it writes each thing down. The companion
-to [`project-handling-proposal.md`](./project-handling-proposal.md), which proposes the headless host
+to [`project-handling-proposal.md`](completed/project-handling-proposal.md), which proposes the headless host
 this assumes: the host owns disk, the interface owns nothing, and every store below is the host's.
 
 ## 1. Five classes, and who owns each
@@ -191,6 +191,6 @@ to another machine.
 
 ## Related docs
 
-- [`project-handling-proposal.md`](./project-handling-proposal.md) — the host, the catalogue and the message families these stores sit behind
+- [`project-handling-proposal.md`](completed/project-handling-proposal.md) — the host, the catalogue and the message families these stores sit behind
 - [`../tech/agent-manager.md`](../tech/agent-manager.md) — the boundary that decides which side owns a definition
 - [`../tech/architecture.md`](../tech/architecture.md) — the rule that keeps the host out of the interface's business

@@ -157,6 +157,6 @@ alongside.
 
 ## Related docs
 
-- [`../features/workbench.md`](../features/workbench.md) — vim mode, its engine and driver, and the status bar chip that reports the mode today
-- [`../tech/ui-and-design.md`](../tech/ui-and-design.md) — the theme tokens, and the rule that keeps every colour in one file
-- [`../backlog.md`](../backlog.md) — `G100`, where the fixed thin caret is recorded as a gap
+- [`../features/workbench.md`](../../features/workbench.md) — vim mode, its engine and driver, and the status bar chip that reports the mode today
+- [`../tech/ui-and-design.md`](../../tech/ui-and-design.md) — the theme tokens, and the rule that keeps every colour in one file
+- [`../backlog.md`](../../backlog.md) — `G100`, where the fixed thin caret is recorded as a gap

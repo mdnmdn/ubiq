@@ -6,7 +6,7 @@ status: proposal
 summary: A capture control in the titlebar that photographs the whole window and opens the result as an untitled tab, and the image editor that tab is — crop, arrows, boxes, freehand and text over the picture, undo and redo, saved by the path an untitled text file already takes — built on the Excalidraw scene model Ubiq already parses and paints, with the clipboard as a second source through a new-file keystroke that asks what it is holding — designed Windows-first, because that is what forces the one capture route that crosses all three platforms.
 read_when: you are deciding what a capture becomes, how an image is edited or cropped, what an untitled binary buffer means, or how the scene painter grows an editing mode
 updated: 2026-09-07
-depends_on: [feat-workbench, tech-ui, tech-architecture, tech-transport-contract, tech-diagram-format, wip-windows-build]
+depends_on: [feat-workbench, tech-ui, tech-architecture, tech-transport, tech-diagrams, wip-windows-build]
 ---
 
 # Proposal — capture, and the image editor it opens into
@@ -68,7 +68,7 @@ so a picture with no filename cannot be drawn at all. §5 and §7 are where each
 `width`, `height`, `angle`, `stroke`, `fill`, `stroke_width`, `stroke_style`, `opacity` — over
 `ElementKind` (`:152`): `Rectangle`, `Ellipse`, `Diamond`, `Frame`, `Line`, `Arrow`, `Text`,
 `FreeDraw`, `Image`. `crates/ubiq/src/ui/viewer/scene.rs` paints all of it with `canvas()` and
-`PathBuilder`. `_tools/excalidraw.py` renders the same subset for the wireframes, and
+`PathBuilder`. `.claude/excalidraw.py` renders the same subset for the wireframes, and
 [`../tech/diagram-format.md`](../tech/diagram-format.md) documents exactly what it reproduces.
 
 **So does the camera.** `crates/ubiq/src/ui/viewer/viewport.rs` is the surface a picture sits on —
@@ -258,7 +258,7 @@ furniture around a single action.
 
 **One keystroke: `⌘⇧2`**, doing what the button does. Whether it is free of the component library's
 own bindings is unverified and is a backlog row, in the same class as the `⌘⇧F` question in
-[`find-in-file-proposal.md`](./find-in-file-proposal.md) §5.
+[`find-in-file-proposal.md`](backlog/find-in-file-proposal.md) §5.
 
 **Adding to that cluster costs two things.** The dead bell gets a meaning or goes — a control that has
 never done anything is not a placeholder. And every control in the cluster gets a tooltip; four of
@@ -560,4 +560,4 @@ the crop tool should snap to panel and pane bounds, which is the only thing §4 
 - [`../tech/transport-contract.md`](../tech/transport-contract.md) — `WriteProjectFile`, which a save uses unchanged
 - [`../features/panes-and-terminals.md`](../features/panes-and-terminals.md) — why a pane's picture is pixels and not text
 - [`completed/file-viewers-proposal.md`](./completed/file-viewers-proposal.md) — where the scene viewer, the image viewer and the shared camera came from, and the read-only decision §5 bounds
-- [`find-in-file-proposal.md`](./find-in-file-proposal.md) — the same open question about who wins a keybinding
+- [`find-in-file-proposal.md`](backlog/find-in-file-proposal.md) — the same open question about who wins a keybinding

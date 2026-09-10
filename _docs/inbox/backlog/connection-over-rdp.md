@@ -1,3 +1,13 @@
+---
+id: inbox-rdp-tunnel
+title: Tunneling application traffic over RDP (full Rust)
+kind: proposal
+status: proposal
+summary: A design for carrying the router's own protocol over a Dynamic Virtual Channel inside an RDP session — a headless IronRDP client with no GUI, and a Windows session worker using the WTS DVC APIs — when only RDP (TCP/3389) is reachable and no external tool such as FreeRDP or rdp2tcp may be used.
+read_when: you are deciding how application traffic reaches a Windows host when only RDP is reachable, or how a Dynamic Virtual Channel is opened and framed from both ends
+updated: 2026-09-07
+---
+
 # Tunneling application traffic over RDP (full Rust)
 
 ## Purpose

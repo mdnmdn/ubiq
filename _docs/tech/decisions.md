@@ -679,7 +679,7 @@ drops as bracketed paste. `Ctrl+C` is SIGINT on every platform. Bare Escape is `
 **Why:** a multiplexer that never copies, never pastes, and never lets the keyboard leave a pane is
 a pane the user is trapped in. The intercepts are the emulator's (except defocus, which is the
 window's) and invent no bus messages, because clipboard, drops and links are local to the UI
-process. Bare Escape stays with the harness so vim, emacs and less keep the key they already own.
+process. Bare Escape stays with the harness so vim, emacs and less keep the key they own.
 
 **Cost:** the closed set is a product contract. Adding a shortcut means adding it here and in the
 emulator, and a chord that looks unused in a shell is often a command in a TUI. Mouse reporting
@@ -724,7 +724,7 @@ nothing change on the other, because a column and a card are not the same claim 
 ### D48 — Version control gets a screen of its own, and it reads
 
 `Git` is a rail mode beside `IDE`, holding the refs, the history, the uncommitted changes and the
-diff on one screen. It draws the working tree from the pairs the git family already sends and the
+diff on one screen. It draws the working tree from the pairs the git family sends and the
 comparison from the file family's `DiffProjectFile`; its branch list and its log are fixtures until
 the family carries them. Nothing on it writes: the actions a write version would offer are drawn
 inert, and the toolbar says why.
@@ -733,7 +733,7 @@ inert, and the toolbar says why.
 "where am I", and neither can answer "what has this repository been doing" — which is the question
 a user asks before every commit and after every agent's turn. A screen is also where the *pair*
 finally has somewhere to go: staged and unstaged are two lists here and one badge in the tree, so
-the fact the wire already carries stops being thrown away at the edge. Drawing the write shape now
+the fact the wire carries stops being thrown away at the edge. Drawing the write shape
 and refusing to wire it is what keeps the read version shippable: the layout is settled, and the
 write family is one message set rather than a redesign.
 
@@ -881,7 +881,7 @@ an ordinary `ProjectRecord` with a `temporary` flag and keeps it in memory only,
 `projects.toml` — rather than opening project settings prefilled and waiting on `AddProject`. A file
 dropped that lands outside every open project opens as a read-only guest tab that the interface
 reads itself with `std::fs`, rather than through the host as a loose project. Both reverse rows (a)
-and (c) of `_docs/inbox/shell-integration-proposal.md` §12, settled here 2026-09-03.
+and (c) of `_docs/inbox/completed/shell-integration-proposal.md` §12, settled here 2026-09-03.
 
 **Why a temporary project instead of prefilled settings:** naming and colouring a folder before it
 has proven worth keeping is friction the drop was supposed to remove. Opening it at once and putting
@@ -935,7 +935,7 @@ reasons.
 
 The shortcut Ubiq writes onto the shell's `PATH` is a small script carrying a `# ubiq-target:`
 marker, written by `crates/ubiq-host/src/cli_shortcut.rs`. On a macOS bundle it runs
-`open -a Ubiq.app "$@"`, so LaunchServices delivers the path to the window that is already open. A
+`open -a Ubiq.app "$@"`, so LaunchServices delivers the path to the window that is open. A
 symbolic link to the executable was the obvious shape and was rejected: it starts a second
 application every time, and reaching the running one is the whole of what `ubiq .` is for. The
 marker is what makes *Remove* safe — a `ubiq` the user put on their own `PATH` carries no marker and
@@ -1418,7 +1418,7 @@ mechanically — a conversation called `claude 3`, a session named after its pro
 with nothing in it. Spawning a harness to produce eleven characters costs a process, a credential
 and a round trip to a paid endpoint.
 
-So there is now one narrow exception, and it is drawn as a seam rather than as a special case. A
+So there is one narrow exception, and it is drawn as a seam rather than as a special case. A
 `Assist` trait in `crates/ubiq-host/src/assist/` answers three questions — can you run, what can you
 hold, produce this text — and every backend behind it is chosen in one function from one setting.
 The first backend is the operating system's own on-device model, which is what makes the exception
@@ -1441,7 +1441,7 @@ the coordinator must keep answering every other window while a model thinks.
 
 **Cost:** the contract gains a fifteenth family, `crates/ubiq-host` gains its first cargo feature and
 its first target-specific dependency, and the claim "Ubiq calls no model" is no longer true without
-qualification — it now reads *Ubiq spawns a harness for every piece of work, and calls a model
+qualification — it reads *Ubiq spawns a harness for every piece of work, and calls a model
 directly only for a name it would otherwise invent mechanically*. The setting defaults to `Off`, so
 an existing user's behaviour is unchanged by upgrading, and every call site has to read correctly
 against a stub backend that reports assistance unavailable, which is the normal case on most
@@ -1497,7 +1497,7 @@ never created. An undeliverable message is dropped and logged. `Bus::drop_remote
 host's projects, resets `active` to `Local`, and hands its panes back for `AppState::disconnect_host`
 to close, so a lost host leaves nothing of itself behind on either list.
 
-**Cost:** a catalogue answer is now only as scoped as the host tagging behind it, so a project whose
+**Cost:** a catalogue answer is only as scoped as the host tagging behind it, so a project whose
 host was never recorded (`Bus::note_project` missed at the one place it is first announced) is
 either erased by the next host's answer or kept forever by every one of them. And a loss is
 destructive by design: a connection that drops for a second takes the window's remote panes with it,
@@ -1530,9 +1530,9 @@ host is its only writer, and losing it costs one button press — so it is a cac
 user opens to change a preference, and a picker that costs a network round trip per keystroke is a
 picker nobody filters.
 
-**Cost:** four fields on one record now have an ownership rule the other twelve do not, and the rule
+**Cost:** four fields on one record have an ownership rule the other twelve do not, and the rule
 is invisible in the type — `HostSettings` looks uniform and behaves in two ways. The keychain is
-also now load-bearing for a *feature* rather than only for a login: a machine whose secret store
+also load-bearing for a *feature* rather than only for a login: a machine whose secret store
 does not work cannot configure a provider at all, and is told so at the moment it tries rather than
 later. And a provider deleted while another window's settings dialog is open leaves that window
 showing a row whose key is gone until the broadcast lands.
@@ -1553,7 +1553,7 @@ correct, because every chunk concatenated is that message's text.
 The sink returning `false` is the second half, and it is the only cancellation an HTTP request has:
 a suggestion the user gave up on stops the backend *reading* and drops the connection, where before
 `CancelSuggest` could only stop the reply being forwarded. It still cannot stop a model that has
-already been asked.
+been asked.
 
 **Cost:** one more variant on the wire and one more thing an interface may ignore — which means
 chunk-handling is untested by anything that only reads `Suggestion`, and a backend that streams into

@@ -1,3 +1,13 @@
+---
+id: inbox-plugin-system
+title: Proposal — a plugin system for Ubiq
+kind: proposal
+status: proposal
+summary: The closing sections of a plugin-system proposal — a plugin as a bus client whose messages a grant filters, embedded QuickJS as the interpreter, credential references brokered rather than held, and declarative UI contributions plus A2UI in place of HTML or native drawing; a five-phase build order from the grant model to out-of-process plugins; the decisions those choices would add to the register (D97–D100); and the open questions on grant scope, activation, project visibility, the audit trail, where a plugin's definition lives, and whether `exec` belongs in an early phase.
+read_when: you are deciding how a plugin reaches the bus, what capability or grant model to give it, or how its UI is drawn
+updated: 2026-09-10
+depends_on: [tech-architecture, tech-transport, tech-agent-manager, inbox-a2ui, inbox-isolation, inbox-web-panel, tech-decisions]
+---
 
 **An agent can be talked into calling a plugin tool.** §5's privilege rule is what contains it, and
 the containment is only as good as the grant the plugin asked for.

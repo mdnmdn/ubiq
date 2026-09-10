@@ -311,7 +311,7 @@ composer's own button never disagree about who a slot is addressed at. Up in an 
 brings the last turn back, the way a shell brings back the last command — `recall_last_message`
 reads it off the transcript, which is what was actually sent, and keeps nothing beside it. Claude
 Code's own cancelled-turn echo (`[Request interrupted by user]`) is not pushed as a transcript block
-in the first place — see [`chat.md`](./chat.md) — so it is never what Up hands back. A field
+in the first place — see the chat document — so it is never what Up hands back. A field
 with a draft in it is left alone: the key moves the cursor, because a key that overwrites what is
 typed is a key that loses work.
 
@@ -915,7 +915,7 @@ click: the box around the diagonal takes none, or the ribbon would swallow every
 bottom-left of the window.
 
 **Every area in the dock is a panel.** One per pane for the terminals, one per open file in IDE
-mode, one per open chat tab — see [`chat.md`](./chat.md) — and one each for the explorer, the log
+mode, one per open chat tab — see the chat document — and one each for the explorer, the log
 console — which is [`logs.md`](./logs.md) — the outline, and the centre.
 
 **Placement is a property of the kind of panel, not a special case.** The explorer sits in the left
@@ -1463,7 +1463,7 @@ a round trip, so no confirmation is raised for a move that could never happen.
 **Copy, Paste and Duplicate work off one remembered path, and never the system clipboard.** Copy
 remembers the row and asks the host nothing; Paste copies it into the folder that was right-clicked,
 or into the root from the empty panel; Duplicate is a paste into the path's own folder. A name
-already taken is stepped past — `notes.md` becomes `notes copy.md`, then `notes copy 2.md` — which is
+already taken is stepped past — `notes.txt` becomes `notes copy.txt`, then `notes copy 2.txt` — which is
 what makes Duplicate work at all, since there a collision is certain. That stepping reads the
 children the host has already named, so it is best-effort by construction: a collision it cannot see
 comes back from the host as a refusal on the row. There is no Cut, because a move is a drag.
@@ -2040,7 +2040,7 @@ The panels, each one a `PanelKind` in `state/dock.rs`:
 |---|---|---|---|---|
 | Explorer | `ui/explorer.rs` | Edge | Left, at `EXPLORER_WIDTH` | `ExplorerState`, one per project the window holds |
 | Outline | `ui/outline.rs` | Free | Left, beside the explorer | One `Vec<Def>` cache on `AppState` (`outline`, `outline_key`, `outline_gen`), rebuilt from the buffer on screen and drawn as a `uniform_list` |
-| Chat | `ui/chat/` | Free | Right, at `CHAT_WIDTH`, or wherever it is dragged | One `ChatTab` per open instance, in `OpenProject::chats` — see [`chat.md`](./chat.md) |
+| Chat | `ui/chat/` | Free | Right, at `CHAT_WIDTH`, or wherever it is dragged | One `ChatTab` per open instance, in `OpenProject::chats` — see the chat document |
 | Centre | `ui/dock/mod.rs`, `centre()` | Centre | The centre | `WorkbenchState::rail_mode`, and whatever the screen it draws owns |
 | File | `ui/editor.rs` | Centre | The centre, one per open tab | The `OpenFile` its tab key names, and that file's own `Entity<EditorState>` |
 | Terminal | `ui/terminal.rs` | Free | Bottom, at `DOCK_HEIGHT` | The pane it names, and the window's emulator for it |
@@ -2248,8 +2248,8 @@ under the older name keeps its zoom), whether its editors wrap (`editor_wrap`) a
 its explorer's filter (`file_filter`) — each new field `#[serde(default)]`, so a field costs the
 schema nothing, `scratch` and `pinned_files` included. `ModeLayout::default_for` is what a mode with
 no entry opens on: every region flag `false`, in every mode, because no region is furniture — `D94`.
-**A persistent agent is the one exception.** `AppState::settle_persistent_chat` (see
-[`chat.md`](./chat.md)) runs after a project's layout settles and, if that project holds a persistent
+**A persistent agent is the one exception.** `AppState::settle_persistent_chat` (see the chat
+document) runs after a project's layout settles and, if that project holds a persistent
 agent, attaches its seed chat tab to that agent and reveals the right region — so the default stays
 closed and a persistent agent's tab is what reopens it, at most once per project.
 The number is `3`, because one value in the blob carries a meaning that moves with the build: a

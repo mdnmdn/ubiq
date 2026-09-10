@@ -5,8 +5,8 @@ kind: feature
 status: current
 summary: One sink every subsystem writes its diagnostics to, and the console panel that reads it back with a subsystem selector and a level floor.
 read_when: you are adding a log event, adding or renaming a subsystem, changing what the console shows or where it sits, or chasing why something the application did left no trace
-updated: 2026-09-04
-verified: 2026-09-05
+updated: 2026-09-10
+verified: 2026-09-10
 code_anchors: [crates/ubiq-proto/src/log.rs, crates/ubiq/src/state/logs.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/state/dock.rs, crates/ubiq-app/src/lib.rs]
 depends_on: [tech-architecture, feat-panes]
 review_cycle: monthly
@@ -33,11 +33,12 @@ never heard of Ubiq — the harness library, the emulator, the framework — is 
 terms as Ubiq's own modules.
 
 **A record's subsystem is derived, not declared.** The event's target is the emitting module's path,
-and the map from module to subsystem lives in one function. Six subsystems: **UI** for the window,
+and the map from module to subsystem lives in one function. Seven subsystems: **UI** for the window,
 its screens, the state they draw and the emulator; **Coordinator** for the coordinator and the bus;
 **PTY** for pseudo-terminals; **Harness** for the embedded library; **MCP** for the surface Ubiq
-exposes to the agents it hosts; and **External** for everything else that logs. Nothing falls
-through — an unrecognised target is External, not missing.
+exposes to the agents it hosts; **Search** for the file search worker and the project watcher; and
+**External** for everything else that logs. Nothing falls through — an unrecognised target is
+External, not missing.
 
 **Records travel one way.** Producers write and never read. The console reads and writes nothing a
 producer can see, and the only thing it asks of the sink is to be emptied. That is what makes a sink
@@ -139,9 +140,9 @@ subsystem, target, and the message with its fields — and pushes it into a `Vec
 records under a mutex. `Subsystem::of` is the module-to-subsystem map, and it tests the specific
 prefixes first, because `ubiq_host::pty` is also `ubiq_host`, and the bare `ubiq` arm is last
 because every one of Ubiq's crates starts with it. A target is the emitting module's path, so it
-carries the crate name: the map is `ubiq_host::pty`, `ubiq_host::coordinator`, `ubiq_proto::bus`
-and `ubiq_host::mcp_server`, and a crate renamed without the map following it files every record
-under External while compiling perfectly.
+carries the crate name: the map is `ubiq_host::pty`, `ubiq_host::coordinator`, `ubiq_proto::bus`,
+`ubiq_host::mcp_server`, `ubiq_host::search` and `ubiq_host::watch`, and a crate renamed without
+the map following it files every record under External while compiling perfectly.
 
 `logs()` is the ring, held in a `OnceLock`. `snapshot()` filters and hands back shared records, so a
 console's read costs a pointer each and never holds the lock across a frame; `counts()` answers the

@@ -273,5 +273,5 @@ terminals. Phases 2 and 3 are independently valuable and do not block each other
 
 ## Related docs
 
-- [`../features/panes-and-terminals.md`](../features/panes-and-terminals.md) — the pane rules this lives within
-- [`../tech/ui-and-design.md`](../tech/ui-and-design.md) — the UI conventions the key handler follows
+- [`../features/panes-and-terminals.md`](../../features/panes-and-terminals.md) — the pane rules this lives within
+- [`../tech/ui-and-design.md`](../../tech/ui-and-design.md) — the UI conventions the key handler follows

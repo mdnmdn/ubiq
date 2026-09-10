@@ -216,7 +216,7 @@ to a string.
 
 Five classes of durable state, one movable config root, two store traits, and the rule that Ubiq
 holds bindings while agent-manager holds definitions — all of it in
-[`config-persistence-proposal.md`](./config-persistence-proposal.md), which is where the catalogue's
+[`config-persistence-proposal.md`](../config-persistence-proposal.md), which is where the catalogue's
 own store is specified.
 
 The two facts this document leans on: **the catalogue is one TOML file behind a `ProjectStore`
@@ -341,8 +341,8 @@ crate's row to file, not this one's.
 
 ## Related docs
 
-- [`../tech/architecture.md`](../tech/architecture.md) — the two halves and the rules this obeys
-- [`../tech/transport-contract.md`](../tech/transport-contract.md) — where the message families land
-- [`../features/workbench.md`](../features/workbench.md) — the picker and the rules projects follow today
-- [`config-persistence-proposal.md`](./config-persistence-proposal.md) — what is written down, and where
-- [`../tech/decisions.md`](../tech/decisions.md) — where the rows above would be appended
+- [`../tech/architecture.md`](../../tech/architecture.md) — the two halves and the rules this obeys
+- [`../tech/transport-contract.md`](../../tech/transport-contract.md) — where the message families land
+- [`../features/workbench.md`](../../features/workbench.md) — the picker and the rules projects follow today
+- [`config-persistence-proposal.md`](../config-persistence-proposal.md) — what is written down, and where
+- [`../tech/decisions.md`](../../tech/decisions.md) — where the rows above would be appended

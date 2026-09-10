@@ -38,7 +38,7 @@ attach. `_docs/design/` is full of Excalidraw scenes this application cannot sho
 nothing; it is handed content and draws it. Usually that content is the file. Sometimes — a diff, a
 Mermaid diagram — it is something the host made from the file, which changes where the work happens
 and not the rule. That is
-[`../tech/architecture.md`](../tech/architecture.md)'s rule 2 — the UI never assumes the
+[`../tech/architecture.md`](../../tech/architecture.md)'s rule 2 — the UI never assumes the
 pseudo-terminal is local — extended to the filesystem, and the line
 [`project-handling-proposal.md`](./project-handling-proposal.md) already draws for the explorer and
 the editor. The two compose: that one says where a file's bytes come from, this one what is drawn
@@ -109,7 +109,7 @@ message; a diagram that is rendered elsewhere does.
 **The cache is content-addressed and disposable.** Its key is the source's hash, the bundle's version
 and the palette; its value is SVG bytes. It belongs in a shared cache root rather than under a
 project, because the same diagram in two projects is the same bytes, and it may be deleted at any
-time — [`config-persistence-proposal.md`](./config-persistence-proposal.md)'s cache class is exactly
+time — [`config-persistence-proposal.md`](../config-persistence-proposal.md)'s cache class is exactly
 this. The palette is in the key because Mermaid bakes its colours in at render time: two entries per
 diagram, and the theme toggle chooses between them.
 
@@ -134,9 +134,9 @@ each with geometry, stroke, fill and binding. It is drawn natively, with GPUI's 
 `PathBuilder` as `refs/gpui-playground/src/examples/drawing.rs` demonstrates. The viewer is
 read-only: it draws the scene, and pans and zooms it. Editing is not proposed and should not be.
 
-The vocabulary is already established here: `_tools/excalidraw.py` renders the same subset to clean
+The vocabulary is already established here: `.claude/excalidraw.py` renders the same subset to clean
 vector SVG for the wireframes under `_docs/design/`, and
-[`../tech/diagram-format.md`](../tech/diagram-format.md) documents what it does and does not
+[`../tech/diagram-format.md`](../../tech/diagram-format.md) documents what it does and does not
 reproduce. The in-app viewer draws that subset and inherits the same stated limit — **the hand-drawn
 `roughness` style renders as clean vector**, and hachure and cross-hatch fills render solid. Embedded
 images arrive as data URIs in the file's own `files` map and go through GPUI's image element. This
@@ -203,7 +203,7 @@ it is not there.
 2. **Markdown and diff viewers.** The two with no new drawing in them — one is the component
    library's text view, one is styled rows.
 3. **Excalidraw.** Its input is data rather than a language, its subset is already specified by
-   `_tools/excalidraw.py`, and `_docs/design/` is a corpus to test against.
+   `.claude/excalidraw.py`, and `_docs/design/` is a corpus to test against.
 4. **Mermaid.** The host's offscreen webview, the vendored bundle, the render family and the
    content-addressed cache. It depends on no phase above it, and is the only one that adds a
    dependency — which is a reason to take it last and on its own.
@@ -230,14 +230,14 @@ Four decision rows, if this is taken:
 Backlog rows left open: which webview the host embeds, and whether a platform without one degrades to
 source or is simply unsupported; whether `resvg` resolves the fonts the browser measured with, and
 what a mismatch looks like; how long a warm webview is kept; and Excalidraw's hand-drawn stroke and
-hachure fills, which render clean and solid as they do in `_tools/excalidraw.py`.
+hachure fills, which render clean and solid as they do in `.claude/excalidraw.py`.
 
 ## Related docs
 
 - [`movable-panels-proposal.md`](./movable-panels-proposal.md) — the dock these panels live in, and the layout they persist into
 - [`project-handling-proposal.md`](./project-handling-proposal.md) — where a viewer's bytes come from
-- [`config-persistence-proposal.md`](./config-persistence-proposal.md) — the cache class the render cache belongs to
-- [`../tech/architecture.md`](../tech/architecture.md) — rule 2, which §2 extends to the filesystem
-- [`../tech/diagram-format.md`](../tech/diagram-format.md) — the Excalidraw subset already rendered here
-- [`../features/workbench.md`](../features/workbench.md) — the editor and its tabs as they stand
-- [`../tech/decisions.md`](../tech/decisions.md) — `D7`, which §6 argues does not cover a cached render
+- [`config-persistence-proposal.md`](../config-persistence-proposal.md) — the cache class the render cache belongs to
+- [`../tech/architecture.md`](../../tech/architecture.md) — rule 2, which §2 extends to the filesystem
+- [`../tech/diagram-format.md`](../../tech/diagram-format.md) — the Excalidraw subset already rendered here
+- [`../features/workbench.md`](../../features/workbench.md) — the editor and its tabs as they stand
+- [`../tech/decisions.md`](../../tech/decisions.md) — `D7`, which §6 argues does not cover a cached render

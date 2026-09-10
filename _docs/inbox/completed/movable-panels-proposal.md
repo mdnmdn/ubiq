@@ -49,7 +49,7 @@ Panel sizes and visibility also die with the process, which is `G13`.
 
 ## 2. What "movable" has to mean here
 
-A pane is not a document. Five rules from [`../features/panes-and-terminals.md`](../features/panes-and-terminals.md)
+A pane is not a document. Five rules from [`../features/panes-and-terminals.md`](../../features/panes-and-terminals.md)
 constrain the design before any of it is drawn, and a dock that breaks one of them is worse than the
 frame it replaces.
 
@@ -80,7 +80,7 @@ docks. Nothing about being dead makes it furniture.
 
 The word "panel" currently means one of the three regions around the centre, and has to be freed
 because the movable unit needs it. The proposed set — a change to
-[`../product/glossary.md`](../product/glossary.md), which owns vocabulary, and therefore something
+[`../product/glossary.md`](../../product/glossary.md), which owns vocabulary, and therefore something
 this proposal asks for rather than does:
 
 | Word | Means |
@@ -137,7 +137,7 @@ explorer. That is the honest limit, and a real top region is a backlog row again
 tree per region, tabbed groups, splits over the same `resizable` primitive `shell.rs` already uses,
 drag-to-tab and drag-to-edge with drop indicators, zoom, a free-floating tiles canvas, and a
 serialisable layout with a panel registry to rebuild leaves on load. Ubiq should use it rather than
-write a second one. That is [`../tech/ui-and-design.md`](../tech/ui-and-design.md)'s "gpui-component
+write a second one. That is [`../tech/ui-and-design.md`](../../tech/ui-and-design.md)'s "gpui-component
 first" applied to the largest widget in the library.
 
 Two things make it a fit rather than a compromise.
@@ -224,7 +224,7 @@ and one opaque payload per panel written by the panel itself — and rebuilds it
 registry keyed by panel name. A name whose builder is missing becomes a placeholder carrying its
 payload forward, so an unknown panel is preserved rather than silently deleted on the next save.
 
-That fits the seam [`config-persistence-proposal.md`](./config-persistence-proposal.md) already
+That fits the seam [`config-persistence-proposal.md`](../config-persistence-proposal.md) already
 proposes, without extending it: the layout is **view state, and the host stores it as an opaque value
 it never parses**, keyed by project. Ubiq writes nothing inside the project's folder. This resolves
 `G13` and more than it asked for — sizes, visibility, arrangement and which files were open, in one
@@ -294,11 +294,11 @@ restored layout should offer to respawn the harnesses it dropped, which waits on
 
 ## Related docs
 
-- [`../features/workbench.md`](../features/workbench.md) — the frame this replaces, and the area table it maintains
-- [`../features/panes-and-terminals.md`](../features/panes-and-terminals.md) — the pane rules §2 is drawn from
-- [`../tech/ui-and-design.md`](../tech/ui-and-design.md) — the tokens and conventions the skin keeps
+- [`../features/workbench.md`](../../features/workbench.md) — the frame this replaces, and the area table it maintains
+- [`../features/panes-and-terminals.md`](../../features/panes-and-terminals.md) — the pane rules §2 is drawn from
+- [`../tech/ui-and-design.md`](../../tech/ui-and-design.md) — the tokens and conventions the skin keeps
 - [`file-viewers-proposal.md`](./file-viewers-proposal.md) — what the centre's panels draw
-- [`../tech/architecture.md`](../tech/architecture.md) — the rules a moved pane may not break
-- [`config-persistence-proposal.md`](./config-persistence-proposal.md) — the view store §7's layout blob goes into
-- [`../tech/decisions.md`](../tech/decisions.md) — `D17`, `D18` and `D25`, which §4 and §10 touch
-- [`../backlog.md`](../backlog.md) — `G6`, `G13` and `Q1`
+- [`../tech/architecture.md`](../../tech/architecture.md) — the rules a moved pane may not break
+- [`config-persistence-proposal.md`](../config-persistence-proposal.md) — the view store §7's layout blob goes into
+- [`../tech/decisions.md`](../../tech/decisions.md) — `D17`, `D18` and `D25`, which §4 and §10 touch
+- [`../backlog.md`](../../backlog.md) — `G6`, `G13` and `Q1`

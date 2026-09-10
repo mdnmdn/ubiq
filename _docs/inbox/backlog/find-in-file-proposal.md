@@ -19,7 +19,7 @@ library, none of it was asked for, and no affordance anywhere in the window says
 So this proposes something narrower and more useful than a find bar: **claiming the one that exists**.
 Four options rather than one, an entry point the user can see, a query that survives a tab switch, a
 replace that cannot make edits the user is unable to save, and a hand-off to
-[`omni-search-proposal.md`](./omni-search-proposal.md) when one file is not the question.
+[`omni-search-proposal.md`](../completed/omni-search-proposal.md) when one file is not the question.
 
 ## 1. Where it stands
 
@@ -68,7 +68,7 @@ Not whether to build a find bar. Whether Ubiq **owns** the one it has:
 
 **One record, four options, shared with project search.** It is `Query` in a `search` module in
 `crates/ubiq-proto/src/`, defined and argued in
-[`omni-search-proposal.md`](./omni-search-proposal.md) §3, and this document is its second user.
+[`omni-search-proposal.md`](../completed/omni-search-proposal.md) §3, and this document is its second user.
 
 | Option | Means | In the tree |
 |---|---|---|
@@ -252,11 +252,11 @@ save, which is `G51`; find within a selection, and preserve-case replace, both d
 from the option set; a match count that is exact in a fifty-thousand-line buffer, which the
 component's rebuild-on-every-keystroke matcher decides and not Ubiq; and whether the find bar should
 appear in a viewer that is not an editor at all, which waits on
-[`file-viewers-proposal.md`](./file-viewers-proposal.md).
+[`file-viewers-proposal.md`](../completed/file-viewers-proposal.md).
 
 ## Related docs
 
-- [`omni-search-proposal.md`](./omni-search-proposal.md) — the other half, and where `Query` is defined
-- [`file-viewers-proposal.md`](./file-viewers-proposal.md) — the per-file panels and viewers a find bar would have to live in
-- [`../features/workbench.md`](../features/workbench.md) — the editor, the tab strip and the save path
-- [`../tech/ui-and-design.md`](../tech/ui-and-design.md) — the gpui-component-first convention §4 leans on
+- [`omni-search-proposal.md`](../completed/omni-search-proposal.md) — the other half, and where `Query` is defined
+- [`file-viewers-proposal.md`](../completed/file-viewers-proposal.md) — the per-file panels and viewers a find bar would have to live in
+- [`../features/workbench.md`](../../features/workbench.md) — the editor, the tab strip and the save path
+- [`../tech/ui-and-design.md`](../../tech/ui-and-design.md) — the gpui-component-first convention §4 leans on

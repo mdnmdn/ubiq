@@ -58,7 +58,8 @@ is picked. A name the library does not know is a program, which is how a shell r
 
 **An agent is composed, not executed.** Starting one provisions a throwaway configuration directory
 for that run, and the harness is launched against it with the environment the library computed —
-the user's own `~/.claude` and its siblings are read-only for the duration. The directory belongs to
+what that composition reads and writes is the harness library's, in
+[`../tech/agent-manager.md`](../tech/agent-manager.md). The directory belongs to
 the pane: it is named by it, and it is deleted when the pane closes, credentials seeded into it
 included. One left behind by a process that was killed is deleted at the next start.
 
