@@ -98,6 +98,16 @@ impl WorkProjection {
         }
     }
 
+    /// Take an agent out of the projection outright — what `Message::ConversationDeleted` means,
+    /// as opposed to [`Self::apply_agent`], which only ever replaces one still there. Answers
+    /// whether one was actually held, so a caller can tell an id it never heard of from one it
+    /// just dropped.
+    pub fn remove_agent(&mut self, agent: AgentId) -> bool {
+        let before = self.agents.len();
+        self.agents.retain(|held| held.id != agent);
+        self.agents.len() != before
+    }
+
     /// The same for a session, so an agent that arrives under one nothing has
     /// heard of is still listed rather than silently dropped between headings.
     pub fn apply_session(&mut self, session: WorkSession) {

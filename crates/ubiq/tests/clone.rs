@@ -120,6 +120,7 @@ fn an_ephemeral_project_always_holds_something_and_says_what_is_lost() {
     let holds = Holds {
         files: 0,
         panes: 0,
+        agents: 0,
         ephemeral: true,
     };
     assert!(holds.anything());
@@ -132,6 +133,7 @@ fn an_ephemeral_project_always_holds_something_and_says_what_is_lost() {
     let busy = Holds {
         files: 2,
         panes: 1,
+        agents: 1,
         ephemeral: true,
     };
     assert_eq!(
@@ -142,10 +144,32 @@ fn an_ephemeral_project_always_holds_something_and_says_what_is_lost() {
     let ordinary = Holds {
         files: 2,
         panes: 1,
+        agents: 0,
         ephemeral: false,
     };
     assert_eq!(
         ordinary.sentence().as_deref(),
         Some("2 unsaved files and 1 terminal")
     );
+
+    let with_agents = Holds {
+        files: 2,
+        panes: 1,
+        agents: 1,
+        ephemeral: false,
+    };
+    assert!(with_agents.anything());
+    assert_eq!(
+        with_agents.sentence().as_deref(),
+        Some("2 unsaved files, 1 terminal and 1 agent")
+    );
+
+    let only_agents = Holds {
+        files: 0,
+        panes: 0,
+        agents: 2,
+        ephemeral: false,
+    };
+    assert!(only_agents.anything());
+    assert_eq!(only_agents.sentence().as_deref(), Some("2 agents"));
 }

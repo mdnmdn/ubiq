@@ -1824,6 +1824,9 @@ impl Coordinator {
                 }
             }
             Message::EndConversation { agent_id } => {
+                // Read before `end_conversation` takes the entry with it: the window that has to
+                // hear the conversation is gone for good is whichever one owned it.
+                let owner = self.conversation_owners.get(&agent_id).map(|(c, _)| *c);
                 self.end_conversation(agent_id, StopReason::Cancelled);
                 // The one place the user really means *gone*. `end_conversation` only parks a
                 // persistent conversation, so the delete is spelled out here — and it is all three
@@ -1834,6 +1837,15 @@ impl Coordinator {
                 self.agents.retire_agent(agent_id);
                 conversation_record::forget(&self.sessions(), agent_id);
                 let _ = std::fs::remove_dir_all(self.sessions().join(agent_id.to_string()));
+                // `end_conversation` says nothing on its own — `ConversationEnded` would say the
+                // transcript stays, which here is exactly wrong. Only the window that had it open
+                // has anything to drop.
+                if let Some(client) = owner {
+                    self.host.send(
+                        To::Client(client),
+                        Message::ConversationDeleted { agent_id },
+                    );
+                }
             }
             Message::UnloadConversation { agent_id } => {
                 self.unload_conversation(client, agent_id);
@@ -4443,6 +4455,29 @@ mod tests {
         assert!(
             !session_dir.exists(),
             "so do the row and the library's record beside it"
+        );
+    }
+
+    /// Deleting a conversation is the one ending that is not `ConversationEnded` — that message
+    /// says the transcript stays, which is exactly wrong once the record is gone. The owning
+    /// window has to be told `ConversationDeleted` instead, so it drops its own copy rather than
+    /// going on drawing a conversation the host no longer has anything to say about.
+    #[test]
+    fn deleting_a_conversation_tells_its_window_so() {
+        let (mut coordinator, client) = test_coordinator();
+        let (agent_id, _project_id) = seed_live_conversation(&mut coordinator, &client, 0);
+        // Drain whatever `seed_live_conversation` already queued for this client, so the assert
+        // below is only about what `EndConversation` itself sends.
+        while client.from_host().try_recv().is_ok() {}
+
+        coordinator.dispatch(client.id(), Message::EndConversation { agent_id });
+
+        let sent: Vec<Message> =
+            std::iter::from_fn(|| client.from_host().try_recv().ok()).collect();
+        assert!(
+            sent.iter()
+                .any(|message| matches!(message, Message::ConversationDeleted { agent_id: id } if *id == agent_id)),
+            "expected a ConversationDeleted for the owning client, got {sent:?}"
         );
     }
 

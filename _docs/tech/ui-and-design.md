@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: The GPUI rendering model, the complete theme token set and the rule that no colour escapes it, how a palette is switched, the shape every surface, modal and dialog is drawn in, the page every primitive is looked at on, and the design assets screens are built against.
 read_when: you are building or restyling a screen, adding a colour or a size, switching or extending a palette, raising a modal or the file picker, looking at a primitive on the style reference, or looking for the wireframe a layout came from
-updated: 2026-09-09
-verified: 2026-09-09
+updated: 2026-09-10
+verified: 2026-09-10
 code_anchors: [crates/ubiq/src/theme.rs, assets/icons/icons.yaml, _tools/icons.py, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/src/ui/viewer/scene.rs]
 depends_on: [tech-architecture]
 review_cycle: quarterly
@@ -358,6 +358,11 @@ outside click and by its own close**, through `on_mouse_down_out` on the panel, 
 dropdown is, so the two behave the same way and neither uses the scrim as a click target. And **the
 scrim occludes the mouse**, so nothing behind a modal can be clicked while it is up. It sits above
 the dropdowns in `deferred` priority, because a modal a menu could cover is not modal.
+
+**A dropdown has no scrim, so it consumes its own click instead.** `menu_panel` and `context_panel`
+in `ui/kit/menu.rs` stop a left mouse-down on the list itself, because a list painted at `deferred`
+priority over whatever raised it sits at the same screen point as a control underneath — without
+the stop, a click on a row would also land on that control.
 
 **A layer painted above a modal is outside it**, and the modal that raised the layer is what has to
 know. `on_mouse_down_out` is a capture-phase handler over the panel's own bounds, and a dropdown

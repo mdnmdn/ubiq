@@ -557,7 +557,10 @@ fn footer(app: &AppState, picker: &FilePickerState, cx: &mut Context<AppState>) 
                     persistent,
                     cx.listener(|this, _, _, cx| this.toggle_host_project_persistent(cx)),
                 ))
-                .child(mono("Keep project", theme::text_muted()).text_size(px(11.)))
+                .child(
+                    mono("Keep project", theme::text_muted())
+                        .text_size(theme::font(theme::Family::Chrome, theme::Role::Meta)),
+                )
                 .tooltip(move |window, cx| {
                     gpui_component::tooltip::Tooltip::new(
                         "Keep this project on the remote host, so a later reconnect finds it \

@@ -28,10 +28,11 @@ impl AppState {
     // under is the ask it is answering.
 
     /// What this window would take with it if it closed: one line per project it holds that has
-    /// unsaved files or terminals still running, in name order.
+    /// unsaved files, terminals still running, or agents still running, in name order.
     ///
     /// An untitled buffer nobody has typed into does not count — its baseline is the empty bytes
-    /// it opened with, so `OpenFile::dirty` already answers no for it.
+    /// it opened with, so `OpenFile::dirty` already answers no for it. An unloaded or ended
+    /// conversation does not count either — its harness is already gone.
     pub fn unsaved_summary(&self, cx: &App) -> Vec<String> {
         let registry = WindowRegistry::read(cx);
         let mut rows: Vec<String> = self
@@ -49,9 +50,11 @@ impl AppState {
         rows
     }
 
-    /// What one project this window holds would take with it: unsaved files, and terminals still
-    /// running. An untitled buffer nobody has typed into is not one of them — its baseline is the
-    /// empty bytes it opened with, so `OpenFile::dirty` already answers no for it.
+    /// What one project this window holds would take with it: unsaved files, terminals still
+    /// running, and agents still running. An untitled buffer nobody has typed into is not one of
+    /// them — its baseline is the empty bytes it opened with, so `OpenFile::dirty` already answers
+    /// no for it. An unloaded or ended conversation is not one of them either — its harness is
+    /// already gone.
     ///
     /// An ephemeral clone always holds something, whatever is open in it: closing it forgets the
     /// project and the folder goes with it, which is the one close in this window that cannot be
@@ -67,6 +70,11 @@ impl AppState {
         Holds {
             files: open.editor.open.iter().filter(|file| file.dirty()).count(),
             panes: open.panes.len(),
+            agents: open
+                .conversations
+                .values()
+                .filter(|conversation| conversation.running())
+                .count(),
             ephemeral,
         }
     }
@@ -116,13 +124,14 @@ impl AppState {
         self.close_menu(cx);
     }
 
-    /// Close a project in this window. One with terminals still running or unsaved files asks
-    /// first, in the same modal the window's own close raises — one project's worth of it. Closing
-    /// the last one leaves the window open on nothing, with the picker to offer.
+    /// Close a project in this window. One with terminals still running, agents still running, or
+    /// unsaved files asks first, in the same modal the window's own close raises — one project's
+    /// worth of it. Closing the last one leaves the window open on nothing, with the picker to
+    /// offer.
     pub fn close_project(&mut self, project: ProjectId, force: bool, cx: &mut Context<Self>) {
         // This window's own count, not the catalogue's: closing a project here kills the panes
-        // *this* window is running in it and drops what was typed into its buffers, and says so
-        // about those.
+        // *this* window is running in it, unloads the agents it is talking to, and drops what was
+        // typed into its buffers, and says so about those.
         if self.project_holds(project, cx).anything() && !force {
             // The menu the click came from goes first: the question is a modal over the window
             // now, and a menu left open behind it is a menu the answer would have to dodge.
@@ -818,17 +827,20 @@ impl AppState {
 pub struct Holds {
     pub files: usize,
     pub panes: usize,
+    /// Conversations whose harness is actually up — `Conversation::running`. An unloaded or
+    /// ended transcript is not one of these.
+    pub agents: usize,
     /// Whether the project is a throwaway clone — see `crate::state::clone::is_ephemeral`. Not a
-    /// count, and it outranks the other two in the sentence: what is lost is the whole folder.
+    /// count, and it outranks the other three in the sentence: what is lost is the whole folder.
     pub ephemeral: bool,
 }
 
 impl Holds {
     pub fn anything(self) -> bool {
-        self.files > 0 || self.panes > 0 || self.ephemeral
+        self.files > 0 || self.panes > 0 || self.agents > 0 || self.ephemeral
     }
 
-    /// "3 unsaved files and 4 terminals", or `None` when there is nothing to say.
+    /// "3 unsaved files, 4 terminals and 2 agents", or `None` when there is nothing to say.
     pub fn sentence(self) -> Option<String> {
         if self.ephemeral {
             return Some("This clone will be discarded".to_string());
@@ -840,7 +852,19 @@ impl Holds {
         if self.panes > 0 {
             parts.push(format!("{} terminal{}", self.panes, plural(self.panes)));
         }
-        (!parts.is_empty()).then(|| parts.join(" and "))
+        if self.agents > 0 {
+            parts.push(format!("{} agent{}", self.agents, plural(self.agents)));
+        }
+        join_parts(&parts)
+    }
+}
+
+fn join_parts(parts: &[String]) -> Option<String> {
+    match parts {
+        [] => None,
+        [one] => Some(one.clone()),
+        [a, b] => Some(format!("{a} and {b}")),
+        [rest @ .., last] => Some(format!("{} and {last}", rest.join(", "))),
     }
 }
 

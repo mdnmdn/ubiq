@@ -277,13 +277,14 @@ pub enum FileDialog {
     /// text buffer the keystroke has always meant. Carries no bytes — they are re-read on the
     /// answer, so a per-frame clone never carries them.
     PasteImage,
-    /// The window's close, asked while any project it holds has unsaved files or running
-    /// terminals. What each of them holds is counted when the dialog is drawn. `quitting` is the
-    /// same question asked for the whole application — ⌘Q — which takes every window with it.
+    /// The window's close, asked while any project it holds has unsaved files, running
+    /// terminals or running agents. What each of them holds is counted when the dialog is drawn.
+    /// `quitting` is the same question asked for the whole application — ⌘Q — which takes every
+    /// window with it.
     CloseWindow { quitting: bool },
     /// One project's close, asked for the same reasons and answered in the same modal — the close
-    /// in the project menu takes the window's unsaved files and running terminals just as
-    /// seriously, it only has one project to say it about.
+    /// in the project menu takes the window's unsaved files, running terminals and running agents
+    /// just as seriously, it only has one project to say it about.
     CloseProject { project: ProjectId },
 }
 

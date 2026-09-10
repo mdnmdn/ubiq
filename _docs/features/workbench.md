@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: The window's shell — the activity rail and its modes, the dock of movable panels the user arranges around the centre, the file explorer and editor a project owns, the Git screen of refs, history and uncommitted changes, the agents screen of parallel columns, the orchestration graph and the tasks board the rail's other built modes hold, the kitchen sink the application tests itself against, the file picker any screen raises to choose a path, the empty state a window with no project shows, and the status bar that reports on all of it.
 read_when: you are changing the window layout, a rail mode, where a panel may sit or when it is drawn, the explorer, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, capturing the window or annotating a capture, saving a file, the Git screen's refs, history, change lists or diff, the agents screen's columns, what a tab drag means or what the bench is, the orchestration screen's graph, how it arranges itself, its inspector or its tasks, the tasks board's columns, cards or task panel, the kitchen sink's pages or fixtures, the file picker a screen raises to choose a path, cloning a project, application settings, vim mode, or the status bar
-updated: 2026-09-09
-verified: 2026-09-09
+updated: 2026-09-10
+verified: 2026-09-10
 code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/app/sink.rs, crates/ubiq/src/state/a2ui.rs, crates/ubiq/src/ui/a2ui.rs, crates/ubiq/src/ui/sink/a2ui.rs, crates/ubiq/tests/a2ui.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/stats.rs, crates/ubiq/src/ui/stats.rs, crates/ubiq/src/app/stats.rs, crates/ubiq/tests/stats.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/app/new_agent.rs, crates/ubiq/src/ui/new_agent.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/app/graph.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
@@ -291,7 +291,9 @@ is what "sends" resolves the agent through on every surface — a chat tab's own
 in the chat range, a column's active tab for one in the column range — so the Enter key and the
 composer's own button never disagree about who a slot is addressed at. Up in an *empty* field
 brings the last turn back, the way a shell brings back the last command — `recall_last_message`
-reads it off the transcript, which is what was actually sent, and keeps nothing beside it. A field
+reads it off the transcript, which is what was actually sent, and keeps nothing beside it. Claude
+Code's own cancelled-turn echo (`[Request interrupted by user]`) is not pushed as a transcript block
+in the first place — see [`chat.md`](./chat.md) — so it is never what Up hands back. A field
 with a draft in it is left alone: the key moves the cursor, because a key that overwrites what is
 typed is a key that loses work.
 
@@ -663,10 +665,14 @@ holds one set of each per project open in it, and switching between them is a lo
 tabs and which terminal panels are drawn all change together, and nothing is re-read or rebuilt. The
 terminals of the projects behind keep running and keep their scrollback.
 
-**A project leaving the window takes its panes with it.** Closing it, moving it to another window, or
-forgetting it kills the harnesses running in it — a pane's working directory is that project's
-folder, and no other window can adopt a running emulator. What the project *remembers* is written
-down first, so reopening it brings its files back.
+**A project leaving the window takes its panes and its running agents with it.** Closing it, moving it
+to another window, or forgetting it kills the terminal harnesses running in it and unloads every
+conversation whose process is up — a pane's working directory is that project's folder, and no other
+window can adopt a running emulator or a live agent. Closing asks first when any of those are open,
+or when a buffer is unsaved, in the same modal the window's own close raises. An unloaded conversation
+is stopped rather than deleted: a conversation the user marked to keep comes back, and the window's
+own close is what retires the rest. What the project *remembers* is written down first, so reopening
+it brings its files back.
 
 **The project picker is a small manager, not a list of values.** It searches on name and path, and
 divides into three groups, top to bottom: **open in this window**, **open in another window** with
@@ -2104,7 +2110,7 @@ Accessors read through the active project and tolerate its absence: `open_projec
 `editor()`, `work()`, `agents()`, `graph()`, `board()`, `panes()` and `focused_pane()` each answer
 for a window with no project without a caller having to check, and `work_mut()`, `agents_mut()`,
 `graph_mut()` and `board_mut()` are the writing twins of the four over the work. `drop_project()` writes the project's blob, parks a copy against a
-reopen in the same session, and kills its panes. `content_font_size_or_default()` is the project's
+reopen in the same session, kills its panes and unloads every conversation whose harness is up. `content_font_size_or_default()` is the project's
 live text size (or `theme::EDITOR_FONT_SIZE`), and `set_content_font_size()` and
 `nudge_content_font_size()` are
 the two ways it changes — the former reconfiguring every already-open emulator through
@@ -2186,6 +2192,10 @@ under the older name keeps its zoom), whether its editors wrap (`editor_wrap`) a
 its explorer's filter (`file_filter`) — each new field `#[serde(default)]`, so a field costs the
 schema nothing, `scratch` and `pinned_files` included. `ModeLayout::default_for` is what a mode with
 no entry opens on: every region flag `false`, in every mode, because no region is furniture — `D94`.
+**A persistent agent is the one exception.** `AppState::settle_persistent_chat` (see
+[`chat.md`](./chat.md)) runs after a project's layout settles and, if that project holds a persistent
+agent, attaches its seed chat tab to that agent and reveals the right region — so the default stays
+closed and a persistent agent's tab is what reopens it, at most once per project.
 The number is `3`, because one value in the blob carries a meaning that moves with the build: a
 `rail_mode` of `Agents` names the column screen, and an older blob wrote it for the graph. That is
 the one case a default cannot rescue — nothing is missing, and the value means something else — so
@@ -2297,9 +2307,11 @@ and `app/projects.rs`'s own `choose_folder()` for the destination. `state/naviga
 short-circuits on `parse_repo_url` the way it already does on a `ubiq://` link, into a `Group::Clone`
 of one row; `NavRow` carries an optional `action` that `app/nav.rs`'s `press_navigator()` checks
 before it looks a destination up. `AppState::project_holds` takes `cx` and its `Holds` carries
-`ephemeral`, which is what raises the discard confirmation on the picker's row. That flag is read
-off `ProjectSnapshot::ephemeral` rather than worked out from the record: the host answers with the
-same test it deletes by, so the warning and the deletion cannot disagree.
+`ephemeral`, which is what raises the discard confirmation on the picker's row, and `agents`, which
+is every conversation `Conversation::running` answers yes for — a live harness, not an unloaded or
+ended transcript. That ephemeral flag is read off `ProjectSnapshot::ephemeral` rather than worked out
+from the record: the host answers with the same test it deletes by, so the warning and the deletion
+cannot disagree.
 The indexing level is `ui/settings.rs`'s `index_level_choice()` for the application-wide default
 and `ui/sink/project.rs`'s `index_row()` for a project's override, both drawn with `choice_pill`;
 `app/settings.rs::set_index_level` and `app/projects.rs::set_project_index` are the traffic, the
@@ -2890,7 +2902,7 @@ field's, instead of landing in the middle of the centred row and covering the te
 | A saved region's every panel was dropped | The region is installed empty, at the size and open state the blob says. The tab strip is still where a pane is opened from |
 | The pane region is opened with nothing in it | A pane is started in it, the platform's default shell, as a bare click on `+` would |
 | The last project in a window is closed | The window stays, on the empty state. Its harnesses are killed with the project, and what it remembered is written down |
-| A project with terminals is closed | The row asks first, and closes only on a second, explicit click |
+| A project with terminals or running agents is closed | The row asks first, and closes only on a second, explicit click |
 | An ephemeral project is closed | The row says the clone will be discarded and closes only on a second, explicit click. The host deletes the folder when it forgets the record |
 | A clone is cancelled, or fails | The modal names the reason and stays open with what was typed. The partial destination is removed, and no project appears |
 | A repository URL is pasted that is `ssh` | The modal names it as unsupported and offers nothing to click. https is the only transport a clone runs over |

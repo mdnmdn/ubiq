@@ -5,9 +5,9 @@ kind: feature
 status: draft
 summary: One bell in the titlebar over a host-owned history — a level, an origin and an optional link per notification, a badge that counts the unread, a flash that carries a click straight to where it points, and mute rules by scope, level and duration that also decide what the desktop hears.
 read_when: you are raising a notification from a subsystem, changing the bell, the notification list or a mute rule, or wiring an event that should reach the user without a screen open
-updated: 2026-09-08
-verified: 2026-09-08
-code_anchors: [crates/ubiq-proto/src/notifications.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/notifications/os.rs, crates/ubiq/src/state/notifications.rs, crates/ubiq/src/app/notifications.rs, crates/ubiq/src/ui/notifications.rs, crates/ubiq/src/ui/titlebar.rs]
+updated: 2026-09-10
+verified: 2026-09-10
+code_anchors: [crates/ubiq-proto/src/notifications.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/notifications/os.rs, crates/ubiq/src/state/notifications.rs, crates/ubiq/src/app/notifications.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/ui/notifications.rs, crates/ubiq/src/ui/titlebar.rs]
 depends_on: [tech-architecture, tech-transport, feat-workbench]
 review_cycle: monthly
 ---
@@ -169,11 +169,18 @@ shift when a count appears. The icon bundle has no `BellOff`, so a mute control 
 before the list it is drawn in.
 
 `crates/ubiq/src/ui/sink/style.rs` has a Notifications group in the kitchen sink that raises one of
-each shape. Until `G198` gives the family a real producer, that is the only thing that exercises
-the bell, the flash, the list and the desktop.
+each shape, which is still the only thing that exercises the desktop path. `G198` narrows to the two
+producers still missing: a pane exiting non-zero, and a clone that failed.
 
 **Raising one from anywhere** is `AppState::raise_notification(NotificationRequest)` in the
-interface and a `Centre::raise` call in the host. Nothing raises a notification by drawing one.
+interface and a `Centre::raise` call in the host. Nothing raises a notification by drawing one. The
+`ConversationUpdate` arm in `crates/ubiq/src/app/wire.rs` is the first real caller: it raises a
+warning, `Family::Agents`, when a conversation nobody has on screen wants permission — any
+conversation, a delegate's own included, since the ask still blocks a turn somebody has to answer —
+and an info when the main agent's own turn ends, narrowed away from a delegate's by the work
+record's `parent`, since a delegate's turns fold into the transcript rather than closing with their
+own `TurnEnded`. Both carry an `UbiqLink::Agent` and are skipped outright where something on screen
+is already drawing that conversation.
 
 ## Failure
 
@@ -199,7 +206,6 @@ interface and a `Centre::raise` call in the host. Nothing raises a notification 
 
 ## Next steps
 
-- Raise the first real notifications: a turn ending, a permission wanted, a pane exiting non-zero,
-  a clone failing.
+- Raise the remaining real notifications: a pane exiting non-zero, a clone failing.
 - Persist the history and the mute rules across a restart.
 - A per-family default in settings, so a user can decide once that agents notify and files do not.

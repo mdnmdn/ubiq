@@ -5,9 +5,9 @@ kind: tech
 status: draft
 summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, profile, command-line, host browse, connector, repository, assist and notification families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
-updated: 2026-09-09
-verified: 2026-09-09
-code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-proto/src/wire.rs]
+updated: 2026-09-10
+verified: 2026-09-10
+code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/wire.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
 ---
@@ -605,7 +605,7 @@ is what multiplexes several of them down one channel.
 | `CancelTurn` | UI → host | `agent_id` | — |
 | `AnswerPermission` | UI → host | `agent_id`, `request_id`, `option_id` | — |
 | `SetAgentConfig` | UI → host | `agent_id`, `config_id`, `value` | — |
-| `EndConversation` | UI → host | `agent_id` | `ConversationEnded` |
+| `EndConversation` | UI → host | `agent_id` | `ConversationDeleted` |
 | `UnloadConversation` | UI → host | `agent_id` | `ConversationUnloaded` |
 | `AbortConversation` | UI → host | `agent_id` | `ConversationUnloaded` |
 | `ResumeConversation` | UI → host | `agent_id` | `ConvUpdate::Started`, or nothing if already live |
@@ -614,6 +614,7 @@ is what multiplexes several of them down one channel.
 | `ConversationStarted` | host → UI | `project_id`, `agent`, `session`, `accepts_input` | — |
 | `ConversationUpdate` | host → UI | `agent_id`, `seq`, `update` | — |
 | `ConversationEnded` | host → UI | `agent_id`, `stop_reason` | — |
+| `ConversationDeleted` | host → UI | `agent_id` | — |
 | `ConversationUnloaded` | host → UI | `agent_id` | — |
 | `ConversationError` | host → UI | `agent_id`, `error` | — |
 | `ConversationNamed` | host → UI | `agent_id`, `title`, `summary?` | — |
@@ -805,7 +806,11 @@ transcript, the run directory and the `WorkAgent` all stay, and `ConversationUnl
 not launched yet: the pickers return, `launched` is false again, and either `ResumeConversation` or
 the next `PromptAgent` starts a fresh process under the same `agent_id`, picking the sequence up
 where the old one left off rather than restarting it at one. Only `EndConversation` discards what
-was said.
+was said — the transcript, the run directory and the `WorkAgent` all go with it, and the owning
+window is told `ConversationDeleted` rather than `ConversationEnded`, since the latter says the
+transcript stays, which here is exactly wrong. The window drops its own copy of the conversation and
+the agent record, and detaches — rather than closes — any chat tab that was attached to it; see
+[`../features/chat.md`](../features/chat.md).
 
 **`AbortConversation` is an unload that does not ask.** An unload asks the harness to shut down
 and waits for it to; a harness that does not act on the ask is what makes that wait long, and the

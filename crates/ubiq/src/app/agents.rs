@@ -908,6 +908,24 @@ impl AppState {
         }
     }
 
+    /// Open or shut one thinking block's disclosure, by its position in the transcript.
+    pub fn toggle_conversation_thought(
+        &mut self,
+        agent_id: AgentId,
+        block: usize,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(id) = self.project(cx) else {
+            return;
+        };
+        if let Some(open) = self.projects.get_mut(&id)
+            && let Some(conversation) = open.conversations.get_mut(&agent_id)
+        {
+            conversation.toggle_thought(block);
+            cx.notify();
+        }
+    }
+
     /// Open or shut one collapsed run of same-kind tool calls, named by its first call's id.
     pub fn toggle_conversation_tool_group(
         &mut self,

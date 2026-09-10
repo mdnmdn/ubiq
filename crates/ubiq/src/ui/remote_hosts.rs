@@ -6,7 +6,9 @@
 //! rename prompt paints over it, the same way settings paints its account dialogs over the page
 //! that raised them.
 
-use gpui::{AnyElement, Context, ElementId, IntoElement, ParentElement, SharedString, Styled, Window, div};
+use gpui::{
+    AnyElement, Context, ElementId, IntoElement, ParentElement, SharedString, Styled, Window, div,
+};
 
 use crate::app::{AppState, HostRef, LiveRemote};
 use crate::theme;
@@ -67,9 +69,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         "Remote hosts",
         body.into_any_element(),
         footer,
-        crate::ui::handler(&cx.entity(), |this, _, cx| {
-            this.close_remote_manager(cx)
-        }),
+        crate::ui::handler(&cx.entity(), |this, _, cx| this.close_remote_manager(cx)),
         window,
     )
 }
@@ -187,9 +187,7 @@ fn saved_row(
             element_name(&key, "forget"),
             None,
             "Forget",
-            cx.listener(move |this, _, _, cx| {
-                this.forget_remote_host(save_id3.clone(), cx)
-            }),
+            cx.listener(move |this, _, _, cx| this.forget_remote_host(save_id3.clone(), cx)),
         ));
 
     setting_row(
@@ -199,14 +197,12 @@ fn saved_row(
             .flex()
             .flex_col()
             .gap_1()
-            .child(
-                elided(
-                    element_name(&key, "name"),
-                    SharedString::from(host.name.clone()),
-                    theme::text(),
-                    theme::font(theme::Family::Chrome, theme::Role::Body),
-                ),
-            )
+            .child(elided(
+                element_name(&key, "name"),
+                SharedString::from(host.name.clone()),
+                theme::text(),
+                theme::font(theme::Family::Chrome, theme::Role::Body),
+            ))
             .child(buttons)
             .into_any_element(),
     )

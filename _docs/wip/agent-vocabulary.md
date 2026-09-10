@@ -6,7 +6,7 @@ status: draft
 summary: What landed in the round that made a login reach its harness's runtime, gave a conversation its model, thinking level and mode, turned the IDE chat into editor-like tabs, and gave every conversation a lifecycle — and what of it is verified against a running binary rather than only against tests.
 read_when: you are picking up this work, or you need to know which parts of it have been seen working and which have only been reasoned about
 updated: 2026-09-06
-verified: 2026-09-09
+verified: 2026-09-10
 code_anchors: [crates/agent-manager/src/isolate.rs, crates/agent-manager/src/harness/mod.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/store/harness.rs, crates/ubiq-host/src/shells.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/dock.rs]
 depends_on: [wip-agent-setup, tech-agent-manager, feat-chat, feat-workbench]
 review_cycle: monthly

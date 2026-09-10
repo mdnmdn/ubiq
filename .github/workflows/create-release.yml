@@ -1,0 +1,29 @@
+name: create-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      platforms:
+        description: Platforms to include in the release
+        type: choice
+        required: true
+        default: both
+        options:
+          - both
+          - macos
+          - windows
+
+jobs:
+  macos:
+    if: inputs.platforms == 'both' || inputs.platforms == 'macos'
+    uses: ./.github/workflows/release-macos.yml
+    secrets: inherit
+    permissions:
+      contents: write
+
+  windows:
+    if: inputs.platforms == 'both' || inputs.platforms == 'windows'
+    uses: ./.github/workflows/release-windows.yml
+    secrets: inherit
+    permissions:
+      contents: write

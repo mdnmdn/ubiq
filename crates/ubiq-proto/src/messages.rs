@@ -1256,6 +1256,14 @@ pub enum Message {
     ConversationUnloaded {
         agent_id: AgentId,
     },
+    /// [`Message::EndConversation`] answered: the conversation is gone, not merely ended — its
+    /// transcript, its run directory and its row all went with it. Unlike `ConversationEnded`,
+    /// which keeps the record so what was said stays readable, this is the one message that means
+    /// there is nothing left to show, so the window drops the conversation and detaches any chat
+    /// tab that was looking at it.
+    ConversationDeleted {
+        agent_id: AgentId,
+    },
     /// The conversation could not be started, or its stream failed. A sentence, for the reason
     /// [`Message::WorkError`] carries one.
     ConversationError {

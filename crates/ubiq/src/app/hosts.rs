@@ -756,7 +756,11 @@ mod tests {
         ProjectId::generate()
     }
 
-    fn test_remote(bus: &mut Bus, client: Client, label: &str) -> (HostId, flume::Receiver<Message>) {
+    fn test_remote(
+        bus: &mut Bus,
+        client: Client,
+        label: &str,
+    ) -> (HostId, flume::Receiver<Message>) {
         bus.register_remote(
             client,
             label.to_string(),
@@ -932,8 +936,7 @@ mod tests {
     fn rows_are_ordered_local_then_attached_then_saved() {
         let (local, _local_end) = ubiq_proto::bus::detached();
         let mut bus = Bus::new(local);
-        let (remote, _) =
-            test_remote(&mut bus, ubiq_proto::bus::detached().0, "10.0.0.4:7420");
+        let (remote, _) = test_remote(&mut bus, ubiq_proto::bus::detached().0, "10.0.0.4:7420");
 
         let saved = vec![a_saved_host("build box", "build.internal:7420")];
         let rows = host_menu_rows(
@@ -971,8 +974,7 @@ mod tests {
     fn a_saved_host_that_is_attached_is_not_listed_twice() {
         let (local, _local_end) = ubiq_proto::bus::detached();
         let mut bus = Bus::new(local);
-        let (remote, _) =
-            test_remote(&mut bus, ubiq_proto::bus::detached().0, "10.0.0.4:7420");
+        let (remote, _) = test_remote(&mut bus, ubiq_proto::bus::detached().0, "10.0.0.4:7420");
 
         let saved = vec![a_saved_host("office desktop", "10.0.0.4:7420")];
         let rows = host_menu_rows(
@@ -995,8 +997,7 @@ mod tests {
     fn a_named_attached_host_is_not_listed_twice() {
         let (local, _local_end) = ubiq_proto::bus::detached();
         let mut bus = Bus::new(local);
-        let (remote, _) =
-            test_remote(&mut bus, ubiq_proto::bus::detached().0, "office desktop");
+        let (remote, _) = test_remote(&mut bus, ubiq_proto::bus::detached().0, "office desktop");
 
         let mut saved = a_saved_host("office desktop", "10.0.0.4:7420");
         saved.id = "01ARZ3NDEKTSV4RRFFQ69G5FAV".to_string();

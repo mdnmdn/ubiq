@@ -91,7 +91,7 @@ use ubiq_proto::ids::{
 };
 use ubiq_proto::messages::{CliShortcutAction, Message, ProfileInfo, Secret, WorkspaceInfo};
 use ubiq_proto::notifications::{
-    HISTORY_CAP, Level, MuteFor, MuteScope, NotificationRequest, UbiqLink,
+    Family, HISTORY_CAP, Level, MuteFor, MuteScope, NotificationRequest, UbiqLink,
 };
 use ubiq_proto::projects::{ProjectSnapshot, Scope};
 use ubiq_proto::settings::{
@@ -283,6 +283,10 @@ pub struct OpenProject {
     /// Whether the file set has been restored yet — from a parked blob or from the host, first one
     /// wins. Without it a restart's answer would reopen tabs the user has since closed.
     restored: bool,
+    /// Whether [`AppState::settle_persistent_chat`] has already run for this project. Without it,
+    /// a `WorkList` sent again later would reopen a persistent agent's tab the user has since
+    /// closed on purpose.
+    persistent_settled: bool,
     /// Folders a blob said were open and that are still out of reach, because a deep folder cannot
     /// be opened before its parents have been listed.
     wanted: Vec<String>,
@@ -325,6 +329,7 @@ impl OpenProject {
             board: BoardState::default(),
             prefs,
             restored: false,
+            persistent_settled: false,
             wanted: Vec::new(),
             git: None,
             git_truncated: false,
@@ -842,8 +847,8 @@ pub mod host_secrets;
 mod hosts;
 pub use host_browse::HostBrowseState;
 pub use hosts::{
-    Bus, ConnStatus, HostEntry, HostId, HostRef, HostStatus, LiveRemote, RemoteConn, RemoteHostMeta,
-    host_menu_rows, host_row_label, preferred_remote,
+    Bus, ConnStatus, HostEntry, HostId, HostRef, HostStatus, LiveRemote, RemoteConn,
+    RemoteHostMeta, host_menu_rows, host_row_label, preferred_remote,
 };
 mod image_edit;
 mod nav;
@@ -1162,9 +1167,9 @@ fn open_window(project: Option<ProjectId>, adopt: bool, paths: Vec<PathBuf>, cx:
 /// ⌘Q, asked before it is obeyed.
 ///
 /// The platform's quit takes every window without asking any of them, so the question is put here
-/// instead: the first window holding unsaved files or running terminals raises it and comes to the
-/// front, and the yes — `confirm_file_dialog` — quits for real. `true` means there was nothing to
-/// ask about.
+/// instead: the first window holding unsaved files, running terminals or running agents raises it
+/// and comes to the front, and the yes — `confirm_file_dialog` — quits for real. `true` means
+/// there was nothing to ask about.
 pub fn quit_requested(cx: &mut App) -> bool {
     let windows: Vec<WindowId> = cx
         .windows()

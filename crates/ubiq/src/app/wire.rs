@@ -219,10 +219,13 @@ impl AppState {
     /// `CloseWorkspace` that has to resolve to this host to be dropped rather than misdelivered,
     /// and forgets the pane itself as it goes. See [`Bus::drop_remote`].
     pub fn disconnect_host(&mut self, id: HostId, cx: &mut Context<Self>) -> String {
-        let saved = self
-            .bus
-            .remote(id)
-            .map(|remote| (remote.save_id.clone(), remote.address.clone(), remote.label.clone()));
+        let saved = self.bus.remote(id).map(|remote| {
+            (
+                remote.save_id.clone(),
+                remote.address.clone(),
+                remote.label.clone(),
+            )
+        });
         let label = saved
             .as_ref()
             .map(|(_, _, label)| label.clone())
@@ -916,6 +919,7 @@ impl AppState {
                     open.agents.arrange(&open.work);
                 }
                 self.refill_columns = true;
+                self.settle_persistent_chat(project_id, cx);
                 cx.notify();
             }
 
@@ -1099,6 +1103,19 @@ impl AppState {
                     ubiq_proto::conversation::ConvUpdate::AgentChunk { .. }
                         | ubiq_proto::conversation::ConvUpdate::ThoughtChunk { .. }
                 );
+                // What the bell cares about, read off the update before `apply` consumes it:
+                // a permission ask (any conversation, a delegate's own included — the ask
+                // still blocks a turn somebody has to answer) and a turn ending, narrowed to
+                // the main agent below since a delegate's turns are folded into the
+                // transcript rather than answered with their own `TurnEnded`.
+                let wants_permission = matches!(
+                    update.as_ref(),
+                    ubiq_proto::conversation::ConvUpdate::PermissionRequest { .. }
+                );
+                let turn_ended = matches!(
+                    update.as_ref(),
+                    ubiq_proto::conversation::ConvUpdate::TurnEnded { .. }
+                );
                 // Anything that is not a chunk draws whatever is on screen; a chunk draws where
                 // the style reference's bench is reading this conversation. That is the third
                 // surface hosting one, and it picks across every project — so it is asked before
@@ -1126,12 +1143,47 @@ impl AppState {
                 // Whether anything on screen is drawing this conversation: the tab a column has
                 // up, or a chat tab attached to it. A delegate nobody is looking at still folds
                 // its stream into the record — it just stops driving frames while it does.
-                let on_screen = elsewhere
-                    || (0..open.agents.columns.len())
-                        .any(|column| open.agents.active_agent(column) == Some(agent_id))
+                let shown = (0..open.agents.columns.len())
+                    .any(|column| open.agents.active_agent(column) == Some(agent_id))
                     || open.chats.iter().any(|tab| tab.attached == Some(agent_id));
+                let on_screen = elsewhere || shown;
+                // Read before `open`'s borrow ends below — the bell for the conversation nobody
+                // has on screen, per `G198`. A permission ask is worth the interruption whoever it
+                // is for, a delegate included: it still blocks a turn somebody has to answer. A
+                // turn ending is the *main* agent's alone — a delegate's turns fold into the
+                // transcript rather than closing with their own `TurnEnded`, so `parent` is what
+                // tells the two apart.
+                let agent_name = open.work.agent(agent_id).map(|a| a.name.clone());
+                let is_delegate = open
+                    .work
+                    .agent(agent_id)
+                    .is_some_and(|a| a.parent.is_some());
                 if on_screen {
                     self.draw_conversation(agent_id, streaming, cx);
+                }
+                if !shown {
+                    if wants_permission {
+                        let mut request = NotificationRequest::warning(
+                            Family::Agents,
+                            "Wants permission to continue.",
+                        )
+                        .with_category("permission")
+                        .with_link(UbiqLink::Agent(agent_id));
+                        if let Some(name) = agent_name.clone() {
+                            request = request.with_actor(name);
+                        }
+                        self.raise_notification(request);
+                    }
+                    if turn_ended && !is_delegate {
+                        let mut request =
+                            NotificationRequest::info(Family::Agents, "The turn finished.")
+                                .with_category("turn")
+                                .with_link(UbiqLink::Agent(agent_id));
+                        if let Some(name) = agent_name {
+                            request = request.with_actor(name);
+                        }
+                        self.raise_notification(request);
+                    }
                 }
                 if let Some(queued) = next_prompt {
                     self.send_prompt(agent_id, queued.text);
@@ -1165,6 +1217,30 @@ impl AppState {
                 let conversation = open.conversations.get_mut(&agent_id)?;
                 conversation.unloaded();
                 refresh_agent_record(open, agent_id);
+                cx.notify();
+            }
+
+            // Delete answered: unlike `ConversationEnded`, which keeps the transcript because the
+            // harness merely stopped, there is nothing left to draw here. The conversation goes,
+            // the agent record goes with it, and any chat tab that was looking at it is detached
+            // rather than closed — the tab is a view, and a view with nothing attached is what a
+            // fresh `+` produces too.
+            Message::ConversationDeleted { agent_id } => {
+                let open = self
+                    .projects
+                    .values_mut()
+                    .find(|open| open.conversations.contains_key(&agent_id))?;
+                open.conversations.remove(&agent_id);
+                open.work.remove_agent(agent_id);
+                for tab in open.chats.iter_mut() {
+                    if tab.attached == Some(agent_id) {
+                        tab.attached = None;
+                    }
+                }
+                open.agents.live = open.conversations.keys().copied().collect();
+                open.agents.prune(&open.work);
+                open.graph.absorb_new(&open.work);
+                self.refill_columns = true;
                 cx.notify();
             }
 

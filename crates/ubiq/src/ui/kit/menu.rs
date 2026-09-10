@@ -8,8 +8,8 @@ use std::rc::Rc;
 
 use gpui::{
     Anchor, AnyElement, App, ElementId, Entity, FontWeight, InteractiveElement, IntoElement,
-    ParentElement, Pixels, Point, RenderOnce, SharedString, StatefulInteractiveElement, Styled,
-    Window, anchored, deferred, div, px,
+    MouseButton, ParentElement, Pixels, Point, RenderOnce, SharedString,
+    StatefulInteractiveElement, Styled, Window, anchored, deferred, div, px,
 };
 use gpui_component::input::{Input, InputState};
 use gpui_component::{Icon, IconName, Sizable as _, Size};
@@ -420,6 +420,12 @@ fn menu_panel(
                     .font_weight(FontWeight::NORMAL)
                     .children(search_field)
                     .children(rows)
+                    // The list is painted above whatever it hangs from — a modal's own body
+                    // included, per `ui/kit/overlay.rs` — so a click on a row sits at the same
+                    // screen point as a control underneath. Stopping it here is what keeps it
+                    // from also landing on that control, the way a dock resize strip already
+                    // consumes its own mouse-down.
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .on_mouse_down_out(move |_, window, cx| {
                         if let Some(dismiss) = on_dismiss.clone() {
                             dismiss(window, cx);
@@ -575,6 +581,9 @@ pub fn context_panel(
         .shadow_lg()
         .font_weight(FontWeight::NORMAL)
         .children(rows)
+        // Same reason as the dropdown list in `menu_panel`: painted above whatever raised it, so
+        // a click here must not also land on a control underneath.
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_mouse_down_out(move |_, window, cx| {
             if let Some(dismiss) = on_dismiss.clone() {
                 dismiss(window, cx);

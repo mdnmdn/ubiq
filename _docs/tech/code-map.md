@@ -125,7 +125,9 @@ crates/ubiq-host/src/
 │   └── os.rs
 ├── host_path.rs
 ├── environment.rs
-└── .DS_Store
+├── .DS_Store
+├── conversation_record.rs
+└── host_meta.rs
 
 crates/ubiq/src/
 ├── state/
@@ -181,7 +183,8 @@ crates/ubiq/src/
 │   │   ├── icons-and-text.json
 │   │   ├── kitchen-sink.json
 │   │   └── tabs-icons-buttons.json
-│   └── a2ui.rs
+│   ├── a2ui.rs
+│   └── remote_hosts.rs
 ├── ui/
 │   ├── mod.rs
 │   ├── chat/
@@ -272,7 +275,8 @@ crates/ubiq/src/
 │   ├── new_agent.rs
 │   ├── a2ui.rs
 │   ├── overflow_menu.rs
-│   └── tab_menu.rs
+│   ├── tab_menu.rs
+│   └── remote_hosts.rs
 ├── lib.rs
 ├── theme.rs
 ├── web_export/
@@ -308,7 +312,9 @@ crates/ubiq/src/
 │   ├── image_edit.rs
 │   ├── remote_connect.rs
 │   ├── notifications.rs
-│   └── new_agent.rs
+│   ├── new_agent.rs
+│   ├── host_secrets.rs
+│   └── remote_hosts.rs
 ├── version.rs
 └── .DS_Store
 
@@ -329,6 +335,9 @@ the documents in its row.
 
 | File | Documents |
 |---|---|
+| `.github/workflows/create-release.yml` | [`operations.md`](./operations.md) |
+| `.github/workflows/release-macos.yml` | [`operations.md`](./operations.md) |
+| `.github/workflows/release-windows.yml` | [`operations.md`](./operations.md) |
 | `Cargo.toml` | [`project-structure.md`](./project-structure.md) |
 | `Justfile` | [`operations.md`](./operations.md) |
 | `_devops/scripts/bundle-version.sh` | [`operations.md`](./operations.md) |
@@ -605,10 +614,12 @@ No document's `code_anchors` names these. Restricted to Ubiq's own crates.
 | `crates/ubiq-host/src/atomic.rs` |
 | `crates/ubiq-host/src/config.rs` |
 | `crates/ubiq-host/src/connectors/http.rs` |
+| `crates/ubiq-host/src/conversation_record.rs` |
 | `crates/ubiq-host/src/files/browse.rs` |
 | `crates/ubiq-host/src/files/path.rs` |
 | `crates/ubiq-host/src/gc.rs` |
 | `crates/ubiq-host/src/health.rs` |
+| `crates/ubiq-host/src/host_meta.rs` |
 | `crates/ubiq-host/src/host_path.rs` |
 | `crates/ubiq-host/src/mcp_server.rs` |
 | `crates/ubiq-host/src/reply.rs` |
@@ -620,13 +631,17 @@ No document's `code_anchors` names these. Restricted to Ubiq's own crates.
 | `crates/ubiq-proto/src/search.rs` |
 | `crates/ubiq/src/app/board.rs` |
 | `crates/ubiq/src/app/explorer.rs` |
+| `crates/ubiq/src/app/host_secrets.rs` |
+| `crates/ubiq/src/app/remote_hosts.rs` |
 | `crates/ubiq/src/state/explorer/filter.rs` |
 | `crates/ubiq/src/state/explorer/keys.rs` |
 | `crates/ubiq/src/state/explorer/menu.rs` |
+| `crates/ubiq/src/state/remote_hosts.rs` |
 | `crates/ubiq/src/state/search.rs` |
 | `crates/ubiq/src/ui/file_dialog.rs` |
 | `crates/ubiq/src/ui/kit/icons.rs` |
 | `crates/ubiq/src/ui/kit/panel.rs` |
+| `crates/ubiq/src/ui/remote_hosts.rs` |
 | `crates/ubiq/src/ui/search.rs` |
 | `crates/ubiq/src/ui/sink/messages.rs` |
 | `crates/ubiq/src/web_export/assets.rs` |

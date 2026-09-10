@@ -129,9 +129,11 @@ fn collect_names(value: &serde_json::Value, into: &mut Vec<String>) {
 }
 
 /// Leaving IDE for another mode hides the explorer and the chat — they stay in the tree, shut —
-/// and coming back restores them. That is the invariant behind the restore, and it must hold for
-/// any non-IDE mode: a project mode (Tasks) and a non-project one (Control) both hide, neither
-/// removes.
+/// and coming back restores whatever regions IDE was left with. That is the invariant behind the
+/// restore, and it must hold for any non-IDE mode: a project mode (Tasks) and a non-project one
+/// (Control) both hide, neither removes. `D94` is what the fixture's own regions come back as: no
+/// region is furniture, so a project never arranged before — this fixture holds no persistent
+/// agent — opens on the centre alone.
 #[gpui::test]
 fn returning_from_any_non_ide_mode_restores_the_side_panels(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
@@ -166,8 +168,9 @@ fn returning_from_any_non_ide_mode_restores_the_side_panels(cx: &mut TestAppCont
         );
         assert_eq!(
             regions_before,
-            (true, false, true),
-            "the IDE opens with its side panels and an empty pane region put away"
+            (false, false, false),
+            "no region is furniture (D94): the IDE opens on the centre alone, absent a persistent \
+             agent to reveal the right region"
         );
         assert_eq!(
             fixture.state.read_with(cx, |state, cx| state.project(cx)),

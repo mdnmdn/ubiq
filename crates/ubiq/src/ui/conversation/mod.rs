@@ -566,8 +566,8 @@ pub fn lifecycle_colour(state: Lifecycle) -> Rgba {
     }
 }
 
-/// A cheap reading of the transcript's tail: how many blocks there are, and how long the last one
-/// is.
+/// A cheap reading of the transcript's tail: how many blocks there are, how long the last one is,
+/// and how many prompts are waiting on an answer.
 ///
 /// A streaming chunk lengthens the last block, so this moves on every token without hashing the
 /// whole transcript once a frame — and it does *not* move when nothing was said, which is what
@@ -576,6 +576,14 @@ pub fn lifecycle_colour(state: Lifecycle) -> Rgba {
 /// followed: while a delegate's transcript is up, the main agent writing below it is not the tail
 /// of anything the reader can see, and following it would scroll a transcript nothing was added
 /// to.
+///
+/// **A pending permission request is part of it, and it has to be — it is not a block.** A prompt
+/// the transcript cannot attach to a call is drawn as its own row at the very end (`RowKind::
+/// Adrift`, built straight from `conversation.pending`), and an attached one still grows the row it
+/// is drawn against. Neither touches `conversation.blocks`, so without the count here a prompt
+/// arriving while the last block on screen is unchanged — an agent's tool call still `InProgress`,
+/// waiting on the harness to ask permission for it — would move nothing this function reads, and
+/// the row the reader most needs to see would land under the fold with no follow to bring it up.
 fn tail_signature(conversation: &Conversation, visible: &[usize]) -> u64 {
     let tail = match visible.last().and_then(|ix| conversation.blocks.get(*ix)) {
         Some(
@@ -593,7 +601,11 @@ fn tail_signature(conversation: &Conversation, visible: &[usize]) -> u64 {
     // The run is part of it: the writing indicator appears and disappears without a block being
     // added, and a tail that did not notice would leave it under the fold.
     let run = conversation.run as u64;
-    (visible.len() as u64).wrapping_mul(1_000_003) ^ tail as u64 ^ run.wrapping_mul(31)
+    let pending = conversation.pending.len() as u64;
+    (visible.len() as u64).wrapping_mul(1_000_003)
+        ^ tail as u64
+        ^ run.wrapping_mul(31)
+        ^ pending.wrapping_mul(97)
 }
 
 /// What one row of the transcript draws. The plan the virtual list is fed: built once a frame
@@ -3129,6 +3141,8 @@ fn queue_list(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ubiq_proto::conversation::{ConvContent, ConvUpdate, ToolCallPatch};
+    use ubiq_proto::work::AgentId;
 
     /// A cached row height is a height at one width *and* one type size, so both are in the
     /// signature the cache is keyed on: grow the conversation family and every row is measured
@@ -3148,6 +3162,52 @@ mod tests {
             sig,
             row_signature(width + px(10.), size, 7),
             "and so does a resize"
+        );
+    }
+
+    /// A permission prompt is not a block, so it is invisible to everything this function reads
+    /// off `conversation.blocks` — the count of blocks on screen, and the length of the last one.
+    /// A reader sitting at the tail while a tool call waits on permission still has to be followed
+    /// down to the prompt, so the signature has to move when `conversation.pending` does, even
+    /// though the last block on screen (the tool call itself, still `InProgress`) has not changed
+    /// at all.
+    #[test]
+    fn a_pending_prompt_moves_the_tail_signature() {
+        let mut c = Conversation::new(
+            AgentId::generate(),
+            "Claude Code".to_string(),
+            "work".to_string(),
+        );
+        c.apply(
+            1,
+            ConvUpdate::AgentChunk {
+                content: ConvContent::Text("Let me check that file.".to_string()),
+                message_id: Some("m1".to_string()),
+                subagent: None,
+            },
+        );
+        let visible = c.visible_blocks().to_vec();
+        let before = tail_signature(&c, &visible);
+        assert_eq!(
+            tail_signature(&c, &visible),
+            before,
+            "nothing said, nothing moved"
+        );
+
+        c.apply(
+            2,
+            ConvUpdate::PermissionRequest {
+                request_id: "r1".to_string(),
+                tool_call: ToolCallPatch::default(),
+                options: Vec::new(),
+            },
+        );
+        let visible = c.visible_blocks().to_vec();
+        assert_ne!(
+            tail_signature(&c, &visible),
+            before,
+            "a prompt arrived at the tail with no block changed to say so — the follow has to \
+             notice it anyway"
         );
     }
 }

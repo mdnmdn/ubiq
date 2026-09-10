@@ -260,7 +260,9 @@ fn dial_raw(params: &DialParams) -> Result<RawSession, ConnectFailure> {
         .to_socket_addrs()
         .map_err(|error| ConnectFailure::Unreachable(error.to_string()))?
         .next()
-        .ok_or_else(|| ConnectFailure::Unreachable(format!("no address found for {}", params.address)))?;
+        .ok_or_else(|| {
+            ConnectFailure::Unreachable(format!("no address found for {}", params.address))
+        })?;
 
     let stream = TcpStream::connect_timeout(&socket_addr, CONNECT_TIMEOUT)
         .map_err(|error| ConnectFailure::Unreachable(error.to_string()))?;
@@ -818,7 +820,14 @@ impl AppState {
                 if !token.is_empty() {
                     host_secrets::save_token(&host_secrets::key_for(&saved, &address), &token);
                 }
-                self.attach_remote(client, label.clone(), saved, address.clone(), modal.scheme, cx);
+                self.attach_remote(
+                    client,
+                    label.clone(),
+                    saved,
+                    address.clone(),
+                    modal.scheme,
+                    cx,
+                );
                 self.workbench.settings.failed_hosts.remove(&address);
                 if let Some(state) = &mut self.workbench.remote_connect {
                     state.step = RemoteConnectStep::Connected { label };
@@ -856,9 +865,9 @@ impl AppState {
         scheme: RemoteScheme,
         cx: &mut Context<Self>,
     ) {
-        let (host_id, from_host) =
-            self.bus
-                .register_remote(client, label, save_id, address, scheme);
+        let (host_id, from_host) = self
+            .bus
+            .register_remote(client, label, save_id, address, scheme);
         Self::route_host(HostRef::Remote(host_id), from_host, cx);
         // Nothing about a remote is known until it says so, and it says nothing unasked: the one
         // `ListProjects` boot.rs sends went to the local host, long before this connection
@@ -980,8 +989,7 @@ impl AppState {
             // No secret, no loop: retrying without one is a dial that cannot succeed. The entry
             // stays with the reason on it, so the panel says what to do instead of spinning.
             if let Some(state) = self.workbench.settings.reconnects.get_mut(&key) {
-                state.error =
-                    "no saved token — connect once from the panel to keep it".to_string();
+                state.error = "no saved token — connect once from the panel to keep it".to_string();
             }
             cx.notify();
             return;
@@ -998,7 +1006,16 @@ impl AppState {
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
             let outcome = outcome.await;
             let _ = this.update(cx, |this, cx| {
-                this.land_reconnect(key, generation, label, save_id, address, saved.scheme, outcome, cx)
+                this.land_reconnect(
+                    key,
+                    generation,
+                    label,
+                    save_id,
+                    address,
+                    saved.scheme,
+                    outcome,
+                    cx,
+                )
             });
         })
         .detach();
@@ -1040,9 +1057,7 @@ impl AppState {
                 cx.notify();
                 cx.spawn(async move |this: WeakEntity<Self>, cx| {
                     cx.background_executor().timer(delay).await;
-                    let _ = this.update(cx, |this, cx| {
-                        this.retry_reconnect(key, generation, cx)
-                    });
+                    let _ = this.update(cx, |this, cx| this.retry_reconnect(key, generation, cx));
                 })
                 .detach();
                 return;

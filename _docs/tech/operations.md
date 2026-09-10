@@ -6,8 +6,8 @@ status: current
 summary: Prerequisites, the complete command reference, what a first build costs, the checks a change has to pass before it lands, and the runbook for a tool an agent cannot run.
 read_when: you are setting the project up, running or testing it, adding a command, or an agent reports that it cannot run a tool
 updated: 2026-09-09
-verified: 2026-09-08
-code_anchors: [Justfile, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/isolate.rs, _tools/docs.py, _tools/icns.py, _tools/Info.plist, _devops/scripts/bundle-version.sh, crates/ubiq-app/src/lib.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-app/build.rs, crates/ubiq-app/res/ubiq-app.rc, crates/ubiq-app/res/AppIcon.ico]
+verified: 2026-09-09
+code_anchors: [Justfile, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/isolate.rs, _tools/docs.py, _tools/icns.py, _tools/Info.plist, _devops/scripts/bundle-version.sh, crates/ubiq-app/src/lib.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-app/build.rs, crates/ubiq-app/res/ubiq-app.rc, crates/ubiq-app/res/AppIcon.ico, .github/workflows/create-release.yml, .github/workflows/release-macos.yml, .github/workflows/release-windows.yml]
 depends_on: [tech-structure]
 review_cycle: monthly
 ---
@@ -115,7 +115,14 @@ file: `crates/ubiq-app/build.rs` links `res/AppIcon.ico` into the executable thr
 `res/ubiq-app.rc`, using `windres` on the GNU toolchain and `rc.exe` on MSVC, and the `cfg(windows)`
 gate keeps it out of macOS builds. `AppIcon.ico` is generated from `assets/logo-white-on-blue.png`
 at 16 through 256 pixels. Like every recipe in this file it expects a POSIX shell on the path (Git
-Bash, which a Windows runner carries), and it is what `.github/workflows/release-windows.yml` runs.
+Bash, which a Windows runner carries).
+
+A tag matching `v*` runs `.github/workflows/release-macos.yml` and
+`.github/workflows/release-windows.yml` together: each workflow assembles its platform bundle and
+attaches the zip to the GitHub release of that tag. `.github/workflows/create-release.yml` is the
+manual counterpart — a `workflow_dispatch` whose `platforms` choice is `both`, `macos` or `windows`
+— and it calls those two workflows as reusable jobs so one run ships either platform or both. Each
+platform workflow also accepts a direct `workflow_dispatch` of its own.
 
 ### Documentation
 

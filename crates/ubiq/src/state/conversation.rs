@@ -40,10 +40,13 @@ pub enum ConvBlock {
         body: String,
         subagent: Option<Subagent>,
     },
-    /// Reasoning.
+    /// Reasoning. `open` is whether the disclosure is drawn expanded — the same shape a tool
+    /// call's own `open` is, so a thinking block is toggled and drawn through the one pattern the
+    /// transcript already has for a collapsible block rather than a second one.
     Thought {
         body: String,
         subagent: Option<Subagent>,
+        open: bool,
     },
     /// A tool call and whether its detail is open.
     Tool { call: ToolCallRecord, open: bool },
@@ -270,6 +273,11 @@ pub struct Conversation {
     /// by call id rather than by block index because a run's position is a property of the
     /// transcript's current shape and its first call's id is not.
     pub open_groups: HashSet<String>,
+    /// Which thinking blocks the reader has toggled by hand, keyed by block index. A block in
+    /// here keeps whatever `open` it was last set to: auto-collapse (see [`Self::end_open_block`])
+    /// checks this before touching a thought's disclosure, so a reader who reopened a finished one
+    /// does not have it closed under them by the next chunk.
+    pub touched_thoughts: HashSet<usize>,
     /// Whether the subagent panel is open. Collapsed by default and per conversation, beside
     /// [`Self::viewing`] and for its reason: several conversations are on screen at once, and each
     /// reader opens the ones they are following.
@@ -364,6 +372,7 @@ impl Conversation {
             open_config: None,
             viewing: None,
             open_groups: HashSet::new(),
+            touched_thoughts: HashSet::new(),
             subagents_open: false,
             queued: Vec::new(),
             next_queued_id: 0,
@@ -662,10 +671,17 @@ impl Conversation {
             ConvUpdate::UserChunk { content, .. } => {
                 // A user turn always starts a block: the harness echoes one
                 // per prompt, and merging two would merge two questions.
+                self.end_open_thought();
                 self.open = None;
                 if let Some(text) = text_of(&content) {
                     let said = self.strip_preamble(text);
-                    self.blocks.push(ConvBlock::User(said));
+                    // Claude Code echoes a synthetic user-role message when a turn is cancelled —
+                    // `[Request interrupted by user]`, or the tool-use variant. Nobody typed it, so
+                    // it is dropped rather than pushed: not drawn as a message, and not there for
+                    // `recall_last_message` to hand back as if it were the last thing the user said.
+                    if !is_cancelled_turn_marker(&said) {
+                        self.blocks.push(ConvBlock::User(said));
+                    }
                 }
                 self.run = Run::Working;
             }
@@ -688,6 +704,7 @@ impl Conversation {
 
             ConvUpdate::ToolCall(call) => {
                 self.run = Run::Working;
+                self.end_open_thought();
                 self.open = None;
                 self.tools.insert(call.id.clone(), self.blocks.len());
                 self.blocks.push(ConvBlock::Tool { call, open: false });
@@ -722,6 +739,7 @@ impl Conversation {
             ConvUpdate::Compacted => {
                 // A divider ends whatever was open above it: the next chunk is the agent talking
                 // about a context it no longer shares with the one before.
+                self.end_open_thought();
                 self.open = None;
                 self.blocks.push(ConvBlock::Compacted);
             }
@@ -777,6 +795,7 @@ impl Conversation {
             }
 
             ConvUpdate::TurnEnded { stop_reason, error } => {
+                self.end_open_thought();
                 self.open = None;
                 self.run = Run::Idle;
                 self.stop_reason = Some(stop_reason);
@@ -794,8 +813,18 @@ impl Conversation {
         self.summary = summary;
     }
 
+    /// Whether the harness behind this conversation is actually up — a live process, not a
+    /// transcript left after an unload or an end, and not a pending form that has never launched.
+    ///
+    /// Closing a project asks about these the way it asks about terminals still running, because
+    /// dropping the project stops them.
+    pub fn running(&self) -> bool {
+        self.launched && self.run != Run::Ended && self.accepts_input
+    }
+
     /// The harness has gone.
     pub fn ended(&mut self, stop_reason: StopReason) {
+        self.end_open_thought();
         self.open = None;
         self.pending.clear();
         self.run = Run::Ended;
@@ -966,6 +995,29 @@ impl Conversation {
         }
     }
 
+    /// Toggle a thinking block's disclosure, by its position in `blocks`. Marks it touched, so
+    /// [`Self::end_open_block`] leaves whatever the reader picked alone from here on.
+    pub fn toggle_thought(&mut self, ix: usize) {
+        if let Some(ConvBlock::Thought { open, .. }) = self.blocks.get_mut(ix) {
+            *open = !*open;
+            self.touched_thoughts.insert(ix);
+        }
+    }
+
+    /// Close the thinking block currently streaming, if there is one and the reader has not
+    /// touched it — called whenever the open block ends, one way or another: a new block starts,
+    /// the harness compacts, or the turn ends. A thought is drawn expanded while it is the one
+    /// thing still being written; once something else starts, there is nothing left to follow, so
+    /// it collapses the same way a finished run of tool calls folds away.
+    fn end_open_thought(&mut self) {
+        if let Some((_, ix)) = self.open
+            && !self.touched_thoughts.contains(&ix)
+            && let Some(ConvBlock::Thought { open, .. }) = self.blocks.get_mut(ix)
+        {
+            *open = false;
+        }
+    }
+
     /// Append a chunk to the message it belongs to, starting a new block when
     /// the message id changes — which is what a message id is for.
     ///
@@ -1007,11 +1059,19 @@ impl Conversation {
             return;
         }
 
+        // Whatever was open before this chunk is a different block now: the previous thought, if
+        // there was one, has nothing left to follow and folds — unless the reader already said
+        // otherwise.
+        self.end_open_thought();
+
         let ix = self.blocks.len();
         self.blocks.push(if thought {
             ConvBlock::Thought {
                 body: text,
                 subagent,
+                // Expanded while it is the one thing being written; [`Self::end_open_thought`]
+                // collapses it the moment something else starts.
+                open: true,
             }
         } else {
             ConvBlock::Agent {
@@ -1288,6 +1348,15 @@ fn text_of(content: &ConvContent) -> Option<String> {
     }
 }
 
+/// Whether a user-role echo is Claude Code's own cancelled-turn marker rather than something the
+/// user wrote — `[Request interrupted by user]`, or a variant like `[Request interrupted by user
+/// for tool use]`. Matched by shape, not by one literal, because the CLI does not promise the
+/// bracket's contents stay exactly this sentence.
+fn is_cancelled_turn_marker(text: &str) -> bool {
+    let text = text.trim();
+    text.starts_with("[Request interrupted by user") && text.ends_with(']')
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1492,6 +1561,33 @@ mod tests {
         assert!(!conversation().subagents_open);
     }
 
+    /// A pending form is not a running harness, and neither is a transcript whose process has
+    /// already gone. Only a launched conversation that still takes turns counts — that is what
+    /// closing a project asks about.
+    #[test]
+    fn a_conversation_is_running_only_while_its_harness_is_up() {
+        let mut c = conversation();
+        assert!(!c.running(), "pending, never launched");
+
+        c.launched = true;
+        assert!(c.running(), "launched and idle is still a live process");
+
+        c.run = Run::Working;
+        assert!(c.running());
+
+        c.unloaded();
+        assert!(!c.running(), "unloaded: the harness is gone");
+
+        c.launched = true;
+        c.ended(StopReason::Failed);
+        assert!(!c.running(), "ended: the harness is gone");
+
+        c.launched = true;
+        c.run = Run::Idle;
+        c.accepts_input = false;
+        assert!(!c.running(), "a harness that takes no more turns is not up");
+    }
+
     /// A resume, or any transcript the id has gone from, must not leave the reader looking at an
     /// empty view.
     #[test]
@@ -1586,7 +1682,8 @@ mod tests {
             c.blocks[1],
             ConvBlock::Thought {
                 body: "pondering".to_string(),
-                subagent: None
+                subagent: None,
+                open: true,
             }
         );
     }

@@ -2555,9 +2555,7 @@ fn host_row(
                 ElementId::Name(format!("app-settings-host-{address}-forget").into()),
                 None,
                 "Forget",
-                cx.listener(move |this, _, _, cx| {
-                    this.forget_remote_host(save_id.clone(), cx)
-                }),
+                cx.listener(move |this, _, _, cx| this.forget_remote_host(save_id.clone(), cx)),
             ))
             .into_any_element(),
     )

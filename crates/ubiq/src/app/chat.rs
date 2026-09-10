@@ -29,8 +29,13 @@ impl AppState {
     /// dismissed form leaves no empty tab behind.
     pub fn open_chat_tab_now(&mut self, cx: &mut Context<Self>) -> Option<ChatId> {
         let id = self.open_chat_tab(cx)?;
+        // `Reveal`, not `Open`: this is reached from the titlebar's own "new agent" shortcut and
+        // from a freshly started conversation the `+` menu asked for, and either may fire with
+        // the right region put away. `Open` only adds the panel to the tree; `Reveal` also brings
+        // the region back, which is what "creating a chat" has to do regardless of what was on
+        // screen when it was asked for.
         self.pending_panels
-            .push(PanelEdit::Open(PanelKind::Chat(id)));
+            .push(PanelEdit::Reveal(PanelKind::Chat(id)));
         cx.notify();
         Some(id)
     }
@@ -201,6 +206,50 @@ impl AppState {
         if let Some(agents) = self.agents_mut(cx) {
             agents.clear_draft(slot);
         }
+        cx.notify();
+    }
+
+    /// Show a project's persistent agent the moment its work arrives, if nothing has claimed a
+    /// chat tab yet — the one exception to a project opening with the right region closed
+    /// (`prefs::ModeLayout::default_for`). Runs at most once per project this window holds:
+    /// settling twice would reopen a tab the user has since closed on purpose, the same reason
+    /// `OpenProject::new` seeds its one default tab only the first time.
+    ///
+    /// Called both from `enter_project`, which runs before the work has necessarily arrived, and
+    /// from the `WorkList` answer, which is when it has — whichever finds the work populated and
+    /// this project on screen is the one that acts.
+    pub(super) fn settle_persistent_chat(&mut self, project: ProjectId, cx: &mut Context<Self>) {
+        let Some(open) = self.projects.get(&project) else {
+            return;
+        };
+        if open.persistent_settled || open.work.agents.is_empty() {
+            return;
+        }
+        // The dock belongs to whichever project is on screen, so a background project's arrival
+        // cannot reveal anything here — it is settled again once this window actually enters it.
+        if self.project(cx) != Some(project) {
+            return;
+        }
+        let agent = open
+            .work
+            .agents
+            .iter()
+            .find(|agent| agent.persistent)
+            .map(|agent| agent.id);
+        let tab = open
+            .chats
+            .iter()
+            .find(|tab| tab.attached.is_none())
+            .map(|tab| tab.id);
+        if let Some(open) = self.projects.get_mut(&project) {
+            open.persistent_settled = true;
+        }
+        let (Some(agent), Some(tab)) = (agent, tab) else {
+            return;
+        };
+        self.attach_chat(tab, Some(agent), cx);
+        self.pending_panels
+            .push(PanelEdit::Reveal(PanelKind::Chat(tab)));
         cx.notify();
     }
 }

@@ -101,10 +101,14 @@ impl AppState {
     }
 
     /// Everything a project takes with it when it leaves this window: its panes are killed, its
-    /// emulators dropped, and what it looked like is written down and parked.
+    /// running agents unloaded, its emulators dropped, and what it looked like is written down and
+    /// parked.
     ///
     /// The panes have to go. No other window can adopt an emulator, and a pane runs in the
     /// project's folder — a harness left behind would be running somewhere nobody is looking.
+    /// The agents have to go for the same reason: a conversation's harness is this project's, and
+    /// unloading it is what stops the process without deleting a conversation the user marked to
+    /// keep. The window's own close is what parks or deletes what is left.
     fn drop_project(&mut self, project: ProjectId, cx: &mut Context<Self>) {
         self.remember(project, cx);
         let Some(open) = self.projects.remove(&project) else {
@@ -119,6 +123,13 @@ impl AppState {
             // panel leaves the dock through a `Window` and this is reached from a message.
             self.pending_panels
                 .push(PanelEdit::Close(PanelKind::Terminal(pane.id)));
+        }
+        for (agent_id, conversation) in &open.conversations {
+            if conversation.running() {
+                self.bus.send(Message::UnloadConversation {
+                    agent_id: *agent_id,
+                });
+            }
         }
         if self.active_seen == Some(project) {
             self.active_seen = None;
@@ -167,6 +178,10 @@ impl AppState {
         self.reset_furniture = true;
         self.sync_file_panels(project);
         self.sync_chat_panels(project);
+        // The one exception to a project opening with the right region closed: a persistent
+        // agent's tab, shown the moment the work that names it is in hand. If it has not arrived
+        // yet, the `WorkList` answer settles this instead.
+        self.settle_persistent_chat(project, cx);
         // The field is the window's and the query in it is the project's, so a switch brings back
         // whatever this project was left filtering by rather than carrying the last one's over.
         // `sync_file_filter_field` writes it into the field on the next frame, which is where a

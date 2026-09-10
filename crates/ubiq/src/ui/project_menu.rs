@@ -430,7 +430,10 @@ fn host_badge(app: &AppState, project: ProjectId) -> Option<AnyElement> {
                     .with_size(Size::XSmall)
                     .text_color(theme::text_faint()),
             )
-            .child(mono(letter, theme::text_faint()).text_size(px(10.5)))
+            .child(
+                mono(letter, theme::text_faint())
+                    .text_size(theme::font(theme::Family::Chrome, theme::Role::Meta)),
+            )
             .tooltip(move |window, cx| {
                 gpui_component::tooltip::Tooltip::new(tooltip.clone()).build(window, cx)
             })

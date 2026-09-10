@@ -5,9 +5,9 @@ kind: feature
 status: draft
 summary: Editor-like chat tabs — many, movable to any dockable region, each a view onto a host-owned conversation or onto none, drawn by the composer, transcript and tool blocks the whole window shares.
 read_when: you are changing a chat tab, the control that starts or attaches a conversation, or which conversation a tab shows
-updated: 2026-09-09
-verified: 2026-09-09
-code_anchors: [crates/ubiq/src/ui/chat/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/state/prefs.rs]
+updated: 2026-09-10
+verified: 2026-09-10
+code_anchors: [crates/ubiq/src/ui/chat/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/state/prefs.rs]
 depends_on: [feat-workbench]
 review_cycle: monthly
 ---
@@ -130,7 +130,11 @@ turn, with the activity's own word beside them. A turn can be a minute of silenc
 sentences, and silence reads as nothing happening; movement is the only honest thing to draw there,
 since a spinner would claim progress nothing measures. It is not drawn while an ask is up: the
 question on screen is what is happening, and two marks would compete to say so. The run is folded
-into `tail_signature`, so the mark appearing scrolls the tail into view the way a new block does.
+into `tail_signature`, so the mark appearing scrolls the tail into view the way a new block does — and
+so is how many prompts are outstanding, since a permission ask is not a block: an ask arriving while
+the last block on screen is unchanged (a tool call still `InProgress`, waiting on the harness to ask)
+would otherwise move nothing `tail_signature` reads, and the row the reader most needs to see would
+land under the fold with no follow to bring it up.
 
 **Where a reader was left is remembered per transcript.** A composer slot's transcript keeps its
 position in `state::conversation::TranscriptScroll`, keyed by the conversation *and* which of its
@@ -176,6 +180,16 @@ step, and neither is a call with a permission ask attached, because a prompt beh
 turn that deadlocks. Which runs are open is `Conversation::open_groups`, keyed by the run's first
 call id — UI arrangement the host never hears about, like a tool block's own open flag — toggled
 through `AppState::toggle_conversation_tool_group`.
+
+**A thinking block is a disclosure, open while it is being written and closed once something else
+starts.** `ConvBlock::Thought` carries its own `open`, expanded the moment its first chunk arrives
+and collapsed by `Conversation::end_open_thought` the instant a different block starts, a turn ends
+or the harness compacts — a thought is drawn expanded only while it is the one thing left to follow;
+once anything else is being written there is nothing left to watch, and it folds the same way a
+finished run of tool calls does. A reader who toggles one by hand is remembered in
+`Conversation::touched_thoughts`, keyed by the block's index, so that block's state is never
+overridden again — a thought the reader reopened to read is not closed under them by the next
+chunk. Toggled through `AppState::toggle_conversation_thought`.
 
 **A permission ask is drawn on the tool call it authorises, not in a dialog.** A harness that stops
 to ask stops mid-operation, and the operation is already on screen: the prompt is joined to that
@@ -318,6 +332,12 @@ turn is not interrupted by typing at it and what is typed goes out when it ends;
 conversation keeps the one Send button. All three are what Enter answers through
 `AppState::send_or_enqueue`, so the buttons and the key never disagree.
 
+**A cancelled turn's own echo is not a message.** Claude Code answers a cancelled turn with a
+synthetic user-role chunk of its own — `[Request interrupted by user]`, or the tool-use variant —
+and nobody typed it, so `Conversation::apply` drops it rather than pushing a `ConvBlock::User` for
+it: it is not drawn, and it is not what `recall_last_message` hands back to a reader pressing Up in
+an empty field, which reads the transcript for what was actually sent.
+
 **The status glyph and the three-dots lifecycle menu are the one exception: the tab's own header
 draws them, not the shared view.** `ConversationView::header` tells the shared view whether to draw
 its own bordered strip for them — `true` on the agents column, unchanged; `false` here, because the
@@ -382,10 +402,25 @@ from the low range, unchanged.
 
 `crates/ubiq/src/app/chat.rs` is where a tab's own lifecycle lives: `open_chat_tab` mints one and
 gives it a slot, `open_chat_tab_now` puts it in the dock as well — called when there is a
-conversation to put in it, never before — `attach_chat` sets or clears an attachment, `chat_picks` builds what the control offers, `pick_chat_row` resolves a click against
+conversation to put in it, never before — through `PanelEdit::Reveal` rather than `Open`, since
+either caller (the titlebar's own shortcut, or a conversation the `+` menu just started) may fire
+with the right region put away, and creating a chat has to bring the region back regardless of what
+was on screen when it was asked for. `attach_chat` sets or clears an attachment, `chat_picks` builds what the control offers, `pick_chat_row` resolves a click against
 that same list, `toggle_chat_picker` and `dismiss_chat_picker` own the control's open flag, and
 `closed_chat_tab` is what a tab leaving the dock for good runs — dropping the `ChatTab`, clearing its
 slot's draft, and touching nothing about the conversation it was looking at.
+
+`settle_persistent_chat`, also in `app/chat.rs`, is the one exception to a project opening with its
+right panel closed (workbench.md's `ModeLayout::default_for`): a project with a persistent agent attaches
+its seed chat tab to that agent and reveals the panel, the moment the work naming the agent is in
+hand. `OpenProject::persistent_settled` guards it to once per project, so a later `WorkList` cannot
+reopen a tab the user has since closed on purpose; it is called from `enter_project`, which may run
+before the work has arrived, and from the `WorkList` answer, which is when it has.
+
+`Message::ConversationDeleted` — the answer to `EndConversation` — is handled in `app/wire.rs`: the
+conversation and its `WorkAgent` are dropped from the project, and any chat tab attached to it is
+detached (its `attached` cleared) rather than closed, since the tab is a view and an unattached view
+is what a fresh `+` produces too.
 
 **Rows and the actions behind them are matched by position**, the rule every menu in this window
 follows, so `state::chat::chat_picks` builds one list of `ChatPick`s — `New`, `Attach` or `Inert` —
@@ -419,7 +454,8 @@ holds the rest of the transcript's own furniture: `transcript()` walks the visib
 each run of same-kind calls into one `tool_group()` row plus the run's last card — `one_block()` is
 the arm it reuses for a card it does not fold and for the ones it unfolds — `writing_mark()` is the
 tail's running mark, and `tail_signature()` is what the follow-the-tail scroll compares, read over
-the visible blocks it is handed. `build_row()` carries the gutter and
+the visible blocks it is handed and folding in `conversation.pending.len()` beside the block count
+and the run, since a pending prompt moves nothing else it reads. `build_row()` carries the gutter and
 `theme::font(Family::Conversation, Role::Body)` on the row itself, because the list lays items out
 in `prepaint` where a parent's style is off the stack; `row_signature()` is where the width and
 that size enter a row's signature. `to_tail_button()` is

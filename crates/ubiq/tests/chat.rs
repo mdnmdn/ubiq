@@ -83,6 +83,31 @@ impl Fixture {
         cx.run_until_parked();
     }
 
+    /// The host says a project's whole work, exactly as `ListWork` is answered.
+    fn work_list(&self, agents: Vec<WorkAgent>, cx: &mut TestAppContext) {
+        self.host.send(
+            To::Everyone,
+            Message::WorkList {
+                project_id: self.project,
+                sessions: Vec::new(),
+                agents,
+                tasks: Vec::new(),
+            },
+        );
+        cx.run_until_parked();
+    }
+
+    /// The host says a conversation is gone for good, exactly as `EndConversation` is answered.
+    fn deleted(&self, agent_id: AgentId, cx: &mut TestAppContext) {
+        self.host
+            .send(To::Everyone, Message::ConversationDeleted { agent_id });
+        cx.run_until_parked();
+    }
+
+    fn regions_open(&self, cx: &mut TestAppContext) -> (bool, bool, bool) {
+        self.state.read_with(cx, |state, cx| state.regions_open(cx))
+    }
+
     /// Every `ubiq.chat` leaf in the dock's own dump, wherever it sits in the tree — the panel
     /// tree's own answer to "is a tab actually there", independent of `OpenProject::chats`.
     fn chat_leaves(&self, cx: &mut TestAppContext) -> Vec<String> {
@@ -364,5 +389,94 @@ fn a_conversation_disables_in_another_tab_s_picker_but_not_its_own() {
         from_b.items.len(),
         1,
         "a disabled row is still drawn, not filtered out"
+    );
+}
+
+/// Creating a chat has to bring the right region back, not only add the panel to a tree the user
+/// cannot see. A fresh conversation started while the region is put away is exactly the titlebar's
+/// own "new agent" shortcut, and a tab that lands in a closed region is a tab that did nothing.
+#[gpui::test]
+fn a_freshly_attached_chat_tab_reopens_a_closed_right_region(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    // A fresh project with nothing persistent opens with the right region put away — see
+    // `a_persistent_agent_opens_its_chat_on_entry` for the one exception.
+    assert!(
+        !fixture.regions_open(cx).2,
+        "the right region starts closed"
+    );
+
+    fixture
+        .state
+        .update(cx, |state, cx| state.open_chat_tab_now(cx));
+    cx.run_until_parked();
+
+    assert!(
+        fixture.regions_open(cx).2,
+        "creating a chat must reopen the region that hosts it"
+    );
+    assert!(!fixture.chat_leaves(cx).is_empty(), "the tab is on screen");
+}
+
+/// A project with a persistent agent opens showing its chat — the one exception to a fresh
+/// project opening with the right region closed.
+#[gpui::test]
+fn a_persistent_agent_opens_its_chat_on_entry(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    assert!(
+        !fixture.regions_open(cx).2,
+        "with nothing persistent, the right region starts closed"
+    );
+
+    let mut agent = an_agent(AgentId::generate(), "Claude Code");
+    agent.persistent = true;
+    let agent_id = agent.id;
+    fixture.work_list(vec![agent], cx);
+
+    assert!(
+        fixture.regions_open(cx).2,
+        "a persistent agent's tab is the one thing that opens the region on its own"
+    );
+    let attached = fixture.state.read_with(cx, |state, cx| {
+        state
+            .open_project(cx)
+            .unwrap()
+            .chats
+            .iter()
+            .find_map(|tab| tab.attached)
+    });
+    assert_eq!(attached, Some(agent_id));
+}
+
+/// Deleting a conversation is not closing its tab: the tab is a view and stays, but with nothing
+/// attached, and the conversation itself is gone from this window's own copy.
+#[gpui::test]
+fn deleting_a_conversation_detaches_its_chat_tab_rather_than_closing_it(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let agent_id = AgentId::generate();
+    fixture.started(an_agent(agent_id, "Claude Code"), cx);
+    let tab = fixture
+        .state
+        .read_with(cx, |state, cx| state.open_project(cx).unwrap().chats[0].id);
+    fixture
+        .state
+        .update(cx, |state, cx| state.attach_chat(tab, Some(agent_id), cx));
+
+    fixture.deleted(agent_id, cx);
+
+    let (chats, has_conversation) = fixture.state.read_with(cx, |state, cx| {
+        let open = state.open_project(cx).unwrap();
+        (
+            open.chats.clone(),
+            open.conversations.contains_key(&agent_id),
+        )
+    });
+    assert_eq!(chats.len(), 1, "the tab is not closed by a delete");
+    assert_eq!(
+        chats[0].attached, None,
+        "but it is left attached to nothing"
+    );
+    assert!(
+        !has_conversation,
+        "the window's own copy of the conversation must go with the delete"
     );
 }

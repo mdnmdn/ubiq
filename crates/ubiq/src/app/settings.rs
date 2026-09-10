@@ -146,17 +146,13 @@ impl AppState {
     /// the *next* window sees on open, not about the one open right now.
     pub fn forget_remote_host(&mut self, save_id: String, cx: &mut Context<Self>) {
         let mut forgotten: Vec<SavedRemoteHost> = Vec::new();
-        self.workbench
-            .settings
-            .host
-            .remote_hosts
-            .retain(|host| {
-                let keep = host.id != save_id && !(save_id.is_empty() && host.address == save_id);
-                if !keep {
-                    forgotten.push(host.clone());
-                }
-                keep
-            });
+        self.workbench.settings.host.remote_hosts.retain(|host| {
+            let keep = host.id != save_id && !(save_id.is_empty() && host.address == save_id);
+            if !keep {
+                forgotten.push(host.clone());
+            }
+            keep
+        });
         for host in &forgotten {
             let key = host_secrets::key_for(&host.id, &host.address);
             host_secrets::delete_token(&key);
