@@ -208,6 +208,14 @@ pub enum MenuId {
 /// cannot be picked by an index that has shifted under it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum NewPaneRow {
+    /// The heading over the detached group, drawn only when it has at least one row under it.
+    /// Disabled and unclickable — the same decoration `HarnessChoice::Label` is — but still a row,
+    /// because the pick that follows it is an index into this very list.
+    DetachedHeading,
+    /// A pane no panel currently draws, by its index into the detached list the caller passed
+    /// `new_pane_rows` — that list lives on `AppState`, not here, so unlike `Agent` this index
+    /// resolves against the caller's own copy rather than a field of `WorkbenchState`.
+    Detached(usize),
     /// An agent harness, by its index in [`WorkbenchState::agent_types`].
     Agent(usize),
     /// A shell, by its index in [`WorkbenchState::shells`].
@@ -503,15 +511,26 @@ impl WorkbenchState {
     /// What the new-pane control's menu offers.
     ///
     /// A window with no project can start no pane — there is no folder to run one in — so it is
-    /// offered the console alone rather than anything that would do nothing. Agent harnesses
-    /// are offered above the shells, because starting a harness is the common case and a bare
-    /// shell is the fallback; runnable tools come below the shells, because they are the
-    /// specific case. Only applicable tools are rows — a macOS-only row on Windows is not
-    /// offered. Each separator is a row like any other, and there is none when there is
-    /// nothing above it to separate — an empty agent list degrades to exactly the menu a
-    /// window with no harnesses installed showed before agents existed.
-    pub fn new_pane_rows(&self, has_project: bool) -> Vec<NewPaneRow> {
+    /// offered the console alone rather than anything that would do nothing. Detached panes come
+    /// first, above the agents group: reattaching one is picking up work already running, which
+    /// reads before starting something new. Agent harnesses are offered above the shells, because
+    /// starting a harness is the common case and a bare shell is the fallback; runnable tools come
+    /// below the shells, because they are the specific case. Only applicable tools are rows — a
+    /// macOS-only row on Windows is not offered. Each separator is a row like any other, and there
+    /// is none when there is nothing above it to separate — an empty agent list degrades to
+    /// exactly the menu a window with no harnesses installed showed before agents existed, and no
+    /// detached pane degrades to exactly the menu before detaching existed.
+    ///
+    /// `detached_count` is the length of the caller's own detached-pane list — that list lives on
+    /// `AppState`, which `state/` holds no reference to, so it is threaded in the same way
+    /// `has_project` already is rather than read from a field here.
+    pub fn new_pane_rows(&self, has_project: bool, detached_count: usize) -> Vec<NewPaneRow> {
         let mut rows = Vec::new();
+        if detached_count > 0 {
+            rows.push(NewPaneRow::DetachedHeading);
+            rows.extend((0..detached_count).map(NewPaneRow::Detached));
+            rows.push(NewPaneRow::Separator);
+        }
         if has_project {
             rows.extend((0..self.agent_types.len()).map(NewPaneRow::Agent));
             if !self.agent_types.is_empty() {
@@ -801,7 +820,7 @@ mod tests {
         );
         assert_eq!(
             state
-                .new_pane_rows(true)
+                .new_pane_rows(true, 0)
                 .iter()
                 .filter(|row| matches!(row, NewPaneRow::Agent(_)))
                 .count(),

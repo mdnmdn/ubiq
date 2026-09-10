@@ -8,11 +8,20 @@
 //! [`rows`] is what a file, a terminal or a chat tab offers, read by both the frame that draws the
 //! menu and `AppState::pick_tab_menu` — the pick is matched by position, so the two have to read
 //! the same list. A file's is unchanged from before the menu widened to every kind of tab, plus
-//! Pin/Unpin at the end; a terminal and a chat tab offer a rename, a close and the same pin.
+//! Pin/Unpin at the end; a terminal and a chat tab offer a rename, a close and the same pin — a
+//! terminal tab offers one row more, see below.
 //!
 //! **Close is never offered on a pinned tab.** Suppressing the row rather than drawing a no-op is
 //! what keeps the pick a plain dispatch — nothing downstream has to remember that pinned changes
 //! what index 0 means.
+//!
+//! **Close no longer ends the harness — it only takes the panel down**, leaving the harness
+//! running for `AppState::reattach_pane` to find later. So a terminal tab alone gets a second,
+//! separate action: `Kill harness`, which is the real end (`AppState::close_pane`). It is offered
+//! on a pinned tab too — pinning is about the tab's place in the arrangement, not about the
+//! harness's right to keep running underneath it, and killing is still the user's call to make
+//! regardless. A chat tab gets no such row: it is a view onto a host-owned conversation, which has
+//! its own lifecycle menu (`MenuId::ConversationLifecycle`) for stopping it.
 
 use gpui::{Context, IntoElement, SharedString, Window, div, point, px};
 
@@ -43,7 +52,16 @@ pub fn rows(kind: &PanelKind, pinned: bool) -> Vec<&'static str> {
             rows.push(pin_row);
             rows
         }
-        PanelKind::Terminal(_) | PanelKind::Chat(_) => {
+        PanelKind::Terminal(_) => {
+            let mut rows = vec!["Rename…"];
+            if !pinned {
+                rows.push("Close");
+            }
+            rows.push("Kill harness");
+            rows.push(pin_row);
+            rows
+        }
+        PanelKind::Chat(_) => {
             let mut rows = vec!["Rename…"];
             if !pinned {
                 rows.push("Close");

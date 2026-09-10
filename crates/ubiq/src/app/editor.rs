@@ -466,9 +466,18 @@ impl AppState {
                     _ => {}
                 }
             }
-            // Terminal and chat tabs share the same menu: name it, close it the way its own ×
-            // does, or pin it against that close.
-            PanelKind::Terminal(_) | PanelKind::Chat(_) => match row {
+            // Terminal and chat tabs share most of the menu: name it, close it the way its own ×
+            // does (which only detaches the panel now), or pin it against that close. A terminal
+            // tab alone offers the real end — see `ui::tab_menu`'s note on why `Kill harness`
+            // exists at all and why pinning does not suppress it.
+            PanelKind::Terminal(pane_id) => match row {
+                "Rename…" => self.open_rename_tab(kind, window, cx),
+                "Close" => self.close_tab_panel(&kind, window, cx),
+                "Kill harness" => self.close_pane(*pane_id, cx),
+                "Pin" | "Unpin" => self.toggle_tab_pin(kind, cx),
+                _ => {}
+            },
+            PanelKind::Chat(_) => match row {
                 "Rename…" => self.open_rename_tab(kind, window, cx),
                 "Close" => self.close_tab_panel(&kind, window, cx),
                 "Pin" | "Unpin" => self.toggle_tab_pin(kind, cx),
@@ -599,11 +608,13 @@ impl AppState {
 
     /// Act on one row of the open new-pane menu, by the row's index.
     ///
-    /// An agent row starts a pane running that harness, and a shell row starts one running that
-    /// shell — the same call the "+" makes, with a program on it. A harness the host could not
-    /// find is drawn disabled and takes no click, so picking it here does nothing rather than
-    /// asking for a spawn that would fail. Past the last shell is the separator, which is a row
-    /// and does nothing, and then the console, which is revealed rather than started.
+    /// A detached row brings a still-running pane's panel back, the same list
+    /// `ui::new_pane_menu::overlay` read to draw it. An agent row starts a pane running that
+    /// harness, and a shell row starts one running that shell — the same call the "+" makes, with
+    /// a program on it. A harness the host could not find is drawn disabled and takes no click, so
+    /// picking it here does nothing rather than asking for a spawn that would fail. Past the last
+    /// shell is the separator, which is a row and does nothing, and then the console, which is
+    /// revealed rather than started.
     pub fn pick_new_pane_menu(
         &mut self,
         index: usize,
@@ -613,7 +624,18 @@ impl AppState {
         self.workbench.open_menu = None;
         self.workbench.new_pane_menu = None;
         let has_project = self.project(cx).is_some();
-        match self.workbench.new_pane_rows(has_project).get(index) {
+        let detached = self.detached_panes(cx);
+        match self
+            .workbench
+            .new_pane_rows(has_project, detached.len())
+            .get(index)
+        {
+            Some(NewPaneRow::Detached(at)) => {
+                if let Some(&pane_id) = detached.get(*at) {
+                    self.reattach_pane(pane_id, cx);
+                }
+            }
+            Some(NewPaneRow::DetachedHeading) => {}
             Some(NewPaneRow::Agent(agent)) => {
                 let Some(agent) = self.workbench.agent_types.get(*agent) else {
                     return;
@@ -621,7 +643,12 @@ impl AppState {
                 if !agent.available {
                     return;
                 }
-                self.spawn_pane(Some(agent.id.clone()), Vec::new(), cx);
+                self.spawn_pane(
+                    Some(agent.id.clone()),
+                    Vec::new(),
+                    AgentPicks::default(),
+                    cx,
+                );
             }
             Some(NewPaneRow::Shell(shell)) => {
                 let Some(program) = self
@@ -632,7 +659,7 @@ impl AppState {
                 else {
                     return;
                 };
-                self.spawn_pane(Some(program), Vec::new(), cx);
+                self.spawn_pane(Some(program), Vec::new(), AgentPicks::default(), cx);
             }
             Some(NewPaneRow::Tool(tool)) => {
                 let Some(listed) = self.workbench.tools.get(*tool) else {

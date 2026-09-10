@@ -774,16 +774,18 @@ impl Agents {
         agent_type: &str,
         cwd: &Path,
         args: Vec<String>,
+        options: ConverseOptions,
     ) -> Result<Composed> {
-        // A pane names no identity yet: the picker that offers one is the conversation's, so a
-        // terminal harness resolves whatever the library does.
+        // A pane's run takes the same picks a conversation's does — the new-pane menu and a
+        // shell row still hand it `ConverseOptions::default()`, but a pane started with an
+        // account, profile, model or MCP list resolves exactly what was named.
         self.compose_run(
             &pane.to_string(),
             agent_type,
             cwd,
             args,
             IoModes::Passthrough,
-            ConverseOptions::default(),
+            options,
         )
     }
 
@@ -1710,7 +1712,13 @@ mod tests {
         let pane = PaneId::generate();
 
         let composed = agents
-            .compose(pane, "claude-code", cwd.path(), Vec::new())
+            .compose(
+                pane,
+                "claude-code",
+                cwd.path(),
+                Vec::new(),
+                ConverseOptions::default(),
+            )
             .expect("composing a claude-code run");
 
         assert_eq!(composed.dir, agents.run_dir(pane));
@@ -1837,7 +1845,13 @@ mod tests {
         let agents = Agents::new(root.path(), false);
         let pane = PaneId::generate();
         let composed = agents
-            .compose(pane, "claude-code", cwd.path(), Vec::new())
+            .compose(
+                pane,
+                "claude-code",
+                cwd.path(),
+                Vec::new(),
+                ConverseOptions::default(),
+            )
             .expect("composing a claude-code run against the default profile");
 
         assert_eq!(composed.account(), Some("work"));
@@ -1865,8 +1879,13 @@ mod tests {
         .unwrap();
 
         let agents = Agents::new(root.path(), false);
-        let Err(error) = agents.compose(PaneId::generate(), "claude-code", cwd.path(), Vec::new())
-        else {
+        let Err(error) = agents.compose(
+            PaneId::generate(),
+            "claude-code",
+            cwd.path(),
+            Vec::new(),
+            ConverseOptions::default(),
+        ) else {
             panic!("an unknown account should refuse the run");
         };
 
@@ -1886,7 +1905,13 @@ mod tests {
         let pane = PaneId::generate();
 
         let composed = agents
-            .compose(pane, "claude-code", cwd.path(), Vec::new())
+            .compose(
+                pane,
+                "claude-code",
+                cwd.path(),
+                Vec::new(),
+                ConverseOptions::default(),
+            )
             .expect("composing with no profiles root at all");
 
         assert_eq!(composed.account(), None);

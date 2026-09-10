@@ -354,13 +354,16 @@ impl AppState {
         cx.notify();
     }
 
-    /// Start the conversation the form describes, and answer the id it was given.
+    /// Take the form, validate it against what the window actually has, and answer the project,
+    /// the form and the profile a start resolves to — or put the form back and answer nothing.
     ///
-    /// The id is minted here rather than by the host, the way every other start in the window
-    /// mints one: it is what the answer is matched against. An empty string is "the harness's
-    /// own" — the convention the host already reads `chosen_model` by — so a row left unanswered
-    /// says nothing rather than naming a default the interface invented.
-    pub fn start_new_agent(&mut self, cx: &mut Context<Self>) -> Option<AgentId> {
+    /// Shared by [`Self::start_new_agent`] and [`Self::start_new_agent_in_terminal`]: both read the
+    /// same target out of the same form and refuse the same two ways, and only what they build from
+    /// the answer differs — a conversation for one, a bare pane for the other.
+    fn take_startable_new_agent(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> Option<(NewAgentForm, ProjectId, Option<String>)> {
         let prompt = self.new_agent_prompt.read(cx).value().to_string();
         let project_id = self.project(cx)?;
         let mut form = self.workbench.new_agent.take()?;
@@ -386,6 +389,17 @@ impl AppState {
             Target::Profile(id) => Some(id.clone()),
             Target::Harness { .. } => None,
         };
+        Some((form, project_id, profile))
+    }
+
+    /// Start the conversation the form describes, and answer the id it was given.
+    ///
+    /// The id is minted here rather than by the host, the way every other start in the window
+    /// mints one: it is what the answer is matched against. An empty string is "the harness's
+    /// own" — the convention the host already reads `chosen_model` by — so a row left unanswered
+    /// says nothing rather than naming a default the interface invented.
+    pub fn start_new_agent(&mut self, cx: &mut Context<Self>) -> Option<AgentId> {
+        let (form, project_id, profile) = self.take_startable_new_agent(cx)?;
         let agent_id = AgentId::generate();
         self.bus.send(Message::StartConversation {
             agent_id,
@@ -417,6 +431,44 @@ impl AppState {
         );
         cx.notify();
         Some(agent_id)
+    }
+
+    /// Start the same harness, the same identity and the same levers, but as a real terminal pane
+    /// rather than a structured conversation. The pane arrives as `Message::WorkspaceSpawned`
+    /// rather than as an id minted here, so there is nothing this returns.
+    ///
+    /// **No preamble is stashed.** `form.preamble()` exists for a composer to fold into a first
+    /// turn, and a terminal pane has no composer — the user types straight into the harness, so
+    /// there is no first turn to fold anything in front of. The opening prompt and the subagent
+    /// ceiling the form carries are simply not said.
+    pub fn start_new_agent_in_terminal(&mut self, cx: &mut Context<Self>) {
+        let Some((form, _project_id, profile)) = self.take_startable_new_agent(cx) else {
+            return;
+        };
+        let picks = AgentPicks {
+            account: form.account.clone(),
+            profile: profile.clone(),
+            model: Some(form.model.clone().unwrap_or_default()),
+            thinking: Some(form.thinking.clone().unwrap_or_default()),
+            mode: Some(form.mode.clone().unwrap_or_default()),
+            mcps: form.mcps.clone(),
+        };
+        self.spawn_pane(Some(form.agent_type.clone()), Vec::new(), picks, cx);
+        // **Release the aim.** A form raised from a chat header or the sink wrote down where the
+        // conversation it was about to produce should land, and the only place that claim is spent
+        // is the `ConversationStarted` arm in `wire`. This start produces a pane instead, so
+        // leaving the claim armed would hand the next conversation from anywhere else to a surface
+        // that asked for this one — see [`Self::clear_aim`].
+        self.clear_aim();
+        self.remember_harness_choice(
+            &form.agent_type.clone(),
+            form.account.as_deref(),
+            profile.as_deref(),
+            form.mode.as_deref(),
+            form.max_subagents,
+            cx,
+        );
+        cx.notify();
     }
 
     /// Take what a start still owes this conversation, if anything.

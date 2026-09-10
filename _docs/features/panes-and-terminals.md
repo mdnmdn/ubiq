@@ -111,13 +111,22 @@ other window can adopt an emulator.
 its emulator are drawn on the answer. A harness that fails to start produces an error against a pane
 that was never drawn, so nothing empty is left on screen for the user to close.
 
-**Closing a pane kills its harness.** The child is signalled and reaped, and the panel and its
-emulator go with it. Closing a pane's tab is what closes the pane, and it is the only thing that
-kills a harness — an agent left alone keeps working whether or not anyone is looking at its pane. A
-tab on the agents screen is a different tab: its close benches the agent and the harness keeps
-running. A
-panel displaced by a whole arrangement being installed over it has not been closed and its harness
-is untouched.
+**Closing a pane's panel detaches it; `Kill harness` is what kills it** (`D103`). Closing the tab
+takes the panel off screen and nothing else: the harness keeps running under the host, its emulator
+and its screen stay live in the window, and reopening a panel for that pane picks the same screen
+back up mid-sentence. An agent left alone keeps working whether or not anyone is looking at its
+pane, and the tab says the same. **This is the rule a tab on the agents screen obeys** — its close
+benches the agent and the harness keeps running — so the two tabs mean one thing rather than two.
+
+**Killing is the explicit action.** `Kill harness` on the tab's menu signals and reaps the child,
+and the panel and its emulator go with it. So does an exited harness, on its own. A panel displaced
+by a whole arrangement being installed over it has not been closed at all and its harness is
+untouched.
+
+**A detached pane is computed, not stored** — a pane the project still holds that no panel draws.
+Nothing is written down when one detaches, which is what stops a flag disagreeing with the screen.
+The `+` menu lists them in a group of their own, above the harnesses, because a running agent
+nothing is drawing is the one thing on that menu the user did not just ask for.
 
 **A pinned pane cannot be closed, and that is the whole of what pinning changes.** Its tab's × is
 withheld and its Close row is left off the right-click menu rather than drawn and refused; Rename
@@ -191,8 +200,8 @@ resized as soon as the first measurement exists. A harness that starts at the wr
 immediately resized draws correctly; one that never learns its size does not.
 
 **An exited harness closes its pane.** Typing `exit` or sending EOF (Ctrl+D) ends the child, the
-coordinator reports `PaneExited`, and the tab goes with it — the same close path as the tab's ×.
-Closing a tab is still what kills a harness that has not already ended. A tool run with wait on
+coordinator reports `PaneExited`, and the tab goes with it — a path of its own, since the tab's ×
+detaches instead (`D103`). A tool run with wait on
 exit stays readable instead: the process ends, the dot reports the stop, and the tab stays with
 its output until it is closed.
 

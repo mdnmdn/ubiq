@@ -88,7 +88,7 @@ impl AppState {
         };
         if now_empty {
             match region {
-                Region::Bottom => self.spawn_pane(None, Vec::new(), cx),
+                Region::Bottom => self.spawn_pane(None, Vec::new(), AgentPicks::default(), cx),
                 Region::Right => {
                     // The one place the window has to decide *which* chat tab an empty region
                     // opens onto: a fresh one, attached to nothing.
@@ -121,7 +121,7 @@ impl AppState {
             self.toggle_region(Region::Bottom, window, cx);
         }
         if was_open || !was_empty {
-            self.spawn_pane(None, Vec::new(), cx);
+            self.spawn_pane(None, Vec::new(), AgentPicks::default(), cx);
         }
     }
 

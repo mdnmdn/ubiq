@@ -40,10 +40,15 @@ impl AppState {
     ///
     /// A pane runs in a project's folder, so a window holding no project asks for nothing: there is
     /// no directory a harness could be started in that the user chose.
+    ///
+    /// `picks` is what a terminal harness resolves the identity, the model and the rest against —
+    /// the pseudo-terminal has no composer to fold a start's answers into, so they travel with the
+    /// spawn instead. A shell ignores them: it has no account, no profile and no modes to be picked.
     pub fn spawn_pane(
         &mut self,
         agent_type: Option<String>,
         args: Vec<String>,
+        picks: AgentPicks,
         cx: &mut Context<Self>,
     ) {
         let Some(project_id) = self.project(cx) else {
@@ -55,6 +60,7 @@ impl AppState {
             rel_path: None,
             agent_type,
             args,
+            picks,
         });
     }
 
@@ -73,12 +79,110 @@ impl AppState {
         });
     }
 
+    /// Whether a panel currently draws this pane. `panels` is the live registry, so this is what
+    /// tells a running pane the user can see from one that is only still running.
+    pub fn pane_has_panel(&self, pane_id: PaneId) -> bool {
+        self.panels.contains_key(&PanelKind::Terminal(pane_id))
+    }
+
+    /// Every pane the open project holds that no panel draws — still running, nothing showing them.
+    ///
+    /// Computed, not stored, the way the agents screen's bench is: a detach only takes the panel
+    /// away, so the difference between `panes` and `panels` *is* the list, and no flag can fall out
+    /// of step with it.
+    pub fn detached_panes(&self, cx: &App) -> Vec<PaneId> {
+        self.panes(cx)
+            .iter()
+            .map(|pane| pane.id)
+            .filter(|id| !self.pane_has_panel(*id))
+            .collect()
+    }
+
+    /// The project's first pane a panel still draws, skipping `except`.
+    ///
+    /// Where the keyboard goes when the pane holding it stops being drawn. `except` is for the
+    /// pane whose own panel is only *queued* to leave: `pending_panels` settles a frame later, so
+    /// its entry is still in `panels` and [`Self::pane_has_panel`] cannot answer for it yet.
+    fn next_focus_pane(&self, project: ProjectId, except: Option<PaneId>) -> Option<PaneId> {
+        self.projects
+            .get(&project)?
+            .panes
+            .iter()
+            .map(|pane| pane.id)
+            .find(|id| Some(*id) != except && self.pane_has_panel(*id))
+    }
+
+    /// Take a pane's panel off the screen and leave everything else alone: the harness keeps
+    /// running, the emulator keeps taking its bytes, and the pane stays in its project.
+    ///
+    /// This is what closing a tab means. Nothing is sent to the host and nothing is forgotten —
+    /// `terminals` still holds the live screen, `bus` still knows which host owns the pane so
+    /// keystrokes keep their route, and the name and the pin the user gave the tab are still
+    /// theirs. [`Self::reattach_pane`] puts a panel back over a session that never stopped;
+    /// [`Self::close_pane`] is the one that kills.
+    ///
+    /// Idempotent, because the dock reaches it too — a panel whose tab was closed asks for this
+    /// once it is sure it was closed rather than displaced. A pane no panel draws is not detached
+    /// twice.
+    pub fn detach_pane(&mut self, pane_id: PaneId, cx: &mut Context<Self>) {
+        let Some(project) = self.project_of_pane(pane_id) else {
+            return;
+        };
+        if !self.pane_has_panel(pane_id) {
+            return;
+        }
+        // The keyboard only moves for the project on screen: a tab closed in a background project
+        // must not take focus off the terminal the user is typing into.
+        let on_screen = self.project(cx) == Some(project);
+        self.pending_panels
+            .push(PanelEdit::Close(PanelKind::Terminal(pane_id)));
+
+        let mut next = None;
+        if self.projects.get(&project).map(|open| open.focused_pane) == Some(Some(pane_id)) {
+            next = self.next_focus_pane(project, Some(pane_id));
+            if let Some(open) = self.projects.get_mut(&project) {
+                open.focused_pane = next;
+            }
+        }
+        if on_screen && let Some(pane_id) = next {
+            self.pending_focus = Some(pane_id);
+        }
+        cx.notify();
+    }
+
+    /// Draw a detached pane again: the panel comes back over the emulator that never stopped, so
+    /// the screen is the one the harness has been writing to all along.
+    ///
+    /// Deliberately not `open_terminal`, which inserts a fresh emulator unconditionally and would
+    /// throw that screen away. Refused for a pane this window does not hold, and for one a panel
+    /// already draws — there is nothing to bring back.
+    pub fn reattach_pane(&mut self, pane_id: PaneId, cx: &mut Context<Self>) {
+        if self.pane(pane_id).is_none() || self.pane_has_panel(pane_id) {
+            return;
+        }
+        // `Reveal` rather than `Open`: the region terminals live in may have been put away since,
+        // and the tab has to end up the displayed one of its group.
+        self.pending_panels
+            .push(PanelEdit::Reveal(PanelKind::Terminal(pane_id)));
+        // The same pair `focus_pane` sends for an ordinary pane: the project's focus moves, and the
+        // host hears it on the transition.
+        if let Some(project) = self.project_of_pane(pane_id)
+            && let Some(open) = self.projects.get_mut(&project)
+            && open.focused_pane != Some(pane_id)
+        {
+            open.focused_pane = Some(pane_id);
+            self.bus.send(Message::Focus { pane_id });
+        }
+        self.pending_focus = Some(pane_id);
+        cx.notify();
+    }
+
     /// End a pane: the harness is killed, the emulator dropped, and the panel taken out of the
     /// dock.
     ///
-    /// Idempotent, because the dock reaches it too — a panel whose tab was closed asks for this
-    /// once it is sure it was closed rather than displaced. A pane the window has already let go
-    /// of is not closed twice.
+    /// Idempotent, because more than one caller reaches it — a harness that exited, a pin menu's
+    /// Close, a host that went away. A pane the window has already let go of is not closed twice.
+    /// The dock's own tab close does not come here: it detaches.
     pub fn close_pane(&mut self, pane_id: PaneId, cx: &mut Context<Self>) {
         let Some(project) = self.project_of_pane(pane_id) else {
             return;
@@ -97,11 +201,17 @@ impl AppState {
         self.pending_panels
             .push(PanelEdit::Close(PanelKind::Terminal(pane_id)));
 
-        let mut next = None;
+        let mut refocus = false;
         if let Some(open) = self.projects.get_mut(&project) {
             open.panes.retain(|pane| pane.id != pane_id);
-            if open.focused_pane == Some(pane_id) {
-                next = open.panes.first().map(|pane| pane.id);
+            refocus = open.focused_pane == Some(pane_id);
+        }
+        // Not simply the first pane: a detached pane is still in `panes` with nothing on screen,
+        // and the keyboard must never go to one of those.
+        let mut next = None;
+        if refocus {
+            next = self.next_focus_pane(project, None);
+            if let Some(open) = self.projects.get_mut(&project) {
                 open.focused_pane = next;
             }
         }

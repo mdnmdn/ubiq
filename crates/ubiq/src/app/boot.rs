@@ -329,7 +329,9 @@ impl AppState {
                 let app = app.clone();
                 Rc::new(move |_window, cx| {
                     if let Some(this) = app.upgrade() {
-                        this.update(cx, |this, cx| this.spawn_pane(None, Vec::new(), cx));
+                        this.update(cx, |this, cx| {
+                            this.spawn_pane(None, Vec::new(), AgentPicks::default(), cx)
+                        });
                     }
                 })
             },

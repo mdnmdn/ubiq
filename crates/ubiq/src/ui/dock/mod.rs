@@ -430,16 +430,17 @@ impl BasePanel for WorkbenchPanel {
         self.attached = true;
     }
 
-    /// **Closing a terminal panel closes its pane, closing a file panel closes its tab, and being
-    /// displaced does neither.**
+    /// **Closing a terminal panel detaches its pane, closing a file panel closes its tab, and
+    /// being displaced does neither.**
     ///
     /// The library reports both the same way: a panel is told it left the dock whether the user
     /// closed its tab or a whole arrangement was installed over it. The two have to be told apart,
-    /// because one of them kills a harness. So the answer waits a turn — a displaced panel is put
-    /// back in the same edit, and hears [`BasePanel::on_added_to`] again before this runs.
+    /// because one of them takes a harness off the screen. So the answer waits a turn — a
+    /// displaced panel is put back in the same edit, and hears [`BasePanel::on_added_to`] again
+    /// before this runs.
     ///
     /// Waiting is also what makes it safe: this arrives while the dock is reconciling, which is
-    /// inside the window's own update, and ending a pane is the window's to do.
+    /// inside the window's own update, and a pane's fate is the window's to decide.
     fn on_removed(&mut self, _: &mut Window, cx: &mut Context<Self>) {
         self.attached = false;
         let kind = self.kind.clone();
@@ -456,7 +457,7 @@ impl BasePanel for WorkbenchPanel {
                 return;
             }
             _ = app.update(cx, |app, cx| match &kind {
-                PanelKind::Terminal(pane_id) => app.close_pane(*pane_id, cx),
+                PanelKind::Terminal(pane_id) => app.detach_pane(*pane_id, cx),
                 PanelKind::File(key) => app.closed_file_panel(key, cx),
                 PanelKind::Chat(id) => app.closed_chat_tab(*id, cx),
                 _ => {}

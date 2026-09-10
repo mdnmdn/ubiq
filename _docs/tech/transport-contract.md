@@ -29,7 +29,7 @@ without a body omit `payload` entirely.
 ```json
 { "type": "SpawnWorkspace",
   "payload": { "session_id": "…", "project_id": "…", "rel_path": null,
-               "agent_type": "claude", "args": [] } }
+               "agent_type": "claude", "args": [], "picks": {} } }
 ```
 
 Every id in the contract is a ULID behind a per-kind newtype — `PaneId`, `SessionId`,
@@ -72,7 +72,7 @@ The control path. Lower volume, request-and-response.
 | `CreateSession` | UI → coordinator | `name`, `agent_type`, `home_folder?` | `SessionCreated` |
 | `AttachToSession` | UI → coordinator | `session_id` | `SessionAttached` |
 | `DetachFromSession` | UI → coordinator | `session_id` | — |
-| `SpawnWorkspace` | UI → coordinator | `session_id`, `project_id`, `rel_path?`, `agent_type?`, `args` | `WorkspaceSpawned` or `ProjectError` |
+| `SpawnWorkspace` | UI → coordinator | `session_id`, `project_id`, `rel_path?`, `agent_type?`, `args`, `picks` | `WorkspaceSpawned` or `ProjectError` |
 | `CloseWorkspace` | UI → coordinator | `pane_id` | — |
 | `RunTool` | UI → coordinator | `session_id`, `project_id`, `scope`, `id` | `WorkspaceSpawned` or `ToolError` |
 | `ToolError` | coordinator → UI | `project_id?`, `error` | — |
@@ -92,6 +92,15 @@ The control path. Lower volume, request-and-response.
 An optional field marked `?` falls back to a default: `home_folder` to the session home, `rel_path`
 to the project's own root, and `agent_type` to the agent type the session starts when it is told
 nothing. `args` is the argument list the harness is launched with, empty for a plain start.
+
+**`SpawnWorkspace` carries the same picks `StartConversation` does**, gathered into one `AgentPicks`
+record — `account?`, `profile?`, `model?`, `thinking?`, `mode?`, `mcps` — because a harness in a
+terminal pane is the same run wearing a different face, and a pane that could not name an account or
+an MCP server would be a second, poorer way to start the same agent. The empty record is a pane that
+names nothing and lets the library resolve everything, which is what the new-pane menu sends. A
+shell ignores the field entirely: it has no account, no profile and no modes. Isolation is not in
+the record and never will be — it is a host setting, applied to both faces alike, not something a
+start chooses.
 
 **`SpawnWorkspace` names a project, not a folder.** `project_id` is not optional, because a pane's
 working directory is the project's folder and nothing else: the host resolves it from the record and

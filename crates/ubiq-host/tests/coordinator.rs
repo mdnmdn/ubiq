@@ -15,7 +15,7 @@ use ubiq_proto::bus::{self, Client, FromClient, Hub};
 use ubiq_proto::conversation::{ConfigCategory, ConfigOption, ConfigValue, ConvUpdate};
 use ubiq_proto::files::{DiffBase, DiffRowKind, FileError, FileVersion};
 use ubiq_proto::ids::{PaneId, ProjectId, SessionId};
-use ubiq_proto::messages::Message;
+use ubiq_proto::messages::{AgentPicks, Message};
 use ubiq_proto::settings::{HostSettings, SettingsLayer};
 use ubiq_proto::work::AgentId;
 
@@ -126,6 +126,7 @@ fn spawn_in(
         rel_path: rel_path.map(|p| p.to_string()),
         agent_type: Some(program.to_string()),
         args: args.iter().map(|a| a.to_string()).collect(),
+        picks: AgentPicks::default(),
     });
 
     // A window is told what the host is as it attaches, and a pane opening changes the project's
@@ -379,6 +380,7 @@ fn spawning_in_a_missing_project_is_refused_before_a_pane_exists() {
         rel_path: None,
         agent_type: Some("/bin/cat".to_string()),
         args: Vec::new(),
+        picks: AgentPicks::default(),
     });
 
     // The refusal names the project, because there is no pane to name — and a pane that was never
@@ -418,6 +420,7 @@ fn spawning_with_a_rel_path_that_escapes_is_refused() {
         rel_path: Some("../..".to_string()),
         agent_type: Some("/bin/cat".to_string()),
         args: Vec::new(),
+        picks: AgentPicks::default(),
     });
 
     loop {

@@ -5,11 +5,12 @@
 //! marked — painted over the window for the reason [`super::tab_menu`] is: the dock's skin
 //! does not name `AppState`, so it says a menu was wanted and the window draws it.
 //!
-//! The rows are the agent harnesses in the order the host listed them, then a separator, then the
-//! shells, then a separator, then the applicable runnable tools, then a separator, then the
-//! console. The index a row is picked at is its index in that list — the separators included,
-//! because each is a row — which is what `AppState::pick_new_pane_menu` matches on: keep the
-//! two in step.
+//! The rows are, first, any pane still running with no panel drawing it — under its own heading
+//! and a separator, omitted whole when there is none — then the agent harnesses in the order the
+//! host listed them, then a separator, then the shells, then a separator, then the applicable
+//! runnable tools, then a separator, then the console. The index a row is picked at is its index
+//! in that list — the separators and the heading included, because each is a row — which is what
+//! `AppState::pick_new_pane_menu` matches on: keep the two in step.
 //!
 //! A harness the host could not find on disk is still listed — the interface says so rather than
 //! leaving a gap — but its row is disabled: it reads muted and takes no click, the same affordance
@@ -35,11 +36,31 @@ pub fn overlay(
     };
 
     let has_project = app.project(cx).is_some();
+    let detached = app.detached_panes(cx);
     let items: Vec<_> = app
         .workbench
-        .new_pane_rows(has_project)
+        .new_pane_rows(has_project, detached.len())
         .into_iter()
         .map(|row| match row {
+            // Drawn, never picked — see `ContextItem::disabled`'s existing use for a row with
+            // nothing behind it, which a heading is too.
+            NewPaneRow::DetachedHeading => kit::ContextItem::new("Detached").disabled(),
+            NewPaneRow::Detached(idx) => {
+                let Some(pane) = detached.get(idx).and_then(|&id| app.pane(id)) else {
+                    return kit::ContextItem::new("").disabled();
+                };
+                let harness = app
+                    .workbench
+                    .agent_types
+                    .iter()
+                    .find(|agent| agent.id == pane.harness)
+                    .map(|agent| agent.label.clone())
+                    .unwrap_or_else(|| pane.harness.clone());
+                kit::ContextItem::new(SharedString::from(format!(
+                    "{harness} \u{00b7} {}",
+                    pane.title
+                )))
+            }
             NewPaneRow::Agent(agent) => {
                 let agent = &app.workbench.agent_types[agent];
                 let item = kit::ContextItem::new(SharedString::from(agent.label.clone()));

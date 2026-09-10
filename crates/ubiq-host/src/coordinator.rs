@@ -19,7 +19,7 @@ use ubiq_proto::conversation::{
 };
 use ubiq_proto::files::FileError;
 use ubiq_proto::ids::{PaneId, ProjectId, SearchId, SessionId, SuggestId, ToolId};
-use ubiq_proto::messages::{CatalogueModel, Message, WorkspaceInfo};
+use ubiq_proto::messages::{AgentPicks, CatalogueModel, Message, WorkspaceInfo};
 use ubiq_proto::projects::{IndexLevel, ProjectHealth, Scope};
 use ubiq_proto::stats::{HostStats, UsageRow};
 use ubiq_proto::tools::{ListedTool, ToolDef};
@@ -1038,7 +1038,10 @@ impl Coordinator {
                 rel_path,
                 agent_type,
                 args,
-            } => self.spawn_workspace(client, session_id, project_id, rel_path, agent_type, args),
+                picks,
+            } => self.spawn_workspace(
+                client, session_id, project_id, rel_path, agent_type, args, picks,
+            ),
 
             Message::TerminalInput { pane_id, bytes } => {
                 if !self.owns(client, pane_id) {
@@ -2230,6 +2233,23 @@ impl Coordinator {
     /// pipe to write a prompt into afterwards. A multi-turn harness passes `None` and is prompted
     /// over its bridge once it is running, which is what keeps its launch byte-identical to what
     /// it was.
+    /// A project's [`crate::mcp::ProjectFacts`], as both [`Self::launch`] and
+    /// [`Self::spawn_workspace`] register them for an agent's MCP row — one reading of the
+    /// record is what keeps the two from drifting apart. `Default::default()` for a project
+    /// that has gone missing between the spawn and the register, same as either caller lived
+    /// with before this was shared.
+    fn project_facts(&self, project_id: ProjectId) -> crate::mcp::ProjectFacts {
+        self.projects
+            .record(project_id)
+            .map(|record| crate::mcp::ProjectFacts {
+                id: record.id.to_string(),
+                name: record.name.clone(),
+                path: record.path.clone(),
+                colour: record.colour,
+            })
+            .unwrap_or_default()
+    }
+
     fn launch(
         &mut self,
         client: ClientId,
@@ -2259,16 +2279,7 @@ impl Coordinator {
             .live_agent_mut(pending.project_id, agent_id)
             .map(|agent| (agent.name.clone(), agent.harness.clone()))
             .unwrap_or_else(|| (pending.agent_type.clone(), pending.agent_type.clone()));
-        let project = self
-            .projects
-            .record(pending.project_id)
-            .map(|record| crate::mcp::ProjectFacts {
-                id: record.id.to_string(),
-                name: record.name.clone(),
-                path: record.path.clone(),
-                colour: record.colour,
-            })
-            .unwrap_or_default();
+        let project = self.project_facts(pending.project_id);
         self.agents.mcp_agents().register(crate::mcp::AgentFacts {
             key: agent_id.to_string(),
             name,
@@ -3649,6 +3660,9 @@ impl Coordinator {
         });
     }
 
+    // One argument per field of `Message::SpawnWorkspace` plus `client`, the same shape
+    // `start_conversation`'s own mirror of its message takes.
+    #[allow(clippy::too_many_arguments)]
     fn spawn_workspace(
         &mut self,
         client: ClientId,
@@ -3657,6 +3671,7 @@ impl Coordinator {
         rel_path: Option<String>,
         agent_type: Option<String>,
         args: Vec<String>,
+        picks: AgentPicks,
     ) {
         // A pane runs in a project's folder, so everything about that folder is settled before a
         // pseudo-terminal exists. A spawn that fails here leaves nothing on screen to close.
@@ -3668,13 +3683,30 @@ impl Coordinator {
         let pane_id = PaneId::generate();
         let agent_type = agent_type.unwrap_or_else(shells::default_program);
 
+        // Kept past the move below, for the MCP row registered once compose succeeds — that
+        // wants the picked model and mode too, and `options` does not outlive the `compose` call.
+        let picked_model = picks.model.clone();
+        let picked_mode = picks.mode.clone();
+        // `prompt` and `resume` stay `None`: a terminal harness is prompted by the user typing
+        // into it, not by an argv-carried first turn, and resuming one is not part of this
+        // change.
+        let options = ConverseOptions {
+            account: picks.account,
+            model: picks.model,
+            thinking: picks.thinking,
+            mode: picks.mode,
+            profile: picks.profile,
+            mcps: picks.mcps,
+            prompt: None,
+            resume: None,
+        };
         // An agent type the library knows is composed — its skills, its throwaway configuration
         // and the policy it runs under all come from there. Anything else is a program name,
         // which is what a shell is.
         let composed = if self.agents.is_agent_type(&agent_type) {
             match self
                 .agents
-                .compose(pane_id, &agent_type, &cwd, args.clone())
+                .compose(pane_id, &agent_type, &cwd, args.clone(), options)
             {
                 Ok(composed) => Some(composed),
                 Err(error) => {
@@ -3686,6 +3718,26 @@ impl Coordinator {
         } else {
             None
         };
+
+        // Tell the MCP listener who this pane is, before the harness exists to ask — the same
+        // reason `launch` registers a conversation before its own composed run spawns. A pane has
+        // no card and no name of its own, so both `name` and `harness` are the resolved agent
+        // type; `account` is what the run actually resolved to, not merely what was picked.
+        if let Some(composed) = &composed {
+            let project = self.project_facts(project_id);
+            self.agents.mcp_agents().register(crate::mcp::AgentFacts {
+                key: pane_id.to_string(),
+                name: agent_type.clone(),
+                harness: agent_type.clone(),
+                account: composed.account().map(str::to_string),
+                model: picked_model.clone(),
+                mode: picked_mode.clone(),
+                cwd: cwd.display().to_string(),
+                // A fresh pane resumes nothing.
+                session: None,
+                project,
+            });
+        }
 
         let program = match &composed {
             Some(composed) => match composed.exec() {

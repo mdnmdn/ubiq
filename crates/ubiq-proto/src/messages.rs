@@ -98,6 +98,13 @@ pub enum Message {
         rel_path: Option<String>,
         agent_type: Option<String>,
         args: Vec<String>,
+        /// What this start chose beyond the harness and the folder, when `agent_type` names one.
+        /// Ignored for a shell, which has no account, no profile and no modes.
+        ///
+        /// `Default::default()` is a pane that names nothing and lets the library resolve
+        /// everything — which is what the new-pane menu and every shell row send.
+        #[serde(default)]
+        picks: AgentPicks,
     },
     /// The answer to [`Message::SpawnWorkspace`], carrying the pane the UI now draws.
     WorkspaceSpawned {
@@ -1659,6 +1666,44 @@ impl Message {
             _ => None,
         }
     }
+}
+
+/// What a start chooses over and above the harness and the folder: the identity, the saved setup,
+/// and the levers a harness advertises.
+///
+/// The same set [`Message::StartConversation`] spells out field by field, gathered into a record
+/// because [`Message::SpawnWorkspace`] asks the identical questions — a harness in a terminal pane
+/// is the same run wearing a different face, and a pane that could not name an account or an MCP
+/// server would be a second, poorer way to start the same agent.
+///
+/// Every field is a **pick**, and a pick outranks what the profile saved. `Default::default()` is
+/// the zero-config start: whatever the harness, its profile and its own defaults say. Isolation is
+/// not here and never will be — it is a host setting, not something a start chooses.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentPicks {
+    /// Which identity to run as, from [`AccountInfo`]. Absent falls back to whatever the library
+    /// resolves — the profile named `default`, or the user's own home.
+    #[serde(default)]
+    pub account: Option<String>,
+    /// Which saved setup to start from, from [`ProfileInfo`]. Absent is a bare start with no
+    /// profile at all. `account` above still wins where both name one.
+    #[serde(default)]
+    pub profile: Option<String>,
+    /// Which model to launch on, from [`Message::HarnessCatalogue`]. `None` or empty leaves the
+    /// harness on its own default.
+    #[serde(default)]
+    pub model: Option<String>,
+    /// Which reasoning-effort level, same convention as `model`.
+    #[serde(default)]
+    pub thinking: Option<String>,
+    /// Which permission mode, from [`AgentTypeInfo::modes`], same convention.
+    #[serde(default)]
+    pub mode: Option<String>,
+    /// The MCP servers to inject into this run, by [`crate::mcp::McpInfo::name`]. Empty is not
+    /// "none of the profile's": it is read the way the fields above are, a pick that stands on its
+    /// own rather than a diff against [`ProfileInfo::mcps`].
+    #[serde(default)]
+    pub mcps: Vec<String>,
 }
 
 /// One shell the host found on this machine, as the new-pane menu offers it.

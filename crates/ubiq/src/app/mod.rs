@@ -89,7 +89,9 @@ use ubiq_proto::ids::{
     AiProviderId, ConnectId, ConnectionId, OauthAppId, PaneId, ProjectId, SearchId, SessionId,
     StepId, SuggestId, TaskId, ToolId,
 };
-use ubiq_proto::messages::{CliShortcutAction, Message, ProfileInfo, Secret, WorkspaceInfo};
+use ubiq_proto::messages::{
+    AgentPicks, CliShortcutAction, Message, ProfileInfo, Secret, WorkspaceInfo,
+};
 use ubiq_proto::notifications::{
     Family, HISTORY_CAP, Level, MuteFor, MuteScope, NotificationRequest, UbiqLink,
 };

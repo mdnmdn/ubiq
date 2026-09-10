@@ -1974,6 +1974,47 @@ does, and an address that resolves to nobody — a retired agent, an unknown ser
 — must always be a plain 404 rather than a protocol error, because there is no session to have
 refused the call.
 
+### D103 — Closing a terminal panel detaches its harness; only an explicit kill ends one
+
+The question was whether closing a terminal panel ends the harness behind it, as one action, or only
+takes the panel off screen. **Closing the panel detaches**: the harness keeps running under the
+host, its emulator and its screen stay live in the window, and reopening a panel for that `PaneId`
+reattaches to the stream. `Kill harness` on the tab's menu is what sends
+`Message::CloseWorkspace`, and an exited harness closes its own pane.
+
+**A detached pane is computed, not stored.** It is a pane the project still holds that no panel
+draws — `self.panels`, the live panel registry, is the whole of the test. Nothing new is written
+down, and no flag on `PaneState` can disagree with what is on screen.
+
+**Why.** One gesture means one thing. A column tab on the agents screen benches its agent and the
+harness keeps running, so a terminal tab that killed one would be a second meaning for the same
+gesture — a difference the documents have to explain instead of a rule a reader can carry. It also
+squares the pane rules with themselves: an agent left alone keeps working whether or not anyone is
+looking at its pane, which a tab that killed it contradicted. The bench is the idiom the two
+converge on.
+
+It is also nearly free, and that is the second half of the reason. The emulator was never owned by
+the panel — it lives in `AppState.terminals` keyed by `PaneId`, and `Message::TerminalOutput` is
+routed by a direct lookup there rather than through the panel — so a detach keeps the entry and the
+screen survives untouched. **No host change, and no message.** The host is never told a panel
+closed; ownership is per client, not per panel. That is what makes this a bookkeeping change in one
+window rather than a lifecycle feature, and it is why the alternative — a bounded ring of the
+harness's output in the host, replayed into a fresh emulator on reattach — was rejected: it would
+retain bytes the host has never retained, and a ring truncated past the escape that entered the
+alternate screen replays absolute-positioned output onto the wrong screen, which is exactly the
+corruption the pane rules name as a design-level error.
+
+**Cost.** A pane outlives its panel, so "in `panes`" does not mean "on screen", and every reading
+that conflates the two is a bug — the focus handoff most of all, which picks the first pane in the
+project and must skip the ones nothing draws, or the keyboard lands on a pane with nothing to
+receive it. A detached harness is also easier to forget than a visible one: it spends money, and the
+only
+thing that reclaims it is the window closing, since the host bounds a pane's life by its owning
+client and runs no idle reaper. The scope is deliberately that narrow — a detached pane does not
+survive its window, and nothing survives the application, which still quits with its last window.
+Reattaching from a *different* window would need the host to move a pane between owners, and no
+message does that.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce

@@ -15,10 +15,11 @@ use gpui_component::Root;
 use ubiq::app::{AppState, BusHub};
 use ubiq::state::WindowRegistry;
 use ubiq::state::dock::Region;
-use ubiq::state::{NewPaneRow, WorkbenchState};
+use ubiq::state::new_agent::Target;
+use ubiq::state::{NewAgentSurface, NewPaneRow, WorkbenchState};
 use ubiq_proto::bus::{self, FromClient, To};
 use ubiq_proto::ids::ProjectId;
-use ubiq_proto::messages::{AgentTypeInfo, Message, ShellInfo};
+use ubiq_proto::messages::{AgentPicks, AgentTypeInfo, Message, ShellInfo};
 use ubiq_proto::projects::{ProjectHealth, ProjectRecord, ProjectSnapshot};
 
 /// Long enough for a message to cross a channel in the same process.
@@ -191,7 +192,7 @@ fn agent_rows_come_before_shells_with_a_separator_between() {
         ..Default::default()
     };
 
-    let rows = workbench.new_pane_rows(true);
+    let rows = workbench.new_pane_rows(true, 0);
     assert_eq!(
         rows,
         vec![
@@ -216,7 +217,7 @@ fn no_rows_are_offered_without_a_project() {
     };
 
     assert_eq!(
-        workbench.new_pane_rows(false),
+        workbench.new_pane_rows(false, 0),
         vec![NewPaneRow::Console],
         "a window with no project was offered more than the console"
     );
@@ -231,13 +232,47 @@ fn an_empty_agent_list_degrades_to_todays_menu() {
     };
 
     assert_eq!(
-        workbench.new_pane_rows(true),
+        workbench.new_pane_rows(true, 0),
         vec![
             NewPaneRow::Shell(0),
             NewPaneRow::Separator,
             NewPaneRow::Console
         ],
         "an empty agent list left a stray separator or row ahead of the shells"
+    );
+}
+
+/// A detached pane's group leads the menu, its own heading and separator with it, and vanishes
+/// whole when there is nothing detached — same rule the agent and shell groups already follow.
+#[test]
+fn detached_panes_lead_with_their_own_heading_and_separator() {
+    let workbench = WorkbenchState {
+        agent_types: vec![an_agent("claude-code", "Claude Code", true)],
+        ..Default::default()
+    };
+
+    assert_eq!(
+        workbench.new_pane_rows(true, 2),
+        vec![
+            NewPaneRow::DetachedHeading,
+            NewPaneRow::Detached(0),
+            NewPaneRow::Detached(1),
+            NewPaneRow::Separator,
+            NewPaneRow::Agent(0),
+            NewPaneRow::Separator,
+            NewPaneRow::Console,
+        ],
+        "detached panes lead, then a separator, then the agents, then the console"
+    );
+
+    assert_eq!(
+        workbench.new_pane_rows(true, 0),
+        vec![
+            NewPaneRow::Agent(0),
+            NewPaneRow::Separator,
+            NewPaneRow::Console
+        ],
+        "no detached pane means no heading and no separator either"
     );
 }
 
@@ -581,5 +616,329 @@ fn a_windows_shells_tab_is_its_short_name_and_a_number() {
     assert_eq!(
         ubiq::app::pane_title("C:\\Program Files\\PowerShell\\7\\pwsh.exe", &taken),
         "psh 2"
+    );
+}
+
+// ── the New agent form's second button: "Start in terminal" ──────────────────────
+
+/// `Message::SpawnWorkspace`'s `picks` is every answer the New agent form held, carried out
+/// verbatim — the same fields `start_new_agent` sends on `Message::StartConversation`, so a
+/// harness started in a terminal is asked for exactly what one started as a conversation would be.
+#[gpui::test]
+fn the_forms_answers_ride_out_on_spawn_workspace_as_picks(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    fixture.answer_agent_types(vec![an_agent("claude-code", "Claude Code", true)], cx);
+    let _ = fixture.said();
+
+    fixture
+        .window
+        .update(cx, |_, window, cx| {
+            fixture.state.update(cx, |state, cx| {
+                state.open_new_agent_direct(window, cx);
+                state.pick_new_agent_target(
+                    Target::Harness {
+                        agent_type: "claude-code".to_string(),
+                        account: Some("work".to_string()),
+                    },
+                    window,
+                    cx,
+                );
+                state.pick_new_agent_model("opus5".to_string(), window, cx);
+                state.pick_new_agent_thinking(Some("high".to_string()), window, cx);
+                state.pick_new_agent_mode(Some("plan".to_string()), window, cx);
+                state.toggle_new_agent_mcp("filesystem".to_string(), cx);
+                state.toggle_new_agent_mcp("git".to_string(), cx);
+                state.start_new_agent_in_terminal(cx);
+            });
+        })
+        .expect("the window is open");
+    cx.run_until_parked();
+
+    let (agent_type, picks) = fixture
+        .said()
+        .into_iter()
+        .find_map(|message| match message {
+            Message::SpawnWorkspace {
+                agent_type, picks, ..
+            } => Some((agent_type, picks)),
+            _ => None,
+        })
+        .expect("starting in a terminal asks for a pane");
+    assert_eq!(
+        agent_type,
+        Some("claude-code".to_string()),
+        "the chosen harness is what the pane is spawned running"
+    );
+    assert_eq!(
+        picks,
+        AgentPicks {
+            account: Some("work".to_string()),
+            profile: None,
+            model: Some("opus5".to_string()),
+            thinking: Some("high".to_string()),
+            mode: Some("plan".to_string()),
+            mcps: vec!["filesystem".to_string(), "git".to_string()],
+        },
+        "every answer the form held rode out on the pick"
+    );
+}
+
+/// A model, a level and a mode the form never answered are not left absent: the host reads
+/// `Some(String::new())` as "the harness's own default", the same convention `start_new_agent`
+/// itself uses on `Message::StartConversation` — an absent field would ask for something else
+/// entirely, whatever the library resolves that to be.
+#[gpui::test]
+fn an_unanswered_model_thinking_and_mode_ride_out_as_the_harnesss_own_default(
+    cx: &mut TestAppContext,
+) {
+    let fixture = Fixture::open(cx);
+    fixture.answer_agent_types(vec![an_agent("claude-code", "Claude Code", true)], cx);
+    let _ = fixture.said();
+
+    fixture
+        .window
+        .update(cx, |_, window, cx| {
+            fixture.state.update(cx, |state, cx| {
+                state.open_new_agent_direct(window, cx);
+                state.pick_new_agent_target(
+                    Target::Harness {
+                        agent_type: "claude-code".to_string(),
+                        account: None,
+                    },
+                    window,
+                    cx,
+                );
+                state.start_new_agent_in_terminal(cx);
+            });
+        })
+        .expect("the window is open");
+    cx.run_until_parked();
+
+    let picks = fixture
+        .said()
+        .into_iter()
+        .find_map(|message| match message {
+            Message::SpawnWorkspace { picks, .. } => Some(picks),
+            _ => None,
+        })
+        .expect("starting in a terminal asks for a pane");
+    assert_eq!(picks.model, Some(String::new()));
+    assert_eq!(picks.thinking, Some(String::new()));
+    assert_eq!(picks.mode, Some(String::new()));
+}
+
+/// Starting in a terminal is a pane, not a conversation: nothing here ever answers
+/// `Message::StartConversation`, whatever the form held.
+#[gpui::test]
+fn starting_in_a_terminal_never_sends_start_conversation(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    fixture.answer_agent_types(vec![an_agent("claude-code", "Claude Code", true)], cx);
+    let _ = fixture.said();
+
+    fixture
+        .window
+        .update(cx, |_, window, cx| {
+            fixture.state.update(cx, |state, cx| {
+                state.open_new_agent_direct(window, cx);
+                state.pick_new_agent_target(
+                    Target::Harness {
+                        agent_type: "claude-code".to_string(),
+                        account: None,
+                    },
+                    window,
+                    cx,
+                );
+                state.start_new_agent_in_terminal(cx);
+            });
+        })
+        .expect("the window is open");
+    cx.run_until_parked();
+
+    assert!(
+        !fixture
+            .said()
+            .iter()
+            .any(|message| matches!(message, Message::StartConversation { .. })),
+        "a terminal start produced a conversation"
+    );
+}
+
+/// `form.preamble()` exists for a composer to fold into a first turn, and a terminal pane has no
+/// composer — the opening prompt and the subagent ceiling the form carries must not be stashed
+/// for an agent id nothing here ever mints.
+#[gpui::test]
+fn starting_in_a_terminal_stashes_no_preamble(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    fixture.answer_agent_types(vec![an_agent("claude-code", "Claude Code", true)], cx);
+    let _ = fixture.said();
+
+    fixture
+        .window
+        .update(cx, |_, window, cx| {
+            fixture.state.update(cx, |state, cx| {
+                state.open_new_agent_direct(window, cx);
+                state.pick_new_agent_target(
+                    Target::Harness {
+                        agent_type: "claude-code".to_string(),
+                        account: None,
+                    },
+                    window,
+                    cx,
+                );
+                // Both halves of what `preamble()` would fold: an opening prompt, and a subagent
+                // ceiling — the latter already defaults to `Some(_)` on a fresh form, so leaving
+                // it untouched still exercises it.
+                state.new_agent_prompt.clone().update(cx, |input, cx| {
+                    input.set_value("look at the parser", window, cx);
+                });
+                state.pick_new_agent_subagents(Some(3), window, cx);
+                state.start_new_agent_in_terminal(cx);
+            });
+        })
+        .expect("the window is open");
+    cx.run_until_parked();
+
+    assert!(
+        fixture
+            .state
+            .read_with(cx, |state, _| state.workbench.agent_preambles.is_empty()),
+        "a preamble was held for a pane with no composer to fold it into"
+    );
+}
+
+/// The regression this guards: a form raised from the chat strip writes down that the next
+/// conversation to arrive belongs there — `AppState::aim_start` sets `pending_chat_open` — and
+/// that claim is only ever spent in `wire`'s `ConversationStarted` arm. Starting in a terminal
+/// never produces one, so an unreleased claim would sit armed and hand the *next* conversation
+/// started from anywhere else — the agents screen, the sink — to the chat surface that asked for
+/// this one instead. `start_new_agent_in_terminal` must release it exactly the way cancelling the
+/// form already does.
+#[gpui::test]
+fn starting_in_a_terminal_releases_the_chat_strips_claim_on_the_next_conversation(
+    cx: &mut TestAppContext,
+) {
+    let fixture = Fixture::open(cx);
+    fixture.answer_agent_types(vec![an_agent("claude-code", "Claude Code", true)], cx);
+    let _ = fixture.said();
+
+    fixture
+        .window
+        .update(cx, |_, window, cx| {
+            fixture.state.update(cx, |state, cx| {
+                // Row 0 of the `+` menu raised from the chat strip: the public path that arms
+                // `pending_chat_open`, exactly as the chat header's own `+` would.
+                state.open_new_agent_menu((10.0, 20.0), NewAgentSurface::Chat, cx);
+                state.pick_new_agent_menu(0, window, cx);
+            });
+        })
+        .expect("the window is open");
+    cx.run_until_parked();
+    assert!(
+        fixture
+            .state
+            .read_with(cx, |state, _| state.pending_chat_open),
+        "the form was never armed for the chat strip, so releasing it proves nothing"
+    );
+
+    fixture
+        .window
+        .update(cx, |_, window, cx| {
+            fixture.state.update(cx, |state, cx| {
+                state.pick_new_agent_target(
+                    Target::Harness {
+                        agent_type: "claude-code".to_string(),
+                        account: None,
+                    },
+                    window,
+                    cx,
+                );
+                state.start_new_agent_in_terminal(cx);
+            });
+        })
+        .expect("the window is open");
+    cx.run_until_parked();
+
+    assert!(
+        !fixture
+            .state
+            .read_with(cx, |state, _| state.pending_chat_open),
+        "the claim outlived a start that will never produce the ConversationStarted that spends it"
+    );
+}
+
+/// A form with nothing chosen sends nothing and stays up — the button it belongs to is drawn
+/// faint and does nothing, and this is its brace, the same as `start_new_agent`'s.
+#[gpui::test]
+fn starting_in_a_terminal_with_no_target_chosen_sends_nothing(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    fixture.answer_agent_types(vec![an_agent("claude-code", "Claude Code", true)], cx);
+    let _ = fixture.said();
+
+    fixture
+        .window
+        .update(cx, |_, window, cx| {
+            fixture.state.update(cx, |state, cx| {
+                state.open_new_agent_direct(window, cx);
+                state.start_new_agent_in_terminal(cx);
+            });
+        })
+        .expect("the window is open");
+    cx.run_until_parked();
+
+    assert!(
+        !fixture
+            .said()
+            .iter()
+            .any(|message| matches!(message, Message::SpawnWorkspace { .. })),
+        "a start with nothing chosen spawned a pane anyway"
+    );
+    assert!(
+        fixture
+            .state
+            .read_with(cx, |state, _| state.new_agent_form().is_some()),
+        "a refused start must leave the form up rather than silently dismissing it"
+    );
+}
+
+/// A form naming a harness this machine does not have available sends nothing either — the row
+/// that named it is drawn disabled in the target list, and picking it some other way must not
+/// start a pane that would fail as a spawn the user has to interpret.
+#[gpui::test]
+fn starting_in_a_terminal_with_an_unavailable_harness_sends_nothing(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    fixture.answer_agent_types(vec![an_agent("codex", "Codex", false)], cx);
+    let _ = fixture.said();
+
+    fixture
+        .window
+        .update(cx, |_, window, cx| {
+            fixture.state.update(cx, |state, cx| {
+                state.open_new_agent_direct(window, cx);
+                state.pick_new_agent_target(
+                    Target::Harness {
+                        agent_type: "codex".to_string(),
+                        account: None,
+                    },
+                    window,
+                    cx,
+                );
+                state.start_new_agent_in_terminal(cx);
+            });
+        })
+        .expect("the window is open");
+    cx.run_until_parked();
+
+    assert!(
+        !fixture
+            .said()
+            .iter()
+            .any(|message| matches!(message, Message::SpawnWorkspace { .. })),
+        "an unavailable harness was started anyway"
+    );
+    assert!(
+        fixture
+            .state
+            .read_with(cx, |state, _| state.new_agent_form().is_some()),
+        "a refused start must leave the form up rather than silently dismissing it"
     );
 }

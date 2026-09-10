@@ -56,6 +56,15 @@ change here, and each row says whether that harness can be started here — its 
 this machine, or a command override configured for it — a row that cannot start says so before it
 is picked. A name the library does not know is a program, which is how a shell reaches a pane.
 
+**A pane's run takes the same picks a conversation's does.** `SpawnWorkspace` carries an
+`AgentPicks` record — the identity, the saved setup, the model, the level, the permission mode and
+the MCP servers to inject — and `Agents::compose` hands it to the same composition
+`Agents::converse` uses, differing only in the face: `IoModes::Passthrough` and a pseudo-terminal
+rather than a structured bridge. So a harness started from the new-agent form's `Start in terminal`
+is the same run the form's `Start` would have made, drawing its own screen instead of a transcript.
+The new-pane menu and every shell row name nothing and send the empty record, which is the
+zero-config start the library resolves whole.
+
 **An agent is composed, not executed.** Starting one provisions a throwaway configuration directory
 for that run, and the harness is launched against it with the environment the library computed —
 what that composition reads and writes is the harness library's, in
@@ -167,9 +176,10 @@ unconfined.
 The spawn path, in order: look the project's record up and probe its folder, refusing before
 anything is opened if it cannot be worked in; resolve the working directory from that record and the
 optional path below it; resolve the agent type, falling back to what the session starts by default;
-compose the run when the library knows that type, which resolves what it is composed of — the
-account and model a profile names included — provisions its configuration directory, and resolves
-the policy it runs under; open a pseudo-terminal pair at 80×24; build the command with its
+compose the run when the library knows that type, which resolves what it is composed of — the picks
+the spawn carried, and the account, model and MCP servers a profile names, included — provisions its
+configuration directory, and resolves the policy it runs under; register the pane with the MCP
+listener, before the process exists to call it; open a pseudo-terminal pair at 80×24; build the command with its
 arguments, its working directory, the environment the composition produced, and the `TERM` and
 `COLORTERM` a harness reads before it decides what it may draw; spawn the child; take a writer and a
 reader from the master; start the reader thread and the one that waits for the child; and answer

@@ -172,6 +172,16 @@ knows — what the form was opened holding, then the last launch, then the harne
 The mode picker opens on `AgentTypeInfo::unattended_mode`, the harness's own word for "ask
 nothing", so the interface never guesses which id means all permissions.
 
+**The footer offers two ways to start the same run.** `Start` sends `StartConversation` and the
+agent arrives as a transcript; `Start in terminal` sends `SpawnWorkspace` and the same harness
+arrives as a pane, drawing its own screen under a pseudo-terminal. Everything the form asked rides
+out either way — the identity, the saved setup, the model, the level, the permission mode and the
+ticked MCP servers are one `AgentPicks` record on both messages, and isolation is a host setting
+applied to both faces alike, so the two buttons differ in the face the run wears and in nothing
+else. The terminal button carries no preamble: a subagent ceiling and an opening prompt are folded
+into a first turn by a composer, and a pane has none — the user types into the harness itself. A
+non-chat harness is not on offer here at all, which is `G230`.
+
 **Nothing is created until the conversation lands.** The `+` writes down *where* a start is aimed
 and raises the form; the column or the tab is minted when `Message::ConversationStarted` arrives,
 so a form the user dismisses leaves no empty tab and no empty column behind. A start that never

@@ -57,6 +57,21 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
             cx.listener(|this, _, window, cx| this.open_new_agent_naming(window, cx)),
         ));
     }
+    // No `Purpose` gate needed: this `render` draws only `workbench.new_agent`, which is never
+    // raised except as `Purpose::Start` (see `open_new_agent`) — the settings page's profile form
+    // is the same body with its own footer, drawn elsewhere. "Start in terminal" sits beside
+    // Start, faded the same way while nothing is chosen yet.
+    actions = actions.child(
+        ghost_button(
+            "new-agent-start-terminal",
+            None,
+            "Start in terminal",
+            cx.listener(|this, _, _, cx| {
+                this.start_new_agent_in_terminal(cx);
+            }),
+        )
+        .when(!ready, |button| button.opacity(0.5)),
+    );
     let footer = footer_row(
         app,
         actions
