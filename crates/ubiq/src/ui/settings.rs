@@ -1870,6 +1870,7 @@ pub fn profile_form(app: &AppState, window: &mut Window, cx: &mut Context<AppSta
     // The same action row the New agent modal draws: what is not built yet on the left, what the
     // form is for on the right.
     let footer = crate::ui::new_agent::footer_row(
+        app,
         div()
             .flex()
             .items_center()
@@ -1890,6 +1891,7 @@ pub fn profile_form(app: &AppState, window: &mut Window, cx: &mut Context<AppSta
                 .when(!ready, |button| button.opacity(0.5)),
             )
             .into_any_element(),
+        cx,
     );
 
     crate::ui::new_agent::confirmable(

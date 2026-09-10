@@ -224,6 +224,16 @@ struct Coordinator {
     /// twenty seconds (`crate::host_meta`). Shared rather than copied because the sampler owns
     /// the write half; both readers take the lock for one clone and never hold it.
     meta: Arc<Mutex<HostMeta>>,
+    /// The loopback listener behind Ubiq's own MCP servers, held for the life of the process the
+    /// way the worker handles above are: dropping it stops the serving thread, so a host that
+    /// goes takes its port with it rather than leaving one answering for agents that are gone.
+    /// `None` when the port would not bind, which is a build with no injected servers and not a
+    /// failure — the warning was said at startup.
+    #[allow(
+        dead_code,
+        reason = "held for its Drop; the URL is read once, at construction"
+    )]
+    mcp: Option<crate::mcp::Serving>,
 }
 
 /// A conversation the window asked for and the harness has not yet answered — registered so the
@@ -275,6 +285,11 @@ struct PendingConversation {
     /// back to the library as the run's resume. `None` before the first run, and for a harness
     /// that named none.
     resume: Option<String>,
+    /// The MCP servers this conversation asked for, from [`Message::StartConversation::mcps`],
+    /// carried through to [`ConverseOptions::mcps`] on every launch and relaunch. `compose_run`
+    /// does not act on it yet — injecting the server is later work — so this is only where the
+    /// pick is remembered between here and there.
+    mcps: Vec<String>,
 }
 
 /// `base`, then `base 2`, `base 3` … — the first that nothing in `taken` is wearing. A counter
@@ -630,6 +645,18 @@ impl Coordinator {
         settings: Settings,
         pending: Vec<Reply>,
     ) -> Self {
+        // Ubiq's own MCP servers, on one loopback port for every agent this process will start.
+        // Bound *before* the agents are built, because the URL a run is composed with is written
+        // into the harness's configuration and never revisited — there is no later moment to tell
+        // a run where the port is. A port that will not bind is said once, here, and every run
+        // then composes with no injected servers rather than failing (`crate::mcp`).
+        let mcp_agents = crate::mcp::Registry::new();
+        let mcp = crate::mcp::start(mcp_agents.clone(), host.voice())
+            .inspect_err(|error| {
+                tracing::warn!("Ubiq's own MCP servers are not available: {error:#}");
+            })
+            .ok();
+
         // A run directory outlives its pane only when Ubiq did not get to close it, and no pane
         // from a previous process is still running, so the sweep happens once here.
         let agents = {
@@ -638,6 +665,9 @@ impl Coordinator {
             agents.set_policy(host.agent_home.clone(), host.extra_grants.clone());
             agents.set_environment(crate::environment::Environment::load(&root.path));
             agents.set_commands(host.agent_commands.clone());
+            if let Some(serving) = &mcp {
+                agents.set_mcp(serving.base_url(), mcp_agents.clone());
+            }
             agents
         };
         agents.sweep();
@@ -706,6 +736,9 @@ impl Coordinator {
                         // a conversation is named once however many processes it outlives.
                         named: row.title.is_some(),
                         resume: None,
+                        // Not part of the persisted row yet: an mcp pick made before a restart
+                        // does not survive one, same as `catalogue` above.
+                        mcps: Vec::new(),
                     },
                 )
             })
@@ -745,6 +778,7 @@ impl Coordinator {
             agents_this_run: 0,
             usage,
             meta,
+            mcp,
         }
     }
 
@@ -1243,6 +1277,15 @@ impl Coordinator {
                     },
                 ),
             },
+            // The catalogue is a constant of this build, so it is answered from the table itself
+            // rather than from anything running: the panel's checklist and the tools a harness
+            // will be offered come from the one place, and cannot disagree (`crate::mcp`).
+            Message::ListMcps => self.host.send(
+                To::Client(client),
+                Message::Mcps {
+                    servers: crate::mcp::catalogue(),
+                },
+            ),
             Message::BeginHarnessLogin {
                 agent_type,
                 account,
@@ -1719,10 +1762,11 @@ impl Coordinator {
                 model,
                 thinking,
                 mode,
+                mcps,
             } => {
                 self.start_conversation(
                     client, agent_id, project_id, session_id, rel_path, agent_type, account,
-                    profile, model, thinking, mode,
+                    profile, model, thinking, mode, mcps,
                 );
             }
             Message::PromptAgent { agent_id, text } => {
@@ -1958,6 +2002,7 @@ impl Coordinator {
         model: Option<String>,
         thinking: Option<String>,
         mode: Option<String>,
+        mcps: Vec<String>,
     ) {
         let Some(cwd) = self.resolve_cwd(client, project_id, rel_path.as_deref()) else {
             return;
@@ -2104,6 +2149,7 @@ impl Coordinator {
                 named: false,
                 // Nothing has run, so there is no harness session to continue.
                 resume: None,
+                mcps,
             },
         );
         self.remember_conversation(agent_id);
@@ -2203,6 +2249,40 @@ impl Coordinator {
             &last_thinking,
         );
         let mode = pending.chosen_mode.filter(|v| !v.is_empty());
+
+        // Tell the MCP listener who this agent is, *before* the harness exists to ask: the run
+        // composed below spawns the process, and the first thing a harness does with an injected
+        // server is call it. A row here for a launch that then fails is taken out again by the
+        // `retire_agent` in the error arm below — the same call that removes its run directory.
+        let (name, harness) = self
+            .work
+            .live_agent_mut(pending.project_id, agent_id)
+            .map(|agent| (agent.name.clone(), agent.harness.clone()))
+            .unwrap_or_else(|| (pending.agent_type.clone(), pending.agent_type.clone()));
+        let project = self
+            .projects
+            .record(pending.project_id)
+            .map(|record| crate::mcp::ProjectFacts {
+                id: record.id.to_string(),
+                name: record.name.clone(),
+                path: record.path.clone(),
+                colour: record.colour,
+            })
+            .unwrap_or_default();
+        self.agents.mcp_agents().register(crate::mcp::AgentFacts {
+            key: agent_id.to_string(),
+            name,
+            harness,
+            account: pending.account.clone(),
+            model: model.clone(),
+            mode: mode.clone(),
+            cwd: pending.cwd.display().to_string(),
+            // The harness's own session id, and only when this launch is a resume into one — a
+            // fresh run mints its id inside the harness and never says it here.
+            session: pending.resume.clone(),
+            project,
+        });
+
         let (composed, bridge) = match self.agents.converse(
             agent_id,
             &pending.agent_type,
@@ -2215,6 +2295,7 @@ impl Coordinator {
                 profile: pending.profile.clone(),
                 prompt: first_prompt,
                 resume: pending.resume.clone(),
+                mcps: pending.mcps.clone(),
             },
         ) {
             Ok(started) => started,
@@ -2666,8 +2747,18 @@ impl Coordinator {
         };
 
         self.start_conversation(
-            client, agent_id, project_id, session_id, rel_path, agent_type, account, profile,
-            model, thinking, mode,
+            client,
+            agent_id,
+            project_id,
+            session_id,
+            rel_path,
+            agent_type,
+            account,
+            profile,
+            model,
+            thinking,
+            mode,
+            Vec::new(),
         );
         // `start_conversation` refuses on its own terms — an unknown harness, an unreadable folder
         // — and says so; there is nothing here to add if it did.
@@ -4533,6 +4624,7 @@ mod tests {
                 opening_prompt: None,
                 named: false,
                 resume: None,
+                mcps: Vec::new(),
             },
         );
         let mailbox = coordinator.host.mailbox(To::Client(client.id()));

@@ -14,6 +14,7 @@
 
 use gpui::SharedString;
 use ubiq_proto::ids::ProjectId;
+use ubiq_proto::mcp::McpInfo;
 use ubiq_proto::messages::{AccountInfo, AgentTypeInfo, ProfileInfo, ShellInfo};
 use ubiq_proto::tools::ListedTool;
 use ubiq_proto::work::AgentId;
@@ -412,6 +413,17 @@ pub struct WorkbenchState {
     ///
     /// [`Message::ListShells`]: ubiq_proto::messages::Message::ListShells
     pub agent_types: Vec<AgentTypeInfo>,
+    /// The MCP servers this build offers to inject into a harness, from
+    /// [`Message::Mcps`]. Empty until the host answers, and every form that offers them draws
+    /// nothing rather than inventing a row.
+    ///
+    /// **One list for the window, not one per form.** What Ubiq can inject is a property of the
+    /// build the host is running, not of the harness, the account or the setup being filled in —
+    /// it does not change while the window is open, and a copy on each form would be the same
+    /// answer stored twice and refreshed at two different moments.
+    ///
+    /// [`Message::Mcps`]: ubiq_proto::messages::Message::Mcps
+    pub mcps: Vec<McpInfo>,
     /// The runnable tools the host lists: the machine-wide rows first, then the current
     /// project's. The menu offers the applicable ones below the shells. Empty until the host
     /// answers — asked with the shells and harnesses every time the menu opens, so a tool
@@ -480,6 +492,7 @@ impl Default for WorkbenchState {
             confirm_end_conversation: None,
             shells: Vec::new(),
             agent_types: Vec::new(),
+            mcps: Vec::new(),
             tools: Vec::new(),
             bookmarks_open: false,
         }
@@ -645,6 +658,7 @@ mod tests {
             thinking: None,
             max_subagents: None,
             prompt: None,
+            mcps: Vec::new(),
         }
     }
 

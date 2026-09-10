@@ -117,7 +117,7 @@ states the boundary once.
 | [Writing and updating docs](./_meta/authoring.md) | What every agent and human owes this documentation when they change code — and the small set of edits they may make. | 2026-08-31 |
 | [Proposal ledger](./_meta/feedback.md) | Append-only ledger of documentation changes the bookkeeper may not make unilaterally, and the resolutions they received. | 2026-09-10 |
 | [Librarian rulebook](./_meta/librarian.md) | How `_docs/` is organized, why it is organized that way, and how a bookkeeper agent keeps it that way. | 2026-08-31 |
-| [Review log](./_meta/review-log.md) | Append-only record of what each documentation maintenance pass checked, fixed and left alone. | 2026-08-31 |
+| [Review log](./_meta/review-log.md) | Append-only record of what each documentation maintenance pass checked, fixed and left alone. | 2026-09-10 |
 
 ### Work in progress
 

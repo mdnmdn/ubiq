@@ -7,7 +7,7 @@ summary: The complete message set the UI and the coordinator exchange — the pa
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
 updated: 2026-09-10
 verified: 2026-09-10
-code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs]
+code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
 ---
@@ -630,7 +630,7 @@ is what multiplexes several of them down one channel.
 
 | Message | Direction | Payload | Responds with |
 |---|---|---|---|
-| `StartConversation` | UI → host | `agent_id`, `project_id`, `session_id`, `rel_path?`, `agent_type`, `account?`, `profile?`, `model?`, `thinking?`, `mode?` | `ConversationStarted` or `ConversationError` |
+| `StartConversation` | UI → host | `agent_id`, `project_id`, `session_id`, `rel_path?`, `agent_type`, `account?`, `profile?`, `model?`, `thinking?`, `mode?`, `mcps` | `ConversationStarted` or `ConversationError` |
 | `PromptAgent` | UI → host | `agent_id`, `text` | — |
 | `CancelTurn` | UI → host | `agent_id` | — |
 | `AnswerPermission` | UI → host | `agent_id`, `request_id`, `option_id` | — |
@@ -916,7 +916,7 @@ cannot change mid-conversation.
 
 ## The payload records
 
-Forty-five records travel inside payloads.
+Forty-seven records travel inside payloads.
 
 | Record | Fields |
 |---|---|
@@ -957,7 +957,9 @@ Forty-five records travel inside payloads.
 | `MuteRule` | `scope`, `max_level`, `until?` |
 | `MuteFor` | one of: `Minutes5`, `Minutes15`, `Hour1`, `Hours8`, `Always` |
 | `Notifications` | `items[]` newest first, `mutes[]` |
-| `ProfileInfo` | `id`, `agent_type`, `account?`, `model?`, `mode?`, `thinking?`, `max_subagents?`, `prompt?` |
+| `McpInfo` | `name`, `title`, `description`, `tools[]` |
+| `McpToolInfo` | `name`, `description` |
+| `ProfileInfo` | `id`, `agent_type`, `account?`, `model?`, `mode?`, `thinking?`, `max_subagents?`, `prompt?`, `mcps` |
 | `PermissionOption` | `option_id`, `name`, `kind` |
 | `CliDir` | `path`, `exists`, `on_path` |
 | `PlanEntry` | `content`, `priority`, `status` |
@@ -1209,6 +1211,8 @@ error variant.
 | `ListProfiles` | UI → host | — | `Profiles` |
 | `Profiles` | host → UI | `profiles` | — |
 | `SaveProfile` | UI → host | `profile` | `Profiles`, or `AccountError` |
+| `ListMcps` | UI → host | — | `Mcps` |
+| `Mcps` | host → UI | `servers` | — |
 
 **There is no delete.** A profile is a saved setup, and a stale one costs a row in a list — not a
 credential on disk, which is what makes deleting an account worth a message and deleting a profile
@@ -1233,6 +1237,14 @@ the profile inside the library's `resolve`, so a profile left unseeded would be 
 then launched over. `account`, `model`, `thinking` and `mode` on the same message stay separate and
 win over the profile's, which is what "the user picked this one" means — a profile is the default
 a form opened on, and every field the user then changed is the user saying otherwise.
+
+**The MCP catalogue rides here** because a profile is where a pick is saved. `Mcps` answers with an
+`McpInfo` per server this *build* offers — a slug, a title, a paragraph, and an `McpToolInfo` per
+tool — and `ProfileInfo.mcps` and `StartConversation.mcps` both name one of those slugs. Nothing on
+the wire says how a server is reached: the host binds one loopback port and hands each run a URL
+carrying its own agent id, and neither the URL nor the port is a fact the interface is told. A slug
+a build no longer offers is dropped at composition with a warning, which is the same "a stale
+reference costs a row in a list" rule the profile family already lives by.
 
 ## The command-line family
 

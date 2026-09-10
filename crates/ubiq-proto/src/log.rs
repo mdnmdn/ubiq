@@ -90,7 +90,7 @@ impl Subsystem {
             || target.starts_with("ubiq_proto::bus")
         {
             Subsystem::Coordinator
-        } else if target.starts_with("ubiq_host::mcp_server") {
+        } else if target.starts_with("ubiq_host::mcp") {
             Subsystem::Mcp
         } else if target.starts_with("ubiq_host::search") || target.starts_with("ubiq_host::watch")
         {

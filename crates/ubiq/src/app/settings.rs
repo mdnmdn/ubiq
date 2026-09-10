@@ -261,6 +261,9 @@ impl AppState {
             self.bus.send(Message::ListAccounts);
             self.bus.send(Message::ListProfiles);
             self.bus.send(Message::ListAgentTypes);
+            // And what the profile form's MCP checklist offers, which the profile section is the
+            // other surface for — see `AppState::open_new_agent`.
+            self.bus.send(Message::ListMcps);
             // Same reasoning, for the other half of the identities: a connection made in
             // another window should be here without a restart.
             self.bus.send(Message::ListConnections);

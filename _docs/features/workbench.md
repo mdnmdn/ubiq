@@ -149,6 +149,18 @@ the two drift apart. Picking a profile as the target fills every row below from 
 for, offered only when the target is a bare harness — saving a start that already points at a
 profile would be writing that profile over itself.
 
+**The form's footer offers the MCP servers Ubiq itself injects.** `MCPs` opens a checklist of the
+`McpInfo` rows the host answered `ListMcps` with — one tick box per server, its title, what it is
+for and the tools it answers — and what is ticked rides out on `StartConversation::mcps` or is
+written into `ProfileInfo::mcps`. It is a checklist and not a picker because several servers may be
+asked for at once, so the panel is the same `deferred`/`anchored` shape the pickers are built on
+with check-box rows in it, opening upward from the footer and staying down across ticks. The
+catalogue lives on `WorkbenchState::mcps`, one list for the window: what this build can inject is a
+property of the build, not of the harness, the identity or the setup being filled in. Until the
+host answers, the button is drawn faint and takes no click, the way the rest of the form draws a
+row with nothing to offer. `Custom policies` beside it is still the predisposition for something
+the host does not answer yet.
+
 **The model and the level are known before anything is started.** Opening the form sends
 `ListHarnessCatalogue` for the chosen harness and identity, and `HarnessCatalogue` comes back with
 the models that harness will answer for, the reasoning levels each accepts, and what this harness
@@ -2572,8 +2584,9 @@ nothing in it names a colour, and it is tested without a frame in `crates/ubiq/t
 
 **The New agent form is three modules with the window's usual division of labour.**
 `state/new_agent.rs` is `NewAgentForm` and small pure readings of it — `Purpose` (start, or write a
-profile), `Target` (a harness with its identity, or a profile), `OpenList` (which of its pickers is
-down, one at a time), `model_levels()`, `default_mode()`, `preamble()` and `fold_preamble()`, all
+profile), `Target` (a harness with its identity, or a profile), `OpenList` (which of its pickers — or its MCP
+checklist — is down, one at a time, and `has_filter()` for which of them carry the shared filter
+field), `toggle_mcp()`, `model_levels()`, `default_mode()`, `preamble()` and `fold_preamble()`, all
 tested without a frame. `app/new_agent.rs` is the mutators, and reaches for whichever of the two
 forms is up rather than taking a discriminator — two ways to answer one question is how the two
 would drift apart again — plus `start_new_agent()`, `send_prompt()` and `take_agent_preamble()`.

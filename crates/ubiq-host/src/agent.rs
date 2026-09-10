@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 
 use agent_manager::Validity;
 use agent_manager::account::{AccountStore, FsAccountStore, login_validity};
+use agent_manager::config::{McpServer, McpTransport};
 use agent_manager::harness::{self, Launch, ModelInfo};
 use agent_manager::io::IoBridge;
 use agent_manager::isolate::{self, Confined, IsolateOptions};
@@ -27,7 +28,7 @@ use agent_manager::resolve;
 use agent_manager::session;
 use agent_manager::settings::Settings;
 use agent_manager::source::Source;
-use agent_manager::spec::{ConfigStrategy, IoModes, Isolation, Policy};
+use agent_manager::spec::{ConfigStrategy, IoModes, Isolation, McpRef, Policy};
 use anyhow::{Context, Result, anyhow, bail};
 use ubiq_proto::conversation::ConfigChoice;
 use ubiq_proto::ids::PaneId;
@@ -59,6 +60,18 @@ pub struct Agents {
     /// Custom command line overrides, harness id → what to run instead of the library's own
     /// bare program, as the user set them in Settings.
     commands: BTreeMap<String, String>,
+    /// Where the host's MCP listener is bound — `http://127.0.0.1:<port>` — or `None` when the
+    /// port would not bind. A run composed without it simply gets no injected servers: an agent
+    /// that cannot ask Ubiq what project it is in is a smaller failure than one that will not
+    /// start.
+    mcp_base: Option<String>,
+    /// Who that listener will answer for. Held here rather than only by the coordinator because
+    /// **retiring a run is what forgets an agent**, and every path that ends a run — a launch that
+    /// would not compose, a window closing, `EndConversation`, the startup sweep — already goes
+    /// through [`retire`](Self::retire), [`retire_agent`](Self::retire_agent) or
+    /// [`park_agent`](Self::park_agent). Hooking the coordinator's arms one at a time would mean
+    /// finding them all again the next time one is added.
+    mcp_agents: crate::mcp::Registry,
 }
 
 /// A run composed and ready to spawn: what to exec, where its configuration
@@ -112,6 +125,14 @@ pub struct ConverseOptions {
     /// The harness's own session id, to continue a conversation whose last process has exited.
     /// Which flag that becomes is the library's answer, never Ubiq's.
     pub resume: Option<String>,
+    /// The MCP servers Ubiq should inject into this run, by their slug in
+    /// [`ubiq_proto::mcp::McpInfo::name`]. Each becomes an inline http server pointed at this
+    /// host's own listener; a name this build does not offer is dropped with a warning rather
+    /// than failing the run, the same rule a stale reference lives by everywhere else.
+    ///
+    /// The picks only. What the profile saved is read from the profile inside `compose_run`,
+    /// because that is where the profile is known — see the note there.
+    pub mcps: Vec<String>,
 }
 
 /// A login that has been prepared and not yet finished: what to run, and what finishing it
@@ -225,7 +246,26 @@ impl Agents {
             extra_grants: Vec::new(),
             environment: Environment::default(),
             commands: BTreeMap::new(),
+            mcp_base: None,
+            mcp_agents: crate::mcp::Registry::new(),
         }
+    }
+
+    /// Point runs at the host's MCP listener: the base URL it is bound on, and the table it
+    /// resolves an agent from.
+    ///
+    /// Set once at startup, before the first run is composed, for the same reason the listener is
+    /// bound before this is built — a URL handed to a harness is written into its configuration
+    /// and never revisited, so there is no second chance to tell a run where the port is.
+    pub fn set_mcp(&mut self, base_url: String, agents: crate::mcp::Registry) {
+        self.mcp_base = Some(base_url);
+        self.mcp_agents = agents;
+    }
+
+    /// The table the listener answers from, for the coordinator to write an agent's facts into
+    /// when it launches one.
+    pub fn mcp_agents(&self) -> crate::mcp::Registry {
+        self.mcp_agents.clone()
     }
 
     /// Whether a run is confined unless something says otherwise.
@@ -417,13 +457,39 @@ impl Agents {
                     thinking: profile.defaults.thinking,
                     max_subagents: profile.max_subagents,
                     prompt: profile.defaults.prompt,
+                    // "This profile mentioned nothing" and "this profile picked none" are the
+                    // same row in a checklist, so the interface is told the empty list for both.
+                    // The distinction still matters on disk — see [`save_profile`](Self::save_profile).
+                    mcps: profile.defaults.mcps.unwrap_or_default(),
                 })
             })
             .collect())
     }
 
+    /// What a profile saved under `defaults.mcps`, or `None` when it mentioned none — the
+    /// distinction the library's own merge turns on, kept rather than flattened to a list.
+    ///
+    /// The named profile's own row, not its inheritance chain: Ubiq writes no parent, and
+    /// flattening one here would be this module holding a second answer to a question
+    /// `resolve` already answers.
+    fn profile_mcps(&self, id: &str) -> Option<Vec<String>> {
+        self.profile_store()
+            .profile(id)
+            .ok()
+            .flatten()
+            .and_then(|profile| profile.defaults.mcps)
+    }
+
     /// Write a profile, creating it when its id names none. Overwrites in place: a saved
     /// setup is edited, not versioned.
+    ///
+    /// An empty pick is written as `None` rather than as an empty list, because
+    /// [`ProfileDefaults`] draws a real distinction between them: `None` is "this profile did not
+    /// mention MCP servers", which lets a parent profile's — or the library's own — answer stand,
+    /// and `Some([])` is "this profile says none", which overrides one. A checklist with nothing
+    /// ticked is the first of those. Nothing in Ubiq's own interface can express the second, and
+    /// inventing it here would mean every profile saved through this window silently overriding a
+    /// default it was never shown.
     pub fn save_profile(&self, profile: ProfileInfo) -> Result<()> {
         let record = Profile {
             id: profile.id,
@@ -433,6 +499,7 @@ impl Agents {
                 model: profile.model,
                 thinking: profile.thinking,
                 prompt: profile.prompt,
+                mcps: (!profile.mcps.is_empty()).then_some(profile.mcps),
                 ..Default::default()
             },
             mode: profile.mode,
@@ -826,6 +893,50 @@ impl Agents {
         let harness = harness::resolve(agent_type)
             .ok_or_else(|| anyhow!("unknown agent type '{agent_type}'"))?;
 
+        // Which of Ubiq's own MCP servers this run gets, and — the reason this is here rather
+        // than left to the library — which names still belong to `resolve`.
+        //
+        // A profile's `defaults.mcps` is read by `resolve` as a list of ids in the **on-disk
+        // catalog**, and an id it cannot find there is a `bail!` that fails the whole run. Ubiq's
+        // built-ins are in no catalog: they are this process, on a port it bound at startup. So
+        // the profile's list is split here — the names this build answers are lifted out and
+        // injected below, and only the rest is handed back down as `flags.mcps`, which outranks
+        // the profile in the library's own merge. The alternative was to make `resolve` lenient
+        // about an unknown catalog id, which would turn a typo in any embedder's profile into a
+        // server that silently is not there; a run must still fail loudly for a name nobody
+        // answers.
+        let mut injected: Vec<String> = Vec::new();
+        for name in &options.mcps {
+            if !crate::mcp::knows(name) {
+                tracing::warn!(
+                    mcp = %name,
+                    harness = %agent_type,
+                    "this build offers no MCP server by that name, so nothing was injected for it"
+                );
+            } else if !injected.contains(name) {
+                injected.push(name.clone());
+            }
+        }
+        let catalog_mcps = options
+            .profile
+            .as_deref()
+            .and_then(|profile| self.profile_mcps(profile))
+            .map(|saved| {
+                saved
+                    .into_iter()
+                    .filter(|name| {
+                        if crate::mcp::knows(name) {
+                            if !injected.contains(name) {
+                                injected.push(name.clone());
+                            }
+                            false
+                        } else {
+                            true
+                        }
+                    })
+                    .collect::<Vec<String>>()
+            });
+
         // What a run is composed *of* — its account, its model, the profile that names
         // them — is the library's question, and `resolve` is the one place that answers it.
         // Ubiq builds no `RunSpec` of its own beyond the three fields below, so an account
@@ -848,6 +959,10 @@ impl Agents {
             // The saved setup the picks sit on top of. `None` is a bare start, and the
             // library then falls back to whatever profile it resolves on its own.
             profile: options.profile,
+            // Whatever the profile named that Ubiq does not answer itself, passed back as a flag
+            // so the built-ins never reach the catalog lookup. `None` when the profile mentioned
+            // no servers at all, which leaves the library's own precedence untouched.
+            mcps: catalog_mcps,
             // The two fields a one-shot harness converses through: its prompt is argv, and the
             // only thing joining one turn to the next is the harness's own session id. `resolve`
             // lands them on `spec.initial.prompt` and `spec.resume`, and each harness's
@@ -865,9 +980,10 @@ impl Agents {
         )
         .with_context(|| format!("composing a {agent_type} run"))?;
 
-        // The four answers that are Ubiq's rather than the library's: which directory this
-        // run's configuration lives in, which face it wears, whether it is confined, and — when
-        // it is — that it asks nothing. The isolation replaces whatever a profile asked for,
+        // The five answers that are Ubiq's rather than the library's: which directory this
+        // run's configuration lives in, which face it wears, whether it is confined, — when
+        // it is — that it asks nothing, and which of Ubiq's own MCP servers it can reach.
+        // The isolation replaces whatever a profile asked for,
         // because the toggle belongs to Ubiq's own settings and applies to both faces alike.
         let structured = io == IoModes::Structured;
         spec.config = ConfigStrategy::Fixed(self.run_dir_for(key));
@@ -889,6 +1005,33 @@ impl Agents {
             spec.policy
                 .get_or_insert_with(Policy::default)
                 .permission_mode = Some(mode.to_string());
+        }
+
+        // Ubiq's own servers, inline rather than from the catalog: there is no file behind them
+        // to name, only a port this process bound at startup. The run's own key rides in the
+        // path, which is the whole of how the listener knows which agent is calling — nothing
+        // else about the request identifies it (`crate::mcp`).
+        match &self.mcp_base {
+            Some(base) => {
+                for name in &injected {
+                    spec.mcps.push(McpRef::Inline(McpServer {
+                        id: name.clone(),
+                        transport: McpTransport::Http,
+                        command: None,
+                        args: Vec::new(),
+                        env: BTreeMap::new(),
+                        url: Some(format!("{base}/mcps/{key}/{name}")),
+                        headers: BTreeMap::new(),
+                    }));
+                }
+            }
+            // A listener that would not bind was already reported once, at startup. Saying it
+            // again per run would bury it; saying nothing would leave a missing tool unexplained.
+            None if !injected.is_empty() => tracing::warn!(
+                harness = %agent_type,
+                "no MCP listener is bound in this process, so none of this run's servers were injected"
+            ),
+            None => {}
         }
 
         let templates = harness::FsTemplateStore::new(self.root.join("harness-templates"));
@@ -1103,6 +1246,9 @@ impl Agents {
         let key = agent.to_string();
         self.archive(&key);
         self.scrub_login(&key);
+        // Its process has gone, so the MCP listener has nobody left to answer for at that
+        // address. A parked conversation registers again when it is revived.
+        self.mcp_agents.forget(&key);
     }
 
     /// Copy one agent's run directory onto another's, so the second resumes
@@ -1174,6 +1320,7 @@ impl Agents {
     /// user already saw happen.
     pub fn retire(&self, pane: PaneId) {
         self.archive(&pane.to_string());
+        self.mcp_agents.forget(&pane.to_string());
         let _ = std::fs::remove_dir_all(self.run_dir(pane));
     }
 
@@ -1221,6 +1368,7 @@ impl Agents {
     /// Remove what an agent's conversation left behind.
     pub fn retire_agent(&self, agent: AgentId) {
         self.archive(&agent.to_string());
+        self.mcp_agents.forget(&agent.to_string());
         let _ = std::fs::remove_dir_all(self.agent_dir(agent));
     }
 

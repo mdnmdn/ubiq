@@ -1587,6 +1587,13 @@ impl AppState {
                 self.workbench.settings.profile_form = None;
                 cx.notify();
             }
+            // What this build can inject into a harness. Replaced whole, the same way the harness
+            // list is: the host's answer *is* the catalogue, and a server this build no longer
+            // ships has to leave the checklist.
+            Message::Mcps { servers } => {
+                self.workbench.mcps = servers;
+                cx.notify();
+            }
             Message::HarnessLoginStarted {
                 pane_id,
                 agent_type,

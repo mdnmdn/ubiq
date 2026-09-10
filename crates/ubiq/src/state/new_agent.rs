@@ -46,6 +46,22 @@ pub enum OpenList {
     Thinking,
     Mode,
     Subagents,
+    /// The one list here that is not a picker: several servers may be ticked at once, so it is a
+    /// checklist rather than a choice. It uses the same discriminant anyway, because "exactly one
+    /// list is down" is the form's rule regardless of what the list is made of.
+    Mcps,
+}
+
+impl OpenList {
+    /// Whether this list draws the filter field the form's pickers share.
+    ///
+    /// Every [`crate::ui::kit::Picker`] here opts into search and takes the keyboard with it while
+    /// it is down. The MCP checklist does not — a handful of built-in servers is shorter than the
+    /// field would be — so opening it must leave the keyboard where it was: focusing a field
+    /// nothing draws is a keyboard nobody owns, and the window's own Escape never arrives at it.
+    pub fn has_filter(self) -> bool {
+        !matches!(self, Self::Mcps)
+    }
 }
 
 /// Every answer the form holds, for either purpose.
@@ -65,6 +81,14 @@ pub struct NewAgentForm {
     /// The subagent ceiling this start asks for. `None` says nothing about it at all; `Some(0)`
     /// asks for none, which is a real answer and states itself.
     pub max_subagents: Option<u8>,
+    /// The MCP servers Ubiq is asked to inject into this start, by
+    /// [`ubiq_proto::mcp::McpInfo::name`] — the slug, which is what a profile stores and what a
+    /// start names. Order is the order they were ticked in and is kept stable, so saving a form
+    /// twice writes the same list rather than a reshuffle of it.
+    ///
+    /// What is *on offer* is not here: that is the window's own
+    /// [`crate::state::WorkbenchState::mcps`], one list for the build rather than a copy per form.
+    pub mcps: Vec<String>,
     /// The opening prompt. Typed into a textarea the window owns, and copied in here when the
     /// form is read — the same way the profile form reads its name field at save time.
     pub prompt: String,
@@ -91,6 +115,7 @@ impl NewAgentForm {
             mode: None,
             persistent: false,
             max_subagents: Some(DEFAULT_SUBAGENTS),
+            mcps: Vec::new(),
             prompt: String::new(),
             open: None,
             naming: false,
@@ -116,6 +141,7 @@ impl NewAgentForm {
             thinking: profile.thinking.clone(),
             mode: profile.mode.clone(),
             max_subagents: profile.max_subagents,
+            mcps: profile.mcps.clone(),
             prompt: profile.prompt.clone().unwrap_or_default(),
             ..Self::new(purpose)
         }
@@ -133,6 +159,20 @@ impl NewAgentForm {
             thinking: self.thinking.clone(),
             max_subagents: self.max_subagents,
             prompt: (!self.prompt.trim().is_empty()).then(|| self.prompt.trim().to_string()),
+            mcps: self.mcps.clone(),
+        }
+    }
+
+    /// Tick or untick one MCP server, by its slug.
+    ///
+    /// Ticking appends rather than inserting in the catalogue's order: the list is what the user
+    /// built, and a set that reordered itself as it was filled in is one nobody can read back.
+    pub fn toggle_mcp(&mut self, name: &str) {
+        match self.mcps.iter().position(|it| it == name) {
+            Some(at) => {
+                self.mcps.remove(at);
+            }
+            None => self.mcps.push(name.to_string()),
         }
     }
 
@@ -307,6 +347,21 @@ mod tests {
 
         form.prompt = "Go".to_string();
         assert_eq!(form.preamble().as_deref(), Some("Go"));
+    }
+
+    #[test]
+    fn ticking_a_server_appends_and_unticking_removes_it() {
+        let mut form = NewAgentForm::new(Purpose::Profile);
+        form.toggle_mcp("project-info");
+        form.toggle_mcp("test");
+        assert_eq!(form.mcps, vec!["project-info", "test"]);
+        form.toggle_mcp("project-info");
+        assert_eq!(form.mcps, vec!["test"], "unticking takes it back out");
+        assert_eq!(
+            form.as_profile("saved".to_string()).mcps,
+            vec!["test"],
+            "what is ticked is what is written down"
+        );
     }
 
     #[test]

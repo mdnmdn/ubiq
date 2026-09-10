@@ -1945,6 +1945,35 @@ standing as every other whole-record write in the settings. A waiting pane holds
 pseudo-terminal until its tab is closed, so a forgotten build tab is a held descriptor — closed by
 the same × that closes everything else.
 
+### D102 — One loopback MCP server for the whole host, agent identity carried in the URL
+
+Ubiq injects its own MCP servers into every harness it launches (`crates/ubiq-host/src/mcp/`), and
+the question was how many listeners that is and how each request says who is calling.
+**One `tiny_http` loopback listener for the whole process**, bound once at startup and held by the
+`Coordinator`, answers `POST /mcps/<agent-or-pane-id>/<mcp-name>`. The listener keeps no session and
+remembers nothing between two requests — the URL names the agent and the server on every call, and
+`crate::mcp::registry::Registry` is the only place identity lives, written at launch and forgotten
+at retirement.
+
+**Why.** A harness is hard to hand a fresh URL to mid-run: the config the run is composed with is
+written once and never revisited, so whatever address it gets has to still be good for the life of
+the process it launched into. A session layer — one MCP "streamable HTTP" session per agent, the
+shape the spec's own transport allows for — would be state to lose exactly when it matters most, on
+a harness reconnect after its own process restarts, and buys nothing beyond a second place for the
+agent's identity to live when the URL carries it on every call regardless. One listener per agent was
+the alternative actually considered: it would mean a thread and a socket per running agent instead
+of a row in a map, and a port to bind, grant and tear down per launch instead of once for the
+process. Binding before the first run is composed, rather than lazily on the first agent that asks,
+is the same reasoning one level up: there is no later moment to tell a run where the port is.
+
+**Cost.** Every request re-resolves identity from a plain string in the path rather than trusting a
+handshake, so the registry's read lock is on every tool call's path — acceptable because a lookup
+and a clone is what runs under it, never a wait. The listener answers for every agent this process
+ever starts, so a build with no agents running still holds one open port for as long as the host
+does, and an address that resolves to nobody — a retired agent, an unknown server, a malformed path
+— must always be a plain 404 rather than a protocol error, because there is no session to have
+refused the call.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce

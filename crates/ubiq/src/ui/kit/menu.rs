@@ -22,7 +22,11 @@ use crate::ui::kit::{Action, IndexedAction, field};
 pub const MENU_LAYER: usize = 1;
 
 /// Where a dropdown inside a modal is painted, over the modal's own overlay.
-const MODAL_MENU_LAYER: usize = 3;
+///
+/// Public because a hand-built panel that hangs off a control inside a modal — the start form's
+/// MCP checklist — has to be painted at the same rung as [`Picker::above_modal`] puts one, or it
+/// opens underneath the panel holding it.
+pub const MODAL_MENU_LAYER: usize = 3;
 
 /// Anchor for a menu that must open upward, clear of the window's bottom edge.
 pub const MENU_ANCHOR_UP: Anchor = Anchor::BottomLeft;

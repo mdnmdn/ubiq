@@ -1331,6 +1331,7 @@ fn start_conversation(
         model: None,
         thinking: None,
         mode: None,
+        mcps: Vec::new(),
     });
     agent_id
 }

@@ -43,6 +43,11 @@ impl AppState {
         self.bus.send(Message::ListAgentTypes);
         self.bus.send(Message::ListAccounts);
         self.bus.send(Message::ListProfiles);
+        // And what this build can inject. Asked here rather than in
+        // [`Self::probe_new_agent_catalogue`] because it is not a question about the harness: the
+        // answer is the same for every start, so it is asked once per opening of the form and kept
+        // on the window.
+        self.bus.send(Message::ListMcps);
         if let Some(target) = self.last_start_target() {
             self.pick_new_agent_target(target, window, cx);
             let last = self.workbench.last_start.clone();
@@ -291,6 +296,16 @@ impl AppState {
         self.close_new_agent_list(window, cx);
     }
 
+    /// Tick or untick one MCP server. Unlike every other answer here the list stays down: a
+    /// checklist is filled in with several gestures, and one that closed on the first tick would
+    /// have to be reopened for each of the rest.
+    pub fn toggle_new_agent_mcp(&mut self, name: String, cx: &mut Context<Self>) {
+        if let Some(form) = self.new_agent_form_mut() {
+            form.toggle_mcp(&name);
+        }
+        cx.notify();
+    }
+
     /// Open one of the form's lists, or close it if it is the one already down — exactly one is
     /// ever open, and the filter field they share is cleared and focused on the way, the rule
     /// [`Self::open_picker_menu`] says once for every picker that opts into search.
@@ -309,11 +324,13 @@ impl AppState {
         if let Some(form) = self.new_agent_form_mut() {
             form.open = Some(list);
         }
-        let search = self.picker_search.clone();
-        search.update(cx, |state, cx| {
-            state.set_value("", window, cx);
-            state.focus(window, cx);
-        });
+        if list.has_filter() {
+            let search = self.picker_search.clone();
+            search.update(cx, |state, cx| {
+                state.set_value("", window, cx);
+                state.focus(window, cx);
+            });
+        }
         cx.notify();
     }
 
@@ -381,6 +398,7 @@ impl AppState {
             model: Some(form.model.clone().unwrap_or_default()),
             thinking: Some(form.thinking.clone().unwrap_or_default()),
             mode: Some(form.mode.clone().unwrap_or_default()),
+            mcps: form.mcps.clone(),
         });
         // **No turn goes out here.** The ceiling and the opening prompt are held, and the
         // composer's send path folds them into the first thing the user actually says — a

@@ -83,20 +83,65 @@ pub struct Hub {
 pub struct HostEnd {
     inbox: flume::Receiver<FromClient>,
     clients: Clients,
+    /// The way back into this same inbox, for [`HostEnd::voice`]. **Weak on purpose**: the run
+    /// loop ends when every sender has gone, and a strong clone held on the host's own side would
+    /// keep the channel open against itself and the loop would never break.
+    voice: flume::WeakSender<FromClient>,
 }
 
 /// Open the bus. One [`HostEnd`] for the process, and a [`Hub`] that mints a client per window.
 pub fn hub() -> (Hub, HostEnd) {
     let (to_host, inbox) = flume::unbounded();
     let clients: Clients = Arc::new(Mutex::new(HashMap::new()));
+    let voice = to_host.downgrade();
     (
         Hub {
             to_host,
             clients: clients.clone(),
             next: Arc::new(AtomicU64::new(0)),
         },
-        HostEnd { inbox, clients },
+        HostEnd {
+            inbox,
+            clients,
+            voice,
+        },
     )
+}
+
+/// The client id every [`Voice`] speaks as.
+///
+/// It is never in the routing table, so an answer addressed to it goes nowhere — which is the
+/// point: what a voice says is either a broadcast or nothing anybody is waiting for.
+const HOST_VOICE: ClientId = ClientId(u64::MAX);
+
+/// A way for host-side code on a thread of its own to *say* something to the host, rather than to
+/// answer a window.
+///
+/// A [`Mailbox`] is the other direction — it addresses a client — and there was no way back until
+/// something inside the host had a fact of its own to file. The MCP servers Ubiq injects into a
+/// harness are that something: a tool call arrives on their own listener thread, with no window on
+/// either end of it, and raising a notification means saying [`Message::RaiseNotification`]
+/// exactly as a window would, so the same centre decides the mute rules and the same broadcast
+/// reaches every window. Speaking through the inbox rather than reaching for the coordinator's
+/// own state is what keeps that a bus fact and not a shared handle.
+#[derive(Clone, Debug)]
+pub struct Voice {
+    to_host: flume::WeakSender<FromClient>,
+}
+
+impl Voice {
+    /// Say something to the host. A host that has already stopped is not an error the caller can
+    /// act on, so it is dropped — the same rule [`Client::send`] lives by.
+    pub fn say(&self, message: Message) {
+        let Some(to_host) = self.to_host.upgrade() else {
+            return;
+        };
+        tape().record(Direction::Outbound, &message);
+        let _ = to_host.send(FromClient::Said {
+            client: HOST_VOICE,
+            message,
+        });
+    }
 }
 
 impl Hub {
@@ -128,6 +173,14 @@ impl HostEnd {
         wait: std::time::Duration,
     ) -> Result<FromClient, flume::RecvTimeoutError> {
         self.inbox.recv_timeout(wait)
+    }
+
+    /// A handle host-side code can say something *into* the host with, from a thread that has no
+    /// window on either end of it. See [`Voice`] for why one exists at all.
+    pub fn voice(&self) -> Voice {
+        Voice {
+            to_host: self.voice.clone(),
+        }
     }
 
     /// A sink that already knows who it is talking to, for a thread that must not have to learn

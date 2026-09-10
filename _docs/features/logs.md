@@ -141,7 +141,7 @@ records under a mutex. `Subsystem::of` is the module-to-subsystem map, and it te
 prefixes first, because `ubiq_host::pty` is also `ubiq_host`, and the bare `ubiq` arm is last
 because every one of Ubiq's crates starts with it. A target is the emitting module's path, so it
 carries the crate name: the map is `ubiq_host::pty`, `ubiq_host::coordinator`, `ubiq_proto::bus`,
-`ubiq_host::mcp_server`, `ubiq_host::search` and `ubiq_host::watch`, and a crate renamed without
+`ubiq_host::mcp`, `ubiq_host::search` and `ubiq_host::watch`, and a crate renamed without
 the map following it files every record under External while compiling perfectly.
 
 `logs()` is the ring, held in a `OnceLock`. `snapshot()` filters and hands back shared records, so a

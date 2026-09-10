@@ -17,6 +17,7 @@
 //! - `settings`: which half owns a settings blob, and the host's own record
 //! - `files`: one level of a project's tree, one file's bytes, and what a single path can fail at
 //! - `git`: a project's repository as the host has observed it — overview, working-tree map, errors
+//! - `mcp`: the MCP servers Ubiq itself offers a harness, and the tools each one answers
 //! - `repos`: a repository somewhere else, and the clone that turns one into a project
 //! - `stats`: one reading of the host, and the usage meter's buckets
 //! - `notifications`: what a subsystem raises for the bell, and how it is silenced
@@ -34,6 +35,7 @@ pub mod files;
 pub mod git;
 pub mod ids;
 pub mod log;
+pub mod mcp;
 pub mod messages;
 pub mod notifications;
 pub mod projects;

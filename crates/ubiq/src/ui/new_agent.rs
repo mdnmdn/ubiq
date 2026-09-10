@@ -15,20 +15,23 @@
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     AnyElement, App, Context, ElementId, Entity, Focusable, InteractiveElement, IntoElement,
-    ParentElement, Styled, Window, div, px,
+    MouseButton, ParentElement, StatefulInteractiveElement as _, Styled, Window, anchored,
+    deferred, div, px,
 };
 use gpui_component::input::Textarea;
+use ubiq_proto::mcp::McpInfo;
 
 use crate::app::{AppState, DialogConfirm, SubmitSearch};
 use crate::state::navigator::subsequence;
 use crate::state::new_agent::{NewAgentForm, OpenList, Purpose, Target};
 use crate::state::workbench::HarnessChoice;
 use crate::theme;
+use crate::ui::kit::menu::{MENU_ANCHOR_UP, MODAL_MENU_LAYER};
 use crate::ui::kit::{
-    Picker, PickerStyle, check_box, field, ghost_button, hint_row, label_hint, modal,
+    Picker, PickerStyle, check_box, elided, field, ghost_button, hint_row, label_hint, modal,
     primary_button, prompt_modal, slab,
 };
-use crate::ui::{handler, indexed};
+use crate::ui::{eid, handler, indexed};
 
 /// How wide every control in the right-hand column is drawn. One width for all of them, so the
 /// column of pickers reads as a column rather than as a ragged edge.
@@ -55,6 +58,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         ));
     }
     let footer = footer_row(
+        app,
         actions
             .child(
                 primary_button(
@@ -68,6 +72,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .when(!ready, |button| button.opacity(0.5)),
             )
             .into_any_element(),
+        cx,
     );
 
     let modal = modal(
@@ -139,10 +144,14 @@ pub fn confirmable(element: gpui::Div, cx: &mut Context<AppState>) -> gpui::Div 
         )
 }
 
-/// The action row every form of this shape carries: what is not built yet on the left, what the
-/// form is for on the right. Buttons are actions and belong together, rather than trailing the
+/// The action row every form of this shape carries: what the start may be given on the left, what
+/// the form is for on the right. Buttons are actions and belong together, rather than trailing the
 /// questions as two more rows of the body.
-pub fn footer_row(actions: AnyElement) -> AnyElement {
+///
+/// `Custom policies` is still drawn faint and takes no click — the predisposition for something
+/// the host does not answer yet. `MCPs` beside it is live: it opens the checklist of servers Ubiq
+/// can inject, which the host does answer.
+pub fn footer_row(app: &AppState, actions: AnyElement, cx: &mut Context<AppState>) -> AnyElement {
     div()
         .flex()
         .flex_1()
@@ -151,24 +160,193 @@ pub fn footer_row(actions: AnyElement) -> AnyElement {
         .justify_between()
         .gap_2()
         .child(
-            // Drawn, faint, and taking no click: the predisposition for two things the host does
-            // not answer yet.
             div()
                 .flex()
                 .items_center()
                 .gap_1()
-                .opacity(0.5)
-                .child(ghost_button(
-                    "new-agent-policies",
-                    None,
-                    "Custom policies",
-                    |_, _, _| {},
-                ))
-                .child(ghost_button("new-agent-mcps", None, "MCPs", |_, _, _| {})),
+                .child(
+                    // Drawn, faint, and taking no click.
+                    div().opacity(0.5).child(ghost_button(
+                        "new-agent-policies",
+                        None,
+                        "Custom policies",
+                        |_, _, _| {},
+                    )),
+                )
+                .child(mcps_button(app, cx)),
         )
         .child(actions)
         .into_any_element()
 }
+
+/// The MCPs trigger, with the checklist hanging off it while it is down.
+///
+/// The count rides in the label the way the rest of the window summarises a multiple answer — a
+/// control whose whole value is behind a click has to say, closed, that there is something behind
+/// it. Nothing on offer means no click: an empty panel is worse than a dead button, because the
+/// button at least does not claim the host answered.
+fn mcps_button(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+    let view = cx.entity();
+    let form = app.new_agent_form();
+    let chosen = form.map(|form| form.mcps.len()).unwrap_or_default();
+    let open = form.is_some_and(|form| form.open == Some(OpenList::Mcps));
+    let offered = !app.workbench.mcps.is_empty();
+    let label = match chosen {
+        0 => "MCPs".to_string(),
+        n => format!("MCPs \u{00b7} {n}"),
+    };
+
+    // Until the host answers there is nothing to tick, so the button is drawn faint and wired to
+    // nothing rather than opening a panel that would say "none" — the same "inert" the rows in
+    // [`body`] use, and the same shape a first answer turns live without moving anything.
+    let toggle = cx.listener(move |this, _, window, cx| {
+        if offered {
+            this.toggle_new_agent_list(OpenList::Mcps, window, cx);
+        }
+    });
+    let button = ghost_button("new-agent-mcps", None, label, toggle)
+        // The panel is pinned to this button's own bottom-left corner, so the button has to be the
+        // box that corner is measured from — the same reason `Picker`'s trigger is relative.
+        .relative();
+
+    div()
+        .when(!offered, |this| this.opacity(0.5))
+        .child(match offered && open {
+            true => button.child(mcp_panel(app, &view)),
+            false => button,
+        })
+        .into_any_element()
+}
+
+/// The checklist itself: one row per server Ubiq can inject, ticked where this form asks for it.
+///
+/// **Not a [`Picker`].** A picker answers one question with one row, and this answers "which of
+/// these", which is a set — so it is the `deferred` + `anchored` panel a picker is built on, with
+/// check boxes in it instead of a column of ticks. It opens *upward*, because the button that
+/// raises it sits on the form's footer and a list dropping from there would drop off the window.
+///
+/// Painted at [`MODAL_MENU_LAYER`]: both surfaces that draw this footer are modals, so the layer
+/// that clears a modal is the layer either of them needs — the settings page's profile form is a
+/// modal over the page, not a page of its own.
+fn mcp_panel(app: &AppState, view: &Entity<AppState>) -> AnyElement {
+    let chosen = app
+        .new_agent_form()
+        .map(|form| form.mcps.clone())
+        .unwrap_or_default();
+    let rows: Vec<AnyElement> = app
+        .workbench
+        .mcps
+        .iter()
+        .map(|server| mcp_row(server, chosen.iter().any(|it| it == &server.name), view))
+        .collect();
+
+    deferred(
+        anchored()
+            .anchor(MENU_ANCHOR_UP)
+            .snap_to_window_with_margin(px(8.))
+            .child(
+                div()
+                    .id("new-agent-mcps-panel")
+                    .w(px(MCP_PANEL_WIDTH))
+                    .max_h(px(MCP_PANEL_MAX_HEIGHT))
+                    .p_1()
+                    .flex()
+                    .flex_col()
+                    .overflow_y_scroll()
+                    .bg(theme::surface_raised())
+                    .border_l(px(theme::accent_edge()))
+                    .border_color(theme::accent())
+                    .shadow_lg()
+                    .children(rows)
+                    // Painted above the modal that raised it, so a click on a row sits at the same
+                    // screen point as a control underneath — the rule `kit::menu`'s own panel
+                    // states, for the same reason.
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_mouse_down_out({
+                        let view = view.clone();
+                        move |_, window, cx| {
+                            view.update(cx, |this, cx| this.dismiss_new_agent_list(window, cx));
+                        }
+                    }),
+            ),
+    )
+    .priority(MODAL_MENU_LAYER)
+    .into_any_element()
+}
+
+/// One server: the tick, its title, what it is for, and what it answers.
+///
+/// Three lines rather than one, which is the exception the rest of the window's rows are not: a
+/// server is picked on what its tools are, and a name alone — `test`, `project-info` — says
+/// nothing about that. Each line is still one line, elided with the whole of itself on hover.
+fn mcp_row(server: &McpInfo, checked: bool, view: &Entity<AppState>) -> AnyElement {
+    let name = server.name.clone();
+    let tools = server
+        .tools
+        .iter()
+        .map(|tool| tool.name.as_str())
+        .collect::<Vec<_>>()
+        .join(" \u{00b7} ");
+
+    let mut lines = div()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_w(px(0.))
+        .gap_0p5()
+        .child(elided(
+            eid("new-agent-mcp-title", &server.name),
+            server.title.clone(),
+            theme::text(),
+            theme::font(theme::Family::Chrome, theme::Role::Body),
+        ))
+        .child(elided(
+            eid("new-agent-mcp-note", &server.name),
+            server.description.clone(),
+            theme::text_muted(),
+            theme::font(theme::Family::Chrome, theme::Role::Micro),
+        ));
+    // A server with no tools says nothing rather than drawing an empty line under its own name.
+    if !tools.is_empty() {
+        lines = lines.child(elided(
+            eid("new-agent-mcp-tools", &server.name),
+            tools,
+            theme::text_faint(),
+            theme::font(theme::Family::Chrome, theme::Role::Micro),
+        ));
+    }
+
+    div()
+        .id(eid("new-agent-mcp", &server.name))
+        .px_2()
+        .py_1p5()
+        .flex()
+        .items_start()
+        .gap_2()
+        .cursor_pointer()
+        .hover(|this| this.bg(theme::hover()))
+        // **The row owns the click, not the box.** An 18px tick is a small target for a row three
+        // lines tall, and wiring both would toggle twice and land back where it started.
+        .on_click({
+            let view = view.clone();
+            move |_, _, cx| {
+                view.update(cx, |this, cx| this.toggle_new_agent_mcp(name.clone(), cx));
+            }
+        })
+        .child(div().pt_0p5().child(check_box(
+            eid("new-agent-mcp-box", &server.name),
+            checked,
+            |_, _, _| {},
+        )))
+        .child(lines)
+        .into_any_element()
+}
+
+/// How wide the MCP checklist is drawn. Wider than a dropdown, because its rows carry a sentence.
+const MCP_PANEL_WIDTH: f32 = 340.;
+
+/// How tall it grows before it scrolls.
+const MCP_PANEL_MAX_HEIGHT: f32 = 320.;
 
 /// The rows both forms share, top to bottom. Drawn from whichever form is up.
 pub fn body(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> AnyElement {

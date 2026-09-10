@@ -23,6 +23,7 @@ use crate::ids::{
     AiProviderId, CloneId, ConnectId, ConnectionId, NotificationId, OauthAppId, PaneId, ProjectId,
     RepoQueryId, SearchId, SessionId, StepId, SuggestId, TaskId, ToolId,
 };
+use crate::mcp::McpInfo;
 use crate::notifications::{
     Level, MuteFor, MuteScope, Notification, NotificationRequest, Notifications,
 };
@@ -350,6 +351,16 @@ pub enum Message {
     /// row in a list.
     SaveProfile {
         profile: ProfileInfo,
+    },
+    /// Which MCP servers this build offers to inject into a harness. Answered with
+    /// [`Message::Mcps`].
+    ListMcps,
+    /// The MCP servers Ubiq itself can start, each with the tools it answers. A profile's
+    /// [`ProfileInfo::mcps`] and a bare start's own pick both name one of these by
+    /// [`McpInfo::name`]; this is where the settings panel and the start form get the slugs and
+    /// the descriptions to offer.
+    Mcps {
+        servers: Vec<McpInfo>,
     },
 
     // ── Connector family: the identities an external *service* runs as ──
@@ -1159,6 +1170,12 @@ pub enum Message {
         thinking: Option<String>,
         /// Which permission mode, from [`AgentTypeInfo::modes`], same convention.
         mode: Option<String>,
+        /// The MCP servers to inject into this run, by [`McpInfo::name`], for a start that is
+        /// not from a saved profile — or that is overriding one. Empty is not "none of the
+        /// profile's": it is read the way `model`/`thinking`/`mode` are, a pick that stands on
+        /// its own rather than a diff against [`ProfileInfo::mcps`].
+        #[serde(default)]
+        mcps: Vec<String>,
     },
     /// A turn. Nothing is appended by the sender: the line is drawn when it comes back as a
     /// [`ConvUpdate::UserChunk`], which is what the harness actually received.
@@ -1781,6 +1798,12 @@ pub struct ProfileInfo {
     /// An opening prompt to send as the conversation's first turn. It is a turn like any other,
     /// which is why it is text here rather than anything the run is composed from.
     pub prompt: Option<String>,
+    /// The MCP servers this profile enables, by [`McpInfo::name`]. Empty is the normal case —
+    /// most profiles ask for none — and a name a build no longer offers is simply not injected,
+    /// the same "a stale reference costs nothing but the row" rule [`Message::SaveProfile`]
+    /// already lives by.
+    #[serde(default)]
+    pub mcps: Vec<String>,
 }
 
 /// Secret material as it crosses the bus.

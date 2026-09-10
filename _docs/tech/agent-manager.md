@@ -7,7 +7,7 @@ summary: What the embedded harness-management library owns, what Ubiq owns, how 
 read_when: you are about to write code that launches a harness, drives one as a conversation, names a harness config path, or touches accounts, skills or MCP servers
 updated: 2026-09-10
 verified: 2026-09-10
-code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/mod.rs, crates/agent-manager/src/io/acp.rs, crates/agent-manager/src/io/acp_client.rs]
+code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/mod.rs, crates/agent-manager/src/io/acp.rs, crates/agent-manager/src/io/acp_client.rs, crates/ubiq-host/src/mcp/mod.rs]
 depends_on: [tech-structure]
 review_cycle: monthly
 ---
@@ -359,17 +359,21 @@ renders the policy and execs `sandbox-exec`, which macOS supports and Landlock c
 replaces it is specified in `refs/isol8-pty-seam-update.md`.
 
 Everything an embedder can substitute is a trait: the catalog registry, the account store, the
-secret store, profiles, templates, session history, and an in-process MCP service. Ubiq supplies its
-own implementations where it wants application-specific behaviour and takes the filesystem defaults
-elsewhere.
+secret store, profiles, templates, session history, and an in-process MCP service behind the
+`inproc-mcp` feature. Ubiq supplies its own implementations where it wants application-specific
+behaviour and takes the filesystem defaults elsewhere.
 
-Two feature decisions follow from embedding rather than shelling out:
+One feature decision follows from embedding rather than shelling out:
 
 - **`default-features = false`.** The library's default build pulls in `clap` and `ratatui` for its
   own front ends. An application that has a window needs neither.
-- **`inproc-mcp` when Ubiq exposes its own tools.** The library can host an embedder-registered MCP
-  service on a loopback endpoint and inject it into the run as an ordinary remote MCP server —
-  which is how a hosted agent calls back into Ubiq.
+
+**Ubiq exposes its own tools without turning `inproc-mcp` on.** The trait exists for an embedder
+that wants the library to host and rewrite its service for it; Ubiq instead binds one loopback
+`tiny_http` listener of its own (`crates/ubiq-host/src/mcp/`) and hands each run an ordinary
+`McpRef::Inline` HTTP reference pointed at it, the same shape a remote server would arrive in. That
+keeps the listener's lifetime, its identity model and its stateless-by-URL routing entirely inside
+`ubiq-host` rather than behind a library feature flag, which is the choice `D102` states and costs.
 
 `crates/ubiq-host/Cargo.toml` declares the dependency and `crates/ubiq/Cargo.toml` does not, which
 is where the edge belongs: the host owns configuration and processes, and the interface may not name
@@ -378,8 +382,10 @@ is the check that the host only ever reaches for the library's ungated core — 
 absent from this build, so the CLI's own helpers are not available to it and the host builds its
 stores itself. Letting the *user* choose a composition is on the wire: `StartConversation` carries a
 profile id beside the account, and a profile's own fields are read by `resolve` under any flag the
-launch passes. What a composition can still not name from the interface — the catalog's skills and
-MCP servers — is tracked in [`../backlog.md`](../backlog.md).
+launch passes. `StartConversation.mcps` and `ProfileInfo.mcps` do the same for Ubiq's own built-in
+MCP servers. What a composition can still not name from the interface — the catalog's skills, and a
+catalog MCP server reference beyond Ubiq's built-ins — is tracked in
+[`../backlog.md`](../backlog.md).
 
 ## The rules
 

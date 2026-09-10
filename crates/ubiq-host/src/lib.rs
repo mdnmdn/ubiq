@@ -27,7 +27,8 @@
 //! - `conversation`: one live agent, its pump thread, and the one mapping onto the bus
 //! - `conversation_record`: a conversation's launch recipe on disk, so a marked one outlives the process
 //! - `watch`: what changed on disk in an open project, said without being asked
-//! - `mcp_server`: the MCP surface Ubiq exposes to the agents it hosts
+//! - `mcp`: the MCP surface Ubiq exposes to the agents it hosts — one loopback listener, the
+//!   built-in servers behind it, and the registry that says which agent is calling
 
 pub mod agent;
 pub mod assist;
@@ -47,7 +48,7 @@ pub mod host_meta;
 pub mod host_path;
 pub mod index;
 pub mod links;
-pub mod mcp_server;
+pub mod mcp;
 pub mod notifications;
 pub mod projects;
 pub mod pty;

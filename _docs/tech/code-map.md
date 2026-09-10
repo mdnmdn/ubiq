@@ -49,7 +49,8 @@ crates/ubiq-proto/src/
 ├── wire.rs
 ├── assist.rs
 ├── notifications.rs
-└── tools.rs
+├── tools.rs
+└── mcp.rs
 
 crates/ubiq-host/src/
 ├── pty/
@@ -57,7 +58,6 @@ crates/ubiq-host/src/
 ├── agent.rs
 ├── coordinator.rs
 ├── lib.rs
-├── mcp_server.rs
 ├── store/
 │   ├── file.rs
 │   ├── memory.rs
@@ -129,7 +129,13 @@ crates/ubiq-host/src/
 ├── environment.rs
 ├── .DS_Store
 ├── conversation_record.rs
-└── host_meta.rs
+├── host_meta.rs
+└── mcp/
+    ├── catalogue.rs
+    ├── mod.rs
+    ├── registry.rs
+    ├── server.rs
+    └── tools.rs
 
 crates/ubiq/src/
 ├── state/
@@ -400,6 +406,7 @@ the documents in its row.
 | `crates/ubiq-host/src/index/text.rs` | [`wip/indexing.md`](../wip/indexing.md) |
 | `crates/ubiq-host/src/lib.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq-host/src/links.rs` | [`architecture.md`](./architecture.md) |
+| `crates/ubiq-host/src/mcp/mod.rs` | [`agent-manager.md`](./agent-manager.md), [`architecture.md`](./architecture.md) |
 | `crates/ubiq-host/src/notifications/mod.rs` | [`features/notifications.md`](../features/notifications.md), [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-host/src/notifications/os.rs` | [`features/notifications.md`](../features/notifications.md) |
 | `crates/ubiq-host/src/projects.rs` | [`features/stats.md`](../features/stats.md), [`features/workbench.md`](../features/workbench.md), [`architecture.md`](./architecture.md), [`wip/clone-a-project.md`](../wip/clone-a-project.md) |
@@ -430,6 +437,7 @@ the documents in its row.
 | `crates/ubiq-proto/src/ids.rs` | [`features/connectors.md`](../features/connectors.md), [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-proto/src/lib.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq-proto/src/log.rs` | [`features/logs.md`](../features/logs.md), [`architecture.md`](./architecture.md) |
+| `crates/ubiq-proto/src/mcp.rs` | [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-proto/src/messages.rs` | [`features/connectors.md`](../features/connectors.md), [`features/stats.md`](../features/stats.md), [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-proto/src/notifications.rs` | [`features/notifications.md`](../features/notifications.md), [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-proto/src/projects.rs` | [`transport-contract.md`](./transport-contract.md), [`wip/clone-a-project.md`](../wip/clone-a-project.md), [`wip/indexing.md`](../wip/indexing.md) |
@@ -628,7 +636,10 @@ No document's `code_anchors` names these. Restricted to Ubiq's own crates.
 | `crates/ubiq-host/src/health.rs` |
 | `crates/ubiq-host/src/host_meta.rs` |
 | `crates/ubiq-host/src/host_path.rs` |
-| `crates/ubiq-host/src/mcp_server.rs` |
+| `crates/ubiq-host/src/mcp/catalogue.rs` |
+| `crates/ubiq-host/src/mcp/registry.rs` |
+| `crates/ubiq-host/src/mcp/server.rs` |
+| `crates/ubiq-host/src/mcp/tools.rs` |
 | `crates/ubiq-host/src/reply.rs` |
 | `crates/ubiq-host/src/search/ceiling.rs` |
 | `crates/ubiq-host/src/search/fallback.rs` |
