@@ -33,29 +33,37 @@ split and the reason it is a flag rather than two projects. Everything else — 
 frame, the manifest, the no-reconnect rule — is shared, because both cases are the same problem:
 one duplex byte stream to a process somewhere Ubiq is not.
 
-There is a shelved proposal of the same name. §1 says what it settled, what this keeps, and what the
-brief behind this document overturns.
-
 ## 1. Where this starts
 
-[`backlog/remote-drone-proposal.md`](./backlog/remote-drone-proposal.md) designed a drone as *"a
-coordinator's `pty/` and `files/` modules, cross-compiled to run alone on someone else's machine"*,
-reached over an SSH port forward, reusing the existing pane and file message families unchanged. It
-is filed under `backlog/` and it is right about most things. **This document keeps its skeleton and
-overturns three of its load-bearing claims.**
+**This is a deferred idea, not a new one, and the tree names it in three places already.**
+[`../backlog.md`](../backlog.md)'s Deferred table carries `D2`, *"harnesses on remote hosts"*, on
+`D1`'s reasoning that the contract makes the coordinator's process boundary cheap to move later.
+[`../tech/architecture.md`](../tech/architecture.md) states the shape as a design commitment:
+*"a harness running on another host or in a container is structurally the same problem as a terminal
+stream crossing a machine boundary … the contract is identical, because a pane was always a tagged
+bidirectional byte stream plus control messages."* And
+[`../tech/transport-contract.md`](../tech/transport-contract.md) names the file family's seam for it
+by this word: *"the seam a remote drone slots into: a project id and a relative path do not say
+which machine answered."* What is missing is everything underneath those sentences.
 
-| The shelved proposal says | This proposal says | Why |
-|---|---|---|
-| *"A drone never runs a harness, and that is permanent"* | True of the relay build and wrong as a general rule: the runtime build composes, confines and spawns harness runs through an embedded `agent-manager` | §2, §6. The shelved proposal was describing remote access and was right about it; the WSL case is unreachable that way, because the harness, its config directory and its credentials are all on the far side |
-| A drone reuses `Message` and gets no contract of its own | A drone speaks `DroneMessage`, a second and much smaller enum in the same wire crate | §5. The coordinator translates, so the UI contract is untouched and the drone never links four-fifths of a protocol it cannot answer |
-| The transport is an SSH port forward, `-R` first, `-L` as fallback | The default carrier is the carrier process's own stdio; a listening socket is opt-in and a forward is one carrier among several | §3. A forwarded port is a socket every other local user on that machine can dial. A pipe is not |
+**Six positions this document takes up front**, because each is somewhere a reasonable design goes
+the other way:
 
-Its other calls stand and are not re-argued here: shell out to the system `ssh` rather than embed an
-SSH client (`D49`'s precedent); a remote project is a field on `ProjectRecord`, not a second kind of
-project; no secret ever travels on `argv`; no index and no persistent state on the far side; a
-dropped link is a teardown, not a background retry loop.
+- **Shell out to the system `ssh`**, never an embedded SSH client — `D49`'s precedent, and the
+  margin is wider here: host-key checking, every authentication method the user has configured,
+  `~/.ssh/config` aliases and jump hosts, all already trusted and none of them re-earned. This is
+  the opposite call from `D43`, which refused to shell to `git diff`, and the two agree rather than
+  conflict: shell to the real thing when it hands back an exit code and bytes, own the work when it
+  hands back a format that has to be understood. Nothing here asks `ssh` for structure.
+- **A remote project is a field on `ProjectRecord`**, not a second kind of project, so every message
+  that resolves through a project id keeps working unchanged.
+- **The default carrier is a child process's own stdio**, not a forwarded port — §3. A forwarded
+  port is a socket every other local user on that machine can dial; a pipe is not.
+- **A drone speaks its own small contract**, not the whole of `Message` — §5.
+- **No secret on `argv`, no index, and no persistent state on the far side** — §8.
+- **A dropped link is a teardown, not a retry loop** — §12.
 
-**What already exists, and is more than the shelved proposal assumed.**
+**What already exists, and is most of the transport.**
 `crates/ubiq-proto/src/wire.rs` frames a message as a four-byte big-endian length and a MessagePack
 body (`D79`), and it reads and writes any `Read`/`Write` while knowing nothing about sockets — which
 is the whole reason a stdio carrier is nearly free. `crates/ubiq-host/src/remote.rs` already accepts
@@ -179,8 +187,7 @@ Three adjustments the drone contract makes on top of it:
 - **A handshake before anything else.** `Hello` from the drone carries its version, `schema`, triple,
   and the capability set it actually answers; `Ready` from Ubiq carries the same and an accept flag.
   A mismatch is refused here, with a message the status bar can show, rather than surfacing later as
-  a pane that looks like a crashed shell. This is the shelved proposal's `DroneHello`/`DroneReady`,
-  kept intact.
+  a pane that looks like a crashed shell.
 - **A keepalive from day one.** `Ping`/`Pong`, unsolicited from the Ubiq side on an idle link.
   `G189` records that the existing remote bus has none and that a half-open connection — a suspended
   laptop, an expired NAT binding — is noticed only when a write next fails, which for an idle pane
@@ -203,8 +210,9 @@ local"* collected rather than bent.
 **Why not reuse `Message`.** A drone would link the whole contract — connectors, git, assist, work,
 notifications, usage rows, search — to answer "unsupported" to four-fifths of it: compile time on a
 foreign triple, size against §8's budget, surface against §10's, and a version lock across families
-it never touches. The shelved proposal's argument for reuse was that a parallel protocol means two
-ways to open a shell; that holds for the *UI-facing* contract, which is the one this leaves alone.
+it never touches. The argument the other way — that a parallel protocol means two ways to open a
+shell and two ways to read a file — holds for the *UI-facing* contract, which is exactly the one
+this leaves alone.
 
 Five groups, and this is the whole of it:
 
@@ -217,17 +225,17 @@ Five groups, and this is the whole of it:
 | **run** | `ListRunnable`, `Runnable`, `ComposePane`, `Composed`, `RunError` | §6, and **answered by the runtime build alone** — in the enum in both, advertised in `Hello` by one. The agent-manager surface: which harnesses, accounts and profiles exist *there*, and a spawn that is a composed run rather than a program name |
 
 Deliberately absent, each for its own reason: **git** (`libgit2` cross-compiled per triple, for a
-diff the shelved proposal already deferred), **search and index** (§8 — a guest does not hold a
+diff that is not what a remote shell is for), **search and index** (§8 — a guest does not hold a
 tantivy index, and a shelled-out `rg` is a later capability), **watch** (a `notify` handle plus a
 debounce thread is state, and the explorer can re-list), **conversation** (§6), and everything the
 coordinator owns by definition — projects, sessions, notifications, connectors, the usage meter.
 
 ## 6. The runtime build composes harness runs
 
-The shelved proposal wrote *"a drone never runs a harness, and that is permanent"*, on the reasoning
-that a composed run is `agent-manager`'s to build and `agent-manager` has no story for a machine it
-is not running on. **For remote access that is the right call and this proposal keeps it — the relay
-build links no `agent-manager` at all. For a local boundary the conclusion inverts: the fix is to
+The obvious rule to write is *a drone never runs a harness*, on the reasoning that a composed run is
+`agent-manager`'s to build and `agent-manager` has no story for a machine it is not running on.
+**For remote access that is the right call and this proposal keeps it — the relay build links no
+`agent-manager` at all. For a local boundary the conclusion inverts: the fix is to
 put `agent-manager` on the other side, not to keep harnesses off it.**
 
 **The WSL case is the argument.** A Windows user's Claude Code is installed in the distro. Its config
@@ -341,8 +349,10 @@ unless told otherwise — the reverse of `D80`, deliberately: a host is started 
 drone is a guest on a machine that did not ask for it.
 
 **No persistent state between links.** No catalogue, no index, no database, no watch; every answer
-is computed on demand. The shelved proposal's argument survives intact — the class of tool this
-replaces holds hundreds of megabytes of resident index, and that is the cost being avoided.
+is computed on demand. The class of tool this replaces routinely holds hundreds of megabytes of
+resident index for exactly this job, and that is the cost the whole design exists to avoid — a
+repository could afford it, and a drone pointed at someone's home directory for a maintenance task
+could not.
 
 **Two size targets, and a recipe that prints both.** A stripped relay under 8 MB and a runtime build
 under 20 MB, with `just drone-size` naming the numbers, because a budget nobody measures is a budget
@@ -358,8 +368,8 @@ a manifest carrying a `schema`, the `ubiq_version` it was cut for, and one entry
 
 **Two repository kinds, one resolver.** An `https://` base URL in a release build, and a local
 directory for development — the same manifest, read from a file instead of fetched. The dev kind is
-how this is worked on before any release pipeline exists, and it is the answer to the shelved
-proposal's `G108`, which blocked its P1 outright.
+how this is worked on before any release pipeline exists — which matters, because without it every
+phase below waits on a cross-compilation and publishing story that does not exist yet.
 
 **The manifest is signed and the artifact is hashed.** An Ed25519 signature over the manifest bytes,
 verified against a public key compiled into Ubiq; a SHA-256 per artifact, checked after download and
@@ -495,7 +505,7 @@ user is the one waiting.
 
 **P3 — distribution.** The manifest, signature, cache, fingerprint probe and push, for both
 artifacts. This is what makes a drone something a user gets rather than something a developer
-places, and it is the phase the shelved proposal could not start at all.
+places.
 
 **P4 — the socket carrier.** `--listen`, TLS, the token, and a tailnet address as its first real
 user. Relay only; the runtime build has no use for a socket and should not grow one.
@@ -510,7 +520,7 @@ during it — §6's io bridge before P2, and §7's route before any confinement 
 |---|---|---|
 | a | One contract for the drone, or reuse `Message`? | **`DroneMessage`, a second enum in `ubiq-proto`.** The coordinator translates; the UI contract never changes (§5) |
 | b | Two projects, two crates, or one crate with a flag? | **One crate, one contract, two artifacts** behind an `agents` feature, with a recipe that fails if `agent-manager` reaches a default build. The postures differ by a dependency and a threat model, not a design (§2) |
-| c | Does a drone run harnesses? | **The runtime build does**, which reverses the shelved proposal for that posture only; the relay build never does and links nothing that could (§6) |
+| c | Does a drone run harnesses? | **The runtime build does**; the relay build never does and links nothing that could (§6) |
 | d | Which isol8 route unblocks confinement in a pane? | **Route B, the exec shim** — it makes Linux look like macOS and leaves `pty/mod.rs`, the host and the drone untouched. Route A is the smaller isol8 diff and the right answer only if the Linux policy ever needs more than Landlock (§7) |
 | e | Where does the structured-io bridge run? | **On the host**, with the drone relaying opaque bytes — *conditional* on `io::IoBridge` being drivable from a supplied reader/writer pair. Verify before P2 is scheduled; if not, the bridge moves to the drone and the contract grows a conversation group (§6) |
 | f | Default carrier? | **stdio.** One code path for SSH, WSL, containers and local development, and no socket on the far machine (§3) |
@@ -549,8 +559,9 @@ Beyond the groups §5 leaves out — git, search, index, watch, conversation:
 - **A drone that outlives its carrier.** §12 is the argument; this is the deferral it makes
   deliberately rather than by omission.
 - **An https-streaming carrier.** The only row in §3 that would need a second framing.
-- **A harness reaching *out* from a local pane to a remote machine** — the MCP-connector idea the
-  shelved proposal named, a consumer of this and worth its own proposal after P1.
+- **A harness reaching *out* from a local pane to a remote machine** — a `remote-file` and a
+  `remote-shell` tool over the in-process MCP surface `crates/ubiq-host/src/mcp/` already shapes,
+  pointed at a drone. A consumer of this, and worth its own proposal after P1.
 - **A Windows-native runtime build.** WSL is the Windows story, and it is a Linux triple; §7's
   AppContainer note is why a native one would confine in name only. A Windows *relay* is a separate
   question with no use case yet.
@@ -570,8 +581,6 @@ Beyond the groups §5 leaves out — git, search, index, watch, conversation:
 
 ## Related docs
 
-- [`backlog/remote-drone-proposal.md`](./backlog/remote-drone-proposal.md) — the shelved design this
-  supersedes in three places and keeps everywhere else
 - [`../tech/architecture.md`](../tech/architecture.md) — the rules a drone must not bend, and the
   "remote harnesses" future it cashes in
 - [`../tech/transport-contract.md`](../tech/transport-contract.md) — the framing this reuses and the
