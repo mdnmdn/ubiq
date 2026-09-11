@@ -259,7 +259,7 @@ it grants the daemon socket and `~/.docker` by hand, the same hand-replication a
 setup already does for xcode and chromium — and the shipped layer's own header calls
 socket access "High-risk", since a container daemon socket is a route out of the sandbox.
 
-**Three gaps are filled by hand.** `DEV_RW_HOME_ROOTS` grants `~/.dotnet`, `~/.nuget`,
+**Four gaps are filled by hand.** `DEV_RW_HOME_ROOTS` grants `~/.dotnet`, `~/.nuget`,
 `~/.templateengine`, `~/.aspnet`, `~/.microsoft` and `~/.local/share/NuGet`
 read-write, because isol8 ships no dotnet layer at all; the list is deliberately
 **not** existence-filtered, since `~/.dotnet` does not exist until the first
@@ -296,6 +296,27 @@ word. `TOOLCHAIN_ROOT_VARS` is the relocation half of `ENV_PASS` and the two sta
 the test `every_toolchain_root_var_is_also_passed_through` is what makes that hold. The
 private `grant_toolchains(lookup)` the method delegates to takes the lookup as an argument
 because a test that mutated the process environment would race the rest of the binary.
+
+And on macOS, `APPLE_SDK_RO_ROOTS` and `APPLE_RW_HOME_ROOTS` fill the fourth: isol8's
+`integrations/xcode` layer is in `BROKEN_LAYERS` — its `[macos] raw` block calls
+`home-literal`, which the macOS backend never defines, and that fails the whole policy the
+same way the ten layers in the "gaps" list above do — while
+`toolchains/apple-toolchain-core` grants `/Library/Developer/CommandLineTools/usr/bin` as a
+*literal* and names clang, git, ld and forty more binaries one by one without naming
+`swift`, `swiftc` or the twenty `swift-*` tools beside them. So a confined
+`swift --version` was denied on a machine whose toolchain is complete. The
+two consts replicate the reference profile's hand-written grants: `APPLE_SDK_RO_ROOTS`
+read-only over `/Library/Developer/CommandLineTools`, `/Library/Developer/Toolchains`,
+`/Applications/Xcode.app`, `/Applications/Xcode-beta.app` and the Xcode preferences plist;
+`APPLE_RW_HOME_ROOTS` read-write over `~/Library/Developer/{Xcode,CoreSimulator,
+XCTestDevices,CoreDevice}` and the Xcode/SwiftPM caches under `~/Library/Caches` and
+`~/Library`. Both are macOS-only and, like `DEV_RW_HOME_ROOTS`, not existence-filtered —
+a cache directory Xcode creates on first use needs the grant to be created. Two things paths
+cannot express stay open: a simulator or device run also needs `com.apple.CoreSimulator*`
+mach lookups and `user-preference-read/write` on `com.apple.dt.Xcode`, neither of which any
+`isol8::Spec` field carries; and `swift build` fails regardless, because SwiftPM shells out
+to `sandbox-exec` itself and Seatbelt cannot nest — only `--disable-sandbox` gets a confined
+`swift build` running.
 
 Either way the two axes compose cleanly:
 

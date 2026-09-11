@@ -63,6 +63,13 @@ const CONVERSATION_POLL: Duration = Duration::from_millis(500);
 /// cannot be interrupted, so this bounds the wait rather than the work.
 const SUGGEST_DEADLINE: Duration = Duration::from_secs(60);
 
+/// How often a live run's login is reconciled with the account it was seeded from
+/// (`Agents::sync_logins`). A harness refreshes its token on the order of hours, so this is not
+/// a race being chased — it is a bound on how long a rotated-away credential may sit in a run
+/// directory before every other agent on that account can see it. Half a minute of file reads
+/// over a handful of small files is cheaper than the watcher the alternative would need.
+const LOGIN_SYNC_EVERY: Duration = Duration::from_secs(30);
+
 /// Gather what a subject needs and compose its prompt. Off the coordinator's thread, so the
 /// repository read here is allowed to be slow.
 fn gather(
@@ -212,6 +219,9 @@ struct Coordinator {
     // the few milliseconds spent finding the config root, which nobody reading "uptime 4m" can
     // perceive; move it to `main` and pass it in if a figure in milliseconds ever matters.
     started: Instant,
+    /// When the logins were last reconciled with the accounts they were seeded from, which is
+    /// what paces [`Self::sync_logins_due`] off a run loop that wakes twice a second.
+    logins_synced: Instant,
     /// Every conversation started since this run began, including the ones that have since ended.
     /// A counter rather than a length, because what it counts is gone. A relaunch of the same
     /// agent counts again, deliberately: it is a second harness process on a second pump thread,
@@ -775,6 +785,7 @@ impl Coordinator {
             pending_conversations,
             logins: HashMap::new(),
             started: Instant::now(),
+            logins_synced: Instant::now(),
             agents_this_run: 0,
             usage,
             meta,
@@ -836,6 +847,15 @@ impl Coordinator {
             } else {
                 Some(due.map_or(CONVERSATION_POLL, |due| due.min(CONVERSATION_POLL)))
             };
+            // A pane running a harness in passthrough is not a conversation and may say nothing
+            // for hours, so neither deadline above would wake this loop — and its harness is
+            // rotating an OAuth token the whole time. `sync_logins_due` paces itself; this only
+            // has to guarantee it is reached. An empty host still blocks.
+            let wait = match wait {
+                _ if self.panes.is_empty() => wait,
+                Some(wait) => Some(wait.min(LOGIN_SYNC_EVERY)),
+                None => Some(LOGIN_SYNC_EVERY),
+            };
             let event = match wait {
                 Some(wait) => match self.host.recv_timeout(wait) {
                     Ok(event) => Some(event),
@@ -854,6 +874,7 @@ impl Coordinator {
                 Some(FromClient::Gone(client)) => self.client_gone(client),
                 None => {}
             }
+            self.sync_logins_due();
             self.remember_sessions();
             self.name_conversations();
             self.reap_conversations();
@@ -2964,6 +2985,21 @@ impl Coordinator {
     /// This makes [`Self::finish_one_shot_turn`]'s own assignment to `pending.resume` redundant: the
     /// poll that reaps a finished one-shot turn runs this first. It is left in place because it
     /// costs nothing and keeps that method readable on its own.
+    /// Every [`LOGIN_SYNC_EVERY`], hand each account's newest credential back to the account and
+    /// to every run still holding an older one ([`Agents::sync_logins`]).
+    ///
+    /// On the coordinator's own thread, which is only allowable because the common tick reads a
+    /// few hundred bytes per live run and writes nothing: a credential changes when a harness
+    /// refreshes, which is hours apart. If a keychain-backed origin is ever seen making this
+    /// stall, it is the write half that would move to a thread, not the read.
+    fn sync_logins_due(&mut self) {
+        if self.logins_synced.elapsed() < LOGIN_SYNC_EVERY {
+            return;
+        }
+        self.logins_synced = Instant::now();
+        self.agents.sync_logins();
+    }
+
     fn remember_sessions(&mut self) {
         let learned: Vec<(AgentId, String)> = self
             .conversations

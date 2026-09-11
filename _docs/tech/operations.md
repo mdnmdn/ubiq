@@ -213,6 +213,8 @@ The wording says which half of the problem it is, and they have opposite fixes.
 | `command not found` | Nothing was denied — the name is not on the run's `PATH` | `PATH` in `environment.toml`, or `agent_commands` in Settings for a harness binary |
 | `cannot find GOROOT`, `DOTNET_CLI_HOME not set`, `.. is not a directory` | The tool ran and could not find its own root. A variable is missing, not a grant | The `[env]` table |
 | The harness hangs on its splash screen, with no error | A denied lookup the harness blocks on, not a path | `DEV_LAYERS` in `crates/agent-manager/src/isolate.rs` |
+| A confined `swift` or `xcodebuild` is denied | isol8's `integrations/xcode` layer is in `BROKEN_LAYERS`, so the SDK and toolchain paths are named by hand | `APPLE_SDK_RO_ROOTS` / `APPLE_RW_HOME_ROOTS` in `crates/agent-manager/src/isolate.rs` |
+| `swift build` fails even with the SDK granted | SwiftPM shells out to `sandbox-exec` itself, and a sandbox cannot nest | Run it unconfined, with `--disable-sandbox` |
 
 Confirm the run is confined before anything else: `env | grep ISOL8_SANDBOXED` inside the pane
 prints `ISOL8_SANDBOXED=1` when it is. Ubiq also logs `confined` for the spawn.

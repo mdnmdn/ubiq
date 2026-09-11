@@ -1036,6 +1036,14 @@ impl Agents {
             None => {}
         }
 
+        // A resume composes over a directory that is already there, and
+        // provisioning re-seeds the login into it — so anything the previous
+        // process refreshed and never got to hand back is about to be
+        // overwritten. Harvest it first and the seed that lands is the newest
+        // credential rather than a revoked one. A first launch has no record
+        // here and this is a no-op.
+        self.refresh_login(key);
+
         let templates = harness::FsTemplateStore::new(self.root.join("harness-templates"));
         let mut provisioned = provision::provision(harness.as_ref(), &spec, &templates)
             .with_context(|| format!("composing a {agent_type} run"))?;
@@ -1136,9 +1144,10 @@ impl Agents {
     /// starts logged out. Keeping the directory does not keep the origin
     /// valid; only the write-back does.
     ///
-    /// ponytail: harvesting at teardown means a token the harness rotated
-    /// mid-run is lost if Ubiq is killed. Upgrade path is a watcher on the
-    /// credential file, writing back as it changes.
+    /// Teardown is not the only moment that matters, and it is not even the
+    /// important one — see [`sync_logins`](Self::sync_logins), which runs the
+    /// same write-back while the run is still live. This call stays because a
+    /// run that ends between two ticks would otherwise lose its last refresh.
     fn archive(&self, key: &str) {
         let sessions = self.sessions_dir();
         let Ok(mut meta) = session::load(&sessions, key) else {
@@ -1148,12 +1157,7 @@ impl Agents {
             return;
         };
 
-        if let Some(origin) = meta
-            .login_home
-            .clone()
-            .map(Source::Dir)
-            .or_else(|| harness.ambient_login())
-        {
+        if let Some(origin) = login_origin(harness.as_ref(), &meta) {
             let _ = harness::harvest_login(harness.as_ref(), &self.run_dir_for(key), &origin);
         }
 
@@ -1173,6 +1177,83 @@ impl Agents {
                 .as_secs(),
         );
         let _ = session::save(&sessions, &meta);
+    }
+
+    /// Put the newest copy of every account's login back where it came from,
+    /// and hand it to every run still holding an older one.
+    ///
+    /// Called on a timer from the coordinator's loop, because the moment that
+    /// matters is not a teardown. A harness refreshes its OAuth token hours
+    /// into a run — Claude Code's access token lives about four — and the
+    /// refresh **rotates** the refresh token, revoking the one the run was
+    /// seeded from. Until that new token reaches the account home, every agent
+    /// launched from it seeds a credential the provider has already thrown
+    /// away and dies with "OAuth session expired and could not be refreshed";
+    /// every agent already running on its own older copy dies the same way at
+    /// its own next refresh. Harvesting only at teardown left both windows
+    /// open for as long as a pane stayed open, which is the whole of the bug
+    /// this closes.
+    ///
+    /// Runs sharing one origin are reconciled together, in one call, so the
+    /// winner is whichever blob claims the later expiry rather than whichever
+    /// run this loop reached last. What that means for a blob is
+    /// `agent_manager::harness::sync_login`'s to say, not Ubiq's.
+    ///
+    /// Best effort throughout, like every other traversal here: a run with no
+    /// meta is a plain shell pane, and an origin that cannot be written is a
+    /// warning the library logs.
+    pub fn sync_logins(&self) {
+        let sessions = self.sessions_dir();
+        let Ok(entries) = std::fs::read_dir(self.root.join("runs")) else {
+            return;
+        };
+        // Keyed by the harness and the account home, which is what makes two
+        // agents on one account one group and two accounts two groups. An
+        // ambient origin has no home to key on, so the harness id alone is it —
+        // there is only ever one keychain entry behind it.
+        let mut groups: BTreeMap<(String, Option<PathBuf>), Vec<PathBuf>> = BTreeMap::new();
+        for entry in entries.flatten() {
+            let key = entry.file_name().to_string_lossy().into_owned();
+            let Ok(meta) = session::load(&sessions, &key) else {
+                continue;
+            };
+            groups
+                .entry((meta.harness.clone(), meta.login_home.clone()))
+                .or_default()
+                .push(entry.path());
+        }
+        for ((harness_id, home), dirs) in groups {
+            let Some(harness) = harness::resolve(&harness_id) else {
+                continue;
+            };
+            let Some(origin) = home.map(Source::Dir).or_else(|| harness.ambient_login()) else {
+                continue;
+            };
+            let dirs: Vec<&Path> = dirs.iter().map(PathBuf::as_path).collect();
+            let _ = harness::sync_login(harness.as_ref(), &dirs, &origin);
+        }
+    }
+
+    /// Reconcile one run's login with its origin *before* that run is composed
+    /// again, so what a resume is handed is the newest credential known.
+    ///
+    /// A resume re-seeds the run directory from the account home
+    /// (`Claude::provision` writes the seed list every time it composes), and
+    /// the copy it overwrites may be the newer of the two: a run that
+    /// refreshed and then died with Ubiq — a crash, a kill — never reached a
+    /// teardown, so its directory is holding the only live token. Harvesting
+    /// first turns that overwrite from a loss into a no-op.
+    pub fn refresh_login(&self, key: &str) {
+        let Ok(meta) = session::load(&self.sessions_dir(), key) else {
+            return;
+        };
+        let Some(harness) = harness::resolve(&meta.harness) else {
+            return;
+        };
+        let Some(origin) = login_origin(harness.as_ref(), &meta) else {
+            return;
+        };
+        let _ = harness::harvest_login(harness.as_ref(), &self.run_dir_for(key), &origin);
     }
 
     /// Whether anything that makes a session logged in landed in `dir`.
@@ -1379,6 +1460,19 @@ impl Agents {
     fn run_dir_for(&self, key: &str) -> PathBuf {
         self.root.join("runs").join(key)
     }
+}
+
+/// Where a run's login came from, and therefore where a refreshed one goes.
+///
+/// The account home the run was seeded from, written down when it was composed
+/// because nothing holds the `Provisioned` that long. A run whose login was not
+/// seeded from a directory records none, and the harness's own account of its
+/// live login — a keychain — is what finds it again.
+fn login_origin(harness: &dyn harness::Harness, meta: &session::SessionMeta) -> Option<Source> {
+    meta.login_home
+        .clone()
+        .map(Source::Dir)
+        .or_else(|| harness.ambient_login())
 }
 
 /// Copy `src` onto `dst`, recursively, skipping the run-dir-relative paths in
@@ -2185,6 +2279,63 @@ mod tests {
         assert!(!agents.forkable("grok"));
         assert!(agents.forkable("claude-code"));
         assert!(agents.fork_run(from, AgentId::generate()).is_err());
+    }
+
+    /// Two runs seeded from the same account home, one of them holding a
+    /// refreshed credential the other never saw. `sync_logins` must pick the
+    /// later expiry as the winner, write it back to the account home the pair
+    /// was seeded from, and hand it to the run still holding the older
+    /// blob — the whole reason this runs on a timer rather than only at
+    /// teardown (see [`Agents::sync_logins`]).
+    #[test]
+    fn sync_logins_writes_the_refreshed_login_back_and_hands_it_to_the_other_run() {
+        let root = tempfile::TempDir::new().unwrap();
+        let agents = Agents::new(root.path(), false);
+        let home = tempfile::TempDir::new().unwrap();
+
+        let seeded =
+            b"{\"claudeAiOauth\":{\"accessToken\":\"seeded\",\"expiresAt\":3000000000000}}";
+        let refreshed =
+            b"{\"claudeAiOauth\":{\"accessToken\":\"refreshed\",\"expiresAt\":5000000000000}}";
+
+        std::fs::create_dir_all(home.path().join(".claude")).unwrap();
+        std::fs::write(home.path().join(".claude/.credentials.json"), seeded).unwrap();
+
+        // Run A refreshed its copy to a later expiry; run B still holds the
+        // token both were seeded.
+        let dir_a = agents.run_dir_for("agent-a");
+        let dir_b = agents.run_dir_for("agent-b");
+        std::fs::create_dir_all(&dir_a).unwrap();
+        std::fs::create_dir_all(&dir_b).unwrap();
+        std::fs::write(dir_a.join(".credentials.json"), refreshed).unwrap();
+        std::fs::write(dir_b.join(".credentials.json"), seeded).unwrap();
+
+        for key in ["agent-a", "agent-b"] {
+            let mut meta = session::SessionMeta::new(
+                "claude-code".to_string(),
+                PathBuf::from("/tmp"),
+                vec!["true".to_string()],
+                None,
+                "structured".to_string(),
+                agents.run_dir_for(key),
+            );
+            meta.id = key.to_string();
+            meta.login_home = Some(home.path().to_path_buf());
+            session::save(&agents.sessions_dir(), &meta).unwrap();
+        }
+
+        agents.sync_logins();
+
+        assert_eq!(
+            std::fs::read(home.path().join(".claude/.credentials.json")).unwrap(),
+            refreshed,
+            "the account home must be advanced to run A's refreshed token"
+        );
+        assert_eq!(
+            std::fs::read(dir_b.join(".credentials.json")).unwrap(),
+            refreshed,
+            "run B must be handed the winner, not left on its stale seeded copy"
+        );
     }
 
     /// The sweep spares a persistent conversation's directory — that is where

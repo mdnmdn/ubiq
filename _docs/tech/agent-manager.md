@@ -7,7 +7,7 @@ summary: What the embedded harness-management library owns, what Ubiq owns, how 
 read_when: you are about to write code that launches a harness, drives one as a conversation, names a harness config path, or touches accounts, skills or MCP servers
 updated: 2026-09-10
 verified: 2026-09-10
-code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/mod.rs, crates/agent-manager/src/io/acp.rs, crates/agent-manager/src/io/acp_client.rs, crates/ubiq-host/src/mcp/mod.rs]
+code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/credentials/mod.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/mod.rs, crates/agent-manager/src/io/acp.rs, crates/agent-manager/src/io/acp_client.rs, crates/ubiq-host/src/mcp/mod.rs]
 depends_on: [tech-structure]
 review_cycle: monthly
 ---
@@ -158,6 +158,40 @@ on the run's `SessionMeta::login_home` rather than held in memory, because nothi
 found again through `Harness::ambient_login` and stored through `Harness::adopt_login`. Only the
 files the harness marks `SeedFile::credential` travel back — the identity and onboarding state a
 login also seeds picks up a run's own project history, and must not reach the user's real file.
+
+**A changed blob is not automatically a better one, and `harvest_login` checks both ways a
+"changed" copy can be worse than what it would replace.** A harness that rewrites its credential
+with blank tokens and a zeroed expiry — Claude Code does this on a failed refresh, and the blob
+still carries a `refreshTokenExpiresAt` weeks out, so it does not even look expired —
+is not a login at all; `credentials::login_is_usable` says so, and a copy that fails it is left
+where it is rather than written over the origin. And two runs sharing one account each hold their
+own copy, so the one that refreshed and the one that did not both read as "changed" against the
+origin; comparing them by which file changed would let whichever run tears down last overwrite a
+newer token with a stale one. `harvest_login` instead reads the expiry each blob claims
+(`credentials::expiry_of`) and keeps whichever is later. The same `login_is_usable` check is what
+`credential_validity` applies before reading any blob's expiry at all, so an account a harness has
+silently signed out of reads as `Validity::Empty` rather than as a session with weeks left on it —
+the failure mode being guarded against is the same one, read at two different times.
+
+**Writing the refreshed token back is not enough, and teardown is the wrong time to do it.** A
+refresh **rotates** the refresh token: the provider revokes the one the run was seeded from the
+instant a run uses it. Every other run holds its own copy of that revoked token and will fail its
+own next refresh, and every agent launched from the account home before the write-back lands seeds
+the revoked token too — `OAuth session expired and could not be refreshed`, on an account whose
+badge reads valid. With Claude Code's access token living about four hours and its refresh window
+28 days, a single pane left open overnight was enough to put the account into that state and keep
+it there. So `harness::sync_login` takes all the runs sharing one origin together: it picks the
+blob claiming the latest expiry, writes it to the origin, and writes it back into every run dir
+still holding an older one, which is what keeps a second concurrent agent alive.
+`harvest_login` is that call for a single directory.
+
+**Ubiq drives it on a timer, not on a teardown.** `Coordinator::sync_logins_due` calls
+`Agents::sync_logins` every thirty seconds, grouping the run directories by the account home their
+`SessionMeta` recorded; the run loop's wait is bounded by the same interval whenever a pane exists,
+because a harness in passthrough says nothing for hours while rotating its token the whole time.
+The teardown harvest stays, for a run that ends between two ticks, and `Agents::refresh_login` runs
+one more before a resume composes over a directory that is already there — the copy a crashed run
+left behind may be the only live token, and provisioning is about to overwrite it.
 
 **The bridge is owned by a pump thread, and `crates/ubiq-host/src/conversation.rs` is that thread.**
 `IoBridge::next_event` blocks and both its methods take `&mut self`, so whoever reads a bridge

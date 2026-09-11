@@ -130,7 +130,19 @@ pub enum Validity {
 /// across all blobs wins. Pure (takes `now_ms`) so it's unit-testable without
 /// a clock. Returns [`Validity::Empty`] for no blobs, [`Validity::Unknown`]
 /// for blobs with no expiry field, else `Valid`/`Expired`.
+///
+/// A key naming a *refresh* expiry is skipped, because it is not the one that
+/// decides whether the credential works: Claude's blob carries both
+/// `expiresAt` (the access token, hours) and `refreshTokenExpiresAt` (the
+/// refresh window, thirty days), and taking the maximum reported a session as
+/// good for a month when its access token had hours left. See [`is_expiry`].
+///
+/// A blob that is [`not usable`](login_is_usable) — every token field an empty
+/// string, which is what a harness writes when it signs itself out — carries no
+/// login at all, so it contributes nothing and an account holding only such
+/// blobs reads as [`Validity::Empty`] rather than as a live session.
 pub fn credential_validity(blobs: &[CredentialBlob], now_ms: i64) -> Validity {
+    let blobs: Vec<&CredentialBlob> = blobs.iter().filter(|b| login_is_usable(&b.bytes)).collect();
     if blobs.is_empty() {
         return Validity::Empty;
     }
@@ -151,8 +163,73 @@ pub fn credential_validity(blobs: &[CredentialBlob], now_ms: i64) -> Validity {
     }
 }
 
-/// Recursively find the maximum numeric `*expire*` value in `v`, normalized to
-/// epoch millis (values below `10^12` are treated as seconds and ×1000).
+/// Whether `key` names the expiry that decides if a credential still works.
+///
+/// `*expire*`, minus anything that also says `refresh`: an OAuth blob carries
+/// two clocks, and the refresh window is the longer one by an order of
+/// magnitude. Claude Code's `refreshTokenExpiresAt` is thirty days out while
+/// its `expiresAt` is hours, so a maximum that counted both reported a dead
+/// session as a month of runway.
+fn is_expiry(key: &str) -> bool {
+    let key = key.to_lowercase();
+    key.contains("expire") && !key.contains("refresh")
+}
+
+/// Whether a credential blob carries an actual secret, as opposed to the
+/// hollowed-out shell a harness leaves behind when it signs itself out.
+///
+/// Claude Code rewrites `.credentials.json` in place with `"accessToken": ""`,
+/// `"refreshToken": ""` and `"expiresAt": 0` when a refresh fails — the file
+/// stays, the account keeps looking logged in, and the surviving
+/// `refreshTokenExpiresAt` even dates it a month into the future. Treating
+/// that as a login is what let an empty blob be copied over a working one, so
+/// both [`credential_validity`] and
+/// [`harvest_login`](crate::harness::harvest_login) ask this first.
+///
+/// Harness-agnostic: any JSON object with `*token*` keys is unusable when
+/// **every** one of them is an empty string. Non-JSON bytes, and JSON naming
+/// no token at all, are left alone — this is a check for a known-empty
+/// credential, not a claim to recognise every shape of a full one.
+pub fn login_is_usable(bytes: &[u8]) -> bool {
+    fn tokens(v: &serde_json::Value, found: &mut bool, any_set: &mut bool) {
+        match v {
+            serde_json::Value::Object(map) => {
+                for (k, val) in map {
+                    if k.to_lowercase().contains("token")
+                        && let Some(s) = val.as_str()
+                    {
+                        *found = true;
+                        *any_set |= !s.is_empty();
+                    }
+                    tokens(val, found, any_set);
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for item in items {
+                    tokens(item, found, any_set);
+                }
+            }
+            _ => {}
+        }
+    }
+    let Ok(v) = serde_json::from_slice::<serde_json::Value>(bytes) else {
+        return true;
+    };
+    let (mut found, mut any_set) = (false, false);
+    tokens(&v, &mut found, &mut any_set);
+    !found || any_set
+}
+
+/// The expiry a credential's bytes claim, in epoch millis, or `None` when they
+/// are not JSON or name no expiry. The single-blob form of what
+/// [`credential_validity`] computes, for callers comparing two versions of the
+/// same credential (see [`harvest_login`](crate::harness::harvest_login)).
+pub fn expiry_of(bytes: &[u8]) -> Option<i64> {
+    max_expiry_ms(&serde_json::from_slice::<serde_json::Value>(bytes).ok()?)
+}
+
+/// Recursively find the maximum numeric [`is_expiry`] value in `v`, normalized
+/// to epoch millis (values below `10^12` are treated as seconds and ×1000).
 fn max_expiry_ms(v: &serde_json::Value) -> Option<i64> {
     fn normalize(n: i64) -> i64 {
         if n < 1_000_000_000_000 {
@@ -165,7 +242,7 @@ fn max_expiry_ms(v: &serde_json::Value) -> Option<i64> {
         serde_json::Value::Object(map) => {
             let mut best: Option<i64> = None;
             for (k, val) in map {
-                if k.to_lowercase().contains("expire")
+                if is_expiry(k)
                     && let Some(n) = val.as_i64().or_else(|| val.as_f64().map(|f| f as i64))
                 {
                     let ms = normalize(n);
@@ -452,6 +529,43 @@ mod tests {
     }
 
     #[test]
+    fn credential_validity_real_claude_shape_expired_not_valid() {
+        // A real Claude blob carries both clocks: `expiresAt` (access, hours)
+        // and `refreshTokenExpiresAt` (refresh, thirty days). Taking the
+        // refresh expiry (far in the future) instead of the access one
+        // (in the past) would wrongly report `Valid` — this is the
+        // regression `is_expiry` fixes.
+        let past = 1_000_000_000_000i64;
+        let far_future = 5_000_000_000_000i64;
+        let bytes = format!(
+            "{{\"claudeAiOauth\":{{\"accessToken\":\"a\",\"refreshToken\":\"r\",\
+             \"expiresAt\":{past},\"refreshTokenExpiresAt\":{far_future}}}}}"
+        );
+        let v = credential_validity(&[blob(bytes.as_bytes())], 2_000_000_000_000);
+        assert_eq!(
+            v,
+            Validity::Expired {
+                expires_at_ms: past
+            }
+        );
+    }
+
+    #[test]
+    fn credential_validity_blanked_shape_is_empty() {
+        // What a harness leaves behind after a failed refresh / sign-out: all
+        // token fields blanked, expiresAt reset to zero, but
+        // refreshTokenExpiresAt still dated a month out. This must read as
+        // `Empty`, not as a live (or even expired) credential.
+        let future = 5_000_000_000_000i64;
+        let bytes = format!(
+            "{{\"claudeAiOauth\":{{\"accessToken\":\"\",\"refreshToken\":\"\",\
+             \"expiresAt\":0,\"refreshTokenExpiresAt\":{future}}}}}"
+        );
+        let v = credential_validity(&[blob(bytes.as_bytes())], 1_000_000_000_000);
+        assert_eq!(v, Validity::Empty);
+    }
+
+    #[test]
     fn credential_validity_no_expiry_field_is_unknown() {
         let v = credential_validity(&[blob(b"{\"apiKey\":\"sk-1\"}")], 1_000);
         assert_eq!(v, Validity::Unknown);
@@ -494,6 +608,44 @@ mod tests {
                 expires_at_ms: Some(far)
             }
         );
+    }
+
+    #[test]
+    fn login_is_usable_false_for_blanked_blob() {
+        let bytes = b"{\"claudeAiOauth\":{\"accessToken\":\"\",\"refreshToken\":\"\",\
+                      \"expiresAt\":0,\"refreshTokenExpiresAt\":5000000000000}}";
+        assert!(!login_is_usable(bytes));
+    }
+
+    #[test]
+    fn login_is_usable_true_for_set_token() {
+        let bytes = b"{\"claudeAiOauth\":{\"accessToken\":\"tok\",\"refreshToken\":\"\"}}";
+        assert!(login_is_usable(bytes));
+    }
+
+    #[test]
+    fn login_is_usable_true_for_non_json_bytes() {
+        assert!(login_is_usable(b"not json at all"));
+    }
+
+    #[test]
+    fn login_is_usable_true_for_json_naming_no_token_key() {
+        assert!(login_is_usable(b"{\"apiKey\":\"sk-1\"}"));
+    }
+
+    #[test]
+    fn expiry_of_returns_access_expiry_not_refresh_expiry() {
+        let access = 1_700_000_000_000i64;
+        let refresh = 5_000_000_000_000i64;
+        let bytes = format!(
+            "{{\"claudeAiOauth\":{{\"expiresAt\":{access},\"refreshTokenExpiresAt\":{refresh}}}}}"
+        );
+        assert_eq!(expiry_of(bytes.as_bytes()), Some(access));
+    }
+
+    #[test]
+    fn expiry_of_none_for_non_json() {
+        assert_eq!(expiry_of(b"not json"), None);
     }
 
     #[test]

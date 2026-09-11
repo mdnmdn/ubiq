@@ -340,36 +340,181 @@ pub(crate) fn seed_login(dir: &Path, login: &Source, seed: &[SeedFile]) -> Resul
 /// `0600` on unix); anything else came from somewhere that is not a directory
 /// (Claude Code's macOS Keychain) and is handed to [`Harness::adopt_login`].
 ///
+/// Two things a changed blob is **not** allowed to be, because writing either
+/// one logs the account out for good and both were observed doing it:
+///
+/// - **Empty.** A harness whose refresh failed rewrites its credential with
+///   blank tokens rather than deleting it
+///   ([`login_is_usable`](crate::credentials::login_is_usable)). Harvesting
+///   that copies the sign-out onto the account home — and, for an ambient
+///   origin, into the user's own macOS Keychain.
+/// - **Older than what is already there.** Two agents on one account each get
+///   their own copy of the credential. If one refreshes, the origin now holds
+///   a token *newer* than the other's untouched copy, which still compares as
+///   "changed" and would be written back over it. Whichever run tears down
+///   last would win, so the comparison is on the expiry each blob claims
+///   ([`expiry_of`](crate::credentials::expiry_of)), not on teardown order.
+///
 /// Never fails the caller: this runs on teardown paths, and a write-back that
 /// could not happen is a warning, not a reason to break a run that is over.
 pub fn harvest_login(harness: &dyn Harness, dir: &Path, origin: &Source) -> Result<()> {
+    sync_login(harness, std::slice::from_ref(&dir), origin)
+}
+
+/// [`harvest_login`] for every run sharing one origin at once: take whichever
+/// copy of the credential is newest, write it to the origin, and hand it back
+/// to every run still holding an older one.
+///
+/// The second half is what harvesting alone cannot do. A refresh **rotates**
+/// the refresh token, and each run was seeded its own copy of the one token, so
+/// the moment one run refreshes every *other* run is holding a token the
+/// provider has already revoked — they will each fail their own next refresh
+/// with "OAuth session expired", whatever the origin now says. Writing the
+/// winner back into their config dirs is what keeps a second concurrent agent
+/// alive; the harness reads the file again at its next refresh.
+///
+/// Called on a timer while runs are live (a refresh happens hours into a run,
+/// not at its end) and on every teardown path through [`harvest_login`]. Both
+/// are the same operation, so both go through here: the loser of a race is
+/// whichever blob claims the earlier expiry, never whichever call happened
+/// last.
+///
+/// A run dir that does not already hold the file is skipped rather than seeded
+/// — placing a login where the harness was never given one is
+/// [`seed_login`]'s decision to make, at provisioning, and
+/// `provision::seed_zero_config_login` reads the file's absence as its own
+/// signal.
+pub fn sync_login(harness: &dyn Harness, dirs: &[&Path], origin: &Source) -> Result<()> {
     for file in harness
         .config_anchor()
         .login_seed
         .iter()
         .filter(|f| f.credential)
     {
-        let path = dir.join(&file.dst);
-        let Ok(fresh) = std::fs::read(&path) else {
+        let stored = origin.read(&file.src)?;
+        // Every copy that exists, the origin's included, with the origin first
+        // so it keeps a tie: a run that has not refreshed holds a byte-identical
+        // blob, and nothing should move for it.
+        let held: Vec<Held<'_>> = dirs
+            .iter()
+            .filter_map(|dir| {
+                let path = dir.join(&file.dst);
+                Some(Held {
+                    dir,
+                    bytes: std::fs::read(&path).ok()?,
+                    written: std::fs::metadata(&path).and_then(|m| m.modified()).ok(),
+                })
+            })
+            .collect();
+
+        let Some(best) = newest_login(harness, &file.src, stored.as_deref(), &held) else {
             continue;
         };
-        if origin.read(&file.src)?.as_deref() == Some(&fresh[..]) {
-            continue;
+
+        if stored.as_deref() != Some(best) {
+            let outcome = match origin {
+                Source::Dir(home) => write_credential(&home.join(&file.src), best),
+                Source::Files(_) => harness.adopt_login(&file.src, best),
+            };
+            if let Err(error) = outcome {
+                tracing::warn!(
+                    harness = %harness.id(),
+                    file = %file.src.display(),
+                    "a refreshed login could not be written back, so the original may now be \
+                     revoked: {error:#}"
+                );
+            }
         }
-        let outcome = match origin {
-            Source::Dir(home) => write_credential(&home.join(&file.src), &fresh),
-            Source::Files(_) => harness.adopt_login(&file.src, &fresh),
-        };
-        if let Err(error) = outcome {
-            tracing::warn!(
-                harness = %harness.id(),
-                file = %file.src.display(),
-                "a refreshed login could not be written back, so the original may now be \
-                 revoked: {error:#}"
-            );
+
+        for held in &held {
+            if held.bytes[..] == *best {
+                continue;
+            }
+            let path = held.dir.join(&file.dst);
+            if let Err(error) = write_credential(&path, best) {
+                tracing::warn!(
+                    harness = %harness.id(),
+                    path = %path.display(),
+                    "a run is holding a rotated-away login and could not be handed the current \
+                     one, so its next refresh will fail: {error:#}"
+                );
+            }
         }
     }
     Ok(())
+}
+
+/// One live run's copy of a credential: where it is, what it says, and when it
+/// was last written.
+struct Held<'a> {
+    dir: &'a Path,
+    bytes: Vec<u8>,
+    /// `None` when the file could not be stat'd, which puts it last among
+    /// equals rather than first — see [`newest_login`]'s second rule.
+    written: Option<std::time::SystemTime>,
+}
+
+/// Which of `stored` (the origin's copy) and `held` (each live run's) is the
+/// login to keep. `None` when there is nothing usable anywhere, which is the
+/// "leave everything alone" answer.
+///
+/// A blob that is not [`login_is_usable`](crate::credentials::login_is_usable)
+/// is out of the running entirely — that is the blank-token shell a harness
+/// writes when its refresh fails, and it would otherwise be copied over a
+/// working credential.
+///
+/// Two rules, in order, because harnesses do not agree on what a credential
+/// says about itself. **By the expiry it claims**, when anything claims one:
+/// Claude Code's blob dates its own access token, so the later date is the
+/// later refresh whatever the clock on the file says, and a copy claiming no
+/// expiry cannot outrank one that does. **By when it was written**, when
+/// nothing claims one: Codex's `auth.json` carries no expiry at all, and
+/// ranking it by expiry alone would mean no Codex refresh was ever harvested.
+/// The origin keeps every tie, so a run that has not refreshed moves nothing.
+fn newest_login<'a>(
+    harness: &dyn Harness,
+    src: &Path,
+    stored: Option<&'a [u8]>,
+    held: &'a [Held<'a>],
+) -> Option<&'a [u8]> {
+    use crate::credentials::{expiry_of, login_is_usable};
+
+    let usable: Vec<&Held<'a>> = held
+        .iter()
+        .filter(|held| {
+            login_is_usable(&held.bytes) || {
+                tracing::warn!(
+                    harness = %harness.id(),
+                    file = %src.display(),
+                    "a run left an empty login behind (a failed refresh, or a sign-out), so the \
+                     stored credential is kept as it is"
+                );
+                false
+            }
+        })
+        .collect();
+
+    let stored = stored.filter(|bytes| login_is_usable(bytes));
+    let stored_expiry = stored.and_then(expiry_of);
+    if stored_expiry.is_some() || usable.iter().any(|held| expiry_of(&held.bytes).is_some()) {
+        let mut best = stored;
+        let mut best_expiry = stored_expiry;
+        for held in usable {
+            let expiry = expiry_of(&held.bytes);
+            if best.is_none() || (expiry.is_some() && expiry > best_expiry) {
+                best = Some(&held.bytes);
+                best_expiry = expiry;
+            }
+        }
+        return best;
+    }
+
+    usable
+        .into_iter()
+        .filter(|held| Some(&held.bytes[..]) != stored)
+        .max_by_key(|held| held.written)
+        .map(|held| &held.bytes[..])
+        .or(stored)
 }
 
 /// Write a credential blob to `path`, creating parents, `0600` on unix.
@@ -378,13 +523,25 @@ fn write_credential(path: &Path, bytes: &[u8]) -> Result<()> {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("creating {}", parent.display()))?;
     }
-    std::fs::write(path, bytes).with_context(|| format!("writing {}", path.display()))?;
+    // Written beside the target and renamed onto it, rather than truncated in
+    // place. [`sync_login`] writes into the config dir of a harness that is
+    // *running*, and a truncate-then-write leaves a window in which that
+    // harness reads half a credential and decides it is logged out. The
+    // temporary name carries the pid so two processes reconciling one account
+    // cannot collide on it.
+    let staged = path.with_file_name(format!(
+        ".{}.{}.tmp",
+        path.file_name().unwrap_or_default().to_string_lossy(),
+        std::process::id()
+    ));
+    std::fs::write(&staged, bytes).with_context(|| format!("writing {}", staged.display()))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
-            .with_context(|| format!("chmod 600 {}", path.display()))?;
+        std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o600))
+            .with_context(|| format!("chmod 600 {}", staged.display()))?;
     }
+    std::fs::rename(&staged, path).with_context(|| format!("writing {}", path.display()))?;
     Ok(())
 }
 
@@ -1168,5 +1325,210 @@ mod tests {
         // `SeedHarness` has no `adopt_login`, so the write-back errors — and
         // harvesting still succeeds, because a teardown must not break.
         harvest_login(&SeedHarness, run.path(), &origin).unwrap();
+    }
+
+    /// Seed a good credential (a set access token, given expiry) from `home`
+    /// into a fresh run dir, and hand back the two.
+    fn seeded_with_credential(expiry_ms: i64) -> (tempfile::TempDir, tempfile::TempDir) {
+        let home = tempfile::TempDir::new().unwrap();
+        let run = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir_all(home.path().join(".creds")).unwrap();
+        std::fs::write(
+            home.path().join(".creds/token.json"),
+            format!("{{\"accessToken\":\"ORIGINAL\",\"expiresAt\":{expiry_ms}}}"),
+        )
+        .unwrap();
+        std::fs::write(home.path().join(".claude.json"), "OLD-IDENTITY").unwrap();
+        seed_login(
+            run.path(),
+            &Source::Dir(home.path().to_path_buf()),
+            &SeedHarness.config_anchor().login_seed,
+        )
+        .unwrap();
+        (home, run)
+    }
+
+    #[test]
+    fn harvest_leaves_origin_unchanged_when_run_dir_holds_a_blanked_credential() {
+        let (home, run) = seeded_with_credential(5_000_000_000_000);
+        // The run dir's copy comes back blanked, as a failed refresh leaves it.
+        std::fs::write(
+            run.path().join("token.json"),
+            "{\"accessToken\":\"\",\"expiresAt\":0}",
+        )
+        .unwrap();
+
+        harvest_login(
+            &SeedHarness,
+            run.path(),
+            &Source::Dir(home.path().to_path_buf()),
+        )
+        .unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(home.path().join(".creds/token.json")).unwrap(),
+            "{\"accessToken\":\"ORIGINAL\",\"expiresAt\":5000000000000}"
+        );
+    }
+
+    #[test]
+    fn harvest_leaves_origin_unchanged_when_run_dirs_expiry_is_older() {
+        let (home, run) = seeded_with_credential(5_000_000_000_000);
+        // Another run already refreshed the origin to a later expiry; this
+        // run's own copy, with an older expiry, must not overwrite it.
+        std::fs::write(
+            run.path().join("token.json"),
+            "{\"accessToken\":\"STALE\",\"expiresAt\":3000000000000}",
+        )
+        .unwrap();
+
+        harvest_login(
+            &SeedHarness,
+            run.path(),
+            &Source::Dir(home.path().to_path_buf()),
+        )
+        .unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(home.path().join(".creds/token.json")).unwrap(),
+            "{\"accessToken\":\"ORIGINAL\",\"expiresAt\":5000000000000}"
+        );
+    }
+
+    #[test]
+    fn harvest_writes_back_when_run_dirs_expiry_is_newer() {
+        let (home, run) = seeded_with_credential(3_000_000_000_000);
+        let fresh = "{\"accessToken\":\"REFRESHED\",\"expiresAt\":5000000000000}";
+        std::fs::write(run.path().join("token.json"), fresh).unwrap();
+
+        harvest_login(
+            &SeedHarness,
+            run.path(),
+            &Source::Dir(home.path().to_path_buf()),
+        )
+        .unwrap();
+
+        let origin = home.path().join(".creds/token.json");
+        assert_eq!(std::fs::read_to_string(&origin).unwrap(), fresh);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&origin).unwrap().permissions().mode();
+            assert_eq!(
+                mode & 0o777,
+                0o600,
+                "a written-back credential must be 0600"
+            );
+        }
+    }
+
+    #[test]
+    fn sync_login_hands_the_winner_to_every_other_run_holding_the_old_one() {
+        let (home, run_a) = seeded_with_credential(3_000_000_000_000);
+        let run_b = tempfile::TempDir::new().unwrap();
+        seed_login(
+            run_b.path(),
+            &Source::Dir(home.path().to_path_buf()),
+            &SeedHarness.config_anchor().login_seed,
+        )
+        .unwrap();
+        let refreshed = "{\"accessToken\":\"REFRESHED\",\"expiresAt\":5000000000000}";
+        std::fs::write(run_a.path().join("token.json"), refreshed).unwrap();
+
+        // The whole point of `sync_login` over lone `harvest_login` calls: a
+        // second run still holding the pre-rotation token must be handed the
+        // winner too, or its next refresh fails against a revoked token.
+        sync_login(
+            &SeedHarness,
+            &[run_a.path(), run_b.path()],
+            &Source::Dir(home.path().to_path_buf()),
+        )
+        .unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(home.path().join(".creds/token.json")).unwrap(),
+            refreshed
+        );
+        assert_eq!(
+            std::fs::read_to_string(run_b.path().join("token.json")).unwrap(),
+            refreshed
+        );
+    }
+
+    #[test]
+    fn sync_login_never_lets_a_blanked_run_copy_win_over_another_runs_untouched_one() {
+        let (home, run_a) = seeded_with_credential(5_000_000_000_000);
+        let run_b = tempfile::TempDir::new().unwrap();
+        seed_login(
+            run_b.path(),
+            &Source::Dir(home.path().to_path_buf()),
+            &SeedHarness.config_anchor().login_seed,
+        )
+        .unwrap();
+        std::fs::write(
+            run_a.path().join("token.json"),
+            "{\"accessToken\":\"\",\"expiresAt\":0}",
+        )
+        .unwrap();
+
+        // A blank never wins, even with other live copies in play: the origin
+        // and the untouched run must both come out exactly as they went in.
+        sync_login(
+            &SeedHarness,
+            &[run_a.path(), run_b.path()],
+            &Source::Dir(home.path().to_path_buf()),
+        )
+        .unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(home.path().join(".creds/token.json")).unwrap(),
+            "{\"accessToken\":\"ORIGINAL\",\"expiresAt\":5000000000000}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(run_b.path().join("token.json")).unwrap(),
+            "{\"accessToken\":\"ORIGINAL\",\"expiresAt\":5000000000000}"
+        );
+    }
+
+    #[test]
+    fn sync_login_writes_the_origins_newer_blob_into_a_stale_run_dir() {
+        let (home, run) = seeded_with_credential(5_000_000_000_000);
+        std::fs::write(
+            run.path().join("token.json"),
+            "{\"accessToken\":\"STALE\",\"expiresAt\":3000000000000}",
+        )
+        .unwrap();
+
+        // The origin is not just a write target: a run dragging an older copy
+        // (another sync already advanced the origin) must be brought forward.
+        sync_login(
+            &SeedHarness,
+            &[run.path()],
+            &Source::Dir(home.path().to_path_buf()),
+        )
+        .unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(run.path().join("token.json")).unwrap(),
+            "{\"accessToken\":\"ORIGINAL\",\"expiresAt\":5000000000000}"
+        );
+    }
+
+    #[test]
+    fn sync_login_skips_a_run_dir_that_never_held_the_credential() {
+        let (home, _run) = seeded_with_credential(5_000_000_000_000);
+        let bare = tempfile::TempDir::new().unwrap();
+
+        // Placing a login where the harness was never given one is
+        // `seed_login`'s decision, not `sync_login`'s — a run with no file
+        // must stay that way, not be seeded as a side effect of syncing.
+        sync_login(
+            &SeedHarness,
+            &[bare.path()],
+            &Source::Dir(home.path().to_path_buf()),
+        )
+        .unwrap();
+
+        assert!(!bare.path().join("token.json").exists());
     }
 }

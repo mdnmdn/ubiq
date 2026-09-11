@@ -385,6 +385,64 @@ pub const DEV_RW_HOME_ROOTS: &[&str] = &[
     ".local/share/NuGet",
 ];
 
+/// The Apple SDK trees a Swift or Xcode build reads, granted on macOS only.
+///
+/// `toolchains/apple-toolchain-core` grants `/Library/Developer/CommandLineTools/usr/bin`
+/// as a *literal* — the directory itself, plus one entry per binary it names —
+/// and `swift`, `swiftc` and the twenty `swift-*` tools beside them are not in
+/// that list. So `swift --version` denies inside the sandbox on a machine whose
+/// toolchain is complete, which reads as a broken Swift install rather than as
+/// a policy. `integrations/xcode` is the layer that would cover the rest, and
+/// it is in [`BROKEN_LAYERS`]: its `[macos] raw` block calls `home-literal`,
+/// which fails the *whole* policy. This const is that layer's path half,
+/// replicated the way `refs/dev-home/dev-home.toml` already replicates it.
+///
+/// Both Xcode bundles are named because either can be the active developer dir,
+/// and `DEVELOPER_DIR` (in [`ENV_PASS`]) is what says which — an absent bundle
+/// renders as an inert grant. The plist is the license-acceptance record every
+/// `xcodebuild` reads before it does anything.
+///
+/// Not the whole of Xcode: a simulator or a device run also needs
+/// `com.apple.CoreSimulator*` mach lookups, which no [`isol8::Spec`] field can
+/// express — a grant list cannot carry SBPL. `swift build` needs one thing more
+/// still, and it is not a grant either: SwiftPM shells out to `sandbox-exec`
+/// itself, a sandbox cannot nest, and only `--disable-sandbox` gets past it.
+/// See `G91`.
+pub const APPLE_SDK_RO_ROOTS: &[&str] = &[
+    "/Library/Developer/CommandLineTools",
+    "/Library/Developer/Toolchains",
+    "/Applications/Xcode.app",
+    "/Applications/Xcode-beta.app",
+    "/Library/Preferences/com.apple.dt.Xcode.plist",
+];
+
+/// The Apple developer caches a Swift or Xcode build writes, under the real
+/// home, granted on macOS only.
+///
+/// The read-only half above lets the toolchain run; these let it finish. SwiftPM
+/// resolves and caches packages under both `org.swift.swiftpm` roots, and
+/// `xcodebuild` writes derived data, simulator state and its own build cache
+/// under `~/Library/Developer` and `~/Library/Caches`. Same rules as
+/// [`DEV_RW_HOME_ROOTS`]: joined absolutely against the real home so they
+/// survive a replaced one, and not existence-filtered, since the grant is what
+/// makes a cache's first-run creation legal.
+pub const APPLE_RW_HOME_ROOTS: &[&str] = &[
+    "Library/Developer/Xcode",
+    "Library/Developer/CoreSimulator",
+    "Library/Developer/XCTestDevices",
+    "Library/Developer/CoreDevice",
+    "Library/Caches/com.apple.dt.Xcode",
+    "Library/Caches/org.swift.swiftpm",
+    "Library/org.swift.swiftpm",
+];
+
+/// Whether this host is the one [`APPLE_SDK_RO_ROOTS`] and
+/// [`APPLE_RW_HOME_ROOTS`] describe. Elsewhere those paths name nothing, and a
+/// `~/Library` grant on Linux is a statement about the wrong tree.
+fn on_macos() -> bool {
+    isol8::Platform::current() == isol8::Platform::Macos
+}
+
 /// What a harness needs to draw a screen, and what the toolchains it shells
 /// out to need to work at all.
 ///
@@ -831,16 +889,19 @@ fn context(run: &RunSpec, options: &IsolateOptions) -> isol8::Context {
 /// working directory, the developer roots isol8 ships no layer for, and
 /// whatever the caller declared.
 ///
-/// The run's own two come first, so a duplicate in [`DEV_RW_HOME_ROOTS`] or
-/// [`IsolateOptions::extra_rw`] collapses into them rather than the reverse.
+/// The run's own two come first, so a duplicate in [`DEV_RW_HOME_ROOTS`],
+/// [`APPLE_RW_HOME_ROOTS`] or [`IsolateOptions::extra_rw`] collapses into them
+/// rather than the reverse.
 fn read_write_grants(dir: &Path, run: &RunSpec, options: &IsolateOptions) -> Vec<String> {
     let mut grants = vec![path_string(dir), path_string(&run.cwd)];
 
     // The same value `Context.real_home` carries, so a grant and a `~`
     // expansion in a layer cannot disagree about where the home is.
     let real_home = isol8::home::real_home();
+    let apple = if on_macos() { APPLE_RW_HOME_ROOTS } else { &[] };
     let extra = DEV_RW_HOME_ROOTS
         .iter()
+        .chain(apple)
         .map(|rel| real_home.join(rel))
         .chain(options.extra_rw.iter().cloned());
 
@@ -854,7 +915,8 @@ fn read_write_grants(dir: &Path, run: &RunSpec, options: &IsolateOptions) -> Vec
     grants
 }
 
-/// Every directory the run reads through the config dir rather than inside it.
+/// Every directory the run reads through the config dir rather than inside it,
+/// plus the Apple SDK trees on macOS.
 ///
 /// A `Source::Files` store hands over bytes, which the provisioner writes into
 /// the run dir as real files — already covered by that dir's own grant — so
@@ -879,6 +941,16 @@ fn read_only_grants(run: &RunSpec, options: &IsolateOptions) -> Vec<String> {
     }
     if let Some(login) = &run.account_login {
         push(login);
+    }
+    // The Apple SDK trees no layer this module may name reaches — see
+    // [`APPLE_SDK_RO_ROOTS`].
+    if on_macos() {
+        for root in APPLE_SDK_RO_ROOTS {
+            let grant = (*root).to_string();
+            if !grants.contains(&grant) {
+                grants.push(grant);
+            }
+        }
     }
     for extra in &options.extra_ro {
         let grant = path_string(extra);
@@ -1031,11 +1103,48 @@ mod tests {
         assert!(grants.contains(&skill_dir.display().to_string()));
         assert!(grants.contains(&profile_dir.display().to_string()));
         assert!(grants.contains(&login_dir.display().to_string()));
+        let apple = if on_macos() {
+            APPLE_SDK_RO_ROOTS.len()
+        } else {
+            0
+        };
         assert_eq!(
             grants.len(),
-            3,
+            3 + apple,
             "a Source::Files entry and a duplicate Source::Dir must not add grants: {grants:?}"
         );
+    }
+
+    // 8b. `swift` and `swiftc` sit in a directory `toolchains/apple-toolchain-core`
+    // grants as a literal without naming them, and `integrations/xcode` — the layer
+    // that would cover the SDK bundles — is in BROKEN_LAYERS. So the Apple trees are
+    // this module's to grant, or a confined `swift --version` is denied on a machine
+    // whose toolchain is complete.
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn apple_sdk_roots_are_granted_read_only_and_their_caches_read_write() {
+        let state = TempDir::new().expect("state dir");
+        let cwd = TempDir::new().expect("cwd");
+        let cfg_dir = TempDir::new().expect("config dir");
+        let run = sandboxed_run(cwd.path(), "");
+        let options = IsolateOptions::new(state.path().to_path_buf());
+
+        let confined = plan(&Launch::default(), &run, cfg_dir.path(), &options)
+            .expect("plan")
+            .expect("sandboxed run must produce a policy");
+
+        let ro = &confined.spec.add_dirs_ro;
+        for root in APPLE_SDK_RO_ROOTS {
+            assert!(
+                ro.contains(&(*root).to_string()),
+                "{root} missing from {ro:?}"
+            );
+        }
+        let rw = &confined.spec.add_dirs_rw;
+        for rel in APPLE_RW_HOME_ROOTS {
+            let want = real_home().join(rel).display().to_string();
+            assert!(rw.contains(&want), "{want} missing from {rw:?}");
+        }
     }
 
     // 9. A native binary (no shebang, no symlink) must yield its own directory as a login
@@ -1244,7 +1353,16 @@ mod tests {
 
         let grants = read_only_grants(&run, &options);
 
-        assert_eq!(grants, vec![toolchain.display().to_string()]);
+        let mut want: Vec<String> = if on_macos() {
+            APPLE_SDK_RO_ROOTS
+                .iter()
+                .map(|r| (*r).to_string())
+                .collect()
+        } else {
+            Vec::new()
+        };
+        want.push(toolchain.display().to_string());
+        assert_eq!(grants, want);
     }
 
     // 4. launch.env must reach the policy as explicit `K=V` set_env entries —
