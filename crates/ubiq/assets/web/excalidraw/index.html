@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Excalidraw — Ubiq</title>
+<style>
+  /* System colours only: this page has no palette of its own, and the one thing it draws
+     itself (the failure notice) must be legible in either. Excalidraw brings its own. */
+  :root { color-scheme: light dark; }
+  html, body { height: 100%; margin: 0; background: Canvas; color: CanvasText; }
+  #root { position: absolute; inset: 0; }
+  #failure {
+    position: absolute; inset: 0; margin: 0; padding: 2rem;
+    font: 13px/1.5 ui-monospace, monospace; white-space: pre-wrap;
+    background: Canvas; color: CanvasText;
+  }
+  #failure[hidden] { display: none; }
+  /* The Save button the component renders for us, in the island beside its own controls. It
+     borrows Excalidraw's own variables rather than naming colours, so it follows the theme the
+     window told the page to wear. */
+  .ubiq-save {
+    height: 2.25rem; padding: 0 0.75rem; border: 0; border-radius: var(--border-radius-lg, 0.5rem);
+    background: var(--color-primary, #6965db); color: var(--color-primary-contrast, #fff);
+    font: 600 0.875rem/1 var(--ui-font, inherit); cursor: pointer;
+  }
+  .ubiq-save:hover { background: var(--color-primary-darker, #5b57d1); }
+</style>
+</head>
+<body>
+  <div id="root"></div>
+  <pre id="failure" hidden></pre>
+
+  <!-- The bridge shim first, as a classic script: `app.js` needs `window.ubiq` before it runs,
+       and it must itself be classic so that nothing loads a module before the import map is in
+       the document. `data-nonce` carries the per-response CSP nonce that lets `app.js` inject
+       the one inline `<script type="importmap">` this page is allowed. -->
+  <script src="bridge.js"></script>
+  <script id="ubiq-app" src="app.js" data-nonce="__UBIQ_NONCE__"></script>
+</body>
+</html>

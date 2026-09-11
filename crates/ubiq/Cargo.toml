@@ -19,7 +19,7 @@ gpui_platform = { git = "https://github.com/zed-industries/zed", features = [
     "runtime_shaders",
     "screen-capture",
 ] }
-gpui-component = { git = "https://github.com/longbridge/gpui-component", features = [
+gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "df1d07b212e21217b1168e1728293b3e0c48e5a3", features = [
     "tree-sitter-markdown",
     "tree-sitter-rust",
     "tree-sitter-python",
@@ -40,7 +40,7 @@ gpui-component = { git = "https://github.com/longbridge/gpui-component", feature
     "tree-sitter-kotlin",
     "tree-sitter-diff",
 ] }
-gpui-component-assets = { git = "https://github.com/longbridge/gpui-component" }
+gpui-component-assets = { git = "https://github.com/longbridge/gpui-component", rev = "df1d07b212e21217b1168e1728293b3e0c48e5a3" }
 
 # Terminal emulator component
 gpui-terminal = { path = "../../vendor/gpui-terminal" }
@@ -111,6 +111,16 @@ ignore = "0.4"
 # PNG encode for the capture flatten, and base-image dimensions for the capture
 # scene. Decode for display stays GPUI's — this only measures and flattens.
 image = { version = "0.25", default-features = false, features = ["png"] }
+
+# The embedded browser a web panel draws in. `gpui-wry` is gpui-component's own wry binding —
+# same repository, so it resolves to the revision the component crates already pin, and a child
+# webview is laid out by a GPUI element rather than by a second window. macOS and Windows only:
+# the crate's Unix path is unfinished upstream, so every other platform keeps the external
+# browser that phase 5 shipped.
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+gpui-wry = { git = "https://github.com/longbridge/gpui-component", rev = "df1d07b212e21217b1168e1728293b3e0c48e5a3" }
+wry = { version = "0.53.3", package = "lb-wry" }
+raw-window-handle = { version = "0.6", features = ["std"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

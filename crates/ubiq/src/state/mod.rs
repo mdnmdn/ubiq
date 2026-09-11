@@ -38,6 +38,7 @@ pub mod sink;
 pub mod stats;
 pub mod viewport;
 pub mod vim;
+pub mod web_panel;
 pub mod when;
 pub mod windows;
 pub mod work;

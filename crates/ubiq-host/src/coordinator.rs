@@ -47,6 +47,7 @@ use crate::shells;
 use crate::store::harness::{CachedModel, FileHarnessCache};
 use crate::store::usage::Usage;
 use crate::watch;
+use crate::web_assets::WebAssets;
 use crate::work::Work;
 
 /// The geometry a pane starts at, before the emulator has measured its own bounds and said what it
@@ -134,6 +135,14 @@ struct Coordinator {
     /// clone and nothing else — every call it makes is on a thread of its own, for the same reason
     /// a connector flow is.
     repos: Repos,
+    /// The vendor bundles a web panel needs, on disk in the shared workarea. Holds a row per fetch
+    /// in flight and nothing else — the download is a thread of its own, for the same reason a
+    /// clone is.
+    web_assets: WebAssets,
+    /// The directory the host reserves for the interface, told to each window as it attaches and
+    /// never composed by it. Reserved once here, because it belongs to no project and outlives
+    /// every window.
+    shared_workarea: String,
     /// Which agent types can run here, and the composer that turns one into a launch.
     agents: Agents,
     /// The on-disk cache of what each harness answered about its own models/reasoning levels,
@@ -684,6 +693,11 @@ impl Coordinator {
         let settings = Arc::new(settings);
         let connectors = Connectors::new(settings.clone(), &root.path);
         let repos = Repos::new(settings.clone(), connectors.store());
+        // Reserved once, not per attach: it belongs to no project, and the interface is told a
+        // path rather than a maybe. A root that will not take the directory is still named — what
+        // is kept there is a cache, so the interface downgrades rather than fails.
+        let shared_workarea = crate::projects::reserve_shared_workarea(&root.path);
+        let web_assets = WebAssets::new(std::path::PathBuf::from(&shared_workarea));
         // The provider family shares the connector family's keychain — one store, one probe of
         // whether this platform has one — and is built before the backend because it is what
         // lends `select` the key a backend is constructed with.
@@ -762,6 +776,8 @@ impl Coordinator {
             settings,
             connectors,
             repos,
+            web_assets,
+            shared_workarea,
             agents,
             catalogue,
             files: Files::start(),
@@ -901,6 +917,7 @@ impl Coordinator {
                 triplet: meta.as_ref().map(|meta| meta.triplet.clone()),
                 cpu_count: meta.as_ref().map(|meta| meta.cpu_count),
                 mem_total_bytes: meta.as_ref().and_then(|meta| meta.mem_total_bytes),
+                shared_workarea: Some(self.shared_workarea.clone()),
             },
         );
         for reply in std::mem::take(&mut self.pending) {
@@ -990,6 +1007,10 @@ impl Coordinator {
         // has a clone: dropping its sender is what stops the transfer mid-fetch.
         self.connectors.client_gone(client);
         self.repos.client_gone(client);
+        // A bundle fetch is not cancelled with the window that asked: another window may be
+        // waiting on the same one, and the bytes are worth having whoever wanted them. This only
+        // stops it being told.
+        self.web_assets.client_gone(client);
     }
 
     /// Take the folders finished clones left into the catalogue.
@@ -1442,6 +1463,14 @@ impl Coordinator {
                 self.repos.clone(client, request, asker);
             }
             Message::CancelClone { clone_id } => self.repos.cancel(clone_id),
+
+            // The vendor bundle a web panel needs. Everything after this — the progress, the
+            // answer, the failure — comes from a thread of its own, except the one case that
+            // touches no network: a bundle already on disk is answered from here.
+            Message::EnsureWebBundle { app } => {
+                let (asker, _) = self.sinks(client);
+                self.web_assets.ensure(client, &app, asker);
+            }
 
             // The `ubiq` command on PATH. Every path in the exchange is the host's: the interface
             // says which of the three things to do and is told what is there afterwards.

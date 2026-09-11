@@ -911,6 +911,52 @@ fn a_project_arrives_with_a_workarea_the_host_reserves_and_leaves_alone() {
     );
 }
 
+/// The shared workarea is reserved where the layout says, and the host leaves it empty.
+///
+/// The mirror of the test above, one level up: the interface is told a path rather than composing
+/// one, it is `<config root>/ui/` and not any project's, it exists by the time the greeting says
+/// so, and nothing the host does afterwards puts anything in it. What makes it *shared* is that no
+/// project names it — the same bundle wanted by five projects is one copy.
+#[test]
+fn a_window_is_told_a_shared_workarea_the_host_reserves_and_leaves_alone() {
+    let (_hub, ui, root) = coordinator_on_disk();
+    let expected = root.join("ui");
+
+    let told = loop {
+        match ui.from_host().recv_timeout(PATIENCE) {
+            Ok(Message::HostInfo {
+                shared_workarea, ..
+            }) => break shared_workarea.expect("the greeting names a shared workarea"),
+            Ok(_) => continue,
+            Err(error) => panic!("no greeting: {error}"),
+        }
+    };
+    assert_eq!(
+        std::path::Path::new(&told),
+        expected,
+        "the shared workarea sits beside `projects/` under Ubiq's config root"
+    );
+    assert!(
+        expected.is_dir(),
+        "and the host has already made it, because the interface is told a path and not a maybe"
+    );
+
+    // Adding a project writes a good deal under the config root; none of it lands in here.
+    let folder = tempfile::TempDir::new().unwrap();
+    let project = add_project(&ui, folder.path());
+    let _ = expect_project_list(&ui);
+    assert_ne!(
+        expected,
+        root.join("projects").join(project.to_string()).join("ui"),
+        "the shared workarea is not any project's workarea"
+    );
+    assert_eq!(
+        std::fs::read_dir(&expected).unwrap().count(),
+        0,
+        "the host reserves the shared workarea and never writes inside it"
+    );
+}
+
 /// The same as [`coordinator_on_disk`], but the catalogue itself is the real file store — the
 /// other one keeps it in memory, which is right for tests that watch tasks or the workarea, and
 /// wrong for the two below, which watch `projects.toml` itself.

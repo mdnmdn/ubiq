@@ -275,8 +275,14 @@ pub enum HarnessChoice {
 /// `AccountDialog` already follows.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FileDialog {
-    /// Naming something new inside `parent`. Empty `parent` is the project's root.
-    New { parent: String, dir: bool },
+    /// Naming something new inside `parent`. Empty `parent` is the project's root. `ext` is the
+    /// extension the typed name is forced to carry — set from the menu action that raised this, so
+    /// a drawing made as `New Excalidraw` cannot become a text file by deleting the suffix.
+    New {
+        parent: String,
+        dir: bool,
+        ext: Option<String>,
+    },
     /// Renaming `path`, seeded with its leaf name.
     Rename { path: String },
     /// A tab's own name, typed over whatever it is currently showing — a terminal's pane title or

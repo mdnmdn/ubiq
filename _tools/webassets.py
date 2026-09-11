@@ -465,6 +465,10 @@ def render_manifest(
         f"pub const TOTAL_BYTES: u64 = {total};",
         "",
         f"/// The {len(assets)} files of the mirror, sorted by cache path.",
+        "///",
+        "/// One line per entry, and `rustfmt` is told to leave them alone: expanded, this table is",
+        "/// some 3,300 lines, and every `just fmt` would otherwise fight this generator.",
+        "#[rustfmt::skip]",
         "pub const FILES: &[Entry] = &[",
     ]
     for asset in sorted(assets, key=lambda a: a.path):

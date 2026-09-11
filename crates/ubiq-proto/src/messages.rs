@@ -164,6 +164,23 @@ pub enum Message {
         cpu_count: Option<u64>,
         #[serde(default)]
         mem_total_bytes: Option<u64>,
+        /// The directory this host reserves for the interface's own files — the one that belongs
+        /// to no project.
+        ///
+        /// The mirror of [`crate::projects::ProjectSnapshot::workarea`], and the same contract:
+        /// the host reserves the name and creates it, **it never reads inside**, nothing in there
+        /// is the project's, and everything in there is disposable — deleting it loses a cache and
+        /// nothing else.
+        ///
+        /// What makes it *shared* is that it is a property of the host rather than of any project,
+        /// so a vendor bundle wanted by five projects is one copy on disk instead of five.
+        ///
+        /// An absolute path, told rather than composed. The interface never builds it out of
+        /// `config_root` itself — using what it was handed is what makes a host on another machine
+        /// a change of value rather than a change of code. `None` means this host would not name
+        /// one, which is an interface with no disk cache and not an interface that fails.
+        #[serde(default)]
+        shared_workarea: Option<String>,
     },
 
     /// Which shells this machine actually has. Answered with [`Message::ShellList`].
@@ -1589,6 +1606,56 @@ pub enum Message {
     /// a click, so a patch protocol would buy nothing and could leave two windows disagreeing.
     NotificationsState {
         state: Box<Notifications>,
+    },
+
+    // ── Web asset family: UI → host ─────────────────────────────────
+    /// Make sure the vendor bundle a web panel needs is on disk, and say where it is.
+    ///
+    /// The interface asks; the host fetches, verifies every file against a manifest in its own
+    /// source, unpacks into the shared workarea and answers when it is there. Downloading is
+    /// network plus disk, which is the host's half — the interface only serves the bytes off its
+    /// own origin afterwards.
+    ///
+    /// **The interface does not name a version.** The pinned version and the manifest are the
+    /// host's, and [`Message::WebBundleReady`] says which one it got — a bundle is versioned by
+    /// directory, so a host that pins a newer one simply answers a different path.
+    ///
+    /// **Idempotent and re-entrant, which is why there is no cancel.** Asking for a bundle that is
+    /// already complete answers immediately and fetches nothing; asking for one already in flight
+    /// joins that fetch rather than starting a second. Answered with
+    /// [`Message::WebBundleReady`] or [`Message::WebBundleFailed`], with
+    /// [`Message::WebBundlePending`] along the way.
+    EnsureWebBundle {
+        app: String,
+    },
+
+    // ── Web asset family: host → UI ─────────────────────────────────
+    /// How far a fetch has got, in files rather than bytes. Throttled, and sent only to the
+    /// windows waiting on this bundle — a download nobody asked about is nobody's progress bar.
+    ///
+    /// `total` is known before the first byte, so the very first report carries it with `done`
+    /// at zero and the bar fills rather than sweeps for the whole download. `file` is the cache
+    /// path of the last entry that landed — a name to show, so a stalled fetch says where it
+    /// stalled — and is empty on that first report, when nothing has landed yet.
+    WebBundlePending {
+        app: String,
+        done: u32,
+        total: u32,
+        file: String,
+    },
+    /// The bundle is complete on disk. `path` is the absolute directory the interface serves the
+    /// bytes out of, told rather than composed, and `version` is the one the host pinned.
+    WebBundleReady {
+        app: String,
+        version: String,
+        path: String,
+    },
+    /// The bundle is not there and could not be fetched. A sentence the interface can show:
+    /// failure here is a downgrade — the feature that wanted the bundle is unavailable and says
+    /// why — and never an error the user has to act on.
+    WebBundleFailed {
+        app: String,
+        error: String,
     },
 }
 

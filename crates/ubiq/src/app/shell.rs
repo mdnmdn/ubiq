@@ -909,6 +909,10 @@ impl Render for AppState {
         self.settle_panels(window, cx);
         self.take_focus(window, cx);
         self.attach_arrived_files(window, cx);
+        // A web panel's edits go into the buffer `attach_arrived_files` made, so they follow it,
+        // and the sessions and browsers they arrive through are settled first.
+        self.settle_web_panels(window, cx);
+        self.apply_web_documents(window, cx);
         // The keyboard a file panel asked for waits for its buffer, which `attach_arrived_files`
         // may have just delivered in this same frame — so the editor is focused after it, not
         // before.

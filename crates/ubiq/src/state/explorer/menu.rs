@@ -76,6 +76,7 @@ pub fn menu_entries(
             vec![
                 entry(ExplorerAction::NewFile),
                 entry(ExplorerAction::NewFolder),
+                entry(ExplorerAction::NewExcalidraw),
             ],
             vec![paste],
             vec![entry(ExplorerAction::CollapseAll)],
@@ -94,6 +95,7 @@ pub fn menu_entries(
                 true => vec![
                     entry(ExplorerAction::NewFile),
                     entry(ExplorerAction::NewFolder),
+                    entry(ExplorerAction::NewExcalidraw),
                 ],
                 false => Vec::new(),
             },

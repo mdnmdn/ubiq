@@ -297,6 +297,9 @@ pub enum ExplorerAction {
     Refresh,
     NewFile,
     NewFolder,
+    /// A new file seeded as `drawing.excalidraw` and locked to that extension, so the Excalidraw
+    /// chrome always has something it recognises to open.
+    NewExcalidraw,
     /// Remember the row, so a later Paste knows what to copy. Nothing crosses the bus for it.
     Copy,
     /// Copy whatever [`ExplorerAction::Copy`] remembered into this folder.
@@ -329,6 +332,7 @@ impl ExplorerAction {
             ExplorerAction::Refresh => "Refresh",
             ExplorerAction::NewFile => "New file",
             ExplorerAction::NewFolder => "New folder",
+            ExplorerAction::NewExcalidraw => "New Excalidraw",
             ExplorerAction::Copy => "Copy",
             ExplorerAction::Paste => "Paste",
             ExplorerAction::Duplicate => "Duplicate",

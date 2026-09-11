@@ -311,4 +311,28 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         .child(crate::ui::notifications::render(app, window, cx))
         // The build-channel ribbon, over everything: the window always says which build it is.
         .child(ribbon::render())
+        // Last child of the root, and it draws nothing: it prepaints after every panel and every
+        // overlay above, which is the only moment at which the window knows which embedded
+        // browsers were actually on screen this frame. See `crate::ui::web_view`.
+        .child(crate::ui::web_view::sweeper(overlaid(app)))
+}
+
+/// Whether anything is painted over the dock this frame.
+///
+/// A child webview is a native view the platform stacks over the whole window, so it cannot be
+/// covered by a modal the way an element can — the window has to take it off screen instead. The
+/// list is the overlays above, and a new one belongs here as well as there.
+fn overlaid(app: &AppState) -> bool {
+    let workbench = &app.workbench;
+    workbench.project_settings.is_some()
+        || workbench.settings.open
+        || workbench.new_agent.is_some()
+        || workbench.clone_project.is_some()
+        || workbench.all_projects.is_some()
+        || workbench.file_dialog.is_some()
+        || workbench.remote_manager.open
+        || workbench.remote_connect.is_some()
+        || workbench.new_agent_menu.is_some()
+        || workbench.open_menu.is_some()
+        || app.file_picker.is_some()
 }

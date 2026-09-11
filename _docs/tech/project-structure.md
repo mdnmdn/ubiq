@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: Every folder in the workspace, what belongs in it, what must never go in it, and the two crates' division of labour.
 read_when: you are adding a file and are not certain where it goes, or you are new to the repository
-updated: 2026-09-10
-verified: 2026-09-10
+updated: 2026-09-11
+verified: 2026-09-11
 code_anchors: [Cargo.toml, crates/ubiq-host/src/store/usage.rs, crates/ubiq/Cargo.toml, crates/ubiq-proto/Cargo.toml, crates/ubiq-host/Cargo.toml, crates/ubiq-app/Cargo.toml, vendor/gpui-terminal/Cargo.toml, _tools/icns.py]
 depends_on: [tech-architecture]
 review_cycle: quarterly
@@ -190,6 +190,17 @@ MessagePack body a frame carries, and `serde_bytes` is what keeps the three byte
 the hot path a single `bin` blob apiece instead of one MessagePack integer per byte.
 [`transport-contract.md`](./transport-contract.md)'s framing section says why this format and not
 postcard or bincode.
+
+`ubiq/Cargo.toml` carries three dependencies for the embedded web panel, all gated to
+`[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]`: `gpui-wry`
+(gpui-component's own wry binding, so a child webview is laid out by a GPUI element rather than a
+second window), `wry` itself (published as `lb-wry` 0.53.3) and `raw-window-handle`. Every other
+platform compiles none of the three and keeps the external browser a web panel falls back to —
+`gpui-wry`'s Unix path is unfinished upstream. All four dependencies drawn from
+`github.com/longbridge/gpui-component` — `gpui-component` and `gpui-component-assets` in both
+`crates/ubiq/Cargo.toml` and `crates/ubiq-app/Cargo.toml`, plus `gpui-wry` — are pinned to the same
+`rev`, because a fourth crate from that source forces Cargo to re-resolve it and an unpinned
+resolve can land on a revision missing a crate one of the other three depends on.
 
 ## Where a new file goes
 

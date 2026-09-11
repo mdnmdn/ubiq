@@ -61,6 +61,7 @@ fn escape_peels_one_layer_at_a_time(cx: &mut gpui::TestAppContext) {
         state.workbench.file_dialog = Some(FileDialog::New {
             parent: String::new(),
             dir: false,
+            ext: None,
         });
         state.open_menu(MenuId::SinkPicker, cx);
     });

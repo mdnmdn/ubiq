@@ -76,6 +76,7 @@ impl Fixture {
             To::Everyone,
             Message::HostInfo {
                 config_root: "/tmp/ubiq-config".to_string(),
+                shared_workarea: None,
                 is_default: true,
                 hostname: None,
                 os: None,

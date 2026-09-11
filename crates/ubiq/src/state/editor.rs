@@ -136,22 +136,49 @@ impl ViewerKind {
     }
 
     /// Whether the viewer has a source to show beside what it drew. The editor is only ever
-    /// source, an image has none at all, and an Excalidraw scene is preview-only: its source is a
-    /// serialised document nobody edits by hand, so there is no source layout to turn to.
+    /// source and an image has none at all; an Excalidraw scene is a serialised document, but it
+    /// is still text worth reading raw, so it gets the same source/preview/split toggle as
+    /// Markdown and Mermaid.
     pub fn has_preview(self) -> bool {
-        matches!(self, ViewerKind::Markdown | ViewerKind::Mermaid)
+        matches!(
+            self,
+            ViewerKind::Markdown | ViewerKind::Mermaid | ViewerKind::Excalidraw
+        )
     }
 
     /// Whether this viewer draws the buffer itself for `layout` — the only thing in a tab worth
-    /// handing the keyboard to today. The editor always does; Excalidraw draws its scene instead
-    /// and Image draws through its panel, so neither ever does; Markdown and Mermaid only do in
-    /// the half of their toggle that shows source.
+    /// handing the keyboard to today. The editor always does; Image draws through its panel, so
+    /// it never does; Markdown and Mermaid only do in the half of their toggle that shows source,
+    /// and Excalidraw never does, because its own editor is a webview that takes the keyboard
+    /// itself.
     pub fn shows_buffer(self, layout: ViewLayout) -> bool {
         match self {
             ViewerKind::Editor => true,
-            ViewerKind::Excalidraw | ViewerKind::Image => false,
+            ViewerKind::Image | ViewerKind::Excalidraw => false,
             ViewerKind::Markdown | ViewerKind::Mermaid => layout.shows_source(),
         }
+    }
+
+    /// The layouts this viewer's header offers, in the order it draws them.
+    ///
+    /// **Excalidraw is the one viewer with no source and no split.** Its document is JSON nobody
+    /// edits by hand, and it has a real editor of its own — so the toggle is `Editor` and
+    /// `Preview`, and reading the raw bytes is what the general-purpose editor is for. Markdown
+    /// and Mermaid keep all three, because their source *is* the thing an author writes.
+    pub fn layouts(self) -> &'static [ViewLayout] {
+        match self {
+            ViewerKind::Excalidraw => &[ViewLayout::Edit, ViewLayout::Preview],
+            ViewerKind::Markdown | ViewerKind::Mermaid => {
+                &[ViewLayout::Source, ViewLayout::Preview, ViewLayout::Split]
+            }
+            ViewerKind::Editor | ViewerKind::Image => &[],
+        }
+    }
+
+    /// Whether `layout` is one this viewer offers. A layout restored from a saved arrangement
+    /// written by a build with a different set has to be checked rather than trusted.
+    pub fn offers(self, layout: ViewLayout) -> bool {
+        self.layouts().contains(&layout)
     }
 
     /// Whether the tab takes the keyboard through its panel rather than a buffer. An image tab —
@@ -174,6 +201,14 @@ pub enum ViewLayout {
     Preview,
     /// Both, side by side.
     Split,
+    /// The component that authors this kind of document, hosted in the panel.
+    ///
+    /// **This is a layout and not an action**, which is the opposite of what phase 5 decided —
+    /// and for the reason that decision named: it was a separate axis only because the container
+    /// was a browser window beside this one, so there was nothing for the panel to draw
+    /// differently. With the container embedded in the panel there plainly is, and a document
+    /// reopening in the layout it was left in is exactly what the dock already stores.
+    Edit,
 }
 
 impl ViewLayout {
@@ -183,12 +218,19 @@ impl ViewLayout {
             ViewLayout::Source => "Source",
             ViewLayout::Preview => "Preview",
             ViewLayout::Split => "Split",
+            ViewLayout::Edit => "Editor",
         }
     }
 
-    /// The three, in the order the toggle draws them.
-    pub fn all() -> [ViewLayout; 3] {
-        [ViewLayout::Source, ViewLayout::Preview, ViewLayout::Split]
+    /// Every variant, for a test that has to cover them all. **Not what a header draws** —
+    /// which positions a viewer offers is [`ViewerKind::layouts`], and the two sets differ.
+    pub fn all() -> [ViewLayout; 4] {
+        [
+            ViewLayout::Source,
+            ViewLayout::Preview,
+            ViewLayout::Split,
+            ViewLayout::Edit,
+        ]
     }
 
     /// Whether the source half is drawn in this layout.
@@ -358,6 +400,8 @@ impl OpenFile {
         let viewer = ViewerKind::of(path);
         let layout = match viewer {
             ViewerKind::Markdown => markdown_open,
+            // A web panel is opened, never fallen into: an Excalidraw file still draws instantly
+            // through the native painter, and the embedded editor is a press away.
             other if other.has_preview() => ViewLayout::default(),
             _ => ViewLayout::Source,
         };
@@ -423,9 +467,11 @@ impl OpenFile {
         self._change = None;
     }
 
-    /// Put the viewer into one of its layouts. A viewer with no preview has only its source.
+    /// Put the viewer into one of its layouts. A layout it does not offer is refused rather than
+    /// stored — a viewer with no preview has only its source, and an arrangement saved by a build
+    /// whose toggle held different positions must not reopen a tab in one of them.
     pub fn set_layout(&mut self, layout: ViewLayout) {
-        if self.viewer.has_preview() {
+        if self.viewer.offers(layout) {
             self.layout = layout;
         }
     }
@@ -560,6 +606,21 @@ impl OpenFile {
 
     pub fn dirty(&self) -> bool {
         self.dirty
+    }
+
+    /// Say the tab has unsaved edits before the text carrying them has arrived.
+    ///
+    /// The one caller is a web panel: the component reports the first change at once and
+    /// serialises the whole document only on idle, so without this the dot would lag every edit by
+    /// the debounce. It sets the same flag [`Self::refresh_dirty`] does and nothing else — no save
+    /// path, no baseline, no version — and the next buffer change recomputes it honestly. The web
+    /// side only reports a change it has already found to be a real one, so a document merely
+    /// opened and looked at never reaches here.
+    pub fn mark_dirty(&mut self) {
+        if matches!(self.body, FileBody::Text { .. }) {
+            self.dirty = true;
+            self.temporary = false;
+        }
     }
 
     /// Whether a save would be honest. A truncated read is a prefix, and writing a prefix back

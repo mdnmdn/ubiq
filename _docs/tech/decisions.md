@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-09-10
-verified: 2026-09-10
+updated: 2026-09-11
+verified: 2026-09-11
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -2014,6 +2014,190 @@ client and runs no idle reaper. The scope is deliberately that narrow — a deta
 survive its window, and nothing survives the application, which still quits with its last window.
 Reattaching from a *different* window would need the host to move a pane between owners, and no
 message does that.
+
+### D104 — The interface may host a web panel, for authoring in a format somebody else owns
+
+A **web panel** is a named component rendered over the interface's own loopback origin, exchanging
+typed JSON frames with Rust. Ubiq drew Excalidraw scenes and could not edit them; this is the
+mechanism that changes that, and `D109` is the only tenant it is opened for.
+
+**Why this does not contradict `D7` or `D44`.** `D7` replaced a Tauri and `xterm.js` frontend with
+GPUI because *several full-refresh terminals under a stream of escape sequences* must not cross a
+serialisation boundary in the render path. A web panel puts none anywhere near a frame: every other
+surface stays as it is, and one panel, opened deliberately and closed when done, hosts a component
+that draws itself. `D7` chose what draws Ubiq; `D55` shipped an HTML surface before it. `D44` is the
+closer call — it rejected an offscreen webview for Mermaid in favour of `merman`, because *drawing
+is the whole of what the interface is for* and a picture is a pure function of source and palette.
+Every word of that is about producing a picture, and it holds. **Editing is not a picture.** What no
+amount of painting reproduces is an interaction model — multi-select, eight-handle transform, arrow
+binding that survives moving the shape it points at, containers with reflowing text, grouping,
+snapping, the library, undo across all of it, and a format that keeps changing underneath.
+Reproducing the write half is not a bigger subset of the read half; it is reimplementing an
+application against a moving target. So the line is `D44`'s, extended rather than reversed:
+**rendering belongs in the interface; authoring in somebody else's format belongs to somebody else's
+editor.**
+
+**The container is the external browser.** The proposal's first choice was an embedded `wry` webview
+over the GPUI window handle, conditional on a spike. Half of that spike answers yes — `gpui::Window`
+implements `HasWindowHandle` at the pinned revision, on the `raw-window-handle` version `wry` wants.
+The other half is not answered: a native child view composites *above* the GPUI surface, so it does
+not clip to a scroll container, ignores the dock's z-order, and covers any tab strip, popover, modal
+or drag preview that overlaps it. That is settled only by driving the real application by hand, so
+the shipped container is the one the proposal names as its own fallback — same chrome, same origin,
+same bridge, opened in the browser as `D55` opens an export. `bridge.js` is still written as a
+two-transport shim, so an embedded container later needs no change to any chrome page. `G236` holds
+the spike.
+
+**Cost.** A second runtime and a pinned vendor bundle somebody must keep bumping under a chrome page
+that mounts it. And **a door held open**: once a panel can host HTML, everything becomes a
+candidate, and the pressure for a second and third tenant will not arrive with this argument
+attached. `D105` is the guard, and it is worth exactly what it is enforced with.
+
+### D105 — A web panel is a document, a bridge and an origin, never a browser
+
+It renders one named component over one subject the interface holds, exchanges typed
+messages with Rust, and **may not navigate**: no address bar, no link following, no second origin,
+no arbitrary URL. The chrome page's content security policy **names no remote origin**, so the
+difference is enforced rather than intended. Each tenant answers its own policy and widens `'self'`
+only where it must, with the reason beside it — and never with an origin. The one widening that is
+not obvious is a per-response nonce on `script-src`: an import map has no external form and this one
+is generated from the bundle at runtime, so it can be neither fetched nor hashed at build time, and
+`'self'` alone blocks it.
+
+**The webview never touches the filesystem.** It is handed a document and hands one back; it
+resolves no path, opens no file, and does not know a project exists. That is `architecture.md`'s
+rule 2 restated for a second runtime, and it means the bridge carries values rather than
+capabilities. **Frames are documents, not commands** — the web side may
+not ask Rust to read a file, list a directory or run anything, which is what keeps the bridge from
+becoming an RPC surface with the interface's whole authority behind it. The bridge is typed on the
+Rust side, two enums per app, JSON on the wire, **unknown variants logged and dropped** rather than
+erroring, so a frame from a newer chrome page cannot break a panel.
+
+**The bridge is authenticated by a per-panel token.** Every panel mints one from the platform's
+CSPRNG at open; it appears in the URL and in every frame, and a frame without it is dropped and
+logged. `D55` accepted that the loopback server serves whatever asks, because the worst it then cost
+was a local process reading project files. A bridge that can cause a *write* raises that materially.
+**Loopback is not an authentication boundary and this does not treat it as one.**
+
+**A web panel is opened, never fallen into.** No extension routes to one; the user asks, and the
+native path stays the default.
+
+**Cost.** Every rule here is a rule somebody must keep, and three of them — no navigation, content
+not capability, the token on every frame — are invisible to the compiler. A tenant that widens the
+policy widens it for the reason written beside it or not at all.
+
+### D106 — A vendor bundle is downloaded and hash-verified, never linked into the binary
+
+Excalidraw with React is 25 MiB. Baking that into the executable inflates every build and every
+release for a feature most sessions never open, so it is fetched once from a CDN, kept on disk, and
+works offline afterwards.
+
+**Versioned by directory, not invalidated by policy.** The version is pinned in Rust source and
+names the cache directory, so a build that pins a new one looks in a directory that does not exist,
+fetches, and leaves the old one for the next sweep. No staleness question and no TTL — the same
+property the diagram cache gets from putting its renderer version in the key, and `FileHarnessCache`
+from keying on the binary's version. A directory counts as complete only when a marker written after
+the last verified file is present, so a half-finished fetch from a killed process does not read as
+done.
+
+**A manifest in Rust source lists every file with its expected SHA-256, and a file whose hash does
+not match is discarded rather than cached.** A downloader that trusts a CDN to have served the right
+bytes is a supply-chain hole with a nice interface. The manifest is generated by `_tools/webassets.py`
+when the pinned version changes, never at runtime. The two halves earn it differently: the package's
+own files have a stable published hash and are verified against it; the dependency closure is
+on-demand CDN output that must not be pinned with subresource integrity, so the manifest records
+*our own* hashes taken once at snapshot, and a later mismatch means the CDN regenerated the bundle —
+which is the event worth failing on.
+
+**Fetching is the host's.** Downloading is network plus disk, and the interface's sanctioned
+exceptions are each narrow and argued. The interface asks, the host fetches, verifies and unpacks,
+and answers when it is there; the interface then serves those bytes off its own origin.
+
+**Failure is a downgrade, not an error.** No network and nothing cached means editing is disabled
+with a reason and the native viewer is untouched, so a first run offline loses editing and nothing
+else.
+
+**Cost.** A snapshot is a moment in a CDN's life. `+esm` output is regenerated upstream, so the
+recorded hashes go stale on somebody else's schedule and a version bump means re-snapshotting;
+`G238` holds what to do when that stops being enough.
+
+### D107 — The host reserves a shared workarea for the interface
+
+The same vendor bundle in five projects is the same bytes and is a property of no project, so it
+cannot live in the per-project workarea. The host reserves one directory for the interface beside
+the per-project ones and hands it over as a value on `HostInfo`.
+
+This widens `architecture.md`'s rule 6 by one directory and one qualification. The half that is
+unchanged is the one that matters: **the interface never composes the path**, it uses the string it
+was handed, which is what makes a host on another machine a change of value rather than a change of
+code. Everything in it stays disposable.
+
+The qualification is that the host **does** write inside this one, which it never does to a
+per-project workarea — `D106` puts the fetch on the host, so the host must also unpack it. That is
+the whole of the exception: `web_assets` writes there and nothing else does, and the host still
+reads nothing the interface put there.
+
+**Cost.** A second unbounded directory. `G66` asks what bounds the per-project workarea and has no
+answer; `G237` is the same question asked again, and a 25 MiB tenant makes it louder.
+
+### D108 — Excalidraw documents become editable, through Excalidraw
+
+This reverses `completed/file-viewers-proposal.md` §7's *"editing is not proposed and should not
+be"*, for documents, and answers the open question `capture-proposal.md` left — *whether
+`.excalidraw` files should become editable once the machinery exists*: yes, and not through that
+machinery. Capture edits a scene Ubiq made with Ubiq's own tools and never needs a browser; this
+edits a document somebody else's application owns, in that application.
+
+**The native painter keeps the read path, and that is what makes this compatible with the read-only
+rule rather than a repeal of it.** Opening a `.excalidraw` file draws it exactly as before — no
+browser, no download, no delay — so `_docs/design/` stays readable on a cold offline start.
+`viewer/scene.rs` is still read-only and its module doc still says so. The file also gained the
+three-way Source/Preview/Split toggle every other previewable viewer has, which is worth having on
+its own and needs none of the rest.
+
+**`Edit` is an action, not a fourth `ViewLayout`.** With a browser container there is no fourth
+thing to draw in the panel, so it is a separate axis — a control that opens the session, leaving
+`ViewLayout` and its persistence untouched.
+
+**`Changed` writes into the buffer that exists**, the `EditorState` behind `FileBody::Text`.
+That is the whole trick: the dirty dot, `⌘S`, save-as, `D37`'s version check and the Source view all
+keep working because every one of them is attached to that buffer. **No new save path and no
+new transport message** — `⌘S` sends the `WriteProjectFile` it always sent, with the version it
+read.
+
+**Cost, and it is the honest one.** Excalidraw reserializes the whole document — key order,
+`version` and `versionNonce` counters on every element, `appState` fields the file may never have
+had. A save after a session of edits is a large diff even where little moved, and a round-tripped
+file is not byte-identical to the one that was read. Two mitigations are built and neither makes the
+diff small: the buffer is written only when the element set or the persisted `appState` subset
+actually differs, so a document merely opened and looked at never marks the tab dirty, and the
+file's own `source` and `type` fields are preserved rather than the editor's. A user who wants a
+tidy diff should not round-trip a file they did not change, and Ubiq should not save one it was only
+shown.
+
+### D109 — `Edit` becomes a `ViewLayout`, once the container is the window
+
+This reverses `D108`'s "`Edit` is an action, not a fourth `ViewLayout`" — for the reason `D108` gave,
+because the premise behind it changed. `D108` reasoned from a browser window beside Ubiq's own: with
+that container, a fourth `ViewLayout` would have named a layout that rendered the same pixels as
+Preview, since there was nothing left for the panel itself to draw differently. `gpui-wry` puts a
+child webview inside the panel on macOS and Windows, so the panel has something to draw, and
+`Edit` — renamed `ViewLayout::Edit`, labelled `Editor` — takes the position `D108` declined to give
+it.
+
+Excalidraw's toggle is `[Edit, Preview]`, not the three positions Markdown and Mermaid keep: its
+document is JSON nobody edits by hand, and reading it raw is what the general-purpose editor is for,
+so Source and Split are withdrawn rather than added to. `ViewerKind::offers(layout)` is the check
+`OpenFile::set_layout` makes in place of `has_preview()`, which is also the coercion that keeps
+an arrangement saved by an older build from reopening a tab in a position its viewer no longer
+offers.
+
+**Cost.** Every platform without `gpui-wry`'s finished Unix binding still has no fourth thing to
+draw, and keeps the external browser `D108` shipped — so the layout exists everywhere the saved
+arrangement can name it, but only two platforms can draw it. The mark-and-sweep that clips a native
+child view to its own dock tab (`crates/ubiq/src/ui/web_view.rs`) is a second piece of window-root
+plumbing with no test of its own; its correctness rests on how GPUI orders prepaint across the root's
+children, not on an assertion.
 
 ## Related docs
 

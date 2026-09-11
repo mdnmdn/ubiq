@@ -29,6 +29,11 @@ pub(super) fn handle(request: Request, registry: &SharedRegistry) {
         return;
     }
 
+    if segments.first().map(String::as_str) == Some("_web") {
+        serve_web(request, registry, &segments[1..]);
+        return;
+    }
+
     if segments.is_empty() {
         let _ = request.respond(not_found());
         return;
@@ -370,6 +375,10 @@ fn serve_asset(request: Request, name: Option<&str>) {
         let _ = request.respond(not_found());
         return;
     };
+    respond_asset(request, asset, Vec::new());
+}
+
+fn respond_asset(request: Request, asset: assets::Asset, extra: Vec<Header>) {
     let mut response = Response::from_data(asset.bytes.to_vec())
         .with_header(content_type_header(asset.content_type));
     if asset.gzip {
@@ -378,6 +387,215 @@ fn serve_asset(request: Request, name: Option<&str>) {
                 .expect("static header is valid"),
         );
     }
+    for header in extra {
+        response = response.with_header(header);
+    }
+    let _ = request.respond(response);
+}
+
+// --- Web panels (`/_web/<app>/<token>/...`) ---
+
+/// A web panel is a document, a bridge and an origin — never a browser. The chrome may load only
+/// what this same origin serves:
+/// - `default-src 'self'` covers scripts, fetches (the bridge) and everything not named below;
+/// - `style-src` adds `'unsafe-inline'` because a chrome page carries its own `<style>` block
+///   rather than a second request, and nothing here is user-authored markup;
+/// - `frame-ancestors`, `base-uri` and `object-src` are `'none'` so the page cannot be framed,
+///   cannot retarget its own relative URLs, and cannot load a plugin.
+///
+/// A tenant that genuinely needs more (`blob:` for an export, `worker-src` for a module worker)
+/// widens this when it arrives, with its reason beside it.
+const CHROME_CSP: &str = "default-src 'self'; style-src 'self' 'unsafe-inline'; \
+     frame-ancestors 'none'; base-uri 'none'; object-src 'none'";
+
+/// Excalidraw's policy, which is [`CHROME_CSP`] widened in exactly three places and nowhere else.
+/// Every one of them stays inside this origin — **no remote origin is permitted, deliberately**:
+/// Excalidraw always appends its own `esm.sh` path to the font candidate list, so a mirror with a
+/// hole in it must fail loudly here rather than quietly reach the network.
+///
+/// - `script-src` takes a per-response `'nonce-…'`, because an import map has no external form —
+///   it must be an inline `<script type="importmap">`, which `'self'` alone blocks — and the map
+///   is generated beside the mirror, so it cannot be hashed at build time. The nonce is 192 bits
+///   from the same CSPRNG as the session token and is minted per response.
+/// - `img-src` takes `data:` and `blob:` because that is how the editor holds an embedded image
+///   and how it previews an export. Neither is a network fetch.
+/// - **`worker-src` is not widened.** The font-subsetting module worker is built from
+///   `import.meta.url`, so it is same-origin and `default-src 'self'` already covers it. There is
+///   no service worker.
+fn excalidraw_csp(nonce: &str) -> String {
+    format!(
+        "default-src 'self'; script-src 'self' 'nonce-{nonce}'; \
+         style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; \
+         frame-ancestors 'none'; base-uri 'none'; object-src 'none'"
+    )
+}
+
+fn serve_web(request: Request, registry: &SharedRegistry, tail: &[String]) {
+    let (Some(app), Some(token)) = (tail.first(), tail.get(1)) else {
+        tracing::debug!("web panel: request with no app/token pair");
+        let _ = request.respond(not_found());
+        return;
+    };
+
+    // A request whose app/token pair names no live session is dropped and logged — never a 200.
+    let channel = registry.lock().unwrap().lookup_web(token);
+    let Some(channel) = channel.filter(|channel| channel.app == app) else {
+        tracing::debug!("web panel: dropping request for an unknown app/token pair ({app})");
+        let _ = request.respond(not_found());
+        return;
+    };
+
+    let rest: Vec<&str> = tail[2..].iter().map(String::as_str).collect();
+    match rest.as_slice() {
+        [] | ["index.html"] => serve_chrome(request, channel.app),
+        ["bridge.js"] => respond_asset(request, assets::bridge_js(), Vec::new()),
+        ["app.js"] => match chrome_module(channel.app) {
+            Some(asset) => respond_asset(request, asset, Vec::new()),
+            None => {
+                let _ = request.respond(not_found());
+            }
+        },
+        ["vendor", vendor_rest @ ..] => serve_vendor(request, &channel, vendor_rest),
+        ["bridge"] => serve_bridge(request, channel, token),
+        _ => {
+            let _ = request.respond(not_found());
+        }
+    }
+}
+
+/// The chrome page, with the policy that governs it. Each tenant answers its own: the demo is
+/// static bytes under [`CHROME_CSP`], Excalidraw is a template with a nonce substituted into it
+/// and named in a widened policy in the same response.
+fn serve_chrome(request: Request, app: &str) {
+    match app {
+        super::bridge::DEMO_APP => respond_asset(
+            request,
+            assets::demo_index_html(),
+            vec![csp_header(CHROME_CSP)],
+        ),
+        super::bridge::EXCALIDRAW_APP => {
+            let Ok(nonce) = super::server::mint_token() else {
+                // No secure random is no nonce, and a guessable one is worse than none.
+                let _ = request.respond(not_found());
+                return;
+            };
+            let body = assets::EXCALIDRAW_INDEX_HTML.replace("__UBIQ_NONCE__", &nonce);
+            let response = Response::from_string(body)
+                .with_header(content_type_header("text/html; charset=utf-8"))
+                .with_header(csp_header(&excalidraw_csp(&nonce)));
+            let _ = request.respond(response);
+        }
+        _ => {
+            let _ = request.respond(not_found());
+        }
+    }
+}
+
+fn csp_header(policy: &str) -> Header {
+    Header::from_bytes(&b"Content-Security-Policy"[..], policy.as_bytes())
+        .expect("a policy string is a valid header value")
+}
+
+fn chrome_module(app: &str) -> Option<assets::Asset> {
+    match app {
+        super::bridge::DEMO_APP => Some(assets::demo_app_js()),
+        super::bridge::EXCALIDRAW_APP => Some(assets::excalidraw_app_js()),
+        _ => None,
+    }
+}
+
+/// The cached vendor bundle, off the session's own root. `resolve_path` is reused unchanged, so
+/// `..`, empty and dot-leading segments are refused here exactly as they are for a project.
+fn serve_vendor(request: Request, channel: &super::server::WebChannel, rest: &[&str]) {
+    let Some(root) = channel.vendor_root() else {
+        // Phase 3 fills this in. Until there is a cache, the route exists and answers nothing.
+        let _ = request.respond(not_found());
+        return;
+    };
+    let Some(resolved) = resolve_path(&root, rest) else {
+        let _ = request.respond(not_found());
+        return;
+    };
+    let Ok(bytes) = std::fs::read(&resolved) else {
+        let _ = request.respond(not_found());
+        return;
+    };
+    let response =
+        Response::from_data(bytes).with_header(content_type_header(vendor_mime(&resolved)));
+    let _ = request.respond(response);
+}
+
+/// MIME is a hard failure here, not a degradation. A module served as `application/octet-stream`
+/// does not fall back — the browser refuses it with *"Expected a JavaScript-or-Wasm module
+/// script"* and the panel is blank. jsDelivr's `+esm` output has **no extension**, so an
+/// extensionless file under `vendor/` is JavaScript by rule, not by guess.
+fn vendor_mime(path: &Path) -> &'static str {
+    match path.extension().and_then(|e| e.to_str()) {
+        Some("js") | Some("mjs") | None => "text/javascript; charset=utf-8",
+        Some("css") => "text/css; charset=utf-8",
+        Some("woff2") => "font/woff2",
+        Some(ext) => mime_for_ext(&ext.to_ascii_lowercase()),
+    }
+}
+
+fn serve_bridge(request: Request, channel: std::sync::Arc<super::server::WebChannel>, token: &str) {
+    match request.method() {
+        tiny_http::Method::Post => serve_bridge_post(request, &channel, token),
+        tiny_http::Method::Get => {
+            // `serve()` is a single-threaded accept loop, so a parked long-poll here would stall
+            // every other request on this origin — the chrome, the vendor bytes, another panel's
+            // bridge. The poll gets its own thread for exactly that reason, and it is bounded by
+            // the channel's own timeout rather than living forever.
+            let spawned = std::thread::Builder::new()
+                .name("ubiq-web-bridge-poll".to_string())
+                .spawn(move || {
+                    let frames = channel.poll_outbound();
+                    respond_frames(request, &frames);
+                });
+            if let Err(err) = spawned {
+                tracing::error!("web panel: failed to spawn long-poll thread: {err}");
+            }
+        }
+        _ => {
+            let _ = request.respond(not_found());
+        }
+    }
+}
+
+fn serve_bridge_post(mut request: Request, channel: &super::server::WebChannel, token: &str) {
+    let mut body = String::new();
+    if request.as_reader().read_to_string(&mut body).is_err() {
+        let _ = request.respond(not_found());
+        return;
+    }
+    let envelope: serde_json::Value = match serde_json::from_str(&body) {
+        Ok(value) => value,
+        Err(err) => {
+            tracing::debug!("web panel: dropping unparseable bridge body: {err}");
+            let _ = request.respond(not_found());
+            return;
+        }
+    };
+    // The token rides in the URL *and* in every frame, and a mismatch is dropped rather than
+    // answered — the URL alone is not the credential.
+    if envelope.get("token").and_then(|t| t.as_str()) != Some(token) {
+        tracing::debug!("web panel: dropping a bridge frame with a bad or missing token");
+        let _ = request.respond(not_found());
+        return;
+    }
+    match envelope.get("frame") {
+        Some(frame) => channel.push_inbound(frame.clone()),
+        None => tracing::debug!("web panel: dropping a bridge body with no frame"),
+    }
+    let response = Response::from_string("{}")
+        .with_header(content_type_header("application/json; charset=utf-8"));
+    let _ = request.respond(response);
+}
+
+fn respond_frames(request: Request, frames: &[serde_json::Value]) {
+    let json = serde_json::to_string(frames).unwrap_or_else(|_| "[]".to_string());
+    let response = Response::from_string(json)
+        .with_header(content_type_header("application/json; charset=utf-8"));
     let _ = request.respond(response);
 }
 

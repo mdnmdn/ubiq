@@ -50,19 +50,23 @@ pub enum Subsystem {
     Mcp,
     /// The file search worker and the project watcher.
     Search,
+    /// Web panels: the vendor bundle fetch, the loopback server that serves it, the bridge and
+    /// the embedded browser. One name for both halves of a feature that spans them.
+    Web,
     /// Everything else that logs: the framework, and the crates under it.
     External,
 }
 
 impl Subsystem {
     /// Every subsystem, in the order the selector lists them.
-    pub const ALL: [Subsystem; 7] = [
+    pub const ALL: [Subsystem; 8] = [
         Subsystem::Ui,
         Subsystem::Coordinator,
         Subsystem::Pty,
         Subsystem::Harness,
         Subsystem::Mcp,
         Subsystem::Search,
+        Subsystem::Web,
         Subsystem::External,
     ];
 
@@ -74,6 +78,7 @@ impl Subsystem {
             Subsystem::Harness => "Harness",
             Subsystem::Mcp => "MCP",
             Subsystem::Search => "Search",
+            Subsystem::Web => "Web",
             Subsystem::External => "External",
         }
     }
@@ -95,6 +100,12 @@ impl Subsystem {
         } else if target.starts_with("ubiq_host::search") || target.starts_with("ubiq_host::watch")
         {
             Subsystem::Search
+        } else if target.starts_with("ubiq_host::web_assets")
+            || target.starts_with("ubiq::web_export")
+            || target.starts_with("ubiq::app::web_panel")
+            || target.starts_with("ubiq::ui::web_view")
+        {
+            Subsystem::Web
         } else if target.starts_with("ubiq") || target.starts_with("gpui_terminal") {
             Subsystem::Ui
         } else if target.starts_with("agent_manager") {

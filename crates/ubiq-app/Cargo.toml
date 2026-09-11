@@ -44,8 +44,8 @@ gpui_platform = { git = "https://github.com/zed-industries/zed", features = [
     "x11",
     "runtime_shaders",
 ] }
-gpui-component = { git = "https://github.com/longbridge/gpui-component" }
-gpui-component-assets = { git = "https://github.com/longbridge/gpui-component" }
+gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "df1d07b212e21217b1168e1728293b3e0c48e5a3" }
+gpui-component-assets = { git = "https://github.com/longbridge/gpui-component", rev = "df1d07b212e21217b1168e1728293b3e0c48e5a3" }
 
 [dev-dependencies]
 # `handoff`'s tests claim a lock in a throwaway root rather than the real config dir.

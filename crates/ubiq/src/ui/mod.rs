@@ -45,6 +45,7 @@ pub mod terminal;
 pub mod titlebar;
 pub mod tools;
 pub mod viewer;
+pub mod web_view;
 pub mod work;
 
 use gpui::{App, ClickEvent, Context, ElementId, Entity, SharedString, Window};

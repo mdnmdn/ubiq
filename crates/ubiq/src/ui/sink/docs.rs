@@ -54,7 +54,7 @@ fn header(app: &AppState, doc: &'static SinkDoc, cx: &mut Context<AppState>) -> 
                 .flex_none()
                 .items_center()
                 .gap_1()
-                .children(ViewLayout::all().map(|layout| {
+                .children(SINK_LAYOUTS.map(|layout| {
                     choice_pill(
                         eid2("sink-layout", doc.key, layout.label()),
                         layout.label(),
@@ -64,6 +64,12 @@ fn header(app: &AppState, doc: &'static SinkDoc, cx: &mut Context<AppState>) -> 
                 }))
         }))
 }
+
+/// The three positions the fixture page offers, whatever the document is.
+///
+/// It is a fixture of the *native* viewers: there is no file behind a sink document and no web
+/// session to host, so it does not follow `ViewerKind::layouts` the way a real tab does.
+const SINK_LAYOUTS: [ViewLayout; 3] = [ViewLayout::Source, ViewLayout::Preview, ViewLayout::Split];
 
 /// The source, what the viewer drew, or the two side by side.
 fn body(app: &AppState, doc: &'static SinkDoc, cx: &mut Context<AppState>) -> AnyElement {
@@ -85,7 +91,8 @@ fn body(app: &AppState, doc: &'static SinkDoc, cx: &mut Context<AppState>) -> An
     };
 
     match app.sink.layout(doc) {
-        ViewLayout::Source => buffer(state),
+        // The fixture page hosts no web session, so its toggle never offers `Edit`.
+        ViewLayout::Source | ViewLayout::Edit => buffer(state),
         ViewLayout::Preview => drawn(),
         ViewLayout::Split => div()
             .flex()

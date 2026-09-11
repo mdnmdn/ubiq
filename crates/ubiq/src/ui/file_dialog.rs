@@ -23,14 +23,19 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
 
     match app.workbench.file_dialog.clone() {
         None => div().into_any_element(),
-        Some(FileDialog::New { parent, dir }) => {
+        Some(FileDialog::New { parent, dir, ext }) => {
             let where_ = match parent.is_empty() {
                 true => "the project's top level".to_string(),
                 false => parent,
             };
+            let title = match (dir, &ext) {
+                (_, Some(_)) => "New Excalidraw",
+                (true, None) => "New folder",
+                (false, None) => "New file",
+            };
             prompt_modal(
                 "app-file-new",
-                if dir { "New folder" } else { "New file" },
+                title,
                 Some(&format!("It is made in {where_}.")),
                 "Name",
                 &app.file_name,

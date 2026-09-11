@@ -41,6 +41,18 @@ fn events_are_classified_filtered_and_read_back() {
         ]
     );
 
+    // A web panel spans both halves, and both land under the one subsystem — the `ubiq::` arms
+    // have to be tested before the bare `ubiq` catch-all that would otherwise swallow them.
+    logs().clear();
+    tracing::info!(target: "ubiq_host::web_assets", "554 files");
+    tracing::info!(target: "ubiq::app::web_panel", "the chrome mounted");
+    tracing::debug!(target: "ubiq::web_export::routes", "served the import map");
+    let web = logs().snapshot(everything);
+    assert!(
+        web.iter().all(|record| record.subsystem == Subsystem::Web),
+        "both halves of a web panel log as Web: {web:?}"
+    );
+
     // The bus is the coordinator's, and it now lives in this crate rather than beside it.
     logs().clear();
     tracing::info!(target: "ubiq_proto::bus", "a client attached");

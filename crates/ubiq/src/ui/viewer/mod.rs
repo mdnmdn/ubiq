@@ -18,6 +18,7 @@ pub mod image_edit;
 pub mod markdown;
 pub mod scene;
 pub mod viewport;
+pub mod web;
 
 use gpui::{
     AnyElement, Context, Entity, IntoElement, ParentElement, Rgba, SharedString, Styled, div, px,
@@ -48,7 +49,7 @@ pub fn render(app: &AppState, file: &OpenFile, cx: &mut Context<AppState>) -> An
     root.child(body(app, file, cx)).into_any_element()
 }
 
-/// The three-way toggle: source, what the viewer drew, or both.
+/// The layout toggle: the positions the file's own viewer offers, and no others.
 ///
 /// Which one is on screen belongs to the file rather than to this row, so the click goes to
 /// `AppState` and comes back as the file's own `layout` — which is also what the panel writes into
@@ -72,7 +73,7 @@ fn header(app: &AppState, file: &OpenFile, cx: &mut Context<AppState>) -> impl I
         .bg(theme::pane_bg())
         .border_b_1()
         .border_color(theme::border())
-        .children(ViewLayout::all().map(|layout| {
+        .children(file.viewer.layouts().iter().copied().map(|layout| {
             let key = key.clone();
             choice_pill(
                 eid2("view-layout", &key, layout.label()),
@@ -116,20 +117,15 @@ fn drawn(
     let buf = || buffer(state, font_size);
 
     // A viewer with no source/preview toggle draws one thing only. The editor is the general
-    // case; an Excalidraw scene is preview-only — its source is a serialised document nobody
-    // edits by hand — so it draws the scene and never a JSON buffer; an image's bytes are its
-    // body. The buffer is only cloned out in the branches that actually read it — the general
-    // case (`Editor`) never does, and cloning the whole file for it every frame was pure waste.
+    // case; an image's bytes are its body. The buffer is only cloned out in the branches that
+    // actually read it — the general case (`Editor`) never does, and cloning the whole file for
+    // it every frame was pure waste.
     if !file.viewer.has_preview() {
         return match file.viewer {
-            ViewerKind::Excalidraw => {
-                let source = state.read(cx).value().to_string();
-                scene::live(app, &key, &source, cx)
-            }
             ViewerKind::Editor => buf(),
             ViewerKind::Image => note("Nothing to draw", theme::text_faint()),
-            // Markdown and Mermaid do have the toggle, so these are unreachable here.
-            ViewerKind::Markdown | ViewerKind::Mermaid => {
+            // Markdown, Mermaid and Excalidraw do have the toggle, so these are unreachable here.
+            ViewerKind::Markdown | ViewerKind::Mermaid | ViewerKind::Excalidraw => {
                 let source = state.read(cx).value().to_string();
                 markdown::render(app, &key, &source, font_size, file.frontmatter_open, cx)
             }
@@ -149,13 +145,15 @@ fn drawn(
             let source = state.read(cx).value().to_string();
             scene::live(app, &key, &source, cx)
         }
-        // `has_preview` names Markdown and Mermaid and nothing else.
+        // `has_preview` names Markdown, Mermaid and Excalidraw and nothing else.
         ViewerKind::Editor | ViewerKind::Image => note("Nothing to draw", theme::text_faint()),
     };
 
     match file.layout {
         ViewLayout::Source => buf(),
         ViewLayout::Preview => preview(),
+        // Only Excalidraw offers it, and only it has a component to host.
+        ViewLayout::Edit => web::render(app, file, cx),
         ViewLayout::Split => div()
             .flex()
             .flex_1()

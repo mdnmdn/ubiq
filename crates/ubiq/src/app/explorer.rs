@@ -590,13 +590,21 @@ impl AppState {
                 cx.notify();
             }
             ExplorerAction::CollapseAll => self.collapse_explorer(cx),
-            ExplorerAction::NewFile | ExplorerAction::NewFolder => {
+            ExplorerAction::NewFile | ExplorerAction::NewFolder | ExplorerAction::NewExcalidraw => {
                 let dir = entry.action == ExplorerAction::NewFolder;
+                let ext = match entry.action {
+                    ExplorerAction::NewExcalidraw => Some("excalidraw".to_string()),
+                    _ => None,
+                };
+                let seed = match entry.action {
+                    ExplorerAction::NewExcalidraw => "drawing.excalidraw",
+                    _ => "",
+                };
                 let parent = self
                     .explorer(cx)
                     .map(|explorer| explorer.target_dir(path.as_deref().unwrap_or_default()))
                     .unwrap_or_default();
-                self.open_file_dialog(FileDialog::New { parent, dir }, "", window, cx);
+                self.open_file_dialog(FileDialog::New { parent, dir, ext }, seed, window, cx);
             }
             ExplorerAction::Rename => {
                 if let Some(path) = path {
@@ -828,10 +836,22 @@ impl AppState {
         let typed = self.file_name.read(cx).value().trim().to_string();
 
         match dialog {
-            FileDialog::New { parent, dir } => {
+            FileDialog::New { parent, dir, ext } => {
                 if typed.is_empty() {
                     return;
                 }
+                let typed = match &ext {
+                    // Forced rather than merely suggested: deleting the seed's suffix must not be
+                    // enough to make an Excalidraw drawing into a plain text file.
+                    Some(ext)
+                        if !typed
+                            .to_lowercase()
+                            .ends_with(&format!(".{}", ext.to_lowercase())) =>
+                    {
+                        format!("{typed}.{ext}")
+                    }
+                    _ => typed,
+                };
                 self.bus.send(Message::EditProjectPath {
                     project_id: project,
                     rel_path: child_path(&parent, &typed),

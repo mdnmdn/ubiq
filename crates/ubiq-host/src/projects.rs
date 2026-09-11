@@ -31,6 +31,38 @@ pub const WORKAREA: &str = "ui";
 /// derived data that is deleted rather than repaired.
 pub const INDEX_DIR: &str = "index";
 
+/// Where the shared workarea is, under the config root.
+///
+/// The mirror of [`WORKAREA`] one level up: same name, same contract, no project. The host
+/// reserves it and never reads inside — see [`ubiq_proto::messages::Message::HostInfo`]'s
+/// `shared_workarea`.
+pub const SHARED_WORKAREA: &str = "ui";
+
+/// The interface's own directory, belonging to no project.
+///
+/// A free function rather than a method on [`Projects`], because there is no project to ask: what
+/// goes here is a property of the host — a vendor bundle five projects want is one copy — so it
+/// hangs off the config root beside `projects/`, not inside it.
+pub fn shared_workarea(root: &Path) -> PathBuf {
+    root.join(SHARED_WORKAREA)
+}
+
+/// Reserve it, and answer the path the interface is told.
+///
+/// [`Projects::reserve_workarea`]'s posture exactly, for the same reason: the interface is handed
+/// a path and not a maybe, and a directory that will not be made is still named, because what is
+/// kept there is disposable by design. A failure is logged and never propagated.
+pub fn reserve_shared_workarea(root: &Path) -> String {
+    let path = shared_workarea(root);
+    if let Err(error) = std::fs::create_dir_all(&path) {
+        tracing::warn!(
+            "could not reserve the interface's shared workarea at {}: {error}",
+            path.display()
+        );
+    }
+    path.to_string_lossy().into_owned()
+}
+
 /// How long a preference sits before it is written.
 ///
 /// A panel drag fires continuously, so the writes are coalesced per scope. Long enough that a drag

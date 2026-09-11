@@ -24,10 +24,13 @@ impl AppState {
             return;
         };
         file.set_layout(layout);
+        // What the file *took*, not what was asked: a viewer refuses a layout it does not offer,
+        // and a panel told the asked-for one would write it into the arrangement anyway.
+        let settled = file.layout;
 
         let panel = self.panels.get(&PanelKind::File(key.to_string())).cloned();
         if let Some(panel) = panel {
-            panel.update(cx, |panel, _| panel.set_layout(layout));
+            panel.update(cx, |panel, _| panel.set_layout(settled));
         }
         self.remember_view(cx);
         cx.notify();
@@ -226,6 +229,9 @@ impl AppState {
             return;
         };
         open.editor.close(at);
+        // A web panel is a session over this buffer, so it goes with the buffer. The browser
+        // window may still be on screen; nothing it posts is read from here on.
+        self.close_web_session(key);
         // The tab and its panel go together, and the panel leaves through a `Window` this does not
         // have — so it queues, like every other edit to the dock.
         self.pending_panels
@@ -291,6 +297,7 @@ impl AppState {
         if let Some(open) = self.projects.get_mut(&project) {
             open.editor.close(at);
         }
+        self.close_web_session(key);
         self.panels.remove(&PanelKind::File(key.to_string()));
         self.remember(project, cx);
         cx.notify();

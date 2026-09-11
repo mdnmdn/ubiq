@@ -45,6 +45,10 @@ pub const ASSET_SUBPATH: &str = "npm/@excalidraw/excalidraw@0.18.0/dist/prod/";
 pub const TOTAL_BYTES: u64 = 26126582;
 
 /// The 554 files of the mirror, sorted by cache path.
+///
+/// One line per entry, and `rustfmt` is told to leave them alone: expanded, this table is
+/// some 3,300 lines, and every `just fmt` would otherwise fight this generator.
+#[rustfmt::skip]
 pub const FILES: &[Entry] = &[
     Entry { path: "npm/@babel/runtime@7.19.4/helpers/esm/extends/+esm", url: "https://cdn.jsdelivr.net/npm/@babel/runtime@7.19.4/helpers/esm/extends/+esm", sha256: "73164b4018491928ccf4e740a7a79eedf5b5e45412b9e044bbf34c406576e409", len: 611 },
     Entry { path: "npm/@babel/runtime@7.20.7/helpers/esm/extends/+esm", url: "https://cdn.jsdelivr.net/npm/@babel/runtime@7.20.7/helpers/esm/extends/+esm", sha256: "3913ef493a34397d11ab4b06744f2997fcdf1b7c043fd215ce374633f006da6a", len: 611 },

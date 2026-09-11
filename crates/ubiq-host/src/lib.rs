@@ -29,6 +29,8 @@
 //! - `watch`: what changed on disk in an open project, said without being asked
 //! - `mcp`: the MCP surface Ubiq exposes to the agents it hosts — one loopback listener, the
 //!   built-in servers behind it, and the registry that says which agent is calling
+//! - `web_assets`: the vendor bundles a web panel needs, fetched once into the shared workarea,
+//!   verified against a manifest in source, and served by the interface off its own origin
 
 pub mod agent;
 pub mod assist;
@@ -60,4 +62,5 @@ pub mod settings;
 pub mod shells;
 pub mod store;
 pub mod watch;
+pub mod web_assets;
 pub mod work;

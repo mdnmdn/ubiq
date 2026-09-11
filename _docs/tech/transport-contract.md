@@ -3,11 +3,11 @@ id: tech-transport
 title: Transport contract
 kind: tech
 status: draft
-summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, profile, command-line, host browse, connector, repository, assist and notification families, the framing rules, and the procedure for adding a variant.
+summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, profile, command-line, host browse, connector, repository, assist, notification and web asset families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
-updated: 2026-09-10
-verified: 2026-09-10
-code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs]
+updated: 2026-09-11
+verified: 2026-09-11
+code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
 ---
@@ -141,7 +141,7 @@ recolour and a move on disk.
 | `Preferences` | host → UI | `scope`, `value?` | — |
 | `Settings` | host → UI | `layer`, `value?` | — |
 | `SettingsError` | host → UI | `layer`, `error` | — |
-| `HostInfo` | host → UI | `config_root`, `is_default` | — |
+| `HostInfo` | host → UI | `config_root`, `is_default`, `shared_workarea?` | — |
 | `ListShells` | UI → host | — | `ShellList` |
 | `ShellList` | host → UI | `shells` | — |
 | `ListTools` | UI → host | `project_id?` | `ToolsListed` |
@@ -184,6 +184,11 @@ path in it is relative.
 
 **`HostInfo` is unsolicited**, sent once to each window as it attaches. The interface reads no
 disk, so it is the only way the status bar can say that a run is not writing to the usual place.
+It also carries `shared_workarea`: the same four rules as a project's `workarea` below, one level
+up. What makes it *shared* is that it belongs to the host rather than to any project, so a vendor
+bundle five projects want is one copy on disk instead of five; `<config root>/ui/` is where the
+host reserves it, and `None` means this host would not name one — an interface with no disk cache,
+not an interface that fails.
 
 **`ListShells` and `ListAgentTypes` are asked repeatedly and answered from a fresh probe.** Which
 programs are on the machine is another fact the interface cannot read, and unlike a config root it
@@ -1684,6 +1689,49 @@ silences nothing and is dropped the next time the centre is touched.
 **The state is sent whole.** `NotificationsState` carries the history — newest first, capped at
 `HISTORY_CAP` (200) — and the rules in force. There is no patch protocol: the list is small, it
 changes on a click, and a whole-state message cannot leave two windows disagreeing.
+
+## The web asset family
+
+The seventeenth family, and the smallest: four variants that put a vendor bundle on disk. A web
+panel's component is somebody else's JavaScript — 25 MiB of it for Excalidraw — downloaded once
+rather than linked into the binary, and **the host is what downloads it**. Downloading is network
+plus disk, the host already owns `ureq`, and the interface's sanctioned exceptions to reading disk
+are each narrow and argued. So the interface asks, the host fetches, verifies, unpacks into the
+shared workarea and answers when it is there, and the interface then serves those bytes off its own
+loopback origin.
+
+| Message | Direction | Payload | Responds with |
+|---|---|---|---|
+| `EnsureWebBundle` | UI → host | `app` | `WebBundlePending`, then `WebBundleReady` or `WebBundleFailed` |
+| `WebBundlePending` | host → UI | `app`, `done`, `total`, `file` | — |
+| `WebBundleReady` | host → UI | `app`, `version`, `path` | — |
+| `WebBundleFailed` | host → UI | `app`, `error` | — |
+
+**The interface does not name a version.** The pinned version and the manifest it is hashed against
+are the host's — `crates/ubiq-host/src/web_assets/manifest.rs`, generated by `_tools/webassets.py` —
+and `WebBundleReady` says which one it got. A bundle is versioned by directory, so a host that pins
+a newer one simply answers a different `path`.
+
+**The first report carries the total with nothing done.** `total` is known before the first byte
+fetched, so the host sends a `WebBundlePending` with `done` at zero before touching the network,
+and the interface's bar fills from the start rather than sweeping once the download finally
+reports. `file` is the cache path of the last entry that landed, and is empty on that first report.
+
+**`path` is told, never composed**, on the workarea's rule: it is
+`<shared workarea>/web/<app>/<version>/`, and the interface uses the string it was handed.
+
+**There is no cancel, because the ask is idempotent and re-entrant.** A bundle already complete is
+answered immediately with no network touched at all; a second `EnsureWebBundle` for an app already
+in flight **joins** that fetch and is told with the first asker, rather than starting a second.
+A window that goes stops being told; the fetch carries on for whoever is left, because the bytes are
+worth having whoever asked for them.
+
+**Progress is files, not bytes, and is throttled** to one message per 250ms, on `ClonePending`'s
+rule: 554 files finishing out of order is more events than an interface can draw.
+
+**A failure is a downgrade.** `WebBundleFailed` carries a sentence the interface shows — a hash that
+did not match names the file it was — and whatever wanted the bundle says it is unavailable. No
+network and nothing cached is an ordinary outcome, not an error the user must act on.
 
 ## Framing
 

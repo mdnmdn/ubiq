@@ -1207,6 +1207,7 @@ mod tests {
                 triplet: None,
                 cpu_count: None,
                 mem_total_bytes: None,
+                shared_workarea: None,
             }),
             ProbeFrame::Skip
         );

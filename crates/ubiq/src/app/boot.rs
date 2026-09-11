@@ -949,6 +949,7 @@ impl AppState {
             pending_chat_open: false,
             sink: SinkState::default(),
             stats: StatsState::default(),
+            web_panels: crate::state::web_panel::WebPanels::default(),
             notifications: NotificationsState::default(),
             file_picker: None,
             host_browse: None,

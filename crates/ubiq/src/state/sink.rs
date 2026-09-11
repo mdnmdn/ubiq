@@ -928,7 +928,9 @@ impl SinkState {
 
     /// Put a document into one of its viewer's layouts. A viewer with no preview keeps its source.
     pub fn set_layout(&mut self, doc: &SinkDoc, layout: ViewLayout) {
-        if doc.viewer().has_preview() {
+        // The fixture page hosts no web session, so `Edit` is not one of its positions however a
+        // caller arrives at it.
+        if doc.viewer().has_preview() && layout != ViewLayout::Edit {
             self.layouts.insert(doc.key, layout);
         }
     }

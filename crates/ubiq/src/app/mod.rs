@@ -56,6 +56,7 @@ use crate::state::sink::{
 use crate::state::stats::{StatsState, StatsTab};
 use crate::state::viewport::{Content, Viewport};
 use crate::state::vim::VimState;
+use crate::state::web_panel::WebPanels;
 use crate::state::work::WorkProjection;
 use crate::state::{
     ActiveSearch, ChatId, ChatTab, EditorPaneState, ExplorerAction, ExplorerKey, ExplorerPressed,
@@ -541,6 +542,10 @@ pub struct AppState {
     /// The Control screen's own state: which page is open, and the last reading the host sent. On
     /// the window for the same reason the sink's is — the figures are the host's, not a project's.
     pub stats: StatsState,
+    /// The web panels this window has open, and the one vendor bundle they share. On the window
+    /// rather than inside a project: the bundle is the host's, one copy for the whole process, and
+    /// a session is a browser window this one opened.
+    pub web_panels: WebPanels,
     /// The bell: the host's notification state as last broadcast, and this window's own view of
     /// it. On the window rather than inside a project for the same reason the two above are — a
     /// notification names its origin, and that origin is as often the host as a project.
@@ -881,6 +886,7 @@ mod shell;
 mod sink;
 mod stats;
 mod vim;
+mod web_panel;
 mod wire;
 
 /// A comma-separated line as a list: trimmed, and without the empties a trailing comma leaves.

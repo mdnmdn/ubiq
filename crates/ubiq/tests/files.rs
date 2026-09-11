@@ -262,6 +262,7 @@ fn a_new_file_is_named_then_created_then_opened(cx: &mut TestAppContext) {
         Some(FileDialog::New {
             parent: "src".to_string(),
             dir: false,
+            ext: None,
         }),
         "the folder holding the row is what a new file lands in"
     );
@@ -314,6 +315,7 @@ fn a_new_folder_carries_dir_and_opens_nothing(cx: &mut TestAppContext) {
         Some(FileDialog::New {
             parent: String::new(),
             dir: true,
+            ext: None,
         }),
         "the empty panel is the project's root"
     );

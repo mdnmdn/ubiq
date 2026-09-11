@@ -714,6 +714,7 @@ fn a_right_click_offers_every_gesture_in_groups_and_disables_paste_with_no_clipb
             A::Separator,
             A::NewFile,
             A::NewFolder,
+            A::NewExcalidraw,
             A::Separator,
             A::Copy,
             A::Paste,
@@ -744,6 +745,7 @@ fn a_right_click_offers_every_gesture_in_groups_and_disables_paste_with_no_clipb
         [
             A::NewFile,
             A::NewFolder,
+            A::NewExcalidraw,
             A::Separator,
             A::Copy,
             A::Paste,
@@ -790,6 +792,7 @@ fn a_right_click_offers_every_gesture_in_groups_and_disables_paste_with_no_clipb
         [
             A::NewFile,
             A::NewFolder,
+            A::NewExcalidraw,
             A::Separator,
             A::Paste,
             A::Separator,

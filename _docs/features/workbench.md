@@ -5,9 +5,9 @@ kind: feature
 status: draft
 summary: The window's shell — the activity rail and its modes, the dock of movable panels the user arranges around the centre, the file explorer and editor a project owns, the Git screen of refs, history and uncommitted changes, the agents screen of parallel columns, the orchestration graph and the tasks board the rail's other built modes hold, the kitchen sink the application tests itself against, the file picker any screen raises to choose a path, the empty state a window with no project shows, and the status bar that reports on all of it.
 read_when: you are changing the window layout, a rail mode, where a panel may sit or when it is drawn, the explorer, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, capturing the window or annotating a capture, saving a file, the Git screen's refs, history, change lists or diff, the agents screen's columns, what a tab drag means or what the bench is, the orchestration screen's graph, how it arranges itself, its inspector or its tasks, the tasks board's columns, cards or task panel, the kitchen sink's pages or fixtures, the file picker a screen raises to choose a path, cloning a project, application settings, vim mode, or the status bar
-updated: 2026-09-10
-verified: 2026-09-10
-code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/app/sink.rs, crates/ubiq/src/state/a2ui.rs, crates/ubiq/src/ui/a2ui.rs, crates/ubiq/src/ui/sink/a2ui.rs, crates/ubiq/tests/a2ui.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/stats.rs, crates/ubiq/src/ui/stats.rs, crates/ubiq/src/app/stats.rs, crates/ubiq/tests/stats.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/app/new_agent.rs, crates/ubiq/src/ui/new_agent.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/app/graph.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs]
+updated: 2026-09-11
+verified: 2026-09-11
+code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/app/sink.rs, crates/ubiq/src/state/a2ui.rs, crates/ubiq/src/ui/a2ui.rs, crates/ubiq/src/ui/sink/a2ui.rs, crates/ubiq/tests/a2ui.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/stats.rs, crates/ubiq/src/ui/stats.rs, crates/ubiq/src/app/stats.rs, crates/ubiq/tests/stats.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/app/new_agent.rs, crates/ubiq/src/ui/new_agent.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/app/graph.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/ui/web_view.rs, crates/ubiq/src/ui/viewer/web.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/state/web_panel.rs, crates/ubiq/src/app/explorer.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
 ---
@@ -1419,12 +1419,13 @@ reveal opens the way to one file, it does not tidy the rest of the tree away. It
 down, so a window opens with it off.
 
 **A right-click on a row raises a menu at the pointer.** A file offers Open, Open diff vs HEAD, Copy
-path, Copy full path, Copy link, Open in Finder, Open in Web, New file, New folder, Copy, Paste,
-Duplicate, Rename and Delete; a folder offers Expand or Collapse, New file, New folder, Copy path,
-Copy full path, Copy link, Open in Finder, Open in Web, Refresh, Copy, Paste, Duplicate, Rename and
-Delete; a click on the
-empty panel offers New file, New folder, Paste and Collapse all, because that is where the actions
-that need no row live. **New file, New folder and Paste land in the folder the row is in**, which is
+path, Copy full path, Copy link, Open in Finder, Open in Web, New file, New folder, New Excalidraw,
+Copy, Paste, Duplicate, Rename and Delete; a folder offers Expand or Collapse, New file, New folder,
+New Excalidraw, Copy path, Copy full path, Copy link, Open in Finder, Open in Web, Refresh, Copy,
+Paste, Duplicate, Rename and Delete; a click on the
+empty panel offers New file, New folder, New Excalidraw, Paste and Collapse all, because that is
+where the actions that need no row live. **New file, New folder, New Excalidraw and Paste land in
+the folder the row is in**, which is
 the row itself when it is a folder and the one holding it when it is a file — so a file row offers
 them rather than making the user find its folder first. Only Paste is ever disabled, and only while
 nothing has been copied.
@@ -1450,9 +1451,12 @@ dismissal.
 owns and `D57` explains. What the panel adds is the gesture and the question in front of it.
 
 **Every gesture that cannot be retyped asks first, and the question says which one it is about to
-do.** New file, New folder and Rename each raise a modal with a single field, seeded with the leaf
-name for a rename and empty for the other two, and the confirm stays dim until the name is both
-non-blank and different from what is already there. **Enter confirms and Escape cancels**, in every
+do.** New file, New folder, New Excalidraw and Rename each raise a modal with a single field, seeded
+with the leaf name for a rename, `drawing.excalidraw` for New Excalidraw and empty for New file and
+New folder, and the confirm stays dim until the name is both non-blank and different from what is
+already there. New Excalidraw forces its extension onto whatever is typed rather than merely
+suggesting it, so deleting the seed's suffix cannot turn a drawing into a plain text file. **Enter
+confirms and Escape cancels**, in every
 one of them: Enter reaches a field's dialog as the field's own key rather than as a binding, since
 taking Enter at the depth a text box holds focus would take it from the chat composer too, and both
 keys are handed straight back when no dialog is up so a bare Escape still reaches the explorer and
@@ -1606,14 +1610,17 @@ itself, and everything else the highlighted buffer — which is the general case
 fallback. A comparison against version control is not a viewer kind: it is what the tab is *looking
 at*, so a diff opens beside the file rather than inside it.
 
-**A viewer with a source to show has a three-way toggle, and it persists.** Source, Preview or
-Split, in a strip above the body, drawn only by the three viewers that have both halves — the
-buffer has nothing to toggle to and an image has no source. Split shows the file's own buffer, not a
-copy of it, so switching costs nothing and loses no undo history. Which of the three is on screen
-belongs to the file rather than to the strip, and it is written into the saved arrangement and into
-what the project remembers, so a document reopens in the layout it was left in. A new markdown file
-opens in Preview or Source as the Editor setting says; mermaid still opens in Preview. Already-open
-tabs keep the layout they were left in.
+**A viewer with more than one thing to draw has a layout toggle, and it persists.** A strip above the
+body offers the positions that viewer's kind names — `ViewerKind::layouts()` — and only those: the
+buffer has nothing to toggle to and an image has no source, so neither draws a strip at all. Markdown
+and Mermaid offer Source, Preview and Split; Excalidraw offers Editor and Preview only, because its
+source is JSON nobody edits by hand and Editor is where its own component does that instead. Split
+shows the file's own buffer, not a copy of it, so switching costs nothing and loses no undo history.
+Which position is on screen belongs to the file rather than to the strip, and it is written into the
+saved arrangement and into what the project remembers, so a document reopens in the layout it was
+left in — a layout an older arrangement named that the file's viewer no longer offers is refused
+rather than restored. A new markdown file opens in Preview or Source as the Editor setting says;
+Mermaid and Excalidraw still open in Preview. Already-open tabs keep the layout they were left in.
 
 **A Markdown preview scrolls, and YAML frontmatter is a bar above it rather than part of it.** A
 document that opens with a `---` block draws it as a collapsible bar at the head of the preview —
@@ -1649,6 +1656,18 @@ keeps it; a file that names none — `transparent`, an absent key — gets the f
 rather than the window's ground, so a diagram drawn on paper stays on paper in a dark window. The
 scene is painted into a canvas that fills the panel; a canvas that only laid out to its content
 would draw the whole scene into a few pixels at the top of the pane.
+
+**An Excalidraw scene can be edited, in Excalidraw, and `Editor` is one of its two layout
+positions.** Switching to it downloads the vendor bundle once and mounts the real component on the
+file's text — inside the panel, in a child webview, on macOS and Windows; in a browser window over
+the window's own loopback origin everywhere else, since the binding for an embedded browser has no
+finished Unix path yet. Edits come back as the whole document and are written into the buffer the
+tab already holds, so the dirty dot, `⌘S`, save-as and the version check are the ones that were
+always there — there is no second save path, and pressing the chrome's own Save button or the
+keyboard chord inside the webview both reach it. Preview keeps drawing the scene through the native
+painter the whole time, which is why opening a `.excalidraw` file still costs no download and no
+delay. With the bundle missing or unfetchable the position says why and nothing about reading the
+file changes.
 
 **A fenced diagram in a Markdown document goes through the same renderer.** A ```` ```mermaid ````
 fence is drawn by the diagram viewer and a ```` ```excalidraw ```` one by the scene viewer — one
@@ -2910,7 +2929,7 @@ arrive, because a buffer needs a window and a message does not come with one, so
 `attach_arrived_files()` drains them in `render` — the same device the dock's own edits and the
 pending focus use, and the one `fill_task_form()` uses for the task panel's fields. `take_editor_focus()`
 is where that pending focus lands: a tab whose viewer draws nothing for the layout on screen —
-Markdown or Mermaid in `Preview`, Excalidraw always, per `ViewerKind::shows_buffer()` — has no buffer
+Markdown, Mermaid or Excalidraw in `Preview`, per `ViewerKind::shows_buffer()` — has no buffer
 to hand the keyboard to, so it goes to `workbench_focus` instead, a handle `track_focus`ed on the
 workbench root beside the `Workbench` key context. Skipping that and leaving focus on the previous
 tab's now-unmounted buffer is not merely stale: GPUI's key dispatch falls back to the window's own
