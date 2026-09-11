@@ -161,6 +161,16 @@ icons-audit *ARGS:
 icons-dupes:
     uv run _tools/icons.py dupes
 
+# ── web assets ─────────────────────────────────────────────────────
+
+# Re-snapshot the Excalidraw mirror from jsDelivr and rewrite the host's hash manifest
+web-assets *ARGS:
+    uv run _tools/webassets.py snapshot {{ARGS}}
+
+# Re-fetch every file in that manifest and report CDN drift
+web-assets-verify:
+    uv run _tools/webassets.py verify
+
 # ── housekeeping ───────────────────────────────────────────────────
 
 # Remove build output
