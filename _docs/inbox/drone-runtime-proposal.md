@@ -3,29 +3,38 @@ id: inbox-drone-runtime
 title: Proposal — the drone, a portable runtime Ubiq places on another machine
 kind: proposal
 status: proposal
-summary: A small single-file executable Ubiq puts on a machine it is not running on — a Windows user's WSL distro first — which spawns pseudo-terminals, answers for files, describes its machine and composes confined harness runs through an embedded agent-manager, over one duplex byte stream carried by whatever already reaches that machine; it binds no socket, keeps no state, is fetched from a signed manifest and cached by triple, and dies with its channel because it has nothing worth resuming.
-read_when: you are deciding how a terminal, a file or a harness reaches a machine Ubiq is not running on, what "drone" means in this tree, which carrier a remote link rides, or how a foreign-triple binary gets fetched and verified
+summary: One small executable, built twice, that Ubiq puts where it is not running — a relay build that gives a remote machine's terminal, files and machine facts over SSH with no agent knowledge at all, and a runtime build that adds an embedded agent-manager to compose and confine harness runs inside WSL or a container; one duplex byte stream, one contract with a capability handshake, a signed manifest per triple, no socket by default, no state, and no reconnect.
+read_when: you are deciding how a terminal, a file or a harness reaches a machine Ubiq is not running on, what "drone" means in this tree, which carrier a remote link rides, how a foreign-triple binary gets fetched and verified, or why confinement in a pane is macOS-only
 updated: 2026-09-11
 depends_on: [tech-architecture, tech-transport, tech-agent-manager, tech-structure, tech-decisions, feat-panes, inbox-isolation]
 ---
 
 # Proposal — the drone, a portable runtime Ubiq places on another machine
 
-Ubiq runs every harness on the machine that draws the window. That is wrong for the user this
-proposal is written for: someone on Windows whose toolchains, repositories, shells and agent
-harnesses all live inside a WSL distribution, on the other side of a kernel boundary, reachable only
-by starting a process there. Their Claude Code is a Linux binary with a Linux config directory and a
-Linux keychain, and no amount of pseudo-terminal work on the Windows side composes a run for it.
+Ubiq reaches only the machine that draws the window. Two quite different things want fixing, and
+conflating them is how this design goes wrong:
 
-This proposes the **drone**: a single executable, built for that machine's target triple, fetched
-from a manifest and cached, placed on the far side by whatever channel already reaches it, and
-spoken to over one duplex byte stream. It spawns pseudo-terminals, answers for files, describes its
-machine, and — this is the part that is new — **composes and confines harness runs there**, because
-`crates/agent-manager` is the only thing that knows how, and a run can only be composed on the
-machine whose filesystem it names.
+**Remote access.** A terminal, a file tree and a machine's facts on a host across a network. No
+agents, no harnesses, no composition — the user opens a shell somewhere else and edits something
+there. The far machine may belong to someone else, may have other users on it, and is reached over a
+network that has to be assumed hostile.
 
-There is a shelved proposal of the same name. §1 says what it settled, what this keeps, and the
-three things the brief behind this document overturns.
+**A local boundary.** A Windows user whose toolchains, repositories, shells and agent harnesses all
+live inside a WSL distribution, one kernel boundary away — and, later, the same shape for a
+container. Their Claude Code is a Linux binary with a Linux config directory and a Linux credential
+store, and no amount of pseudo-terminal work on the Windows side composes a run for it. Here
+`crates/agent-manager` must be on the far side, because composing a run *is* reading that machine's
+files and writing that machine's run directory. There is no network and no third party: it is the
+user's own machine, one `wsl.exe` away.
+
+This proposes the **drone** as one executable that serves both — **one crate, one contract, two
+builds**, differing by a feature flag that decides whether `agent-manager` is linked. §2 is that
+split and the reason it is a flag rather than two projects. Everything else — the carrier, the
+frame, the manifest, the no-reconnect rule — is shared, because both cases are the same problem:
+one duplex byte stream to a process somewhere Ubiq is not.
+
+There is a shelved proposal of the same name. §1 says what it settled, what this keeps, and what the
+brief behind this document overturns.
 
 ## 1. Where this starts
 
@@ -37,7 +46,7 @@ overturns three of its load-bearing claims.**
 
 | The shelved proposal says | This proposal says | Why |
 |---|---|---|
-| *"A drone never runs a harness, and that is permanent"* | A drone composes, confines and spawns harness runs through an embedded `agent-manager` | §6. The WSL case is unreachable otherwise — the harness, its config directory and its credentials are all on the far side |
+| *"A drone never runs a harness, and that is permanent"* | True of the relay build and wrong as a general rule: the runtime build composes, confines and spawns harness runs through an embedded `agent-manager` | §2, §6. The shelved proposal was describing remote access and was right about it; the WSL case is unreachable that way, because the harness, its config directory and its credentials are all on the far side |
 | A drone reuses `Message` and gets no contract of its own | A drone speaks `DroneMessage`, a second and much smaller enum in the same wire crate | §5. The coordinator translates, so the UI contract is untouched and the drone never links four-fifths of a protocol it cannot answer |
 | The transport is an SSH port forward, `-R` first, `-L` as fallback | The default carrier is the carrier process's own stdio; a listening socket is opt-in and a forward is one carrier among several | §3. A forwarded port is a socket every other local user on that machine can dial. A pipe is not |
 
@@ -48,28 +57,56 @@ dropped link is a teardown, not a background retry loop.
 
 **What already exists, and is more than the shelved proposal assumed.**
 `crates/ubiq-proto/src/wire.rs` frames a message as a four-byte big-endian length and a MessagePack
-body, with `MAX_FRAME` at 64 MiB, `rmp_serde::to_vec_named` for a self-describing encoding, and
-`serde_bytes` on every byte field so a terminal chunk costs its own length on the wire and not four
-times it (`D79`). It reads and writes any `Read`/`Write` and knows nothing about sockets — which is
-the whole reason a stdio carrier is nearly free. `crates/ubiq-host/src/remote.rs` already accepts
+body (`D79`), and it reads and writes any `Read`/`Write` while knowing nothing about sockets — which
+is the whole reason a stdio carrier is nearly free. `crates/ubiq-host/src/remote.rs` already accepts
 connections, checks a constant-time bearer token, upgrades an HTTP request to raw frames and hands
 the socket to `bus::detached()` behind two pump threads; `crates/ubiq/src/app/remote_connect.rs` is
-the mirror image, and it re-dials a lost saved host on a doubling backoff.
-`crates/agent-manager` builds with `--no-default-features` and has no UI dependency at any feature
-level, which `just core` checks on every change. `crates/ubiq-host` is proof that the whole stack
-composes into a windowless binary.
+the mirror image, and it re-dials a lost saved host on a doubling backoff. `crates/agent-manager`
+builds with `--no-default-features` and has no UI dependency at any feature level, which `just core`
+checks on every change, and `crates/ubiq-host` is proof the stack composes into a windowless binary.
 
-**What does not exist.** No `.cargo/config.toml` and no cross-compilation: `just bundle` makes one
-macOS `.app` and `just bundle-win` one Windows exe, and nothing produces a headless artifact for a
-third triple. Nothing in the tree fetches, verifies or caches a binary — `resolve_program` in
-`crates/ubiq-host/src/agent.rs` locates something already on `PATH` and that is the extent of it. No
-message carries a schema version, because both ends have always been the same build. And no code
-anywhere mentions WSL.
+**What does not exist.** No `.cargo/config.toml` and no cross-compilation — `just bundle` makes one
+macOS `.app`, `just bundle-win` one Windows exe, and nothing produces a headless artifact for a
+third triple. Nothing fetches, verifies or caches a binary: `resolve_program` in
+`crates/ubiq-host/src/agent.rs` locates what is already on `PATH` and that is the extent of it. No
+message carries a schema version, because both ends have always been one build. And no code anywhere
+mentions WSL.
 
-## 2. What a drone is
+## 2. Two postures, one crate, two artifacts
 
-**A drone is a guest: one process, one directory, one byte stream, and nothing else on the far
-machine.** Three properties carry the whole design, and every later section is one of them cashed in.
+**The two use cases differ in more than a feature list — they differ in who owns the machine and
+whether there is a wire at all.** That is what makes one binary with a flag right and two projects
+wrong: the difference is a dependency and a threat model, not a design.
+
+| | **Relay** — remote access | **Runtime** — WSL, and later containers |
+|---|---|---|
+| Whose machine | Someone else's, or a shared server | The user's own, one boundary away |
+| Carrier | `ssh -T`, later a socket on a tailnet | `wsl.exe -d <distro> --`, `docker exec -i` |
+| Is there a wire | Yes, and it is assumed hostile | **No.** A pipe between two processes of the same user on one machine |
+| Answers | panes, files, machine facts | the same, plus composed and confined runs |
+| Links `agent-manager` | No | Yes, with `isol8` behind it |
+| Build | `cargo build -p ubiq-drone` | `--features agents` |
+| Artifact | `ubiq-drone-<triple>` | `ubiq-drone-agents-<triple>` |
+
+**One contract covers both, because the handshake already negotiates capability.** The `run` group
+of §5 exists in the enum in both builds; the relay build simply does not advertise it in `Hello`,
+and Ubiq never sends it. Nothing is conditionally compiled in `crates/ubiq-proto` — a contract that
+changes shape with a feature flag is a contract with two versions, which is the thing §4's single
+`schema` integer exists to avoid.
+
+**The flag is checked the way the crate boundary already is.** `just core` exists precisely because
+`agent-manager` must keep building without its frontend; the drone gets the mirror check — a recipe
+that fails if `agent-manager` appears in a default build's dependency graph. Without it one
+convenient `use` quietly makes the relay build the runtime build.
+
+**And the relay is worth keeping small rather than shipping one fat drone everywhere**, because it
+is the one that goes onto machines the user does not own: a build that cannot compose a run, cannot
+read a credential store and links no sandbox engine is a smaller thing to audit, to trust, and to
+justify to whoever administers that host. The runtime build never leaves the user's own machine, so
+it can afford what the relay cannot.
+
+**Both builds are the same guest: one process, one directory, one byte stream.** Three properties
+carry the rest of the design, and every later section is one of them cashed in.
 
 **It is pinned.** A drone artifact is keyed by the version of the Ubiq that placed it. The two ends
 are never expected to negotiate their way to agreement across versions — a mismatch is refused at
@@ -96,26 +133,31 @@ Tailscale question be scheduling decisions rather than protocol decisions.
 
 | Carrier | How | Status |
 |---|---|---|
-| **stdio** | Ubiq spawns a child and speaks frames over its stdin/stdout: `ssh -T host <path>/ubiq-drone --stdio`, `wsl.exe -d <distro> -- <path>/ubiq-drone --stdio`, `docker exec -i`, or the binary directly for local development | **The default, and the only one P0–P3 need** |
+| **stdio, local** | `wsl.exe -d <distro> -- <path>/ubiq-drone --stdio`, `docker exec -i`, or the binary directly in development. **No network is involved at any point** | **The runtime build's only carrier**, and the first one to build |
+| **stdio, over SSH** | `ssh -T <host> <path>/ubiq-drone --stdio` — the same frames, on a channel the user already authenticates | **The relay build's default** |
 | **tcp+tls** | `ubiq-drone --listen 127.0.0.1:0`, the same HTTP-upgrade-and-bearer-token handshake `remote.rs` already implements | Opt-in, P4 |
 | **ssh forward** | `-L`/`-R` onto the tcp carrier, for a site where an exec channel is unavailable but a forward is not | A configuration of the row above, not a third code path |
 | **Tailscale** | The tcp carrier over a tailnet address, with the mesh supplying identity and encryption | Later. Nothing in the protocol changes |
 | **https streaming** | Chunked request and response, or a WebSocket, for an egress-only network | Later, and the only row that would add a framing concern — see §4 |
 
-**The stdio carrier is the interesting one, and it is the cheapest.** It gives, for free: no
-listening socket anywhere on the far machine; authentication borrowed entire from a channel the user
-already trusts and already configured (`~/.ssh/config`, an agent, a hardware token, jump hosts);
-confidentiality from the same; teardown for free, because closing the child's stdin is an EOF the
-drone cannot ignore; and one code path that covers the WSL case, the SSH case, the container case
-and local development, differing only in the argv Ubiq spawns.
+**The stdio carrier is the cheapest and it gives the most.** No listening socket anywhere on the far
+machine; authentication and confidentiality borrowed entire from a channel the user already trusts
+and configured (`~/.ssh/config`, an agent, a hardware token, jump hosts); teardown for free, since
+closing the child's stdin is an EOF the drone cannot ignore; and one code path across WSL, SSH,
+containers and development, differing only in the argv Ubiq spawns.
 
-**It carries one real constraint: the stream must be a pipe and never a terminal.** A tty translates
-`\n` into `\r\n`, intercepts `^C`, `^Z` and `^S`, and on a Windows console treats `0x1A` as
-end-of-file — all of which corrupt a binary frame silently. So: `ssh` is invoked with `-T`, the
-drone calls `isatty` on its own stdin at startup, and **a drone whose stdin is a terminal refuses to
-start** with a named error rather than producing a stream that fails on the first byte a frame
-happens to contain. An armoured framing for a carrier that cannot offer a pipe is deferred, and is
-the only thing the https row would need.
+**And for the runtime build it does better than secure the wire: it removes it.** `wsl.exe` and
+`docker exec -i` are process spawns, not connections — same machine, same user, a pipe the kernel
+owns. Nothing to encrypt, nothing to authenticate, nothing to bind, no credential in the path. Every
+token, certificate and tailnet consideration in §10 belongs to the relay alone, which is the
+strongest argument for keeping the postures named apart rather than designing for their union.
+
+**One real constraint: the stream must be a pipe and never a terminal.** A tty translates `\n` into
+`\r\n`, intercepts `^C`, `^Z` and `^S`, and on a Windows console treats `0x1A` as end-of-file — each
+of which corrupts a binary frame silently. So `ssh` is invoked with `-T`, the drone calls `isatty`
+on its own stdin at startup, and **a drone whose stdin is a terminal refuses to start**, with a named
+error rather than a stream that dies on the first byte a frame happens to contain. An armoured
+framing for a carrier that cannot offer a pipe is deferred, and is all the https row would need.
 
 **Stderr is the drone's only voice outside the protocol.** Diagnostics, panics and the refusal above
 all go there; stdout carries frames and nothing else, ever. That is a rule, because one stray
@@ -151,19 +193,18 @@ Three adjustments the drone contract makes on top of it:
 sharing `wire.rs`'s framing, `ids.rs`'s ULID newtypes and `messages.rs`'s `Secret` — one wire crate,
 two enums, and only one of them ever reaches a window.
 
-The architecture rule that the UI and the host talk only through `messages.rs` is untouched by this,
-because **`DroneMessage` never reaches the UI**. The coordinator is the only thing that speaks it,
-and it translates: a `TerminalInput` arriving from a window for a pane that a drone owns leaves as a
-`drone::Input`, and the `drone::Output` that comes back re-enters the bus as an ordinary
-`TerminalOutput`. The interface is not told that a machine boundary exists, which is the domain rule
-*"the UI never assumes the pseudo-terminal is local"* collected rather than bent.
+The architecture rule that the UI and the host talk only through `messages.rs` is untouched, because
+**`DroneMessage` never reaches the UI**. The coordinator is the only thing that speaks it, and it
+translates: a `TerminalInput` for a pane a drone owns leaves as a `drone::Input`, and the
+`drone::Output` that comes back re-enters the bus as an ordinary `TerminalOutput`. The interface is
+never told a machine boundary exists — the domain rule *"the UI never assumes the pseudo-terminal is
+local"* collected rather than bent.
 
-**Why not reuse `Message`.** Because a drone would then link the whole contract — connectors, git,
-assist, work, notifications, usage rows, search — and answer "unsupported" to four-fifths of it.
-That is compile time on a foreign triple, binary size against §8's budget, surface area against
-§10's, and a version lock across families a drone never touches. The shelved proposal's argument for
-reuse was that a parallel protocol means two ways to open a shell; that argument holds for the
-*UI-facing* contract, which is exactly the one this leaves alone.
+**Why not reuse `Message`.** A drone would link the whole contract — connectors, git, assist, work,
+notifications, usage rows, search — to answer "unsupported" to four-fifths of it: compile time on a
+foreign triple, size against §8's budget, surface against §10's, and a version lock across families
+it never touches. The shelved proposal's argument for reuse was that a parallel protocol means two
+ways to open a shell; that holds for the *UI-facing* contract, which is the one this leaves alone.
 
 Five groups, and this is the whole of it:
 
@@ -173,7 +214,7 @@ Five groups, and this is the whole of it:
 | **pane** | `SpawnPane`, `Input`, `Resize`, `Kill`, `Output`, `Exited`, `PaneError` | A one-to-one mirror of the pane family, with the drone minting its own pane ids and the coordinator mapping them to the `PaneId` the window holds |
 | **file** | `Tree`, `Read`, `Write`, `Edit`, `Listing`, `Content`, `Written`, `FileError` | The `files/` worker's request set, confined to roots declared at `Hello` — same ceilings, same optimistic `FileVersion`, same `PathOp` vocabulary |
 | **machine** | `Probe`, `MachineInfo` | What `host_meta.rs` and `shells.rs` answer locally: hostname, os, arch, triple, cpu count, memory, disk free, the shells that exist, the `PATH` that a login shell reports |
-| **run** | `ListRunnable`, `Runnable`, `ComposePane`, `Composed`, `RunError` | §6. The agent-manager surface: which harnesses, accounts and profiles exist *there*, and a spawn that is a composed, confined run rather than a program name |
+| **run** | `ListRunnable`, `Runnable`, `ComposePane`, `Composed`, `RunError` | §6, and **answered by the runtime build alone** — in the enum in both, advertised in `Hello` by one. The agent-manager surface: which harnesses, accounts and profiles exist *there*, and a spawn that is a composed run rather than a program name |
 
 Deliberately absent, each for its own reason: **git** (`libgit2` cross-compiled per triple, for a
 diff the shelved proposal already deferred), **search and index** (§8 — a guest does not hold a
@@ -181,12 +222,13 @@ tantivy index, and a shelled-out `rg` is a later capability), **watch** (a `noti
 debounce thread is state, and the explorer can re-list), **conversation** (§6), and everything the
 coordinator owns by definition — projects, sessions, notifications, connectors, the usage meter.
 
-## 6. The reversal: a drone composes harness runs
+## 6. The runtime build composes harness runs
 
 The shelved proposal wrote *"a drone never runs a harness, and that is permanent"*, on the reasoning
 that a composed run is `agent-manager`'s to build and `agent-manager` has no story for a machine it
-is not running on. **The second half of that is true and the conclusion drawn from it is backwards:
-the fix is to put `agent-manager` on the other machine, not to keep harnesses off it.**
+is not running on. **For remote access that is the right call and this proposal keeps it — the relay
+build links no `agent-manager` at all. For a local boundary the conclusion inverts: the fix is to
+put `agent-manager` on the other side, not to keep harnesses off it.**
 
 **The WSL case is the argument.** A Windows user's Claude Code is installed in the distro. Its config
 directory is a Linux path. Its credentials are in a Linux keychain or a Linux file. Its skills, its
@@ -202,91 +244,117 @@ that machine's files and writing that machine's run directory.
 keeps `spec`, `resolve`, `registry`, `account`, `profile`, `harness`, `provision`, `session`,
 `source`, `config`, `settings`, `isolate` and the neutral `io` model, and drops `clap`, `ratatui`,
 `crossterm`, `keyring` and its own optional `portable-pty`. `isol8` is core and comes regardless.
-That is the drone's dependency floor, and it is the reason §8 states a size budget instead of
-assuming one.
+That is the **runtime build's** dependency floor. The relay build's floor is far below it — serde,
+the wire, a pty and not much else — which is §2's whole point and the reason §8 states two budgets
+rather than one.
 
 **What stays home: interpretation.** A structured run — Claude Code's native `stream-json` bridge
-(`D95`), or an ACP adapter — is a byte stream with a parser on it. The drone composes the run,
-confines it and spawns it; the *bytes* come back over the link as opaque, and
-`agent_manager::io`'s bridge runs in `crates/ubiq-host` exactly where it runs today. So the drone
-gains no conversation family, no `ConvUpdate`, and no opinion about what a harness said — which
-keeps the entire conversation vocabulary, its permission prompts and its tool blocks on one side of
-one boundary. **This is the one thing to verify before P3 is scheduled**: if `io::IoBridge` cannot be
-driven from a supplied reader/writer pair rather than a child it spawned itself, the alternative is
-the bridge running on the drone and a conversation group added to `DroneMessage` — a materially
-larger drone, and a worse answer. §15 files it as the question it is.
+(`D95`), or an ACP adapter — is a byte stream with a parser on it. The drone composes, confines and
+spawns; the bytes come back opaque, and `agent_manager::io`'s bridge runs in `crates/ubiq-host`
+exactly where it runs today. So the drone gains no conversation family, no `ConvUpdate` and no
+opinion about what a harness said, which keeps the whole conversation vocabulary, its permission
+prompts and its tool blocks on one side of one boundary. **This is the one thing to verify before P2
+is scheduled**: if `io::IoBridge` cannot be driven from a supplied reader/writer pair rather than a
+child it spawned itself, the bridge moves to the drone and `DroneMessage` grows a conversation
+group — a materially larger drone, and a worse answer.
 
-## 7. isol8 on the far side, and the thing that blocks it
+## 7. isol8 on the far side: not a Landlock problem, a descriptor-ownership one
 
 **Confinement is kernel-local: you cannot sandbox a process on a machine you are not on.** So a
 confined run on the far side means `crates/agent-manager/src/isolate.rs` running there — the same
 `plan()` producing the same `isol8::Spec` and `Context`, the same `HomeMode`, the same layer
-selection, the same `ENV_PASS` allowlist. The drone needs no isolation code of its own and gets none;
-it calls the library the way `compose_run` in `crates/ubiq-host/src/agent.rs` already does.
+selection, the same `ENV_PASS` allowlist. The runtime build needs no isolation code of its own and
+gets none; it calls the library the way `compose_run` in `crates/ubiq-host/src/agent.rs` already
+does.
 
-**One upstream limitation decides what P3 can actually deliver, and it lands squarely on the WSL
-case.** `isolate::confined_launch` renders an applied policy as a `Launch` for a caller that owns its
-own descriptors — which is what a pseudo-terminal is. On macOS that works, because `sandbox-exec -p`
-is itself an exec. **On every other platform it returns an error**: Landlock is applied in-process
-between fork and exec by isol8's own spawn path, and no rendered form of it exists to hand anyone.
-A WSL drone is a Linux drone. So:
+**Landlock is not the obstacle, and it is worth being exact about what is.** isol8's Linux backend
+enforces, in the kernel, and isol8's own CLI confines successfully inside WSL today. What fails is
+narrower: `isolate::confined_launch` renders an applied policy into a `Launch` for *a caller that
+owns its own descriptors*, and only macOS has a rendered form to give — `sandbox-exec -p <policy>`
+is itself an `execve`, so the harness stays one process whatever is on its stdio. The function
+returns an error everywhere else. And per `G90` the pty seam that would replace it **already exists
+in the pinned isol8 revision**; what blocks the switch is an ownership shape in Rust, not a kernel
+capability: `PtyChild` fuses the child with the master, so `resize` borrows it while `child` borrows
+it mutably, and a pane cannot be resized on one thread while another waits on the process. Ubiq
+cannot accept that, because *a resize is incomplete until the harness knows* — a pane that resizes
+while its harness believes the old size is the classic corruption bug.
 
-- A drone on macOS or a macOS remote host can confine a pty-owning run today.
-- A drone in WSL, or on any Linux host, **cannot** — until isol8 grows the pty seam its own notes
-  already call for.
-- Until then a Linux drone runs `Isolation::None` and **says so in `Hello`'s capability set**, so
-  Ubiq can tell the user the run is unconfined rather than letting them assume otherwise. A
-  capability that is advertised and absent is a lie the user pays for later.
+**So: an implementation problem, on both available routes.** Neither needs anything from the kernel
+that is not already there.
 
-This is not a reason to delay the drone. It is a reason P3 ships composition, accounts, profiles,
-skills, MCP and the session record — all of which work — and ships confinement on Linux when the
-upstream seam exists. [`isolation-proposal.md`](./isolation-proposal.md) is where the local half of
-this argument lives.
+**Route A — split the handle.** What `refs/isol8-pty-seam-update.md` §8 asks for: a master-only
+handle, independent of the child, that resize and the reader can hold while the reaper waits.
+Smallest change to isol8. Its cost lands here: on Linux a confined run's pseudo-terminal would be
+isol8's, not `portable-pty`'s, so `pty/mod.rs` — in the host and in the drone — grows a backend enum
+and two lifecycles to keep aligned, one per platform, for the rest of the project's life.
+
+**Route B — an exec shim, the way macOS already does it.** A small `isol8-exec` that sets
+`no_new_privs`, applies the ruleset to itself, and `execve`s the target in place. Landlock
+restrictions are preserved across `execve` by design — this is exactly the shape of the sandboxer
+sample the kernel itself ships — so the confined process is still one process, still owns whatever
+descriptors its parent gave it, and `confined_launch` returns a `Launch` on Linux for the same
+reason it does on macOS. **Nothing in `pty/mod.rs`, the host, or the drone changes at all**, and
+`portable-pty` stays the single pseudo-terminal implementation on every platform. Its cost: a second
+small binary to build, ship and version alongside the drone, and a rendered policy that has to reach
+it out of band — an inherited fd or a file, never `argv`, since a policy is large and `argv` is
+public.
+
+**Recommendation: B**, and it is not close for this tree. Route A buys a smaller diff in isol8 and
+pays for it with a permanent asymmetry in the one module where asymmetry is most expensive; route B
+makes Linux look like macOS and leaves both the host and the drone untouched. Route A becomes the
+right answer only if isol8's Linux policy ever needs more than Landlock — a mount or PID namespace
+cannot be applied and then `execve`d in place as cleanly, because the process that unshares is not
+the process that lands inside.
+
+**What ships before either lands.** Composition, accounts, profiles, skills, MCP and the session
+record all work on Linux today; only confinement does not. So the runtime build runs
+`Isolation::None` there and **says so in `Hello`'s capability set**, and Ubiq tells the user the run
+is unconfined rather than letting them assume otherwise. A capability that is advertised and absent
+is a lie the user pays for later.
+
+**Two smaller platform facts, so they are not discovered twice.** A container is already a boundary,
+so a runtime build inside Docker can honestly report unconfined rather than nesting a sandbox in a
+sandbox — and `isol8::sandbox::ensure_not_nested` already refuses that case explicitly. And a
+*Windows-native* runtime build is not the answer to the Windows question: per `G90`, isol8's
+AppContainer backend builds a token without enforcing the policy's path grants, so confinement there
+would be confinement in name only. WSL is the Windows story, which is where this proposal started.
+
+[`isolation-proposal.md`](./isolation-proposal.md) is where the local half of this argument lives,
+and `G90` is the row that owns the limitation.
 
 ## 8. Non-invasive, stated as a budget
 
 "Light and non-invasive" is a claim that decays unless it is written as something checkable.
 
 **One directory.** `$XDG_CACHE_HOME/ubiq-drone/` on Linux, the platform equivalent elsewhere,
-holding the binary, per-run config directories, managed homes and nothing else. No dotfile in
-`$HOME`, no `PATH` edit, no shell profile line, no systemd unit, no launch agent, no registry key.
-`ubiq-drone --purge` removes that directory and leaves the machine as it was found.
+holding the binary, per-run config directories, managed homes and nothing else — no dotfile in
+`$HOME`, no `PATH` edit, no shell profile line, no unit, no launch agent, no registry key.
+`ubiq-drone --purge` removes it and leaves the machine as it was found.
 
-**No daemon.** The drone exits when its carrier closes: EOF on stdin under the stdio carrier, a
-closed socket under the tcp one. It exits **with its children** — a process group kill on Unix, a job
-object on Windows — so a dropped link cannot leave a confined harness running against a repository
-nobody is watching. An orphan drone is the failure this design refuses to produce.
+**No daemon.** The drone exits when its carrier closes — EOF on stdin, or a closed socket — and it
+exits **with its children**, by process group on Unix and job object on Windows, so a dropped link
+cannot leave a confined harness running against a repository nobody is watching. An orphan drone is
+the failure this design refuses to produce.
 
-**No socket by default.** `--listen` is the only way to get one, it is off, and when on it binds
-loopback unless told otherwise. That is the reverse of `D80`, which binds the host's listener to
-every interface, and it is a deliberate reversal: a host is something a user starts for the purpose
-of being attached to, a drone is a guest on a machine that did not ask for it.
+**No socket by default.** `--listen` is the only way to get one, it is off, and it binds loopback
+unless told otherwise — the reverse of `D80`, deliberately: a host is started to be attached to, a
+drone is a guest on a machine that did not ask for it.
 
-**No persistent state between links.** No catalogue, no index, no database, no watch. Every answer is
-computed on demand from the filesystem. The shelved proposal's argument for this is the right one and
-survives intact: the class of tool this replaces routinely holds hundreds of megabytes of resident
-index, and that is precisely the cost being avoided.
+**No persistent state between links.** No catalogue, no index, no database, no watch; every answer
+is computed on demand. The shelved proposal's argument survives intact — the class of tool this
+replaces holds hundreds of megabytes of resident index, and that is the cost being avoided.
 
-**A size target, and a recipe that prints it.** A stripped release drone under 15 MB, with `just
-drone-size` naming the number, because a budget nobody measures is a budget nobody keeps. What it
-must never link: `tantivy`, `rusqlite`, `git2`, `notify`, `gpui`, or any async runtime — none of
-which this stack uses anywhere today, and all of which are one convenience away.
+**Two size targets, and a recipe that prints both.** A stripped relay under 8 MB and a runtime build
+under 20 MB, with `just drone-size` naming the numbers, because a budget nobody measures is a budget
+nobody keeps. That recipe is also where §2's flag check belongs, since it already builds both. What
+neither may ever link: `tantivy`, `rusqlite`, `git2`, `notify`, `gpui`, or any async runtime — none
+of which this stack uses today, and all of which are one convenience away.
 
 ## 9. Distribution: a manifest, a cache, and one push
 
 **A drone is fetched, never built on demand.** Ubiq holds a repository address; the repository holds
-a manifest; the manifest names one artifact per target triple.
-
-```json
-{
-  "schema": 1,
-  "ubiq_version": "0.4.2",
-  "drones": [
-    { "triple": "x86_64-unknown-linux-gnu", "file": "ubiq-drone-x86_64-linux",
-      "size": 11829456, "sha256": "…" }
-  ]
-}
-```
+a manifest carrying a `schema`, the `ubiq_version` it was cut for, and one entry per
+`(triple, build)` — `triple`, `build` (`relay` or `agents`), `file`, `size` and `sha256`.
 
 **Two repository kinds, one resolver.** An `https://` base URL in a release build, and a local
 directory for development — the same manifest, read from a file instead of fetched. The dev kind is
@@ -294,37 +362,45 @@ how this is worked on before any release pipeline exists, and it is the answer t
 proposal's `G108`, which blocked its P1 outright.
 
 **The manifest is signed and the artifact is hashed.** An Ed25519 signature over the manifest bytes,
-verified against a public key compiled into Ubiq; a SHA-256 per artifact, verified after download and
-again before every use, because a cache is a writable directory and a check that runs once is a check
-that runs at the wrong time. **An unsigned manifest is accepted only for a local directory
-repository, and only behind an explicit development flag that a release build does not compile.**
+verified against a public key compiled into Ubiq; a SHA-256 per artifact, checked after download and
+again before every use, because a cache is a writable directory and a check that runs once runs at
+the wrong time. **An unsigned manifest is accepted only for a local directory repository, behind a
+development flag a release build does not compile.**
 
-**The cache is Ubiq's, keyed by what identifies a drone.**
-`<config root>/drones/<ubiq-version>/<triple>/ubiq-drone`. Version in the key is what makes §2's
-pinning arithmetic rather than policy: a new Ubiq fetches a new drone, and the old one is garbage
-rather than a compatibility problem.
+**The cache is Ubiq's**, at `<config root>/drones/<ubiq-version>/<triple>/<build>/ubiq-drone`. The
+build belongs in the key because a relay and a runtime for one triple are two binaries with two
+hashes; the version belongs there because it is what makes §2's pinning arithmetic rather than
+policy — a new Ubiq fetches a new drone, and the old one is garbage rather than a compatibility
+problem.
 
 **Getting it there is one probe and, at most, one push.**
 
-1. **Probe.** One round trip: `ssh -T <target> 'uname -sm; test -x <path> && <path> --fingerprint'`
-   — or the same through `wsl.exe -d <distro> --`. That answers both questions at once: which triple
-   to resolve, and whether a good copy is already in place. `--fingerprint` prints the drone's own
-   SHA-256 and exits.
-2. **Compare.** If the fingerprint equals the manifest's hash for that triple, skip to 4.
+1. **Probe.** One round trip — `ssh -T <target> 'uname -sm; test -x <path> && <path>
+   --fingerprint'`, or the same through `wsl.exe -d <distro> --` — answering both questions at once:
+   which triple to resolve, and whether a good copy is already there. `--fingerprint` prints the
+   drone's own SHA-256 and exits.
+2. **Compare** it against the manifest's hash; if it matches, skip to 4.
 3. **Push over the carrier that is already there.** `ssh -T <target> 'cat > <path>.tmp && chmod +x
-   <path>.tmp && mv <path>.tmp <path>'`, streaming the cached bytes on stdin. No `scp`, no second
-   authentication, no second channel, and a jump host configured in `~/.ssh/config` works because
-   `ssh` is doing the work. The temp-and-rename is what stops a half-written binary from ever being
-   executable. Under WSL the same shape runs through `wsl.exe`, writing into the distro's own
-   filesystem rather than through `/mnt/c`, which is slow enough to be worth naming.
-4. **Launch.** The same carrier invocation with `--stdio`, and §4's handshake.
+   <path>.tmp && mv <path>.tmp <path>'`, streaming the cached bytes on stdin: no `scp`, no second
+   authentication, no second channel, and a `~/.ssh/config` jump host works because `ssh` is doing
+   the work. Temp-and-rename is what stops a half-written binary from ever being executable. Under
+   WSL the same shape runs through `wsl.exe`, into the distro's own filesystem rather than through
+   `/mnt/c`, which is slow enough to be worth naming.
+4. **Launch.** The same invocation with `--stdio`, and §4's handshake.
 
 Ubiq never executes a binary on the far side that it did not just verify or just fingerprint.
 
 ## 10. Security
 
 The brief asks for the channel and the protocol to be "super secure". Stating the threat model is
-what makes that a design rather than an adjective.
+what makes that a design rather than an adjective — and the first thing the model says is that
+**there are two of them**.
+
+**The runtime build's threat model is nearly empty, and saying so is the point.** `wsl.exe` and
+`docker exec -i` are process spawns by the same user on the same machine. No wire, no listener, no
+token, no certificate, no third party. What remains is the supply-chain row below — the binary has
+to be the right binary — and nothing else in this table applies to it. Every other row is about the
+relay build and a network.
 
 | Threat | Answer |
 |---|---|
@@ -335,11 +411,11 @@ what makes that a design rather than an adjective.
 | Credential material crossing the link | It does not. **Accounts on the far machine are the far machine's.** Ubiq ships a reference — an account name the drone's own `FsAccountStore` resolves — and never material, which is the existing rule and not a new one. A harness that needs a login logs in *there*, in its own pane, the way the local login flow already works |
 | A secret in a log | `Secret` from `messages.rs`, whose `Debug` writes `Secret(***)` and whose only reader is a deliberately-named `expose()` (`D65`). The drone's diagnostics go to stderr and never carry one |
 
-The bound on a drone's authority is worth saying out loud rather than leaving implicit: **a drone can
-do anything the user it runs as can do on that machine.** That is what it is for. The control is the
-carrier's authentication — if someone can open the channel, they could have run the commands anyway —
-which is exactly why §3 prefers a carrier the user already authenticates and §8 refuses to open a
-second door beside it.
+And the bound on a drone's authority, said out loud: **a drone can do anything the user it runs as
+can do on that machine.** That is what it is for, and the control is the carrier's own
+authentication — if someone can open the channel they could have run the commands anyway — which is
+why §3 prefers a carrier the user already authenticates and §8 refuses to open a second door beside
+it.
 
 ## 11. The seam in the coordinator
 
@@ -374,102 +450,112 @@ and `D85` already define for a lost host — *"losing a host takes its panes and
 applied one level further out, and the interface already implements it.
 
 **Where this differs from the remote host deliberately.** The interface *does* re-dial a saved host
-on a lost socket, with a doubling backoff. A drone does not, because the two are not the same kind
-of peer: a host is a durable process that owns panes, sessions and a catalogue which are all still
-there when the socket comes back, and re-dialling reaches them. A drone owns nothing that outlives
-the link, so a reconnect would reach an empty process and there would be nothing to re-attach to.
+on a lost socket. A drone does not, because the two are not the same kind of peer: a host is durable
+and still owns its panes, sessions and catalogue when the socket comes back, so re-dialling reaches
+them; a drone owns nothing that outlives the link, so a reconnect would reach an empty process.
 Reconnecting to a drone is spawning a new drone, and spelling it that way is more honest than a
 retry loop that looks like recovery.
 
-**What it costs, said plainly.** A closed laptop lid kills every remote pane and every harness
-running under one, including a long agent run someone was depending on. Making that survivable means
-a drone that outlives its carrier — a durable identity, a listening endpoint or a relay, and state on
-the far side — which is a different product with a different security posture, and is the one thing
-this proposal defers rather than decides.
+**What it costs, said plainly.** A closed laptop lid kills every remote pane and every harness under
+one, including a long agent run someone was depending on. Surviving that means a drone that outlives
+its carrier — durable identity, a listening endpoint or a relay, and far-side state — which is a
+different product with a different security posture, and is the one thing this proposal defers
+rather than decides.
 
 ## 13. What can go wrong
 
-- **The carrier's stdin is a terminal.** Refused at startup with a named error, before a frame is
-  written (§3). The likeliest cause is an `ssh` invocation that lost its `-T`.
-- **Versions disagree.** Refused at `Ready` with the two versions named, never as a pane that starts
-  and then misbehaves.
-- **No drone exists for that triple.** The manifest is the answer: the failure names the triple the
-  probe found and the triples the manifest offers, which is a fixable complaint rather than a dead
-  end.
-- **The hash does not match.** Refuse, do not run, do not silently re-download and retry — a mismatch
-  is either a corrupt cache or something worse, and both want a person.
-- **The far machine has no writable cache directory**, or a `noexec` mount under it. Reported at the
-  push step, distinct from "unreachable", so the user knows to name a different path.
+- **The carrier's stdin is a terminal.** Refused at startup, before a frame is written (§3); the
+  likeliest cause is an `ssh` invocation that lost its `-T`.
+- **Versions disagree.** Refused at `Ready` with both named, never as a pane that starts and then
+  misbehaves.
+- **No drone exists for that triple.** The failure names the triple the probe found and the triples
+  the manifest offers — a fixable complaint rather than a dead end.
+- **The hash does not match.** Refuse; do not run, and do not silently re-download and retry. A
+  mismatch is a corrupt cache or something worse, and both want a person.
+- **No writable cache directory on the far machine**, or a `noexec` mount under it. Reported at the
+  push step, distinct from "unreachable", so the user knows to name another path.
 - **isol8 cannot confine on that platform.** Not an error: a capability absent from `Hello`, and a
   run that says it is unconfined (§7).
 - **The link drops mid-work.** §12. One teardown, no partial state, no orphan.
 
 ## 14. Phases
 
-**P0 — the contract and the stdio carrier.** `drone.rs`, the handshake, the keepalive, the pane
-group, the `drones.rs` link owner and the `PaneBacking` seam. The drone binary built locally and
-named by an absolute path; no manifest, no fetching. A terminal in a WSL distro, which is the whole
-point, is reachable at the end of this phase.
+**P0 — the contract and the stdio carrier.** The `drone` module, the handshake, the keepalive, the
+pane group, the `drones` link owner and the `PaneBacking` seam; relay build only, placed by absolute
+path, no manifest. Both carriers land together because they differ by argv alone, so this phase ends
+with a terminal in a WSL distro *and* a terminal on an SSH host.
 
 **P1 — machine and files.** The machine group, the file group with declared roots, and the remote
-project field. The explorer and the editor work against a drone project.
+project field. **This completes the relay build**, and with it the whole remote-access use case.
 
-**P2 — distribution.** The manifest, the signature, the cache, the fingerprint probe and the push.
-This is what makes a drone something a user gets rather than something a developer places, and it is
-the phase the shelved proposal could not start.
+**P2 — runs.** The `agents` feature: `agent-manager` embedded, the run group, accounts and profiles
+resolved on the far side, §2's flag check, and `Isolation::None` advertised honestly on Linux (§7).
+Deliberately ahead of distribution — a developer placing a binary by hand proves it, and the WSL
+user is the one waiting.
 
-**P3 — runs.** `agent-manager` embedded, the run group, accounts and profiles resolved on the far
-side, `isol8` where the platform allows it (§7), and the io bridge question of §6 answered before
-this phase is scheduled rather than during it.
+**P3 — distribution.** The manifest, signature, cache, fingerprint probe and push, for both
+artifacts. This is what makes a drone something a user gets rather than something a developer
+places, and it is the phase the shelved proposal could not start at all.
 
 **P4 — the socket carrier.** `--listen`, TLS, the token, and a tailnet address as its first real
-user.
+user. Relay only; the runtime build has no use for a socket and should not grow one.
+
+**An upstream track beside all of it: isol8's descriptor seam** (§7). It gates confinement on Linux
+and nothing else. Two questions are answered before the phase that depends on them rather than
+during it — §6's io bridge before P2, and §7's route before any confinement work.
 
 ## 15. What this asks to be decided
 
 | | Question | Recommendation |
 |---|---|---|
 | a | One contract for the drone, or reuse `Message`? | **`DroneMessage`, a second enum in `ubiq-proto`.** The coordinator translates; the UI contract never changes (§5) |
-| b | Does a drone run harnesses? | **Yes**, and this reverses the shelved proposal. The WSL case has no other answer (§6) |
-| c | Where does the structured-io bridge run? | **On the host**, with the drone relaying opaque bytes — *conditional* on `io::IoBridge` being drivable from a supplied reader/writer pair. Verify before P3 is scheduled; if not, the bridge moves to the drone and the contract grows a conversation group (§6) |
-| d | Default carrier? | **stdio.** One code path for SSH, WSL, containers and local development, and no socket on the far machine (§3) |
-| e | Does a drone ever listen? | **Only when told**, loopback by default — the reverse of `D80`, for a reason (§8, §10) |
-| f | Reconnect? | **No, permanently.** A drone owns nothing that would survive one (§12) |
-| g | Signed manifests before any release pipeline exists? | **Yes, with a local-directory dev repository as the unsigned exception**, compiled out of release builds (§9) |
-| h | Does a drone answer search? | **No**, not even shelled out, in these phases. It is a capability the contract has room for and no phase claims |
-| i | Which triples ship first? | **`x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu`** — WSL and the common remote host, in that order. Everything else follows the manifest |
+| b | Two projects, two crates, or one crate with a flag? | **One crate, one contract, two artifacts** behind an `agents` feature, with a recipe that fails if `agent-manager` reaches a default build. The postures differ by a dependency and a threat model, not a design (§2) |
+| c | Does a drone run harnesses? | **The runtime build does**, which reverses the shelved proposal for that posture only; the relay build never does and links nothing that could (§6) |
+| d | Which isol8 route unblocks confinement in a pane? | **Route B, the exec shim** — it makes Linux look like macOS and leaves `pty/mod.rs`, the host and the drone untouched. Route A is the smaller isol8 diff and the right answer only if the Linux policy ever needs more than Landlock (§7) |
+| e | Where does the structured-io bridge run? | **On the host**, with the drone relaying opaque bytes — *conditional* on `io::IoBridge` being drivable from a supplied reader/writer pair. Verify before P2 is scheduled; if not, the bridge moves to the drone and the contract grows a conversation group (§6) |
+| f | Default carrier? | **stdio.** One code path for SSH, WSL, containers and local development, and no socket on the far machine (§3) |
+| g | Does a drone ever listen? | **Only when told**, loopback by default, and **relay build only** — the reverse of `D80`, for a reason (§8, §10) |
+| h | Reconnect? | **No, permanently.** A drone owns nothing that would survive one (§12) |
+| i | Signed manifests before any release pipeline exists? | **Yes, with a local-directory dev repository as the unsigned exception**, compiled out of release builds (§9) |
+| j | Does a drone answer search? | **No**, not even shelled out, in these phases. It is a capability the contract has room for and no phase claims |
+| k | Which triples ship first? | **`x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu`** — WSL and the common remote host, in that order. Everything else follows the manifest |
 
 ## 16. Rules this adds
 
 - **The drone's stdout carries frames and nothing else.** Every diagnostic goes to stderr. One stray
   write desynchronises the stream permanently.
 - **A drone's stdin is a pipe, never a terminal**, and a drone that finds otherwise refuses to start.
-- **A drone binds no socket unless asked**, and binds loopback when asked without an address.
-- **A drone writes into one directory and `--purge` removes it.** Nothing else on the far machine is
-  touched, ever.
-- **A drone dies with its channel, and takes its children with it.**
+- **A drone binds no socket unless asked**, and binds loopback when asked without an address. The
+  runtime build never asks.
+- **The relay build links no `agent-manager` and no `isol8`**, checked by a recipe rather than
+  trusted to a reviewer. One convenient `use` is all it takes for the small artifact to stop being
+  small.
+- **The contract does not change shape with a feature flag.** Both builds carry every variant; what
+  differs is the capability set in `Hello`.
+- **A drone writes into one directory, `--purge` removes it, and it dies with its channel taking its
+  children with it.**
 - **Ubiq never executes a far-side binary it has not just verified or just fingerprinted.**
-- **No secret on `argv`** — kept from the shelved proposal, and now also: no credential material over
-  the link at all, only references the far side resolves.
-- **`DroneMessage` never reaches the interface.** If a drone fact needs to be drawn, the coordinator
-  translates it into the existing contract.
+- **No secret on `argv`**, and no credential material over the link at all — only references the far
+  side resolves.
+- **`DroneMessage` never reaches the interface.** A drone fact that must be drawn is translated by
+  the coordinator into the existing contract.
 - **A capability is advertised only when it works on that platform.** An absent capability is a
   truthful answer; an advertised one that silently does nothing is not.
 
 ## 17. What stays out
 
-- **Git on the drone.** `libgit2` per triple, for a diff the shelved proposal already deferred.
-- **A search index on the drone.** The wrong shape for a guest, not merely a later phase.
-- **A filesystem watch on the drone.** A handle and a debounce thread are state; the explorer
-  re-lists instead.
-- **A drone that outlives its carrier.** §12 is the whole argument, and this is the deferral it makes
+Beyond the groups §5 leaves out — git, search, index, watch, conversation:
+
+- **A drone that outlives its carrier.** §12 is the argument; this is the deferral it makes
   deliberately rather than by omission.
-- **An https-streaming carrier.** The only row in §3 that would need a second framing, and nothing
-  yet needs it.
-- **A harness reaching *out* from a local pane to a remote machine.** That is the MCP-connector idea
-  the shelved proposal named — a `remote-file` and a `remote-shell` tool pointed at a drone — and it
-  is a consumer of this, worth its own proposal after P1.
-- **Windows as a drone target.** WSL is the Windows story here, and it is a Linux triple.
+- **An https-streaming carrier.** The only row in §3 that would need a second framing.
+- **A harness reaching *out* from a local pane to a remote machine** — the MCP-connector idea the
+  shelved proposal named, a consumer of this and worth its own proposal after P1.
+- **A Windows-native runtime build.** WSL is the Windows story, and it is a Linux triple; §7's
+  AppContainer note is why a native one would confine in name only. A Windows *relay* is a separate
+  question with no use case yet.
+- **A second protocol for the local case.** WSL and a remote host are one carrier apart and nothing
+  else; a separate transport for the local boundary would be two of everything for no gain.
 
 ## 18. Rows this proposes for the backlog
 
@@ -478,7 +564,7 @@ user.
 | No cross-compilation exists: `just bundle` and `just bundle-win` produce host-native artifacts and nothing builds a headless binary for a third triple |
 | Nothing in the tree fetches, verifies or caches a binary from a manifest; `resolve_program` locates what is already on `PATH` and that is all |
 | No message carries a protocol or schema version — true today only because both ends are always one build |
-| `isolate::confined_launch` returns an error on every platform but macOS, so a Linux or WSL drone cannot confine a run that owns its own pseudo-terminal until isol8 grows the pty seam its own notes call for |
+| `G90` already owns the confinement limitation and needs widening, not duplicating: it reads as a macOS-only gap in a local pane, and the runtime build makes it the blocker on the primary Windows path. Its framing also wants correcting — the obstacle is descriptor ownership, not Landlock, and §7's exec shim is a second route it does not name |
 | Whether `agent_manager::io`'s bridge can be driven from a supplied reader/writer pair rather than a child it spawned decides where the structured-io parser lives, and therefore how large a drone is |
 | The existing remote bus has no keepalive (`G189`); the drone contract carries `Ping`/`Pong` from P0 and the host bus still does not |
 
