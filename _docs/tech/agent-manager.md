@@ -400,8 +400,11 @@ close, and a run with no metadata is a plain shell pane rather than an error.
 
 Confining a run in a terminal Ubiq owns is macOS-only. isol8 spawns with inherited stdio and keeps
 its child handle private, so no host can hand it a pseudo-terminal; `isolate::confined_launch`
-renders the policy and execs `sandbox-exec`, which macOS supports and Landlock cannot. The seam that
-replaces it is specified in `refs/isol8-pty-seam-update.md`.
+renders the policy and execs `sandbox-exec`, which macOS supports and Landlock cannot. On Windows
+isol8 (v0.4.0) enforces path grants through an embedded hook DLL, but only for a process it creates
+itself — inherited stdio, no ConPTY seam — so a pane there still errors honestly while
+`am account login --isolate` is genuinely confined. The seam that replaces `confined_launch` on
+unix is specified in `refs/isol8-pty-seam-update.md`; ConPTY is separate work.
 
 Everything an embedder can substitute is a trait: the catalog registry, the account store, the
 secret store, profiles, templates, session history, and an in-process MCP service behind the

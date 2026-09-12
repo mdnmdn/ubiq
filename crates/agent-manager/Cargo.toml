@@ -92,7 +92,7 @@ tiny_http = { version = "0.12", optional = true }
 # (`default-features = false` drops isol8's own `cli`, `registry` and `wizard`
 # features — clap, serde_yaml, the offline registry types — none of which an
 # embedder composing a run needs).
-isol8 = { git = "https://github.com/mdnmdn/isol8", rev = "46c72edac4dda6d146af57f90121bb54820150eb", default-features = false }
+isol8 = { git = "https://github.com/mdnmdn/isol8", rev = "14a87bd50e8062442859fd4ee85cdd94f99b5de5", default-features = false }
 
 # OS system credential store for the `keyring` credentials engine (optional —
 # `keyring-store` feature). Default features (`v1`) pull in the

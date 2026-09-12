@@ -68,7 +68,9 @@ confined passthrough run execs `sandbox-exec` around the harness. Off macOS,
 confining a run in a caller-owned terminal has no native seam either — isol8
 spawns with inherited stdio and keeps its `SandboxChild` constructors private
 — so `--isolate` fails there too until isol8 grows that seam; see
-`refs/isol8-pty-seam-update.md`.
+`refs/isol8-pty-seam-update.md`. The exception is `am account login
+--isolate`, which lets isol8 own the spawn: genuinely confined on macOS and on
+Windows (hook DLL), via the login composition in `src/cli/account/login.rs`.
 
 Anything `am` doesn't recognize after `--` is the harness's own CLI (e.g.
 `am claude -- --model opus -p`). This keeps `am` from having to mirror every
@@ -308,7 +310,9 @@ under "Credential capture & reuse".
 plaintext credential files when the OS keychain is unreachable; it errors instead. To force
 file-based credential capture on macOS, add the `--isolate` flag: `am account login <id>
 --harness claude-code --isolate` denies keychain access at the sandbox layer, making Claude
-write `.credentials.json` as a fallback. Bare `--isolate` uses the `base` isol8 profile;
+write `.credentials.json` as a fallback. Bare `--isolate` uses the harness's normal layer set
+minus the keychain (`macos/system-runtime` plus the OAuth browser layers on macOS,
+`windows/system-runtime` on Windows, `base` elsewhere);
 `--isolate=<name>` selects a named policy.
 
 ## Session commands

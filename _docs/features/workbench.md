@@ -1292,9 +1292,10 @@ hatch for a toolchain installed somewhere the policy does not expect: a path per
 until the chip is clicked, because read-only is the safer half of the choice and what a shared cache
 usually wants.
 
-**Confinement is macOS-only, and the section reports that rather than failing at the spawn.** A
+**Pane confinement is macOS-only, and the section reports that rather than failing at the spawn.** A
 build with no enforcing backend draws the state chip in the warning colour and dims the toggle —
-status by colour and not by wording alone, the same as everywhere else. A row that promised
+status by colour and not by wording alone, the same as everywhere else. On Windows the chip names
+the missing ConPTY seam. A row that promised
 protection it could not deliver would be worse than the plain run it silently became.
 
 **Vim mode is one switch over every text surface a document is written in.** Off by default, and

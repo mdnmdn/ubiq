@@ -119,8 +119,10 @@ real `~/.claude`:
       is a core library dependency baked into `am`. `--print-config` prints
       the resolved policy without spawning anything; a *live* confined run
       only works on macOS today (it execs the always-present
-      `/usr/bin/sandbox-exec`) — off macOS it errors naming
-      `refs/isol8-pty-seam-update.md` (see T-12f/T-12g).
+      `/usr/bin/sandbox-exec`) — off macOS it errors, naming the pty seam on
+      Linux and the missing ConPTY seam on Windows (see T-12f/T-12g). The
+      exception is `am account login --isolate`, which lets isol8 own the
+      spawn and is genuinely confined on Windows too (hook DLL).
 - [ ] **E3** For §13 settings: a scratch project dir with an `am.toml` you
       control (so discovery/merge tests don't depend on your real config).
 - [ ] **E4** `export AM_SESSIONS="$(mktemp -d)"` so §14 session history writes to a
@@ -423,7 +425,7 @@ actual spawn (§T-12f) execs under the policy.
 | T-12d | `<h> --no-isolate --print-config` with `[isolate] enabled = true` in the settings file | no `isolation:` block — `--no-isolate` beats the settings default (and beats a profile's own `isolate` and a bare/named `--isolate`, per the CLI's precedence order) |
 | T-12e | `<h> --isolate --io structured` (a real run, not `--print-config`) | refused before spawning the harness: error naming the `--isolate`/`--io structured` combination and `refs/isol8-pty-seam-update.md` |
 | T-12f | live, macOS: `<h> --isolate -- --version` | execs `/usr/bin/sandbox-exec` around the harness (one process, no PTY seam needed); harness output forwarded; exits with the harness's own exit code |
-| T-12g | live, non-macOS: `<h> --isolate -- --version` | fails before spawning the harness; error names `refs/isol8-pty-seam-update.md` |
+| T-12g | live, non-macOS: `<h> --isolate -- --version` | fails before spawning the harness; on Linux the error names the pty seam (`refs/isol8-pty-seam-update.md`), on Windows the missing ConPTY seam |
 
 ---
 
