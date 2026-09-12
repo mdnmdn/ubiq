@@ -112,6 +112,11 @@ impl Harness for Claude {
             structured: true,
             multi_turn: true,
             acp: self.acp,
+            // A stored OAuth token and one request, so the answer needs no process at all —
+            // which is exactly the case that matters, since the question is asked *before* a
+            // long run. The live bridge's own `RateLimitUpdate` is a fresher reading of the
+            // same fact, not a second one.
+            quota: super::QuotaSource::Probe,
         }
     }
 
@@ -500,6 +505,18 @@ impl Harness for Claude {
                 std::path::PathBuf::from(".claude.json"),              // optional metadata
             ],
         })
+    }
+
+    /// One request against the account's own OAuth token. Unofficial and rate-limited, so a
+    /// failure is a sentence the user reads and never a number — `crate::quota::claude` owns the
+    /// endpoint, the header and the defensive parse, because naming a provider's URL is this
+    /// library's job and nobody else's.
+    fn quota(
+        &self,
+        account: &crate::account::Account,
+        login: Option<&crate::Source>,
+    ) -> Result<crate::quota::QuotaSnapshot> {
+        crate::quota::claude(&account.id, &self.id(), login)
     }
 
     fn structured_bridge(

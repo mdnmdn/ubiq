@@ -100,7 +100,10 @@ isol8 = { git = "https://github.com/mdnmdn/isol8", rev = "46c72edac4dda6d146af57
 # Windows, Secret Service (zbus) on Linux.
 keyring = { version = "4", optional = true }
 
+# Sync HTTP client. Core (not feature-gated): `quota::claude` asks the provider
+# how much of the plan is left, and that question has to be answerable in lib
+# mode, where the embedder builds this crate with `--no-default-features`.
+ureq = { version = "2", default-features = false, features = ["tls", "json"] }
+
 [dev-dependencies]
 tempfile = "3"
-# Sync HTTP client used only by the `inproc-mcp` E2E tests.
-ureq = { version = "2", default-features = false, features = ["json"] }

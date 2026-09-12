@@ -245,6 +245,7 @@ pub fn fold_preamble(preamble: &str, typed: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ubiq_proto::quota::QuotaSource;
 
     fn choice(value: &str) -> ConfigChoice {
         ConfigChoice {
@@ -265,6 +266,7 @@ mod tests {
             modes: vec![choice("plan"), choice("bypass")],
             unattended_mode: unattended.map(str::to_string),
             keeps_sessions: true,
+            quota: QuotaSource::Push,
         }
     }
 

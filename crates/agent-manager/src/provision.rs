@@ -310,6 +310,7 @@ impl Harness for AmbientDummyHarness {
             structured: false,
             multi_turn: false,
             acp: false,
+            quota: Default::default(),
         }
     }
     fn config_anchor(&self) -> crate::harness::ConfigAnchor {

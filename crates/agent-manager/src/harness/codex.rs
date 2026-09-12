@@ -88,6 +88,10 @@ impl Harness for Codex {
             structured: true,
             multi_turn: true,
             acp: self.acp,
+            // `codex app-server` answers `account/rateLimits/read`, so this becomes
+            // `QuotaSource::Bridge` when that request is wired. It needs a live app-server, and
+            // nothing spawns one just to ask.
+            quota: super::QuotaSource::None,
         }
     }
 

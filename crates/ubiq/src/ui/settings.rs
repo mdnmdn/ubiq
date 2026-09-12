@@ -32,9 +32,9 @@ use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::kit::{
     UbiqIcon, badge, card, check_box, choice_pill, column, confirm_modal, elided, field,
-    ghost_button, heading, icon_button, label_block, menu::Picker, modal, modal_note, modal_sized,
-    mono, nav_item, primary_button, prompt_modal, removable_tag, section_label, setting_row, slab,
-    state_chip, status_dot,
+    ghost_button, heading, icon_button, label_block, menu::Picker, meter, modal, modal_note,
+    modal_sized, mono, nav_item, primary_button, prompt_modal, removable_tag, section_label,
+    setting_row, slab, state_chip, status_dot,
 };
 
 pub fn overlay(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
@@ -1637,7 +1637,17 @@ fn account_block(
         account
             .logged_in
             .iter()
-            .map(|agent_type| harness_row(app, &id, agent_type, now_ms, cx))
+            .map(|agent_type| {
+                // The row and what the plan has left are one block: the usage sits under the
+                // login it is about, indented under it, rather than in a section of its own that
+                // would have to name the harness a second time.
+                div()
+                    .flex()
+                    .flex_col()
+                    .child(harness_row(app, &id, agent_type, now_ms, cx))
+                    .child(harness_quota(app, &id, agent_type, now_ms, cx))
+                    .into_any_element()
+            })
             .collect()
     };
 
@@ -1749,6 +1759,188 @@ fn harness_row(
                 )),
         )
         .into_any_element()
+}
+
+/// How much of one login's plan is left: a row per window the provider states, then the plan,
+/// the age of the reading and a refresh.
+///
+/// This is the surface that works when nothing is running, which is why every negative answer is
+/// drawn in place rather than hidden. A harness that states no limit says so once — an absent
+/// readout reads as a missing feature, and for three of the five harnesses it is a permanent
+/// answer about the provider instead.
+fn harness_quota(
+    app: &AppState,
+    account: &str,
+    agent_type: &str,
+    now_ms: i64,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let note = |text: String, colour| {
+        div()
+            .text_size(theme::font(Family::Chrome, Role::Meta))
+            .text_color(colour)
+            .child(SharedString::from(text))
+            .into_any_element()
+    };
+
+    let source = app
+        .workbench
+        .agent_types
+        .iter()
+        .find(|info| info.id == agent_type)
+        .map(|info| info.quota)
+        .unwrap_or_default();
+    if !source.reports() {
+        return div()
+            .pl_2()
+            .pb_1()
+            .child(note(
+                "This harness states no limit anything can read.".to_string(),
+                theme::text_faint(),
+            ))
+            .into_any_element();
+    }
+
+    let snapshot = app.workbench.settings.quota(agent_type, account);
+    let mut block = div().flex().flex_col().gap_1().pl_2().pb_1();
+
+    match snapshot {
+        Some(snapshot) if !snapshot.gauges.is_empty() => {
+            block = block.children(
+                snapshot
+                    .gauges
+                    .iter()
+                    .map(|gauge| quota_gauge_row(gauge, now_ms)),
+            );
+        }
+        // Asked, and the provider named nothing. A different fact from never having asked, and
+        // from a failed read below — all three are said in their own words.
+        Some(_) => {
+            block = block.child(note(
+                "Asked, and this plan states no limit.".to_string(),
+                theme::text_faint(),
+            ));
+        }
+        None if source.probeable() => {
+            block = block.child(note("Not read yet.".to_string(), theme::text_faint()));
+        }
+        // A push-only harness has nothing to read while it is idle: the provider states its
+        // window during a turn and offers no way to ask.
+        None => {
+            block = block.child(note(
+                "Read while a turn runs \u{2014} this harness states its window unasked and \
+                 offers no way to ask."
+                    .to_string(),
+                theme::text_faint(),
+            ));
+        }
+    }
+
+    // The host's sentence, verbatim: it is written to be read. Drawn beside whatever reading is
+    // already on screen rather than in place of it — a refresh that failed does not make the last
+    // good reading untrue.
+    if let Some(error) = app.workbench.settings.quota_error(agent_type, account) {
+        block = block.child(note(error.to_string(), theme::danger()));
+    }
+
+    let mut foot = div().flex().items_center().gap_2().child(
+        div()
+            .flex_1()
+            .min_w(px(0.))
+            .text_size(theme::font(Family::Chrome, Role::Meta))
+            .text_color(theme::text_faint())
+            .child(SharedString::from(match snapshot {
+                Some(snapshot) => format!(
+                    "plan {} \u{b7} read {} ago",
+                    snapshot.plan.as_deref().unwrap_or("\u{2014}"),
+                    magnitude(now_ms - snapshot.as_of * 1000)
+                ),
+                None => "plan \u{2014}".to_string(),
+            })),
+    );
+    foot = foot.child(ghost_button(
+        ElementId::Name(
+            format!("app-settings-account-{account}-{agent_type}-quota-refresh").into(),
+        ),
+        None,
+        "Refresh",
+        cx.listener({
+            let account = account.to_string();
+            let agent_type = agent_type.to_string();
+            move |this, _, _, cx| this.refresh_quota(agent_type.clone(), account.clone(), cx)
+        }),
+    ));
+
+    block.child(foot).into_any_element()
+}
+
+/// One window the provider states: what it calls it, how full it is, the reading in words, and
+/// when it comes back.
+///
+/// A reading with no denominator draws no bar — a meter without one somebody stated is the exact
+/// thing the stats screen refuses to draw — and a reset nobody named is an em dash, never a zero.
+fn quota_gauge_row(gauge: &ubiq_proto::quota::QuotaGauge, now_ms: i64) -> AnyElement {
+    let pct = gauge.reading.used_pct();
+    let reset = match gauge.resets_at {
+        Some(resets_at) if resets_at * 1000 >= now_ms => {
+            format!("resets in {}", magnitude(resets_at * 1000 - now_ms))
+        }
+        Some(resets_at) => format!("reset {} ago", magnitude(now_ms - resets_at * 1000)),
+        None => "\u{2014}".to_string(),
+    };
+
+    let row = div()
+        .flex()
+        .items_center()
+        .gap_2()
+        .child(
+            div()
+                .w(px(84.))
+                .flex_none()
+                .text_size(theme::font(Family::Chrome, Role::Meta))
+                .text_color(theme::text_muted())
+                .child(SharedString::from(gauge.label.clone())),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w(px(0.))
+                .children(pct.map(|pct| meter(pct as f32 / 100.0, theme::usage_tone(pct)))),
+        )
+        .child(
+            div()
+                .flex_none()
+                .text_size(theme::font(Family::Chrome, Role::Meta))
+                .text_color(pct.map_or(theme::text_muted(), theme::usage_tone))
+                .child(SharedString::from(gauge.reading.say())),
+        )
+        .child(
+            div()
+                .w(px(104.))
+                .flex_none()
+                .text_size(theme::font(Family::Chrome, Role::Meta))
+                .text_color(theme::text_faint())
+                .child(SharedString::from(reset)),
+        );
+
+    // The provider's own line about this window, where it gives one — carried through rather
+    // than reworded, so a reader comparing Ubiq with the provider's dashboard finds both saying
+    // the same thing.
+    match &gauge.detail {
+        None => row.into_any_element(),
+        Some(detail) => div()
+            .flex()
+            .flex_col()
+            .child(row)
+            .child(
+                div()
+                    .pl(px(92.))
+                    .text_size(theme::font(Family::Chrome, Role::Meta))
+                    .text_color(theme::text_faint())
+                    .child(SharedString::from(detail.clone())),
+            )
+            .into_any_element(),
+    }
 }
 
 /// The rename, delete or sign-out question over one account, drawn from the same place the
