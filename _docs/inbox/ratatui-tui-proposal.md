@@ -152,28 +152,34 @@ chunk is how a terminal multiplexer becomes slow. The frame loop coalesces: a di
 capped redraw rate, and the reader thread never blocked by the draw — the rule that a slow interface
 must not stall the harness applies here exactly as it does in the window.
 
-## 6. The panes it cannot see
+## 6. The panes it cannot see, and the conversations either
 
-The finding that most shapes the design: **pane output is routed to one client.** The reader thread
-in `crates/ubiq-host/src/pty/mod.rs` forwards each chunk to the owning client's mailbox and stops
-when nobody is listening; ownership is fixed at spawn; and the host keeps no scrollback, because
-`D6` keeps the bytes opaque and nothing stores what it does not parse. A terminal interface that
-dials a host the window is already driving therefore sees the projects, the readings, the files and
-the conversations — and none of the window's panes.
+The finding that most shapes the design: **everything the host streams, it streams to one client.**
+The reader thread in `crates/ubiq-host/src/pty/mod.rs` forwards each chunk to the owning client's
+mailbox and stops when nobody is listening; ownership is fixed at spawn; and the host keeps no
+scrollback, because `D6` keeps the bytes opaque and nothing stores what it does not parse. A
+conversation is the same shape for a different reason: its updates are addressed to the client that
+started it, and the pump carries a sequence number while the content passes straight through. What
+broadcasts is what the host *owns* — the catalogue, the agent roster, the readings.
+
+So a terminal interface that dials a host the window is already driving sees the projects, the
+readings, the files and which agents exist — and neither the window's panes nor the window's
+transcripts.
 
 Three ways out:
 
-1. **Own its own panes.** The terminal interface spawns the panes it draws, and the window keeps
-   drawing the panes it spawned. Nothing changes in the host.
-2. **Broadcast pane output and keep a scrollback ring per pane in the host.** A real host change,
-   a real memory cost, and it turns the opacity rule into a storage question.
-3. **An explicit hand-over message** — one client asks to take, or to share, a pane another owns.
+1. **Own its own.** The terminal interface spawns the panes and conversations it draws, and the
+   window keeps the ones it spawned. Nothing changes in the host.
+2. **Fan the streams out and keep enough history to join one.** A real host change, a real memory
+   cost, and it turns the opacity rule into a storage question.
+3. **An explicit hand-over** — one client asks to take, or to share, what another owns.
 
-**Take the first for the first release, and file the third.** It is the same question
-[`detached-panes`](./detached-panes-proposal.md) scoped out for the window: reattachment is
-client-scoped today, and making it cross-client is one design, not two. The honest consequence is
-that the first release is a terminal interface *to a host*, not a terminal view *of the window* —
-which is what the SSH case actually wants.
+**Take the first for the first release.** The second and third are one design rather than two, and
+they are the subject of [a proposal of their own](./multi-attach-proposal.md), which is also where
+the question [`detached-panes`](./detached-panes-proposal.md) scoped out for the window lands: a
+reattachment that crosses clients. The honest consequence is that the first release is a terminal
+interface *to a host*, not a terminal view *of the window* — which is what the SSH case actually
+wants.
 
 ## 7. How it is built: three shapes
 
@@ -229,9 +235,10 @@ Every front end then starts the same way:
    wrapper in `crates/ubiq/src/app/hosts.rs` already multiplexes a local client and dialled ones.
 
 **It runs in both directions.** A terminal started while a window runs attaches to the window's host:
-the same projects, the same conversations, the same readings, its own panes (§6). A window started
-while a terminal owns the host attaches to that one. Which interface got there first stops being
-something anyone has to know.
+the same projects, the same agent roster, the same readings — and its own panes and its own
+conversations, because both are streamed to one owner (§6). A window started while a terminal owns
+the host attaches to that one. Which interface got there first stops being something anyone has to
+know.
 
 **And the other choice stays available.** `--own` starts a host regardless, and refuses unless
 `--config-root` names a root nothing serves: two coordinators over one root do not corrupt it — every
@@ -316,8 +323,9 @@ If accepted, two decision rows and five backlog rows:
   one.** Owning a coordinator means binding loopback and writing a record; finding a live record
   means attaching to it, whichever interface wrote it. Cost: a listening socket and a token file for
   every running Ubiq, and one more piece of state in the config root that a crash can leave behind.
-- **`G250`** — pane output routes to one client and the host holds no scrollback, so a second
-  interface cannot watch the window's panes; the hand-over message is unspecified.
+- **`G250`** — every streamed resource routes to one client and the host keeps no history of either
+  kind, so a second interface can watch neither the window's panes nor its transcripts; the fan-out
+  and the hand-over are unspecified, and `inbox-multi-attach` is where they are argued.
 - **`G251`** — nothing enforces one host per config root. `--own` against a served root is fenced by
   a check at boot and by nothing at all afterwards, and two coordinators that reach one catalogue
   lose each other's updates rather than failing.
@@ -339,5 +347,7 @@ If accepted, two decision rows and five backlog rows:
 - [`workbench.md`](../features/workbench.md) — the screens this proposal takes three of
 - [`chat.md`](../features/chat.md) — what a conversation surface owes its reader
 - [`stats.md`](../features/stats.md) — the readings phase 0 draws
+- [`multi-attach-proposal.md`](./multi-attach-proposal.md) — what a host owes several interfaces at
+  once, and the lease that decides who may type
 - [`panes-and-terminals.md`](../features/panes-and-terminals.md) — focus, resize and the rules a
   nested pane inherits
