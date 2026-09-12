@@ -2205,6 +2205,63 @@ child view to its own dock tab (`crates/ubiq/src/ui/web_view.rs`) is a second pi
 plumbing with no test of its own; its correctness rests on how GPUI orders prepaint across the root's
 children, not on an assertion.
 
+### D110 — Remaining quota is an account fact, held as a list of gauges, cached in memory and never written down
+
+The counterpart to `D78`, and the opposite conclusion from the same question asked backwards. Spend
+is a **record**: nobody can ask a harness what it spent last Tuesday, so if Ubiq does not write it
+down the answer is gone, which is what makes `usage.db` a database. Quota is **re-derivable** —
+asking again produces the current answer, and a stored one is only ever worse than a fresh one — so
+it is a cache the coordinator holds in memory, and a restart re-probes. A file would buy nothing and
+would have to be invalidated on a schedule nobody can state, since the provider owns when a window
+rolls.
+
+**Keyed by account, not by conversation.** A rate-limit window belongs to an identity. Claude's
+`RateLimitUpdate` arrives per conversation and was held per conversation, which put one fact in as
+many copies as there were agents signed in as that account — and left an account with nothing
+running holding none at all, which is precisely when the user wants to ask before starting a long
+run. The harness is a field on the snapshot rather than part of the key's meaning: one account can
+serve several harnesses and each states its own limits.
+
+**A list of gauges, not a struct of every provider's fields.** Claude has two rolling windows,
+Codex has two differently-sized ones, Copilot counts premium requests against a monthly ceiling, a
+credit endpoint has money left. A union struct (`five_hour_pct`, `premium_requests_used`,
+`credit_balance`…) grows a field per provider and reads absent on most of them at every read;
+`QuotaReading`'s three variants are what the providers actually differ in, and a fourth can be added
+without disturbing any gauge that is drawn.
+
+**Cost.** Three facts have to be told apart by every surface that draws one, and none of them is
+a zero: a snapshot with no gauges (asked, and the provider named no limit), an error (a sentence
+saying why nothing could be read), and a stale reading (real, but old — which is what `as_of` is
+for). Getting that wrong draws a confident zero where the honest answer is an em dash, which is the
+failure `features/stats.md` legislates against. The memory cache also means the first window
+opened after a restart shows nothing until something asks, and for a harness whose only source is a
+live turn, nothing at all until one runs.
+
+### D111 — The remaining-quota readout is a drawn ring and a panel, never a percentage in the chrome
+
+The `5h N%` text readout was in the chat header once and was taken out deliberately; a proposal that
+returns it is re-proposing a rejected thing. What comes back instead is a **drawn ring** in
+the conversation's status strip, beside the context and cache rings it is a sibling of, plus a section
+in Settings → Accounts, which is the surface that works when nothing is running.
+
+The distinction is not cosmetic. A number in the chrome is read on every glance whether or not it is
+wanted, and the objection to the original readout was that cost: a percentage that is 7% for five
+hours is five hours of a reader parsing a figure that has not changed. A ring is a shape — full or
+not-full at a glance, with the figure, the window's name, its reset and the plan in the tooltip for
+the moment the shape prompts the question. It takes its colour from the status tokens rather than
+the accent, because two accent rings in a row read as one fact drawn twice, and because the threshold
+is the part worth seeing without hovering.
+
+**No ring where nothing was stated.** A conversation with no account has no window to draw; a
+provider that named no limit draws nothing rather than an empty ring; a delegate's transcript draws
+none, on the same rule the context ring follows, because the window belongs to the account and not to
+the delegate.
+
+**Cost.** The fact sits on two surfaces and behind a hover on one of them, so a user who never
+hovers learns the threshold from the colour alone — which is why the colour carries it. And the ring
+is one glyph over a snapshot that may hold several gauges, so it reports the fullest window and the
+tooltip is where the others are; a reader who wants all of them goes to Settings.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce

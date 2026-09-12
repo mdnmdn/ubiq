@@ -60,6 +60,7 @@ pub mod mcp;
 pub mod overlay;
 pub mod profile;
 pub mod provision;
+pub mod quota;
 pub mod registry;
 pub mod resolve;
 #[cfg(feature = "pty")]
@@ -73,5 +74,6 @@ pub mod tui;
 
 pub use anyhow::Result;
 pub use credentials::{Validity, credential_validity};
+pub use quota::{QuotaGauge, QuotaReading, QuotaSnapshot, QuotaSource};
 pub use source::{LinkMode, Source};
 pub use spec::RunSpec;

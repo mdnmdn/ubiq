@@ -267,7 +267,51 @@ impl AppState {
             // Same reasoning, for the other half of the identities: a connection made in
             // another window should be here without a restart.
             self.bus.send(Message::ListConnections);
+            // What the accounts section draws beside each login. Asked with whatever the window
+            // already holds; the `Accounts` answer on its way in asks again for the rest.
+            self.ask_quotas();
         }
+        cx.notify();
+    }
+
+    /// Ask what every logged-in harness has left, from the host's cache.
+    ///
+    /// Sent when the accounts page arrives at something to draw rather than on every render: the
+    /// answer is a cache read, but the endpoint behind a miss is unofficial and rate-limited, so
+    /// nothing here asks for a fresh one. [`Self::refresh_quota`] is the control that does.
+    pub fn ask_quotas(&mut self) {
+        let asks: Vec<(String, String)> = self
+            .workbench
+            .settings
+            .accounts
+            .iter()
+            .flat_map(|account| {
+                account
+                    .logged_in
+                    .iter()
+                    .map(|agent_type| (agent_type.clone(), account.id.clone()))
+            })
+            .collect();
+        for (harness, account) in asks {
+            self.bus.send(Message::QueryQuota {
+                account,
+                harness,
+                fresh: false,
+            });
+        }
+    }
+
+    /// Ask the provider itself, rather than the host's cache — what the refresh control sends.
+    pub fn refresh_quota(&mut self, harness: String, account: String, cx: &mut Context<Self>) {
+        self.workbench
+            .settings
+            .quota_errors
+            .remove(&(harness.clone(), account.clone()));
+        self.bus.send(Message::QueryQuota {
+            account,
+            harness,
+            fresh: true,
+        });
         cx.notify();
     }
 
@@ -282,6 +326,11 @@ impl AppState {
             // Asked on arrival for the same reason the shortcut is: a flow that finished in
             // another window has to show up, and the answer is a list the host already holds.
             self.bus.send(Message::ListConnections);
+        }
+        if nav == SettingsSection::Harnesses {
+            // Arriving at the page is what makes the readouts worth having, and the cached
+            // answer costs the host a map lookup.
+            self.ask_quotas();
         }
         if nav == SettingsSection::Assist {
             // Asked on arrival rather than at startup, for the reason the connections are: a

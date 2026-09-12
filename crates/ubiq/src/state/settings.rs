@@ -11,10 +11,12 @@ use ubiq_proto::assist::{
     AiModelList, AiProviderInfo, AiProviderKind, AssistLimits, AssistReason, ModelRole,
 };
 use ubiq_proto::connectors::{AuthKind, CertInfo, ConnectError, OauthApp, ProviderId};
+use ubiq_proto::conversation::RateLimitRecord;
 use ubiq_proto::ids::{
     AiProviderId, ConnectId, ConnectionId, OauthAppId, PaneId, ProjectId, SuggestId, ToolId,
 };
 use ubiq_proto::messages::{AccountInfo, CliDir, LoginStatus, ProfileInfo};
+use ubiq_proto::quota::{QuotaGauge, QuotaReading, QuotaSnapshot};
 use ubiq_proto::settings::HostSettings;
 
 use crate::state::editor::ViewLayout;
@@ -549,6 +551,16 @@ pub struct SettingsState {
     /// `AppState` — one set, shared by both panels, which never stand open together — and this
     /// carries the rest of the form: which list it writes, which row, and the two choices.
     pub tool_editor: Option<ToolEditor>,
+    /// How much of each plan is left, keyed `(harness, account)` — the same key order
+    /// [`Self::statuses`] uses, because both answer a question about one login rather than about
+    /// an account or a harness alone. Absent means nothing has answered yet, which reads
+    /// differently from a snapshot carrying no gauges: that one is a provider that was asked and
+    /// named no limit.
+    pub quotas: HashMap<(String, String), QuotaSnapshot>,
+    /// Why the last read for `(harness, account)` could not be answered, in the host's words.
+    /// Its own map rather than a field on the snapshot, so a failed refresh leaves the last good
+    /// reading on screen beside the sentence saying the refresh failed.
+    pub quota_errors: HashMap<(String, String), String>,
 }
 
 /// Which tools list a tool editor writes: the machine-wide rows, or one project's.
@@ -639,8 +651,68 @@ impl Default for SettingsState {
             reconnects: HashMap::new(),
             error: None,
             tool_editor: None,
+            quotas: HashMap::new(),
+            quota_errors: HashMap::new(),
         }
     }
+}
+
+/// What the interface knows about one login's plan, keyed the way the host answers.
+impl SettingsState {
+    /// The snapshot last heard for `agent_type` on `account`, or `None` where nothing has
+    /// answered. A caller draws nothing on `None` rather than a zero — a ring for a window
+    /// nobody named is a wrong ring.
+    pub fn quota(&self, agent_type: &str, account: &str) -> Option<&QuotaSnapshot> {
+        self.quotas
+            .get(&(agent_type.to_string(), account.to_string()))
+    }
+
+    /// Why the last read failed, where it did. Drawn as its sentence: the host writes it to be
+    /// read, so nothing here rewords it.
+    pub fn quota_error(&self, agent_type: &str, account: &str) -> Option<&str> {
+        self.quota_errors
+            .get(&(agent_type.to_string(), account.to_string()))
+            .map(String::as_str)
+    }
+}
+
+/// The one quota fact that arrives without the host being asked, shaped as a snapshot.
+///
+/// Claude's bridge pushes [`RateLimitRecord`] per conversation while a turn runs, which is the
+/// only reading a window has before the host has cached anything. Mapping it here means the
+/// footer draws one kind of thing — a snapshot — rather than branching on where the reading came
+/// from. Deliberately tiny: the account-level snapshot is the real source, and this is what the
+/// first turn shows until one arrives.
+///
+/// `None` where the record named no percentage at all, so the caller draws nothing.
+pub fn snapshot_from_rate_limit(
+    account: &str,
+    agent_type: &str,
+    record: &RateLimitRecord,
+    as_of: i64,
+) -> Option<QuotaSnapshot> {
+    let gauges: Vec<QuotaGauge> = [
+        ("5 hours", record.five_hour_pct, record.five_hour_resets_at),
+        ("Week", record.seven_day_pct, record.seven_day_resets_at),
+    ]
+    .into_iter()
+    .filter_map(|(label, pct, resets_at)| {
+        pct.map(|used_pct| QuotaGauge {
+            label: label.to_string(),
+            reading: QuotaReading::Window { used_pct },
+            resets_at,
+            detail: None,
+        })
+    })
+    .collect();
+
+    (!gauges.is_empty()).then(|| QuotaSnapshot {
+        account: account.to_string(),
+        harness: agent_type.to_string(),
+        plan: None,
+        gauges,
+        as_of,
+    })
 }
 
 /// Whole days, hours or minutes between two timestamps, worded singular or plural: `3 days`,
@@ -681,6 +753,55 @@ pub fn describe_status(status: &LoginStatus, now_ms: i64) -> String {
         LoginStatus::Unknown => "signed in \u{b7} no expiry recorded".to_string(),
         LoginStatus::Missing => "no credential stored".to_string(),
     }
+}
+
+/// How much of the plan is left, as one sentence, at `now_ms`.
+///
+/// Beside [`describe_status`] for the reason that one is here: the footer's ring and the accounts
+/// section are two surfaces for one fact, and two wordings of it would be two vocabularies. It
+/// names the account because a window belongs to an identity rather than to the conversation
+/// hovering over it, and it says how old the reading is rather than implying it is current.
+///
+/// `as_of` of zero means the reading came in on a turn rather than from a timed read — the push
+/// carries no timestamp of its own, so it says where it came from instead of guessing an age.
+pub fn quota_tip(snapshot: &QuotaSnapshot, now_ms: i64) -> String {
+    let mut tip = format!("{} \u{b7} {}", snapshot.harness, snapshot.account);
+
+    match snapshot.worst() {
+        Some(gauge) => {
+            tip.push_str(&format!(
+                " \u{2014} {}: {} used",
+                gauge.label,
+                gauge.reading.say()
+            ));
+            if let Some(resets_at) = gauge.resets_at {
+                let diff = resets_at * 1000 - now_ms;
+                if diff >= 0 {
+                    tip.push_str(&format!(" \u{b7} resets in {}", magnitude(diff)));
+                } else {
+                    tip.push_str(&format!(" \u{b7} reset {} ago", magnitude(diff)));
+                }
+            }
+            if let Some(detail) = &gauge.detail {
+                tip.push_str(&format!(" \u{b7} {detail}"));
+            }
+        }
+        None => tip.push_str(" \u{2014} no limit stated"),
+    }
+
+    match &snapshot.plan {
+        Some(plan) => tip.push_str(&format!(" \u{b7} plan {plan}")),
+        None => tip.push_str(" \u{b7} plan not stated"),
+    }
+    if snapshot.as_of > 0 {
+        tip.push_str(&format!(
+            " \u{b7} read {} ago",
+            magnitude(now_ms - snapshot.as_of * 1000)
+        ));
+    } else {
+        tip.push_str(" \u{b7} pushed by this turn");
+    }
+    tip
 }
 
 /// How a [`ConnectError`] reads in the connect modal.
@@ -830,6 +951,105 @@ mod tests {
         assert_eq!(
             describe_status(&LoginStatus::Missing, 0),
             "no credential stored"
+        );
+    }
+
+    fn record(five: Option<u8>, seven: Option<u8>) -> RateLimitRecord {
+        RateLimitRecord {
+            five_hour_pct: five,
+            five_hour_resets_at: Some(2 * 3_600),
+            seven_day_pct: seven,
+            seven_day_resets_at: None,
+            status: "allowed".to_string(),
+            overage_status: None,
+            overage_reason: None,
+        }
+    }
+
+    /// The one reading a window holds before the host has cached anything: both windows Claude
+    /// pushes become gauges, labelled the way the provider spells them.
+    #[test]
+    fn a_pushed_rate_limit_becomes_the_windows_it_named() {
+        let snapshot =
+            snapshot_from_rate_limit("work", "claude-code", &record(Some(7), Some(88)), 0)
+                .expect("a record naming two windows is a snapshot");
+        assert_eq!(snapshot.account, "work");
+        assert_eq!(snapshot.harness, "claude-code");
+        assert_eq!(
+            snapshot
+                .gauges
+                .iter()
+                .map(|gauge| gauge.label.as_str())
+                .collect::<Vec<_>>(),
+            vec!["5 hours", "Week"]
+        );
+        assert_eq!(snapshot.gauges[0].resets_at, Some(2 * 3_600));
+        assert_eq!(snapshot.gauges[1].resets_at, None);
+        assert_eq!(snapshot.worst_pct(), Some(88));
+        assert_eq!(snapshot.plan, None, "a push never states the plan");
+    }
+
+    /// Only the windows the record actually named. A percentage nobody stated is not a zero.
+    #[test]
+    fn a_pushed_rate_limit_carries_only_the_windows_it_stated() {
+        let snapshot = snapshot_from_rate_limit("work", "claude-code", &record(None, Some(41)), 0)
+            .expect("one window is still a snapshot");
+        assert_eq!(snapshot.gauges.len(), 1);
+        assert_eq!(snapshot.gauges[0].label, "Week");
+    }
+
+    /// A record with no percentage at all is no snapshot, so the footer draws no ring — the same
+    /// rule the context ring follows.
+    #[test]
+    fn a_rate_limit_naming_no_window_is_no_snapshot() {
+        assert!(snapshot_from_rate_limit("work", "claude-code", &record(None, None), 0).is_none());
+    }
+
+    /// Nothing has answered for a login nobody asked about, and the surface draws nothing rather
+    /// than a zero.
+    #[test]
+    fn a_login_nothing_answered_for_has_no_snapshot() {
+        let settings = SettingsState::default();
+        assert!(settings.quota("claude-code", "work").is_none());
+        assert!(settings.quota_error("claude-code", "work").is_none());
+    }
+
+    #[test]
+    fn a_tip_names_the_account_the_window_the_reset_the_plan_and_the_age() {
+        let snapshot = QuotaSnapshot {
+            account: "work".to_string(),
+            harness: "claude-code".to_string(),
+            plan: Some("max".to_string()),
+            gauges: vec![QuotaGauge {
+                label: "Week".to_string(),
+                reading: QuotaReading::Window { used_pct: 88 },
+                resets_at: Some(3 * 3_600),
+                detail: None,
+            }],
+            as_of: 3_600,
+        };
+        assert_eq!(
+            quota_tip(&snapshot, 2 * HOUR),
+            "claude-code \u{b7} work \u{2014} Week: 88% used \u{b7} resets in 1 hour \u{b7} \
+             plan max \u{b7} read 1 hour ago"
+        );
+    }
+
+    /// A pushed reading has no timestamp of its own, so it says where it came from rather than
+    /// claiming an age; a provider that named no limit says that instead of a percentage.
+    #[test]
+    fn a_tip_states_what_was_not_said() {
+        let snapshot = QuotaSnapshot {
+            account: "work".to_string(),
+            harness: "codex".to_string(),
+            plan: None,
+            gauges: Vec::new(),
+            as_of: 0,
+        };
+        assert_eq!(
+            quota_tip(&snapshot, 0),
+            "codex \u{b7} work \u{2014} no limit stated \u{b7} plan not stated \u{b7} \
+             pushed by this turn"
         );
     }
 }

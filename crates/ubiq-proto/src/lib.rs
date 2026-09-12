@@ -39,6 +39,7 @@ pub mod mcp;
 pub mod messages;
 pub mod notifications;
 pub mod projects;
+pub mod quota;
 pub mod repos;
 pub mod search;
 pub mod settings;

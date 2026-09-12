@@ -233,6 +233,33 @@ no-op here — a fidelity gap, not a user mistake").
       implement the method — the trait default (`bail!` naming the harness)
       is the correct behavior until real data exists.
 
+## 6b. `quota()` — how much of the plan is left
+
+- [ ] Read the provider's own documentation (and, for an undocumented endpoint,
+      what its own client actually sends) before writing anything. There is no
+      shared shape here: the providers disagree on whether a limit is a rolling
+      window, a monthly count or a balance, which is what `QuotaReading`'s three
+      variants exist for.
+- [ ] Declare `io_support().quota` truthfully. `QuotaSource::None` is the
+      **correct and permanent** answer for a provider that publishes only a plan
+      ceiling as prose (Copilot, opencode, Grok) — the caller draws "this
+      provider states no limit" in place rather than hiding the control. Never
+      declare `Probe` or `Bridge` for a method you have not implemented: the
+      declaration is what a surface offers the question from, so a capability
+      that bails is worse than one that was never claimed.
+- [ ] Where only a static plan ceiling is known, it belongs in this harness's
+      `_docs/` page as prose, **not** in a gauge with an invented numerator.
+- [ ] Reach the credential through `AccountStore::login_source`, never by
+      naming a path — that is what makes the method work for a store that keeps
+      credential bytes as well as one that keeps a home dir.
+- [ ] Read the token, spend it, drop it. Nothing token-shaped may reach a
+      `QuotaSnapshot`, a log line, or the caller — assert it in a test where the
+      credential is a recognisable sentinel.
+- [ ] Treat an unofficial endpoint as best-effort: a 429, a 401 or a changed
+      schema degrades to a sentence a user reads, never to a wrong number and
+      never to a panic. A window that states no utilization produces no gauge
+      rather than a zero.
+
 ## 7. Structured I/O bridge (only if in scope for this harness)
 
 - [ ] Confirm the harness's output stream protocol is actually pinned
@@ -315,6 +342,9 @@ are the templates) — at minimum:
 - [ ] Structured-vs-passthrough argv shape, including any resume/model
       flag placement decided in step 4.
 - [ ] `discover_models()`, if implemented.
+- [ ] `quota()`, if implemented: the parse against a real captured answer, a
+      window that states nothing producing no gauge, and the credential never
+      appearing in the snapshot (step 6b).
 - [ ] Bridge `map_event` tests for every documented event type (step 7).
 
 ## 10. Wiring (mechanical, small diffs)

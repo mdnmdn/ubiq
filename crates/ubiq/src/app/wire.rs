@@ -1689,7 +1689,71 @@ impl AppState {
                             info.id == *account && info.logged_in.iter().any(|id| id == agent_type)
                         })
                     });
+                // The quota maps are keyed the same way and go stale the same way, so they are
+                // pruned against the same answer.
+                self.workbench
+                    .settings
+                    .quotas
+                    .retain(|(agent_type, account), _| {
+                        accounts.iter().any(|info| {
+                            info.id == *account && info.logged_in.iter().any(|id| id == agent_type)
+                        })
+                    });
+                self.workbench
+                    .settings
+                    .quota_errors
+                    .retain(|(agent_type, account), _| {
+                        accounts.iter().any(|info| {
+                            info.id == *account && info.logged_in.iter().any(|id| id == agent_type)
+                        })
+                    });
                 self.workbench.settings.accounts = accounts;
+                // The accounts page is what the answer was asked for: it arrives after the page
+                // is already open, so this is where the readouts are filled rather than in the
+                // open handler, which had no list to walk yet. Cached answers only — a fresh
+                // read is what the refresh control is for.
+                if self.workbench.settings.open
+                    && self.workbench.settings.nav == SettingsSection::Harnesses
+                {
+                    self.ask_quotas();
+                }
+                cx.notify();
+            }
+            // How much of one login's plan is left, in answer to one `QueryQuota`. The two
+            // fields are exclusive and each replaces its own entry: a failed refresh writes the
+            // sentence and leaves the last good reading on screen beside it, because a reading
+            // that was true ten minutes ago is still worth more than an empty panel.
+            Message::QuotaRead {
+                account,
+                harness,
+                snapshot,
+                error,
+            } => {
+                let key = (harness, account);
+                match snapshot {
+                    Some(snapshot) => {
+                        self.workbench.settings.quotas.insert(key.clone(), snapshot);
+                        self.workbench.settings.quota_errors.remove(&key);
+                    }
+                    None => {
+                        if let Some(error) = error {
+                            self.workbench.settings.quota_errors.insert(key, error);
+                        }
+                    }
+                }
+                cx.notify();
+            }
+            // The same fact, said without being asked — a running agent pushed a window, or the
+            // host's poll refreshed one. Broadcast to every window, so this is how a surface
+            // showing that account keeps up without polling the host itself.
+            Message::QuotaChanged {
+                account,
+                harness,
+                snapshot,
+            } => {
+                let key = (harness, account);
+                self.workbench.settings.quotas.insert(key.clone(), snapshot);
+                self.workbench.settings.quota_errors.remove(&key);
                 cx.notify();
             }
             // The saved setups, replaced whole for the reason the accounts are: the host's

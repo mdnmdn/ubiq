@@ -28,6 +28,7 @@ use crate::notifications::{
     Level, MuteFor, MuteScope, Notification, NotificationRequest, Notifications,
 };
 use crate::projects::{IndexChange, ProjectSnapshot, Scope};
+use crate::quota::{QuotaSnapshot, QuotaSource};
 use crate::repos::{CloneError, CloneRequest, CloneStage, RemoteRepo, RepoSource};
 use crate::search::{self, Batch, Query, Source};
 use crate::settings::SettingsLayer;
@@ -356,6 +357,47 @@ pub enum Message {
     /// sentence, never a credential and never a path.
     AccountError {
         error: String,
+    },
+
+    // ── Quota family: how much of an account's plan is left ──────────
+    // Keyed by account and harness, never by conversation: a window belongs to an identity, so
+    // two agents signed in as the same account read the same one and an account with nothing
+    // running still has one. What was *spent* is the stats family's question and lives in a
+    // database; what is *left* is re-derivable by asking again, so it is a cache the host holds
+    // in memory and never writes down.
+    /// Ask how much of `account`'s plan is left under `harness`. Answered with
+    /// [`Message::QuotaRead`], to the asking client alone.
+    ///
+    /// `fresh` asks the provider again rather than answering from the host's cache — what a
+    /// manual refresh sends. A cached answer is the default because the endpoint behind it is
+    /// unofficial and rate-limits.
+    QueryQuota {
+        account: String,
+        harness: String,
+        #[serde(default)]
+        fresh: bool,
+    },
+    /// What that account has left, or why it could not be said.
+    ///
+    /// Both fields are `Option` and exactly one is set: a `snapshot` with no gauges is a
+    /// provider that answered and named no limit, which is a different fact from an `error`, and
+    /// both differ again from a stale reading — which is what [`QuotaSnapshot::as_of`] is for.
+    /// The error is a sentence the user reads, never a code and never a credential.
+    QuotaRead {
+        account: String,
+        harness: String,
+        snapshot: Option<QuotaSnapshot>,
+        error: Option<String>,
+    },
+    /// A cached snapshot changed, said without being asked.
+    ///
+    /// Broadcast on the precedent of [`Message::ProjectFilesChanged`]: every window showing that
+    /// account is looking at the same fact, so a reading a running agent pushed reaches all of
+    /// them rather than only the window whose pane it arrived on.
+    QuotaChanged {
+        account: String,
+        harness: String,
+        snapshot: QuotaSnapshot,
     },
 
     // ── Profile family: the saved setups a conversation starts from ──
@@ -1844,6 +1886,15 @@ pub struct AgentTypeInfo {
     /// offering an action the host will refuse. The host refuses it regardless; this is so the
     /// refusal is not the first the user hears of it.
     pub keeps_sessions: bool,
+    /// Whether this harness's provider states how much of the plan is left, and by what route.
+    ///
+    /// Read the same way [`Self::chat`] is: a fact about the harness, answered before anything is
+    /// spawned, so the usage readout is offered, disabled with the reason, or replaced by the
+    /// sentence that says the provider names no limit. `QuotaSource::None` is the honest and
+    /// permanent answer for three of the five harnesses, so it is drawn in place rather than
+    /// hidden — an absent control reads as a missing feature, and this is not one.
+    #[serde(default)]
+    pub quota: QuotaSource,
 }
 
 /// One model a harness will answer for, with the reasoning-effort levels it accepts folded in.

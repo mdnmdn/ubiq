@@ -33,6 +33,7 @@ use gpui_component::v_virtual_list;
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use ubiq_proto::conversation::{ConfigChoice, ConfigValue, ToolContent, ToolKind, ToolStatus};
+use ubiq_proto::quota::QuotaSnapshot;
 use ubiq_proto::work::{Activity, AgentId};
 
 use crate::app::AppState;
@@ -42,6 +43,7 @@ use crate::state::conversation::{
     TranscriptScroll, short_model_label,
 };
 use crate::state::file_picker::{SizeReading, size_label, size_reading};
+use crate::state::settings::{quota_tip, snapshot_from_rate_limit};
 use crate::theme;
 use crate::ui::kit::menu::{MENU_ANCHOR_UP, MENU_LAYER};
 use crate::ui::kit::{
@@ -184,6 +186,9 @@ pub fn render(
                 conversation,
                 &subagents,
                 app.workbench.settings.ui.show_cache_ring,
+                app.workbench
+                    .settings
+                    .quota(&conversation.harness, &conversation.account),
                 &view,
             ));
         }
@@ -2398,6 +2403,7 @@ fn footer(
     conversation: &Conversation,
     subagents: &[SubagentTab],
     cache_ring: bool,
+    quota: Option<&QuotaSnapshot>,
     view: &ConversationView,
 ) -> AnyElement {
     // Which harness, and which identity answered — one chip, because they are one answer: this
@@ -2550,6 +2556,39 @@ fn footer(
                 tip,
                 theme::text_muted(),
             ));
+    }
+
+    // How much of the account's plan is left. An account fact, not a conversation one — two
+    // agents signed in here read the same window — so it is preferred from what the host cached
+    // for the account, and falls back to the reading Claude's bridge pushed into this
+    // conversation, which is all a window holds before the host has been asked. No account means
+    // there is no plan to have a window in, and a provider that named no limit draws nothing
+    // rather than a zero ring. Only on the conversation's own transcript, for the reason the
+    // context ring beside it is: a window belongs to the account, not to a delegate.
+    let pushed = conversation
+        .rate_limit
+        .as_ref()
+        .filter(|_| quota.is_none())
+        .and_then(|record| {
+            snapshot_from_rate_limit(&conversation.account, &conversation.harness, record, 0)
+        });
+    if let Some(snapshot) = quota
+        .or(pushed.as_ref())
+        .filter(|_| !conversation.account.is_empty() && delegate.is_none())
+        && let Some(pct) = snapshot.worst_pct()
+    {
+        let tip = quota_tip(snapshot, chrono::Utc::now().timestamp_millis());
+        row = row.child(
+            div()
+                .id(view.eid("quota-ring"))
+                .flex()
+                .flex_none()
+                .items_center()
+                .child(progress_ring_in(pct, 12., theme::usage_tone(pct)))
+                .tooltip(move |window, cx| {
+                    gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx)
+                }),
+        );
     }
 
     row.into_any_element()

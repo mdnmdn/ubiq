@@ -22,6 +22,7 @@
 //! - `reply`: what a service wants said, before the coordinator addresses it
 //! - `coordinator`: the run loop that starts harnesses, supervises them, and answers the bus
 //! - `pty`: pseudo-terminal streams, the one place a descriptor or a process is held
+//! - `quota`: how much of an account's plan is left — the in-memory cache, and the thread that asks
 //! - `shells`: which shells this machine has, and how one is started
 //! - `agent`: agent-type definitions and the registry over them
 //! - `conversation`: one live agent, its pump thread, and the one mapping onto the bus
@@ -54,6 +55,7 @@ pub mod mcp;
 pub mod notifications;
 pub mod projects;
 pub mod pty;
+pub mod quota;
 pub mod remote;
 pub mod reply;
 pub mod repos;

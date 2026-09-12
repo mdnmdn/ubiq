@@ -169,6 +169,7 @@ src/
 │   ├── codex.rs      #   Codex (P2); also provisions `codex-acp`, its ACP-speaking sibling
 │   └── opencode.rs   #   opencode (P2)
 ├── provision.rs      # RunSpec -> ephemeral config dir + argv + env (per harness)
+├── quota.rs          # what a subscription has LEFT: QuotaSnapshot/Gauge/Reading + the Claude probe (core)
 ├── run.rs            # spawn + supervise the child; owns the process lifecycle
 ├── io/               # I/O bridging (core: model + bridges; pty-gated: passthrough)
 │   ├── mod.rs        #   neutral model (core)
@@ -208,8 +209,13 @@ pub trait Harness {
     /// Populate `dir` from the spec and return how to launch.
     fn provision(&self, spec: &RunSpec, dir: &Path) -> Result<Launch>;
 
-    /// Which I/O modes this harness can support (passthrough always; ACP/JSONL vary).
+    /// Which I/O modes this harness can support (passthrough always; ACP/JSONL vary),
+    /// and whether its provider states how much of the plan is left.
     fn io_support(&self) -> IoSupport;
+
+    /// How much of `account`'s plan is left. Default: an error naming this harness —
+    /// which for Copilot, opencode and Grok is the permanent and correct answer.
+    fn quota(&self, account: &Account, login: Option<&Source>) -> Result<QuotaSnapshot>;
 }
 
 pub struct Launch {
@@ -236,7 +242,10 @@ invocation", "MCP at launch", and "Skills at launch" sections of
   must compile with `default-features = false`.
 - **No secret material on disk by `am`.** Accounts inject *references*, not
   secrets (see [overview](./overview.md) and the account section of the
-  roadmap).
+  roadmap). A quota probe is the one thing that *spends* a token rather than
+  passing it to a child: it reads the credential, spends it on one request and
+  returns percentages. Nothing token-shaped reaches a `QuotaSnapshot`, a log or
+  the caller.
 - **Failure is per-run and clean.** A failed provision leaves no partial state
   in the user's real dirs; the ephemeral dir is removed (or preserved only on
   explicit request / recorded session).
