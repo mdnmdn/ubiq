@@ -1725,6 +1725,7 @@ impl Coordinator {
                 count,
                 rel_path,
                 first_parent,
+                rev,
             } => {
                 self.git_job(
                     client,
@@ -1734,6 +1735,7 @@ impl Coordinator {
                         count,
                         rel_path,
                         first_parent,
+                        rev,
                     },
                 );
             }

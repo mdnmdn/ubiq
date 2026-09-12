@@ -49,9 +49,17 @@ pub enum RailMode {
 }
 
 impl RailMode {
-    /// Whether this mode is the IDE. The one mode the left rail's side panels belong to.
+    /// Whether this mode is the IDE. The explorer, the open files and the chat belong to it.
     pub fn is_ide(self) -> bool {
         self == RailMode::Ide
+    }
+
+    /// Whether this mode uses the left and right edge regions as side panels of its own.
+    ///
+    /// The IDE's explorer and chat, and Git's refs and changes, live in those regions; every other
+    /// mode leaves them shut and offers no switch for them.
+    pub fn has_side_panels(self) -> bool {
+        matches!(self, RailMode::Ide | RailMode::Git)
     }
 
     pub fn label(self) -> &'static str {
@@ -203,6 +211,11 @@ pub enum MenuId {
     /// itself out in. No position of its own — one menu in the window is open at a time, and this
     /// one hangs off its own trigger.
     GraphLayout,
+    /// The git repository selector: which repository's git view to show when a project has multiple
+    /// repositories (submodules or nested repositories).
+    GitRepo,
+    /// The history's branch picker: which ref the commit list is walking.
+    GitBranch,
 }
 
 /// One row of the new-pane control's menu, in the order it is drawn.
@@ -650,6 +663,12 @@ impl WorkbenchState {
     /// mode actually selects between.
     pub fn is_ide(&self) -> bool {
         self.rail_mode.is_ide()
+    }
+
+    /// Whether the titlebar offers the left and right region switches. Git's refs and changes
+    /// live in those regions the way the IDE's explorer and chat do.
+    pub fn has_side_panels(&self) -> bool {
+        self.rail_mode.has_side_panels()
     }
 }
 

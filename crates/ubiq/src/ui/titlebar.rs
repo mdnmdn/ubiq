@@ -94,9 +94,10 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                 .flex_none()
                 .items_center()
                 .gap(px(1.))
-                // The side regions are IDE furniture: in any other rail mode they are disabled, so
-                // their switches are not offered. The bottom region stays openable in every mode.
-                .when(app.workbench.is_ide(), |this| {
+                // The side regions belong to the IDE and to Git: the explorer and the chat, the
+                // refs and the changes. In any other rail mode they are disabled, so their
+                // switches are not offered. The bottom region stays openable in every mode.
+                .when(app.workbench.has_side_panels(), |this| {
                     this.child(
                         icon_button(
                             "toggle-left",
@@ -120,7 +121,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                     )
                     .h_full(),
                 )
-                .when(app.workbench.is_ide(), |this| {
+                .when(app.workbench.has_side_panels(), |this| {
                     this.child(
                         icon_button(
                             "toggle-right",

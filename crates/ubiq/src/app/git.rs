@@ -41,13 +41,7 @@ impl AppState {
             git.log_cursor = None;
             git.log_inflight = Some(None);
         }
-        self.bus.send(Message::ProjectGitLog {
-            project_id,
-            cursor: None,
-            count: 100,
-            rel_path: None,
-            first_parent: false,
-        });
+        self.send_git_log(None, cx);
         cx.notify();
     }
 
@@ -55,9 +49,6 @@ impl AppState {
     /// sends. A no-op with a page already in flight or nothing left to page in, on the same
     /// `log_inflight`/`log_done` bookkeeping `refresh_git` and `receive_git` already keep.
     pub fn load_more_git_log(&mut self, cx: &mut Context<Self>) {
-        let Some(project_id) = self.project(cx) else {
-            return;
-        };
         let Some(git) = self.git_view(cx) else {
             return;
         };
@@ -65,17 +56,30 @@ impl AppState {
             return;
         }
         let cursor = git.log_cursor.clone();
+        self.send_git_log(cursor, cx);
+        cx.notify();
+    }
+
+    /// Ask for a page of history, walking `GitView::branch_filter` when one is set.
+    fn send_git_log(&mut self, cursor: Option<String>, cx: &mut Context<Self>) {
+        let Some(project_id) = self.project(cx) else {
+            return;
+        };
+        let rev = self.git_view(cx).and_then(|git| git.branch_filter.clone());
+        if let Some(git) = self.git_view_mut(cx) {
+            if cursor.is_none() {
+                git.log_cursor = None;
+            }
+            git.log_inflight = Some(cursor.clone());
+        }
         self.bus.send(Message::ProjectGitLog {
             project_id,
-            cursor: cursor.clone(),
+            cursor,
             count: 100,
             rel_path: None,
             first_parent: false,
+            rev,
         });
-        if let Some(git) = self.git_view_mut(cx) {
-            git.log_inflight = Some(cursor);
-        }
-        cx.notify();
     }
 
     pub fn toggle_git_section(&mut self, section: RefSection, cx: &mut Context<Self>) {
@@ -89,6 +93,50 @@ impl AppState {
         if let Some(git) = self.git_view_mut(cx) {
             git.selected_ref = Some(index);
         }
+        self.pending_panels
+            .push(PanelEdit::Reveal(PanelKind::GitHistory));
+        cx.notify();
+    }
+
+    /// Bring the history to the named ref's commit, scrolling it into view. If that commit is not
+    /// in the loaded walk, the history is asked again from that ref so the tip is on screen.
+    pub fn jump_to_git_ref(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.select_git_ref(index, cx);
+        if let Some(slot) = self.git_view(cx).and_then(|git| {
+            let commit = git.commit_index_for_ref(index)?;
+            git.visible_commits()
+                .iter()
+                .position(|(held, _)| *held == commit)
+        }) {
+            if let Some(git) = self.git_view_mut(cx) {
+                git.selected_commit = git.commit_index_for_ref(index);
+            }
+            self.git_scroll
+                .scroll_to_item(slot, gpui::ScrollStrategy::Top);
+            cx.notify();
+            return;
+        }
+        let name = self
+            .git_view(cx)
+            .and_then(|git| git.refs.get(index).map(|row| row.name.clone()));
+        if let Some(name) = name {
+            self.set_git_branch_filter(Some(name), cx);
+        }
+    }
+
+    pub fn toggle_git_folder(&mut self, section: RefSection, path: String, cx: &mut Context<Self>) {
+        if let Some(git) = self.git_view_mut(cx) {
+            git.toggle_folder(section, &path);
+        }
+        cx.notify();
+    }
+
+    pub fn set_git_branch_filter(&mut self, name: Option<String>, cx: &mut Context<Self>) {
+        if let Some(git) = self.git_view_mut(cx) {
+            git.branch_filter = name;
+        }
+        self.send_git_log(None, cx);
+        self.close_menu(cx);
         cx.notify();
     }
 
@@ -109,8 +157,14 @@ impl AppState {
     }
 
     pub fn clear_git_filters(&mut self, cx: &mut Context<Self>) {
+        let had_branch = self
+            .git_view(cx)
+            .is_some_and(|git| git.branch_filter.is_some());
         if let Some(git) = self.git_view_mut(cx) {
             git.clear_filters();
+        }
+        if had_branch {
+            self.send_git_log(None, cx);
         }
         cx.notify();
     }
@@ -224,6 +278,8 @@ impl AppState {
                 rel_path: path.to_string(),
                 base,
             });
+            self.pending_panels
+                .push(PanelEdit::Reveal(PanelKind::GitDiff));
         }
         cx.notify();
     }

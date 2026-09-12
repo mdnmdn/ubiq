@@ -49,6 +49,7 @@ pub enum Request {
         count: u32,
         rel_path: Option<String>,
         first_parent: bool,
+        rev: Option<String>,
     },
 }
 
@@ -103,6 +104,7 @@ struct Cached {
 struct LaneCache {
     rel_path: Option<String>,
     first_parent: bool,
+    rev: Option<String>,
     expect_cursor: Option<String>,
     lanes: graph::Lanes,
 }
@@ -122,6 +124,7 @@ fn lanes_for(
     cursor: &Option<String>,
     rel_path: &Option<String>,
     first_parent: bool,
+    rev: &Option<String>,
 ) -> graph::Lanes {
     // A fresh walk always starts over, cache hit or not.
     if cursor.is_none() {
@@ -131,7 +134,8 @@ fn lanes_for(
         Some(cached)
             if &cached.expect_cursor == cursor
                 && &cached.rel_path == rel_path
-                && cached.first_parent == first_parent =>
+                && cached.first_parent == first_parent
+                && &cached.rev == rev =>
         {
             state.lane_cache.remove(&project_id).unwrap().lanes
         }
@@ -263,6 +267,7 @@ fn answer(state: &mut State, job: Job) {
             count,
             rel_path,
             first_parent,
+            rev,
         } => {
             let message = match ensure_repo(state, job.project_id, &job.root) {
                 Ok(false) => Message::GitLogPage {
@@ -272,8 +277,14 @@ fn answer(state: &mut State, job: Job) {
                     next_cursor: None,
                 },
                 Ok(true) => {
-                    let mut lanes =
-                        lanes_for(state, job.project_id, &cursor, &rel_path, first_parent);
+                    let mut lanes = lanes_for(
+                        state,
+                        job.project_id,
+                        &cursor,
+                        &rel_path,
+                        first_parent,
+                        &rev,
+                    );
                     let cached = state
                         .repos
                         .get(&job.project_id)
@@ -285,10 +296,18 @@ fn answer(state: &mut State, job: Job) {
                             return;
                         }
                     };
+                    let from = match (
+                        cursor.as_deref(),
+                        rev.as_deref().filter(|name| !name.is_empty()),
+                    ) {
+                        (Some(id), _) => history::LogFrom::Cursor(id),
+                        (None, Some(rev)) => history::LogFrom::Rev(rev),
+                        (None, None) => history::LogFrom::Head,
+                    };
                     match history::log(
                         &cached.repo,
                         &scoped_to,
-                        cursor.as_deref(),
+                        from,
                         count,
                         rel_path.as_deref(),
                         first_parent,
@@ -300,6 +319,7 @@ fn answer(state: &mut State, job: Job) {
                                 LaneCache {
                                     rel_path: rel_path.clone(),
                                     first_parent,
+                                    rev: rev.clone(),
                                     expect_cursor: next_cursor.clone(),
                                     lanes,
                                 },

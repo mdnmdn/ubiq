@@ -73,10 +73,9 @@ impl AppState {
     /// makes a toggle non-destructive.
     ///
     /// **Opening the bottom or right region with nothing in it fills it.** The bottom exists to
-    /// hold panes and opens onto a fresh one; the right exists to hold the chat and opens onto it.
-    /// A region that opens onto a bar of nothing is not what the switch was asked for — except the
-    /// left, whose only furniture is the explorer already on screen in every IDE window, so an
-    /// empty left is the user having dragged it away on purpose and the switch leaves it be.
+    /// hold panes and opens onto a fresh one. The right in IDE opens onto a chat tab; in Git it
+    /// opens onto the changes panel. The left in Git opens onto the refs explorer. An empty left
+    /// in IDE is the user having dragged the explorer away on purpose and the switch leaves it be.
     pub fn toggle_region(&mut self, region: Region, window: &mut Window, cx: &mut Context<Self>) {
         self.dock.update(cx, |dock, cx| {
             dock.toggle_dock(dock::placement_of(region), window, cx);
@@ -89,6 +88,10 @@ impl AppState {
         if now_empty {
             match region {
                 Region::Bottom => self.spawn_pane(None, Vec::new(), AgentPicks::default(), cx),
+                Region::Right if self.workbench.rail_mode == RailMode::Git => {
+                    self.pending_panels
+                        .push(PanelEdit::Open(PanelKind::GitChanges));
+                }
                 Region::Right => {
                     // The one place the window has to decide *which* chat tab an empty region
                     // opens onto: a fresh one, attached to nothing.
@@ -96,6 +99,10 @@ impl AppState {
                         self.pending_panels
                             .push(PanelEdit::Open(PanelKind::Chat(id)));
                     }
+                }
+                Region::Left if self.workbench.rail_mode == RailMode::Git => {
+                    self.pending_panels
+                        .push(PanelEdit::Open(PanelKind::GitRefs));
                 }
                 Region::Left | Region::Centre => {}
             }
@@ -171,6 +178,24 @@ impl AppState {
     pub(super) fn collapse_empty_regions(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.region_had_content = (true, true, true);
         self.hide_emptied_regions(window, cx);
+    }
+
+    /// Queue the Git screen's own panels into their home regions.
+    ///
+    /// A mode never arranged keeps the tree the last mode had, so the refs and the changes have
+    /// to be asked for or the opened left and right regions would show nothing of this screen.
+    /// `settle_panels` skips a kind the tree already holds.
+    pub(super) fn queue_git_furniture(&mut self) {
+        for kind in [
+            PanelKind::GitRefs,
+            PanelKind::GitChanges,
+            PanelKind::GitHistory,
+        ] {
+            self.pending_panels.push(PanelEdit::Open(kind));
+        }
+        // The commit list is the centre of the Git screen.
+        self.pending_panels
+            .push(PanelEdit::Reveal(PanelKind::GitHistory));
     }
 
     /// The panel for one kind, built the first time it is asked for.
@@ -378,7 +403,7 @@ impl AppState {
                 )
             };
             if !dock::restore(&dock, &saved, &mut build, &mut layouts, window, cx) {
-                dock::default_layout(&dock, &mut build, window, cx);
+                dock::default_layout(&dock, &mut build, window, cx, self.workbench.rail_mode);
             }
         }
         // A panel the window holds that the restored arrangement does not name is put back in its
@@ -391,8 +416,10 @@ impl AppState {
         // later: the blob predates it. A panel the user closed is not on screen and does not come
         // back — closing is what took it out of the tree.
         for (kind, panel) in panels {
-            let restorable =
-                kind.pane().is_some() || kind.tab_key().is_some() || on_screen.contains(&kind);
+            // Git's panels belong to Git's own blob. Revealing one here would open this mode's
+            // edges for a panel it hides.
+            let restorable = !kind.is_git()
+                && (kind.pane().is_some() || kind.tab_key().is_some() || on_screen.contains(&kind));
             if restorable && !kept.contains_key(&kind) {
                 let home = kind.home();
                 // On screen before, on screen after: a reveal also brings its region back, which
@@ -437,6 +464,11 @@ impl AppState {
     pub(super) fn settle_visibility(&mut self, cx: &mut Context<Self>) {
         let is_ide = self.workbench.is_ide();
         let has_project = self.project(cx).is_some();
+        let rail_mode = if is_ide {
+            None
+        } else {
+            Some(self.workbench.rail_mode)
+        };
         let on_screen: Vec<PaneId> = self
             .open_project(cx)
             .map(|open| open.panes.iter().map(|pane| pane.id).collect())
@@ -460,6 +492,7 @@ impl AppState {
             let at = Visibility {
                 is_ide,
                 has_project,
+                rail_mode,
                 pane_on_screen: kind.pane().is_some_and(|id| on_screen.contains(&id)),
                 file_open: key.is_some_and(|key| files.contains_key(key)),
                 any_file_open: !files.is_empty(),

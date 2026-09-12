@@ -995,13 +995,19 @@ pub enum Message {
     /// Answered with [`Message::GitLogPage`], or [`Message::GitError`].
     ProjectGitLog {
         project_id: ProjectId,
-        /// Where the walk starts. Absent is HEAD.
+        /// Where this page of the walk starts. Absent is the first page, which starts at HEAD
+        /// unless [`Self::ProjectGitLog::rev`] names a ref.
         cursor: Option<String>,
         /// How many commits, clamped to [`git::MAX_LOG_PAGE`].
         count: u32,
         /// The history of one path, project-relative. Absent is the whole repository.
         rel_path: Option<String>,
         first_parent: bool,
+        /// Walk this ref instead of HEAD. A branch name, a remote-tracking name, a tag, or any
+        /// other rev `revparse` accepts. Ignored once `cursor` is set — that page continues the
+        /// walk already started. Absent with no cursor is HEAD.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        rev: Option<String>,
     },
     /// Branches, remote-tracking branches, tags and stashes. `with_tracking` adds ahead and behind
     /// per branch, which is one merge-base walk each — the branch picker asks without it.

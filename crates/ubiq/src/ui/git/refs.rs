@@ -10,16 +10,18 @@
 //! overview's submodules, into what this module draws.
 
 use gpui::{
-    AnyElement, Context, InteractiveElement, IntoElement, ParentElement,
+    AnyElement, ClickEvent, Context, InteractiveElement, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled, div, px,
 };
 
 use crate::app::AppState;
-use crate::state::git::{RefRow, RefSection};
+use crate::state::git::{RefRow, RefSection, RefTreeKind};
 use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::eid;
-use crate::ui::kit::{disclosure, elided, file_row, mono, panel, row_font, status_dot};
+use crate::ui::kit::{
+    disclosure, elided, elided_with, file_row, mono, panel, row_font, status_dot, twisty,
+};
 
 pub fn render(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     let Some(git) = app.git_view(cx) else {
@@ -52,27 +54,134 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         if !open {
             continue;
         }
-        for &(index, row) in rows {
-            body = body.child(ref_row(index, row, git.selected_ref == Some(index), cx));
+        if matches!(section, RefSection::Local | RefSection::Remotes) {
+            for item in git.ref_tree(section) {
+                body = body.child(tree_row(section, &item, &git.refs, git.selected_ref, cx));
+            }
+        } else {
+            for &(index, row) in rows {
+                body = body.child(ref_row(
+                    index,
+                    row,
+                    0,
+                    &row.name,
+                    None,
+                    git.selected_ref == Some(index),
+                    cx,
+                ));
+            }
         }
     }
 
     panel().child(body).into_any_element()
 }
 
+fn tree_row(
+    section: RefSection,
+    item: &crate::state::git::RefTreeRow,
+    refs: &[RefRow],
+    selected_ref: Option<usize>,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    match &item.kind {
+        RefTreeKind::Folder { path, open, leaves } => {
+            let path = path.clone();
+            file_row(
+                eid("git-folder", path.clone()),
+                item.depth,
+                false,
+                false,
+                false,
+                row_font(),
+            )
+            .child(twisty(
+                eid("git-folder-twisty", path.clone()),
+                *open,
+                cx.listener({
+                    let path = path.clone();
+                    move |this, _, _, cx| {
+                        cx.stop_propagation();
+                        this.toggle_git_folder(section, path.clone(), cx);
+                    }
+                }),
+            ))
+            .child(elided(
+                eid("git-folder-name", path.clone()),
+                item.label.clone(),
+                theme::text_muted(),
+                theme::font(theme::Family::Chrome, theme::Role::Body),
+            ))
+            .child(
+                mono(format!("{leaves}"), theme::text_faint())
+                    .text_size(theme::font(Family::Chrome, Role::Meta)),
+            )
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.toggle_git_folder(section, path.clone(), cx);
+            }))
+            .into_any_element()
+        }
+        RefTreeKind::Leaf {
+            index,
+            has_children,
+            open,
+        } => {
+            let Some(row) = refs.get(*index) else {
+                return div().into_any_element();
+            };
+            ref_row(
+                *index,
+                row,
+                item.depth,
+                &item.label,
+                (*has_children).then_some(*open),
+                selected_ref == Some(*index),
+                cx,
+            )
+        }
+    }
+}
+
 /// One ref. The dot says whether this is what HEAD points at; the counts at the end are the
 /// commits either side of its upstream, and are absent rather than zero when it has none.
-fn ref_row(index: usize, row: &RefRow, selected: bool, cx: &mut Context<AppState>) -> AnyElement {
+fn ref_row(
+    index: usize,
+    row: &RefRow,
+    depth: usize,
+    label: &str,
+    twisty_open: Option<bool>,
+    selected: bool,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
     let colour = if row.current {
         theme::accent()
     } else {
         theme::text_faint()
     };
+    let path = row.name.clone();
+    let section = row.section;
 
-    file_row(eid("git-ref", index), 0, selected, false, false, row_font())
-        .child(status_dot(colour, theme::pane_bg()))
-        .child(elided(
+    let mut line = file_row(
+        eid("git-ref", index),
+        depth,
+        selected,
+        false,
+        false,
+        row_font(),
+    );
+    if let Some(open) = twisty_open {
+        line = line.child(twisty(
+            eid("git-ref-twisty", index),
+            open,
+            cx.listener(move |this, _, _, cx| {
+                cx.stop_propagation();
+                this.toggle_git_folder(section, path.clone(), cx);
+            }),
+        ));
+    }
+    line.child(status_dot(colour, theme::pane_bg()))
+        .child(elided_with(
             eid("git-ref-name", index),
+            label.to_string(),
             row.name.clone(),
             if row.current {
                 theme::text()
@@ -89,7 +198,13 @@ fn ref_row(index: usize, row: &RefRow, selected: bool, cx: &mut Context<AppState
             mono(format!("\u{2193}{behind}"), theme::warning())
                 .text_size(theme::font(Family::Chrome, Role::Meta))
         }))
-        .on_click(cx.listener(move |this, _, _, cx| this.select_git_ref(index, cx)))
+        .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
+            if event.click_count() >= 2 {
+                this.jump_to_git_ref(index, cx);
+            } else {
+                this.select_git_ref(index, cx);
+            }
+        }))
         .into_any_element()
 }
 

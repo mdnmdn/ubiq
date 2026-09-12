@@ -5,6 +5,7 @@
 //! in, where one dropped somewhere else goes back to, and the names a saved layout is rebuilt
 //! from — which may never change, because they are the keys.
 
+use ubiq::state::RailMode;
 use ubiq::state::dock::{ChatId, PanelKind, Region, Visibility};
 use ubiq::state::editor::ViewLayout;
 use ubiq::ui::dock::{
@@ -23,6 +24,10 @@ fn every_kind() -> Vec<PanelKind> {
         PanelKind::Chat(ChatId::generate()),
         PanelKind::Centre,
         PanelKind::File("crates/ubiq/src/app.rs".to_string()),
+        PanelKind::GitRefs,
+        PanelKind::GitChanges,
+        PanelKind::GitHistory,
+        PanelKind::GitDiff,
     ]
 }
 
@@ -59,6 +64,10 @@ fn a_free_panel_takes_any_region() {
         PanelKind::Logs,
         PanelKind::Search,
         PanelKind::Chat(ChatId::generate()),
+        PanelKind::GitRefs,
+        PanelKind::GitChanges,
+        PanelKind::GitHistory,
+        PanelKind::GitDiff,
     ] {
         for region in REGIONS {
             assert!(kind.class().allows(region), "{kind:?} in {region:?}");
@@ -136,6 +145,14 @@ fn the_names_a_saved_layout_is_keyed_by_are_fixed() {
     assert_eq!(PanelKind::Chat(ChatId::generate()).name(), "ubiq.chat");
     assert_eq!(PanelKind::Centre.name(), "ubiq.centre");
     assert_eq!(PanelKind::File("justfile".to_string()).name(), "ubiq.file");
+    assert_eq!(PanelKind::GitRefs.name(), "ubiq.git.refs");
+    assert_eq!(PanelKind::GitChanges.name(), "ubiq.git.changes");
+    assert_eq!(PanelKind::GitHistory.name(), "ubiq.git.history");
+    assert_eq!(PanelKind::GitDiff.name(), "ubiq.git.diff");
+    assert_eq!(PanelKind::GitRefs.home(), Region::Left);
+    assert_eq!(PanelKind::GitChanges.home(), Region::Right);
+    assert_eq!(PanelKind::GitHistory.home(), Region::Centre);
+    assert_eq!(PanelKind::GitDiff.home(), Region::Centre);
 }
 
 /// **Every file panel answers the same name**, whichever tab it is. A name is a `&'static str` and
@@ -169,14 +186,20 @@ fn every_name_but_a_terminal_a_file_and_a_chat_rebuilds() {
     );
 }
 
-/// Closing a tab means killing a harness, closing a file, closing a chat tab, or putting the
-/// console away. The explorer and the centre are the window's own furniture: they are hidden and
-/// brought back, never closed.
+/// Closing a tab means killing a harness, closing a file, closing a chat tab, putting the
+/// console away, or dismissing a git panel. The explorer and the centre are the window's own
+/// furniture: they are hidden and brought back, never closed.
 #[test]
 fn a_pane_a_file_a_chat_tab_and_the_console_close_and_nothing_else_does() {
     for kind in every_kind() {
-        let closes = matches!(kind, PanelKind::Logs)
-            || kind.pane().is_some()
+        let closes = matches!(
+            kind,
+            PanelKind::Logs
+                | PanelKind::GitRefs
+                | PanelKind::GitChanges
+                | PanelKind::GitHistory
+                | PanelKind::GitDiff
+        ) || kind.pane().is_some()
             || kind.tab_key().is_some()
             || kind.chat_id().is_some();
         assert_eq!(kind.closable(), closes, "{kind:?}");
@@ -287,6 +310,33 @@ fn what_is_drawn_follows_the_mode_and_the_project() {
             }));
         }
     }
+
+    let git = Visibility {
+        has_project: true,
+        rail_mode: Some(RailMode::Git),
+        ..nothing()
+    };
+    for kind in [
+        PanelKind::GitRefs,
+        PanelKind::GitChanges,
+        PanelKind::GitHistory,
+        PanelKind::GitDiff,
+    ] {
+        assert!(kind.is_drawn(git), "{kind:?} in Git");
+        assert!(
+            !kind.is_drawn(Visibility {
+                is_ide: true,
+                has_project: true,
+                ..nothing()
+            }),
+            "{kind:?} in IDE"
+        );
+    }
+    assert!(!PanelKind::Centre.is_drawn(git));
+    assert!(PanelKind::Centre.is_drawn(Visibility {
+        rail_mode: Some(RailMode::Git),
+        ..nothing()
+    }));
 }
 
 /// **In IDE mode the open files are the centre.** A file panel is drawn while its tab is open, and

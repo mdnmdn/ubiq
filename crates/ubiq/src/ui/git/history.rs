@@ -20,11 +20,15 @@ use gpui::{
 use gpui_component::input::Input;
 
 use crate::app::AppState;
-use crate::state::git::{COMMIT_ROW, CommitRow, LANE_GUTTER, LANE_PITCH};
+use crate::state::MenuId;
+use crate::state::git::{COMMIT_ROW, CommitRow, LANE_GUTTER, LANE_PITCH, RefSection};
 use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::eid;
-use crate::ui::kit::{elided, filter_bar, ghost_button, mono, panel, pill, toggle_pill};
+use crate::ui::kit::{
+    Picker, PickerStyle, elided, filter_bar, ghost_button, mono, panel, pill, toggle_pill,
+};
+use crate::ui::{handler, indexed};
 
 pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
     let Some(git) = app.git_view(cx) else {
@@ -66,6 +70,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
                     })
                     .collect::<Vec<AnyElement>>()
             })
+            .track_scroll(&app.git_scroll)
             .flex_1()
             .min_h(px(0.)),
         );
@@ -88,6 +93,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
                     div(),
                     focused,
                 )))
+                .child(branch_picker(app, window, cx))
                 .child(
                     div()
                         .pr_3()
@@ -121,6 +127,61 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
                 ),
         )
         .child(list)
+        .into_any_element()
+}
+
+/// Which ref the history is walking. `All branches` is HEAD; any other row re-asks the host for
+/// that ref's log. The list is filtered as it is typed, the same split every searchable picker
+/// follows.
+fn branch_picker(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
+    let Some(git) = app.git_view(cx) else {
+        return div().into_any_element();
+    };
+    let names: Vec<String> = git
+        .refs
+        .iter()
+        .filter(|row| matches!(row.section, RefSection::Local | RefSection::Remotes))
+        .map(|row| row.name.clone())
+        .collect();
+    let current = git.branch_filter.clone();
+    let needle = app.git_branch_query.read(cx).value().trim().to_lowercase();
+    let focused = app
+        .git_branch_query
+        .read(cx)
+        .focus_handle(cx)
+        .is_focused(window);
+
+    let mut items = vec!["All branches".to_string()];
+    let mut ids: Vec<Option<String>> = vec![None];
+    for name in names {
+        if needle.is_empty() || name.to_lowercase().contains(&needle) {
+            items.push(name.clone());
+            ids.push(Some(name));
+        }
+    }
+    let selected = match &current {
+        None => 0,
+        Some(name) => items.iter().position(|item| item == name).unwrap_or(0),
+    };
+    let label = current
+        .clone()
+        .unwrap_or_else(|| "All branches".to_string());
+    let view = cx.entity();
+
+    Picker::new("git-branch-pick", label)
+        .items(items)
+        .selected(selected)
+        .style(PickerStyle::Chip)
+        .search(&app.git_branch_query, focused)
+        .open(app.workbench.open_menu == Some(MenuId::GitBranch))
+        .on_toggle(handler(&view, |this, _, cx| {
+            this.open_menu(MenuId::GitBranch, cx)
+        }))
+        .on_dismiss(handler(&view, |this, _, cx| this.close_menu(cx)))
+        .on_pick(indexed(&view, move |this, index, _, cx| {
+            let name = ids.get(index).cloned().flatten();
+            this.set_git_branch_filter(name, cx);
+        }))
         .into_any_element()
 }
 

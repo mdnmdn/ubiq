@@ -1,17 +1,18 @@
 //! The Git screen: what the repository is, what it has done, and what has not been committed yet.
 //!
-//! Four areas, one file each. The refs down the left are [`refs`] — branches, remotes, tags,
-//! stashes and submodules, each section shutting on its own. The history in the middle is
+//! Four movable panels, one file each, under a chrome strip that names the repository and offers
+//! the actions a write version will have. The refs on the left are [`refs`] — branches, remotes,
+//! tags, stashes and submodules, each section shutting on its own. The history in the centre is
 //! [`history`], searched and filtered, with the graph's lanes drawn beside it. The uncommitted
 //! changes on the right are [`changes`] — the staged and unstaged lists, and the commit box under
-//! them. The comparison under both is [`diff`], which is what the whole screen is read for.
+//! them. The comparison under the history is [`diff`]. [`repo_selector`] is the strip's control
+//! that picks which repository a project with more than one is showing.
 //!
 //! **The screen is honest about what is answered and what is drawn.** The branch, the tracking
 //! counts, the in-progress operation, the working-tree totals, the changed paths and the diff are
-//! the host's; the branch list, the tags, the stashes, the submodules and the history are fixtures
-//! until the git family carries a refs list and a log — `G70`. What the toolbar's write actions
-//! and the commit box would do is nobody's yet: **Ubiq observes a repository and never writes into
-//! it**, so they draw the shape the screen will have and take no clicks, and the toolbar says so.
+//! the host's. What the write actions and the commit box would do is nobody's yet: **Ubiq observes
+//! a repository and never writes into it**, so they draw the shape the screen will have and take
+//! no clicks.
 //!
 //! This is the screen about *what version control knows*. The badges on the explorer's rows are
 //! the same facts at a glance, and the two never disagree, because both are projections of the one
@@ -21,85 +22,21 @@ pub mod changes;
 pub mod diff;
 pub mod history;
 pub mod refs;
+pub mod repo_selector;
 
-use gpui::{
-    AnyElement, Context, IntoElement, ParentElement, SharedString, Styled, Window, div, px,
-};
+use gpui::{AnyElement, Context, IntoElement, ParentElement, Styled, Window, div, px};
 use gpui_component::IconName;
 use ubiq_proto::git::{GitCounts, GitHead, RepoOverview};
 
 use crate::app::AppState;
-use crate::state::git::{CHANGES_WIDTH, SIDEBAR_WIDTH};
 use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::kit::{icon_button, mono, pill, section_label};
 use crate::ui::status_bar::{capped, operation_label};
 
-pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> impl IntoElement {
-    // The screen is a view of one project's repository, and the shell keeps a window with no
-    // project off it entirely — so there is nothing here to draw rather than an empty history.
-    if app.git_view(cx).is_none() {
-        return div().into_any_element();
-    }
-
-    div()
-        .flex()
-        .flex_col()
-        .flex_1()
-        .min_w(px(0.))
-        .min_h(px(0.))
-        .bg(theme::app_bg())
-        .child(toolbar(app, cx))
-        .child(
-            div()
-                .flex()
-                .flex_1()
-                .min_h(px(0.))
-                .child(
-                    div()
-                        .w(px(SIDEBAR_WIDTH))
-                        .flex()
-                        .flex_none()
-                        .border_r_1()
-                        .border_color(theme::border())
-                        .child(refs::render(app, cx)),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .flex_1()
-                        .min_w(px(0.))
-                        .min_h(px(0.))
-                        .child(
-                            div()
-                                .flex()
-                                .flex_1()
-                                .min_h(px(0.))
-                                .child(history::render(app, window, cx))
-                                .child(
-                                    div()
-                                        .w(px(CHANGES_WIDTH))
-                                        .flex()
-                                        .flex_none()
-                                        .border_l_1()
-                                        .border_color(theme::border())
-                                        .child(changes::render(app, window, cx)),
-                                ),
-                        )
-                        .child(diff::render(app, cx)),
-                ),
-        )
-        .into_any_element()
-}
-
-/// The strip over the screen: which repository this is and what its HEAD is doing, the actions a
+/// The strip over the Git panels: which repository this is, what HEAD is doing, the actions a
 /// write version would offer, and how much the working tree has to say.
-fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
-    let name = app
-        .project_snapshot(cx)
-        .map(|project| project.record.name.clone())
-        .unwrap_or_else(|| "no project".to_string());
+pub fn toolbar(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl IntoElement {
     let overview = app.open_project(cx).and_then(|open| open.git.as_ref());
 
     div()
@@ -112,11 +49,8 @@ fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         .bg(theme::pane_bg())
         .border_b_1()
         .border_color(theme::border())
-        .child(
-            mono(SharedString::from(name), theme::text())
-                .text_size(theme::font(Family::Chrome, Role::Body)),
-        )
-        .child(head_pill(overview))
+        .child(repo_selector::render(app, window, cx))
+        .children(overview.map(head_pill))
         .child(div().w(px(12.)).flex_none())
         // What a write version does, drawn as the shape it will take. Inert on purpose: nothing
         // here writes, and a control that looks live and does nothing is worse than one that says
@@ -145,17 +79,7 @@ fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
 
 /// What HEAD is, and what it is doing: the operation first, because a repository mid-rebase is the
 /// most useful thing this strip can say.
-fn head_pill(overview: Option<&RepoOverview>) -> AnyElement {
-    let Some(overview) = overview else {
-        // Not a repository is an ordinary answer, and the strip says so rather than drawing a
-        // branch nobody can name.
-        return pill(theme::border())
-            .h(px(24.))
-            .px_2()
-            .child(mono("not a repository", theme::text_faint()))
-            .into_any_element();
-    };
-
+fn head_pill(overview: &RepoOverview) -> AnyElement {
     let head = match &overview.head {
         GitHead::Branch(name) => name.clone(),
         GitHead::Detached { short_id } => format!("detached {short_id}"),

@@ -10,10 +10,11 @@
 use gpui::{Context, InteractiveElement, IntoElement, ParentElement, Styled, Window, div, px};
 
 use crate::app::{AppState, FocusFileFilter, ImageRedo, ImageUndo, SubmitSearch, ZoomIn, ZoomOut};
+use crate::state::RailMode;
 use crate::theme;
 use crate::ui::sink::project as project_settings;
 use crate::ui::{
-    new_agent, rail, remote_connect, remote_hosts, ribbon, settings, status_bar, titlebar,
+    git, new_agent, rail, remote_connect, remote_hosts, ribbon, settings, status_bar, titlebar,
 };
 
 pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> impl IntoElement {
@@ -101,9 +102,14 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .child(
                     div()
                         .flex()
+                        .flex_col()
                         .flex_1()
                         .min_w(px(0.))
                         .min_h(px(0.))
+                        .children(
+                            (app.workbench.rail_mode == RailMode::Git && app.project(cx).is_some())
+                                .then(|| git::toolbar(app, window, cx)),
+                        )
                         .child(app.dock().clone()),
                 ),
         )

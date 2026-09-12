@@ -47,6 +47,7 @@ use crate::app::AppState;
 use crate::state::RailMode;
 use crate::state::dock::{ChatId, PanelKind, Region};
 use crate::state::editor::ViewLayout;
+use crate::state::git::{CHANGES_WIDTH, SIDEBAR_WIDTH};
 use crate::theme;
 use crate::ui::{
     agents, board, chat, editor, empty, explorer, git, logs, orchestration, outline, rail, search,
@@ -276,6 +277,22 @@ impl WorkbenchPanel {
                     label: SharedString::from(crate::state::editor::from_tab_key(key).0),
                     ..TabInfo::default()
                 },
+            },
+            PanelKind::GitRefs => TabInfo {
+                label: "Branches".into(),
+                ..TabInfo::default()
+            },
+            PanelKind::GitChanges => TabInfo {
+                label: "Changes".into(),
+                ..TabInfo::default()
+            },
+            PanelKind::GitHistory => TabInfo {
+                label: "History".into(),
+                ..TabInfo::default()
+            },
+            PanelKind::GitDiff => TabInfo {
+                label: "Diff".into(),
+                ..TabInfo::default()
             },
         }
     }
@@ -551,6 +568,10 @@ fn body(
         PanelKind::Chat(id) => chat::render(app, *id, window, cx).into_any_element(),
         PanelKind::Centre => drop_target(centre(app, window, cx), cx),
         PanelKind::File(key) => drop_target(editor::render_file(app, key, cx), cx),
+        PanelKind::GitRefs => git::refs::render(app, cx).into_any_element(),
+        PanelKind::GitChanges => git::changes::render(app, window, cx).into_any_element(),
+        PanelKind::GitHistory => git::history::render(app, window, cx).into_any_element(),
+        PanelKind::GitDiff => git::diff::render(app, cx).into_any_element(),
     }
 }
 
@@ -581,7 +602,7 @@ fn centre(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> An
 
     match wb.rail_mode {
         RailMode::Ide if has_project => editor::render(app, cx),
-        RailMode::Git if has_project => git::render(app, window, cx).into_any_element(),
+        RailMode::Git if has_project => editor::render(app, cx),
         RailMode::Agents if has_project => agents::render(app, window, cx).into_any_element(),
         RailMode::Orchestration if has_project => {
             orchestration::render(app, window, cx).into_any_element()
@@ -620,6 +641,21 @@ fn not_built(mode: RailMode) -> AnyElement {
 /// new-pane control's menu. What the region gives a fresh window is its size and its strip, so
 /// there is somewhere for the first of either to land.
 pub fn default_layout(
+    dock: &Entity<DockArea>,
+    panel: &mut impl FnMut(PanelKind, &mut App) -> Option<Entity<WorkbenchPanel>>,
+    window: &mut Window,
+    cx: &mut App,
+    rail_mode: RailMode,
+) {
+    match rail_mode {
+        RailMode::Git => default_git_layout(dock, panel, window, cx),
+        _ => default_ide_layout(dock, panel, window, cx),
+    }
+}
+
+/// Default layout for IDE mode: explorer on the left, chat on the right (region shut until a
+/// persistent agent or the user asks), centre in the middle.
+fn default_ide_layout(
     dock: &Entity<DockArea>,
     panel: &mut impl FnMut(PanelKind, &mut App) -> Option<Entity<WorkbenchPanel>>,
     window: &mut Window,
@@ -666,9 +702,61 @@ pub fn default_layout(
             window,
             cx,
         );
-        // A region with nothing in it is a strip of nothing, so it starts put away. It is opened
-        // by the titlebar's switch — which starts a pane in it — or by the first pane or console
-        // that asks for it.
+        // The right region holds the chat and opens only when a persistent agent claims a tab, or
+        // when the user asks. The bottom is empty until a pane lands. Both start put away.
+        for region in [Region::Right, Region::Bottom] {
+            if dock.is_dock_open(placement_of(region)) {
+                dock.toggle_dock(placement_of(region), window, cx);
+            }
+        }
+    });
+}
+
+/// Default layout for Git mode: refs on the left, changes on the right, the commit list in the
+/// centre. The pane region stays empty and closed.
+fn default_git_layout(
+    dock: &Entity<DockArea>,
+    panel: &mut impl FnMut(PanelKind, &mut App) -> Option<Entity<WorkbenchPanel>>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let (Some(refs), Some(history), Some(changes)) = (
+        panel(PanelKind::GitRefs, cx),
+        panel(PanelKind::GitHistory, cx),
+        panel(PanelKind::GitChanges, cx),
+    ) else {
+        return;
+    };
+    let refs = WorkbenchPanel::handle(&refs);
+    let history = WorkbenchPanel::handle(&history);
+    let changes = WorkbenchPanel::handle(&changes);
+
+    dock.update(cx, |dock, cx| {
+        dock.set_center(DockLayout::tabs().panel_view(history, cx), window, cx);
+        install(
+            dock,
+            Region::Left,
+            DockLayout::tabs().panel_view(refs, cx),
+            px(SIDEBAR_WIDTH),
+            window,
+            cx,
+        );
+        install(
+            dock,
+            Region::Right,
+            DockLayout::tabs().panel_view(changes, cx),
+            px(CHANGES_WIDTH),
+            window,
+            cx,
+        );
+        install(
+            dock,
+            Region::Bottom,
+            DockLayout::tabs(),
+            px(theme::DOCK_HEIGHT),
+            window,
+            cx,
+        );
         if dock.is_dock_open(placement_of(Region::Bottom)) {
             dock.toggle_dock(placement_of(Region::Bottom), window, cx);
         }

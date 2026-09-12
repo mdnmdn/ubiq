@@ -71,6 +71,7 @@ impl AppState {
                 count: 100,
                 rel_path: None,
                 first_parent: false,
+                rev: None,
             });
             // `log_inflight` is what tells this reply apart from a stale one still in flight —
             // see `GitView::log_inflight` and `receive_git`.
@@ -181,6 +182,9 @@ impl AppState {
             saved.show_bottom,
             saved.show_right,
         ));
+        if view.rail_mode == RailMode::Git && saved.layout.is_none() {
+            self.queue_git_furniture();
+        }
         self.reset_furniture = true;
         self.sync_file_panels(project);
         self.sync_chat_panels(project);
@@ -331,6 +335,11 @@ impl AppState {
                 saved.show_bottom,
                 saved.show_right,
             ));
+            // Git's refs and changes are not in the IDE tree. A first visit has no blob, so they
+            // have to be put in their home regions or the opened edges would be empty.
+            if mode == RailMode::Git && saved.layout.is_none() {
+                self.queue_git_furniture();
+            }
             // Which mode the window is in is settled now, and is written down now rather than
             // waiting for the arrangement to change: two modes that arrange nothing between them
             // would otherwise leave the window reopening in the one it left. The arrangement

@@ -5,9 +5,9 @@ kind: feature
 status: draft
 summary: The window's shell — the activity rail and its modes, the dock of movable panels the user arranges around the centre, the file explorer and editor a project owns, the Git screen of refs, history and uncommitted changes, the agents screen of parallel columns, the orchestration graph and the tasks board the rail's other built modes hold, the kitchen sink the application tests itself against, the file picker any screen raises to choose a path, the empty state a window with no project shows, and the status bar that reports on all of it.
 read_when: you are changing the window layout, a rail mode, where a panel may sit or when it is drawn, the explorer, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, capturing the window or annotating a capture, saving a file, the Git screen's refs, history, change lists or diff, the agents screen's columns, what a tab drag means or what the bench is, the orchestration screen's graph, how it arranges itself, its inspector or its tasks, the tasks board's columns, cards or task panel, the kitchen sink's pages or fixtures, the file picker a screen raises to choose a path, cloning a project, application settings, vim mode, or the status bar
-updated: 2026-09-12
-verified: 2026-09-12
-code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/tests/image_gestures.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/app/sink.rs, crates/ubiq/src/state/a2ui.rs, crates/ubiq/src/state/a2ui/value.rs, crates/ubiq/src/state/a2ui/eval.rs, crates/ubiq/src/state/a2ui/action.rs, crates/ubiq/src/state/a2ui/live.rs, crates/ubiq/src/state/a2ui/svg.rs, crates/ubiq/src/state/a2ui/path.rs, crates/ubiq/src/state/a2ui/ubiq-catalog.json, crates/ubiq/src/ui/a2ui.rs, crates/ubiq/src/ui/a2ui/registry.rs, crates/ubiq/src/ui/a2ui/svg.rs, crates/ubiq/src/ui/a2ui/path.rs, crates/ubiq/src/ui/sink/a2ui.rs, crates/ubiq/tests/a2ui.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/stats.rs, crates/ubiq/src/ui/stats.rs, crates/ubiq/src/app/stats.rs, crates/ubiq/tests/stats.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/app/new_agent.rs, crates/ubiq/src/ui/new_agent.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/app/graph.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/ui/web_view.rs, crates/ubiq/src/ui/viewer/web.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/state/web_panel.rs, crates/ubiq/src/app/explorer.rs, crates/ubiq/src/state/explorer/menu.rs, crates/ubiq/src/ui/file_dialog.rs]
+updated: 2026-09-13
+verified: 2026-09-13
+code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/tests/image_gestures.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/app/sink.rs, crates/ubiq/src/state/a2ui.rs, crates/ubiq/src/state/a2ui/value.rs, crates/ubiq/src/state/a2ui/eval.rs, crates/ubiq/src/state/a2ui/action.rs, crates/ubiq/src/state/a2ui/live.rs, crates/ubiq/src/state/a2ui/svg.rs, crates/ubiq/src/state/a2ui/path.rs, crates/ubiq/src/state/a2ui/ubiq-catalog.json, crates/ubiq/src/ui/a2ui.rs, crates/ubiq/src/ui/a2ui/registry.rs, crates/ubiq/src/ui/a2ui/svg.rs, crates/ubiq/src/ui/a2ui/path.rs, crates/ubiq/src/ui/sink/a2ui.rs, crates/ubiq/tests/a2ui.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/stats.rs, crates/ubiq/src/ui/stats.rs, crates/ubiq/src/app/stats.rs, crates/ubiq/tests/stats.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/src/ui/git/repo_selector.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/app/new_agent.rs, crates/ubiq/src/ui/new_agent.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/app/graph.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/ui/web_view.rs, crates/ubiq/src/ui/viewer/web.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/state/web_panel.rs, crates/ubiq/src/app/explorer.rs, crates/ubiq/src/state/explorer/menu.rs, crates/ubiq/src/ui/file_dialog.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
 ---
@@ -661,16 +661,23 @@ agent, and the conversation is a column. There was a second button here that poi
 whoever was doing the task; it went because the graph answers "who is doing what" and a user reading
 one task is not asking that — the rail reaches the graph in one click for the user who is.
 
-**The Git screen is what version control knows, whole.** The refs down the left, the history in the
-middle, the uncommitted changes on the right and the comparison under both. It is the same facts
-the explorer's badges and the status bar's branch carry, at the size they can be read at: the tree
-answers "is this file changed" and this screen answers "what has this repository been doing".
+**The Git screen is what version control knows, whole.** The refs explorer (branches, remotes, tags,
+stashes, submodules) in the left region, the uncommitted changes and the commit box in the right,
+the commit list in the centre. A first visit opens the left and right regions onto those panels and
+puts the history in the centre; the bottom pane region stays shut. The titlebar's side-panel
+switches, the same ones the IDE uses for the explorer and the chat, put the sides away and bring
+them back. The comparison is a panel of its own and comes forward when a changed path is picked. It is the same facts the explorer's badges and the status bar's branch carry, at
+the size they can be read at: the tree answers "is this file changed" and this screen answers
+"what has this repository been doing".
 
-**The screen reads and never writes.** Fetch, pull, push, branch, stash, undo and the commit button
-are drawn as the shape the screen will have when there is a write family behind them, and none of
-them takes a click; the toolbar carries a `read-only` chip that says why. What is typed into the
-commit box is kept with the project, because a message is worth keeping even when nothing can send
-it.
+**The strip over the panels names the repository and what HEAD is doing.** The repository selector
+picks which of the project's repositories the view is showing — the root, or a submodule, or a
+nested one — and the pill beside it is the branch, the tracking counts and any in-progress
+operation. Fetch, pull, push, branch, stash, undo and the commit button are drawn as the shape
+the screen will have when there is a write family behind them, and none of them takes a click;
+the strip carries a `read-only` chip that says why. A refresh asks the host again. What is typed
+into the commit box is kept with the project, because a message is worth keeping even when nothing
+can send it.
 
 **The uncommitted row is the top row of the history.** What is not committed yet is selected the
 same way a commit is and is what the screen opens on; picking a commit points the panel beside it
@@ -696,15 +703,19 @@ as wide as its widest line and a line past the pane's edge is reached by scrolli
 minified file reads as one very long row rather than as a wall of wrapped text.
 
 **The history and the refs are real.** The branch list, the tags and the stashes come from one
-`ProjectGitRefs` reply; the remotes and the submodules ride with the overview. The commit log pages
+`ProjectGitRefs` reply; the remotes and the submodules ride with the overview. Local branches and
+remotes draw as a tree split on `/`, so `feature/things` nests under `feature` and
+`origin/feature/things` nests under `origin`. A click on a branch reveals the commit list if it was
+put away; a double-click scrolls the list to the commit that branch points at. The commit log pages
 in from `ProjectGitLog`, oldest page first and newest commit within it, and pages as far as it is
 read: the view stores `log_cursor` and `log_done` (`state/git.rs`), and while there is a cursor the
 foot of the list carries a `Load more commits` row that sends the next request through
 `AppState::load_more_git_log` and reads `Loading more…` until the page lands. An asked-for row
-rather than a scroll-to-bottom trigger: paging is a thing the reader does. The search over the history and its
-`my commits` filter are real controls over real rows, and both clear together. A commit's lane is
-real: the host allocates it from actual parent ids, and a merge's extra parents claim their own
-lanes for the lines drawn behind it, rather than the one hollow dot a parent count could offer.
+rather than a scroll-to-bottom trigger: paging is a thing the reader does. The history's search
+matches a commit's message and SHA, a searchable picker walks one branch instead of HEAD, and
+`my commits` keeps only what the signed-in user wrote; every filter clears together. A commit's
+lane is real: the host allocates it from actual parent ids, and a merge's extra parents claim their
+own lanes for the lines drawn behind it, rather than the one hollow dot a parent count could offer.
 Lane state carries across pages, keyed by the cursor and filters the next one arrives with, so a
 branch does not visually collapse and reopen at a page boundary.
 
@@ -1927,10 +1938,10 @@ the schema stays the interface's own. The arrangement is remembered **per rail m
 keeps its own record of which regions were on screen and its own dock blob, so a visit to the sink
 does not undo the IDE's side panels and a visit back does not summon them where the sink was
 arranging. A mode with no record of its own opens on its defaults — the centre alone, no region
-open, in every mode — and **so does a project that has never been arranged in the mode it is
-entered in**: entering a mode forces its regions to those defaults rather than leaving whatever was
-on screen, so a project reached from another one never inherits that one's edges and has them
-written down as its own. A blob it cannot parse is discarded and the window opens on defaults. Which
+open, except Git, whose refs and changes open with the mode (`D119`) — and **so does a project that
+has never been arranged in the mode it is entered in**: entering a mode forces its regions to those
+defaults rather than leaving whatever was on screen, so a project reached from another one never
+inherits that one's edges and has them written down as its own. A blob it cannot parse is discarded and the window opens on defaults. Which
 mode the window is in is written down when the mode is chosen rather than when the arrangement next
 changes, so two modes that arrange nothing between them still reopen in the right one.
 
@@ -2385,20 +2396,33 @@ built from the host's answers by `ref_rows()` and `commit_rows()` in `state/git.
 widths and the graph's lane pitch are constants there, the way the board's and the columns' are
 theirs.
 
-`ui/git/` draws it, one file per area: `mod.rs` is the frame and the toolbar, `refs.rs` the
-sections and their rows — the file list's own row chrome, so a ref reads the way a path does —
-`history.rs` the search, the lanes and the commits, `changes.rs` the three lists and the commit
-box, and `diff.rs` the pane under both, which hands the hunks to `ui/viewer/diff.rs` rather than
-drawing them again. The history and the three change lists are `uniform_list`s over their row
-counts; the sidebar's refs are the one list still built whole (`G220`). `ui/viewer/diff.rs` flattens
-the hunks into one `Rows` of header, line and pair rows with the widest line's character count
-beside them, memoised per comparison rather than rebuilt per frame (`G222`), and hands
-`uniform_list` the length. The toolbar's branch wording is `ui/status_bar.rs`'s `operation_label()` and
-`capped()`, shared so the strip and the screen cannot say different things about one repository.
+`ui/git/` draws it, one file per panel: `refs.rs` the left region's sections and their rows — the
+file list's own row chrome, so a ref reads the way a path does — `history.rs` the search, the lanes
+and the commits, `changes.rs` the right region's three lists and the commit box, `diff.rs` the
+comparison under the history, which hands the hunks to `ui/viewer/diff.rs` rather than drawing them
+again, and `repo_selector.rs` the chrome-strip control that picks a repository when the project has
+more than one. `git::toolbar()` is the strip itself, painted by `ui/shell.rs` above the dock while
+the rail is on Git; it carries the selector, the HEAD pill, the inert write actions, the working-tree
+count and a refresh. `PanelKind::GitRefs` / `GitChanges` / `GitHistory` / `GitDiff` are the four dock
+panels; they are drawn only in Git mode with a project, and `ModeLayout::default_for(Git)` opens
+the left and right regions onto the first two. `AppState::queue_git_furniture()` puts them in
+their home regions on a first visit, and `toggle_region()` fills an emptied left with the refs and
+an emptied right with the changes. The history and the three change lists are `uniform_list`s over
+their row counts; the sidebar's refs are the one list still built whole (`G220`). `ui/viewer/diff.rs`
+flattens the hunks into one `Rows` of header, line and pair rows with the widest line's character
+count beside them, memoised per comparison rather than rebuilt per frame (`G222`), and hands
+`uniform_list` the length. The status bar's branch wording is `ui/status_bar.rs`'s
+`operation_label()` and `capped()`, shared so the strip and the screen cannot say different things
+about one repository.
 
-`AppState` holds the screen's two text entities — `git_search` and `git_message` — mirroring them
-into the project's view through subscriptions, with `sync_git_fields()` filling them back on the
-frame after a project swings in, on the explorer filter's rule. `git_view()`, `git_view_mut()` and
+`AppState` holds the screen's text entities — `git_search`, `git_branch_query` and `git_message` —
+mirroring the first and last into the project's view through subscriptions, with `sync_git_fields()`
+filling them back on the frame after a project swings in, on the explorer filter's rule. A first
+visit to Git reveals the history panel in the centre, with the left and right regions open and the
+bottom shut. `select_git_ref()` reveals that panel if it was hidden; `jump_to_git_ref()` selects
+the commit the ref points at and scrolls the list to it. `select_git_path()` reveals the diff
+panel. The IDE's right region stays shut on a first visit unless `settle_persistent_chat()` finds
+a persistent agent. `git_view()`, `git_view_mut()` and
 `git_entries()` are the accessors; `select_git_path()` is the one mutator that sends anything, and
 it sends `DiffProjectFile` only when the selection actually moved. `refresh_git()` asks for the
 overview and the working tree together. `ProjectFileDiffed` feeds whichever of the screen and a diff
@@ -2469,7 +2493,8 @@ threaded through the dock. All of it is pure logic and is tested without a frame
 moment somebody edits the string. `ui/dock/mod.rs` holds `WorkbenchPanel` — a `PanelKind`, a weak
 `AppState` handle and a focus handle, and nothing else — whose render delegates through `body()` to
 the area functions that already exist, so adding a panel is an arm of a `match` rather than a new
-owner of state. `default_layout()` is the arrangement a window opens in, `add()` and `remove()` are
+owner of state. `default_layout()` is the arrangement a window opens in — the IDE tree, or Git's refs / history /
+changes / diff when that mode is what is being rebuilt — `add()` and `remove()` are
 how a terminal's and a file's panel join and leave, `holds()` is what stops a panel a restored
 arrangement already carries being added a second time, `enforce_placement()` puts back a panel
 dropped where its class forbids, and `restore()` rebuilds a saved arrangement or answers that it
@@ -2496,10 +2521,11 @@ geometry and no layout serialisation.
 `AppState` holds the dock's half of that. `dock()` hands it to the shell; `regions_open()` and
 `toggle_region()` are the titlebar's three switches, both going through the dock rather than a flag
 beside it; `panel()` builds a kind's panel the first time it is asked for. Opening an empty region
-is the gesture that fills it: the bottom starts a pane and a fresh chat tab opens in the right, because a
-region that opens onto a bar of nothing is not what the switch was asked for — the left is the
-exception, since the explorer panel is already in the tree the moment IDE mode is entered, so
-opening a closed left reveals it rather than spawning anything. `new_terminal()` is the titlebar's
+is the gesture that fills it: the bottom starts a pane; the right in IDE opens a fresh chat tab and
+in Git the changes panel; the left in Git opens the refs explorer. An empty left in IDE is the
+exception, since the explorer panel is in the tree the moment IDE mode is entered, so opening a
+closed left reveals it rather than spawning anything. The titlebar offers the left and right
+switches in IDE and in Git (`WorkbenchState::has_side_panels`). `new_terminal()` is the titlebar's
 own New terminal shortcut: it calls `toggle_region()` when the bottom is shut, and spawns a pane
 itself only when the region was already open or was reopened onto panes still in it, so opening
 onto true emptiness is never given two panes by two different callers. A chevron beside it opens

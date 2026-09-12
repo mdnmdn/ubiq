@@ -2451,6 +2451,23 @@ but unable to answer for a minute — a stopped process, a suspended container �
 though it had died. The teardown is the existing dropped-socket path rather than a second one,
 because a second shutdown path is a second chance to leave a pane running.
 
+### D119 — Git opens with its side panels, because they are the screen
+
+`ModeLayout::default_for(Git)` answers `show_left` and `show_right` true. The refs explorer
+(branches, remotes, tags, stashes, submodules) lives in the left region and the changes/commit
+panel in the right, and a first visit to Git puts those panels in their home regions and opens
+the edges. The titlebar offers the same left and right switches it offers in IDE. `D94` still
+holds for every other mode: no explorer, no chat, no pane region until asked for.
+
+**Why:** Git's side panels are not furniture. The IDE's explorer and chat are optional frames
+around a file; the Git screen *is* the refs, the history and the uncommitted changes. Opening
+that mode onto a bare centre is a screen with its two columns missing, and the switches that
+would restore them were hidden because they were IDE-only.
+
+**Cost:** a project that has never been arranged in Git opens onto two extra columns the user
+did not toggle. Closing them is the same titlebar switch as in IDE, and the choice is remembered
+from then on, so the cost is one first visit.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce

@@ -57,9 +57,10 @@ impl AppState {
             )
         });
 
-        let git_search = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("Search message, author or SHA\u{2026}")
-        });
+        let git_search =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Search message or SHA\u{2026}"));
+        let git_branch_query =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Filter branches\u{2026}"));
         let git_message = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .placeholder("Commit message \u{2014} subject, blank line, body")
@@ -416,7 +417,7 @@ impl AppState {
                         .clone(),
                 )
             };
-            dock::default_layout(&dock, &mut build, window, cx);
+            dock::default_layout(&dock, &mut build, window, cx, RailMode::Ide);
         }
 
         let mut subscriptions = Vec::new();
@@ -523,6 +524,16 @@ impl AppState {
                     if let Some(git) = this.git_view_mut(cx) {
                         git.message = message;
                     }
+                    cx.notify();
+                }
+            },
+        ));
+
+        subscriptions.push(cx.subscribe_in(
+            &git_branch_query,
+            window,
+            |_this, _input, event: &InputEvent, _window, cx| {
+                if matches!(event, InputEvent::Change) {
                     cx.notify();
                 }
             },
@@ -1073,6 +1084,7 @@ impl AppState {
             image_stroke,
             git_search,
             git_message,
+            git_branch_query,
             picker_filter,
             task_filter,
             task_title_input,
@@ -1150,6 +1162,7 @@ impl AppState {
             outline_key: String::new(),
             outline_gen: 0,
             log_scroll: UniformListScrollHandle::new(),
+            git_scroll: UniformListScrollHandle::new(),
             form_filled: None,
             refill_fields: false,
             refill_columns: false,

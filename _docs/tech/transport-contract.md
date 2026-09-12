@@ -5,8 +5,8 @@ kind: tech
 status: draft
 summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, quota, profile, command-line, host browse, connector, repository, assist, notification, web asset and carrier families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
-updated: 2026-09-12
-verified: 2026-09-12
+updated: 2026-09-13
+verified: 2026-09-13
 code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
@@ -473,7 +473,7 @@ is a relative string.
 |---|---|---|---|
 | `ProjectGit` | UI → host | `project_id` | `GitOverview` or `GitError` |
 | `RefreshProjectGit` | UI → host | `project_id`, `full` | `GitOverview`, and `GitWorkingTree` when `full`; or `GitError` |
-| `ProjectGitLog` | UI → host | `project_id`, `cursor?`, `count`, `rel_path?`, `first_parent` | `GitLogPage` or `GitError` |
+| `ProjectGitLog` | UI → host | `project_id`, `cursor?`, `count`, `rel_path?`, `first_parent`, `rev?` | `GitLogPage` or `GitError` |
 | `ProjectGitRefs` | UI → host | `project_id`, `with_tracking` | `GitRefs` or `GitError` |
 | `GitOverview` | host → UI | `project_id`, `overview?` | — |
 | `GitWorkingTree` | host → UI | `project_id`, `generation`, `entries[]`, `rollups[]`, `repos[]`, `truncated` | — |
@@ -528,13 +528,14 @@ one. A second full refresh for a project still walking replaces the queued one r
 up behind it.
 
 **The log is cursor-paged, not offset-paged.** A page is a bounded walk from a starting commit —
-`cursor` absent starts at `HEAD` — and `next_cursor` is the commit after the last one the page
-carried, absent at the end. An offset would re-walk from `HEAD` every page and be wrong the moment
-the tree moved underneath. `count` is clamped to `MAX_LOG_PAGE`; `rel_path` narrows the walk to one
-path's history; `first_parent` skips the merged side of a merge commit. An unborn `HEAD` answers
-with an empty page, not a `GitError`. `GitLogPage` echoes the `cursor` its request carried, so a
-reply that lands after a later request already advanced the cursor is told apart from the current
-one rather than guessed at from whether the interface already holds a cursor.
+`cursor` absent starts at `HEAD`, or at `rev` when that names a ref — and `next_cursor` is the
+commit after the last one the page carried, absent at the end. An offset would re-walk from `HEAD`
+every page and be wrong the moment the tree moved underneath. `count` is clamped to `MAX_LOG_PAGE`;
+`rel_path` narrows the walk to one path's history; `first_parent` skips the merged side of a merge
+commit. `rev` is ignored once `cursor` is set, because that page continues the walk under way. An
+unborn `HEAD` answers with an empty page, not a `GitError`. `GitLogPage` echoes the `cursor` its
+request carried, so a reply that lands after a later request advanced the cursor is told apart from
+the current one rather than guessed at from whether the interface holds a cursor.
 
 **A commit's `parents` are ids, not a count**, because a lane algorithm matches a child to the lane
 its parent occupies and a count cannot say which lane that is. `lane` and `merges` are computed

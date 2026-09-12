@@ -182,6 +182,43 @@ fn returning_from_any_non_ide_mode_restores_the_side_panels(cx: &mut TestAppCont
     }
 }
 
+/// Git's first visit opens the left and right regions onto the refs explorer and the changes
+/// panel. They are the screen, not furniture: `D94` still shuts every other mode's edges, and a
+/// return to IDE restores whatever that mode was left with.
+#[gpui::test]
+fn git_opens_with_its_side_panels(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    assert_eq!(fixture.regions_open(cx), (false, false, false));
+
+    fixture.switch_to(RailMode::Git, cx);
+    assert_eq!(fixture.mode(cx), RailMode::Git);
+    assert_eq!(
+        fixture.regions_open(cx),
+        (true, false, true),
+        "Git's refs and changes open with the mode"
+    );
+    let in_git = names(&fixture.dump(cx));
+    assert!(
+        in_git.contains(&"ubiq.git.refs".to_string()),
+        "the refs explorer is in the left region: {in_git:?}"
+    );
+    assert!(
+        in_git.contains(&"ubiq.git.changes".to_string()),
+        "the changes panel is in the right region: {in_git:?}"
+    );
+    assert!(
+        in_git.contains(&"ubiq.git.history".to_string()),
+        "the commit list is the centre: {in_git:?}"
+    );
+
+    fixture.switch_to(RailMode::Ide, cx);
+    assert_eq!(
+        fixture.regions_open(cx),
+        (false, false, false),
+        "coming back to IDE restores the regions it was left with"
+    );
+}
+
 /// Hiding a mode takes it off the rail; hiding the mode the window is in moves the window on, and
 /// the last visible mode cannot be hidden at all.
 #[gpui::test]

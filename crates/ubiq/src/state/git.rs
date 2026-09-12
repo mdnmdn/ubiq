@@ -94,6 +94,9 @@ impl RefSection {
 pub struct RefRow {
     pub section: RefSection,
     pub name: String,
+    /// The commit this ref points at, abbreviated — what a double-click uses to find it in the
+    /// history.
+    pub target: String,
     /// Commits either side of this ref's upstream. Absent, never zero, when there is none.
     pub ahead: Option<u32>,
     pub behind: Option<u32>,
@@ -106,10 +109,16 @@ impl RefRow {
         Self {
             section,
             name: name.to_string(),
+            target: String::new(),
             ahead: None,
             behind: None,
             current: false,
         }
+    }
+
+    pub fn at(mut self, target: &str) -> Self {
+        self.target = target.to_string();
+        self
     }
 
     pub fn tracking(mut self, ahead: u32, behind: u32) -> Self {
@@ -122,6 +131,134 @@ impl RefRow {
         self.current = true;
         self
     }
+}
+
+/// One row of a slash-split ref tree: a folder for a shared prefix, or a leaf that is a real ref.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RefTreeRow {
+    pub depth: usize,
+    /// The last path segment, which is what the row prints.
+    pub label: String,
+    pub kind: RefTreeKind,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum RefTreeKind {
+    /// A prefix that has children. `path` is the joined prefix the folder shuts on.
+    Folder {
+        path: String,
+        open: bool,
+        leaves: usize,
+    },
+    Leaf {
+        index: usize,
+        /// This ref's name is also a prefix of other refs, so a twisty sits on the row.
+        has_children: bool,
+        open: bool,
+    },
+}
+
+/// Fold local branches and remotes on `/`, so `feature/things` nests under `feature` and
+/// `origin/feature/things` nests under `origin`, then `feature`.
+pub fn ref_tree(rows: &[(usize, &RefRow)], shut: &HashSet<String>) -> Vec<RefTreeRow> {
+    #[derive(Default)]
+    struct Node {
+        children: std::collections::BTreeMap<String, Node>,
+        leaf: Option<usize>,
+    }
+
+    fn insert(node: &mut Node, parts: &[&str], index: usize) {
+        match parts {
+            [] => {}
+            [last] => {
+                node.children.entry((*last).to_string()).or_default().leaf = Some(index);
+            }
+            [head, rest @ ..] => {
+                insert(
+                    node.children.entry((*head).to_string()).or_default(),
+                    rest,
+                    index,
+                );
+            }
+        }
+    }
+
+    fn leaf_count(node: &Node) -> usize {
+        let here = usize::from(node.leaf.is_some());
+        here + node.children.values().map(leaf_count).sum::<usize>()
+    }
+
+    fn flatten(
+        node: &Node,
+        prefix: &str,
+        depth: usize,
+        shut: &HashSet<String>,
+        out: &mut Vec<RefTreeRow>,
+    ) {
+        for (segment, child) in &node.children {
+            let path = if prefix.is_empty() {
+                segment.clone()
+            } else {
+                format!("{prefix}/{segment}")
+            };
+            let has_children = !child.children.is_empty();
+            if has_children && child.leaf.is_none() {
+                let open = !shut.contains(&path);
+                out.push(RefTreeRow {
+                    depth,
+                    label: segment.clone(),
+                    kind: RefTreeKind::Folder {
+                        path: path.clone(),
+                        open,
+                        leaves: leaf_count(child),
+                    },
+                });
+                if open {
+                    flatten(child, &path, depth + 1, shut, out);
+                }
+            } else if has_children {
+                let open = !shut.contains(&path);
+                out.push(RefTreeRow {
+                    depth,
+                    label: segment.clone(),
+                    kind: RefTreeKind::Leaf {
+                        index: child.leaf.expect("has_children && leaf"),
+                        has_children: true,
+                        open,
+                    },
+                });
+                if open {
+                    flatten(child, &path, depth + 1, shut, out);
+                }
+            } else if let Some(index) = child.leaf {
+                out.push(RefTreeRow {
+                    depth,
+                    label: segment.clone(),
+                    kind: RefTreeKind::Leaf {
+                        index,
+                        has_children: false,
+                        open: true,
+                    },
+                });
+            }
+        }
+    }
+
+    let mut root = Node::default();
+    for (index, row) in rows {
+        let parts: Vec<&str> = row
+            .name
+            .split('/')
+            .filter(|part| !part.is_empty())
+            .collect();
+        if parts.is_empty() {
+            continue;
+        }
+        insert(&mut root, &parts, *index);
+    }
+    let mut out = Vec::new();
+    flatten(&root, "", 0, shut, &mut out);
+    out
 }
 
 /// The sidebar's rows: Local, Remotes, Tags and Stashes from the refs reply, Submodules from the
@@ -137,6 +274,7 @@ pub fn ref_rows(refs: &[GitRef], submodules: &[GitSubmodule]) -> Vec<RefRow> {
                 GitRefKind::Stash => RefSection::Stashes,
             },
             name: r.name.clone(),
+            target: r.target.clone(),
             ahead: r.ahead,
             behind: r.behind,
             current: r.current,
@@ -154,6 +292,7 @@ pub fn submodule_rows(submodules: &[GitSubmodule]) -> Vec<RefRow> {
         .map(|sm| RefRow {
             section: RefSection::Submodules,
             name: sm.rel_path.clone(),
+            target: String::new(),
             ahead: None,
             behind: None,
             current: false,
@@ -168,6 +307,7 @@ pub fn submodule_rows(submodules: &[GitSubmodule]) -> Vec<RefRow> {
 /// topology it was not given.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CommitRow {
+    pub id: String,
     pub short_id: String,
     pub summary: String,
     pub author: String,
@@ -190,6 +330,7 @@ pub fn commit_rows(commits: &[GitCommit]) -> Vec<CommitRow> {
     commits
         .iter()
         .map(|c| CommitRow {
+            id: c.id.clone(),
             short_id: c.short_id.clone(),
             summary: c.summary.clone(),
             author: c.author.name.clone(),
@@ -210,10 +351,11 @@ pub fn commit_rows(commits: &[GitCommit]) -> Vec<CommitRow> {
 /// See `GitView::search_cache`, which builds this once per commit rather than once per frame.
 fn commit_haystack(commit: &CommitRow) -> String {
     format!(
-        "{}\u{0}{}\u{0}{}",
+        "{}\u{0}{}\u{0}{}\u{0}{}",
         commit.summary.to_lowercase(),
         commit.author.to_lowercase(),
-        commit.short_id.to_lowercase()
+        commit.short_id.to_lowercase(),
+        commit.id.to_lowercase()
     )
 }
 
@@ -332,11 +474,15 @@ pub struct GitView {
     /// The sections the user has shut. Absent means open, so a screen that has never been touched
     /// shows everything it has.
     shut: HashSet<RefSection>,
+    /// Slash-prefix folders the user has shut in the local and remote trees. Absent means open.
+    shut_folders: HashSet<(RefSection, String)>,
     /// Which sidebar row is selected, as an index into `refs`.
     pub selected_ref: Option<usize>,
 
     /// What was typed into the history's search field.
     pub search: String,
+    /// Restrict the history to this ref's walk. `None` is HEAD, the walk a project opens on.
+    pub branch_filter: Option<String>,
     /// The history's one filter: only commits the signed-in user wrote.
     pub mine_only: bool,
     /// Which commit is selected, as an index into `commits`. **`None` is the uncommitted row**,
@@ -401,8 +547,10 @@ impl GitView {
     pub fn new(refs: Vec<RefRow>, commits: Vec<CommitRow>) -> Self {
         let mut view = Self {
             shut: HashSet::new(),
+            shut_folders: HashSet::new(),
             selected_ref: refs.iter().position(|row| row.current),
             search: String::new(),
+            branch_filter: None,
             mine_only: false,
             selected_commit: None,
             selected_path: None,
@@ -432,6 +580,35 @@ impl GitView {
         if !self.shut.remove(&section) {
             self.shut.insert(section);
         }
+    }
+
+    pub fn toggle_folder(&mut self, section: RefSection, path: &str) {
+        let key = (section, path.to_string());
+        if !self.shut_folders.remove(&key) {
+            self.shut_folders.insert(key);
+        }
+    }
+
+    /// The local-branch or remote tree for one section, with shut folders collapsed.
+    pub fn ref_tree(&self, section: RefSection) -> Vec<RefTreeRow> {
+        let rows = self.rows(section);
+        let shut: HashSet<String> = self
+            .shut_folders
+            .iter()
+            .filter(|(held, _)| *held == section)
+            .map(|(_, path)| path.clone())
+            .collect();
+        ref_tree(&rows, &shut)
+    }
+
+    /// The commit in the loaded history this ref points at, if that page has landed.
+    pub fn commit_index_for_ref(&self, index: usize) -> Option<usize> {
+        let row = self.refs.get(index)?;
+        self.commits.iter().position(|commit| {
+            (!row.target.is_empty()
+                && (commit.short_id == row.target || commit.id.starts_with(&row.target)))
+                || commit.refs.iter().any(|name| name == &row.name)
+        })
     }
 
     /// The rows in one section, with the index each is selected by.
@@ -508,14 +685,15 @@ impl GitView {
 
     /// Whether the history is showing everything it has.
     pub fn filtered(&self) -> bool {
-        self.mine_only || !self.search.trim().is_empty()
+        self.mine_only || !self.search.trim().is_empty() || self.branch_filter.is_some()
     }
 
-    /// Show the whole history again. One control clears both filters, so a history emptied by a
+    /// Show the whole history again. One control clears every filter, so a history emptied by a
     /// filter is always one click from being full.
     pub fn clear_filters(&mut self) {
         self.mine_only = false;
         self.search.clear();
+        self.branch_filter = None;
     }
 
     /// Point the diff pane at a changed path. Returns whether the selection moved, which is what

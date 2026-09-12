@@ -134,8 +134,11 @@ fn a_blob_missing_the_fields_a_later_build_added_still_opens() {
     assert!(view.modes.is_empty());
     let arranged = ModeLayout::default_for(RailMode::Ide);
     // No region is furniture: a mode that has never been arranged opens on the centre alone, and
-    // each region comes back the moment it is asked for.
+    // each region comes back the moment it is asked for. Git is the exception — its refs and
+    // changes *are* the screen, so both edges open with it.
     assert!(!arranged.show_left && !arranged.show_right && !arranged.show_bottom);
+    let git = ModeLayout::default_for(RailMode::Git);
+    assert!(git.show_left && git.show_right && !git.show_bottom);
 
     assert!(view.open_files.is_empty());
     assert_eq!(view.active_file, None);

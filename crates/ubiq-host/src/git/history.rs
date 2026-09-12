@@ -99,15 +99,23 @@ pub fn refs(repo: &git2::Repository, with_tracking: bool) -> Result<Vec<GitRef>,
     Ok(out)
 }
 
+/// Where a log walk starts. A page continues from [`Self::Cursor`]; a first page is [`Self::Head`]
+/// or [`Self::Rev`].
+pub enum LogFrom<'a> {
+    Head,
+    Rev(&'a str),
+    Cursor(&'a str),
+}
+
 /// One page of history, newest first.
 ///
 /// Returns the page and the id of the commit after it, which is the next cursor. `lanes` carries
 /// the commit-graph column state in from the page before this one — pass an empty [`Lanes`] for a
-/// fresh walk (`cursor: None`) and the same one back in for the next page of the same walk.
+/// fresh walk and the same one back in for the next page of the same walk.
 pub fn log(
     repo: &git2::Repository,
     scoped_to: &str,
-    cursor: Option<&str>,
+    from: LogFrom<'_>,
     count: u32,
     rel_path: Option<&str>,
     first_parent: bool,
@@ -117,12 +125,17 @@ pub fn log(
     walk.set_sorting(Sort::TIME | Sort::TOPOLOGICAL)
         .map_err(map_error)?;
 
-    match cursor {
-        Some(id) => {
+    match from {
+        LogFrom::Cursor(id) => {
             let oid = Oid::from_str(id).map_err(map_error)?;
             walk.push(oid).map_err(map_error)?;
         }
-        None => match walk.push_head() {
+        LogFrom::Rev(rev) => {
+            let object = repo.revparse_single(rev).map_err(map_error)?;
+            let commit = object.peel_to_commit().map_err(map_error)?;
+            walk.push(commit.id()).map_err(map_error)?;
+        }
+        LogFrom::Head => match walk.push_head() {
             Ok(()) => {}
             // An unborn HEAD (a fresh `git init`, no commit yet) fails here rather than on
             // `head()` — libgit2 reports it as a missing reference, not a distinct code.

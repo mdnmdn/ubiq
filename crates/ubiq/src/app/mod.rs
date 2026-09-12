@@ -666,6 +666,10 @@ pub struct AppState {
     /// the text in them is the project's, so both are mirrored into the project's `GitView`.
     pub git_search: Entity<InputState>,
     pub git_message: Entity<TextareaState>,
+    /// The history's branch picker's own filter field. Window-scoped because the picker is.
+    pub git_branch_query: Entity<InputState>,
+    /// The history list's scroll, so a double-click on a ref can bring its commit into view.
+    pub git_scroll: UniformListScrollHandle,
     /// The file picker's own field. Separate from the explorer's because the two are up at once
     /// and one state drawn twice is one field in two places.
     pub picker_filter: Entity<InputState>,

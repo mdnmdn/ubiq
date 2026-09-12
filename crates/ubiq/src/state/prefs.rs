@@ -40,15 +40,17 @@ pub struct ModeLayout {
 }
 
 impl ModeLayout {
-    /// The arrangement a mode opens on when it has never been arranged: the centre alone, in every
-    /// mode. No region is furniture — a window that opens onto a tree, a chat and a pane region
-    /// nobody asked for is three switches the user has to undo before the first frame is legible.
-    /// Each region comes back the moment it is asked for, and is remembered from then on.
-    pub fn default_for(_mode: RailMode) -> Self {
+    /// The arrangement a mode opens on when it has never been arranged.
+    ///
+    /// Most modes open on the centre alone: no region is furniture, and each comes back the
+    /// moment it is asked for. Git is the exception — its refs explorer and its changes panel
+    /// *are* the screen, so the left and right regions open with it (`D119`).
+    pub fn default_for(mode: RailMode) -> Self {
+        let sides = mode == RailMode::Git;
         Self {
-            show_left: false,
+            show_left: sides,
             show_bottom: false,
-            show_right: false,
+            show_right: sides,
             layout: None,
         }
     }

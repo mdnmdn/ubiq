@@ -21,8 +21,8 @@ use gpui_component::Root;
 use ubiq::app::{AppState, BusHub};
 use ubiq::state::WindowRegistry;
 use ubiq::state::git::{
-    CommitRow, GitView, RefRow, RefSection, Side, commit_rows, conflicted, ref_rows, staged,
-    unstaged,
+    CommitRow, GitView, RefRow, RefSection, RefTreeKind, Side, commit_rows, conflicted, ref_rows,
+    staged, unstaged,
 };
 use ubiq_proto::bus::{self, FromClient, To};
 use ubiq_proto::files::DiffBase;
@@ -91,6 +91,7 @@ fn row(
     mine: bool,
 ) -> CommitRow {
     CommitRow {
+        id: short_id.to_string(),
         short_id: short_id.to_string(),
         summary: summary.to_string(),
         author: author.to_string(),
@@ -179,6 +180,7 @@ fn the_search_matches_summary_author_or_id() {
         Vec::new(),
         vec![
             ubiq::state::CommitRow {
+                id: "9f3a10cabc".into(),
                 short_id: "9f3a10c".into(),
                 summary: "Refit the terminal".into(),
                 author: "Sara Villa".into(),
@@ -189,6 +191,7 @@ fn the_search_matches_summary_author_or_id() {
                 mine: false,
             },
             ubiq::state::CommitRow {
+                id: "4c8b221abc".into(),
                 short_id: "4c8b221".into(),
                 summary: "Cut 0.3.0".into(),
                 author: "Marco De Nittis".into(),
@@ -209,6 +212,9 @@ fn the_search_matches_summary_author_or_id() {
 
     git.search = "4c8b".into();
     assert_eq!(git.visible_commits().len(), 1, "an id prefix matches");
+
+    git.search = "9f3a10cabc".into();
+    assert_eq!(git.visible_commits().len(), 1, "the full sha matches");
 
     git.search = "  ".into();
     assert_eq!(git.visible_commits().len(), 2, "blank is not a filter");
@@ -417,6 +423,86 @@ fn ref_rows_sorts_into_sections_and_marks_the_current_row() {
         "vendor/gpui-component",
         "a submodule's row is its project-relative path"
     );
+}
+
+#[test]
+fn local_branches_nest_on_slash() {
+    let git = GitView::new(
+        vec![
+            RefRow::new(RefSection::Local, "main").current(),
+            RefRow::new(RefSection::Local, "feature/things"),
+            RefRow::new(RefSection::Local, "feature/other"),
+            RefRow::new(RefSection::Local, "fix/terminal-refit"),
+        ],
+        Vec::new(),
+    );
+    let tree = git.ref_tree(RefSection::Local);
+    let labels: Vec<&str> = tree.iter().map(|row| row.label.as_str()).collect();
+    assert_eq!(
+        labels,
+        vec![
+            "feature",
+            "other",
+            "things",
+            "fix",
+            "terminal-refit",
+            "main"
+        ]
+    );
+    assert!(matches!(
+        tree[0].kind,
+        RefTreeKind::Folder {
+            open: true,
+            leaves: 2,
+            ..
+        }
+    ));
+    assert_eq!(tree[1].depth, 1);
+    assert_eq!(tree[2].depth, 1);
+}
+
+#[test]
+fn remotes_nest_under_the_remote_then_the_rest() {
+    let git = GitView::new(
+        vec![
+            RefRow::new(RefSection::Remotes, "origin/main"),
+            RefRow::new(RefSection::Remotes, "origin/feature/things"),
+        ],
+        Vec::new(),
+    );
+    let tree = git.ref_tree(RefSection::Remotes);
+    let labels: Vec<&str> = tree.iter().map(|row| row.label.as_str()).collect();
+    assert_eq!(labels, vec!["origin", "feature", "things", "main"]);
+    assert_eq!(tree[0].depth, 0);
+    assert_eq!(tree[1].depth, 1);
+    assert_eq!(tree[2].depth, 2);
+    assert_eq!(tree[3].depth, 1);
+}
+
+#[test]
+fn a_shut_folder_hides_its_children() {
+    let mut git = GitView::new(
+        vec![
+            RefRow::new(RefSection::Local, "feature/things"),
+            RefRow::new(RefSection::Local, "feature/other"),
+        ],
+        Vec::new(),
+    );
+    git.toggle_folder(RefSection::Local, "feature");
+    let tree = git.ref_tree(RefSection::Local);
+    assert_eq!(tree.len(), 1);
+    assert!(matches!(
+        tree[0].kind,
+        RefTreeKind::Folder { open: false, .. }
+    ));
+}
+
+#[test]
+fn a_ref_finds_the_commit_it_points_at() {
+    let mut git = view();
+    git.refs[0].target = "9f3a10c".into();
+    git.commits[0].refs = vec!["main".into()];
+    assert_eq!(git.commit_index_for_ref(0), Some(0));
 }
 
 fn who(time: i64) -> GitWho {

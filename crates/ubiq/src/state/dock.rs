@@ -20,6 +20,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use ubiq_proto::ids::PaneId;
 
+use crate::state::RailMode;
+
 /// One chat tab's identity, minted the way [`ubiq_proto::work::AgentId::generate`] mints
 /// one — the counter is local rather than the contract's because a chat tab is UI arrangement,
 /// never a fact the host is told. Carried in the dock's payload exactly as a pane's id is, so a
@@ -95,6 +97,8 @@ pub struct Visibility {
     pub is_ide: bool,
     /// The window is pointed at a project.
     pub has_project: bool,
+    /// The current rail mode (for git panels).
+    pub rail_mode: Option<crate::state::RailMode>,
     /// This panel's pane belongs to the project on screen. Meaningless for anything but a terminal.
     pub pane_on_screen: bool,
     /// This panel's file is one of the project's open tabs. Meaningless for anything but a file.
@@ -117,6 +121,9 @@ pub struct Visibility {
 /// graph in Orchestration mode, the board in Tasks mode, and the empty page otherwise. In IDE mode
 /// it is the page that says no file is open — as soon as one is, the file panels are the centre and
 /// it steps aside.
+///
+/// Git panels: refs explorer, changes panel, history panel, diff panel. These are movable panels
+/// that replace the monolithic git screen, allowing IDE-like arrangement.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum PanelKind {
     Terminal(PaneId),
@@ -134,6 +141,14 @@ pub enum PanelKind {
     /// The definitions in the file on screen. Answered from the buffer, so unlike `Search` it
     /// wants no project — only a file.
     Outline,
+    /// Git refs explorer: branches, remotes, tags, stashes, submodules.
+    GitRefs,
+    /// Git changes panel: staged/unstaged/conflicted files and commit message box.
+    GitChanges,
+    /// Git commit history panel: commit graph with search and filters.
+    GitHistory,
+    /// Git diff viewer panel: shows diff for selected file/commit.
+    GitDiff,
 }
 
 impl PanelKind {
@@ -153,7 +168,11 @@ impl PanelKind {
             | PanelKind::Logs
             | PanelKind::Search
             | PanelKind::Outline
-            | PanelKind::Chat(_) => PanelClass::Free,
+            | PanelKind::Chat(_)
+            | PanelKind::GitRefs
+            | PanelKind::GitChanges
+            | PanelKind::GitHistory
+            | PanelKind::GitDiff => PanelClass::Free,
             PanelKind::Explorer => PanelClass::Edge,
             PanelKind::Centre | PanelKind::File(_) => PanelClass::Centre,
         }
@@ -167,6 +186,11 @@ impl PanelKind {
             PanelKind::Explorer | PanelKind::Outline => Region::Left,
             PanelKind::Chat(_) => Region::Right,
             PanelKind::Centre | PanelKind::File(_) => Region::Centre,
+            // Git panels default to left/right edges for IDE-like layout
+            PanelKind::GitRefs => Region::Left,
+            PanelKind::GitChanges => Region::Right,
+            PanelKind::GitHistory => Region::Centre,
+            PanelKind::GitDiff => Region::Centre,
         }
     }
 
@@ -186,6 +210,10 @@ impl PanelKind {
             PanelKind::File(_) => "ubiq.file",
             PanelKind::Search => "ubiq.search",
             PanelKind::Outline => "ubiq.outline",
+            PanelKind::GitRefs => "ubiq.git.refs",
+            PanelKind::GitChanges => "ubiq.git.changes",
+            PanelKind::GitHistory => "ubiq.git.history",
+            PanelKind::GitDiff => "ubiq.git.diff",
         }
     }
 
@@ -204,6 +232,10 @@ impl PanelKind {
             "ubiq.centre" => Some(PanelKind::Centre),
             "ubiq.search" => Some(PanelKind::Search),
             "ubiq.outline" => Some(PanelKind::Outline),
+            "ubiq.git.refs" => Some(PanelKind::GitRefs),
+            "ubiq.git.changes" => Some(PanelKind::GitChanges),
+            "ubiq.git.history" => Some(PanelKind::GitHistory),
+            "ubiq.git.diff" => Some(PanelKind::GitDiff),
             _ => None,
         }
     }
@@ -253,13 +285,39 @@ impl PanelKind {
             PanelKind::Chat(_) => at.is_ide && at.has_project,
             PanelKind::Terminal(_) => at.pane_on_screen,
             PanelKind::Logs => true,
-            PanelKind::Centre => !at.is_ide || !at.any_file_open,
+            // In Git the history and the diff are the centre, so this panel — the mode page —
+            // steps aside while a project is on screen. Without a project the git panels have
+            // nothing to show, and this is the empty page that says so.
+            PanelKind::Centre => {
+                if matches!(at.rail_mode, Some(RailMode::Git)) && at.has_project {
+                    false
+                } else {
+                    !at.is_ide || !at.any_file_open
+                }
+            }
             PanelKind::File(_) => at.is_ide && at.file_open,
             PanelKind::Search => at.is_ide && at.has_project,
             // No project clause: a file dropped in from outside every project still has an
             // outline, because the buffer is the whole input.
             PanelKind::Outline => at.is_ide && at.any_file_open,
+            // Git panels are drawn in Git rail mode with a project
+            PanelKind::GitRefs
+            | PanelKind::GitChanges
+            | PanelKind::GitHistory
+            | PanelKind::GitDiff => at.has_project && matches!(at.rail_mode, Some(RailMode::Git)),
         }
+    }
+
+    /// Whether this panel belongs to Git mode rather than to the window.
+    ///
+    /// The refs, the changes, the history and the diff travel with Git's own saved arrangement.
+    /// Putting one back into another mode's tree would open that mode's edges for a panel it
+    /// hides — so leftover restore skips them, and a first visit to Git asks for them again.
+    pub fn is_git(&self) -> bool {
+        matches!(
+            self,
+            PanelKind::GitRefs | PanelKind::GitChanges | PanelKind::GitHistory | PanelKind::GitDiff
+        )
     }
 
     /// Whether the panel's tab offers a close. A terminal's close kills its harness, a file's
@@ -275,6 +333,10 @@ impl PanelKind {
                 | PanelKind::Search
                 | PanelKind::Outline
                 | PanelKind::Chat(_)
+                | PanelKind::GitRefs
+                | PanelKind::GitChanges
+                | PanelKind::GitHistory
+                | PanelKind::GitDiff
         )
     }
 }
