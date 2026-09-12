@@ -193,14 +193,16 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                     .h(px(GROUP_LABEL * zoom))
                     .px(px(8.0 * zoom))
                     .bg(theme::pane_bg())
-                    .child(
-                        mono(task.shape.label(), theme::text_faint())
-                            .text_size(theme::font(Family::Chrome, Role::Micro) * zoom),
-                    )
-                    .child(
+                    // The shape and the separator after it go together: a task nobody has shaped
+                    // draws neither, rather than a title behind a dot with nothing in front of it.
+                    .children(task.shape.map(|shape| {
+                        mono(shape.label(), theme::text_faint())
+                            .text_size(theme::font(Family::Chrome, Role::Micro) * zoom)
+                    }))
+                    .children(task.shape.map(|_| {
                         mono("\u{b7}", theme::text_faint())
-                            .text_size(theme::font(Family::Chrome, Role::Micro) * zoom),
-                    )
+                            .text_size(theme::font(Family::Chrome, Role::Micro) * zoom)
+                    }))
                     .child(
                         mono(task.title.clone(), theme::text_muted())
                             .text_size(theme::font(Family::Chrome, Role::Meta) * zoom),

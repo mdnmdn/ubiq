@@ -7,7 +7,7 @@ summary: The window's shell — the activity rail and its modes, the dock of mov
 read_when: you are changing the window layout, a rail mode, where a panel may sit or when it is drawn, the explorer, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, capturing the window or annotating a capture, saving a file, the Git screen's refs, history, change lists or diff, the agents screen's columns, what a tab drag means or what the bench is, the orchestration screen's graph, how it arranges itself, its inspector or its tasks, the tasks board's columns, cards or task panel, the kitchen sink's pages or fixtures, the file picker a screen raises to choose a path, cloning a project, application settings, vim mode, or the status bar
 updated: 2026-09-12
 verified: 2026-09-12
-code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/tests/image_gestures.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/app/sink.rs, crates/ubiq/src/state/a2ui.rs, crates/ubiq/src/ui/a2ui.rs, crates/ubiq/src/ui/sink/a2ui.rs, crates/ubiq/tests/a2ui.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/stats.rs, crates/ubiq/src/ui/stats.rs, crates/ubiq/src/app/stats.rs, crates/ubiq/tests/stats.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/app/new_agent.rs, crates/ubiq/src/ui/new_agent.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/app/graph.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/ui/web_view.rs, crates/ubiq/src/ui/viewer/web.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/state/web_panel.rs, crates/ubiq/src/app/explorer.rs, crates/ubiq/src/state/explorer/menu.rs, crates/ubiq/src/ui/file_dialog.rs]
+code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/tests/image_gestures.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/app/sink.rs, crates/ubiq/src/state/a2ui.rs, crates/ubiq/src/state/a2ui/value.rs, crates/ubiq/src/state/a2ui/eval.rs, crates/ubiq/src/state/a2ui/action.rs, crates/ubiq/src/state/a2ui/live.rs, crates/ubiq/src/state/a2ui/svg.rs, crates/ubiq/src/state/a2ui/path.rs, crates/ubiq/src/state/a2ui/ubiq-catalog.json, crates/ubiq/src/ui/a2ui.rs, crates/ubiq/src/ui/a2ui/registry.rs, crates/ubiq/src/ui/a2ui/svg.rs, crates/ubiq/src/ui/a2ui/path.rs, crates/ubiq/src/ui/sink/a2ui.rs, crates/ubiq/tests/a2ui.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/stats.rs, crates/ubiq/src/ui/stats.rs, crates/ubiq/src/app/stats.rs, crates/ubiq/tests/stats.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/app/new_agent.rs, crates/ubiq/src/ui/new_agent.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/app/graph.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/ui/web_view.rs, crates/ubiq/src/ui/viewer/web.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/state/web_panel.rs, crates/ubiq/src/app/explorer.rs, crates/ubiq/src/state/explorer/menu.rs, crates/ubiq/src/ui/file_dialog.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
 ---
@@ -507,37 +507,52 @@ orchestration screen's own rather than the chat's or a column's.
 **The board and the graph are two views of one set of tasks.** The graph answers "who is doing
 what"; the board answers "what is there, and where has it got to" — the same tasks, at the scale of
 the project rather than of one session. Nothing is copied between them, and the one set is the
-host's, held per project: a task ticked on the board is ticked in the drawer under the graph, and
-`Show in graph` is one click because the two screens are two questions about one set of facts.
+host's, held per project: a task ticked on the board is ticked in the drawer under the graph, because
+the two screens are two questions about one set of facts.
 
 **A project's sessions and agents are the host's mocks; its tasks are written down.** The mock is
 minted per project and made again at every boot, so nothing an agent says outlives the process. A
-task belongs to the project instead: it survives the window that made it and the restart after it. A
-project's tasks are seeded from the fixture exactly once — an absent store and an empty one are
-different things, so a user who deletes every task gets an empty board back rather than the fixture
-again — and where that is kept and how is `D39`'s, not this document's.
+task belongs to the project instead: it survives the window that made it and the restart after it.
 
-**A column is a stage, and a card only ever changes column.** Backlog, ready, in progress, in
-review, done: moving a card changes where the work has got to and nothing else about it. Each column
-carries its own count and a dot in the token that means what the stage means — nothing yet, queued,
-moving, waiting on a person, over.
+**A new project's board is empty**, and its file is written anyway. An absent store and an empty one
+are different things — the second is a board a user emptied, and it stays empty at the next boot.
+Where that is kept and how is `D39`'s, not this document's.
 
-**A card is filed, not placed.** Unlike the graph's canvas, the column *is* the drop target: a
-label follows the pointer while the card stays where it is, the column under the pointer lights up,
-and the box that took the drop is the answer. A drag that ends anywhere else changes nothing, and
-the card is left in the column it came from.
+**A column is a stage, and a card only ever changes column or its place in one.** Backlog, ready, in
+progress, in review, done: moving a card changes where the work has got to and nothing else about
+it. Each column carries its own count and a dot in the token that means what the stage means —
+nothing yet, queued, moving, waiting on a person, over.
+
+**A card is filed, and filed in a place.** Unlike the graph's canvas, the column *is* the drop
+target: a label follows the pointer while the card stays where it is, the column under the pointer
+lights up, and a bar is drawn in the gap the card would land in — between two cards, or under the
+last one. A drag that ends anywhere else changes nothing, and the card is left where it came from.
+
+**The drop names the card it lands in front of, not a position.** The board filters, so counting
+cards would count only the ones on screen and land the drop above however many are hidden. Dropping
+below the last card, or into an empty column, is the end of that column. Reordering inside one column
+is the same act as moving between two, and neither disturbs the order of any other column.
 
 **A column shuts to a strip and a card shuts to its title.** A board is read by ignoring most of it,
 so both fold: a shut column keeps its dot, its count and its name written downwards, and still takes
-a drop; a folded card keeps its shape, its title and whose session it is. Neither is a filter —
-what is shut is still counted.
+a drop; a folded card keeps its title and the marks a board is scanned by — its key, its kind, its
+labels and its priority — and drops the progress and the agent line. Neither is a filter — what is
+shut is still counted.
 
-**One field finds work and names it.** The filter matches on what a card actually prints, its title
-and its session, and `New task` names the next one after whatever is in that field — so typing to
-look for a card that turns out not to exist is already most of making it. The new task lands in the
-backlog, in the session the pills are on, and the field clears rather than leaving the board
-filtered down to the one card just asked for. `New task` cannot select what it asked for, because
-the id is the host's to mint: the task that arrives is the one selected.
+**One field finds work and names it.** The filter searches a task whole — its title, its
+description, its key, its kind, its labels and its session — because a card that cannot be found by
+something written on it is a card that has been lost. Two prefixes narrow it to one field: `key:`
+matches only the key, so a task is found by the id a human says out loud, and `#` matches only the
+labels. `New task` names the next one after whatever is in that field — so typing to look for a card
+that turns out not to exist is already most of making it. The new task lands in the backlog, in the
+session the pills are on, and the field clears rather than leaving the board filtered down to the one
+card just asked for. `New task` cannot select what it asked for, because the id is the host's to
+mint: the task that arrives is the one selected.
+
+**The labels are pills in the toolbar, and they narrow rather than widen.** One pill per label the
+project actually uses, in that label's own colour; turning two on asks for the cards carrying both.
+They stack with the field and the session pills, and the reset that clears all three appears only
+once something is filtered — the graph toolbar's posture, for the graph toolbar's reason.
 
 **A card carries the worst thing happening in its task.** Its left edge is the state the user would
 want to be told first: a failed sub-task beats one waiting on a person, which beats one moving. The
@@ -545,18 +560,51 @@ line under it names the agent the task speaks through — the coordinator of a c
 whoever is holding it now for any other shape — and clicking that name opens its conversation. A
 task nobody has started says so, and counts its sub-tasks instead.
 
-**The task panel reports one task whole, and edits it in place.** Its session and whether that
-session is a worktree, its shape in a sentence, who it speaks through, its description, and every
-sub-task with the agent that has it and where that has got to. Ticking one is a change to the task
-rather than to the view of it; unticking lands on idle, because nothing here can know what its owner
-would go back to doing.
+**A card draws what it has and nothing for what it has not.** Its key, its kind and its labels sit
+across the top with the priority; its shape and its session sit at the foot; and every one of them
+is absent when it is unset, taking its space with it. When neither the shape nor the session is set
+the foot is not drawn at all, rather than a row of two absences. This is `Priority::Normal`'s rule —
+the one value with no word — applied to every optional fact on the record: a board where every card
+recites what it does not know says nothing.
+
+**The task panel reports one task whole, and edits it in place.** Where it has got to and how much
+it matters share the top line, the first written where a column is named and the second right up
+against the other edge, because those are the two questions asked of a card before any other. Under
+them the facts that identify it — its key, its kind, the issue it stands for and its labels — then
+its description, then every sub-task with the agent that has it and where that has got to. Ticking
+one is a change to the task rather than to the view of it; unticking lands on idle, because nothing
+here can know what its owner would go back to doing. **A sub-task nobody has picked up says nothing
+about its state**: idle is the absence of news, and a list that writes it out once per line is a list
+that has to be read to find the one line that is not idle.
+
+**The shape and the session are at the foot, and both may be unset.** They describe how the work will
+be done rather than what it is, which is the last thing looked at and the first thing not yet
+decided — and neither drives anything live yet. A shape nobody chose is nothing, not `DIRECT`: `not
+set` is a pill in the row beside the three, the way handing a task to no session at all is a row in
+that picker rather than an absence the user has to find the way back to.
 
 **The form edits everything about a task except where it has got to.** Its title, its description,
-its priority, its shape and the session it belongs to, and its sub-tasks — added at the foot of the
-list, renamed in place, ticked and removed. Priority and shape are rows of pills, which are the
-report and the control at once because each has three fixed values; the session is a picker, because
-that list is as long as the project has sessions and it grows. Handing a task to no session at all
-is a row in that picker rather than an absence the user has to find the way back to.
+its priority, its key, its kind, its link, its labels, its shape and its session, and its sub-tasks —
+added at the foot of the list, renamed in place, ticked and removed. Priority, kind and shape are
+rows of pills, which are the report and the control at once because each has a handful of fixed
+values; the session is a picker, because that list is as long as the project has sessions and it
+grows.
+
+**A label is named once and offered ever after.** Adding one lists every label the project already
+uses before offering to make a new one, because two cards spelled `infra` and `Infra` are two labels
+and neither filter finds both. A new label is a name and one of the swatches a project is identified
+by — the same sixteen, so the board and the picker read in one vocabulary. The suggestions are
+derived from the cards themselves; there is no list of labels kept anywhere, so a label stops
+existing when the last card carrying it lets it go.
+
+**The link is a string the user pastes, and nothing more.** Ubiq reads the host out of it to pick a
+glyph — Azure DevOps, Jira, GitHub, or a plain link for anything else — and never fetches it, parses
+it or keeps anything in step with it. A task standing for an issue somewhere else is a fact worth
+writing down long before Ubiq could do anything with it.
+
+**A task's key is the one a human says out loud.** Every task already has an id; nobody can read it.
+The key is the user's own — `UBQ-123`, `#4711`, whatever their tracker calls it — and `key:` in the
+filter finds a card by it.
 
 **One field is open at a time.** The panel is a report first, and a panel where every field is a
 text box has stopped reporting. A field opens on a click and closes on a commit.
@@ -588,8 +636,8 @@ rather than instead of it, so Save is still there and the draft is not lost, and
 the draft rather than the record: seeing what has just been typed is the point of the control. A
 task with no description says so rather than dropping the section, on the rule the status bar and
 the explorer's git marks both follow. On a **card** it is one mark saying a description exists and
-nothing more — what a card carries is fixed, and a folded card keeps only its shape, its title and
-whose session it is.
+nothing more — what a card carries is fixed, and a folded card keeps only its title and the marks it
+is scanned by.
 
 **Every change is a message, and the card says it is waiting.** Nothing on either screen writes to
 the work: a field sends, the host answers, and the panel goes on reporting the task the host last
@@ -607,11 +655,11 @@ unanswered delete question — so nothing is left in a state that cannot resolve
 host confirms clears the sentence: a report about a change that did not happen is stale the moment
 one does.
 
-**Both ways out of a task lead to a screen over the agents, and they lead to different ones.**
-`Show in graph` switches to Orchestration and points the graph at whoever is doing the task;
-`Open …'s chat` switches to Agents and reveals that agent in a column, because a conversation is what
-was asked for. A task the user wants to intervene in is a conversation with an agent, and the
-conversation is a column.
+**The one way out of a task is the conversation.** `Open …'s chat` switches to Agents and reveals
+that agent in a column, because a task the user wants to intervene in is a conversation with an
+agent, and the conversation is a column. There was a second button here that pointed the graph at
+whoever was doing the task; it went because the graph answers "who is doing what" and a user reading
+one task is not asking that — the rail reaches the graph in one click for the user who is.
 
 **The Git screen is what version control knows, whole.** The refs down the left, the history in the
 middle, the uncommitted changes on the right and the comparison under both. It is the same facts
@@ -1980,21 +2028,70 @@ modal is drawn in belongs to the UI-and-design document, linked below, with ever
 **The A2UI page draws a surface an agent could send, from the JSON beside it.** A2UI is a protocol
 Ubiq does not own — `_docs/references/a2ui-protocol.md` is its wire and
 `_docs/references/a2ui-catalog.md` its component set — and this page is where the renderer for it is
-looked at before any agent drives one. A picker of example payloads sits over an editor on the
-right; the left is what `state::a2ui::parse` made of whatever that editor holds, re-read every
-frame, so a keystroke that breaks the JSON replaces the drawing with the reason rather than with an
-empty pane. Four of the five payloads are upstream conformance fixtures and the fifth is written
-here, and the page says which is which, because whether the renderer handles real agent output turns
-on it.
+looked at before any agent drives one. A picker of seven example payloads sits over an editor on the
+right; the left is what `state::a2ui::parse` made of whatever that editor holds, re-read when the
+buffer changes rather than on every frame. Four of the seven are upstream conformance fixtures and
+three are written here, and the page says which is which, because whether the renderer handles real
+agent output turns on it.
 
-**The surface's inputs are inert, and its navigation is not.** A2UI carries values in a data model
-addressed by JSON Pointer; nothing here parses one, so a text field, a checkbox and a slider each
-draw what the payload says they hold and a keystroke goes nowhere — a bound property draws the
-pointer it names rather than a value it cannot resolve. Tabs and modals do respond, because where a
-reader has navigated to is not a value the agent is owed, and both are keyed by component id and
-dropped when the example changes. Two components draw a placeholder rather than themselves: GPUI has
-no video or audio element, so `Video` and `AudioPlayer` report their URL, and `Image` does the same
-because no fetch belongs on this screen.
+**A payload that stops parsing puts the reason above the last surface that did, rather than in place
+of it.** The banner is the whole of the report, and the drawing under it stays: dropping the surface
+would drop every field buffer with it and throw away what the reader typed into the drawing, which
+is exactly what a half-finished keystroke in the editor must not cost. A payload that *does* parse
+resets the data model instead of merging into it, because the payload carries one.
+
+**The surface's inputs are live, and every write lands in the data model.** A2UI carries values in a
+data model addressed by JSON Pointer, and `state/a2ui/value.rs` is that pointer: it reads, it
+writes, it creates the objects and arrays a path passes through, `-` appends to an array and a null
+removes. `state/a2ui/eval.rs` is what a bound property resolves through — a literal is itself, a
+`{"path": …}` is a lookup, and a `{"call": …}` is one of the catalog's fourteen functions, plus the
+reserved `@index`. Every keystroke, tick, choice and nudge funnels through the single mutator in
+`state/a2ui/live.rs`, so every other component bound to that pointer redraws with it.
+
+**A text input costs an entity; nothing else does.** One `Entity<InputState>` per text field, in a
+map keyed by component id, allocated when the payload is re-parsed and never during a render, with
+its subscription parked in the same map — so clearing the map is the whole teardown. A checkbox, a
+choice and a slider are clicks and hold no entity. Tabs and modals are keyed by component id the
+same way, because where a reader has navigated to is not a value the agent is owed.
+
+**A templated list expands once per item the pointer finds, and a relative path resolves against
+that item.** A `TextField` bound to `qty` inside a row over `/items` writes `/items/2/qty` in the
+third row, so a template is as live as the components it repeats rather than a drawing made once.
+
+**A button is checked before it is reported, and a function call is reported rather than
+performed.** A click evaluates every `checks` rule in the surface; a failing one blocks the action
+and its message is drawn under the input that refused it. Otherwise the event's `context` is
+resolved against the component's own scope and `state/a2ui/action.rs` builds the envelope the agent
+would receive — the action's name, the surface and source ids, a timestamp, the resolved context and
+the optional `userMessage`, with the whole data model as a top-level sibling when the surface asked
+for one. An action carrying a `functionCall` is reported and never carried out: `openUrl` opens
+nothing, which is `D115`.
+
+**The component set is a registry rather than a closed enum, and Ubiq ships a catalog of its own.**
+`ui/a2ui/registry.rs` is a table of name against drawing function; a component in neither the basic
+catalog nor that table keeps its props and draws a placeholder. What the table is held to is
+`crates/ubiq/src/state/a2ui/ubiq-catalog.json`, embedded in the binary, which extends the basic
+catalog with exactly one component — `Svg` — and which `crates/ubiq/tests/a2ui.rs` checks the
+registry against name for name. `D114` is why there are two sources of truth and one test between
+them.
+
+**Two routes draw vector art, and which one a payload takes is a security question.** `Svg` carries
+markup, so `state/a2ui/svg.rs` runs an allow-list scanner over it before anything is drawn —
+refusing script, foreign objects, references out of the document, any event attribute, external
+`url()`, data URIs, doctypes and entities, anything over the size or element ceiling, and anything
+with no usable `viewBox` — and what survives is handed to GPUI as an image sized from that
+`viewBox`, with `currentColor` taking the text token. A refusal is **drawn**, never blank, and the
+Ubiq-catalog example carries one on purpose so a reader sees what a refusal looks like. The basic
+catalog's `Icon` takes the other route: `state/a2ui/path.rs` parses its `svgPath` and
+`ui/a2ui/path.rs` paints it on a canvas. That route needs no scanner at all, which is the reason
+both exist — a path string can express geometry and nothing else.
+
+**Under the editor sit the two things a surface is judged by.** A Data model tab draws the live
+model as it is typed into, and an Actions tab stacks the envelopes newest first with a control to
+clear them, so what a click would have sent is read on the page rather than inferred from it. Three
+components still draw a placeholder rather than themselves: GPUI has no video or audio element, so
+`Video` and `AudioPlayer` report their URL, and `Image` does the same, because a drawn surface
+fetches nothing.
 
 **The settings pages are layouts, not a settings screen.** Application settings is a left nav of
 kit rows — Appearance, Harnesses, Agent defaults, and the three quieter destinations — and a body
@@ -2153,7 +2250,7 @@ saying no file is open, because the files are panels of their own:
 | Task panel | `ui/board/detail.rs` | The board, right | `TASK_PANEL_WIDTH`, fixed | `BoardState::selected`, `show_detail` and `editing`, and the window's four form entities |
 | Kitchen sink | `ui/sink/mod.rs` | The centre panel in Sink mode, project or no project | Fills it; its page strip takes the tab strip's own height | `SinkState`, on the window rather than on a project |
 | Sink documents | `ui/sink/docs.rs` | The kitchen sink, on four of its ten pages | Fills it | The fixture in `state/sink.rs` its page names, and the window's buffer for it |
-| A2UI surface | `ui/sink/a2ui.rs`, drawn by `ui/a2ui.rs` | The kitchen sink, on its last page | Fills it; the preview half scrolls | `SinkState::a2ui`, and the window's `a2ui_buffer` |
+| A2UI surface | `ui/sink/a2ui.rs`, drawn by `ui/a2ui/` | The kitchen sink, on its last page | Fills it; the preview half scrolls, and the model-and-actions pane sits under the editor | The live surface in `state/a2ui/live.rs` — its data model, its per-field entities and its action log — reached through `SinkState::a2ui`, over the window's `a2ui_buffer` |
 | Style reference | `ui/sink/style.rs` | The kitchen sink, on its fifth page | Fills it; scrolls | `SinkState`, and the theme itself |
 | Picker page | `ui/sink/files.rs` | The kitchen sink, on its sixth page | Fills it; scrolls | `SinkState::picker`, and the fixture tree in `state/sink.rs` |
 | Settings | `ui/sink/settings.rs` | The kitchen sink, on its seventh page | Fills it; nav plus a scrolling body | `SinkState::settings`, and the window's settings fields |
@@ -2757,8 +2854,8 @@ nothing itself; `close_all_conversations()` is `bench_agent()` for every tab in 
 `render` for the reason `fill_task_form()` is: `set_placeholder` and `set_value` both need a window,
 and an arriving message, a project switch and a jump from another screen have none. `MenuId::AgentBench`
 carries the column its `+` was clicked in, because a row of columns has one each and only one menu
-may be open. `open_task_chat()` reveals an agent and switches to Agents mode; `show_task_in_graph()`
-switches to Orchestration.
+may be open. `open_task_chat()` reveals an agent and switches to Agents mode, and it is the one way
+out of a task now that the board's panel no longer offers the graph.
 `ui/agents/mod.rs` is the frame — the sidebar, the header strip, the row of columns and the drop
 strip at the end — `sidebar.rs` is the list, and `column.rs` is one column, from its tab strip to its
 composer.
@@ -3053,7 +3150,7 @@ bytes have not landed. `app/editor.rs` applies that goto once the contents arriv
 reload restore rather than folded into it, so the asked-for line wins the caret instead of being
 scrolled back by the restore. `mark_bookmarks()` runs on the same arrival,
 re-stamps what moved and lights what it found through one `TextDecorationCollection` per buffer.
-`show_task_in_graph()` and `open_task_chat()` in `app/board.rs` are two `navigate()` calls.
+`open_task_chat()` in `app/board.rs` is a `navigate()` call.
 `ViewPrefs` carries `bookmarks` and `recents`, both defaulted and written through `store_prefs()`;
 `graph_scroll` on `AppState` is the tracked handle a `Viewport` locus reads and writes.
 `state/navigator.rs` builds the rows in a free `rows()` naming neither `AppState` nor a window, and

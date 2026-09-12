@@ -1739,7 +1739,7 @@ impl Coordinator {
             }
 
             // ── the work family ─────────────────────────────────────
-            // Thirteen arms and one helper. Every one names a project, and none of them touches a
+            // Fourteen arms and one helper. Every one names a project, and none of them touches a
             // user's folder — a task file lives under Ubiq's own config root, which the catalogue
             // and the view state already write from this thread.
             Message::ListWork { project_id } => {
@@ -1760,19 +1760,28 @@ impl Coordinator {
                 title,
                 description,
                 priority,
-                shape,
             } => {
                 self.work_job(client, project_id, |work| {
-                    work.update(project_id, task_id, title, description, priority, shape)
+                    work.update(project_id, task_id, title, description, priority)
+                });
+            }
+            Message::SetTaskField {
+                project_id,
+                task_id,
+                field,
+            } => {
+                self.work_job(client, project_id, |work| {
+                    work.set_field(project_id, task_id, field)
                 });
             }
             Message::MoveTask {
                 project_id,
                 task_id,
                 status,
+                before,
             } => {
                 self.work_job(client, project_id, |work| {
-                    work.move_task(project_id, task_id, status)
+                    work.move_task(project_id, task_id, status, before)
                 });
             }
             Message::AssignTask {

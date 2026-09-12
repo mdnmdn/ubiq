@@ -15,9 +15,9 @@ use ubiq_proto::bus::{self, Client, FromClient, Hub};
 use ubiq_proto::conversation::{ConfigCategory, ConfigOption, ConfigValue, ConvUpdate};
 use ubiq_proto::files::{DiffBase, DiffRowKind, FileError, FileVersion};
 use ubiq_proto::ids::{PaneId, ProjectId, SessionId};
-use ubiq_proto::messages::{AgentPicks, Message};
+use ubiq_proto::messages::{AgentPicks, Message, TaskField};
 use ubiq_proto::settings::{HostSettings, SettingsLayer};
-use ubiq_proto::work::AgentId;
+use ubiq_proto::work::{AgentId, Kind, Label, Shape, Status};
 
 /// Long enough for a process to start and say something on a loaded machine.
 // Generous: model discovery for a harness like Claude Code now joins two live probes
@@ -760,11 +760,12 @@ fn a_work_listing_answers_the_fixture_for_the_project_that_asked() {
     ui.send(Message::ListWork { project_id });
 
     let (sessions, agents, tasks) = expect_work_list(&ui, project_id);
-    // The seed a project that never wrote a `tasks.toml` starts with, whole and in one reply: the
-    // graph draws a card and the session it names in the same frame.
+    // The invented half a project that never wrote a `tasks.toml` starts with, whole and in one
+    // reply: the graph draws a card and the session it names in the same frame. Tasks are not
+    // invented — a new board starts empty.
     assert_eq!(sessions.len(), 5);
     assert_eq!(agents.len(), 11);
-    assert_eq!(tasks.len(), 10);
+    assert!(tasks.is_empty());
 }
 
 #[test]
@@ -786,7 +787,6 @@ fn a_task_is_created_and_then_changed_over_the_bus() {
         title: Some("Name the events".to_string()),
         description: Some("## Why\n\nthe poll is the wrong shape".to_string()),
         priority: None,
-        shape: None,
     });
 
     let changed = expect_task_changed(&ui);
@@ -846,7 +846,6 @@ fn a_task_change_reaches_only_the_window_that_asked() {
         title: Some("still for the asker".to_string()),
         description: None,
         priority: None,
-        shape: None,
     });
     assert_eq!(expect_task_changed(&ui).title, "still for the asker");
 
@@ -903,7 +902,9 @@ fn a_project_arrives_with_a_workarea_the_host_reserves_and_leaves_alone() {
         .join("projects")
         .join(project.to_string())
         .join("tasks.toml");
-    wait_for_body(&path, "[[task]]");
+    // A new project's board is empty, so this is the file the absent-file rule writes down
+    // immediately rather than any seeded task.
+    wait_for_body(&path, "version = 1");
     assert_eq!(
         std::fs::read_dir(&expected).unwrap().count(),
         0,
@@ -1163,12 +1164,16 @@ fn expect_project_list(ui: &Client) -> Vec<ubiq_proto::projects::ProjectSnapshot
     }
 }
 
-/// A project's first look at the board writes its tasks down, and an edit lands in the same file.
+/// A project's first look at the board writes its tasks down, and every edit lands in the same
+/// file.
 ///
-/// The whole path in one test: a window asks over the bus, the host seeds the fixture, the file
-/// store writes it to `projects/<ulid>/tasks.toml`, and a later `UpdateTask` is in those bytes
-/// afterwards. Everything else here runs on the memory stores, so this is the only thing that
-/// proves the layout and the format are what the documentation says.
+/// The whole path in one test, end to end over the bus: a project's first `ListWork` writes an
+/// empty board down at `projects/<ulid>/tasks.toml` — the "absent file versus empty file"
+/// distinction the whole seeding rule rests on — and everything a window can then do to a task,
+/// `CreateTask`, `UpdateTask`, `SetTaskField` for each of the five optional facts, and a `MoveTask`
+/// carrying a `before` anchor, is durably in those bytes afterwards. Everything else here runs on
+/// the memory stores, so this is the only thing that proves the on-disk layout and format are what
+/// the documentation says.
 #[test]
 fn a_first_listing_writes_the_project_tasks_where_the_layout_says() {
     let (_hub, ui, root) = coordinator_on_disk();
@@ -1179,44 +1184,132 @@ fn a_first_listing_writes_the_project_tasks_where_the_layout_says() {
         project_id: project,
     });
     let (_, _, tasks) = expect_work_list(&ui, project);
-    assert_eq!(
-        tasks.len(),
-        10,
-        "the fixture is what a new project starts on"
-    );
+    assert!(tasks.is_empty(), "a new project's board starts empty");
 
     let path = root
         .join("projects")
         .join(project.to_string())
         .join("tasks.toml");
-    let body = wait_for_body(&path, "[[task]]");
+    let body = wait_for_body(&path, "version = 1");
     assert!(
-        body.contains("version = 1"),
-        "the envelope carries the version a migration would read: {body}"
-    );
-    assert_eq!(
-        body.matches("[[task]]").count(),
-        10,
-        "one array entry per task"
-    );
-    assert!(
-        body.contains("## Why"),
-        "and the seeded markdown is in the file as it was written: {body}"
+        !body.contains("[[task]]"),
+        "an empty board has no task entries: {body}"
     );
 
+    // `CreateTask` puts a card in the file.
+    ui.send(Message::CreateTask {
+        project_id: project,
+        title: "first".to_string(),
+        session: None,
+    });
+    let first = expect_task_created(&ui);
+    ui.send(Message::CreateTask {
+        project_id: project,
+        title: "second".to_string(),
+        session: None,
+    });
+    expect_task_created(&ui);
+    ui.send(Message::CreateTask {
+        project_id: project,
+        title: "third".to_string(),
+        session: None,
+    });
+    let third = expect_task_created(&ui);
+    let body = wait_for_body(&path, "third");
+    assert_eq!(
+        body.matches("[[task]]").count(),
+        3,
+        "one array entry per task: {body}"
+    );
+
+    // `UpdateTask` changes the mandatory fields.
     ui.send(Message::UpdateTask {
         project_id: project,
-        task_id: tasks[0].id,
+        task_id: first.id,
         title: Some("Renamed over the bus".to_string()),
         description: None,
         priority: None,
-        shape: None,
     });
-    let changed = expect_task_changed(&ui);
-    assert_eq!(changed.title, "Renamed over the bus");
-
-    // Durable, not merely answered — the difference this whole half of the change is about.
+    expect_task_changed(&ui);
     wait_for_body(&path, "Renamed over the bus");
+
+    // `SetTaskField` changes each of the five optional facts, one message per fact.
+    ui.send(Message::SetTaskField {
+        project_id: project,
+        task_id: first.id,
+        field: TaskField::Key(Some("UBQ-42".to_string())),
+    });
+    expect_task_changed(&ui);
+    ui.send(Message::SetTaskField {
+        project_id: project,
+        task_id: first.id,
+        field: TaskField::Link(Some("https://tracker.example/UBQ-42".to_string())),
+    });
+    expect_task_changed(&ui);
+    ui.send(Message::SetTaskField {
+        project_id: project,
+        task_id: first.id,
+        field: TaskField::Kind(Some(Kind::Bug)),
+    });
+    expect_task_changed(&ui);
+    ui.send(Message::SetTaskField {
+        project_id: project,
+        task_id: first.id,
+        field: TaskField::Shape(Some(Shape::Chain)),
+    });
+    expect_task_changed(&ui);
+    ui.send(Message::SetTaskField {
+        project_id: project,
+        task_id: first.id,
+        field: TaskField::Labels(vec![
+            Label::new("urgent".to_string(), 1),
+            Label::new("blocked".to_string(), 2),
+        ]),
+    });
+    expect_task_changed(&ui);
+
+    let body = wait_for_body(&path, "[[task.label]]");
+    assert!(
+        body.contains("key = \"UBQ-42\""),
+        "the key is in the bytes: {body}"
+    );
+    assert!(
+        body.contains("link = \"https://tracker.example/UBQ-42\""),
+        "and the link: {body}"
+    );
+    assert!(body.contains("kind = \"Bug\""), "and the kind: {body}");
+    assert!(body.contains("shape = \"Chain\""), "and the shape: {body}");
+    assert_eq!(
+        body.matches("[[task.label]]").count(),
+        2,
+        "and both labels: {body}"
+    );
+    assert!(body.contains("name = \"urgent\""));
+    assert!(body.contains("name = \"blocked\""));
+
+    // `MoveTask` with a `before` anchor reorders the column, and the new order is what lands on
+    // disk. All three tasks are still in the backlog, so this is a reorder within one column: put
+    // `third` immediately before `first`.
+    ui.send(Message::MoveTask {
+        project_id: project,
+        task_id: third.id,
+        status: Status::Backlog,
+        before: Some(first.id),
+    });
+    expect_task_changed(&ui);
+
+    let body = wait_for_body(&path, "third");
+    let at = |needle: &str| {
+        body.find(needle)
+            .unwrap_or_else(|| panic!("{needle} not in {body}"))
+    };
+    let third_at = at("title = \"third\"");
+    let first_at = at("title = \"Renamed over the bus\"");
+    let second_at = at("title = \"second\"");
+    assert!(
+        third_at < first_at && first_at < second_at,
+        "third moved in front of first, and second is undisturbed: {body}"
+    );
 }
 
 /// Wait for bytes the coordinator writes on its own thread, after answering on the bus.

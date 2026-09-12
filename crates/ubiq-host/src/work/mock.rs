@@ -1,34 +1,27 @@
 //! The work the host invents, until there is work to report.
 //!
-//! Two thirds of this is a fixture and stays one. Sessions and agents are never written down —
-//! nothing runs behind them, so every request is answered from here, and the day a session family
-//! and a live agent exist this file loses those two functions and nothing else changes. The tasks
-//! are different: they are seeded once into a project's `tasks.toml` and are the user's data from
-//! then on. Editing a row here changes what a *new* project starts with, never what an existing one
-//! holds.
+//! All of this is a fixture and stays one. Sessions and agents are never written down — nothing
+//! runs behind them, so every request is answered from here, and the day a session family and a
+//! live agent exist this file loses those two functions and nothing else changes. Tasks are not
+//! seeded from here: a new project's board starts empty, and the tasks a user writes down are
+//! theirs from the first one, kept in `tasks.toml` and never touched by this file.
 //!
-//! That difference is why the ids in this file are constants rather than minted. A task's `session`
-//! and a step's `owner` are written down, so a seeded task points at a session id forever. If the
-//! mock minted a fresh ULID per boot, every seeded task would name a session that no longer exists
-//! and the board's session pills would come up empty on the second run. So the five sessions and
-//! the eleven agents carry ULID literals, parsed once, identical on every boot and in every
-//! process.
+//! That is why the ids in this file are constants rather than minted. An agent's `session` is
+//! answered fresh on every boot, so a mock minting a new ULID each time would still work — but a
+//! literal is what lets a hand-read `session` field in a project's own records say which fixture
+//! row it means, and it costs nothing to keep. So the five sessions and the eleven agents carry
+//! ULID literals, parsed once, identical on every boot and in every process.
 //!
 //! The cost is that two projects' mock sessions share ids, and so do their agents. That is
 //! acceptable because a mock session is not yet a host object: there is no catalogue of them and no
 //! uniqueness to violate, and an id is only ever compared against the other ids in the same
-//! project's answer. Task and step ids are minted, because they are written down on the first seed
-//! and read back after it, and so never need to survive a boot in this file.
+//! project's answer.
 
 use std::str::FromStr;
 use std::sync::LazyLock;
 
-use chrono::Utc;
-use ubiq_proto::ids::{SessionId, StepId, TaskId};
-use ubiq_proto::work::{
-    Activity, AgentId, Priority, Shape, Speaker, Status, Step, StepState, TaskRecord, Turn,
-    WorkAgent, WorkSession,
-};
+use ubiq_proto::ids::SessionId;
+use ubiq_proto::work::{Activity, AgentId, Speaker, Turn, WorkAgent, WorkSession};
 
 /// Parse one of the literals below.
 ///
@@ -119,258 +112,6 @@ pub fn sessions() -> Vec<WorkSession> {
             worktree: false,
         },
     ]
-}
-
-/// The board's cards, in the order the columns read: three nobody has started, one ready to go,
-/// three in flight, one waiting to be looked at, two finished.
-///
-/// Minted afresh on every call, so seeding two projects gives each its own rows. `now` for both
-/// timestamps: a fixture has no history, and inventing one would put ages on the cards that no
-/// event ever produced.
-pub fn tasks() -> Vec<TaskRecord> {
-    let now = Utc::now();
-    vec![
-        TaskRecord {
-            id: TaskId::generate(),
-            session: None,
-            status: Status::Backlog,
-            priority: Priority::High,
-            shape: Shape::Coordinated,
-            title: "Replace status polling with an event stream".to_string(),
-            description: notes(&[
-                "## Why",
-                "",
-                "The status bar asks the host what changed four times a second, and the answer is",
-                "almost always **nothing**. The host already knows the moment a pane exits or a",
-                "project's health flips \u{2014} it has nowhere to say it.",
-                "",
-                "- the poll lives in the status bar, one timer, one request",
-                "- every reply rebuilds a snapshot the interface is already holding",
-                "- a pane that exits between two ticks reads as alive for up to `250ms`",
-                "",
-                "The timer goes when the family lands. Nothing else in the interface polls.",
-            ]),
-            steps: unstarted(&[
-                "Name the events the host already knows",
-                "Add the family to the transport contract",
-                "Replace the poll in the status bar",
-                "Drop the timer",
-            ]),
-            created_at: now,
-            updated_at: now,
-        },
-        TaskRecord {
-            id: TaskId::generate(),
-            session: None,
-            status: Status::Backlog,
-            priority: Priority::Normal,
-            shape: Shape::Direct,
-            title: "Keyboard shortcuts for the pane toggles".to_string(),
-            description: String::new(),
-            steps: unstarted(&[
-                "Pick the three chords",
-                "Bind them in the window",
-                "Say so in the status bar",
-            ]),
-            created_at: now,
-            updated_at: now,
-        },
-        TaskRecord {
-            id: TaskId::generate(),
-            session: None,
-            status: Status::Backlog,
-            priority: Priority::Low,
-            shape: Shape::Chain,
-            title: "Bundle size budget in CI".to_string(),
-            description: String::new(),
-            steps: unstarted(&[
-                "Measure the release binary",
-                "Pick the ceiling",
-                "Fail the build over it",
-            ]),
-            created_at: now,
-            updated_at: now,
-        },
-        TaskRecord {
-            id: TaskId::generate(),
-            session: Some(session(2)),
-            status: Status::Ready,
-            priority: Priority::Normal,
-            shape: Shape::Direct,
-            title: "Persist terminal scrollback per session".to_string(),
-            description: String::new(),
-            steps: unstarted(&[
-                "Decide what a session keeps",
-                "Write it down on exit",
-                "Read it back on attach",
-                "Cap what one pane may hold",
-            ]),
-            created_at: now,
-            updated_at: now,
-        },
-        TaskRecord {
-            id: TaskId::generate(),
-            session: Some(session(1)),
-            status: Status::InProgress,
-            priority: Priority::Normal,
-            shape: Shape::Direct,
-            title: "Guard the 0\u{d7}0 resize callback".to_string(),
-            description: notes(&[
-                "## Repro",
-                "",
-                "Collapse the sidebar, reopen it, and the pane keeps the geometry it had before.",
-                "The harness redraws at the old size and the screen tears \u{2014} the classic one.",
-                "",
-                "The observer re-attaches while the host still measures `0\u{d7}0`, so the first fit",
-                "runs against nothing and **never fires again**.",
-                "",
-                "- ignore the zero-width measurement, fit on the first real one",
-                "- the panel tests cover the refit, not the collapse that precedes it",
-            ]),
-            steps: vec![
-                step("Reproduce the dropped fit", StepState::Done, Some(2)),
-                step("Guard the observer", StepState::Done, Some(2)),
-                step("Run the panel tests", StepState::Working, Some(2)),
-            ],
-            created_at: now,
-            updated_at: now,
-        },
-        TaskRecord {
-            id: TaskId::generate(),
-            session: Some(session(2)),
-            status: Status::InProgress,
-            priority: Priority::Normal,
-            shape: Shape::Chain,
-            title: "Migrate the session store to persist v2".to_string(),
-            description: String::new(),
-            steps: vec![
-                step("Plan the v1 \u{2192} v2 schema", StepState::Done, Some(3)),
-                step("Write the persist adapter", StepState::Working, Some(4)),
-                step("Backfill the existing stores", StepState::Idle, Some(4)),
-            ],
-            created_at: now,
-            updated_at: now,
-        },
-        TaskRecord {
-            id: TaskId::generate(),
-            session: Some(session(3)),
-            status: Status::InProgress,
-            priority: Priority::High,
-            shape: Shape::Coordinated,
-            title: "Cut cold start under 800 ms".to_string(),
-            description: notes(&[
-                "## The budget",
-                "",
-                "800 ms cold, from exec to the **first painted frame**. We are at 1.4 s, and the",
-                "plugin registry is most of it: every harness definition is parsed before the",
-                "window exists.",
-                "",
-                "- defer the registry behind a lazy init",
-                "- hold the number in CI, not in a doc nobody reads",
-                "",
-                "Measured the same way every time, so two runs are comparable:",
-                "",
-                "```",
-                "hyperfine --warmup 3 'target/release/ubiq --exit-after-first-frame'",
-                "```",
-            ]),
-            steps: vec![
-                step("Measure the current boot budget", StepState::Done, Some(6)),
-                step("Flamegraph the Tauri boot path", StepState::Done, Some(6)),
-                step(
-                    "Defer the plugin registry behind lazy init",
-                    StepState::Working,
-                    Some(7),
-                ),
-                step("Benchmark before and after", StepState::Failed, Some(8)),
-                step(
-                    "Decide where the perf notes live",
-                    StepState::NeedsYou,
-                    Some(9),
-                ),
-                step("Hold the budget in CI", StepState::Idle, Some(7)),
-            ],
-            created_at: now,
-            updated_at: now,
-        },
-        TaskRecord {
-            id: TaskId::generate(),
-            session: Some(session(4)),
-            status: Status::InReview,
-            priority: Priority::Normal,
-            shape: Shape::Direct,
-            title: "Normalise Windows path separators".to_string(),
-            description: String::new(),
-            steps: vec![
-                step(
-                    "Find every path join in the host",
-                    StepState::Done,
-                    Some(11),
-                ),
-                step("Route them through one helper", StepState::Done, Some(11)),
-                step("Add the round-trip test", StepState::Done, Some(11)),
-            ],
-            created_at: now,
-            updated_at: now,
-        },
-        TaskRecord {
-            id: TaskId::generate(),
-            session: Some(session(5)),
-            status: Status::Done,
-            priority: Priority::Normal,
-            shape: Shape::Direct,
-            title: "Draft the 0.3.1 release notes".to_string(),
-            description: String::new(),
-            steps: vec![
-                step("Read the range since 0.3.0", StepState::Done, Some(10)),
-                step("Group the changes by area", StepState::Done, Some(10)),
-            ],
-            created_at: now,
-            updated_at: now,
-        },
-        TaskRecord {
-            id: TaskId::generate(),
-            session: Some(session(5)),
-            status: Status::Done,
-            priority: Priority::Low,
-            shape: Shape::Direct,
-            title: "Kill a project's panes when it closes".to_string(),
-            description: String::new(),
-            steps: vec![
-                step("Kill them on close", StepState::Done, Some(1)),
-                step("Write the project's blob first", StepState::Done, Some(1)),
-            ],
-            created_at: now,
-            updated_at: now,
-        },
-    ]
-}
-
-/// A ticket's notes, one source line per rendered line.
-///
-/// The markdown stays readable in this file, and the renderer gets exactly the bytes an editor
-/// would have handed it. The host does not parse any of it.
-fn notes(lines: &[&str]) -> String {
-    lines.join("\n")
-}
-
-/// The steps of a task nobody has picked up: named, unowned, and not started.
-fn unstarted(titles: &[&str]) -> Vec<Step> {
-    titles
-        .iter()
-        .map(|title| step(title, StepState::Idle, None))
-        .collect()
-}
-
-/// One step. `owner` is the fixture's agent number rather than an id, so the numbering above reads
-/// as it always did and the constants are resolved in one place.
-fn step(title: &str, state: StepState, owner: Option<usize>) -> Step {
-    Step {
-        id: StepId::generate(),
-        title: title.to_string(),
-        state,
-        owner: owner.map(agent),
-    }
 }
 
 /// The one agent every session's master answers to. Named rather than spelled `1` at four call
@@ -523,10 +264,10 @@ pub fn agents() -> Vec<WorkAgent> {
 /// One card. `id`, `session` and `parent` are the fixture's numbers, resolved through the constants
 /// here so every call site stays a row of plain values.
 ///
-/// `task` is not among them: the task ids are minted by [`tasks`] and written down, so by the time
-/// a second boot asks for the agents the records they belong to came from the store and no number
-/// in this file names one. An agent with no task draws as ungrouped, which is honest; attaching
-/// them to the records it just read is the caller's to do, by title, if it wants the containers.
+/// `task` is not among them: a task's id belongs to whatever the project's own `tasks.toml` holds,
+/// which this file never sees. An agent with no task draws as ungrouped, which is honest; giving
+/// it one is `link`'s job in `work/mod.rs`, done against whatever the user has actually written
+/// down.
 #[allow(clippy::too_many_arguments)]
 fn card(
     id: usize,
@@ -581,25 +322,6 @@ mod tests {
 
         let agents: HashSet<_> = AGENTS.iter().copied().collect();
         assert_eq!(agents.len(), AGENTS.len());
-    }
-
-    /// The cross-references the seed writes down resolve against the sessions and agents the mock
-    /// answers with. This is the whole reason the ids are constants.
-    #[test]
-    fn mock_tasks_reference_sessions_and_agents_that_exist() {
-        let sessions: HashSet<_> = sessions().into_iter().map(|s| s.id).collect();
-        let agents: HashSet<_> = agents().into_iter().map(|a| a.id).collect();
-
-        for task in tasks() {
-            if let Some(id) = task.session {
-                assert!(sessions.contains(&id), "{} names no session", task.title);
-            }
-            for step in &task.steps {
-                if let Some(owner) = step.owner {
-                    assert!(agents.contains(&owner), "{} names no agent", step.title);
-                }
-            }
-        }
     }
 
     /// An agent's parent and session are drawn from the same two sets.

@@ -1,0 +1,91 @@
+{
+  "version": "v1.0",
+  "createSurface": {
+    "surfaceId": "ubiq_catalog_demo",
+    "catalogId": "https://ubiq.app/a2ui/v1_0/catalog.json",
+    "components": [
+      {
+        "id": "root",
+        "component": "Column",
+        "children": [
+          "sparklineCaption",
+          "sparkline",
+          "barsCaption",
+          "bars",
+          "iconsCaption",
+          "iconsRow",
+          "refusedCaption",
+          "refused"
+        ]
+      },
+      {
+        "id": "sparklineCaption",
+        "component": "Text",
+        "text": "Literal markup, following currentColor",
+        "variant": "caption"
+      },
+      {
+        "id": "sparkline",
+        "component": "Svg",
+        "description": "A sparkline trend",
+        "markup": "<svg viewBox=\"0 0 120 40\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M2 30 L20 22 L38 26 L56 12 L74 18 L92 6 L118 10\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/><circle cx=\"2\" cy=\"30\" r=\"2\" fill=\"currentColor\"/><circle cx=\"118\" cy=\"10\" r=\"2\" fill=\"currentColor\"/></svg>"
+      },
+      {
+        "id": "barsCaption",
+        "component": "Text",
+        "text": "Data-model markup, literal colours",
+        "variant": "caption"
+      },
+      {
+        "id": "bars",
+        "component": "Svg",
+        "description": "A small bar chart",
+        "markup": {
+          "path": "/chart"
+        }
+      },
+      {
+        "id": "iconsCaption",
+        "component": "Text",
+        "text": "A named icon beside a path-drawn one",
+        "variant": "caption"
+      },
+      {
+        "id": "iconsRow",
+        "component": "Row",
+        "children": [
+          "starIcon",
+          "customIcon"
+        ],
+        "align": "center"
+      },
+      {
+        "id": "starIcon",
+        "component": "Icon",
+        "name": "star"
+      },
+      {
+        "id": "customIcon",
+        "component": "Icon",
+        "name": {
+          "svgPath": "M12 2 L15 9 L22 9 L17 14 L19 21 L12 17 L5 21 L7 14 L2 9 L9 9 Z"
+        }
+      },
+      {
+        "id": "refusedCaption",
+        "component": "Text",
+        "text": "Deliberately refused: this Svg carries a <script>, so the renderer's sanitizer rejects it and nothing below is drawn",
+        "variant": "caption"
+      },
+      {
+        "id": "refused",
+        "component": "Svg",
+        "description": "Refused markup",
+        "markup": "<svg viewBox=\"0 0 40 40\"><script>alert(1)</script><rect width=\"40\" height=\"40\"/></svg>"
+      }
+    ],
+    "dataModel": {
+      "chart": "<svg viewBox=\"0 0 120 40\" xmlns=\"http://www.w3.org/2000/svg\"><rect x=\"4\" y=\"20\" width=\"14\" height=\"20\" fill=\"#4f8ef7\"/><rect x=\"24\" y=\"10\" width=\"14\" height=\"30\" fill=\"#f7b84f\"/><rect x=\"44\" y=\"2\" width=\"14\" height=\"38\" fill=\"#4ff78e\"/><rect x=\"64\" y=\"16\" width=\"14\" height=\"24\" fill=\"#f74f6f\"/><rect x=\"84\" y=\"24\" width=\"14\" height=\"16\" fill=\"#a24ff7\"/></svg>"
+    }
+  }
+}

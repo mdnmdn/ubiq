@@ -99,6 +99,18 @@ pub const NEW_COLUMN_STRIP: f32 = 28.0;
 pub const EMPTY_START_SIZE: f32 = 90.0;
 pub const EMPTY_START_ICON: f32 = 48.0;
 
+/// An A2UI surface's two sizes. The catalog carries no width, no height and no padding — it names
+/// a discrete `variant` per component and leaves the measurements to the renderer — so these are
+/// Ubiq's answer to "how big is a `smallFeature` image", and the only sizes a drawn surface has.
+/// `A2UI_SVG_MAX` is the box an agent-authored picture is fitted into, aspect preserved.
+pub const A2UI_IMAGE_ICON: f32 = 20.0;
+pub const A2UI_IMAGE_AVATAR: f32 = 32.0;
+pub const A2UI_IMAGE_SMALL: f32 = 96.0;
+pub const A2UI_IMAGE_MEDIUM: f32 = 160.0;
+pub const A2UI_IMAGE_LARGE: f32 = 240.0;
+pub const A2UI_IMAGE_HEADER_H: f32 = 120.0;
+pub const A2UI_SVG_MAX: f32 = 320.0;
+
 /// A modal: how wide it is drawn, and the most of the window's height it may take before its body
 /// scrolls inside it. A modal is one question, so it is one width rather than a per-caller size.
 pub const MODAL_WIDTH: f32 = 460.0;

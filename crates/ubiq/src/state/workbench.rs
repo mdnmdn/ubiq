@@ -157,6 +157,10 @@ pub enum MenuId {
     /// The task panel's session picker. Priority and shape are pill rows rather than menus, because
     /// three fixed values read better as the report and the control at once.
     TaskSession,
+    /// The task panel's label `+`: which of the project's labels to put on, or a name that does
+    /// not exist yet and the swatch to give it. A menu rather than a pill row, because unlike a
+    /// kind the list is as long as the project's own vocabulary and it grows.
+    TaskLabels,
     /// One agents-screen column's `+`: which benched agent to group into it. It carries the
     /// column, because a row of columns each has one and only one may be open.
     AgentBench(usize),

@@ -5,8 +5,8 @@ kind: proposal
 status: proposal
 summary: Rendering agent-authored A2UI component trees inside a conversation as the result of an MCP tool call, using the in-process MCP server the harness library already ships — display-only first, buttons second, and the text-input machinery the interface does not have deferred until something needs it.
 read_when: you are deciding whether an agent may draw its own interface inside Ubiq, how a harness that speaks no A2UI would emit one anyway, or what a dynamic component tree costs in a GPUI transcript
-updated: 2026-09-09
-depends_on: [ref-a2ui-protocol, ref-a2ui-catalog, feat-chat, tech-transport, tech-architecture, tech-decisions]
+updated: 2026-09-12
+depends_on: [ref-a2ui-protocol, ref-a2ui-catalog, feat-workbench, feat-chat, tech-transport, tech-architecture, tech-decisions]
 ---
 
 # Proposal — A2UI, and the tool call that draws one
@@ -62,7 +62,7 @@ What the agent sends:
       {"id": "root", "component": "Column", "children": ["q", "row"]},
       {"id": "q", "component": "Text", "text": "Which branch should I rebase onto?"},
       {"id": "row", "component": "Row", "children": ["main", "dev"]},
-      {"id": "main", "component": "Button", "child": "main_l", "action": {"name": "pick", "context": {"branch": "main"}}}
+      {"id": "main", "component": "Button", "child": "main_l", "action": {"event": {"name": "pick", "context": {"branch": "main"}}}}
     ],
     "dataModel": {}
   }
@@ -200,6 +200,14 @@ inputs, plus the `checks` validators that gate whether an action may fire. None 
 of it is only needed once an input exists.
 
 ## 6. Phasing
+
+> **Where the tree stands against this table.** Phases 1, 2 and 3 are built, on the kitchen sink's
+> A2UI page rather than in a transcript: every component of the basic catalog draws, `action` is
+> parsed and its envelope is built, and the data model, the JSON-Pointer binding, the per-field
+> entity map and `checks` are all live — see [the workbench](../features/workbench.md). Phase 0 is
+> not: the host implements no `McpService`, so no agent produces any of it and the round trip this
+> document is about does not exist. Phase 4 is untouched. The gap rows are `G206` and its
+> neighbours in [the backlog](../backlog.md).
 
 | Phase | What lands | Rough cost |
 |---|---|---|

@@ -3,6 +3,7 @@
   "createSurface": {
     "surfaceId": "kitchen_sink",
     "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+    "sendDataModel": false,
     "components": [
       {
         "id": "root",
@@ -21,19 +22,36 @@
         "component": "Row",
         "children": [
           "icon1",
-          "titleText"
+          "titleText",
+          "headerDivider",
+          "checkIcon"
         ],
         "align": "center"
       },
       {
         "id": "icon1",
         "component": "Icon",
-        "name": "star"
+        "name": "star",
+        "accessibility": {
+          "label": "Favourite"
+        }
       },
       {
         "id": "titleText",
         "component": "Text",
-        "text": "Kitchen Sink Demo"
+        "text": "**Kitchen** _Sink_ demo"
+      },
+      {
+        "id": "headerDivider",
+        "component": "Divider",
+        "axis": "vertical"
+      },
+      {
+        "id": "checkIcon",
+        "component": "Icon",
+        "name": {
+          "svgPath": "M4 12 L10 18 L20 6"
+        }
       },
       {
         "id": "media_row",
@@ -48,13 +66,16 @@
         "id": "img1",
         "component": "Image",
         "url": "https://picsum.photos/200",
-        "variant": "smallFeature"
+        "variant": "mediumFeature",
+        "fit": "cover",
+        "weight": 2
       },
       {
         "id": "vid1",
         "component": "Video",
         "url": "https://example.com/clip.mp4",
-        "posterUrl": "https://example.com/clip.png"
+        "posterUrl": "https://example.com/clip.png",
+        "weight": 1
       },
       {
         "id": "aud1",
@@ -129,6 +150,7 @@
         "id": "closeIconBtn",
         "component": "Button",
         "child": "closeIcon",
+        "variant": "borderless",
         "action": {
           "event": {
             "name": "closeModal"
@@ -146,10 +168,18 @@
         "children": [
           "nameField",
           "agreeBox",
+          "hiddenDivider",
           "choicePick",
           "ratingSlider",
           "dateInput"
         ]
+      },
+      {
+        "id": "hiddenDivider",
+        "component": "Divider",
+        "accessibility": {
+          "hidden": true
+        }
       },
       {
         "id": "nameField",
@@ -183,7 +213,9 @@
         ],
         "value": {
           "path": "/profile/color"
-        }
+        },
+        "displayStyle": "checkbox",
+        "filterable": true
       },
       {
         "id": "ratingSlider",
@@ -191,6 +223,7 @@
         "label": "Rating",
         "min": 0,
         "max": 10,
+        "steps": 10,
         "value": {
           "path": "/profile/rating"
         }

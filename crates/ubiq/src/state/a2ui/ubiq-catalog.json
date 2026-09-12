@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ubiq.app/a2ui/v1_0/catalog.json",
+  "catalogId": "https://ubiq.app/a2ui/v1_0/catalog.json",
+  "protocolVersion": "1.0",
+  "instructions": "An `Svg`'s markup must be self-contained: no `<use>`, no `<image>`, no `href`, no external `url()`, and no `<script>` or `<foreignObject>` — the renderer refuses markup that reaches outside itself. Draw with `stroke=\"currentColor\"` or `fill=\"currentColor\"` when a mark should follow the interface's own text colour rather than a fixed one. An `Svg` is sized by its own `viewBox`, not by a width or height prop.",
+  "$defs": {
+    "anyComponent": {
+      "anyOf": [
+        {
+          "$ref": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json#/$defs/anyComponent"
+        },
+        {
+          "$ref": "#/$defs/Svg"
+        }
+      ]
+    },
+    "anyFunction": {
+      "$ref": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json#/$defs/anyFunction"
+    },
+    "Svg": {
+      "type": "object",
+      "properties": {
+        "component": {
+          "const": "Svg"
+        },
+        "markup": {
+          "$ref": "https://a2ui.org/specification/v1_0/json/common_types.json#/$defs/DynamicString",
+          "description": "Inline SVG markup."
+        },
+        "description": {
+          "type": "string",
+          "description": "The accessible description."
+        },
+        "allowedChildren": {
+          "const": []
+        }
+      },
+      "required": [
+        "component",
+        "markup"
+      ]
+    }
+  },
+  "components": {
+    "Svg": {
+      "$ref": "#/$defs/Svg"
+    }
+  },
+  "functions": {}
+}

@@ -50,7 +50,8 @@ crates/ubiq-proto/src/
 ├── assist.rs
 ├── notifications.rs
 ├── tools.rs
-└── mcp.rs
+├── mcp.rs
+└── quota.rs
 
 crates/ubiq-host/src/
 ├── pty/
@@ -136,11 +137,12 @@ crates/ubiq-host/src/
 │   ├── registry.rs
 │   ├── server.rs
 │   └── tools.rs
-└── web_assets/
-    ├── manifest.rs
-    ├── mod.rs
-    ├── archive.rs
-    └── manifest_drawio.rs
+├── web_assets/
+│   ├── manifest.rs
+│   ├── mod.rs
+│   ├── archive.rs
+│   └── manifest_drawio.rs
+└── quota.rs
 
 crates/ubiq/src/
 ├── state/
@@ -195,7 +197,16 @@ crates/ubiq/src/
 │   │   ├── contact-form.json
 │   │   ├── icons-and-text.json
 │   │   ├── kitchen-sink.json
-│   │   └── tabs-icons-buttons.json
+│   │   ├── tabs-icons-buttons.json
+│   │   ├── action.rs
+│   │   ├── bindings.json
+│   │   ├── eval.rs
+│   │   ├── live.rs
+│   │   ├── path.rs
+│   │   ├── svg.rs
+│   │   ├── ubiq-catalog-demo.json
+│   │   ├── ubiq-catalog.json
+│   │   └── value.rs
 │   ├── a2ui.rs
 │   ├── remote_hosts.rs
 │   └── web_panel.rs
@@ -294,7 +305,11 @@ crates/ubiq/src/
 │   ├── remote_hosts.rs
 │   ├── all_projects.rs
 │   ├── tools.rs
-│   └── web_view.rs
+│   ├── web_view.rs
+│   └── a2ui/
+│       ├── path.rs
+│       ├── registry.rs
+│       └── svg.rs
 ├── lib.rs
 ├── theme.rs
 ├── web_export/
@@ -381,6 +396,7 @@ the documents in its row.
 | `crates/agent-manager/src/lib.rs` | [`agent-manager.md`](./agent-manager.md) |
 | `crates/agent-manager/src/profile.rs` | [`agent-manager.md`](./agent-manager.md), [`wip/agent-setup.md`](../wip/agent-setup.md) |
 | `crates/agent-manager/src/provision.rs` | [`agent-manager.md`](./agent-manager.md) |
+| `crates/agent-manager/src/quota.rs` | [`agent-manager.md`](./agent-manager.md) |
 | `crates/agent-manager/src/resolve.rs` | [`agent-manager.md`](./agent-manager.md), [`wip/agent-setup.md`](../wip/agent-setup.md) |
 | `crates/agent-manager/src/session.rs` | [`features/sessions-and-workspaces.md`](../features/sessions-and-workspaces.md), [`agent-manager.md`](./agent-manager.md), [`wip/agent-setup.md`](../wip/agent-setup.md) |
 | `crates/agent-manager/src/spec.rs` | [`agent-manager.md`](./agent-manager.md) |
@@ -457,6 +473,7 @@ the documents in its row.
 | `crates/ubiq-proto/src/messages.rs` | [`features/connectors.md`](../features/connectors.md), [`features/stats.md`](../features/stats.md), [`transport-contract.md`](./transport-contract.md), [`wip/web-panel-phase3.md`](../wip/web-panel-phase3.md) |
 | `crates/ubiq-proto/src/notifications.rs` | [`features/notifications.md`](../features/notifications.md), [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-proto/src/projects.rs` | [`transport-contract.md`](./transport-contract.md), [`wip/clone-a-project.md`](../wip/clone-a-project.md), [`wip/indexing.md`](../wip/indexing.md) |
+| `crates/ubiq-proto/src/quota.rs` | [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-proto/src/repos.rs` | [`features/workbench.md`](../features/workbench.md), [`transport-contract.md`](./transport-contract.md), [`wip/clone-a-project.md`](../wip/clone-a-project.md) |
 | `crates/ubiq-proto/src/settings.rs` | [`features/connectors.md`](../features/connectors.md), [`transport-contract.md`](./transport-contract.md), [`wip/indexing.md`](../wip/indexing.md) |
 | `crates/ubiq-proto/src/stats.rs` | [`features/stats.md`](../features/stats.md), [`transport-contract.md`](./transport-contract.md) |
@@ -500,6 +517,13 @@ the documents in its row.
 | `crates/ubiq/src/app/wire.rs` | [`features/chat.md`](../features/chat.md), [`features/notifications.md`](../features/notifications.md), [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/stats.md`](../features/stats.md), [`architecture.md`](./architecture.md), [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/lib.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq/src/state/a2ui.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/state/a2ui/action.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/state/a2ui/eval.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/state/a2ui/live.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/state/a2ui/path.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/state/a2ui/svg.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/state/a2ui/ubiq-catalog.json` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/state/a2ui/value.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/agents.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/board.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/chat.rs` | [`features/chat.md`](../features/chat.md), [`features/workbench.md`](../features/workbench.md) |
@@ -543,6 +567,9 @@ the documents in its row.
 | `crates/ubiq/src/state/workbench.rs` | [`features/workbench.md`](../features/workbench.md), [`wip/web-panel-phase6.md`](../wip/web-panel-phase6.md) |
 | `crates/ubiq/src/theme.rs` | [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/ui/a2ui.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/ui/a2ui/path.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/ui/a2ui/registry.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/ui/a2ui/svg.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/agents/column.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/agents/mod.rs` | [`features/chat.md`](../features/chat.md), [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/agents/sidebar.rs` | [`features/workbench.md`](../features/workbench.md) |
@@ -675,6 +702,7 @@ No document's `code_anchors` names these. Restricted to Ubiq's own crates.
 | `crates/ubiq-host/src/mcp/registry.rs` |
 | `crates/ubiq-host/src/mcp/server.rs` |
 | `crates/ubiq-host/src/mcp/tools.rs` |
+| `crates/ubiq-host/src/quota.rs` |
 | `crates/ubiq-host/src/reply.rs` |
 | `crates/ubiq-host/src/search/ceiling.rs` |
 | `crates/ubiq-host/src/search/fallback.rs` |

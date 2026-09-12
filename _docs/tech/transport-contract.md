@@ -558,8 +558,9 @@ sessions and agents are minted per project. A task id alone would not say which 
 |---|---|---|---|
 | `ListWork` | UI → host | `project_id` | `WorkList` or `WorkError` |
 | `CreateTask` | UI → host | `project_id`, `title`, `session?` | `TaskCreated` or `WorkError` |
-| `UpdateTask` | UI → host | `project_id`, `task_id`, `title?`, `description?`, `priority?`, `shape?` | `TaskChanged` or `WorkError` |
-| `MoveTask` | UI → host | `project_id`, `task_id`, `status` | `TaskChanged` or `WorkError` |
+| `UpdateTask` | UI → host | `project_id`, `task_id`, `title?`, `description?`, `priority?` | `TaskChanged` or `WorkError` |
+| `SetTaskField` | UI → host | `project_id`, `task_id`, `field` | `TaskChanged` or `WorkError` |
+| `MoveTask` | UI → host | `project_id`, `task_id`, `status`, `before?` | `TaskChanged` or `WorkError` |
 | `AssignTask` | UI → host | `project_id`, `task_id`, `session?` | `TaskChanged` or `WorkError` |
 | `DeleteTask` | UI → host | `project_id`, `task_id` | `TaskDeleted` or `WorkError` |
 | `AddStep` | UI → host | `project_id`, `task_id`, `title` | `TaskChanged` or `WorkError` |
@@ -585,15 +586,32 @@ is not a fact about the catalogue.
 arrives after the click that asked for it and the window may have moved on.
 
 **A move and an assignment are their own messages rather than fields on `UpdateTask`**, by the same
-test `D31` applies to the project family. `UpdateTask` is display only: it renames, re-describes,
-reprioritises and reshapes, touches nothing outside the record, and can be refused for nothing but a
-task that is not there. `MoveTask` carries the one field the board reserves for a drag — a column is
-a stage and a card only ever changes column, which [`workbench.md`](../features/workbench.md)
-prescribes — so folding `status` into an update would offer a second way to do the one thing the drag
-exists for. `AssignTask` names another entity and is
+test `D31` applies to the project family. `UpdateTask` is display only: it renames, re-describes and
+reprioritises, touches nothing outside the record, and can be refused for nothing but a task that is
+not there. `MoveTask` carries the two fields the board reserves for a drag — a column is a stage and
+a card only ever changes column or its place in one, which
+[`workbench.md`](../features/workbench.md) prescribes — so folding `status` into an update would
+offer a second way to do the one thing the drag exists for. `AssignTask` names another entity and is
 refused for a session the host does not hold, which makes it fallible where an update is not; it
 also spares the wire an `Option<Option<SessionId>>` inside an update, which is a type nobody should
 have to read.
+
+**`SetTaskField` is one variant carrying a field, not a field per fact on `UpdateTask`.** It is the
+`AssignTask` reasoning generalised: a shape, a kind, a key, a link and a label set are all facts a
+task can perfectly well *not* have, so each of them needs to tell "leave it alone" from "clear it" —
+and five `Option<Option<T>>` fields inside an update would be five copies of the type nobody should
+have to read. `UpdateTask` keeps the three that can never be absent. A trimmed-empty `Key` or `Link`
+is the clear, the way an emptied description is: the user rubbed the field out, which is a thing to
+mean. `Labels` replaces the whole set, because a label list is short and is edited as a set, so a
+delta would be two messages and an ordering rule to save a handful of bytes.
+
+**`MoveTask.before` names a task, where `MoveStep.to` names an index.** The two lists differ in one
+way that decides it: the board filters and a step list does not, so an index into what the user can
+see is wrong by however many hidden cards of that status sit above the drop. An anchor is
+filter-proof by construction, and it needs no clamp — a `before` naming a task the host no longer
+holds, deleted mid-drag, lands at the end of the column rather than refusing the drag. A card that
+only changes its place inside one column is the same message: the host always removes and reinserts,
+so "changed column" is just the case where `status` changed too.
 
 **`WorkList` is one message, not three.** Sessions, agents and tasks arrive in the same frame,
 because two round trips would let the board draw a card naming a session it has not heard of.
@@ -953,8 +971,10 @@ Forty-seven records travel inside payloads.
 | `DiffRow` | `kind`, `old_line?`, `new_line?`, `text` |
 | `DiffHunk` | `old_start`, `old_lines`, `new_start`, `new_lines`, `rows[]` |
 | `FileDiff` | `base`, `hunks[]`, `binary`, `truncated` |
-| `TaskRecord` | `id`, `session?`, `status`, `priority`, `shape`, `title`, `description`, `steps[]`, `created_at`, `updated_at` |
+| `TaskRecord` | `id`, `session?`, `status`, `priority`, `shape?`, `kind?`, `key?`, `link?`, `labels[]`, `title`, `description`, `steps[]`, `created_at`, `updated_at` |
 | `Step` | `id`, `title`, `state`, `owner?` |
+| `Label` | `name`, `colour` |
+| `TaskField` | one of `Shape?`, `Kind?`, `Key?`, `Link?`, `Labels[]` |
 | `WorkSession` | `id`, `name`, `branch`, `worktree` |
 | `WorkAgent` | `id`, `session`, `task?`, `parent?`, `name`, `summary?`, `role`, `activity`, `note`, `branch`, `tokens`, `harness`, `model`, `context_pct`, `persistent`, `accept_all`, `debug_dump?`, `thread[]` |
 | `Turn` | `from`, `text` |

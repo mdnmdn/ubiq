@@ -841,21 +841,30 @@ pub fn picker_tree() -> Vec<PickerNode> {
 /// which modal is up, and the state the style reference's own controls carry.
 ///
 /// The demo fields are here rather than in the drawing code for the reason every other screen's
-/// The A2UI page: the example on show, and the navigation inside the surface it draws.
+/// The A2UI page: the example on show, and the surface being used.
 ///
-/// A drawn surface holds no value of its own — a text field, a checkbox and a slider all read
-/// straight from the payload — so the only state a preview needs is where the reader has navigated
-/// to: which tab of a `Tabs` is forward, and which `Modal` is disclosed. Both are keyed by
-/// component id, and both are cleared when the example changes, because an id from one payload
-/// means nothing in the next.
+/// A drawn surface is not a picture of a payload any more — it holds a data model its own inputs
+/// write into, one buffer per text field, and a record of what has been sent. All of that is
+/// [`crate::state::a2ui::live::Live`], rebuilt whenever the payload is re-parsed, because an id
+/// from one payload means nothing in the next.
 #[derive(Default)]
 pub struct A2uiDemo {
     /// Which example of [`crate::state::a2ui::EXAMPLES`] the picker last chose.
     pub example: usize,
-    /// The tab forward in each `Tabs`, by component id. Absent means the first.
-    pub tabs: HashMap<String, usize>,
-    /// The `Modal` whose content is disclosed, if any.
-    pub modal: Option<String>,
+    /// Which half of the page's lower pane is forward: the data model, or what has been sent.
+    pub pane: A2uiPane,
+    /// The surface, its data model, its fields and its action log.
+    pub live: crate::state::a2ui::live::Live,
+}
+
+/// What the A2UI page shows under its payload: the values, or the messages.
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
+pub enum A2uiPane {
+    /// The live data model — what a keystroke in the preview just changed.
+    #[default]
+    Model,
+    /// The envelopes the surface has sent, newest first.
+    Actions,
 }
 
 /// are: a control that cannot hold a value is not being tested, and a value read out of the
@@ -886,9 +895,8 @@ pub struct SinkState {
     /// The messages page: which conversation is on the left, and what the tape on the right is
     /// showing.
     pub messages: MessagesDemo,
-    /// The A2UI page: which example the picker last chose, and the two pieces of navigation a
-    /// drawn surface owns. Neither is a value — the surface's own inputs are inert, because
-    /// nothing here holds a data model to write one back into.
+    /// The A2UI page: which example the picker last chose, and the live surface drawn from it —
+    /// its data model, the buffer behind each of its text fields, and what it has sent.
     pub a2ui: A2uiDemo,
 }
 

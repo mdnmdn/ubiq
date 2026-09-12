@@ -1,5 +1,8 @@
 use super::*;
 
+use ubiq_proto::messages::TaskField;
+use ubiq_proto::work::{Kind, Label};
+
 impl AppState {
     /// Open one of the panel's fields.
     pub fn begin_task_edit(&mut self, field: Field, window: &mut Window, cx: &mut Context<Self>) {
@@ -37,6 +40,14 @@ impl AppState {
             }
             Field::NewStep => {
                 let input = self.new_step_input.clone();
+                input.update(cx, |state, cx| state.focus(window, cx));
+            }
+            Field::Key => {
+                let input = self.task_key_input.clone();
+                input.update(cx, |state, cx| state.focus(window, cx));
+            }
+            Field::Link => {
+                let input = self.task_link_input.clone();
                 input.update(cx, |state, cx| state.focus(window, cx));
             }
         }
@@ -78,7 +89,6 @@ impl AppState {
         title: Option<String>,
         description: Option<String>,
         priority: Option<Priority>,
-        shape: Option<Shape>,
         cx: &mut Context<Self>,
     ) {
         let Some((project_id, task_id, _)) = self.open_task_form(cx) else {
@@ -90,7 +100,26 @@ impl AppState {
             title,
             description,
             priority,
-            shape,
+        });
+        if let Some(board) = self.board_mut(cx) {
+            board.stop_editing();
+        }
+        cx.notify();
+    }
+
+    /// Send one `SetTaskField`, and put the field away.
+    ///
+    /// The optional half of a task goes through here rather than through [`Self::update_task`],
+    /// because absent and cleared are different answers and only a variant of its own can say
+    /// which: every arm's `None` is the user rubbing the fact out.
+    fn set_task_field(&mut self, field: TaskField, cx: &mut Context<Self>) {
+        let Some((project_id, task_id, _)) = self.open_task_form(cx) else {
+            return;
+        };
+        self.bus.send(Message::SetTaskField {
+            project_id,
+            task_id,
+            field,
         });
         if let Some(board) = self.board_mut(cx) {
             board.stop_editing();
@@ -119,7 +148,7 @@ impl AppState {
             cx.notify();
             return;
         }
-        self.update_task(Some(typed), None, None, None, cx);
+        self.update_task(Some(typed), None, None, cx);
     }
 
     /// A description, unlike a title, may be emptied: clearing one is a thing to mean.
@@ -139,15 +168,121 @@ impl AppState {
             cx.notify();
             return;
         }
-        self.update_task(None, Some(typed), None, None, cx);
+        self.update_task(None, Some(typed), None, cx);
+    }
+
+    /// The user's own id for the task. Like a description and unlike a title, it may be emptied:
+    /// a key rubbed out is a task that never had one to begin with.
+    pub fn commit_task_key(&mut self, cx: &mut Context<Self>) {
+        let Some((_, task_id, board)) = self.open_task_form(cx) else {
+            return;
+        };
+        let typed = board.form.key.trim().to_string();
+        let unchanged = self
+            .work(cx)
+            .and_then(|work| work.task(task_id))
+            .is_some_and(|task| task.key.as_deref().unwrap_or_default() == typed);
+        if unchanged {
+            if let Some(board) = self.board_mut(cx) {
+                board.stop_editing();
+            }
+            cx.notify();
+            return;
+        }
+        let key = (!typed.is_empty()).then_some(typed);
+        self.set_task_field(TaskField::Key(key), cx);
+    }
+
+    /// The URL the task stands for, emptied the same way. Nothing here parses or fetches it — it is
+    /// a string the host stores, and the glyph beside it is the interface reading the host's own
+    /// answer about which tracker it belongs to.
+    pub fn commit_task_link(&mut self, cx: &mut Context<Self>) {
+        let Some((_, task_id, board)) = self.open_task_form(cx) else {
+            return;
+        };
+        let typed = board.form.link.trim().to_string();
+        let unchanged = self
+            .work(cx)
+            .and_then(|work| work.task(task_id))
+            .is_some_and(|task| task.link.as_deref().unwrap_or_default() == typed);
+        if unchanged {
+            if let Some(board) = self.board_mut(cx) {
+                board.stop_editing();
+            }
+            cx.notify();
+            return;
+        }
+        let link = (!typed.is_empty()).then_some(typed);
+        self.set_task_field(TaskField::Link(link), cx);
     }
 
     pub fn set_task_priority(&mut self, priority: Priority, cx: &mut Context<Self>) {
-        self.update_task(None, None, Some(priority), None, cx);
+        self.update_task(None, None, Some(priority), cx);
     }
 
-    pub fn set_task_shape(&mut self, shape: Shape, cx: &mut Context<Self>) {
-        self.update_task(None, None, None, Some(shape), cx);
+    /// How the agents on the task are arranged, or nobody has said. `None` is the pick that takes
+    /// the claim back, which is not the same as picking `Direct`.
+    pub fn set_task_shape(&mut self, shape: Option<Shape>, cx: &mut Context<Self>) {
+        self.set_task_field(TaskField::Shape(shape), cx);
+    }
+
+    /// What kind of work it is, or nobody has said.
+    pub fn set_task_kind(&mut self, kind: Option<Kind>, cx: &mut Context<Self>) {
+        self.set_task_field(TaskField::Kind(kind), cx);
+    }
+
+    /// Put one label on the open task, keeping the ones it already carries.
+    ///
+    /// The whole list is sent rather than the one that was added, because a label list is short and
+    /// is edited as a set. A name already on the task is a no-op: two pills reading the same word
+    /// are not two labels.
+    pub fn add_task_label(&mut self, name: String, colour: usize, cx: &mut Context<Self>) {
+        let Some((_, task_id, _)) = self.open_task_form(cx) else {
+            return;
+        };
+        let name = name.trim().to_string();
+        if name.is_empty() {
+            return;
+        }
+        let Some(mut labels) = self
+            .work(cx)
+            .and_then(|work| work.task(task_id))
+            .map(|task| task.labels.clone())
+        else {
+            return;
+        };
+        if labels.iter().any(|label| label.name == name) {
+            return;
+        }
+        labels.push(Label::new(name, colour));
+        if let Some(board) = self.board_mut(cx) {
+            board.form.new_label.clear();
+        }
+        self.set_task_field(TaskField::Labels(labels), cx);
+    }
+
+    /// Take one label off, by the name the pill prints.
+    pub fn remove_task_label(&mut self, name: &str, cx: &mut Context<Self>) {
+        let Some((_, task_id, _)) = self.open_task_form(cx) else {
+            return;
+        };
+        let Some(labels) = self
+            .work(cx)
+            .and_then(|work| work.task(task_id))
+            .map(|task| task.labels.clone())
+        else {
+            return;
+        };
+        let kept: Vec<Label> = labels
+            .iter()
+            .filter(|label| label.name != name)
+            .cloned()
+            .collect();
+        // A name the task does not carry asks for nothing: the message set is for acts.
+        if kept.len() == labels.len() {
+            return;
+        }
+        self.set_task_field(TaskField::Labels(kept), cx);
     }
 
     /// Hand the open task to a session, or take it back. `None` is a task nobody has started.
@@ -300,20 +435,33 @@ impl AppState {
             return;
         }
         let selected = board.selected;
-        let (title, description) = selected
+        let (title, description, key, link) = selected
             .and_then(|id| self.work(cx).and_then(|work| work.task(id)))
-            .map(|task| (task.title.clone(), task.description.clone()))
+            .map(|task| {
+                (
+                    task.title.clone(),
+                    task.description.clone(),
+                    task.key.clone().unwrap_or_default(),
+                    task.link.clone().unwrap_or_default(),
+                )
+            })
             .unwrap_or_default();
 
         self.form_filled = selected;
         if let Some(board) = self.board_mut(cx) {
             board.form.title = title.clone();
             board.form.description = description.clone();
+            board.form.key = key.clone();
+            board.form.link = link.clone();
             board.form.step_title.clear();
             board.form.new_step.clear();
+            board.form.new_label.clear();
         }
         for (input, value) in [
             (self.task_title_input.clone(), title),
+            (self.task_key_input.clone(), key),
+            (self.task_link_input.clone(), link),
+            (self.task_label_input.clone(), String::new()),
             (self.step_title_input.clone(), String::new()),
             (self.new_step_input.clone(), String::new()),
         ] {
@@ -345,6 +493,30 @@ impl AppState {
         if let Some(board) = self.board_mut(cx) {
             board.session = session;
         }
+        cx.notify();
+    }
+
+    /// Light one label's pill or put it out. Lighting a second narrows further: a card has to carry
+    /// every label that is lit.
+    pub fn toggle_board_label(&mut self, name: &str, cx: &mut Context<Self>) {
+        if let Some(board) = self.board_mut(cx) {
+            board.toggle_label(name);
+        }
+        cx.notify();
+    }
+
+    /// Show everything: the text, the session pill and every label pill, all put back at once.
+    ///
+    /// The filter field is one of them, so the input is emptied with the state behind it — a board
+    /// showing everything under a field that still says `cache` would be two answers to one
+    /// question.
+    pub fn clear_board_filters(&mut self, cx: &mut Context<Self>) {
+        if let Some(board) = self.board_mut(cx) {
+            board.clear_filters();
+        }
+        // Writing into the field needs a window, so the refill is left for `fill_task_form` to
+        // drain in `render` — the same route a project switch takes.
+        self.refill_fields = true;
         cx.notify();
     }
 
@@ -425,11 +597,18 @@ impl AppState {
         cx.notify();
     }
 
-    /// The column under the pointer, which is what a drop would file the card into.
-    pub fn drag_task_over(&mut self, status: Status, cx: &mut Context<Self>) {
+    /// The column under the pointer and the card the pointer is above, which together are what a
+    /// drop would file the card into and where. `before` is `None` past the last card, which is the
+    /// end of the column.
+    pub fn drag_task_over(
+        &mut self,
+        status: Status,
+        before: Option<TaskId>,
+        cx: &mut Context<Self>,
+    ) {
         if self
             .board_mut(cx)
-            .is_some_and(|board| board.carry_over(status))
+            .is_some_and(|board| board.carry_over(status, before))
         {
             cx.notify();
         }
@@ -441,48 +620,24 @@ impl AppState {
     /// Which column a task is in is written down, so the drop asks rather than moves. The card
     /// says it is waiting until the answer comes back, which is what keeps a slow host from
     /// reading as a drag that failed.
-    pub fn drop_task(&mut self, status: Status, cx: &mut Context<Self>) {
+    pub fn drop_task(&mut self, status: Status, before: Option<TaskId>, cx: &mut Context<Self>) {
         let Some(project_id) = self.project(cx) else {
             return;
         };
         let Some(board) = self.board_mut(cx) else {
             return;
         };
-        board.carry_over(status);
-        if let Some((task_id, status)) = board.end_carry() {
+        board.carry_over(status, before);
+        if let Some((task_id, status, before)) = board.end_carry() {
             board.moving = Some((task_id, status));
             self.bus.send(Message::MoveTask {
                 project_id,
                 task_id,
                 status,
+                before,
             });
         }
         cx.notify();
-    }
-
-    /// Take a task to the orchestration screen: the graph, pointed at whoever is doing it.
-    ///
-    /// A task nobody is doing and no session holds names nothing, and a destination that names
-    /// nothing is not a place — so the screen stays where it is rather than switching to a graph
-    /// with nothing selected.
-    pub fn show_task_in_graph(&mut self, task: TaskId, cx: &mut Context<Self>) {
-        let Some(project) = self.project(cx) else {
-            return;
-        };
-        let selection = self.work(cx).and_then(|work| {
-            let task = work.task(task)?;
-            work.now(task)
-                .map(|agent| Selection::Agent(agent.id))
-                .or_else(|| task.session.map(Selection::Session))
-        });
-        let Some(selection) = selection else {
-            return;
-        };
-        let tab = self.graph(cx).map_or(InspectorTab::Chat, |graph| graph.tab);
-        self.navigate(
-            Destination::new(project, View::Graph { selection, tab }),
-            cx,
-        );
     }
 
     /// The way from a card to the conversation with the agent holding it: the **agents** screen,

@@ -516,18 +516,17 @@ broadcast would buy nothing. The service still answers in `Reply`, so a broadcas
 the day that changes; `Reply` lives in `crates/ubiq-host/src/reply.rs` rather than in `projects.rs`
 because two services answer in those terms and `projects::Reply` would be a lie about ownership.
 
-**The seeding rule turns on the presence of the file, not on its emptiness.** `TaskStore::load`
-answers an `Option`, and `Work::ensure` mints the fixture, writes it and answers it only for a
-project with no `tasks.toml`; from then on the file is the truth, including when it holds no tasks at
-all. A user who deletes every task gets an empty board at the next boot, because an absent file and
-an empty list are different things — the distinction `Preferences` draws between a blob never set
-and an empty one. A load that *failed* never seeds either, on the reasoning that stops
-`gc::collect` running after one: putting the fixture on top of a file you could not read is how you
-overwrite the thing preserving it was meant to save. A project whose file came back
+**A new project starts with an empty board, and the file is still written.** `TaskStore::load`
+answers an `Option`, and `Work::ensure` writes an empty list for a project with no `tasks.toml`; from
+then on the file is the truth. There was a ten-task fixture here once, and it is gone: it was the
+demonstration's data, not the user's, and a board that arrives full of somebody else's work has to
+be emptied before it can be used. What survives it is the rule it was built on — **the distinction
+turns on the presence of the file, not on its emptiness.** An absent file and an empty list are
+different things, the way `Preferences` tells a blob never set from an empty one, and writing the
+empty list immediately is what keeps them apart. A load that *failed* never writes either, on the
+reasoning that stops `gc::collect` running after one: writing on top of a file you could not read is
+how you overwrite the thing preserving it was meant to save. A project whose file came back
 `UnknownVersion` is sealed and never written to at all, for the same reason one order further out.
-
-Writing the seed immediately rather than at the first edit is what makes the fixture the user's data
-on first sight: what they see is renamable, movable and deletable, and still there after a restart.
 
 **A mock agent is linked to the task its session has in flight, or to no task at all.** The fixture
 cannot name a task id, because the ids belong to whatever `tasks.toml` holds, so `Work::link` makes
@@ -538,24 +537,24 @@ graph draws above the containers, and it is where an agent coordinating everythi
 back to the session's first task instead buries the project manager inside a container for work
 nobody is doing.
 
-**Cost:** the mock's session and agent ids are the same literals in every project, because a seeded
-task's `session` is durable and freshly minted ids would leave every one of them naming a session
-that no longer exists. `Step.owner` is durable on the same terms and can name no live agent, which
-draws as unowned rather than being written out of the record. And the fixture is only ever seen once
-per project, so editing it changes what a *new* project starts with and nothing an existing one
-holds. All three are rows in the backlog.
+**Cost:** the mock's session and agent ids are the same literals in every project, so that a task
+whose durable `session` names one still finds it — freshly minted ids would leave every such task
+naming a session that no longer exists. `Step.owner` is durable on the same terms and can name no
+live agent, which draws as unowned rather than being written out of the record. Both are rows in the
+backlog.
 
 ### D40 — A task's edits are one infallible `UpdateTask`; a move and an assignment are their own messages
 
-`UpdateTask` carries the title, the description, the priority and the shape, each optional, and
-touches nothing outside the record: like `UpdateProject` it is display only and can be refused for
-nothing but a task that is not there. `MoveTask` and `AssignTask` are separate variants, which is
-`D31`'s test applied a second time.
+`UpdateTask` carries the title, the description and the priority, each optional, and touches nothing
+outside the record: like `UpdateProject` it is display only and can be refused for nothing but a task
+that is not there. `MoveTask` and `AssignTask` are separate variants, which is `D31`'s test applied a
+second time. The shape left this message when it became optional, on the reasoning `D113` records.
 
 The move is the sharper of the two, because what forbids folding it in is a rule rather than a
-preference: the board prescribes that a column is a stage and a card only ever changes column, so a
-`status` field on an update would be a second way to do the one thing the drag exists for, and a
-status picker in a form would contradict a *Behaviour* section. The assignment names another entity,
+preference: the board prescribes that a column is a stage and a card only ever changes column or its
+place in one, so a `status` field on an update would be a second way to do the one thing the drag
+exists for, and a status picker in a form would contradict a *Behaviour* section. The assignment
+names another entity,
 is refused for a session the host does not hold — fallible where an update is not — and would
 otherwise need an `Option<Option<SessionId>>` on the wire to tell "leave it alone" apart from "take
 it back".
@@ -2295,6 +2294,97 @@ to it: the outer repository's opinion about a folder it does not own was never t
 ignored clone leaves no mark on the tree — which is the point, and is also the trap. The settings
 list is therefore the whole of the remedy: every repository there is, in one place, with its state
 stated rather than inferred.
+
+### D113 — A task's optional half is one `SetTaskField`, and its order is its place in the file
+
+A task started as six mandatory facts. Real use wants the ones it can perfectly well not have: the
+shape of the work, whether it is a bug or a feature, the key a human says out loud, the issue it
+stands for in somebody else's tracker, and the colour labels a board is scanned by. Every one of
+them has three states, not two — unset, set, and cleared back to unset — and an update field cannot
+say the third.
+
+**So they are not update fields.** `Message::SetTaskField` carries a `TaskField`, one arm per fact,
+and the arm's `None` is the clear. It is `AssignTask`'s reasoning generalised: that variant exists
+because `Option<Option<SessionId>>` inside an update is a type nobody should have to read, and five
+more of them would be five more copies of the same mistake. `UpdateTask` keeps the three facts that
+can never be absent — title, description, priority — and nothing else. One variant rather than five
+flat ones because the host answers all of them the same way, through the one `with_task` helper that
+stamps `updated_at`, echoes the record and makes it durable.
+
+**`Shape` is optional rather than gaining a `None` variant.** A shape nobody chose is not `Direct`;
+it is the absence of a claim about how the work gets done, which is what `Priority::Normal` says by
+printing nothing. Everywhere a shape is drawn, unset draws nothing at all.
+
+**A label is a name and a swatch index, held on the task, with no registry.** The index is the one
+`ProjectRecord.colour` carries, so no colour crosses the bus and `theme.rs` keeps its monopoly.
+A registry would buy rename-everywhere and cost a second store, a garbage-collection rule and a
+reference type on the wire — for a list that is short, is edited as a set, and is suggested from
+the labels the project's own cards carry. `TaskField::Labels` therefore replaces the whole set
+rather than carrying a delta.
+
+**Order is the task's place in `tasks.toml`, not a rank field.** The board's columns are views over
+one project-wide `Vec<TaskRecord>` filtered by status, and `MoveStep` reorders the same way —
+remove and reinsert, no rank, no renumbering pass, no fractional keys. A rank would have to answer
+"rank relative to what" and then be kept dense against every insert and delete, to carry information
+the vector's own order carries for free.
+
+**A drop names the card it lands in front of, and `MoveStep` names an index.** The one difference
+that decides it is that the board filters and a step list does not: an index into what the user can
+see is wrong by however many hidden cards of that status sit above the drop. An anchor is
+filter-proof by construction and needs no clamp — one naming a task deleted mid-drag lands at the end
+of the column rather than refusing the drag. A reorder inside a column is the same message as a move
+between two, because the host always removes and reinserts; only tasks of the destination status are
+ever spliced next to, so one column's reordering cannot disturb another's.
+
+**Cost.** A reorder rewrites positions in a list every column shares, so the file's diff is larger
+than the change the user made. That is the price of the vector being the order, and it is paid by a
+file that is rewritten whole on every edit anyway.
+
+### D114 — Ubiq ships an A2UI catalog extension, and the renderer's component set is a registry rather than an enum
+
+A2UI's security argument is that an application shipping its own catalog restricts the agent to
+exactly the components that exist in it. Ubiq takes the extension point at its narrowest: one
+component, `Svg`, declared in `crates/ubiq/src/state/a2ui/ubiq-catalog.json` under the `catalogId`
+`https://ubiq.app/a2ui/v1_0/catalog.json`, reaching the basic catalog through an `anyOf` in
+`$defs/anyComponent` rather than by copying it. An agent that names the basic catalog gets the
+eighteen and nothing else; one that names Ubiq's gets nineteen.
+
+**The renderer answers that with a table, not a match arm.** `Kind::Extension { component, props }`
+keeps the payload of anything outside the basic catalog, and `crates/ubiq/src/ui/a2ui/registry.rs`
+is a static list of name against drawing function that `parse` routes by name. A closed enum would
+have made every extension a change to the parser, the type and every exhaustive match over it, which
+is the wrong shape for the thing a catalog exists to make cheap; and a name in neither the basic
+catalog nor the table draws a placeholder that says what it was, rather than being dropped — a
+dropped component is indistinguishable from one the agent never sent.
+
+**Cost.** There are two sources of truth — the JSON catalog an agent reads and the Rust table the
+renderer draws from — and nothing but a test in `crates/ubiq/tests/a2ui.rs` holds them to the same
+names. A catalog that gains a component without a drawing function is a promise Ubiq does not keep,
+and one is an untyped `props` map, so each drawing function validates its own arguments instead of
+`serde` doing it once at the boundary.
+
+### D115 — A drawn surface never follows a URL and never fetches
+
+An A2UI payload is authored by a model, and a component tree is a list of requests made of the
+renderer. Ubiq grants none of them that reach off the machine. An action carrying a `functionCall`
+is **reported rather than performed**, so `openUrl` puts its URL in the action log and opens
+nothing; `Image`, `Video` and `AudioPlayer` state their URL and draw a placeholder behind it; and
+the sanitizer in `crates/ubiq/src/state/a2ui/svg.rs` refuses `<use>`, `<image>`, any `href` or
+`xlink:href`, any external `url()` — a local `url(#id)` is fine — and any `data:`, alongside script,
+foreign objects, event attributes, doctypes and entities.
+
+The rule is one rule and not four coincidences: a surface that can name a URL the renderer will
+fetch is a surface that can report on the reader to whoever authored it, and can do it without
+drawing anything the reader would notice. That is worth more to an attacker than anything a drawing
+is for. It is also why the two vector routes are separate — an `Icon`'s `svgPath` goes through
+`state/a2ui/path.rs` with no scanner at all, because a path string can express geometry and nothing
+else, which makes it the route to prefer rather than merely the cheaper one.
+
+**Cost.** A legitimate payload is refused: a sprite sheet referenced through `<use>`, a gradient
+held in a defs block somewhere else, an avatar from a URL the user would have been happy to load.
+The refusal is **stated on screen** rather than degraded silently, because a picture that quietly
+does not appear reads as a renderer bug and sends the reader looking in the wrong place; and what
+would relax the rule is a decision about which origins a surface may reach, which nothing yet needs.
 
 ## Related docs
 

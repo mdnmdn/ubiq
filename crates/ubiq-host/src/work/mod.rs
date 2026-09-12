@@ -2,8 +2,10 @@
 //!
 //! One half of this is durable and one half is not, which is the whole shape of the module. A
 //! [`ubiq_proto::work::TaskRecord`] is the user's data, kept in the project's `tasks.toml`;
-//! sessions and agents are answered per request with nothing behind them. [`mock`] is where the
-//! second half comes from today, and where a new project's first tasks are seeded from.
+//! sessions and agents are answered per request with nothing behind them, and [`mock`] is where
+//! the second half comes from today. A new project's tasks start as an empty list, written to
+//! `tasks.toml` the moment anybody asks, so an absent file keeps meaning "never seen" rather than
+//! "seen and empty".
 
 pub mod mock;
 
@@ -11,9 +13,9 @@ use std::collections::{HashMap, HashSet};
 
 use chrono::Utc;
 use ubiq_proto::ids::{ProjectId, SessionId, StepId, TaskId};
-use ubiq_proto::messages::Message;
+use ubiq_proto::messages::{Message, TaskField};
 use ubiq_proto::work::{
-    AgentId, Priority, Shape, Speaker, Status, Step, TaskRecord, Turn, WorkAgent, WorkSession,
+    AgentId, Label, Priority, Speaker, Status, Step, TaskRecord, Turn, WorkAgent, WorkSession,
 };
 
 use crate::reply::Reply;
@@ -84,14 +86,15 @@ impl Work {
 
     // ── loading, seeding and keeping ─────────────────────────────────
 
-    /// Put a project's tasks in memory, seeding them the first time. Answers whatever should be
-    /// said about how that went, which is nothing in the ordinary case.
+    /// Put a project's tasks in memory, writing the file down the first time. Answers whatever
+    /// should be said about how that went, which is nothing in the ordinary case.
     ///
-    /// **The seeding rule lives here and nowhere else.** A project's tasks are seeded from the
-    /// fixture exactly once: the first ask for a project with no `tasks.toml` mints the fixture,
-    /// writes it, and answers it, and from then on the file is the truth — including when it holds
-    /// no tasks at all. A user who deletes every task gets an empty board at the next boot, because
-    /// an absent file and an empty list are different things. It is the distinction
+    /// **The absent-file rule lives here and nowhere else.** A project no `tasks.toml` has ever
+    /// been written for starts with an empty board, written down immediately rather than at the
+    /// first edit — so what the user sees is already theirs: renamable, movable, deletable, and
+    /// still there after a restart. From then on the file is the truth, including when it holds no
+    /// tasks at all: a user who deletes every task gets that same empty board back at the next
+    /// boot, because an absent file and an empty list are different things. It is the distinction
     /// [`Message::Preferences`] already draws between a blob never set and an empty one.
     fn ensure(&mut self, project: ProjectId) -> Vec<Reply> {
         if self.loaded.contains_key(&project) {
@@ -104,10 +107,11 @@ impl Work {
                 Vec::new()
             }
             Ok(None) => {
-                self.loaded.insert(project, mock::tasks());
+                self.loaded.insert(project, Vec::new());
                 // Written now rather than at the first edit, so what the user sees on their first
                 // look is already theirs: renamable, movable and deletable, and still there after
-                // a restart.
+                // a restart — and so an absent file is never mistaken for one that says "empty" on
+                // the next boot.
                 self.keep(project).into_iter().collect()
             }
             Err(error) => {
@@ -425,7 +429,6 @@ impl Work {
         title: Option<String>,
         description: Option<String>,
         priority: Option<Priority>,
-        shape: Option<Shape>,
     ) -> Vec<Reply> {
         self.with_task(project, task, |record| {
             let mut changed = false;
@@ -445,21 +448,138 @@ impl Work {
                 changed |= record.priority != priority;
                 record.priority = priority;
             }
-            if let Some(shape) = shape {
-                changed |= record.shape != shape;
-                record.shape = shape;
-            }
             Ok(changed)
         })
     }
 
-    /// Move a task to another column, and nothing else about it.
-    pub fn move_task(&mut self, project: ProjectId, task: TaskId, status: Status) -> Vec<Reply> {
+    /// Set one of a task's optional facts, or clear it. The only refusal is a task that is not
+    /// there, and a value that already matches costs no write — the same posture as [`Self::update`]
+    /// and every other display-only edit.
+    ///
+    /// `Key` and `Link` trim what they are given and treat a trimmed-empty string as the clear:
+    /// the user rubbed the field out, which is a thing to mean, the same as an emptied description.
+    /// `Labels` replaces the whole set, trimmed, with empty names dropped and duplicate names
+    /// collapsed to the first — a label list is short and edited as a set, so there is no delta
+    /// worth a message of its own.
+    pub fn set_field(&mut self, project: ProjectId, task: TaskId, field: TaskField) -> Vec<Reply> {
         self.with_task(project, task, |record| {
-            let changed = record.status != status;
-            record.status = status;
+            let changed = match field {
+                TaskField::Shape(shape) => {
+                    let changed = record.shape != shape;
+                    record.shape = shape;
+                    changed
+                }
+                TaskField::Kind(kind) => {
+                    let changed = record.kind != kind;
+                    record.kind = kind;
+                    changed
+                }
+                TaskField::Key(key) => {
+                    let key = key
+                        .map(|key| key.trim().to_string())
+                        .filter(|key| !key.is_empty());
+                    let changed = record.key != key;
+                    record.key = key;
+                    changed
+                }
+                TaskField::Link(link) => {
+                    let link = link
+                        .map(|link| link.trim().to_string())
+                        .filter(|link| !link.is_empty());
+                    let changed = record.link != link;
+                    record.link = link;
+                    changed
+                }
+                TaskField::Labels(labels) => {
+                    let mut seen = HashSet::new();
+                    let labels: Vec<Label> = labels
+                        .into_iter()
+                        .filter_map(|mut label| {
+                            label.name = label.name.trim().to_string();
+                            (!label.name.is_empty() && seen.insert(label.name.clone()))
+                                .then_some(label)
+                        })
+                        .collect();
+                    let changed = record.labels != labels;
+                    record.labels = labels;
+                    changed
+                }
+            };
             Ok(changed)
         })
+    }
+
+    /// Move a task to another column, and to a place in it.
+    ///
+    /// Not built on [`Self::with_task`]: that hands the change one `&mut TaskRecord`, which cannot
+    /// see the list around it and so can never reorder anything. A reorder is a list-level fact —
+    /// where a card lands among the others of its new status — so this works on the list directly.
+    ///
+    /// **Only ever spliced next to a task of the destination status.** `before` picks the spot when
+    /// it names a task the list still holds and that task is in the destination column; otherwise
+    /// — no anchor, a deleted one, or one that changed column under the drag — the card lands right
+    /// after the last task already in that column, or at the end of the list when there is none.
+    /// Never refused: a card gone missing mid-drag is not a reason to refuse the drag. Splicing only
+    /// beside same-status neighbours is what keeps every other column's relative order untouched by
+    /// a reorder inside this one.
+    pub fn move_task(
+        &mut self,
+        project: ProjectId,
+        task: TaskId,
+        status: Status,
+        before: Option<TaskId>,
+    ) -> Vec<Reply> {
+        let mut replies = self.prepare(project);
+        let Some(list) = self.loaded.get_mut(&project) else {
+            replies.push(Reply::Asker(work_error(
+                project,
+                Some(task),
+                "no work for that project",
+            )));
+            return replies;
+        };
+        let Some(from) = list.iter().position(|t| t.id == task) else {
+            replies.push(Reply::Asker(work_error(
+                project,
+                Some(task),
+                "no such task",
+            )));
+            return replies;
+        };
+
+        // The order before anything moves, compared against the order after: the cheapest honest
+        // way to tell whether a drag that ended where it started actually changed anything, without
+        // separately reasoning about which neighbour a card now sits beside.
+        let old_status = list[from].status;
+        let old_order: Vec<TaskId> = list.iter().map(|t| t.id).collect();
+
+        let mut record = list.remove(from);
+        record.status = status;
+
+        let target = before
+            .and_then(|id| list.iter().position(|t| t.id == id))
+            .filter(|&index| list[index].status == status);
+        let insert_at = target.unwrap_or_else(|| {
+            list.iter()
+                .rposition(|t| t.status == status)
+                .map_or(list.len(), |index| index + 1)
+        });
+        list.insert(insert_at, record);
+
+        let new_order: Vec<TaskId> = list.iter().map(|t| t.id).collect();
+        if old_status == status && old_order == new_order {
+            return replies;
+        }
+
+        let record = &mut list[insert_at];
+        record.updated_at = Utc::now();
+        let record = record.clone();
+        replies.push(Reply::Asker(Message::TaskChanged {
+            project_id: project,
+            task: record,
+        }));
+        replies.extend(self.keep(project));
+        replies
     }
 
     /// Hand a task to a session, or take it back.

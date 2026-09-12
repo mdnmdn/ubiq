@@ -10486,6 +10486,7 @@ dependencies = [
  "parking_lot",
  "pulldown-cmark",
  "raw-window-handle",
+ "regex",
  "rustls",
  "rustls-native-certs",
  "serde",

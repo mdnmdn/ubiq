@@ -18,7 +18,7 @@ Re-exports live in `state/mod.rs`; the work's own records are **not** re-exporte
 | `conversation.rs` | One live agent's conversation (`Conversation`, `ConvBlock`, `Pending`, `Run`) — the largest state module |
 | `diagrams.rs` | Mermaid: source in, picture out, plus the disk tier that stops it being drawn twice |
 | `dock.rs` | What a panel is and where it may sit (`PanelKind`, `PanelClass`, `Region`, `ChatId`, `Visibility`) |
-| `editor.rs` | The files open in the centre pane (`OpenFile`, `FileBody`, `FileLanguage`, `SaveState`, `EditorPaneState`). The one module allowed a component-library type, because the widget's state *is* the model |
+| `editor.rs` | The files open in the centre pane (`OpenFile`, `FileBody`, `FileLanguage`, `SaveState`, `EditorPaneState`). Allowed a component-library type, because the widget's state *is* the model — the same licence `search.rs` and `a2ui/live.rs` hold |
 | `explorer/` | The file tree and each row's git state — `mod.rs` (`ExplorerState`, `FileNode`, `Row`, `GitStatus`), `tree.rs` (listing, merge, expansion), `rows.rs` (flattening to drawable rows), `filter.rs`, `keys.rs`, `menu.rs` |
 | `file_picker.rs` | What the picker was asked for, is showing, and has picked. Owns the four dialog sizes a resize clamps against |
 | `git.rs` | The Git screen's view of a repository. Owns `SIDEBAR_WIDTH`, `CHANGES_WIDTH`, `DIFF_HEIGHT`, `LANE_PITCH` |

@@ -17,7 +17,7 @@ use gpui::{
 };
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
-use ubiq_proto::work::TaskRecord;
+use ubiq_proto::work::{StepState, TaskRecord};
 
 use crate::app::AppState;
 use crate::state::board::Field;
@@ -79,8 +79,6 @@ fn body(
     let done = task.done();
     let total = task.steps.len();
 
-    // Which session is a picker; whether that session is a worktree is a fact about it, and stays a
-    // fact — the panel reports it beside the control rather than offering it as a choice.
     let worktree = task
         .session
         .and_then(|id| work.session(id))
@@ -120,6 +118,7 @@ fn body(
         .map(|step| {
             let owner = step.owner.and_then(|id| work.agent(id));
             let state = bucket_colour(step.state.bucket());
+            let idle = step.state == StepState::Idle;
             let done = step.done();
             let task_id = task.id;
             let step_id = step.id;
@@ -196,11 +195,17 @@ fn body(
                                     mono("\u{b7}", theme::text_faint())
                                         .text_size(theme::font(Family::Chrome, Role::Meta))
                                 }))
-                                .child(div().size(px(6.)).flex_none().rounded_full().bg(state))
-                                .child(
+                                // Idle is the absence of news, and a list that writes it once per
+                                // line has to be read to find the line that is not idle. So a
+                                // sub-task nobody has started says nothing, and every dot on the
+                                // list is one worth looking at.
+                                .children((!idle).then(|| {
+                                    div().size(px(6.)).flex_none().rounded_full().bg(state)
+                                }))
+                                .children((!idle).then(|| {
                                     mono(step.state.label(), state)
-                                        .text_size(theme::font(Family::Chrome, Role::Meta)),
-                                ),
+                                        .text_size(theme::font(Family::Chrome, Role::Meta))
+                                })),
                         ),
                 )
                 .child(form::step_controls(app, task, step_id, cx))
@@ -233,27 +238,22 @@ fn body(
                     task.status.label().to_uppercase(),
                     status_colour(task.status),
                 ))
-                .children(task.blocked().then(|| tag("BLOCKED", theme::danger()))),
+                .children(task.blocked().then(|| tag("BLOCKED", theme::danger())))
+                // What the task is, left; how urgent it is, right. The priority row carries no
+                // heading: three words in a row with one of them lit need none, and the space it
+                // took is what lets the two facts share one line.
+                .child(div().flex_1().min_w(px(0.)))
+                .child(form::priority_pills(task, cx)),
         )
-        .child(form::pills(task, cx))
         .child(
             div()
                 .flex()
                 .flex_col()
                 .gap_1()
-                .child(fact(
-                    "Session",
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap_1p5()
-                        .child(form::session(app, task, cx))
-                        .children(worktree.then(|| {
-                            mono("(worktree)", theme::text_faint())
-                                .text_size(theme::font(Family::Chrome, Role::Meta))
-                        }))
-                        .into_any_element(),
-                ))
+                .child(fact("Key", form::key(app, task, window, cx)))
+                .child(fact("Link", form::link(app, task, window, cx)))
+                .child(fact("Kind", form::kind_pills(task, cx)))
+                .child(fact("Labels", form::labels(app, task, cx)))
                 .child(fact("Now", now)),
         )
         .child(form::description(app, task, window, cx))
@@ -290,6 +290,38 @@ fn body(
         }))
         .children(steps)
         .child(form::new_step(app, window, cx))
+        // How the work will be done, and who has it — under the work itself, because both are
+        // claims about a task that is already described. The note says what the shape means: the
+        // word alone says how the agents are arranged only to somebody who already knows, and
+        // there is nothing to say for a task nobody has shaped.
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_1p5()
+                .child(section_label("Shape"))
+                .child(form::shape_pills(task, cx))
+                .children(task.shape.map(|shape| {
+                    div()
+                        .text_size(theme::font(Family::Chrome, Role::Body))
+                        .text_color(theme::text_muted())
+                        .child(shape.note())
+                }))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_1p5()
+                        // Which session is a picker; whether that session is a worktree is a fact
+                        // about it, and stays one — reported beside the control rather than
+                        // offered as a choice.
+                        .child(form::session(app, task, cx))
+                        .children(worktree.then(|| {
+                            mono("(worktree)", theme::text_faint())
+                                .text_size(theme::font(Family::Chrome, Role::Meta))
+                        })),
+                ),
+        )
         .into_any_element()
 }
 
@@ -318,10 +350,12 @@ fn tag(label: impl Into<SharedString>, colour: gpui::Rgba) -> impl IntoElement {
         .child(mono(label, colour).text_size(theme::font(Family::Chrome, Role::Micro)))
 }
 
-/// The two ways out of a task, one onto each screen over the agents: the graph pointed at whoever
-/// is doing it, or that agent's thread.
+/// The way out of a task: the thread of whoever is doing it, on the screen over the agents.
+///
+/// A conversation is what a user who wants to intervene is after, and the columns are where one is
+/// had. The graph is the map, and a button that only moved the selection onto it answered a
+/// question nobody had asked from here.
 fn footer(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> impl IntoElement {
-    let id = task.id;
     let now = app
         .work(cx)
         .and_then(|work| work.now(task))
@@ -337,12 +371,6 @@ fn footer(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> impl
         .bg(theme::pane_bg())
         .border_t_1()
         .border_color(theme::border())
-        .child(ghost_button(
-            "board-show-in-graph",
-            Some(IconName::Network),
-            "Show in graph",
-            cx.listener(move |this, _, _, cx| this.show_task_in_graph(id, cx)),
-        ))
         .children(now.map(|(agent, name)| {
             ghost_button(
                 "board-open-chat",

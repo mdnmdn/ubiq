@@ -801,7 +801,7 @@ fn task_forest(tasks: &[&TaskRecord], agents: &[WorkAgent]) -> Vec<Option<usize>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ubiq_proto::work::{Activity, Priority, Shape, Status};
+    use ubiq_proto::work::{Activity, Priority, Status};
 
     fn agent(session: SessionId, task: Option<TaskId>, parent: Option<AgentId>) -> WorkAgent {
         WorkAgent {
@@ -833,7 +833,11 @@ mod tests {
             session: Some(session),
             status: Status::Backlog,
             priority: Priority::Normal,
-            shape: Shape::Direct,
+            shape: None,
+            kind: None,
+            key: None,
+            link: None,
+            labels: Vec::new(),
             title: "task".to_string(),
             description: String::new(),
             steps: Vec::new(),

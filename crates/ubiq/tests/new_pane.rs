@@ -156,6 +156,7 @@ fn an_agent(id: &str, label: &str, available: bool) -> AgentTypeInfo {
         modes: Vec::new(),
         unattended_mode: None,
         keeps_sessions: true,
+        quota: Default::default(),
     }
 }
 

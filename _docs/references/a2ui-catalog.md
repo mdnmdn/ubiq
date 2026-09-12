@@ -5,8 +5,8 @@ kind: reference
 status: current
 summary: The vocabulary an A2UI agent draws from — the eighteen components of the basic catalog with their props and enums, the shared envelope properties, the fifteen catalog functions, the layout model and its deliberate refusal of padding and colour, templated lists, and how an application defines a catalog of its own.
 read_when: you are sizing the widget set a renderer would have to implement, or choosing which components a Ubiq catalog would expose to an agent
-updated: 2026-09-09
-verified: 2026-09-09
+updated: 2026-09-12
+verified: 2026-09-12
 depends_on: [ref-a2ui-protocol]
 ---
 
@@ -44,6 +44,11 @@ function call evaluating to a validation result and `message` is an optional fal
 schema.
 
 ## The eighteen components
+
+A prop marked `DynamicString`, `DynamicNumber`, `DynamicBoolean` or `DynamicStringList` below takes
+a literal, a `{"path": "/pointer"}` binding, or a `{"call": "name", "args": {…}}` call on one of the
+functions below — the same three forms everywhere, described on the wire by
+[the A2UI protocol](./a2ui-protocol.md).
 
 ### Display
 
@@ -164,6 +169,13 @@ reference. Component, function and property names must obey Unicode UAX #31
 Composition constraints ride on the component definitions: `allowedParents` and `allowedChildren`,
 each an array of type names, each omittable to mean "anything". They are how a catalog says a
 `MenuItem` appears only inside a `Menu`, or that a component may only be the surface's root.
+
+**Ubiq's own catalog is a one-component example of the mechanism.**
+`crates/ubiq/src/state/a2ui/ubiq-catalog.json` carries `catalogId`
+`https://ubiq.app/a2ui/v1_0/catalog.json` and extends the basic catalog through an `anyOf` in
+`$defs/anyComponent`, so an agent naming it may send everything the basic catalog holds plus one
+component more: `Svg`, which takes raw SVG markup rather than a URL. What Ubiq draws it with, and
+what it refuses to draw, belongs to [the workbench](../features/workbench.md).
 
 **Unknown components have no crisply specified handling.** A renderer validating the payload can
 reject it with a `VALIDATION_FAILED` error naming the offending JSON Pointer, and the tree model

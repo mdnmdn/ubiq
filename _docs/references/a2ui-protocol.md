@@ -5,8 +5,8 @@ kind: reference
 status: current
 summary: The Agent-to-UI protocol as an external contract — the six agent-to-renderer envelopes and the four renderer-to-agent ones, the surface lifecycle, the flat adjacency-list component model, JSON-Pointer data binding and two-way input, actions and function calls, catalog negotiation, the version landscape, and the SDKs that exist.
 read_when: you are deciding whether an agent-authored user interface can reach a Ubiq surface, or you need the exact shape of an A2UI message before writing a parser
-updated: 2026-09-09
-verified: 2026-09-09
+updated: 2026-09-12
+verified: 2026-09-12
 depends_on: [ref-a2ui-catalog]
 ---
 
@@ -178,6 +178,11 @@ Any bindable property is typed `DynamicString`, `DynamicNumber`, `DynamicBoolean
 Each accepts three forms: a **literal**, a **`{"path": "..."}` binding**, or a
 **`{"call": "...", "args": {...}}` function call**.
 
+The three forms are told apart by the object's keys, and a binding is a binding **only when `path` is
+its sole key**: an object carrying `path` alongside anything else is not a binding, and an object
+carrying `call` is a function call whatever else it holds. A renderer that matches loosely — treating
+any object with a `path` key as a binding — swallows the call form and draws nothing for it.
+
 Paths are **JSON Pointers** (RFC 6901) resolved against an evaluation scope:
 
 - A path starting with `/` is **absolute** and resolves from the data-model root, wherever the
@@ -211,6 +216,17 @@ bindings — or a **local function call** the renderer executes itself, which is
 without a round trip. The specification's own guidance on `context` is to use literal values unless
 a value must genuinely track the data model.
 
+The discriminating key is one level down, and the two forms are never flattened onto `action`
+itself:
+
+```json
+"action": {"event": {"name": "pick", "context": {"branch": "main"}, "userMessage": "Rebasing…"}}
+"action": {"functionCall": {"call": "openUrl", "args": {"url": "https://example.org"}}}
+```
+
+An `action` whose keys are `name` and `context` is not a v1.0 action; `name` belongs to the `event`
+object, which is the mistake that flat shape invites.
+
 Beyond that, v1.0 has symmetric RPC. `callRendererFunction` and `callAgentFunction` each carry a
 `functionCallId` that the answering side **must** copy into its `rendererFunctionResponse` or
 `agentFunctionResponse`; a response carries either a `value` or an `error`, never both.
@@ -229,7 +245,10 @@ function calls may override it, and everything the agent sends is validated agai
 agent have to agree on well-known catalog ids for their systems to interoperate.
 
 The security argument rests here: an application that ships its own catalog **restricts the agent to
-exactly the components and visual language that exist in it**.
+exactly the components and visual language that exist in it**. Ubiq ships one, `catalogId`
+`https://ubiq.app/a2ui/v1_0/catalog.json`, extending the basic catalog by a single component; what
+is in it is described alongside the basic catalog in [A2UI catalogs and
+components](./a2ui-catalog.md).
 
 ## Relation to neighbouring protocols
 

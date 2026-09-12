@@ -19,8 +19,8 @@ use ubiq::state::board::BoardState;
 use ubiq::state::work::{WorkProjection, fraction};
 use ubiq_proto::ids::{SessionId, TaskId};
 use ubiq_proto::work::{
-    Activity, AgentId, Bucket, Priority, Shape, Status, Step, StepState, TaskRecord, WorkAgent,
-    WorkSession,
+    Activity, AgentId, Bucket, Label, Priority, Shape, Status, Step, StepState, TaskRecord,
+    WorkAgent, WorkSession,
 };
 
 fn session(id: SessionId, name: &str) -> WorkSession {
@@ -74,7 +74,13 @@ fn task(
         session,
         status,
         priority: Priority::Normal,
-        shape: Shape::Direct,
+        // Every optional fact is absent, the way the host mints one: a task named in a hurry makes
+        // no claim about its shape, its kind or what tracker it came from.
+        shape: None,
+        kind: None,
+        key: None,
+        link: None,
+        labels: Vec::new(),
         title: title.to_string(),
         description: String::new(),
         steps: steps
@@ -308,25 +314,160 @@ fn the_filter_matches_the_title_and_the_session_name_in_either_case() {
     );
 }
 
-/// The filter matches what a card actually prints, and a card prints no description — so a needle
-/// that only the notes say is not a hit. Matching it would leave a column showing cards with
-/// nothing on them to say why they are there.
+/// The plain filter is a search over the whole task rather than over what the card prints, and the
+/// notes are where the word somebody remembers usually is: a user who wrote `eviction policy` into
+/// a task finds it by typing `eviction`, with no memory of which field they put it in.
 #[test]
-fn the_filter_does_not_match_a_description() {
+fn the_filter_searches_the_description() {
     let mut f = seeded();
     edit_task(&mut f.work, f.cache, |task| {
         task.description = "the eviction policy needs a rethink".to_string();
     });
     let board = BoardState {
-        filter: "eviction".to_string(),
+        filter: "Eviction".to_string(),
         ..Default::default()
     };
 
-    assert!(
-        !board.matches(&f.work, f.work.task(f.cache).unwrap()),
-        "a description is not printed on the card, so it is not filtered on"
+    assert!(board.matches(&f.work, f.work.task(f.cache).unwrap()));
+    assert_eq!(
+        ids(&board.column(&f.work, Status::InProgress)),
+        vec![f.cache],
+        "and only the task whose notes say it"
     );
+}
+
+/// A needle that names a field searches that field and nothing else. A tracker id is a thing to
+/// look up exactly: `UBQ-4` written into somebody's notes is not the card called `UBQ-4`.
+#[test]
+fn a_key_or_a_hash_narrows_the_search_to_one_field() {
+    let mut f = seeded();
+    edit_task(&mut f.work, f.cache, |task| {
+        task.key = Some("UBQ-41".to_string());
+        task.labels = vec![Label::new("flaky".to_string(), 2)];
+    });
+    edit_task(&mut f.work, f.pane, |task| {
+        task.description = "blocked on UBQ-41, and it is flaky".to_string();
+    });
+    // The plain form finds both, because it reads the whole task.
+    let mut board = BoardState {
+        filter: "ubq-41".to_string(),
+        ..Default::default()
+    };
+    assert_eq!(
+        ids(&board.column(&f.work, Status::InProgress)),
+        vec![f.cache, f.pane]
+    );
+
+    board.filter = "key:ubq-4".to_string();
+    assert_eq!(
+        ids(&board.column(&f.work, Status::InProgress)),
+        vec![f.cache],
+        "only the task whose key says it"
+    );
+
+    board.filter = "#FLAK".to_string();
+    assert_eq!(
+        ids(&board.column(&f.work, Status::InProgress)),
+        vec![f.cache],
+        "only the task carrying the label"
+    );
+
+    // A prefix with nothing after it is somebody halfway through typing, not a request for an
+    // empty board.
+    board.filter = "key:".to_string();
+    assert_eq!(
+        ids(&board.column(&f.work, Status::InProgress)),
+        vec![f.cache, f.pane]
+    );
+
+    board.filter = "key:nothing".to_string();
     assert!(board.column(&f.work, Status::InProgress).is_empty());
+}
+
+/// A lit label pill narrows on top of everything else, and two lit pills narrow further: a card has
+/// to carry every one of them. The text and the pills are read together, not in turn.
+#[test]
+fn a_label_pill_ands_with_the_text_and_with_the_other_pills() {
+    let mut f = seeded();
+    edit_task(&mut f.work, f.cache, |task| {
+        task.labels = vec![Label::new("flaky".to_string(), 2)];
+    });
+    edit_task(&mut f.work, f.pane, |task| {
+        task.labels = vec![
+            Label::new("flaky".to_string(), 2),
+            Label::new("urgent".to_string(), 0),
+        ];
+    });
+    let mut board = BoardState::default();
+    assert!(!board.filtering(), "an untouched board hides nothing");
+
+    board.toggle_label("flaky");
+    assert!(board.is_label_on("flaky"));
+    assert!(board.filtering());
+    assert_eq!(
+        ids(&board.column(&f.work, Status::InProgress)),
+        vec![f.cache, f.pane]
+    );
+
+    // A second pill is a narrower question, not a wider one.
+    board.toggle_label("urgent");
+    assert_eq!(
+        ids(&board.column(&f.work, Status::InProgress)),
+        vec![f.pane]
+    );
+
+    // And the text narrows the survivors again.
+    board.filter = "cache".to_string();
+    assert!(board.column(&f.work, Status::InProgress).is_empty());
+
+    board.toggle_label("urgent");
+    assert!(!board.is_label_on("urgent"));
+    assert_eq!(
+        ids(&board.column(&f.work, Status::InProgress)),
+        vec![f.cache]
+    );
+
+    board.clear_filters();
+    assert!(!board.filtering());
+    assert!(board.filter.is_empty());
+    assert_eq!(
+        ids(&board.column(&f.work, Status::InProgress)),
+        vec![f.cache, f.pane]
+    );
+}
+
+/// There is no label registry: the set of labels that exist is what the tasks say. The same name in
+/// two colours is one label — the first colour seen wins — and the row is ordered by how much of
+/// the board carries each, so the label somebody is about to reach for is at the front and the row
+/// does not reshuffle when the counts tie.
+#[test]
+fn the_label_row_deduplicates_and_leads_with_the_most_used() {
+    let mut f = seeded();
+    assert!(f.work.labels().is_empty(), "nothing carries a label yet");
+
+    edit_task(&mut f.work, f.cache, |task| {
+        task.labels = vec![Label::new("flaky".to_string(), 2)];
+    });
+    edit_task(&mut f.work, f.pane, |task| {
+        task.labels = vec![
+            Label::new("urgent".to_string(), 0),
+            // The same name in another colour, which is the same label.
+            Label::new("flaky".to_string(), 7),
+        ];
+    });
+    edit_task(&mut f.work, f.parser, |task| {
+        task.labels = vec![Label::new("api".to_string(), 1)];
+    });
+
+    assert_eq!(
+        f.work.labels(),
+        vec![
+            Label::new("flaky".to_string(), 2),
+            Label::new("api".to_string(), 1),
+            Label::new("urgent".to_string(), 0),
+        ],
+        "twice-used first, then the tied pair by name, and the first colour seen wins"
+    );
 }
 
 /// A projection that appended on a re-send would draw the same card twice, which is the classic
@@ -413,9 +554,9 @@ fn a_mark_for_a_move_comes_off_even_when_the_host_refuses_it() {
     let mut board = BoardState::default();
 
     board.start_carry(f.cache);
-    assert!(board.carry_over(Status::Done));
-    let (id, status) = board.end_carry().expect("the card landed in a column");
-    assert_eq!((id, status), (f.cache, Status::Done));
+    assert!(board.carry_over(Status::Done, None));
+    let (id, status, before) = board.end_carry().expect("the card landed in a column");
+    assert_eq!((id, status, before), (f.cache, Status::Done, None));
 
     board.moving = Some((id, status));
     assert!(board.is_moving(f.cache));
@@ -533,7 +674,9 @@ fn a_task_speaks_through_whoever_is_holding_it() {
 fn a_coordinated_task_speaks_through_its_coordinator() {
     let mut f = seeded();
     let worker = AgentId::generate();
-    edit_task(&mut f.work, f.cache, |task| task.shape = Shape::Coordinated);
+    edit_task(&mut f.work, f.cache, |task| {
+        task.shape = Some(Shape::Coordinated)
+    });
     f.work.apply_agent(agent(
         worker,
         f.cold,
@@ -577,24 +720,32 @@ fn the_meter_reads_the_steps_and_a_task_with_none_has_nothing_to_be_a_fraction_o
 }
 
 #[test]
-fn dragging_a_card_answers_the_column_it_landed_in() {
+fn dragging_a_card_answers_the_column_it_landed_in_and_the_card_it_landed_in_front_of() {
     let f = seeded();
     let mut board = BoardState::default();
 
     assert!(
-        !board.carry_over(Status::Ready),
+        !board.carry_over(Status::Ready, None),
         "nothing is being carried yet"
     );
 
     board.start_carry(f.parser);
-    assert!(board.carry_over(Status::Ready));
+    assert!(board.carry_over(Status::Ready, None));
     assert!(
-        !board.carry_over(Status::Ready),
+        !board.carry_over(Status::Ready, None),
         "a drag across one column does not ask for a frame per pixel"
     );
-    assert!(board.carry_over(Status::Done));
-    assert_eq!(board.end_carry(), Some((f.parser, Status::Done)));
+    assert!(board.carry_over(Status::Done, None));
+    assert_eq!(board.end_carry(), Some((f.parser, Status::Done, None)));
     assert!(board.carry.is_none());
+
+    // The anchor is the card a drop would land in front of, and `None` is the end of the column.
+    board.start_carry(f.parser);
+    assert!(board.carry_over(Status::InProgress, Some(f.pane)));
+    assert_eq!(
+        board.end_carry(),
+        Some((f.parser, Status::InProgress, Some(f.pane)))
+    );
 
     // Let go over no column at all, and nothing is asked for.
     board.start_carry(f.parser);
@@ -602,6 +753,28 @@ fn dragging_a_card_answers_the_column_it_landed_in() {
     assert!(board.carry.is_none());
 
     assert_eq!(board.end_carry(), None, "nothing was being carried");
+}
+
+/// A drag past several cards inside one column never changes the column, and a redraw keyed off
+/// that alone would leave the gap drawn where the pointer used to be. The anchor is half the
+/// answer, so either half changing is a frame.
+#[test]
+fn moving_past_a_card_inside_one_column_still_asks_for_a_frame() {
+    let f = seeded();
+    let mut board = BoardState::default();
+    board.start_carry(f.parser);
+
+    assert!(board.carry_over(Status::InProgress, None));
+    assert!(
+        board.carry_over(Status::InProgress, Some(f.pane)),
+        "the column is the same, the card it would land in front of is not"
+    );
+    assert!(!board.carry_over(Status::InProgress, Some(f.pane)));
+    assert!(board.carry_over(Status::InProgress, Some(f.cache)));
+    assert!(
+        board.carry_over(Status::InProgress, None),
+        "and past the last card it is the end of the column again"
+    );
 }
 
 #[test]

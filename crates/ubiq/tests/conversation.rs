@@ -489,6 +489,7 @@ fn the_plus_menu_offers_the_form_and_the_attach_list(cx: &mut TestAppContext) {
                 modes: Vec::new(),
                 unattended_mode: None,
                 keeps_sessions: true,
+                quota: Default::default(),
             }],
         },
     );

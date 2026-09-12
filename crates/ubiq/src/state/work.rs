@@ -17,7 +17,7 @@
 
 use ubiq_proto::ids::{SessionId, StepId, TaskId};
 use ubiq_proto::work::{
-    Activity, AgentId, Bucket, Shape, Step, TaskRecord, WorkAgent, WorkSession,
+    Activity, AgentId, Bucket, Label, Shape, Step, TaskRecord, WorkAgent, WorkSession,
 };
 
 /// The sessions, agents and tasks of one project, and whether the host has answered yet.
@@ -153,7 +153,7 @@ impl WorkProjection {
     /// member the others were spawned by — and any other shape answers through whoever is holding
     /// it now, which is the first member that has not finished.
     pub fn now(&self, task: &TaskRecord) -> Option<&WorkAgent> {
-        if task.shape == Shape::Coordinated {
+        if task.shape == Some(Shape::Coordinated) {
             let lead = self.members(task.id).find(|a| {
                 self.members(task.id)
                     .any(|other| other.parent == Some(a.id))
@@ -187,6 +187,30 @@ impl WorkProjection {
             }
         }
         worst
+    }
+
+    /// Every label anybody has used in this project, most-used first and then by name.
+    ///
+    /// There is no registry: a label is the name and the colour together, written on whichever
+    /// tasks carry it, so the set of labels that exist *is* what the tasks say. This gathers them
+    /// for the picker to suggest from, deduplicating on the name and keeping the first colour seen
+    /// — the same name in two colours is one label, and the picker has to offer one swatch.
+    ///
+    /// Most-used first because the label somebody is about to reach for is usually the one already
+    /// on half the board, and by name after that so the row does not reshuffle every time a task
+    /// arrives with the counts tied.
+    pub fn labels(&self) -> Vec<Label> {
+        let mut found: Vec<(Label, usize)> = Vec::new();
+        for label in self.tasks.iter().flat_map(|task| task.labels.iter()) {
+            match found.iter_mut().find(|(held, _)| held.name == label.name) {
+                Some((_, uses)) => *uses += 1,
+                None => found.push((label.clone(), 1)),
+            }
+        }
+        found.sort_by(|(a, a_uses), (b, b_uses)| {
+            b_uses.cmp(a_uses).then_with(|| a.name.cmp(&b.name))
+        });
+        found.into_iter().map(|(label, _)| label).collect()
     }
 
     /// How many agents the status line counts, by bucket.

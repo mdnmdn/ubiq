@@ -1,0 +1,291 @@
+{
+  "version": "v1.0",
+  "createSurface": {
+    "surfaceId": "bindings_demo",
+    "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+    "sendDataModel": true,
+    "components": [
+      {
+        "id": "root",
+        "component": "Column",
+        "children": [
+          "greeting",
+          "itemsCard",
+          "nameField",
+          "emailField",
+          "newsletterBox",
+          "tierPicker",
+          "priceText",
+          "countText",
+          "logicText",
+          "submitBtn",
+          "linkBtn"
+        ]
+      },
+      {
+        "id": "greeting",
+        "component": "Text",
+        "text": {
+          "call": "formatString",
+          "args": {
+            "value": "Hello ${/profile/name}"
+          }
+        }
+      },
+      {
+        "id": "itemsCard",
+        "component": "Card",
+        "child": "itemsList"
+      },
+      {
+        "id": "itemsList",
+        "component": "List",
+        "children": {
+          "path": "/items",
+          "componentId": "item_row_tpl"
+        }
+      },
+      {
+        "id": "item_row_tpl",
+        "component": "Row",
+        "children": [
+          "item_name",
+          "item_index",
+          "item_qty"
+        ]
+      },
+      {
+        "id": "item_name",
+        "component": "Text",
+        "text": {
+          "path": "name"
+        }
+      },
+      {
+        "id": "item_index",
+        "component": "Text",
+        "text": {
+          "call": "@index",
+          "args": {
+            "offset": 1
+          }
+        }
+      },
+      {
+        "id": "item_qty",
+        "component": "TextField",
+        "label": "Qty",
+        "value": {
+          "path": "qty"
+        },
+        "variant": "number"
+      },
+      {
+        "id": "nameField",
+        "component": "TextField",
+        "label": "Name",
+        "value": {
+          "path": "/profile/name"
+        },
+        "checks": [
+          {
+            "condition": {
+              "call": "required",
+              "args": {
+                "value": {
+                  "path": "/profile/name"
+                }
+              }
+            },
+            "message": "Name is required"
+          }
+        ]
+      },
+      {
+        "id": "emailField",
+        "component": "TextField",
+        "label": "Email",
+        "value": {
+          "path": "/profile/email"
+        },
+        "checks": [
+          {
+            "condition": {
+              "call": "required",
+              "args": {
+                "value": {
+                  "path": "/profile/email"
+                }
+              }
+            },
+            "message": "Email is required"
+          },
+          {
+            "condition": {
+              "call": "email",
+              "args": {
+                "value": {
+                  "path": "/profile/email"
+                }
+              }
+            },
+            "message": "Must be a valid email"
+          }
+        ]
+      },
+      {
+        "id": "newsletterBox",
+        "component": "CheckBox",
+        "label": "Subscribe to the newsletter",
+        "value": {
+          "path": "/profile/newsletter"
+        }
+      },
+      {
+        "id": "tierPicker",
+        "component": "ChoicePicker",
+        "label": "Tier",
+        "variant": "mutuallyExclusive",
+        "options": [
+          {
+            "label": "Free",
+            "value": "free"
+          },
+          {
+            "label": "Plus",
+            "value": "plus"
+          },
+          {
+            "label": "Pro",
+            "value": "pro"
+          }
+        ],
+        "value": {
+          "path": "/profile/tier"
+        }
+      },
+      {
+        "id": "priceText",
+        "component": "Text",
+        "text": {
+          "call": "formatCurrency",
+          "args": {
+            "value": {
+              "path": "/items/0/price"
+            },
+            "currency": "USD",
+            "decimals": 2,
+            "grouping": true
+          }
+        }
+      },
+      {
+        "id": "countText",
+        "component": "Text",
+        "text": {
+          "call": "pluralize",
+          "args": {
+            "value": {
+              "path": "/profile/itemCount"
+            },
+            "one": "1 item",
+            "other": "${/profile/itemCount} items"
+          }
+        }
+      },
+      {
+        "id": "logicText",
+        "component": "Text",
+        "text": {
+          "call": "and",
+          "args": {
+            "values": [
+              {
+                "path": "/profile/newsletter"
+              },
+              {
+                "call": "not",
+                "args": {
+                  "value": {
+                    "path": "/profile/vip"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "submitBtnLabel",
+        "component": "Text",
+        "text": "Place Order"
+      },
+      {
+        "id": "submitBtn",
+        "component": "Button",
+        "child": "submitBtnLabel",
+        "variant": "primary",
+        "action": {
+          "event": {
+            "name": "submitOrder",
+            "context": {
+              "source": "bindings_demo",
+              "email": {
+                "path": "/profile/email"
+              }
+            },
+            "userMessage": "Submit my order"
+          }
+        }
+      },
+      {
+        "id": "linkBtnLabel",
+        "component": "Text",
+        "text": "Visit a2ui.org"
+      },
+      {
+        "id": "linkBtn",
+        "component": "Button",
+        "child": "linkBtnLabel",
+        "variant": "borderless",
+        "action": {
+          "functionCall": {
+            "call": "openUrl",
+            "args": {
+              "url": "https://a2ui.org"
+            }
+          }
+        }
+      }
+    ],
+    "dataModel": {
+      "profile": {
+        "name": "Jane Doe",
+        "email": "jane@example.com",
+        "newsletter": true,
+        "tier": [
+          "plus"
+        ],
+        "itemCount": 3,
+        "vip": false
+      },
+      "items": [
+        {
+          "name": "Widget",
+          "qty": 2,
+          "price": 19.99
+        },
+        {
+          "name": "Gadget",
+          "qty": 1,
+          "price": 49.5
+        },
+        {
+          "name": "Gizmo",
+          "qty": 5,
+          "price": 4.25
+        }
+      ]
+    }
+  }
+}

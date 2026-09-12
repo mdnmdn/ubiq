@@ -54,6 +54,10 @@ serde_json = "1.0"
 # a build-dependency below for the same reason on the writing side; needed here too to read back.
 flate2 = "1"
 
+# A2UI's `regex` validation function compiles a pattern an agent wrote (`state/a2ui/eval.rs`).
+# Free to add: `ubiq-proto` already depends on it, so it is in this workspace's tree either way.
+regex = "1"
+
 # Logging
 tracing = "0.1"
 # Wall-clock timestamps for the log console, in the reader's own zone

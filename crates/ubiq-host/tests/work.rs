@@ -2,9 +2,9 @@
 //!
 //! Two halves, because the module has two. The store half is about a real `tasks.toml` — where it
 //! lands, what an absent one means, and what happens to one this Ubiq cannot read. The service
-//! half is about the seeding rule and the ten edits, against a store with no disk under it.
+//! half is about the absent-file rule and the edits, against a store with no disk under it.
 //!
-//! The interesting cases are the ones where doing the obvious thing loses the user's data: seeding
+//! The interesting cases are the ones where doing the obvious thing loses the user's data: writing
 //! over a file that already said "no tasks", writing over a file from a newer Ubiq, or leaving an
 //! agent's card pointing at a task that has gone.
 
@@ -20,9 +20,10 @@ use ubiq_host::store::memory::MemoryTaskStore;
 use ubiq_host::store::{StoreError, TaskStore};
 use ubiq_host::work::{Work, mock};
 use ubiq_proto::ids::{ProjectId, SessionId, StepId, TaskId};
-use ubiq_proto::messages::Message;
+use ubiq_proto::messages::{Message, TaskField};
 use ubiq_proto::work::{
-    AgentId, Priority, Shape, Speaker, Status, Step, StepState, TaskRecord, WorkAgent, WorkSession,
+    AgentId, Kind, Label, Priority, Shape, Speaker, Status, Step, StepState, TaskRecord, WorkAgent,
+    WorkSession,
 };
 
 // ── the store, against a real file ──────────────────────────────────
@@ -58,7 +59,11 @@ fn a_list_of_tasks_survives_the_round_trip_in_the_order_it_was_held() {
     ];
     want[0].status = Status::InProgress;
     want[0].priority = Priority::High;
-    want[0].shape = Shape::Coordinated;
+    want[0].shape = Some(Shape::Coordinated);
+    want[0].kind = Some(Kind::Bug);
+    want[0].key = Some("UBQ-1".to_string());
+    want[0].link = Some("https://tracker.example/1".to_string());
+    want[0].labels = vec![Label::new("urgent".to_string(), 1)];
     want[0].description = "notes\nover two lines".to_string();
     want[0].session = Some(mock::sessions()[1].id);
     want[3].steps = vec![Step::new("one".to_string()), Step::new("two".to_string())];
@@ -306,18 +311,8 @@ fn refusals(replies: &[Reply]) -> Vec<(Option<TaskId>, String)> {
         .collect()
 }
 
-/// The first task holding a step in `state`, and that step.
-fn a_step(board: &[TaskRecord], state: StepState) -> (TaskId, StepId) {
-    for task in board {
-        if let Some(step) = task.steps.iter().find(|s| s.state == state) {
-            return (task.id, step.id);
-        }
-    }
-    panic!("the fixture has no {state:?} step");
-}
-
 #[test]
-fn the_first_ask_answers_the_fixture_and_writes_it_once() {
+fn the_first_ask_answers_an_empty_board_and_writes_it_once() {
     let (store, mut work, project) = unseeded();
 
     let replies = work.list(project);
@@ -325,9 +320,10 @@ fn the_first_ask_answers_the_fixture_and_writes_it_once() {
     let (sessions, agents, tasks) = listing(&replies);
     assert_eq!(sessions.len(), 5);
     assert_eq!(agents.len(), 11);
-    assert_eq!(tasks.len(), 10);
+    assert!(tasks.is_empty(), "a new project's board starts empty");
     // Written at the first look rather than at the first edit, so what the user sees is already
-    // theirs: renamable, movable, deletable, and still there after a restart.
+    // theirs: renamable, movable, deletable, and still there after a restart — and so an absent
+    // file is never mistaken for "seen and empty" on the next boot.
     assert_eq!(store.writes(), 1);
     assert!(refusals(&replies).is_empty());
 }
@@ -461,11 +457,10 @@ fn a_project_sealed_by_a_newer_version_is_never_written_to() {
 #[test]
 fn an_update_changes_only_the_fields_it_was_given() {
     let (_store, mut work, project) = unseeded();
-    let before = board(&mut work, project).remove(0);
-    assert!(
-        !before.description.is_empty(),
-        "the fixture's first card has notes to clear"
-    );
+    let task = created(&work.create(project, "a task".to_string(), None));
+    // Give it a description to clear, since a new task starts with none.
+    let before =
+        changed(&work.update(project, task.id, None, Some("some notes".to_string()), None));
 
     // An all-whitespace title is a slip rather than an intention, so it is ignored; a description
     // may be emptied, because clearing one is a thing to mean.
@@ -475,14 +470,13 @@ fn an_update_changes_only_the_fields_it_was_given() {
         Some("   ".to_string()),
         Some(String::new()),
         None,
-        None,
     );
 
     let after = changed(&replies);
     assert_eq!(after.title, before.title);
     assert_eq!(after.description, "");
     assert_eq!(after.priority, before.priority);
-    assert_eq!(after.shape, before.shape);
+    assert_eq!(after.shape, before.shape, "update never touches the shape");
     assert_eq!(after.status, before.status);
     assert_eq!(after.session, before.session);
     assert_eq!(after.steps, before.steps);
@@ -502,11 +496,9 @@ fn an_update_changes_only_the_fields_it_was_given() {
         Some("  a better name  ".to_string()),
         None,
         Some(Priority::Low),
-        Some(Shape::Chain),
     ));
     assert_eq!(after.title, "a better name");
     assert_eq!(after.priority, Priority::Low);
-    assert_eq!(after.shape, Shape::Chain);
     assert_eq!(after.description, "", "and nothing else moved with them");
 }
 
@@ -518,8 +510,8 @@ fn an_edit_to_a_task_that_is_not_there_is_refused_and_writes_nothing() {
     let stranger = TaskId::generate();
 
     for replies in [
-        work.update(project, stranger, Some("x".to_string()), None, None, None),
-        work.move_task(project, stranger, Status::Done),
+        work.update(project, stranger, Some("x".to_string()), None, None),
+        work.move_task(project, stranger, Status::Done, None),
         work.toggle_step(project, stranger, StepId::generate()),
     ] {
         let refusals = refusals(&replies);
@@ -533,17 +525,17 @@ fn an_edit_to_a_task_that_is_not_there_is_refused_and_writes_nothing() {
 #[test]
 fn a_move_into_the_column_a_task_is_already_in_says_nothing() {
     let (store, mut work, project) = unseeded();
-    let task = board(&mut work, project).remove(0);
+    let task = created(&work.create(project, "one".to_string(), None));
     let writes = store.writes();
 
-    let replies = work.move_task(project, task.id, task.status);
+    let replies = work.move_task(project, task.id, task.status, None);
 
     // A drop that landed where the card already was costs no write and no redraw.
     assert!(replies.is_empty(), "got {replies:?}");
     assert_eq!(store.writes(), writes);
 
     // A drop that moved it does both.
-    let after = changed(&work.move_task(project, task.id, Status::Done));
+    let after = changed(&work.move_task(project, task.id, Status::Done, None));
     assert_eq!(after.status, Status::Done);
     assert_eq!(store.writes(), writes + 1);
 }
@@ -551,23 +543,23 @@ fn a_move_into_the_column_a_task_is_already_in_says_nothing() {
 #[test]
 fn unticking_a_step_lands_on_idle_and_ticking_one_lands_on_done() {
     let (_store, mut work, project) = unseeded();
-    let board = board(&mut work, project);
+    let task = created(&work.create(project, "one".to_string(), None));
+    let task = changed(&work.add_step(project, task.id, "a step".to_string()));
+    let step = task.steps[0].id;
+
+    let after = changed(&work.toggle_step(project, task.id, step));
+    assert_eq!(after.step(step).unwrap().state, StepState::Done);
 
     // Unticking cannot know what its owner would go back to doing, so it lands on idle rather
     // than on whatever the step was before.
-    let (task, step) = a_step(&board, StepState::Done);
-    let after = changed(&work.toggle_step(project, task, step));
+    let after = changed(&work.toggle_step(project, task.id, step));
     assert_eq!(after.step(step).unwrap().state, StepState::Idle);
-
-    let (task, step) = a_step(&board, StepState::NeedsYou);
-    let after = changed(&work.toggle_step(project, task, step));
-    assert_eq!(after.step(step).unwrap().state, StepState::Done);
 }
 
 #[test]
 fn a_step_is_appended_unowned_and_idle_and_needs_a_title() {
     let (store, mut work, project) = unseeded();
-    let task = board(&mut work, project).remove(0);
+    let task = created(&work.create(project, "one".to_string(), None));
     let writes = store.writes();
 
     assert_eq!(
@@ -588,7 +580,8 @@ fn a_step_is_appended_unowned_and_idle_and_needs_a_title() {
 #[test]
 fn renaming_a_step_needs_a_title_too() {
     let (_store, mut work, project) = unseeded();
-    let task = board(&mut work, project).remove(0);
+    let task = created(&work.create(project, "one".to_string(), None));
+    let task = changed(&work.add_step(project, task.id, "a step".to_string()));
     let step = task.steps[0].id;
 
     assert_eq!(
@@ -603,7 +596,8 @@ fn renaming_a_step_needs_a_title_too() {
 #[test]
 fn removing_a_step_shortens_the_list() {
     let (_store, mut work, project) = unseeded();
-    let task = board(&mut work, project).remove(0);
+    let task = created(&work.create(project, "one".to_string(), None));
+    let task = changed(&work.add_step(project, task.id, "a step".to_string()));
     let step = task.steps[0].id;
 
     let after = changed(&work.remove_step(project, task.id, step));
@@ -615,10 +609,11 @@ fn removing_a_step_shortens_the_list() {
 #[test]
 fn moving_a_step_reorders_it_and_is_clamped_past_the_end() {
     let (store, mut work, project) = unseeded();
-    let task = board(&mut work, project)
-        .into_iter()
-        .max_by_key(|t| t.steps.len())
-        .unwrap();
+    let task = created(&work.create(project, "one".to_string(), None));
+    let mut task = task;
+    for title in ["a", "b", "c", "d"] {
+        task = changed(&work.add_step(project, task.id, title.to_string()));
+    }
     let first = task.steps[0].id;
 
     let after = changed(&work.move_step(project, task.id, first, 2));
@@ -638,7 +633,7 @@ fn moving_a_step_reorders_it_and_is_clamped_past_the_end() {
 #[test]
 fn every_step_edit_refuses_a_step_that_is_not_there_and_writes_nothing() {
     let (store, mut work, project) = unseeded();
-    let task = board(&mut work, project).remove(0);
+    let task = created(&work.create(project, "one".to_string(), None));
     let writes = store.writes();
     let stranger = StepId::generate();
 
@@ -658,8 +653,8 @@ fn every_step_edit_refuses_a_step_that_is_not_there_and_writes_nothing() {
 #[test]
 fn a_task_may_only_be_handed_to_a_session_the_project_has() {
     let (store, mut work, project) = unseeded();
-    let task = board(&mut work, project).remove(0);
-    assert_eq!(task.session, None, "the fixture's first card is unstarted");
+    let task = created(&work.create(project, "one".to_string(), None));
+    assert_eq!(task.session, None, "a new task is unstarted");
     let session = mock::sessions()[0].id;
 
     let after = changed(&work.assign(project, task.id, Some(session)));
@@ -697,7 +692,11 @@ fn a_created_task_is_a_backlog_card_with_nothing_on_it_yet() {
     assert_eq!(task.title, "Name the events");
     assert_eq!(task.status, Status::Backlog);
     assert_eq!(task.priority, Priority::Normal);
-    assert_eq!(task.shape, Shape::Direct);
+    assert_eq!(task.shape, None, "unshaped, not defaulted to Direct");
+    assert_eq!(task.kind, None);
+    assert_eq!(task.key, None);
+    assert_eq!(task.link, None);
+    assert!(task.labels.is_empty());
     assert_eq!(task.session, None);
     assert!(task.steps.is_empty());
     assert!(task.description.is_empty());
@@ -714,12 +713,21 @@ fn a_created_task_is_a_backlog_card_with_nothing_on_it_yet() {
 
 #[test]
 fn deleting_a_task_takes_every_agent_off_it() {
-    let (_store, mut work, project) = unseeded();
+    // The mock links its agents to whichever task their session has in flight the first time it is
+    // minted, so a task the store already held before the first `list` is what puts one of them on
+    // it — a task created afterwards never retroactively links.
+    let mut in_flight = record("in flight");
+    in_flight.status = Status::InProgress;
+    in_flight.session = Some(mock::sessions()[0].id);
+    let project = ProjectId::generate();
+    let store = Arc::new(MemoryTaskStore::with(project, vec![in_flight]));
+    let mut work = work(&store);
+
     let (_, agents, tasks) = listing(&work.list(project));
     let target = tasks
         .iter()
         .find(|t| t.status == Status::InProgress)
-        .expect("the fixture has work in flight")
+        .expect("the store held work in flight")
         .clone();
     let on_it: HashSet<AgentId> = agents
         .iter()
@@ -728,7 +736,7 @@ fn deleting_a_task_takes_every_agent_off_it() {
         .collect();
     assert!(
         !on_it.is_empty(),
-        "the fixture puts agents on the task in flight"
+        "the mock puts an agent from that session on the task in flight"
     );
 
     let replies = work.delete(project, target.id);
@@ -771,13 +779,11 @@ fn an_unwritable_store_keeps_the_edit_and_says_so_once() {
         Some("renamed".to_string()),
         None,
         None,
-        None,
     );
     let second = work.update(
         project,
         tasks[1].id,
         Some("also renamed".to_string()),
-        None,
         None,
         None,
     );
@@ -830,10 +836,12 @@ fn forgetting_a_project_drops_what_was_in_memory() {
 #[test]
 fn nothing_in_the_work_family_is_broadcast() {
     let (store, mut work, project) = unseeded();
-    let (_, agents, tasks) = listing(&work.list(project));
-    let task = tasks[0].clone();
-    let agent = agents[0].id;
+    let task = created(&work.create(project, "one".to_string(), None));
+    let other = created(&work.create(project, "another".to_string(), None));
+    let task = changed(&work.add_step(project, task.id, "a step".to_string()));
     let step = task.steps[0].id;
+    let (_, agents, _) = listing(&work.list(project));
+    let agent = agents[0].id;
 
     let mut replies = Vec::new();
     replies.extend(work.list(project));
@@ -845,9 +853,9 @@ fn nothing_in_the_work_family_is_broadcast() {
         Some("renamed".to_string()),
         Some("notes".to_string()),
         Some(Priority::High),
-        Some(Shape::Chain),
     ));
-    replies.extend(work.move_task(project, task.id, Status::InReview));
+    replies.extend(work.set_field(project, task.id, TaskField::Shape(Some(Shape::Chain))));
+    replies.extend(work.move_task(project, task.id, Status::InReview, None));
     replies.extend(work.assign(project, task.id, Some(mock::sessions()[2].id)));
     replies.extend(work.assign(project, task.id, Some(SessionId::generate())));
     replies.extend(work.add_step(project, task.id, "one more".to_string()));
@@ -855,7 +863,7 @@ fn nothing_in_the_work_family_is_broadcast() {
     replies.extend(work.move_step(project, task.id, step, 1));
     replies.extend(work.toggle_step(project, task.id, step));
     replies.extend(work.remove_step(project, task.id, step));
-    replies.extend(work.assign_agent(project, agent, Some(tasks[1].id)));
+    replies.extend(work.assign_agent(project, agent, Some(other.id)));
     replies.extend(work.assign_agent(project, agent, Some(TaskId::generate())));
     replies.extend(work.send_to_agent(project, agent, "how is it going?".to_string()));
     // The store failing is the last kind of thing this service says.
@@ -875,16 +883,12 @@ fn nothing_in_the_work_family_is_broadcast() {
 #[test]
 fn moving_an_agent_to_another_task_clears_its_parent() {
     let (_store, mut work, project) = unseeded();
-    let (_, agents, tasks) = listing(&work.list(project));
+    let elsewhere = created(&work.create(project, "somewhere to put it".to_string(), None));
+    let (_, agents, _) = listing(&work.list(project));
     let child = agents
         .iter()
         .find(|a| a.parent.is_some())
-        .expect("the fixture spawns workers under a lead")
-        .clone();
-    let elsewhere = tasks
-        .iter()
-        .find(|t| Some(t.id) != child.task)
-        .unwrap()
+        .expect("the mock spawns workers under a lead")
         .clone();
 
     let after = moved_agent(&work.assign_agent(project, child.id, Some(elsewhere.id)));
@@ -955,7 +959,19 @@ fn a_line_to_an_agent_is_appended_and_nothing_answers_it() {
 /// inside a container for work nobody is doing.
 #[test]
 fn the_mock_agents_come_back_linked_to_a_task_that_exists() {
-    let (_store, mut work, project) = unseeded();
+    // The link is made once, when the mock is minted, against whatever tasks the store already
+    // held — so the project needs work in flight before the first `list`, the same as
+    // `deleting_a_task_takes_every_agent_off_it` above.
+    let mut in_flight = record("in flight");
+    in_flight.status = Status::InProgress;
+    in_flight.session = Some(mock::sessions()[0].id);
+    let mut finished = record("finished");
+    finished.status = Status::Done;
+    finished.session = Some(mock::sessions()[4].id);
+    let project = ProjectId::generate();
+    let store = Arc::new(MemoryTaskStore::with(project, vec![in_flight, finished]));
+    let mut work = work(&store);
+
     let (sessions, agents, tasks) = listing(&work.list(project));
     let ids: HashSet<TaskId> = tasks.iter().map(|t| t.id).collect();
 
@@ -988,12 +1004,12 @@ fn the_mock_agents_come_back_linked_to_a_task_that_exists() {
         }
     }
 
-    // And the fixture really does exercise both arms, so this test cannot pass by drawing no
-    // conclusion: the project manager is on `main`, whose work is all finished.
+    // And this really does exercise both arms, so the test cannot pass by drawing no conclusion:
+    // the project manager is on `main`, whose only task is finished.
     let boss = agents
         .iter()
         .find(|a| a.role == "Project manager")
-        .expect("the fixture has a project manager");
+        .expect("the mock has a project manager");
     assert_eq!(
         boss.task, None,
         "the one agent coordinating everything sits above the containers"
@@ -1002,4 +1018,154 @@ fn the_mock_agents_come_back_linked_to_a_task_that_exists() {
         agents.iter().any(|a| a.task.is_some()),
         "and the rest are in a container"
     );
+}
+
+// ── the optional fields and the reorder, against a real file ────────
+
+/// Every fact a task can carry, through a real store: created, every optional field set, a step
+/// added, a reorder — dropped, reopened on the same root, and read back whole.
+///
+/// The one test that proves `SetTaskField` and a reorder are as durable as the mandatory fields
+/// always were, rather than trusting memory to stand in for the file across the two `Work`s that
+/// separately open it.
+#[test]
+fn every_field_a_task_carries_survives_being_dropped_and_reopened() {
+    let dir = TempDir::new().unwrap();
+    let project = ProjectId::generate();
+
+    let mut work = Work::open(Box::new(FileTaskStore::new(dir.path().to_path_buf())));
+    let task = created(&work.create(project, "durable".to_string(), None));
+    changed(&work.set_field(project, task.id, TaskField::Key(Some("UBQ-1".to_string()))));
+    changed(&work.set_field(
+        project,
+        task.id,
+        TaskField::Link(Some("https://tracker.example/1".to_string())),
+    ));
+    changed(&work.set_field(project, task.id, TaskField::Kind(Some(Kind::Feature))));
+    changed(&work.set_field(project, task.id, TaskField::Shape(Some(Shape::Coordinated))));
+    changed(&work.set_field(
+        project,
+        task.id,
+        TaskField::Labels(vec![Label::new("urgent".to_string(), 3)]),
+    ));
+    changed(&work.add_step(project, task.id, "step one".to_string()));
+    let task = changed(&work.add_step(project, task.id, "step two".to_string()));
+    changed(&work.move_step(project, task.id, task.steps[0].id, 1));
+
+    let before_restart = board(&mut work, project).remove(0);
+    drop(work);
+
+    let mut reopened = Work::open(Box::new(FileTaskStore::new(dir.path().to_path_buf())));
+    let after_restart = board(&mut reopened, project).remove(0);
+
+    assert_eq!(before_restart, after_restart);
+}
+
+// ── reordering a column ──────────────────────────────────────────────
+
+#[test]
+fn reordering_within_a_column_falls_back_to_the_end_when_before_names_a_task_that_is_gone() {
+    let (_store, mut work, project) = unseeded();
+    let a = created(&work.create(project, "a".to_string(), None));
+    let b = created(&work.create(project, "b".to_string(), None));
+    created(&work.create(project, "c".to_string(), None));
+    let d = created(&work.create(project, "d".to_string(), None));
+    // Backlog, in the order they were made: a, b, c, d.
+
+    // An ordinary reorder: put d immediately before b.
+    changed(&work.move_task(project, d.id, Status::Backlog, Some(b.id)));
+    assert_eq!(titles(&board(&mut work, project)), ["a", "d", "b", "c"]);
+
+    // b is gone. Asking to land before it is not refused: the card lands after the last task of
+    // its own column instead, as if nothing had been named.
+    work.delete(project, b.id);
+    let after = changed(&work.move_task(project, a.id, Status::Backlog, Some(b.id)));
+    assert_eq!(after.status, Status::Backlog);
+    assert_eq!(titles(&board(&mut work, project)), ["d", "c", "a"]);
+}
+
+/// **The crucial invariant.** A reorder only ever splices a card next to another of the same
+/// destination status, so two columns interleaved in the underlying list stay each other's
+/// business: reordering one leaves the other's relative order untouched, whatever their physical
+/// positions are relative to each other.
+#[test]
+fn a_reorder_inside_one_column_leaves_every_other_columns_order_alone() {
+    let (_store, mut work, project) = unseeded();
+    let a = created(&work.create(project, "a".to_string(), None));
+    let x = created(&work.create(project, "x".to_string(), None));
+    changed(&work.move_task(project, x.id, Status::Ready, None));
+    let b = created(&work.create(project, "b".to_string(), None));
+    let y = created(&work.create(project, "y".to_string(), None));
+    changed(&work.move_task(project, y.id, Status::Ready, None));
+    // Backlog: a, b. Ready: x, y — interleaved in the underlying list, which is the point.
+
+    changed(&work.move_task(project, b.id, Status::Backlog, Some(a.id)));
+
+    let list = board(&mut work, project);
+    let of = |status: Status| -> Vec<&str> {
+        list.iter()
+            .filter(|t| t.status == status)
+            .map(|t| t.title.as_str())
+            .collect()
+    };
+    assert_eq!(of(Status::Backlog), ["b", "a"], "the backlog reordered");
+    assert_eq!(
+        of(Status::Ready),
+        ["x", "y"],
+        "and the ready column never moved"
+    );
+}
+
+#[test]
+fn a_cross_column_move_leaves_every_other_columns_order_alone() {
+    let (_store, mut work, project) = unseeded();
+    created(&work.create(project, "a".to_string(), None));
+    let x = created(&work.create(project, "x".to_string(), None));
+    changed(&work.move_task(project, x.id, Status::Ready, None));
+    let b = created(&work.create(project, "b".to_string(), None));
+    let y = created(&work.create(project, "y".to_string(), None));
+    changed(&work.move_task(project, y.id, Status::Ready, None));
+    // Backlog: a, b. Ready: x, y.
+
+    // b leaves the backlog for review entirely; neither column it touches only in passing moves.
+    changed(&work.move_task(project, b.id, Status::InReview, Some(x.id)));
+
+    let list = board(&mut work, project);
+    let of = |status: Status| -> Vec<&str> {
+        list.iter()
+            .filter(|t| t.status == status)
+            .map(|t| t.title.as_str())
+            .collect()
+    };
+    assert_eq!(
+        of(Status::Backlog),
+        ["a"],
+        "only the moved card left the backlog"
+    );
+    assert_eq!(
+        of(Status::Ready),
+        ["x", "y"],
+        "untouched by a move into review"
+    );
+    assert_eq!(of(Status::InReview), ["b"]);
+}
+
+/// A drop that ends exactly where it started — same column, same neighbour — costs no write,
+/// mirroring `move_step`'s existing rule for a drag that goes nowhere.
+#[test]
+fn a_drop_that_ends_exactly_where_it_started_costs_no_write() {
+    let (store, mut work, project) = unseeded();
+    let a = created(&work.create(project, "a".to_string(), None));
+    let b = created(&work.create(project, "b".to_string(), None));
+    let writes = store.writes();
+
+    // a is already immediately before b.
+    let replies = work.move_task(project, a.id, Status::Backlog, Some(b.id));
+    assert!(replies.is_empty(), "got {replies:?}");
+    assert_eq!(store.writes(), writes);
+
+    // And b is already at the end of the backlog.
+    let replies = work.move_task(project, b.id, Status::Backlog, None);
+    assert!(replies.is_empty(), "got {replies:?}");
+    assert_eq!(store.writes(), writes);
 }

@@ -75,7 +75,11 @@ fn task(id: TaskId, session: SessionId, title: &str, owners: &[Option<AgentId>])
         session: Some(session),
         status: Status::Backlog,
         priority: Priority::Normal,
-        shape: Shape::Direct,
+        shape: Some(Shape::Direct),
+        kind: None,
+        key: None,
+        link: None,
+        labels: Vec::new(),
         title: title.to_string(),
         description: String::new(),
         steps: owners

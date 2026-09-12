@@ -131,6 +131,52 @@ impl Shape {
     }
 }
 
+/// What kind of work a task is. Optional, like every other tag on a record: a board where every
+/// card is classified says no more than one where none is, and the user who wants the distinction
+/// is the one who should be asked for it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub enum Kind {
+    Bug,
+    Feature,
+    Chore,
+    Docs,
+}
+
+impl Kind {
+    pub fn label(self) -> &'static str {
+        match self {
+            Kind::Bug => "bug",
+            Kind::Feature => "feature",
+            Kind::Chore => "chore",
+            Kind::Docs => "docs",
+        }
+    }
+
+    pub fn all() -> [Kind; 4] {
+        [Kind::Bug, Kind::Feature, Kind::Chore, Kind::Docs]
+    }
+}
+
+/// One colour label on a task, named by the user.
+///
+/// The colour is an index into the interface's own swatches, exactly as
+/// [`crate::projects::ProjectRecord::colour`] is, and for the same reason: no colour crosses the
+/// bus, so `crates/ubiq/src/theme.rs` keeps its monopoly on what a swatch actually is. A label is
+/// the name and the index together rather than a reference into a registry, because a label is
+/// short, is edited as a whole and has nothing to be garbage-collected against.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Label {
+    pub name: String,
+    #[serde(default)]
+    pub colour: usize,
+}
+
+impl Label {
+    pub fn new(name: String, colour: usize) -> Self {
+        Self { name, colour }
+    }
+}
+
 /// Which column of the board a task sits in. The order is the order the board draws them in, and
 /// the order work moves along: a task only ever changes column, never what it is.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
@@ -274,7 +320,30 @@ pub struct TaskRecord {
     pub session: Option<SessionId>,
     pub status: Status,
     pub priority: Priority,
-    pub shape: Shape,
+    /// How the agents on it are arranged, where anybody has said. `None` — the default — is a task
+    /// nobody has shaped, which is most of them: a shape is a claim about how the work will be
+    /// done, and a task named in a hurry makes no such claim.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shape: Option<Shape>,
+    /// What kind of work it is, where anybody has said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<Kind>,
+    /// The user's own id for this task — `UBQ-123`, `#4711`, whatever their tracker calls it. Held
+    /// beside [`Self::id`] rather than instead of it: the ULID is Ubiq's and is never shown, and
+    /// this is the one a human says out loud.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+    /// One URL to the issue this task stands for, in Azure DevOps, Jira, GitHub or anywhere else.
+    ///
+    /// A string the host stores and never parses or fetches, the same discipline
+    /// [`Self::description`] follows. Which tracker it belongs to is read off the host by the
+    /// interface, for a glyph and nothing more — nothing here is configured and nothing is
+    /// synchronised.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<String>,
+    /// The colour labels on it, in the order they were added.
+    #[serde(default, rename = "label", skip_serializing_if = "Vec::is_empty")]
+    pub labels: Vec<Label>,
     pub title: String,
     /// Markdown, which the host stores and never parses — the same discipline that keeps terminal
     /// bytes uninterpreted. Which of it is a heading is the interface's decision.
@@ -287,15 +356,21 @@ pub struct TaskRecord {
 }
 
 impl TaskRecord {
-    /// A task nobody has started, as the board asks for one: in the backlog, unprioritised, direct
-    /// and with no steps, because that is everything known at the moment it is named.
+    /// A task nobody has started, as the board asks for one: in the backlog, unprioritised,
+    /// unshaped, unlabelled and with no steps, because that is everything known at the moment it is
+    /// named. Every optional fact is absent rather than defaulted — a shape nobody chose is not
+    /// `Direct`, it is nothing.
     pub fn new(title: String, session: Option<SessionId>, now: DateTime<Utc>) -> Self {
         Self {
             id: TaskId::generate(),
             session,
             status: Status::Backlog,
             priority: Priority::Normal,
-            shape: Shape::Direct,
+            shape: None,
+            kind: None,
+            key: None,
+            link: None,
+            labels: Vec::new(),
             title,
             description: String::new(),
             steps: Vec::new(),

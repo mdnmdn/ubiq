@@ -671,10 +671,17 @@ pub struct AppState {
     pub picker_filter: Entity<InputState>,
     /// The board's one field: what filters the cards, and what names the next one.
     pub task_filter: Entity<InputState>,
-    /// The task panel's four fields. They belong to the window because there is one of each per
+    /// The task panel's typed fields. They belong to the window because there is one of each per
     /// window, and what is typed into them belongs to the project — see `BoardState::form`.
+    ///
+    /// A kind and a label are not here: both are picked from what there is, and a pick commits the
+    /// moment it is made, so there is nothing half-typed to hold. The one exception is the name of
+    /// a label that does not exist yet, which is typed before it is given a colour.
     pub task_title_input: Entity<InputState>,
     pub task_description_input: Entity<TextareaState>,
+    pub task_key_input: Entity<InputState>,
+    pub task_link_input: Entity<InputState>,
+    pub task_label_input: Entity<InputState>,
     pub step_title_input: Entity<InputState>,
     pub new_step_input: Entity<InputState>,
     /// The titlebar's command field: shortcuts and search, in the middle of the window.

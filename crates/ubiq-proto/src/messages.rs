@@ -34,7 +34,9 @@ use crate::search::{self, Batch, Query, Source};
 use crate::settings::SettingsLayer;
 use crate::stats::HostStats;
 use crate::tools::{ListedTool, ToolDef};
-use crate::work::{AgentId, Priority, Shape, Status, TaskRecord, WorkAgent, WorkSession};
+use crate::work::{
+    AgentId, Kind, Label, Priority, Shape, Status, TaskRecord, WorkAgent, WorkSession,
+};
 
 /// Everything either half may say. The variant name travels in `type`, the body in `payload`.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -1084,9 +1086,20 @@ pub enum Message {
         title: Option<String>,
         description: Option<String>,
         priority: Option<Priority>,
-        shape: Option<Shape>,
     },
-    /// Move a task to another column.
+    /// Set one of a task's optional facts, or clear it.
+    ///
+    /// One variant carrying a field rather than a field per fact on [`Message::UpdateTask`], for
+    /// the reason [`Message::AssignTask`] gives: absent and cleared are different answers, and
+    /// `Option<Option<Shape>>` inside an update is a wire type nobody should have to read. Each
+    /// arm's `None` is the cleared state, and the whole set is the task's optional half — the
+    /// facts a task can perfectly well not have.
+    SetTaskField {
+        project_id: ProjectId,
+        task_id: TaskId,
+        field: TaskField,
+    },
+    /// Move a task to another column, and to a place in it.
     ///
     /// Its own variant rather than a field on [`Message::UpdateTask`], because a column is a stage:
     /// moving a card changes where the work has got to and nothing else about it.
@@ -1094,6 +1107,14 @@ pub enum Message {
         project_id: ProjectId,
         task_id: TaskId,
         status: Status,
+        /// Put it immediately before this task; `None` is the end of the column.
+        ///
+        /// An id rather than [`Message::MoveStep`]'s index, because the board filters and a step
+        /// list does not: an index into what the user can see is wrong by however many hidden
+        /// cards of that status sit above it. An anchor needs no clamping either, and one naming
+        /// a task the host no longer holds lands at the end of the column rather than being
+        /// refused — a card deleted mid-drag is not a reason to refuse the drag.
+        before: Option<TaskId>,
     },
     /// Hand a task to a session, or take it back. Absent is a task nobody has started.
     ///
@@ -1744,6 +1765,7 @@ impl Message {
             | Message::ListWork { project_id, .. }
             | Message::CreateTask { project_id, .. }
             | Message::UpdateTask { project_id, .. }
+            | Message::SetTaskField { project_id, .. }
             | Message::MoveTask { project_id, .. }
             | Message::AssignTask { project_id, .. }
             | Message::DeleteTask { project_id, .. }
@@ -1780,6 +1802,26 @@ impl Message {
             _ => None,
         }
     }
+}
+
+/// One of a task's optional facts, with the value to set it to — or `None`, to clear it.
+///
+/// The payload of [`Message::SetTaskField`], and the whole optional half of a
+/// [`crate::work::TaskRecord`]: everything a task can perfectly well not have. The mandatory half —
+/// its title, its description and its priority — is [`Message::UpdateTask`]'s, because none of
+/// those three can be absent and so none of them needs the distinction this enum exists to draw.
+///
+/// A trimmed empty string on [`Self::Key`] and [`Self::Link`] is the clear, the way an emptied
+/// description is: the user rubbed the field out, which is a thing to mean.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TaskField {
+    Shape(Option<Shape>),
+    Kind(Option<Kind>),
+    Key(Option<String>),
+    Link(Option<String>),
+    /// The whole set, replaced. A label list is short and is edited as a set, so a delta would be
+    /// two messages and an ordering rule to save a handful of bytes.
+    Labels(Vec<Label>),
 }
 
 /// What a start chooses over and above the harness and the folder: the identity, the saved setup,

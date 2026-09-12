@@ -82,6 +82,18 @@ impl AppState {
                 .auto_grow(3, 14)
         });
 
+        // The two one-line facts. A key is short and a URL is long, and both may be emptied: the
+        // placeholder says what the field is for rather than what it must contain.
+        let task_key_input = cx.new(|cx| InputState::new(window, cx).placeholder("UBQ-123"));
+
+        let task_link_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("https://\u{2026}"));
+
+        // The name of a label that does not exist yet. It is not committed by Enter: a name with no
+        // colour is not a label, so the swatch beside it is the act.
+        let task_label_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("New label\u{2026}"));
+
         // One field for renaming whichever sub-task is open, because only one ever is.
         let step_title_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("Rename this sub-task"));
@@ -576,6 +588,69 @@ impl AppState {
             },
         ));
 
+        // The key and the link mirror and commit on the same contract as the title — Enter or the
+        // ✓ beside them, never a blur.
+        subscriptions.push(cx.subscribe_in(
+            &task_key_input,
+            window,
+            |this, input, event: &InputEvent, _window, cx| match event {
+                InputEvent::Change => {
+                    let text = input.read(cx).value().to_string();
+                    if let Some(board) = this.board_mut(cx) {
+                        board.form.key = text;
+                    }
+                }
+                InputEvent::PressEnter { shift: false, .. } => this.commit_task_key(cx),
+                _ => {}
+            },
+        ));
+
+        subscriptions.push(cx.subscribe_in(
+            &task_link_input,
+            window,
+            |this, input, event: &InputEvent, _window, cx| match event {
+                InputEvent::Change => {
+                    let text = input.read(cx).value().to_string();
+                    if let Some(board) = this.board_mut(cx) {
+                        board.form.link = text;
+                    }
+                }
+                InputEvent::PressEnter { shift: false, .. } => this.commit_task_link(cx),
+                _ => {}
+            },
+        ));
+
+        // No `PressEnter` arm: a name with no colour is not a label, and the swatch row beside the
+        // field is what puts one on the task.
+        subscriptions.push(cx.subscribe_in(
+            &task_label_input,
+            window,
+            |this, input, event: &InputEvent, _window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    let text = input.read(cx).value().to_string();
+                    if let Some(board) = this.board_mut(cx) {
+                        board.form.new_label = text;
+                    }
+                    cx.notify();
+                }
+            },
+        ));
+
+        // The A2UI payload is the one buffer in the window that is a *program* rather than a
+        // value: what it holds is re-read into a surface on every keystroke, which is what lets a
+        // reader edit a payload and watch the drawing follow. This subscription lives here, with
+        // the window's own, rather than in the map that is dropped on each re-parse — the buffer
+        // outlives every surface drawn from it.
+        subscriptions.push(cx.subscribe_in(
+            &a2ui_buffer,
+            window,
+            |this, _input, event: &InputEvent, window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    this.reload_a2ui(window, cx);
+                }
+            },
+        ));
+
         // Enter is the whole of the search field's contract: the panel declares no action, and a
         // search is an act rather than a keystroke, so nothing runs while the query is typed.
         subscriptions.push(cx.subscribe_in(
@@ -1002,6 +1077,9 @@ impl AppState {
             task_filter,
             task_title_input,
             task_description_input,
+            task_key_input,
+            task_link_input,
+            task_label_input,
             step_title_input,
             new_step_input,
             command_input,
@@ -1102,6 +1180,10 @@ impl AppState {
         if let Some(project_id) = project {
             this.bus.send(Message::OpenedProject { project_id });
         }
+
+        // The A2UI page's first surface, read out of the payload the buffer was seeded with. The
+        // subscription above only fires on a change, and the first payload is not one.
+        this.reload_a2ui(window, cx);
 
         // Whatever the registry says this window holds, it now holds — including the pane a
         // project gets when it is first entered. A window opening on nothing spawns nothing.

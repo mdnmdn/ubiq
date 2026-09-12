@@ -94,8 +94,11 @@ that list is a modal Escape walks past — `crates/ubiq/tests/dismiss.rs` assert
 
 ## Adding a screen area
 
-1. State in `state/` — data plus mutators, no component-library type unless the widget's state
-   *is* the model (`state/editor.rs` is the one exception).
+1. State in `state/` — data plus mutators, and no component-library type **unless the widget's
+   state is the model**. That is the whole rule, and several modules qualify: `state/editor.rs`,
+   `state/search.rs` and `state/a2ui/live.rs`, which holds one `Entity<InputState>` per bound field
+   plus its `Subscription`. A type held for convenience rather than because it *is* the model does
+   not qualify.
 2. A field on `AppState` (or `OpenProject` if it belongs to a project), and a mutator ending in
    `cx.notify()`. Any `InputState` the window needs is an `Entity` field with its subscription
    pushed onto `_subscriptions`.

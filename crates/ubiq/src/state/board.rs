@@ -10,6 +10,10 @@
 use ubiq_proto::ids::{SessionId, StepId, TaskId};
 use ubiq_proto::work::{Status, TaskRecord};
 
+/// What a needle has to start with to be read as one field rather than as free text.
+const KEY_PREFIX: &str = "key:";
+const LABEL_PREFIX: char = '#';
+
 use super::work::WorkProjection;
 
 /// Which one of a task's fields is open for editing.
@@ -17,10 +21,18 @@ use super::work::WorkProjection;
 /// One at a time, like the project picker's rows: the panel is a report first, and a panel where
 /// every field is a text box has stopped reporting. A step is named by its id rather than its place
 /// in the list, so a step removed while another is being renamed cannot move the edit onto it.
+///
+/// Only what is *typed* is here. A kind and a label are picked from a list of what there is, and a
+/// pick commits the moment it is made — there is no half-made one to hold open, which is why
+/// neither has a field of its own.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Field {
     Title,
     Description,
+    /// The user's own id for the task — what their tracker calls it, not the ULID.
+    Key,
+    /// The URL to the issue the task stands for.
+    Link,
     Step(StepId),
     /// The field at the foot of the list, which names the next sub-task rather than an existing one.
     NewStep,
@@ -39,15 +51,26 @@ pub enum Field {
 pub struct TaskForm {
     pub title: String,
     pub description: String,
+    pub key: String,
+    pub link: String,
     pub step_title: String,
     pub new_step: String,
+    /// What is being typed into the field that names a label, which is a name and not yet a label:
+    /// the colour is chosen when it is added, and until then there is nothing to put on the task.
+    pub new_label: String,
 }
 
-/// A task under the pointer, and the column a drop would put it in.
+/// A task under the pointer, the column a drop would put it in, and where in it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Carry {
     pub task: TaskId,
     pub over: Option<Status>,
+    /// The card a drop would land immediately in front of; `None` is the end of the column.
+    ///
+    /// An id rather than an index, because the board filters: an index into what the user can see
+    /// is wrong by however many hidden cards of that status sit above it. An id names the same card
+    /// whatever else the filters left out.
+    pub before: Option<TaskId>,
 }
 
 pub struct BoardState {
@@ -57,6 +80,13 @@ pub struct BoardState {
     /// Which session the board is showing. `None` is every session, and is what "all sessions"
     /// means — including the tasks that belong to none.
     pub session: Option<SessionId>,
+    /// The labels being narrowed to, by name. Empty is every label, the way no session pill is
+    /// every session — a row with nothing lit is not filtering.
+    ///
+    /// Names rather than [`ubiq_proto::work::Label`]s, because the colour is the task's: two cards
+    /// carrying `flaky` in two colours are carrying one label, and the pill filters on what the
+    /// user reads.
+    pub labels: Vec<String>,
     pub selected: Option<TaskId>,
     pub show_detail: bool,
     /// The columns shut to a strip. A shut column still counts and still takes a drop.
@@ -86,6 +116,7 @@ impl Default for BoardState {
         Self {
             filter: String::new(),
             session: None,
+            labels: Vec::new(),
             selected: None,
             show_detail: true,
             shut: Vec::new(),
@@ -102,13 +133,34 @@ impl Default for BoardState {
 }
 
 impl BoardState {
-    /// Whether one task passes the filter field and the session pills.
+    /// Whether one task passes the filter field, the session pill and the label pills.
     ///
-    /// The text is matched against what the card actually prints — its title and the session it
-    /// names — so a user filtering on `cold-start` finds the card that says `cold-start`.
+    /// The three narrow together rather than in turn: a task has to be in the shown session, carry
+    /// **every** label that is lit, and answer the text. Labels AND rather than OR because lighting
+    /// a second pill is asking a narrower question, and a row that widened as it was clicked would
+    /// be a filter nobody could aim.
+    ///
+    /// The text is read as one field when it says which:
+    ///
+    /// * `key:foo` matches the task's key and nothing else — a tracker id is a thing to look up
+    ///   exactly, and `UBQ-4` in a description is not the card called `UBQ-4`.
+    /// * `#foo` matches label names and nothing else.
+    /// * anything else is the whole card: its title, its notes, its key, what kind of work it is,
+    ///   its labels and the session doing it.
+    ///
+    /// Both prefixes are case-insensitive substrings, as the plain form is, and a prefix with
+    /// nothing after it narrows nothing — a user halfway through typing `key:` is not asking for an
+    /// empty board.
     pub fn matches(&self, work: &WorkProjection, task: &TaskRecord) -> bool {
         if let Some(session) = self.session
             && task.session != Some(session)
+        {
+            return false;
+        }
+        if !self
+            .labels
+            .iter()
+            .all(|name| task.labels.iter().any(|label| label.name == *name))
         {
             return false;
         }
@@ -116,12 +168,72 @@ impl BoardState {
         if needle.is_empty() {
             return true;
         }
-        if task.title.to_lowercase().contains(&needle) {
+        if let Some(rest) = needle.strip_prefix(KEY_PREFIX) {
+            let rest = rest.trim();
+            return rest.is_empty()
+                || task
+                    .key
+                    .as_deref()
+                    .is_some_and(|key| key.to_lowercase().contains(rest));
+        }
+        if let Some(rest) = needle.strip_prefix(LABEL_PREFIX) {
+            let rest = rest.trim();
+            return rest.is_empty() || Self::has_label(task, rest);
+        }
+        if task.title.to_lowercase().contains(&needle)
+            || task.description.to_lowercase().contains(&needle)
+            || task
+                .key
+                .as_deref()
+                .is_some_and(|key| key.to_lowercase().contains(&needle))
+            || task
+                .kind
+                .is_some_and(|kind| kind.label().contains(needle.as_str()))
+            || Self::has_label(task, &needle)
+        {
             return true;
         }
         task.session
             .and_then(|id| work.session(id))
             .is_some_and(|s| s.name.to_lowercase().contains(&needle))
+    }
+
+    /// Whether any of a task's labels reads as the needle, which is already lowercased.
+    fn has_label(task: &TaskRecord, needle: &str) -> bool {
+        task.labels
+            .iter()
+            .any(|label| label.name.to_lowercase().contains(needle))
+    }
+
+    /// Whether one label's pill is lit.
+    pub fn is_label_on(&self, name: &str) -> bool {
+        self.labels.iter().any(|held| held == name)
+    }
+
+    /// Light one label's pill or put it out. Any of them may be the last: with none lit the row is
+    /// not filtering, which is the way back from having turned them all on.
+    pub fn toggle_label(&mut self, name: &str) {
+        if let Some(ix) = self.labels.iter().position(|held| held == name) {
+            self.labels.remove(ix);
+        } else {
+            self.labels.push(name.to_string());
+        }
+    }
+
+    /// Whether anything is being hidden, so the control that clears the filters can say whether it
+    /// has anything to do.
+    pub fn filtering(&self) -> bool {
+        !self.filter.trim().is_empty() || self.session.is_some() || !self.labels.is_empty()
+    }
+
+    /// Put every filter back, which is the toolbar's one control for "show everything".
+    ///
+    /// The filter field is also what names a new task, so clearing it here is clearing a draft
+    /// title — which is what the user asked for by asking to see everything.
+    pub fn clear_filters(&mut self) {
+        self.filter.clear();
+        self.session = None;
+        self.labels.clear();
     }
 
     /// The cards one column draws, in the order the tasks were defined.
@@ -238,25 +350,32 @@ impl BoardState {
     }
 
     pub fn start_carry(&mut self, task: TaskId) {
-        self.carry = Some(Carry { task, over: None });
+        self.carry = Some(Carry {
+            task,
+            over: None,
+            before: None,
+        });
     }
 
-    /// Which column the pointer is over. Answers whether that changed, so a drag across one column
-    /// does not ask for a frame per pixel.
-    pub fn carry_over(&mut self, status: Status) -> bool {
+    /// Which column the pointer is over, and which card it is above. Answers whether **either**
+    /// changed, so a drag past several cards inside one column redraws once per card boundary
+    /// rather than once per pixel.
+    pub fn carry_over(&mut self, status: Status, before: Option<TaskId>) -> bool {
         let Some(carry) = self.carry.as_mut() else {
             return false;
         };
-        if carry.over == Some(status) {
+        if carry.over == Some(status) && carry.before == before {
             return false;
         }
         carry.over = Some(status);
+        carry.before = before;
         true
     }
 
-    /// Put it down, and answer the task and the column it landed in.
-    pub fn end_carry(&mut self) -> Option<(TaskId, Status)> {
+    /// Put it down, and answer the task, the column it landed in and the card it landed in front
+    /// of — `None` being the end of that column.
+    pub fn end_carry(&mut self) -> Option<(TaskId, Status, Option<TaskId>)> {
         let carry = self.carry.take()?;
-        Some((carry.task, carry.over?))
+        Some((carry.task, carry.over?, carry.before))
     }
 }

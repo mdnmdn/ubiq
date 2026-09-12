@@ -185,10 +185,12 @@ pub fn list(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                     .flex()
                     .items_center()
                     .gap_2()
-                    .child(
-                        mono(task.shape.label(), theme::text_faint())
-                            .text_size(theme::font(Family::Chrome, Role::Micro)),
-                    )
+                    // Nothing at all for a task nobody has shaped, on the rule `Priority::Normal`
+                    // follows: an absent claim is drawn as absent, not as a word saying so.
+                    .children(task.shape.map(|shape| {
+                        mono(shape.label(), theme::text_faint())
+                            .text_size(theme::font(Family::Chrome, Role::Micro))
+                    }))
                     .child(
                         div()
                             .flex_1()

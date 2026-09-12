@@ -202,36 +202,194 @@ impl AppState {
         cx.notify();
     }
 
-    /// The A2UI page's example picker. Choosing one replaces the editor's text, which is the only
-    /// place the drawn surface comes from — so the preview follows without anything caching it.
-    ///
-    /// The navigation inside the old surface goes with it: a tab index and a disclosed modal are
-    /// both keyed by a component id, and an id from the payload being replaced means nothing in
-    /// the one arriving.
+    /// The A2UI page's example picker. Choosing one replaces the editor's text, and the surface is
+    /// rebuilt from it — the payload is still the only place a drawn surface comes from.
     pub fn pick_a2ui_example(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
         let Some(example) = crate::state::a2ui::EXAMPLES.get(index) else {
             return;
         };
         self.sink.a2ui.example = index;
-        self.sink.a2ui.tabs.clear();
-        self.sink.a2ui.modal = None;
         self.workbench.open_menu = None;
         self.a2ui_buffer
             .update(cx, |state, cx| state.set_value(example.source, window, cx));
+        // `set_value` is not promised to emit a change, and `reload_a2ui` is idempotent, so the
+        // page is rebuilt here rather than left to a subscription that may not fire.
+        self.reload_a2ui(window, cx);
+    }
+
+    /// Rebuild the drawn surface from whatever the payload editor now holds.
+    ///
+    /// **A payload that does not parse leaves everything alone but the error.** A reader typing
+    /// into the JSON breaks it on most keystrokes, and dropping the surface on each one would drop
+    /// every field buffer with it — throwing away what they had typed into the drawing and taking
+    /// the keyboard with it. So the banner appears above the last surface that parsed, and the
+    /// surface is only replaced when there is one to replace it with.
+    ///
+    /// **A payload that does parse resets the data model**, because the payload carries one: a
+    /// re-parse is the surface being created again, and keeping values at pointers the new payload
+    /// may not have is worse than starting from what it says. The action log survives — it is a
+    /// record of what was sent, not state of the surface.
+    pub fn reload_a2ui(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let source = self.a2ui_buffer.read(cx).value().to_string();
+        let parsed = match crate::state::a2ui::parse(&source) {
+            Ok(parsed) => parsed,
+            Err(reason) => {
+                self.sink.a2ui.live.error = Some(reason);
+                cx.notify();
+                return;
+            }
+        };
+
+        {
+            let live = &mut self.sink.a2ui.live;
+            live.error = None;
+            live.tabs.clear();
+            live.modal = None;
+            live.invalid.clear();
+            // Clearing the map is the whole teardown: a `Subscription` unsubscribes when it drops,
+            // so a field from the payload being replaced cannot still be writing into the model.
+            live.fields.clear();
+            live.surface = Some(parsed.surface.clone());
+            live.surface_id = parsed.surface_id.clone();
+            live.send_data_model = parsed.send_data_model;
+            live.model = parsed.model.clone();
+        }
+
+        // One buffer per text input, allocated here rather than while drawing: a render that
+        // allocated an entity would allocate a fresh one every frame.
+        for slot in crate::state::a2ui::live::input_slots(&parsed) {
+            let input = cx.new(|cx| {
+                gpui_component::input::InputState::new(window, cx).default_value(&slot.seed)
+            });
+            let path = slot.path.clone();
+            let subscription = cx.subscribe_in(
+                &input,
+                window,
+                move |this, input, event: &gpui_component::input::InputEvent, _window, cx| {
+                    if matches!(event, gpui_component::input::InputEvent::Change) {
+                        let typed = input.read(cx).value().to_string();
+                        this.sink
+                            .a2ui
+                            .live
+                            .set(&path, serde_json::Value::String(typed));
+                        cx.notify();
+                    }
+                },
+            );
+            self.sink.a2ui.live.fields.insert(
+                slot.key,
+                crate::state::a2ui::live::Field::new(input, slot.path, subscription),
+            );
+        }
+
+        cx.notify();
+    }
+
+    /// Write one value into the drawn surface's data model, at a pointer the renderer resolved.
+    ///
+    /// Everything a control does ends here: a tick, a choice, a nudge of a slider. It is the same
+    /// funnel a keystroke goes through, and it is local — **nothing here reaches an agent.** The
+    /// model crosses that boundary at exactly one moment, which is when an action fires.
+    pub fn set_a2ui_value(
+        &mut self,
+        pointer: String,
+        value: serde_json::Value,
+        cx: &mut Context<Self>,
+    ) {
+        self.sink.a2ui.live.set(&pointer, value);
+        cx.notify();
+    }
+
+    /// A button on a drawn surface was clicked: send what it says, or refuse to.
+    ///
+    /// A failing check disables the action rather than firing it, which is the catalog's own
+    /// instruction — so a blocked click records which inputs refused it and produces no message.
+    /// An action carrying a function call is **reported and not run**: `openUrl` opens nothing,
+    /// because nothing drawn from an agent's payload may move this window or reach the network
+    /// (`D115`).
+    pub fn fire_a2ui_action(&mut self, key: String, cx: &mut Context<Self>) {
+        use crate::state::a2ui::{Action, action, live, scoped};
+
+        let Some(parsed) = self.sink.a2ui.live.parsed() else {
+            return;
+        };
+        let (component_id, item, index) = live::Live::scope_of(&key);
+        let scope = live::scope(item.as_ref(), index);
+
+        let Some(component) = parsed.surface.get(&component_id) else {
+            return;
+        };
+        let Some(what) = component.kind.button_action() else {
+            return;
+        };
+
+        let failures = action::blocking_checks(&parsed);
+        if !failures.is_empty() {
+            let count = failures.len();
+            self.sink.a2ui.live.invalid = failures.into_iter().collect();
+            self.sink.a2ui.live.record(format!(
+                "blocked: {count} check{} failed, nothing was sent",
+                if count == 1 { "" } else { "s" }
+            ));
+            cx.notify();
+            return;
+        }
+        self.sink.a2ui.live.invalid.clear();
+
+        let entry = match what {
+            Action::Event(event) => {
+                let envelope = action::envelope(
+                    &parsed.surface_id,
+                    &component_id,
+                    event,
+                    &parsed.model,
+                    scope,
+                    &chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                    parsed.send_data_model,
+                );
+                serde_json::to_string_pretty(&envelope).unwrap_or_default()
+            }
+            // Reported, never performed. The one place that rule could be broken is the one place
+            // it is kept.
+            Action::Call(call) => format!(
+                "local call: {}({}) — reported, not performed",
+                call.call,
+                call.args.keys().cloned().collect::<Vec<_>>().join(", ")
+            ),
+            Action::Unknown(value) => format!(
+                "action in a shape this build does not know: {}",
+                serde_json::to_string(value).unwrap_or_default()
+            ),
+        };
+        let _ = scoped(&component_id, scope);
+        self.sink.a2ui.live.record(entry);
+        cx.notify();
+    }
+
+    /// Empty the A2UI page's record of what it has sent.
+    pub fn clear_a2ui_log(&mut self, cx: &mut Context<Self>) {
+        self.sink.a2ui.live.log.clear();
+        cx.notify();
+    }
+
+    /// Bring the data model or the action log forward under the payload.
+    pub fn show_a2ui_pane(&mut self, pane: crate::state::sink::A2uiPane, cx: &mut Context<Self>) {
+        self.sink.a2ui.pane = pane;
         cx.notify();
     }
 
     /// Bring one tab of a drawn `Tabs` forward. Navigation inside the preview, not a value: it
-    /// writes nothing back into the payload.
+    /// writes nothing into the data model.
     pub fn select_a2ui_tab(&mut self, id: String, index: usize, cx: &mut Context<Self>) {
-        self.sink.a2ui.tabs.insert(id, index);
+        self.sink.a2ui.live.tabs.insert(id, index);
         cx.notify();
     }
 
     /// Disclose a drawn `Modal`'s content, or fold the open one away. Only one is open at a time,
     /// the same rule the window's own overlays follow.
     pub fn toggle_a2ui_modal(&mut self, id: String, cx: &mut Context<Self>) {
-        self.sink.a2ui.modal = if self.sink.a2ui.modal.as_deref() == Some(id.as_str()) {
+        let live = &mut self.sink.a2ui.live;
+        live.modal = if live.modal.as_deref() == Some(id.as_str()) {
             None
         } else {
             Some(id)
