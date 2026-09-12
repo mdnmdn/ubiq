@@ -28,7 +28,7 @@
 
 use std::time::Duration;
 
-use gpui::Context;
+use gpui::{AppContext, Context};
 use ubiq_proto::ids::ProjectId;
 use ubiq_proto::messages::Message;
 
@@ -57,13 +57,13 @@ impl AppState {
 
     /// Whether the file behind this tab can be edited in a browser at all.
     ///
-    /// Being editable is a property of the file — an Excalidraw document whose buffer is whole and
-    /// carries a version — and being *available* is a property of the bundle, which is a separate
-    /// question the header asks [`crate::state::web_panel::BundleState::unavailable`].
+    /// Being editable is a property of the file — a document of a bundle-backed viewer kind whose
+    /// buffer is whole and carries a version — and being *available* is a property of the bundle,
+    /// which is a separate question the header asks
+    /// [`crate::state::web_panel::BundleState::unavailable`].
     pub fn web_editable(&self, key: &str, cx: &gpui::App) -> bool {
-        self.file(key, cx).is_some_and(|file| {
-            file.viewer == crate::state::editor::ViewerKind::Excalidraw && file.savable()
-        })
+        self.file(key, cx)
+            .is_some_and(|file| bridge::web_app(file.viewer).is_some() && file.savable())
     }
 
     /// Every tab this window is drawing in the `Editor` layout, made to have a live session and
@@ -105,24 +105,33 @@ impl AppState {
         if self.web_panels.sessions.contains_key(key) || !self.web_editable(key, cx) {
             return;
         }
+        let Some(app) = self
+            .file(key, cx)
+            .and_then(|file| bridge::web_app(file.viewer))
+        else {
+            return;
+        };
 
-        match self.web_panels.bundle.clone() {
-            BundleState::Ready { .. } => self.open_web_session(key, cx),
+        match self.web_panels.bundle(app) {
+            BundleState::Ready { .. } => self.open_web_session(key, app, cx),
             BundleState::Unavailable { .. } => {}
             BundleState::Fetching { .. } => {
                 self.wait_for_bundle(key);
                 cx.notify();
             }
             BundleState::Unknown => {
-                tracing::info!("web panel: asking the host for the Excalidraw bundle");
+                tracing::info!("web panel: asking the host for the {app} bundle");
                 self.wait_for_bundle(key);
-                self.web_panels.bundle = BundleState::Fetching {
-                    done: 0,
-                    total: 0,
-                    file: String::new(),
-                };
+                self.web_panels.bundles.insert(
+                    app.to_string(),
+                    BundleState::Fetching {
+                        done: 0,
+                        total: 0,
+                        file: String::new(),
+                    },
+                );
                 self.bus.send(Message::EnsureWebBundle {
-                    app: bridge::EXCALIDRAW_APP.to_string(),
+                    app: app.to_string(),
                 });
                 cx.notify();
             }
@@ -161,17 +170,19 @@ impl AppState {
     }
 
     /// Mint a token, register the bundle as this session's vendor root, and open the browser.
-    fn open_web_session(&mut self, key: &str, cx: &mut Context<Self>) {
+    fn open_web_session(&mut self, key: &str, app: &'static str, cx: &mut Context<Self>) {
         let Some(project) = self.project(cx) else {
             return;
         };
-        let Some(root) = self.web_panels.bundle.path().cloned() else {
+        let Some(root) = self.web_panels.bundle(app).path().cloned() else {
             return;
         };
-        let session = match web_export::open_session(bridge::EXCALIDRAW_APP) {
+        let session = match web_export::open_session(app) {
             Ok(session) => session,
             Err(err) => {
-                self.web_panels.bundle = BundleState::Unavailable { reason: err };
+                self.web_panels
+                    .bundles
+                    .insert(app.to_string(), BundleState::Unavailable { reason: err });
                 cx.notify();
                 return;
             }
@@ -184,9 +195,12 @@ impl AppState {
             && let Err(err) = super::open_url(&session.url)
         {
             web_export::close_session(&session.token);
-            self.web_panels.bundle = BundleState::Unavailable {
-                reason: format!("Could not open a browser: {err}"),
-            };
+            self.web_panels.bundles.insert(
+                app.to_string(),
+                BundleState::Unavailable {
+                    reason: format!("Could not open a browser: {err}"),
+                },
+            );
             cx.notify();
             return;
         }
@@ -232,27 +246,49 @@ impl AppState {
                 done,
                 total,
                 file,
-            } if app == bridge::EXCALIDRAW_APP => {
-                tracing::debug!("web panel: the Excalidraw bundle is at {done}/{total} ({file})");
-                self.web_panels.bundle = BundleState::Fetching { done, total, file };
+            } => {
+                tracing::debug!("web panel: the {app} bundle is at {done}/{total} ({file})");
+                self.web_panels
+                    .bundles
+                    .insert(app, BundleState::Fetching { done, total, file });
                 cx.notify();
                 None
             }
-            Message::WebBundleReady { app, path, .. } if app == bridge::EXCALIDRAW_APP => {
-                tracing::info!("web panel: the Excalidraw bundle is at {path}");
-                self.web_panels.bundle = BundleState::Ready { path: path.into() };
+            Message::WebBundleReady { app, path, .. } => {
+                tracing::info!("web panel: the {app} bundle is at {path}");
+                self.web_panels
+                    .bundles
+                    .insert(app.clone(), BundleState::Ready { path: path.into() });
+                let mut still_waiting = Vec::new();
                 for key in std::mem::take(&mut self.web_panels.awaiting) {
-                    self.open_web_session(&key, cx);
+                    match self
+                        .file(&key, cx)
+                        .and_then(|file| bridge::web_app(file.viewer))
+                    {
+                        Some(tenant) if tenant == app => self.open_web_session(&key, tenant, cx),
+                        _ => still_waiting.push(key),
+                    }
                 }
+                self.web_panels.awaiting = still_waiting;
                 cx.notify();
                 None
             }
-            Message::WebBundleFailed { app, error } if app == bridge::EXCALIDRAW_APP => {
+            Message::WebBundleFailed { app, error } => {
                 // A downgrade, not an error: editing goes away and says why, and every native
                 // read path — Source, Preview, Split, the painter — is exactly as it was.
-                tracing::warn!("web panel: the Excalidraw bundle is unavailable: {error}");
-                self.web_panels.bundle = BundleState::Unavailable { reason: error };
-                self.web_panels.awaiting.clear();
+                tracing::warn!("web panel: the {app} bundle is unavailable: {error}");
+                self.web_panels
+                    .bundles
+                    .insert(app.clone(), BundleState::Unavailable { reason: error });
+                let waiting = std::mem::take(&mut self.web_panels.awaiting);
+                self.web_panels.awaiting = waiting
+                    .into_iter()
+                    .filter(|key| {
+                        self.file(key, cx)
+                            .and_then(|file| bridge::web_app(file.viewer))
+                            != Some(app.as_str())
+                    })
+                    .collect();
                 cx.notify();
                 None
             }
@@ -378,6 +414,18 @@ impl AppState {
                 }
                 true
             }
+            bridge::FromWeb::Preview { svg } => {
+                // The document as the buffer holds it now is what the picture is filed under, so
+                // a preview that lands after the next edit is simply not found again — the panel
+                // exports another one.
+                let document = self
+                    .file(key, cx)
+                    .and_then(|file| file.buffer().map(|b| b.read(cx).value().to_string()));
+                match document {
+                    Some(document) => self.keep_exported(&document, svg, cx),
+                    None => false,
+                }
+            }
             bridge::FromWeb::Error { message } => {
                 tracing::warn!("web panel: the chrome reported a failure: {message}");
                 if let Some(session) = self.web_panels.sessions.get_mut(key) {
@@ -452,6 +500,103 @@ impl AppState {
     fn flush_web_saves(&mut self, window: &mut gpui::Window, cx: &mut Context<Self>) {
         for key in std::mem::take(&mut self.web_panels.saving) {
             self.save_file(&key, window, cx);
+        }
+    }
+}
+
+/// The Preview position of a format the interface has no renderer for.
+///
+/// **Nothing here renders anything.** A `.drawio` file becomes a picture exactly once: inside the
+/// panel, which exports an SVG as it edits. This is the two tiers around that — the window's
+/// memory cache, shared with the diagrams because it is the same kind of picture in the same
+/// directory, and the disk tier in the project's workarea, which is what makes a preview survive
+/// a restart without ever opening the panel again.
+impl AppState {
+    /// What the panel has exported for a document, asking the disk tier once if the window holds
+    /// nothing. `&self` and a clone, for the same reason [`AppState::diagram`] is.
+    pub fn exported_preview(&self, source: &str) -> crate::app::DiagramEntry {
+        use crate::app::DiagramEntry;
+
+        let palette = self.exported_palette();
+        let key =
+            crate::state::diagrams::key_for(crate::state::diagrams::EXPORTED, source, palette);
+
+        let mut cache = self.diagrams.borrow_mut();
+        if let Some(entry) = cache.get(&key) {
+            return entry.clone();
+        }
+        cache.insert(key, DiagramEntry::Pending);
+        self.exported_asks
+            .borrow_mut()
+            .push((source.to_string(), palette));
+        DiagramEntry::Pending
+    }
+
+    /// Read the disk tier for every preview the frame turned out to need, off the frame thread.
+    /// Beside `drain_diagram_asks` in `render`, and for the same reason.
+    pub(super) fn drain_exported_asks(&mut self, cx: &mut Context<Self>) {
+        let asks = std::mem::take(&mut *self.exported_asks.borrow_mut());
+        if asks.is_empty() {
+            return;
+        }
+        let dir = self
+            .project_snapshot(cx)
+            .map(|project| crate::state::diagrams::cache_dir(&project.workarea));
+
+        for (source, palette) in asks {
+            let dir = dir.clone();
+            let reading = cx.background_spawn(async move {
+                crate::state::diagrams::resolve_exported(&source, palette, dir)
+            });
+            cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+                let answer = reading.await;
+                let _ = this.update(cx, |this, cx| this.exported_landed(answer, cx));
+            })
+            .detach();
+        }
+    }
+
+    /// One export from the panel: filed under the document it is of, and written down.
+    fn keep_exported(&mut self, source: &str, svg: String, cx: &mut Context<Self>) -> bool {
+        use crate::app::DiagramEntry;
+
+        let palette = self.exported_palette();
+        let dir = self
+            .project_snapshot(cx)
+            .map(|project| crate::state::diagrams::cache_dir(&project.workarea));
+        let Some((key, image)) = crate::state::diagrams::keep_exported(source, palette, dir, svg)
+        else {
+            // Markup with no `viewBox` is half an export; the next one replaces it.
+            return false;
+        };
+        self.diagrams
+            .borrow_mut()
+            .insert(key, DiagramEntry::Ready(crate::app::diagram_picture(image)));
+        true
+    }
+
+    fn exported_landed(
+        &mut self,
+        answer: crate::state::diagrams::DiagramAnswer,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::app::DiagramEntry;
+
+        let entry = match answer.result {
+            Ok(image) => DiagramEntry::Ready(crate::app::diagram_picture(image)),
+            // Not exported yet, which is what the viewer says. The panel fills it in when opened.
+            Err(reason) => DiagramEntry::Failed(reason),
+        };
+        self.diagrams.borrow_mut().insert(answer.key, entry);
+        cx.notify();
+    }
+
+    /// Which palette an export is filed under. draw.io bakes its theme into the SVG exactly as
+    /// merman does, so the two palettes are two entries.
+    fn exported_palette(&self) -> crate::state::diagrams::DiagramPalette {
+        match self.workbench.theme_id.mode() {
+            crate::theme::Mode::Dark => crate::state::diagrams::DiagramPalette::Dark,
+            crate::theme::Mode::Light => crate::state::diagrams::DiagramPalette::Light,
         }
     }
 }

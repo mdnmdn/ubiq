@@ -1,41 +1,91 @@
-//! The capture editor: a toolbar over the scene the session authored.
+//! The annotation editor: a toolbar over the scene behind a picture.
 //!
 //! The picture is the scene painter's — the base image and every annotation, live on the
 //! viewport camera — with one transparent layer above it for the tools. A gesture the layer
 //! declines reaches the viewport's own underneath, so pan, zoom and fit keep working around
 //! the tools rather than behind a mode.
+//!
+//! **Every image whose bytes decode gets this, not only a capture.** The header's View/Edit
+//! toggle is what says which: View is the picture and its camera, Edit adds the tool layer over
+//! it. A capture opens in Edit, a file from the explorer opens in View.
 
+use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, Context, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Point, Styled, div, px,
+    AnyElement, Context, Div, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
+    MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Point, Stateful,
+    StatefulInteractiveElement, Styled, div, px,
 };
+
+use gpui_component::color_picker::ColorPicker;
+use gpui_component::{Icon, IconName, Sizable, Size};
 
 use crate::app::AppState;
 use crate::state::editor::OpenFile;
-use crate::state::image_edit::ImageTool;
+use crate::state::image_edit::{ImageTool, STROKES};
+use crate::state::scene::Rgba8;
 use crate::state::{FileBody, viewport::Content};
 use crate::theme;
-use crate::ui::kit::{choice_pill, ghost_button};
+use crate::ui::kit::{UbiqIcon, choice_pill, ghost_button, icon_button, mono};
 use crate::ui::{eid, eid2};
 
-/// The header strip an editable capture grows: tools, style, undo. The 32 pixels Markdown and
-/// Mermaid already take, and the focus the keyboard needs to reach any of it.
+/// The glyph a tool is drawn as. Seven are ours (`annotate-*`); copying a region is Lucide's own
+/// `Copy`, which says it already.
+fn tool_icon(tool: ImageTool) -> Icon {
+    match tool {
+        ImageTool::Select => Icon::new(UbiqIcon::AnnotateSelect),
+        ImageTool::Crop => Icon::new(UbiqIcon::AnnotateCrop),
+        ImageTool::Rectangle => Icon::new(UbiqIcon::AnnotateRect),
+        ImageTool::Ellipse => Icon::new(UbiqIcon::AnnotateEllipse),
+        ImageTool::Arrow => Icon::new(UbiqIcon::AnnotateArrow),
+        ImageTool::Freehand => Icon::new(UbiqIcon::AnnotateDraw),
+        ImageTool::Text => Icon::new(UbiqIcon::AnnotateText),
+        ImageTool::Copy => Icon::new(IconName::Copy),
+    }
+}
+
+/// A stroke colour as GPUI's own, and back. The picker speaks `Hsla`; the scene stores bytes,
+/// because that is what an Excalidraw colour is.
+pub fn stroke_hsla(colour: Rgba8) -> gpui::Hsla {
+    gpui::Rgba {
+        r: f32::from(colour.r) / 255.0,
+        g: f32::from(colour.g) / 255.0,
+        b: f32::from(colour.b) / 255.0,
+        a: f32::from(colour.a) / 255.0,
+    }
+    .into()
+}
+
+pub fn stroke_rgba8(colour: gpui::Hsla) -> Rgba8 {
+    let rgba = gpui::Rgba::from(colour);
+    Rgba8 {
+        r: (rgba.r * 255.0).round().clamp(0.0, 255.0) as u8,
+        g: (rgba.g * 255.0).round().clamp(0.0, 255.0) as u8,
+        b: (rgba.b * 255.0).round().clamp(0.0, 255.0) as u8,
+        a: (rgba.a * 255.0).round().clamp(0.0, 255.0) as u8,
+    }
+}
+
+/// An icon-only action, with the word it replaced as its tooltip.
+fn tip(button: Stateful<Div>, label: &'static str) -> impl IntoElement + use<> {
+    button.tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(label).build(window, cx))
+}
+
+/// The header strip a picture grows: the View/Edit toggle every image carries, and — in Edit —
+/// the tools, the style and the history before it. The 32 pixels Markdown and Mermaid already
+/// take, and the focus the keyboard needs to reach any of it.
 pub fn toolbar(app: &AppState, file: &OpenFile, cx: &mut Context<AppState>) -> impl IntoElement {
     let key = file.key();
-    let (tool, stroke, filled, width) = match &file.body {
-        FileBody::ImageEdit(edit) => (
-            edit.tool,
-            edit.stroke,
-            edit.fill.is_some(),
-            edit.stroke_width,
-        ),
-        _ => (ImageTool::Select, None, false, 2.0),
+    let (tool, filled, width) = match &file.body {
+        FileBody::ImageEdit(edit) => (edit.tool, edit.fill.is_some(), edit.stroke_width),
+        _ => (ImageTool::Select, false, 2.0),
     };
-    let _ = app;
+    let editing = file.image_editing;
 
+    // Left padding only: the View/Edit pair is flush with the strip's top, right and bottom
+    // edges, and with each other.
     let mut row = div()
         .h(px(super::HEADER))
-        .px_2()
+        .pl_2()
         .flex()
         .flex_none()
         .items_center()
@@ -45,29 +95,75 @@ pub fn toolbar(app: &AppState, file: &OpenFile, cx: &mut Context<AppState>) -> i
         .border_b_1()
         .border_color(theme::border());
 
-    for entry in ImageTool::all() {
-        let key = key.clone();
-        row = row.child(
-            choice_pill(
-                eid2("img-tool", &key, entry.label()),
-                entry.label(),
-                tool == entry,
-                cx.listener(move |this, _, _, cx| this.set_image_tool(&key, entry, cx)),
-            )
-            .h_full(),
-        );
+    if editing {
+        row = row.child(tools(app, &key, tool, filled, width, cx));
     }
 
-    let key_stroke = key.clone();
-    row = row.child(ghost_button(
-        eid2("img-stroke", &key, "stroke"),
-        None,
-        match stroke {
-            Some(colour) => format!("#{:02x}{:02x}{:02x}", colour.r, colour.g, colour.b),
-            None => String::from("stroke"),
-        },
-        cx.listener(move |this, _, _, cx| this.cycle_image_stroke(&key_stroke, cx)),
-    ));
+    // The toggle every image carries, at the far end of whatever came before it. Its own row, so
+    // the strip's gap falls outside the pair rather than between the two halves.
+    row = row.child(div().flex_1());
+    let mut modes = div().h_full().flex().flex_none().items_stretch();
+    for (label, wanted) in [("View", false), ("Edit", true)] {
+        let key = key.clone();
+        let active = editing == wanted;
+        let (text, ground) = match active {
+            true => (theme::text(), theme::accent_soft()),
+            false => (theme::text_muted(), theme::pane_bg()),
+        };
+        modes = modes.child(
+            div()
+                .id(eid2("img-mode", &key, label))
+                .h_full()
+                .px_3()
+                .flex()
+                .flex_none()
+                .items_center()
+                .border_l_1()
+                .border_color(theme::border())
+                .bg(ground)
+                .cursor_pointer()
+                .hover(|this| this.bg(theme::hover()))
+                .child(mono(label, text))
+                .on_click(
+                    cx.listener(move |this, _, _, cx| this.set_image_editing(&key, wanted, cx)),
+                ),
+        );
+    }
+    row.child(modes)
+}
+
+/// The tools, the style controls and the history — everything Edit adds to the strip.
+fn tools(
+    app: &AppState,
+    key: &str,
+    tool: ImageTool,
+    filled: bool,
+    width: f32,
+    cx: &mut Context<AppState>,
+) -> gpui::Div {
+    let key = key.to_string();
+    let mut row = div().flex().items_center().gap_1();
+    for entry in ImageTool::all() {
+        let key = key.clone();
+        row = row.child(tip(
+            icon_button(
+                eid2("img-tool", &key, entry.label()),
+                tool_icon(entry),
+                tool == entry,
+                cx.listener(move |this, _, _, cx| this.set_image_tool(&key, entry, cx)),
+            ),
+            entry.label(),
+        ));
+    }
+
+    // The six the editor suggests sit in the picker's own popover, with its palettes and its hex
+    // field behind them, so the control is one button rather than a cycle nobody can aim.
+    row = row.child(
+        ColorPicker::new(&app.image_stroke)
+            .featured_colors(STROKES.iter().copied().map(stroke_hsla).collect())
+            .with_size(Size::Small)
+            .anchor(gpui::Anchor::TopLeft),
+    );
     let key_width = key.clone();
     row = row.child(ghost_button(
         eid2("img-width", &key, "width"),
@@ -84,25 +180,34 @@ pub fn toolbar(app: &AppState, file: &OpenFile, cx: &mut Context<AppState>) -> i
     ));
 
     let key_undo = key.clone();
-    row = row.child(ghost_button(
-        eid2("img-undo", &key, "undo"),
-        None,
+    row = row.child(tip(
+        icon_button(
+            eid2("img-undo", &key, "undo"),
+            IconName::Undo,
+            false,
+            cx.listener(move |this, _, _, cx| this.undo_image(&key_undo, cx)),
+        ),
         "Undo",
-        cx.listener(move |this, _, _, cx| this.undo_image(&key_undo, cx)),
     ));
     let key_redo = key.clone();
-    row = row.child(ghost_button(
-        eid2("img-redo", &key, "redo"),
-        None,
+    row = row.child(tip(
+        icon_button(
+            eid2("img-redo", &key, "redo"),
+            IconName::Redo,
+            false,
+            cx.listener(move |this, _, _, cx| this.redo_image(&key_redo, cx)),
+        ),
         "Redo",
-        cx.listener(move |this, _, _, cx| this.redo_image(&key_redo, cx)),
     ));
     let key_delete = key.clone();
-    row = row.child(ghost_button(
-        eid2("img-delete", &key, "delete"),
-        None,
-        "Delete",
-        cx.listener(move |this, _, _, cx| this.delete_image_selection(&key_delete, cx)),
+    row = row.child(tip(
+        icon_button(
+            eid2("img-delete", &key, "delete"),
+            IconName::Delete,
+            false,
+            cx.listener(move |this, _, _, cx| this.delete_image_selection(&key_delete, cx)),
+        ),
+        "Delete selection",
     ));
     row
 }
@@ -120,6 +225,11 @@ pub fn render(app: &AppState, file: &OpenFile, cx: &mut Context<AppState>) -> An
     let key = file.key();
     let scene = edit.display_scene();
     let tool = edit.tool;
+    // Viewing draws the same scene with no tool layer over it, so nothing takes a gesture the
+    // camera wants.
+    if !file.image_editing {
+        return super::scene::live_with_overlay(app, &key, &scene, div().into_any_element(), cx);
+    }
     let content = Content {
         min_x: scene.bounds.min_x,
         min_y: scene.bounds.min_y,
@@ -134,6 +244,13 @@ pub fn render(app: &AppState, file: &OpenFile, cx: &mut Context<AppState>) -> An
         .absolute()
         .inset_0()
         .size_full()
+        // A tool that draws owns the mouse outright — the camera underneath keeps the wheel and
+        // nothing else — so a press cannot land on pan however the two layers are ordered. Select
+        // is the one tool that shares: it declines empty space, and that gesture is a pan.
+        .when(tool != ImageTool::Select, |this| {
+            this.block_mouse_except_scroll()
+                .cursor(gpui::CursorStyle::Crosshair)
+        })
         .on_mouse_down(
             MouseButton::Left,
             cx.listener(move |this, event: &MouseDownEvent, window, cx| {

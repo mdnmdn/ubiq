@@ -7,19 +7,20 @@
 //! the interface then serves those bytes off its own loopback origin.
 //!
 //! ```text
-//! <shared workarea>/web/<app>/<version>/…            the mirror, cache path = URL path
-//! <shared workarea>/web/<app>/<version>/importmap.json  the map the chrome loads
-//! <shared workarea>/web/<app>/<version>/.complete    written last, and the only proof of done
+//! <shared workarea>/web/<app>/<version>.bundle       one file: every entry, deflated, then an
+//!                                                     index and a footer — see `archive.rs`
+//! <shared workarea>/web/<app>/<version>.bundle.part  where a fetch in progress writes
 //! ```
 //!
-//! **Versioned by directory, not invalidated by policy.** [`manifest::VERSION`] is pinned in
-//! source, so a build that pins a new one looks in a directory that does not exist, fetches, and
-//! leaves the old one alone. There is no TTL and no staleness check: a complete directory is
-//! answered immediately and nothing is fetched.
+//! **Versioned by file, not invalidated by policy.** [`manifest::VERSION`] is pinned in source,
+//! so a build that pins a new one looks for a file that does not exist, fetches, and leaves the
+//! old one alone. There is no TTL and no staleness check: a bundle that is there is answered
+//! immediately and nothing is fetched.
 //!
-//! **Complete means the marker is there.** A process killed mid-fetch leaves a directory full of
-//! real, verified files and no marker, and that must not read as done — the marker is written
-//! after the last entry is verified and never before.
+//! **The rename is the only proof of done.** Every entry lands in a sibling `.part` file as it is
+//! verified; the import map is appended the same way; only then is `.part` renamed over the real
+//! name. A process killed mid-fetch leaves a `.part` file and no `.bundle`, which is exactly as
+//! unfinished as it looks — there is no resume, the next ask fetches every entry again.
 //!
 //! **Every file is verified against the manifest before it is written.** A hash that does not
 //! match fails the whole fetch and caches nothing: a downloader that trusts a CDN to have served
@@ -29,7 +30,9 @@
 //! [`Message::WebBundleFailed`] with a sentence, and the feature that wanted the bundle says why
 //! it is unavailable. Nothing else is disturbed.
 
+pub mod archive;
 pub mod manifest;
+pub mod manifest_drawio;
 
 use std::collections::HashMap;
 use std::io::Read;
@@ -57,13 +60,13 @@ const PARALLEL: usize = 6;
 /// font). A response with no end is not a bundle.
 const MAX_FILE: u64 = 64 * 1024 * 1024;
 
-/// The file that says a bundle directory is finished. Dotted, so the interface's own server — which
-/// refuses dotfiles — can never serve it.
-const MARKER: &str = ".complete";
-
-/// Where the import map lands inside the bundle directory, so the chrome can fetch it by a name it
-/// knows without the host telling it one.
+/// Where the import map lands inside the archive, so the chrome can fetch it by a name it knows
+/// without the host telling it one.
 pub const IMPORT_MAP_FILE: &str = "importmap.json";
+
+/// The suffix a bundle is written under while a fetch is in flight. Renamed away on success, so
+/// its presence alone is never mistaken for a finished bundle.
+const PART: &str = ".part";
 
 /// One bundle this host knows how to fetch: its name, its pinned version, and every file in it.
 ///
@@ -76,12 +79,20 @@ pub struct Bundle {
     pub import_map: &'static str,
 }
 
-/// Excalidraw, the first and so far only tenant.
+/// Excalidraw, the first tenant.
 pub const EXCALIDRAW: Bundle = Bundle {
     app: manifest::APP,
     version: manifest::VERSION,
     files: manifest::FILES,
     import_map: manifest::IMPORT_MAP,
+};
+
+/// draw.io, the second tenant. No import map: it loads through classic `<script>` tags.
+pub const DRAWIO: Bundle = Bundle {
+    app: manifest_drawio::APP,
+    version: manifest_drawio::VERSION,
+    files: manifest_drawio::FILES,
+    import_map: manifest_drawio::IMPORT_MAP,
 };
 
 /// How a file's bytes are obtained.
@@ -116,7 +127,7 @@ struct Watcher {
 impl WebAssets {
     /// The real thing: the bundles this build pins, fetched over the network.
     pub fn new(shared: PathBuf) -> Self {
-        Self::with(shared, vec![EXCALIDRAW], download)
+        Self::with(shared, vec![EXCALIDRAW, DRAWIO], download)
     }
 
     /// The same, over a stated set of bundles and a stated fetcher. The one seam a test needs.
@@ -132,12 +143,12 @@ impl WebAssets {
         }
     }
 
-    /// Where a bundle's files live once they are there.
-    pub fn directory(&self, bundle: &Bundle) -> PathBuf {
+    /// Where a bundle's `.bundle` file lives once it is there.
+    pub fn archive(&self, bundle: &Bundle) -> PathBuf {
         self.shared
             .join("web")
             .join(bundle.app)
-            .join(bundle.version)
+            .join(format!("{}.bundle", bundle.version))
     }
 
     /// Make sure a bundle is on disk, and answer the asker.
@@ -157,17 +168,13 @@ impl WebAssets {
             });
             return;
         };
-        let directory = self
-            .shared
-            .join("web")
-            .join(bundle.app)
-            .join(bundle.version);
+        let archive = self.archive(bundle);
 
-        if complete(&directory) {
+        if archive.is_file() {
             asker.send(Message::WebBundleReady {
                 app: app.to_string(),
                 version: bundle.version.to_string(),
-                path: directory.to_string_lossy().into_owned(),
+                path: archive.to_string_lossy().into_owned(),
             });
             return;
         }
@@ -194,7 +201,7 @@ impl WebAssets {
             version: bundle.version.to_string(),
             files: bundle.files,
             import_map: bundle.import_map,
-            directory,
+            archive,
             watchers,
             fetch: self.fetch,
             done: self.finished.clone(),
@@ -219,18 +226,15 @@ impl WebAssets {
     }
 }
 
-/// Whether a bundle directory is finished, which is the marker being there and nothing else.
-fn complete(directory: &Path) -> bool {
-    directory.join(MARKER).is_file()
-}
-
 /// One fetch, addressed and equipped. Everything it needs, so the thread borrows nothing.
 struct Job {
     app: String,
     version: String,
     files: &'static [manifest::Entry],
     import_map: &'static str,
-    directory: PathBuf,
+    /// Where the finished `.bundle` lands. The fetch itself writes a sibling `.part` file and
+    /// renames it here on success.
+    archive: PathBuf,
     /// The windows waiting, shared with the coordinator so one that joins late is still told.
     watchers: Arc<Mutex<Vec<Watcher>>>,
     fetch: Fetch,
@@ -260,7 +264,7 @@ fn spawn(job: Job) {
 
 /// The order of the last two lines is deliberate. The coordinator is told this fetch has ended
 /// *before* the answer goes out, so a window asking again at that moment starts a fresh fetch —
-/// which finds the finished directory and answers immediately — rather than joining a thread that
+/// which finds the finished archive and answers immediately — rather than joining a thread that
 /// is about to end and hearing nothing.
 fn run(job: Job) {
     let outcome = fetch_all(&job);
@@ -271,14 +275,14 @@ fn run(job: Job) {
                 "web bundle {} {} is at {}",
                 job.app,
                 job.version,
-                job.directory.display()
+                job.archive.display()
             );
             tell(
                 &job,
                 Message::WebBundleReady {
                     app: job.app.clone(),
                     version: job.version.clone(),
-                    path: job.directory.to_string_lossy().into_owned(),
+                    path: job.archive.to_string_lossy().into_owned(),
                 },
             );
         }
@@ -295,15 +299,19 @@ fn run(job: Job) {
     }
 }
 
-/// Every file, a handful at a time, then the import map, then the marker.
+/// Every file, a handful at a time, into the `.part` archive, then the import map, then the
+/// rename that turns it into the real `.bundle`.
 ///
-/// The marker is last on purpose: everything above it can be interrupted and resumed, because a
-/// file already on disk with the right length and hash is skipped rather than fetched again.
+/// There is no resume: a `.part` left by a killed process is not read back, only overwritten by
+/// the next fetch. The six download workers only fetch and verify — the single archive writer
+/// below is the one thing allowed to touch the `.part` file, so 554 bodies never race a write.
 fn fetch_all(job: &Job) -> Result<(), String> {
     let total = job.files.len() as u32;
-    if let Err(error) = std::fs::create_dir_all(&job.directory) {
-        return Err(format!("{}: {error}", job.directory.display()));
+    let parent = job.archive.parent().unwrap_or_else(|| Path::new("."));
+    if let Err(error) = std::fs::create_dir_all(parent) {
+        return Err(format!("{}: {error}", parent.display()));
     }
+    let part = part_path(&job.archive);
 
     // The count is known before the first byte, so it goes out before the first byte: a bar that
     // fills from zero for the whole download, rather than one that sweeps for the first quarter
@@ -325,15 +333,16 @@ fn fetch_all(job: &Job) -> Result<(), String> {
     }
     drop(queue);
 
-    // Each worker reports the cache path of the file it just landed, so a progress report can name
-    // it. A failure reports the sentence instead, and takes the whole fetch with it.
-    let (report, reports) = flume::unbounded::<Result<&'static str, String>>();
+    // Bounded at a handful of bodies: 554 file bodies held in memory at once is the thing this
+    // archive exists to avoid, so a full channel simply makes a fast worker wait for the writer.
+    let (report, reports) =
+        flume::bounded::<Result<(&'static manifest::Entry, Vec<u8>), String>>(8);
     let stop = Arc::new(AtomicBool::new(false));
 
     let workers: Vec<_> = (0..PARALLEL.min(job.files.len().max(1)))
         .map(|_| {
             let (work, report, stop) = (work.clone(), report.clone(), stop.clone());
-            let (directory, fetch) = (job.directory.clone(), job.fetch);
+            let fetch = job.fetch;
             thread::spawn(move || {
                 for entry in work.iter() {
                     // The first failure stops the rest: there is no partial bundle worth having,
@@ -341,10 +350,11 @@ fn fetch_all(job: &Job) -> Result<(), String> {
                     if stop.load(Ordering::Relaxed) {
                         return;
                     }
-                    let outcome = one(&directory, entry, fetch).map(|()| entry.path);
+                    let outcome = one(entry, fetch).map(|bytes| (entry, bytes));
                     let failed = outcome.is_err();
-                    let _ = report.send(outcome);
-                    if failed {
+                    // A closed receiver means the main loop already bailed (its own write
+                    // failed); either way there is nothing left to do.
+                    if report.send(outcome).is_err() || failed {
                         stop.store(true, Ordering::Relaxed);
                         return;
                     }
@@ -357,16 +367,33 @@ fn fetch_all(job: &Job) -> Result<(), String> {
     drop(work);
     drop(report);
 
+    let file = std::fs::File::create(&part).map_err(|error| format!("{}: {error}", part.display()));
+    let mut writer = match file {
+        Ok(file) => archive::Writer::new(file),
+        Err(error) => {
+            stop.store(true, Ordering::Relaxed);
+            for _ in reports.iter() {}
+            for worker in workers {
+                let _ = worker.join();
+            }
+            return Err(error);
+        }
+    };
+
     let mut done = 0u32;
     let mut spoke = Instant::now();
     let mut failure = None;
     let mut last = String::new();
     while done < total {
         match reports.recv_timeout(THROTTLE) {
-            Ok(Ok(path)) => {
+            Ok(Ok((entry, bytes))) => {
+                if let Err(error) = writer.write_entry(entry.path, &bytes) {
+                    failure = Some(format!("{}: {error}", entry.path));
+                    break;
+                }
                 done += 1;
-                last = path.to_string();
-                tracing::debug!("web bundle {}: {done}/{total} {path}", job.app);
+                last = entry.path.to_string();
+                tracing::debug!("web bundle {}: {done}/{total} {}", job.app, entry.path);
             }
             Ok(Err(error)) => {
                 failure = Some(error);
@@ -393,34 +420,44 @@ fn fetch_all(job: &Job) -> Result<(), String> {
             );
         }
     }
+    // Set before the drain: a worker blocked sending on a full, no-longer-read channel would
+    // otherwise deadlock the join below.
+    if failure.is_some() {
+        stop.store(true, Ordering::Relaxed);
+    }
+    for _ in reports.iter() {}
     for worker in workers {
         let _ = worker.join();
     }
     if let Some(error) = failure {
+        let _ = std::fs::remove_file(&part);
         return Err(error);
     }
 
-    let map = job.directory.join(IMPORT_MAP_FILE);
-    crate::atomic::write_atomic(&map, job.import_map.as_bytes())
-        .map_err(|error| format!("{}: {error}", map.display()))?;
+    if let Err(error) = writer.write_entry(IMPORT_MAP_FILE, job.import_map.as_bytes()) {
+        let _ = std::fs::remove_file(&part);
+        return Err(format!("{IMPORT_MAP_FILE}: {error}"));
+    }
+    if let Err(error) = writer.finish() {
+        let _ = std::fs::remove_file(&part);
+        return Err(format!("{}: {error}", part.display()));
+    }
 
-    // Last, and only now: every entry above is verified, so this is the one byte that turns a
-    // directory of files into a bundle.
-    let marker = job.directory.join(MARKER);
-    crate::atomic::write_atomic(&marker, job.version.as_bytes())
-        .map_err(|error| format!("{}: {error}", marker.display()))?;
-    Ok(())
+    // The rename is the one thing that turns a `.part` file into a finished bundle.
+    std::fs::rename(&part, &job.archive)
+        .map_err(|error| format!("{}: {error}", job.archive.display()))
 }
 
-/// One file: skip it, or fetch it, verify it and write it.
-///
-/// Verification is before the write and not after, so a file whose hash does not match is never on
-/// disk at all — discarded rather than cached.
-fn one(directory: &Path, entry: &manifest::Entry, fetch: Fetch) -> Result<(), String> {
-    let path = directory.join(entry.path);
-    if held(&path, entry) {
-        return Ok(());
-    }
+/// The sibling a fetch in progress writes to.
+fn part_path(archive: &Path) -> PathBuf {
+    let mut name = archive.file_name().unwrap_or_default().to_os_string();
+    name.push(PART);
+    archive.with_file_name(name)
+}
+
+/// One file: fetch it and verify it. Verification is before the caller ever writes a byte, so a
+/// file whose hash does not match is never in the archive at all — discarded rather than cached.
+fn one(entry: &manifest::Entry, fetch: Fetch) -> Result<Vec<u8>, String> {
     let bytes = fetch(entry.url).map_err(|error| format!("{}: {error}", entry.path))?;
     if bytes.len() as u64 != entry.len {
         return Err(format!(
@@ -436,21 +473,7 @@ fn one(directory: &Path, entry: &manifest::Entry, fetch: Fetch) -> Result<(), St
             entry.path
         ));
     }
-    crate::atomic::write_atomic(&path, &bytes).map_err(|error| format!("{}: {error}", entry.path))
-}
-
-/// Whether this file is already here and is the file the manifest names.
-///
-/// The length is checked from the directory entry first, so a resumed fetch reads the bytes of
-/// only the files that could plausibly be right.
-fn held(path: &Path, entry: &manifest::Entry) -> bool {
-    match std::fs::metadata(path) {
-        Ok(meta) if meta.is_file() && meta.len() == entry.len => match std::fs::read(path) {
-            Ok(bytes) => digest(&bytes) == entry.sha256,
-            Err(_) => false,
-        },
-        _ => false,
-    }
+    Ok(bytes)
 }
 
 fn digest(bytes: &[u8]) -> String {
@@ -571,18 +594,45 @@ mod tests {
         }
     }
 
-    /// A directory with the marker in it is answered where it stands.
+    /// A minimal reader for the test's own assertions — parses exactly the layout `archive.rs`
+    /// writes and nothing more. There is no reader in the production code: the host never reads
+    /// one of these back.
+    fn read_archive(path: &std::path::Path) -> HashMap<String, Vec<u8>> {
+        use std::io::Read as _;
+
+        let bytes = std::fs::read(path).unwrap();
+        let len = bytes.len();
+        assert_eq!(&bytes[len - 8..], b"UBIQBND1", "the footer's magic");
+        let offset = u64::from_le_bytes(bytes[len - 16..len - 8].try_into().unwrap()) as usize;
+        let index: Vec<(String, u64, u64, u64)> =
+            serde_json::from_slice(&bytes[offset..len - 16]).unwrap();
+
+        let mut out = HashMap::new();
+        for (path, start, compressed_len, _uncompressed_len) in index {
+            let start = start as usize;
+            let end = start + compressed_len as usize;
+            let mut data = Vec::new();
+            flate2::read::DeflateDecoder::new(&bytes[start..end])
+                .read_to_end(&mut data)
+                .unwrap();
+            out.insert(path, data);
+        }
+        out
+    }
+
+    /// A `.bundle` file is answered where it stands.
     ///
-    /// Versioned by directory means there is no staleness question to ask, so there is nothing
-    /// here to re-check and nothing to fetch — the fetcher panics if it is reached.
+    /// Versioned by file means there is no staleness question to ask, so there is nothing here to
+    /// re-check and nothing to fetch — the fetcher panics if it is reached.
     #[test]
     fn a_complete_bundle_is_answered_without_touching_the_network() {
         let shared = tempfile::TempDir::new().unwrap();
         let (_hub, host, client) = window();
         let mut assets = assets(shared.path(), refused);
-        let directory = shared.path().join("web").join("fixture").join("v1");
-        std::fs::create_dir_all(&directory).unwrap();
-        std::fs::write(directory.join(MARKER), "v1").unwrap();
+        let archive = shared.path().join("web").join("fixture").join("v1.bundle");
+        std::fs::create_dir_all(archive.parent().unwrap()).unwrap();
+        // Its content is never read on this path — only that the file is there.
+        std::fs::write(&archive, b"anything").unwrap();
 
         assets.ensure(
             client.id(),
@@ -594,7 +644,7 @@ mod tests {
             Message::WebBundleReady { app, version, path } => {
                 assert_eq!(app, "fixture");
                 assert_eq!(version, "v1");
-                assert_eq!(std::path::Path::new(&path), directory);
+                assert_eq!(std::path::Path::new(&path), archive);
             }
             other => panic!("a complete bundle answered {other:?}"),
         }
@@ -617,7 +667,7 @@ mod tests {
         let shared = tempfile::TempDir::new().unwrap();
         let (_hub, host, client) = window();
         let mut assets = assets(shared.path(), tampered);
-        let directory = shared.path().join("web").join("fixture").join("v1");
+        let archive = shared.path().join("web").join("fixture").join("v1.bundle");
 
         assets.ensure(
             client.id(),
@@ -637,12 +687,12 @@ mod tests {
             "the failure names the file: {error}"
         );
         assert!(
-            !directory.join("sub/b.js").exists(),
-            "a file that failed verification is never written"
+            !archive.is_file(),
+            "a fetch that failed verification never becomes a finished bundle"
         );
         assert!(
-            !complete(&directory),
-            "and the directory never reads as finished"
+            !part_path(&archive).exists(),
+            "and its .part file is removed rather than left behind"
         );
     }
 
@@ -696,36 +746,20 @@ mod tests {
         );
     }
 
-    /// Files on disk and no marker is a killed process, not a finished bundle.
+    /// A `.part` file and no rename is a killed process, not a finished bundle — and there is no
+    /// resume: the next fetch overwrites it and fetches every entry again.
     #[test]
-    fn a_directory_without_the_marker_is_not_complete() {
+    fn a_leftover_part_file_is_not_complete_and_is_overwritten() {
         let shared = tempfile::TempDir::new().unwrap();
         let (_hub, host, client) = window();
-        let directory = shared.path().join("web").join("fixture").join("v1");
-        std::fs::create_dir_all(&directory).unwrap();
-        // Real, verifiable bytes for the first entry, and nothing for the second: what a fetch
-        // that was killed half way leaves.
-        std::fs::write(directory.join("a.js"), b"alpha").unwrap();
+        let archive = shared.path().join("web").join("fixture").join("v1.bundle");
+        std::fs::create_dir_all(archive.parent().unwrap()).unwrap();
+        // What a fetch killed half way leaves: a `.part` file, and no `.bundle`. Its content must
+        // never be trusted, so it is garbage on purpose.
+        std::fs::write(part_path(&archive), b"garbage from a killed fetch").unwrap();
 
-        // With no network, an incomplete directory is a failure and never a Ready.
-        let mut offline = assets(shared.path(), |_| Err("no network".to_string()));
-        offline.ensure(
-            client.id(),
-            "fixture",
-            host.mailbox(To::Client(client.id())),
-        );
-        loop {
-            match answer(&client) {
-                Message::WebBundlePending { .. } => continue,
-                Message::WebBundleFailed { .. } => break,
-                other => panic!("an unfinished bundle answered {other:?}"),
-            }
-        }
-
-        // And finishing it is a resume: the file already there is kept, the missing one fetched,
-        // and the marker written last.
-        let mut online = assets(shared.path(), served);
-        online.ensure(
+        let mut assets = assets(shared.path(), served);
+        assets.ensure(
             client.id(),
             "fixture",
             host.mailbox(To::Client(client.id())),
@@ -734,17 +768,21 @@ mod tests {
             match answer(&client) {
                 Message::WebBundlePending { .. } => continue,
                 Message::WebBundleReady { .. } => break,
-                other => panic!("a finished bundle answered {other:?}"),
+                other => panic!("a fresh fetch over a stale .part answered {other:?}"),
             }
         }
-        assert!(complete(&directory));
-        assert_eq!(
-            std::fs::read(directory.join("sub/b.js")).unwrap(),
-            b"beta".to_vec()
+
+        assert!(archive.is_file(), "the rename is the proof of done");
+        assert!(
+            !part_path(&archive).exists(),
+            "no .part file is left behind"
         );
+        let entries = read_archive(&archive);
+        assert_eq!(entries.get("a.js"), Some(&b"alpha".to_vec()));
+        assert_eq!(entries.get("sub/b.js"), Some(&b"beta".to_vec()));
         assert_eq!(
-            std::fs::read_to_string(directory.join(IMPORT_MAP_FILE)).unwrap(),
-            "{\"imports\":{}}"
+            entries.get(IMPORT_MAP_FILE),
+            Some(&b"{\"imports\":{}}".to_vec())
         );
     }
 

@@ -84,6 +84,8 @@ fn body(app: &AppState, doc: &'static SinkDoc, cx: &mut Context<AppState>) -> An
         ViewerKind::Markdown => viewer::markdown::render(app, doc.key, &source, None, false, cx),
         ViewerKind::Mermaid => viewer::diagram::render(app, doc.key, &source, cx),
         ViewerKind::Excalidraw => viewer::scene::live(app, doc.key, &source, cx),
+        // The sink has no draw.io fixture: the picture only exists once a panel has exported it.
+        ViewerKind::Drawio => viewer::diagram::exported(app, doc.key, &source, cx),
         // The plain buffer has no preview, so this page never asks it for one.
         ViewerKind::Editor | ViewerKind::Image => {
             viewer::note("Nothing to draw", theme::text_faint())

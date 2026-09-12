@@ -4,6 +4,7 @@
 
 pub mod bridge;
 
+mod archive;
 mod assets;
 mod routes;
 mod server;
@@ -158,6 +159,42 @@ mod tests {
 
     use super::bridge::{self, FromWeb, ToWeb};
     use super::{close_session, open_session, receive, send, set_vendor_root};
+
+    /// Builds a real vendor archive on disk, in the byte layout `archive.rs` reads back, so a
+    /// test can exercise `set_vendor_root` and the vendor route without a directory of loose
+    /// files — there is no such directory to fetch a bundle into any more.
+    fn write_vendor_archive(
+        dir: &std::path::Path,
+        entries: &[(&str, &[u8])],
+    ) -> std::path::PathBuf {
+        use flate2::Compression;
+        use flate2::write::DeflateEncoder;
+        use std::io::Write as _;
+
+        let mut bytes = Vec::new();
+        let mut index = Vec::new();
+        for (name, content) in entries {
+            let mut encoder = DeflateEncoder::new(Vec::new(), Compression::default());
+            encoder.write_all(content).unwrap();
+            let compressed = encoder.finish().unwrap();
+            let offset = bytes.len() as u64;
+            index.push((
+                name.to_string(),
+                offset,
+                compressed.len() as u32,
+                content.len() as u32,
+            ));
+            bytes.extend_from_slice(&compressed);
+        }
+        let index_offset = bytes.len() as u64;
+        bytes.extend_from_slice(&serde_json::to_vec(&index).unwrap());
+        bytes.extend_from_slice(&index_offset.to_le_bytes());
+        bytes.extend_from_slice(b"UBIQBND1");
+
+        let path = dir.join("vendor.bin");
+        fs::write(&path, &bytes).unwrap();
+        path
+    }
 
     /// Posts one bridge envelope and answers the status code. A refusal here is a 404 rather than
     /// a transport error, so the status is the whole of what a caller asserts on.
@@ -323,10 +360,10 @@ mod tests {
     #[test]
     fn the_excalidraw_chrome_carries_a_nonce_and_an_origin_locked_policy() {
         let dir = tempfile::tempdir().unwrap();
-        fs::write(dir.path().join("importmap.json"), r#"{"imports":{}}"#).unwrap();
+        let archive = write_vendor_archive(dir.path(), &[("importmap.json", br#"{"imports":{}}"#)]);
 
         let session = open_session(bridge::EXCALIDRAW_APP).unwrap();
-        set_vendor_root(&session.token, Some(dir.path().to_path_buf()));
+        set_vendor_root(&session.token, Some(archive));
 
         let page = ureq::get(&session.url).call().unwrap();
         let csp = page
@@ -382,16 +419,89 @@ mod tests {
         close_session(&session.token);
     }
 
+    /// The draw.io tenant end to end, in the cheap half: the chrome is its own page under the
+    /// narrow policy (it frames the mirrored webapp rather than importing modules, so it needs no
+    /// nonce), the framed document is served as HTML under a policy that still names no remote
+    /// origin, and the bridge round-trips the tenant's own `preview` frame.
     #[test]
-    fn the_vendor_route_refuses_traversal_and_types_an_extensionless_module() {
+    fn the_drawio_chrome_frames_the_mirror_under_an_origin_locked_policy() {
         let dir = tempfile::tempdir().unwrap();
-        fs::write(dir.path().join("+esm"), "export default 1;\n").unwrap();
-        fs::write(dir.path().join("index.mjs"), "export default 2;\n").unwrap();
-        fs::create_dir_all(dir.path().join(".hidden")).unwrap();
-        fs::write(dir.path().join(".hidden").join("secret"), "no").unwrap();
+        // The mirror's root is the webapp's own root — see `assets/web/drawio/app.js`.
+        let archive = write_vendor_archive(
+            dir.path(),
+            &[("index.html", b"<!DOCTYPE html><title>drawio</title>")],
+        );
+
+        let session = open_session(bridge::DRAWIO_APP).unwrap();
+        set_vendor_root(&session.token, Some(archive));
+
+        let page = ureq::get(&session.url).call().unwrap();
+        let csp = page
+            .header("Content-Security-Policy")
+            .expect("the chrome names a policy")
+            .to_string();
+        assert!(
+            !csp.contains("http"),
+            "no remote origin is permitted: {csp}"
+        );
+        let body = page.into_string().unwrap();
+        assert!(
+            body.contains("<iframe"),
+            "the chrome frames the webapp: {body}"
+        );
+
+        assert!(
+            ureq::get(&format!("{}app.js", session.url))
+                .call()
+                .unwrap()
+                .into_string()
+                .unwrap()
+                .contains("proto=json"),
+            "the chrome module is the draw.io one, not the demo's"
+        );
+
+        // The framed document: HTML, or the browser downloads it instead of drawing it.
+        let framed = ureq::get(&format!("{}vendor/index.html", session.url))
+            .call()
+            .unwrap();
+        assert_eq!(
+            framed.header("Content-Type"),
+            Some("text/html; charset=utf-8")
+        );
+        let framed_csp = framed
+            .header("Content-Security-Policy")
+            .expect("a mirrored document names a policy")
+            .to_string();
+        assert!(
+            !framed_csp.contains("http") && !framed_csp.contains("diagrams.net"),
+            "a hole in the mirror fails loudly rather than reaching the network: {framed_csp}"
+        );
+
+        // The tenant's own frame, over the same generic bridge.
+        let svg = serde_json::json!({ "type": "preview", "svg": "<svg viewBox=\"0 0 2 2\"/>" });
+        assert_eq!(
+            bridge::decode_from_web(&svg),
+            Some(bridge::FromWeb::Preview {
+                svg: "<svg viewBox=\"0 0 2 2\"/>".to_string()
+            })
+        );
+
+        close_session(&session.token);
+    }
+
+    #[test]
+    fn the_vendor_route_looks_up_an_exact_name_with_no_traversal_surface() {
+        let dir = tempfile::tempdir().unwrap();
+        let archive = write_vendor_archive(
+            dir.path(),
+            &[
+                ("+esm", b"export default 1;\n"),
+                ("index.mjs", b"export default 2;\n"),
+            ],
+        );
 
         let session = open_session(bridge::DEMO_APP).unwrap();
-        set_vendor_root(&session.token, Some(dir.path().to_path_buf()));
+        set_vendor_root(&session.token, Some(archive));
 
         // Extensionless is the jsDelivr `+esm` case: `application/octet-stream` here is a blank
         // panel, not a degradation.
@@ -410,22 +520,24 @@ mod tests {
             Some("text/javascript; charset=utf-8")
         );
 
+        // Neither name is an entry in the archive, so both simply miss the lookup — there is no
+        // path to resolve and nothing to traverse.
         let dotfile = ureq::get(&format!("{}vendor/.hidden/secret", session.url)).call();
         assert!(
             matches!(dotfile, Err(ureq::Error::Status(404, _))),
-            "the vendor route refuses a dotfile: {dotfile:?}"
+            "an absent entry 404s: {dotfile:?}"
         );
         let traversal = ureq::get(&format!("{}vendor/../../etc/passwd", session.url)).call();
         assert!(
             matches!(traversal, Err(ureq::Error::Status(404, _))),
-            "the vendor route refuses traversal: {traversal:?}"
+            "so does a traversal-shaped name — it's just another string the index doesn't have: {traversal:?}"
         );
 
         set_vendor_root(&session.token, None);
         let gone = ureq::get(&format!("{}vendor/+esm", session.url)).call();
         assert!(
             matches!(gone, Err(ureq::Error::Status(404, _))),
-            "with no vendor root the route answers nothing: {gone:?}"
+            "with no vendor archive open the route answers nothing: {gone:?}"
         );
 
         close_session(&session.token);

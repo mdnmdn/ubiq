@@ -13,6 +13,20 @@ impl AppState {
         self.projects.get_mut(&project)?.editor.find_key_mut(key)
     }
 
+    /// Show or hide a picture's annotation tools. Viewing drops the selection, so returning to
+    /// Edit starts where a fresh one does; nothing about the scene changes either way.
+    pub fn set_image_editing(&mut self, key: &str, editing: bool, cx: &mut Context<Self>) {
+        let Some(file) = self.image_file_mut(key, cx) else {
+            return;
+        };
+        file.image_editing = editing;
+        if !editing && let Some(edit) = file.ensure_image_edit() {
+            edit.selected = None;
+            edit.pending = None;
+        }
+        cx.notify();
+    }
+
     /// Pick up the tool. A selection does not follow across tools that draw.
     pub fn set_image_tool(&mut self, key: &str, tool: ImageTool, cx: &mut Context<Self>) {
         let Some(file) = self.image_file_mut(key, cx) else {
@@ -26,25 +40,22 @@ impl AppState {
         cx.notify();
     }
 
-    /// The stroke the next element takes — and the selected one's, as one undoable step.
-    pub fn cycle_image_stroke(&mut self, key: &str, cx: &mut Context<Self>) {
-        let Some(file) = self.image_file_mut(key, cx) else {
+    /// What the stroke picker answered, on whichever capture is active — and on the selected
+    /// element, as one undoable step.
+    pub fn set_active_image_stroke(&mut self, colour: gpui::Hsla, cx: &mut Context<Self>) {
+        let Some(key) = self.active_file_key(cx) else {
+            return;
+        };
+        let Some(file) = self.image_file_mut(&key, cx) else {
             return;
         };
         let Some(edit) = file.ensure_image_edit() else {
             return;
         };
-        let at = edit
-            .stroke
-            .and_then(|current| {
-                crate::state::image_edit::STROKES
-                    .iter()
-                    .position(|entry| *entry == current)
-            })
-            .unwrap_or(0);
-        edit.stroke = Some(
-            crate::state::image_edit::STROKES[(at + 1) % crate::state::image_edit::STROKES.len()],
-        );
+        edit.stroke = Some(crate::ui::viewer::image_edit::stroke_rgba8(colour));
+        if edit.fill.is_some() {
+            edit.fill = edit.stroke;
+        }
         if edit.restyle_selected() {
             file.touch_image();
         }

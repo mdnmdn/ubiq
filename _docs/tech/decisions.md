@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-09-11
-verified: 2026-09-11
+updated: 2026-09-12
+verified: 2026-09-12
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -2092,13 +2092,19 @@ Excalidraw with React is 25 MiB. Baking that into the executable inflates every 
 release for a feature most sessions never open, so it is fetched once from a CDN, kept on disk, and
 works offline afterwards.
 
-**Versioned by directory, not invalidated by policy.** The version is pinned in Rust source and
-names the cache directory, so a build that pins a new one looks in a directory that does not exist,
-fetches, and leaves the old one for the next sweep. No staleness question and no TTL — the same
-property the diagram cache gets from putting its renderer version in the key, and `FileHarnessCache`
-from keying on the binary's version. A directory counts as complete only when a marker written after
-the last verified file is present, so a half-finished fetch from a killed process does not read as
-done.
+**Versioned by file name, not invalidated by policy.** The version is pinned in Rust source and
+names the cache file, so a build that pins a new one looks for a file that does not exist, fetches,
+and leaves the old one for the next sweep. No staleness question and no TTL — the same property the
+diagram cache gets from putting its renderer version in the key, and `FileHarnessCache` from keying
+on the binary's version.
+
+**One bundle is one file: `<version>.bundle`, an archive of deflated entries with an index and a
+magic footer.** 554 files of somebody else's JavaScript is 554 inodes and 554 opens per panel, for
+bytes nothing but the interface's own loopback origin ever reads. The fetch streams into a sibling
+`.bundle.part` and renames it over on success, so the rename is the completeness proof and a
+half-finished fetch from a killed process cannot read as done. The interface opens the archive once
+per session and inflates one entry per request; nothing is ever extracted to disk. The cost is that
+an interrupted fetch no longer resumes — `G246`.
 
 **A manifest in Rust source lists every file with its expected SHA-256, and a file whose hash does
 not match is discarded rather than cached.** A downloader that trusts a CDN to have served the right
@@ -2110,7 +2116,7 @@ on-demand CDN output that must not be pinned with subresource integrity, so the 
 which is the event worth failing on.
 
 **Fetching is the host's.** Downloading is network plus disk, and the interface's sanctioned
-exceptions are each narrow and argued. The interface asks, the host fetches, verifies and unpacks,
+exceptions are each narrow and argued. The interface asks, the host fetches, verifies and archives,
 and answers when it is there; the interface then serves those bytes off its own origin.
 
 **Failure is a downgrade, not an error.** No network and nothing cached means editing is disabled
@@ -2133,7 +2139,7 @@ was handed, which is what makes a host on another machine a change of value rath
 code. Everything in it stays disposable.
 
 The qualification is that the host **does** write inside this one, which it never does to a
-per-project workarea — `D106` puts the fetch on the host, so the host must also unpack it. That is
+per-project workarea — `D106` puts the fetch on the host, so the host must also write the archive. That is
 the whole of the exception: `web_assets` writes there and nothing else does, and the host still
 reads nothing the interface put there.
 

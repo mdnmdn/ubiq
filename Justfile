@@ -171,6 +171,14 @@ web-assets *ARGS:
 web-assets-verify:
     uv run _tools/webassets.py verify
 
+# Re-snapshot the draw.io mirror from jsDelivr's GitHub CDN and rewrite its hash manifest
+web-assets-drawio *ARGS:
+    uv run _tools/webassets.py snapshot --tenant drawio {{ARGS}}
+
+# Re-fetch every file in the drawio manifest and report CDN drift
+web-assets-verify-drawio:
+    uv run _tools/webassets.py verify --out crates/ubiq-host/src/web_assets/manifest_drawio.rs
+
 # ── housekeeping ───────────────────────────────────────────────────
 
 # Remove build output

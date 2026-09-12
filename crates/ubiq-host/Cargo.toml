@@ -81,6 +81,9 @@ webpki-roots = "0.26"
 x509-parser = "0.18"
 # The fingerprint a pin is: SHA-256 over a certificate's DER. One hash, no drawing.
 sha2 = "0.10"
+# Deflating each web bundle entry into the `.bundle` container. Already in the workspace lockfile
+# via crates/ubiq, so this pulls nothing new.
+flate2 = "1"
 # The PKCE verifier and the `state` nonce. A CSPRNG and nothing else.
 rand = "0.8"
 # PEM parsing for `--tls-cert`/`--tls-key`: the two files a served host reads its

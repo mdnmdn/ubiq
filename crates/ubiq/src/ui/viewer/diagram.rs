@@ -25,27 +25,50 @@ pub fn render(app: &AppState, key: &str, source: &str, cx: &mut Context<AppState
     match app.diagram(source) {
         DiagramEntry::Pending => super::note("Drawing\u{2026}", theme::text_faint()),
         DiagramEntry::Failed(reason) => failed(&reason, source),
-        DiagramEntry::Ready(picture) => {
-            let content = Content::from_size(picture.width, picture.height);
-            let camera = {
-                let vp = app.viewport(key);
-                vp.camera(content, vp.panel_w, vp.panel_h)
-            };
-            super::viewport::surface(
-                app,
-                key,
-                theme::app_bg(),
-                content,
-                img(ImageSource::Image(picture.image))
-                    .absolute()
-                    .left(px(camera.offset_x))
-                    .top(px(camera.offset_y))
-                    .w(px(picture.width * camera.scale))
-                    .h(px(picture.height * camera.scale)),
-                cx,
-            )
-        }
+        DiagramEntry::Ready(picture) => surface(app, key, picture, cx),
     }
+}
+
+/// The Preview position of a document only a web panel can draw — a `.drawio` file. Same picture,
+/// same camera; the difference is where it came from, and what a miss means. **Nothing is
+/// rendered here or anywhere else in the interface**: a miss is a document the panel has not
+/// exported yet, and the way to fill it in is to open the editor once.
+pub fn exported(app: &AppState, key: &str, source: &str, cx: &mut Context<AppState>) -> AnyElement {
+    match app.exported_preview(source) {
+        DiagramEntry::Pending => super::note("\u{2026}", theme::text_faint()),
+        DiagramEntry::Failed(_) => {
+            super::note("Open the editor once to draw this.", theme::text_faint())
+        }
+        DiagramEntry::Ready(picture) => surface(app, key, picture, cx),
+    }
+}
+
+/// One picture on the shared camera: fitted to start, wheel to zoom, drag to pan.
+fn surface(
+    app: &AppState,
+    key: &str,
+    picture: crate::app::DiagramPicture,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let content = Content::from_size(picture.width, picture.height);
+    let camera = {
+        let vp = app.viewport(key);
+        vp.camera(content, vp.panel_w, vp.panel_h)
+    };
+    super::viewport::surface(
+        app,
+        key,
+        theme::app_bg(),
+        content,
+        img(ImageSource::Image(picture.image))
+            .absolute()
+            .left(px(camera.offset_x))
+            .top(px(camera.offset_y))
+            .w(px(picture.width * camera.scale))
+            .h(px(picture.height * camera.scale)),
+        div().into_any_element(),
+        cx,
+    )
 }
 
 /// A fenced diagram inside a Markdown document, from what the document resolved for it.

@@ -15,6 +15,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::state::editor::ViewerKind;
+
 /// The demo tenant's id, as it appears in `/_web/<app>/<token>/`.
 pub const DEMO_APP: &str = "demo";
 
@@ -22,6 +24,21 @@ pub const DEMO_APP: &str = "demo";
 /// (`Message::EnsureWebBundle`), and the `<app>` segment of both the route and the cache path —
 /// one name, so a session's origin and its vendor bytes cannot drift apart.
 pub const EXCALIDRAW_APP: &str = "excalidraw";
+
+/// The draw.io tenant's id, under the same one-name rule as [`EXCALIDRAW_APP`]: the route
+/// segment, the `app` on `Message::EnsureWebBundle`, and the `<app>` segment of the cache path.
+pub const DRAWIO_APP: &str = "drawio";
+
+/// The bundle-backed tenant a viewer opens `Edit` into, or `None` for a viewer with no web panel
+/// at all. The one place a `ViewerKind` becomes an `app` id — everything downstream of `Edit`
+/// (the bundle fetch, the session, the bridge routing) is keyed by the string this returns.
+pub fn web_app(kind: ViewerKind) -> Option<&'static str> {
+    match kind {
+        ViewerKind::Excalidraw => Some(EXCALIDRAW_APP),
+        ViewerKind::Drawio => Some(DRAWIO_APP),
+        _ => None,
+    }
+}
 
 /// Interface -> web. Serialised by [`to_value`] and queued with `web_export::send`.
 #[derive(Debug, Clone, Serialize)]
@@ -52,6 +69,10 @@ pub enum FromWeb {
     /// the window's chrome. The document travels with it so the write is of what is on screen,
     /// not of whatever the 600 ms debounce last sent.
     Save { document: String },
+    /// An SVG of what is on screen, for the Preview position of a format the interface has no
+    /// renderer for. A document like every other frame: the interface asked for nothing and the
+    /// page volunteers nothing else. Excalidraw never sends it — it is drawn natively.
+    Preview { svg: String },
     /// The chrome failed. The panel shows it; the buffer is untouched.
     Error { message: String },
     /// A variant this build does not know. Never constructed by a caller — `decode_from_web`

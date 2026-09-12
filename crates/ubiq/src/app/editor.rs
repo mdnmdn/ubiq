@@ -1075,6 +1075,16 @@ impl AppState {
     /// Write the capture behind one tab back: its flatten over `WriteProjectFile`, with the
     /// version discipline any other write carries. Nothing new crosses the bus.
     fn save_image_file(&mut self, project: ProjectId, key: &str, cx: &mut Context<Self>) {
+        // Every image now carries a scene, so a save on one nobody annotated would re-encode the
+        // file over itself for nothing. An unannotated picture writes nothing.
+        if self
+            .projects
+            .get(&project)
+            .and_then(|open| open.editor.open.iter().find(|file| file.key() == key))
+            .is_some_and(|file| !file.dirty())
+        {
+            return;
+        }
         let flat = self
             .projects
             .get(&project)
@@ -1235,7 +1245,7 @@ impl AppState {
                 if file.untitled {
                     file.set_image_untitled(contents.bytes);
                 } else {
-                    file.set_bytes(contents.bytes);
+                    file.set_image(contents.bytes, contents.version);
                 }
             }
             cx.notify();

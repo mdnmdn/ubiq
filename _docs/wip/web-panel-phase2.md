@@ -5,9 +5,9 @@ kind: wip
 status: current
 summary: Phase 2 of the web-panel proposal as built — the `_web/<app>/<token>/` routes on the interface's existing loopback server, a per-panel token from the platform's CSPRNG, two frame queues per session with a long-poll that answers on its own thread, the two-transport `bridge.js` shim, and a demo tenant that proves the loop. The container is the external browser; the embedded `wry` webview was not built and the shim carries its half anyway.
 read_when: you are opening a web panel, adding a tenant to the bridge, or changing the `_web` routes or the session token
-updated: 2026-09-11
-verified: 2026-09-11
-code_anchors: [crates/ubiq/src/web_export/server.rs, crates/ubiq/src/web_export/routes.rs, crates/ubiq/src/web_export/bridge.rs, crates/ubiq/src/web_export/assets.rs, crates/ubiq/assets/web/bridge.js, crates/ubiq/build.rs]
+updated: 2026-09-12
+verified: 2026-09-12
+code_anchors: [crates/ubiq/src/web_export/server.rs, crates/ubiq/src/web_export/routes.rs, crates/ubiq/src/web_export/bridge.rs, crates/ubiq/src/web_export/assets.rs, crates/ubiq/src/web_export/archive.rs, crates/ubiq/assets/web/bridge.js, crates/ubiq/build.rs]
 depends_on: [tech-architecture, tech-structure, tech-decisions, feat-workbench]
 ---
 
@@ -26,8 +26,11 @@ built and is not spiked here. The shipped container is the one §4.2 names as it
 So only the external-browser row of §4.3's transport table has a Rust side.
 
 `bridge.js` is still written as the two-transport shim, because that is the whole point of it: it
-picks `window.ipc.postMessage` and `window.__ubiq_receive` when a `wry` container provides them,
-and falls back to `POST`/long-poll otherwise. A future embedded container needs no change to any
+picks `window.ipc.postMessage` and `window.__ubiq_receive` when a `wry` container declares itself
+by injecting `window.__ubiq_ipc = true`, and falls back to `POST`/long-poll otherwise. The flag is
+what decides, never the presence of `window.ipc`: `wry` defines that object in every page it loads
+whether or not the host registered a handler behind it, so a container that had not wired one took
+the first transport and every frame — `ready` included — vanished. A future embedded container needs no change to any
 chrome page.
 
 **An outbound `POST` is retried, not swallowed.** Up to five tries with backoff, because a lost
@@ -98,15 +101,24 @@ bounded by the channel's own five-second timeout rather than living forever.
 **extensionless** files all answer `text/javascript`, because jsDelivr's `+esm` output has no
 extension and `application/octet-stream` yields *"Expected a JavaScript-or-Wasm module script"* and
 a blank page. `.css` and `.woff2` are named for the same reason; anything else falls through to the
-existing `mime_for_ext`. The route reuses `resolve_path` unchanged, so `..`, empty and dot-leading
-segments are refused there exactly as they are for a project.
+existing `mime_for_ext`. The vendor route looks an entry up by exact name in the session's open
+`.bundle` archive rather than resolving a filesystem path, so there is no `..`, empty or
+dot-leading segment to refuse — a name the archive's index doesn't have is simply a miss.
+`resolve_path` still guards the project file routes, which do serve out of a real directory.
+
+`vendor_mime` also names `.html`, `.xml` and `.json` — a mirror can hold a whole webapp's own
+documents and data rather than only modules, and any vendor file served as HTML carries a second
+policy, `VENDOR_DOCUMENT_CSP`, described where [`./web-panel-phase45.md`](./web-panel-phase45.md)
+covers the tenant that needs it.
 
 ## The assets
 
-`crates/ubiq/assets/web/` holds `bridge.js` and the demo tenant (`demo/index.html`, `demo/app.js`),
-baked in the way the doc viewer's CSS and JS already are. `build.rs`'s `ASSETS` array now carries
-each asset's subdirectory rather than assuming one directory, and the gzipped release copy is named
-for the path with `/` replaced by `-` (`web-export-style.css.gz`, `web-demo-index.html.gz`).
+`crates/ubiq/assets/web/` holds `bridge.js` and one directory per tenant's chrome
+(`demo/index.html`, `demo/app.js`; later, `excalidraw/` and `drawio/`, each an `index.html` and an
+`app.js`), baked in the way the doc viewer's CSS and JS already are. `build.rs`'s `ASSETS` array now
+carries each asset's subdirectory rather than assuming one directory, and the gzipped release copy
+is named for the path with `/` replaced by `-` (`web-export-style.css.gz`, `web-demo-index.html.gz`,
+`web-drawio-index.html.gz`).
 
 ## What phase 2 does not do
 

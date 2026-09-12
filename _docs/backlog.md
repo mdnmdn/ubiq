@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: Every open question, known gap and deferred item across the project, in one register.
 read_when: you are planning the next piece of work, or you hit something unresolved and need somewhere to put it
-updated: 2026-09-11
-verified: 2026-09-11
+updated: 2026-09-12
+verified: 2026-09-12
 review_cycle: monthly
 ---
 
@@ -216,6 +216,9 @@ change what Ubiq does (here), or where a document lives (there)?
 | G238 | `D106`'s manifest records our own hashes for the dependency closure, because jsDelivr generates `+esm` on demand and says not to pin it. It regenerates on its own schedule — the snapshot taken for this tree differs from the proposal's measurement by four files, from React's `latest` moving underneath a range pin — so a verify will eventually fail on drift rather than on tampering, and the two are indistinguishable from the hash alone. Whether the answer is re-snapshotting on every version bump or vendoring the closure somewhere Ubiq controls is undecided; `just web-assets-verify` is what surfaces it | [`tech/decisions.md`](./tech/decisions.md), [`tech/operations.md`](./tech/operations.md) |
 | G239 | A web panel persists nothing across a window rebuild. A panel should write down its subject and its layout and never what it drew, rebuilding the session from those; today there is no panel to persist, because `D104`'s container is a browser tab the window does not own. `G236` has to land first | [`features/workbench.md`](./features/workbench.md) |
 | G240 | `D106`'s bundle lives on the host's disk and `D104`'s origin serves it off the interface's, so a detached host on another machine has no path the interface can open — `Q10` restated and worse, since unlike a cached render the bundle is not optional and cannot simply be skipped. `G191` is the same pattern for the export server | [`tech/architecture.md`](./tech/architecture.md) |
+| G244 | The draw.io mirror is curated, not complete. `_tools/webassets.py`'s `keep_drawio_path` drops `stencils/`, `templates/`, `img/`, `math4/`, `plugins/` and `WEB-INF/` outright, and `js/diagramly/**`, `js/grapheditor/**`, `shapes/**` and `mxgraph/` outside its `images/` and `css/` — each one is bundled into `js/app.min.js` or `js/shapes-14-6-5.min.js`, or loaded only under `?dev=1`. What is missing is the template gallery and MathJax typesetting, not the shape palettes, which the bundled scripts still carry. Widening the allowlist is what closes either gap | [`wip/web-panel-phase45.md`](./wip/web-panel-phase45.md) |
+| G245 | The embedded draw.io was never seen to boot, and its `Preview { svg }` frame is verified only at the bridge and the route. No session was opened by hand, no diagram was drawn or saved, and no export was read back from the disk tier `state/diagrams.rs` files it in. Closing this needs a real run, the same shape `G241` names for Excalidraw | [`wip/web-panel-phase6.md`](./wip/web-panel-phase6.md) |
+| G246 | A vendor bundle fetch killed part way is never resumed: `web_assets` writes one compressed `.bundle` file behind a `.part` sibling, and a `.part` left by a killed process is overwritten rather than read back, so an interrupted 25 MiB fetch restarts from its first file rather than its last. Trading resume for one file instead of hundreds was deliberate; reintroducing it would mean per-entry offsets recorded outside the archive itself | [`wip/web-panel-phase3.md`](./wip/web-panel-phase3.md) |
 
 ## Open questions — a decision nobody has made
 

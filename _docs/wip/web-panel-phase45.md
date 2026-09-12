@@ -5,9 +5,9 @@ kind: wip
 status: current
 summary: Phases 4 and 5 of the web-panel proposal as built — a chrome page that fetches the host's generated import map, injects it under a per-response CSP nonce and mounts Excalidraw off the local mirror; an Edit action on the viewer header that is an axis of its own rather than a fourth ViewLayout; and a debounced `Changed` frame written into the existing `EditorState` buffer, so the dirty dot, `⌘S`, save-as and `D37`'s version check keep working with no new save path and no new message.
 read_when: you are touching the Excalidraw chrome, the Edit action, the bridge drain loop, or how a web panel's edits reach a file buffer
-updated: 2026-09-11
-verified: 2026-09-11
-code_anchors: [crates/ubiq/assets/web/excalidraw/index.html, crates/ubiq/assets/web/excalidraw/app.js, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/state/web_panel.rs, crates/ubiq/src/web_export/routes.rs, crates/ubiq/src/web_export/assets.rs, crates/ubiq/src/ui/viewer/mod.rs]
+updated: 2026-09-12
+verified: 2026-09-12
+code_anchors: [crates/ubiq/assets/web/excalidraw/index.html, crates/ubiq/assets/web/excalidraw/app.js, crates/ubiq/assets/web/drawio/index.html, crates/ubiq/assets/web/drawio/app.js, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/state/web_panel.rs, crates/ubiq/src/web_export/routes.rs, crates/ubiq/src/web_export/assets.rs, crates/ubiq/src/web_export/archive.rs, crates/ubiq/src/ui/viewer/mod.rs]
 depends_on: [wip-web-panel-phase2, wip-web-panel-phase3, feat-workbench, tech-decisions]
 ---
 
@@ -47,8 +47,8 @@ would start a module graph before the map existed.
 
 1. **Registers the bridge handler and queues** whatever arrives before the mount. The long-poll in
    `bridge.js` starts as soon as it loads, and the component takes seconds to download.
-2. **Fetches `vendor/importmap.json`** — the name `web_assets::IMPORT_MAP_FILE` writes it under,
-   inside the bundle directory the host answered with.
+2. **Fetches `vendor/importmap.json`** — the name `web_assets::IMPORT_MAP_FILE` writes it under, an
+   entry like any other inside the `.bundle` archive the host answered with.
 3. **Injects it as an inline `<script type="importmap">`** carrying the page's nonce. Without the
    map, `dist/prod/index.js`'s 32 bare specifiers resolve to nothing and the page is blank; the
    map is also what collapses the five React and four react-dom copies `+esm` hard-pins into one.
@@ -90,6 +90,30 @@ There is no service worker.
 **Nothing is rewritten.** The mirror is served byte-identical off the `vendor/` route, React comes
 from the map as the peer dependency it is, and the chrome is the only file that knows the mirror's
 shape.
+
+## A tenant that frames the mirror instead of mounting it
+
+`D104`–`D107` are policy, not a recipe tied to one component shape, and draw.io is the instance that
+proves it: its chrome imports no module at all. `assets/web/drawio/index.html` is static bytes under
+the unchanged `CHROME_CSP` — no nonce, no import map — holding one `<iframe>` that `app.js` points
+at the mirrored webapp's own `vendor/index.html`, in embed mode (`?embed=1&proto=json`), and
+translates that protocol's `postMessage` events to and from the generic bridge frames: `init` →
+`ready`, the editor's own `autosave` event through the same 600 ms idle gate the Excalidraw chrome
+uses → `dirty`/`changed`, `save` → `save`, and an `export` reply → the new `Preview { svg }` frame
+below.
+
+**A mirrored *document*, rather than a chrome page, gets its own policy.** `serve_vendor` in
+`web_export/routes.rs` attaches `VENDOR_DOCUMENT_CSP` to any vendor file served as HTML, and
+`vendor_mime` learned `.html`, `.xml` and `.json` to recognise one. The policy is `CHROME_CSP`
+widened in the places a whole framed webapp needs rather than a mounted component: `script-src`
+takes `'unsafe-inline'` (the webapp's own `index.html` bootstraps inline) and `'unsafe-eval'`
+(mxGraph builds shape and formula functions at runtime); `img-src`, `font-src` and `connect-src` take
+`data:` and `blob:`; `worker-src` takes `blob:` for the export worker; and `frame-ancestors 'self'`
+replaces `'none'`, because the chrome page frames it. **It still names no remote origin,
+deliberately** — draw.io names `app.diagrams.net` in a handful of optional paths, and a hole in the
+mirror has to fail loudly here rather than quietly reach the network, exactly as Excalidraw's policy
+above insists. `web_export/mod.rs`'s tests assert both the chrome and the framed document against
+that rule.
 
 ## The edit cycle
 

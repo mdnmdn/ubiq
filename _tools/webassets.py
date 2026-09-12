@@ -3,19 +3,22 @@
 # requires-python = ">=3.12"
 # dependencies = ["httpx", "rich"]
 # ///
-"""Web-panel vendor bundle snapshotter — mirrors Excalidraw from jsDelivr and emits the manifest.
+"""Web-panel vendor bundle snapshotter — mirrors a tenant's vendor tree from jsDelivr and emits its manifest.
 
-Run it through `just`: `just web-assets`, `just web-assets-verify`.
+Run it through `just`: `just web-assets` / `web-assets-drawio` (snapshot), `web-assets-verify` /
+`web-assets-verify-drawio` (drift check). `--tenant` picks which one `snapshot` walks; `verify` reads
+whatever manifest `--out` points at and needs no tenant of its own.
 
-`snapshot` walks two sources with one generating rule each — Excalidraw's own `dist/prod`, enumerated
-from the jsDelivr package API, and the transitive `+esm` closure of the bare specifiers its chunks
-import — downloads both into a scratch directory outside the repo, and writes the expected SHA-256 of
-every file as generated Rust at `crates/ubiq-host/src/web_assets/manifest.rs`. Nothing is downloaded
-into the repo and no downloaded byte is ever rewritten: the cache path mirrors the URL path exactly,
-which is what lets the closure's own `/npm/…` imports resolve through one import-map prefix rule.
+Two tenants, two generating rules. `excalidraw` walks Excalidraw's own `dist/prod`, enumerated from
+the jsDelivr npm package API, plus the transitive `+esm` closure of the bare specifiers its chunks
+import, and folds the stray React copies the closure drags in onto one via the import map. `drawio`
+walks `src/main/webapp/` off the GitHub tree API — draw.io's webapp is not on npm — and fetches every
+kept file from jsDelivr's GitHub CDN mirror; it has no import map to build and no font check to run,
+because it loads through classic `<script>` tags rather than ES modules.
 
-`verify` re-fetches every URL in the committed manifest and reports drift — cheap to run when
-jsDelivr regenerates a `+esm` bundle, which is the event worth failing on.
+Both write into a scratch directory outside the repo and never rewrite a downloaded byte: the cache
+path mirrors the URL path (or, for `drawio`, the webapp-relative path) exactly, so nothing here has
+to rewrite an import for the mirror to work.
 """
 
 from __future__ import annotations
@@ -29,6 +32,8 @@ import re
 import sys
 import tempfile
 import threading
+import time
+import concurrent.futures as cf
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -46,7 +51,16 @@ APP = "excalidraw"
 PACKAGE = "@excalidraw/excalidraw"
 DEFAULT_VERSION = "0.18.0"
 
+# draw.io's webapp is not published to npm, so it is a second tenant with a second generating rule
+# below (`snapshot_drawio`), not a second call into the npm walk above.
+DRAWIO_APP = "drawio"
+DRAWIO_REPO = "jgraph/drawio"
+DRAWIO_DEFAULT_VERSION = "31.4.5"
+DRAWIO_MANIFEST = REPO / "crates/ubiq-host/src/web_assets/manifest_drawio.rs"
+DRAWIO_WEBAPP_PREFIX = "src/main/webapp/"
+
 DATA_API = "https://data.jsdelivr.com/v1/packages/npm"
+GITHUB_API = "https://api.github.com"
 CDN = "https://cdn.jsdelivr.net"
 
 # The chrome serves the mirror under §4.1's `vendor/` route, beside its own `index.html`. Import-map
@@ -100,6 +114,18 @@ class Asset:
     published: str | None = None  # jsDelivr's stable hash, for `dist/prod` only
 
 
+# A status the CDN hands out for a file it has not warmed yet rather than one that does not exist.
+# jsDelivr's GitHub mirror serves a hard 403 ("package size exceeded") for any file of an
+# over-50-MB ref it has not already cached at that edge, and that cache fills in as *other*
+# requests for the same file land — including our own retries — so it is a warm-up cost, not a
+# permanent refusal, and `fetch_all`'s round retry below is what pays it.
+TRANSIENT_STATUS = {403, 429, 500, 502, 503, 504}
+
+
+class Transient(Exception):
+    """A fetch that failed for a reason `fetch_all`'s retry rounds may resolve."""
+
+
 @dataclass
 class Fetcher:
     scratch: Path
@@ -115,6 +141,8 @@ class Fetcher:
             self.hits += 1
             return local.read_bytes()
         response = self.client.get(CDN + url_path, follow_redirects=True)
+        if response.status_code in TRANSIENT_STATUS:
+            raise Transient(f"{response.status_code}: {response.text[:200]}")
         response.raise_for_status()
         body = response.content
         local.parent.mkdir(parents=True, exist_ok=True)
@@ -135,15 +163,44 @@ def progress_bar() -> Progress:
     )
 
 
+# Wait between retry rounds, one round per entry. A file that is still cold after all of these has
+# had roughly three minutes of the CDN's own traffic — ours included — to warm it.
+RETRY_WAITS = (3, 6, 12, 24, 45, 60)
+
+
 def fetch_all(fetcher: Fetcher, url_paths: list[str], description: str) -> dict[str, bytes]:
-    """Download a batch concurrently but politely, showing progress."""
+    """Download a batch concurrently but politely, showing progress.
+
+    A file that comes back [`Transient`] rejoins the next round rather than failing the batch: one
+    slow file must not cost the 577 that landed fine, and a round gives the CDN time to catch up
+    rather than hammering the same cold file back to back.
+    """
     bodies: dict[str, bytes] = {}
+    pending = list(dict.fromkeys(url_paths))
     with progress_bar() as progress:
-        task = progress.add_task(description, total=len(url_paths))
-        with ThreadPoolExecutor(max_workers=CONCURRENCY) as pool:
-            for url_path, body in zip(url_paths, pool.map(fetcher.get, url_paths), strict=True):
-                bodies[url_path] = body
-                progress.advance(task)
+        task = progress.add_task(description, total=len(pending))
+        for round_number in range(len(RETRY_WAITS) + 1):
+            if not pending:
+                break
+            if round_number > 0:
+                wait = RETRY_WAITS[round_number - 1]
+                console.print(
+                    f"  [yellow]{len(pending)} file(s) not ready yet — retrying in {wait}s "
+                    f"(round {round_number}/{len(RETRY_WAITS)})[/yellow]"
+                )
+                time.sleep(wait)
+            batch, pending = pending, []
+            with ThreadPoolExecutor(max_workers=CONCURRENCY) as pool:
+                futures = {pool.submit(fetcher.get, url_path): url_path for url_path in batch}
+                for future in cf.as_completed(futures):
+                    url_path = futures[future]
+                    try:
+                        bodies[url_path] = future.result()
+                        progress.advance(task)
+                    except Transient:
+                        pending.append(url_path)
+        if pending:
+            die(f"{len(pending)} file(s) never became available, e.g. {pending[0]!r}")
     return bodies
 
 
@@ -401,6 +458,212 @@ def check_fonts(assets: list[Asset], bodies: dict[str, bytes], subpath: str) -> 
     return len(referenced)
 
 
+# ── the drawio tenant: GitHub tree, not npm ────────────────────────────────────────────────────
+
+# js/** is kept except source maps and the handful of scripts the panel never needs: the export
+# family talks to draw.io's own conversion service, the two viewers and the embed variant are for a
+# read-only page this tenant never opens, and open.js/clear.js/vsdxImporter.js are desktop-app glue.
+DRAWIO_JS_EXCLUDE_NAMES = {
+    "integrate.min.js",
+    "viewer.min.js",
+    "viewer-static.min.js",
+    "embed.dev.js",
+    "open.js",
+    "clear.js",
+    "vsdxImporter.js",
+}
+
+# Whole `js/` subtrees dropped because production never fetches them, verified against the real
+# bytes rather than assumed: `diagramly/` and `grapheditor/` are both bundled straight into
+# `app.min.js` (the only entry point `index.html` loads), and `desktop/` is Electron-only glue this
+# panel, running in an embedded browser, never reaches.
+DRAWIO_JS_EXCLUDE_DIRS = ("js/diagramly/", "js/grapheditor/", "js/desktop/")
+
+# Everything under these directories is kept in full.
+DRAWIO_KEEP_DIRS = ("styles/", "images/")
+
+# `app.min.js` sets `mxImageBasePath` under `mxgraph/images/` and links `mxgraph/css/common.css`;
+# every other `mxgraph/` file — `mxgraph/src/**`, `mxgraph/mxClient.js` — is the unminified source
+# `bootstrap.js` only loads under `?dev=1`, which this panel never sets.
+DRAWIO_MXGRAPH_KEEP_DIRS = ("mxgraph/images/", "mxgraph/css/")
+
+# `resources/` is otherwise one `.txt` per locale; only English is worth the weight.
+DRAWIO_KEEP_RESOURCES = {"resources/dia.txt", "resources/dia_en.txt"}
+
+
+def keep_drawio_path(rel: str) -> bool:
+    """Whether a `src/main/webapp/`-relative path belongs in the mirror.
+
+    An allowlist, not a set of skips: everything not named here — `stencils/`, `templates/`, `img/`,
+    `math4/`, `plugins/`, `WEB-INF/`, `META-INF/`, `connect/`, every stray top-level HTML file, every
+    other `resources/*.txt`, and all of `shapes/` (bundled into `js/shapes-14-6-5.min.js`, so the
+    unbundled source is dead weight) — falls out on its own rather than needing its own exclusion.
+    """
+    if rel == "index.html":
+        return True
+    if rel.startswith("js/"):
+        if rel.startswith(DRAWIO_JS_EXCLUDE_DIRS):
+            return False
+        name = rel.rsplit("/", 1)[-1]
+        if name.endswith(".map") or name in DRAWIO_JS_EXCLUDE_NAMES:
+            return False
+        if name.startswith("export") and name.endswith(".js"):
+            return False
+        return True
+    if rel.startswith("mxgraph/"):
+        return rel.startswith(DRAWIO_MXGRAPH_KEEP_DIRS)
+    if rel.startswith(DRAWIO_KEEP_DIRS):
+        return True
+    return rel in DRAWIO_KEEP_RESOURCES
+
+
+def drawio_tree(gh_client: httpx.Client, version: str) -> list[dict]:
+    """The full, non-truncated file tree at tag `v<version>`, from the GitHub tree API — jsDelivr's
+    own data API refuses to list this package (it is over its 50 MB cap)."""
+    response = gh_client.get(
+        f"{GITHUB_API}/repos/{DRAWIO_REPO}/git/trees/v{version}",
+        params={"recursive": "1"},
+        follow_redirects=True,
+    )
+    response.raise_for_status()
+    data = response.json()
+    if data.get("truncated"):
+        die(f"GitHub truncated the tree for drawio@{version} — this walk needs the untruncated one")
+    return data["tree"]
+
+
+def snapshot_drawio(fetcher: Fetcher, gh_client: httpx.Client, version: str) -> list[Asset]:
+    """Every kept file under `src/main/webapp/`, fetched off jsDelivr's GitHub CDN mirror.
+
+    jsDelivr publishes no per-file digest for a GitHub source, so every hash here is ours, taken
+    once at snapshot — exactly how the npm tenant hashes its own `+esm` closure.
+    """
+    kept: list[tuple[str, str, int]] = []  # (webapp-relative path, url path off the CDN, GitHub size)
+    for node in drawio_tree(gh_client, version):
+        if node.get("type") != "blob" or not node["path"].startswith(DRAWIO_WEBAPP_PREFIX):
+            continue
+        rel = node["path"][len(DRAWIO_WEBAPP_PREFIX) :]
+        if keep_drawio_path(rel):
+            url_path = f"/gh/{DRAWIO_REPO}@{version}/{DRAWIO_WEBAPP_PREFIX}{rel}"
+            kept.append((rel, url_path, node.get("size", 0)))
+    if not kept:
+        die(f"no files kept from drawio@{version} — check the tag and the allowlist")
+
+    url_paths = [url_path for _, url_path, _ in kept]
+    bodies = fetch_all(fetcher, url_paths, "drawio webapp")
+
+    assets: list[Asset] = []
+    for rel, url_path, expected_size in kept:
+        body = bodies[url_path]
+        if expected_size and len(body) != expected_size:
+            die(f"{rel}: GitHub's tree says {expected_size} bytes, jsDelivr served {len(body)}")
+        assets.append(
+            Asset(path=rel, url=CDN + url_path, sha256=hashlib.sha256(body).hexdigest(), len=len(body))
+        )
+    return assets
+
+
+def render_manifest_drawio(version: str, bundle_version: str, assets: list[Asset]) -> str:
+    total = sum(a.len for a in assets)
+    lines = [
+        "//! The draw.io offline mirror — every file the web panel's vendor cache must hold, with",
+        "//! the SHA-256 the host verifies each download against.",
+        "//!",
+        "//! draw.io's webapp is not published to npm, so this snapshot is walked and hashed",
+        "//! differently from Excalidraw's: the file list comes from the GitHub tree API at",
+        f"//! `{GITHUB_API}/repos/{DRAWIO_REPO}/git/trees/v<version>`, filtered to",
+        "//! `src/main/webapp/`, and every file is fetched off jsDelivr's GitHub CDN mirror rather",
+        "//! than its npm one. jsDelivr publishes no per-file digest for this source, so every hash",
+        "//! here is ours, taken once at snapshot — a later mismatch means upstream changed a file",
+        "//! at the same tag, which is the event worth failing on.",
+        "//!",
+        "//! [`VERSION`] is the cache directory name. It changes whenever the snapshot changes, so a",
+        "//! build that pins a new one looks in a directory that does not exist, fetches, and leaves",
+        "//! the old one behind: versioned by directory, not invalidated by policy.",
+        "//!",
+        "//! [`Entry::path`] is the file's path under `src/main/webapp/`, which is also where it lands",
+        "//! under the mirror's `vendor/` root. draw.io loads through classic `<script>` tags rather",
+        "//! than ES module specifiers, so there is no import map to route an absolute import through.",
+        "//!",
+        "//! @generated by `_tools/webassets.py` — do not edit by hand.",
+        "//! Regenerate with `just web-assets-drawio`; check for CDN drift with",
+        "//! `just web-assets-verify-drawio`.",
+        "",
+        "// A `Bundle` needs one file type across every tenant, not a second one that merely looks",
+        "// the same — [`super::Bundle::files`] is `&'static [manifest::Entry]` regardless of which",
+        "// tenant it holds.",
+        "use super::manifest::Entry;",
+        "",
+        "/// The web app this bundle belongs to — the `<app>` segment of the cache path and the route.",
+        f'pub const APP: &str = "{DRAWIO_APP}";',
+        "",
+        "/// The bundle version: the draw.io release plus a digest over the whole snapshot.",
+        f'pub const VERSION: &str = "{bundle_version}";',
+        "",
+        "/// The upstream draw.io release (the `v<PACKAGE_VERSION>` tag this was walked at) this",
+        "/// snapshot was taken from.",
+        f'pub const PACKAGE_VERSION: &str = "{version}";',
+        "",
+        "/// Every byte of the mirror, for a progress report and a disk-space check.",
+        f"pub const TOTAL_BYTES: u64 = {total};",
+        "",
+        f"/// The {len(assets)} files of the mirror, sorted by cache path.",
+        "///",
+        "/// One line per entry, and `rustfmt` is told to leave them alone: this table would otherwise",
+        "/// fight every `just fmt`.",
+        "#[rustfmt::skip]",
+        "pub const FILES: &[Entry] = &[",
+    ]
+    for asset in sorted(assets, key=lambda a: a.path):
+        lines.append(
+            f'    Entry {{ path: "{rust_escape(asset.path)}", '
+            f'url: "{rust_escape(asset.url)}", '
+            f'sha256: "{asset.sha256}", len: {asset.len} }},'
+        )
+    lines += [
+        "];",
+        "",
+        "/// draw.io loads through classic `<script>` tags, not ES module specifiers, so there is",
+        "/// nothing for an import map to route. The chrome still fetches `importmap.json` like every",
+        "/// tenant does, and gets this.",
+        'pub const IMPORT_MAP: &str = "{}";',
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def run_snapshot_drawio(version: str, out: Path, refetch: bool) -> int:
+    scratch = scratch_root()
+    scratch.mkdir(parents=True, exist_ok=True)
+    console.print(f"[bold]snapshot[/bold] drawio@{version}  [dim]scratch {scratch}[/dim]\n")
+
+    with client() as http:
+        fetcher = Fetcher(scratch=scratch, client=http, refetch=refetch)
+        assets = snapshot_drawio(fetcher, http, version)
+
+    paths = [a.path for a in assets]
+    if len(set(paths)) != len(paths):
+        die("two assets claim the same cache path")
+
+    digest = hashlib.sha256(
+        "\n".join(f"{a.path} {a.sha256}" for a in sorted(assets, key=lambda a: a.path)).encode()
+    ).hexdigest()[:12]
+    bundle_version = f"{version}-{digest}"
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(render_manifest_drawio(version, bundle_version, assets))
+
+    table = Table(show_header=False, box=None, pad_edge=False)
+    table.add_row("files", f"{len(assets)}")
+    total = sum(a.len for a in assets)
+    table.add_row("bytes", f"{total:,} ({total / 2**20:.1f} MiB)")
+    table.add_row("VERSION", bundle_version)
+    table.add_row("written", rel_to_repo(out))
+    console.print(table)
+    console.print(f"\n[dim]cache {fetcher.hits} hits, {fetcher.misses} downloads[/dim]")
+    return 0
+
+
 # ── emitting ───────────────────────────────────────────────────────────────────────────────────
 
 
@@ -631,19 +894,31 @@ def run_verify(out: Path) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=["snapshot", "verify"])
-    parser.add_argument("--version", default=DEFAULT_VERSION, help="Excalidraw release to mirror")
-    parser.add_argument("--react", help="pin React explicitly instead of resolving the latest")
-    parser.add_argument("--out", type=Path, default=MANIFEST, help="generated manifest path")
+    parser.add_argument(
+        "--tenant", choices=["excalidraw", "drawio"], default="excalidraw", help="which bundle to snapshot"
+    )
+    parser.add_argument("--version", help="upstream release to mirror (defaults per tenant)")
+    parser.add_argument("--react", help="pin React explicitly instead of resolving the latest (excalidraw only)")
+    parser.add_argument("--out", type=Path, help="generated manifest path (defaults per tenant)")
     parser.add_argument("--refetch", action="store_true", help="ignore the scratch cache")
     args = parser.parse_args()
+
+    if args.tenant == "excalidraw":
+        version = args.version or DEFAULT_VERSION
+        out = args.out or MANIFEST
+    else:
+        version = args.version or DRAWIO_DEFAULT_VERSION
+        out = args.out or DRAWIO_MANIFEST
 
     try:
         match args.action:
             case "snapshot":
-                return run_snapshot(args.version, args.out, args.react, args.refetch)
+                if args.tenant == "excalidraw":
+                    return run_snapshot(version, out, args.react, args.refetch)
+                return run_snapshot_drawio(version, out, args.refetch)
             case "verify":
-                return run_verify(args.out)
-    except httpx.HTTPError as error:
+                return run_verify(out)
+    except (httpx.HTTPError, Transient) as error:
         die(f"network: {error}")
     return 2
 

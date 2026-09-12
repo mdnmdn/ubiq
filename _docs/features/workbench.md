@@ -7,7 +7,7 @@ summary: The window's shell — the activity rail and its modes, the dock of mov
 read_when: you are changing the window layout, a rail mode, where a panel may sit or when it is drawn, the explorer, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, capturing the window or annotating a capture, saving a file, the Git screen's refs, history, change lists or diff, the agents screen's columns, what a tab drag means or what the bench is, the orchestration screen's graph, how it arranges itself, its inspector or its tasks, the tasks board's columns, cards or task panel, the kitchen sink's pages or fixtures, the file picker a screen raises to choose a path, cloning a project, application settings, vim mode, or the status bar
 updated: 2026-09-11
 verified: 2026-09-11
-code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/app/sink.rs, crates/ubiq/src/state/a2ui.rs, crates/ubiq/src/ui/a2ui.rs, crates/ubiq/src/ui/sink/a2ui.rs, crates/ubiq/tests/a2ui.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/stats.rs, crates/ubiq/src/ui/stats.rs, crates/ubiq/src/app/stats.rs, crates/ubiq/tests/stats.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/app/new_agent.rs, crates/ubiq/src/ui/new_agent.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/app/graph.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/ui/web_view.rs, crates/ubiq/src/ui/viewer/web.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/state/web_panel.rs, crates/ubiq/src/app/explorer.rs]
+code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/tests/image_gestures.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/app/sink.rs, crates/ubiq/src/state/a2ui.rs, crates/ubiq/src/ui/a2ui.rs, crates/ubiq/src/ui/sink/a2ui.rs, crates/ubiq/tests/a2ui.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/stats.rs, crates/ubiq/src/ui/stats.rs, crates/ubiq/src/app/stats.rs, crates/ubiq/tests/stats.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/app/new_agent.rs, crates/ubiq/src/ui/new_agent.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/app/graph.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/ui/web_view.rs, crates/ubiq/src/ui/viewer/web.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/state/web_panel.rs, crates/ubiq/src/app/explorer.rs, crates/ubiq/src/state/explorer/menu.rs, crates/ubiq/src/ui/file_dialog.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
 ---
@@ -1420,12 +1420,12 @@ down, so a window opens with it off.
 
 **A right-click on a row raises a menu at the pointer.** A file offers Open, Open diff vs HEAD, Copy
 path, Copy full path, Copy link, Open in Finder, Open in Web, New file, New folder, New Excalidraw,
-Copy, Paste, Duplicate, Rename and Delete; a folder offers Expand or Collapse, New file, New folder,
-New Excalidraw, Copy path, Copy full path, Copy link, Open in Finder, Open in Web, Refresh, Copy,
-Paste, Duplicate, Rename and Delete; a click on the
-empty panel offers New file, New folder, New Excalidraw, Paste and Collapse all, because that is
-where the actions that need no row live. **New file, New folder, New Excalidraw and Paste land in
-the folder the row is in**, which is
+New draw.io, Copy, Paste, Duplicate, Rename and Delete; a folder offers Expand or Collapse, New file,
+New folder, New Excalidraw, New draw.io, Copy path, Copy full path, Copy link, Open in Finder, Open
+in Web, Refresh, Copy, Paste, Duplicate, Rename and Delete; a click on the
+empty panel offers New file, New folder, New Excalidraw, New draw.io, Paste and Collapse all, because
+that is where the actions that need no row live. **New file, New folder, New Excalidraw, New draw.io
+and Paste land in the folder the row is in**, which is
 the row itself when it is a folder and the one holding it when it is a file — so a file row offers
 them rather than making the user find its folder first. Only Paste is ever disabled, and only while
 nothing has been copied.
@@ -1451,11 +1451,14 @@ dismissal.
 owns and `D57` explains. What the panel adds is the gesture and the question in front of it.
 
 **Every gesture that cannot be retyped asks first, and the question says which one it is about to
-do.** New file, New folder, New Excalidraw and Rename each raise a modal with a single field, seeded
-with the leaf name for a rename, `drawing.excalidraw` for New Excalidraw and empty for New file and
-New folder, and the confirm stays dim until the name is both non-blank and different from what is
-already there. New Excalidraw forces its extension onto whatever is typed rather than merely
-suggesting it, so deleting the seed's suffix cannot turn a drawing into a plain text file. **Enter
+do.** New file, New folder, New Excalidraw, New draw.io and Rename each raise a modal with a single
+field, seeded with the leaf name for a rename, `drawing.excalidraw` for New Excalidraw,
+`diagram.drawio` for New draw.io and empty for New file and New folder, and the confirm stays dim
+until the name is both non-blank and different from what is already there. New Excalidraw and New
+draw.io force their extension onto whatever is typed rather than merely suggesting it, so deleting
+the seed's suffix cannot turn a drawing into a plain text file — the modal's title itself follows the
+extension being created (`New Excalidraw`, `New draw.io`, or `New file` for any other one) rather
+than a flag saying only that some extension is set. **Enter
 confirms and Escape cancels**, in every
 one of them: Enter reaches a field's dialog as the field's own key rather than as a binding, since
 taking Enter at the depth a text box holds focus would take it from the chat composer too, and both
@@ -1613,14 +1616,16 @@ at*, so a diff opens beside the file rather than inside it.
 **A viewer with more than one thing to draw has a layout toggle, and it persists.** A strip above the
 body offers the positions that viewer's kind names — `ViewerKind::layouts()` — and only those: the
 buffer has nothing to toggle to and an image has no source, so neither draws a strip at all. Markdown
-and Mermaid offer Source, Preview and Split; Excalidraw offers Editor and Preview only, because its
-source is JSON nobody edits by hand and Editor is where its own component does that instead. Split
+and Mermaid offer Source, Preview and Split; Excalidraw and draw.io offer Editor and Preview only,
+because their source is JSON or XML nobody edits by hand and Editor is where each format's own
+component does that instead. Split
 shows the file's own buffer, not a copy of it, so switching costs nothing and loses no undo history.
 Which position is on screen belongs to the file rather than to the strip, and it is written into the
 saved arrangement and into what the project remembers, so a document reopens in the layout it was
 left in — a layout an older arrangement named that the file's viewer no longer offers is refused
 rather than restored. A new markdown file opens in Preview or Source as the Editor setting says;
-Mermaid and Excalidraw still open in Preview. Already-open tabs keep the layout they were left in.
+Mermaid, Excalidraw and draw.io still open in Preview. Already-open tabs keep the layout they were
+left in.
 
 **A Markdown preview scrolls, and YAML frontmatter is a bar above it rather than part of it.** A
 document that opens with a `---` block draws it as a collapsible bar at the head of the preview —
@@ -1669,6 +1674,14 @@ painter the whole time, which is why opening a `.excalidraw` file still costs no
 delay. With the bundle missing or unfetchable the position says why and nothing about reading the
 file changes.
 
+**A `.drawio` file opens the same way, on the mirrored draw.io webapp instead of a mounted
+component.** Its Editor position holds no native painter: the webview frames the mirror's own
+`index.html` rather than importing it as a module, and edits still land in the buffer exactly as
+Excalidraw's do — same dirty dot, same `⌘S`, no second save path. Preview has nothing of its own to
+draw from, so it shows the SVG the editor last exported, cached beside the Mermaid pictures in the
+same workarea directory and surviving a restart; a document never opened in the editor reads "Open
+the editor once to draw this." instead of a picture.
+
 **A fenced diagram in a Markdown document goes through the same renderer.** A ```` ```mermaid ````
 fence is drawn by the diagram viewer and a ```` ```excalidraw ```` one by the scene viewer — one
 renderer per format, two call sites for each. A Mermaid fence resolves against the same cache the
@@ -1687,21 +1700,31 @@ the name the user chose and the message reads correctly.
 
 **With an image on the clipboard, `⌘N` asks which one is wanted.** The modal offers the image as an untitled picture and the text buffer the keystroke has always meant; Escape and every other dismissal take the text file, and text or nothing on the clipboard skips the question entirely. Pasting outside a text field asks nothing: the image opens as `capture-{n}.png`, numbered past whatever is already open and dirty from the start so closing it asks. The name carries its extension, which is what selects the image viewer.
 
-**A capture is an editable picture, and only a capture is.** An untitled image tab holding a
-decodable picture grows an annotation scene over its bytes — the base PNG plus elements above it —
-and takes the keyboard through its panel rather than through a buffer, because its toolbar, its
-tools and its undo all live at Workbench depth. A PNG opened from the explorer and an
-`.excalidraw` document are neither untitled nor session-authored, so both stay read-only, and the
-same toolbar handlers are no-ops on them rather than errors.
+**Every picture the image viewer can decode is an editable scene, capture or not.** A file whose
+viewer is the image viewer grows an annotation scene over its bytes at load — the base PNG plus
+elements above it — carrying the read's version into the scene, so `⌘S` writes the flatten back
+over the file with the version discipline any other write carries. Editing takes the keyboard
+through its panel rather than through a buffer, because the toolbar, the tools and the undo all
+live at Workbench depth. The header's View/Edit toggle says which mode a tab is in: a capture
+opens in Edit, a picture opened from the explorer opens in View, where the tool layer is gone and
+the scene panel's own pan, zoom and fit apply as they do on every other scene panel. Bytes with no
+decodable picture in them — an SVG, a format this build does not decode; the `image` crate is built
+with the `png` feature only — stay read-only bytes with no toggle at all, and the same toolbar
+handlers are no-ops on them rather than errors. An `.excalidraw` document is a different viewer
+entirely and stays read-only here too.
 
-**A capture's header strip is its toolbar, in place of the layout toggle.** Eight tools — Select,
-Crop, Rect, Ellipse, Arrow, Draw, Text and Copy — then the style controls and the history: a stroke
-button cycling six colours, a width button cycling three, a Fill toggle that fills with the stroke
-colour, Undo, Redo and Delete. Changing a style control with something selected restyles it as one
-undoable step as well as arming the next element. Delete is the toolbar's button and has no
-keystroke. The tools sit on a transparent layer over the picture, and a gesture the layer declines
-reaches the viewport underneath, so the pan, zoom and fit every scene panel has keep working beside
-the tools rather than behind a mode.
+**A picture's header strip carries the View/Edit toggle in place of the layout toggle, and in Edit
+it grows the toolbar a capture has always had.** Eight tools — Select,
+Crop, Rect, Ellipse, Arrow, Draw, Text and Copy — are icon buttons, seven drawn from the `annotate`
+icon category and Copy from Lucide, naming themselves only as a tooltip; then the style controls and
+the history: a colour picker for the stroke, offering the same six colours as its featured swatches
+alongside the picker's own palettes, HSL sliders and hex field, a width button cycling three, a Fill
+toggle that fills with the stroke colour, and Lucide's Undo, Redo and Delete. Changing a style
+control with something selected restyles it as one undoable step as well as arming the next element.
+Delete is the toolbar's button and has no keystroke. The tools sit
+on a transparent layer over the picture, and a gesture the layer declines reaches the viewport
+underneath, so the pan, zoom and fit every scene panel has keep working beside the tools rather than
+behind a mode.
 
 **The base image is never touched, and undo is elements rather than pixels.** Every tool appends,
 moves or removes one element above the base; crop only narrows what is shown, measured against the
@@ -1717,11 +1740,13 @@ region — flattened, annotations included — to the system clipboard as a PNG,
 a capture reaches somewhere else. Text opens the one-field modal at the click and annotates where
 the click was; an empty string leaves the question up rather than annotating nothing.
 
-**A save writes a flattened PNG and never the scene.** The flatten decodes the base, crops it to the
-scene's bounds, and paints the annotations over it at scene scale — scene units are base pixels.
-Because the base is held whole behind them, a covering rectangle is real redaction only in the
-flatten, which is why PNG is the only thing a capture writes. The write itself is the untitled path
-unchanged: `⌘S` raises the same single-field modal, and the flatten goes out over
+**A save writes a flattened PNG and never the scene, and only when the tab is dirty.** A picture
+opened from the explorer that nobody annotated declines the save rather than re-encoding the file
+over itself for nothing. The flatten decodes the base, crops it to the scene's bounds, and paints
+the annotations over it at scene scale — scene units are base pixels. Because the base is held
+whole behind them, a covering rectangle is real redaction only in the flatten, which is why PNG is
+the only thing an editable picture writes. The write itself is the untitled path unchanged for a
+capture: `⌘S` raises the same single-field modal, and the flatten goes out over
 `WriteProjectFile` as a creation, with the version discipline any other write carries once the
 first one has answered.
 
@@ -2889,11 +2914,14 @@ target `cfg`s there. The pixels land in `app/editor.rs`'s `open_untitled_image()
 `delete_selected()` and `set_crop()` each leave one `EditOp` for `undo()` and `redo()`,
 `display_scene()` adds the drag in progress for the painter, and `flatten()`/`flatten_rect()` are
 the only decode-and-re-encode in the interface — display stays GPUI's. `app/image_edit.rs` is the
-toolbar's handlers and the three gestures, every one of them a no-op through `ensure_image_edit()`
-on a tab that is not a capture. `ui/viewer/image_edit.rs` draws the strip and the tool layer, and
-converts a window point to a scene point through the stored panel and `scene::live_with_overlay()`.
-`FileBody::ImageEdit` is what `state/editor.rs` holds it in, and `editable_image()`, `savable()`,
-`touch_image()` and `saved()` are where a non-text body meets the tab's own lifecycle.
+toolbar's handlers, the three gestures and `set_image_editing()` — the View/Edit switch, which drops
+the selection and any pending drag on the way into View — every handler a no-op through
+`ensure_image_edit()` on a tab whose bytes never decoded into a scene. `ui/viewer/image_edit.rs`
+draws the strip and, in Edit, the tool layer over it, and converts a window point to a scene point
+through the stored panel and `scene::live_with_overlay()`. `FileBody::ImageEdit` is what
+`state/editor.rs` holds it in, `set_image()` is what a read builds it with, carrying the read's
+`FileVersion` in, and `editable_image()`, `savable()`, `touch_image()` and `saved()` are where a
+non-text body meets the tab's own lifecycle.
 
 `state/diagrams.rs` is the Mermaid renderer and its disk tier, and it is the only place in the
 interface that names `merman`. `render()` is one source in and one picture out, sized by `view_box()`
@@ -2904,6 +2932,14 @@ entry there, swallowing every IO failure as a cache miss; and `resolve()` is the
 on the background executor. `AppState::diagram()` answers what the window holds and queues what it
 does not, `drain_diagram_asks()` hands the queue to `cx.background_spawn` once the frame is built —
 never from inside one — and `diagram_drawn()` takes each answer back by its key and notifies.
+
+The same module holds a second, read-only tier under `key_for(EXPORTED, …)` for a format the
+interface has no renderer for — draw.io's `.drawio` scenes: `resolve_exported()` only ever reads the
+disk tier, answering "not exported yet" on a miss rather than rendering anything, and `keep_exported()`
+is the one writer, filing the SVG a web panel exported and rejecting markup with no `viewBox`.
+`AppState::exported_preview()`, `drain_exported_asks()` and `keep_exported()` in `app/web_panel.rs`
+mirror `diagram()`/`drain_diagram_asks()`/`diagram_drawn()` on that tier, and `ui/viewer/diagram.rs`'s
+`exported()` sits beside `render()` to draw it.
 
 The file path through the two halves: `select_file()` opens a tab, queues its panel and sends
 `ReadProjectFile`; `open_diff()` opens a tab on a comparison and sends `DiffProjectFile`;
@@ -2929,7 +2965,8 @@ arrive, because a buffer needs a window and a message does not come with one, so
 `attach_arrived_files()` drains them in `render` — the same device the dock's own edits and the
 pending focus use, and the one `fill_task_form()` uses for the task panel's fields. `take_editor_focus()`
 is where that pending focus lands: a tab whose viewer draws nothing for the layout on screen —
-Markdown, Mermaid or Excalidraw in `Preview`, per `ViewerKind::shows_buffer()` — has no buffer
+Markdown or Mermaid in `Preview`, or Excalidraw or draw.io in any layout, per
+`ViewerKind::shows_buffer()` — has no buffer
 to hand the keyboard to, so it goes to `workbench_focus` instead, a handle `track_focus`ed on the
 workbench root beside the `Workbench` key context. Skipping that and leaving focus on the previous
 tab's now-unmounted buffer is not merely stale: GPUI's key dispatch falls back to the window's own

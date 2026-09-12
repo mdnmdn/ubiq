@@ -3,11 +3,11 @@ id: wip-web-panel-phase3
 title: Web panels — the shared workarea and the bundle fetch
 kind: wip
 status: current
-summary: Phase 3 of the web-panel proposal as built, Rust side only — a `shared_workarea` on `HostInfo` reserved at `<config root>/ui/`, a four-variant web asset message family, and `crates/ubiq-host/src/web_assets/` fetching a manifest's 554 files six at a time, verifying each against its SHA-256 before writing it, and marking the directory complete only after the last one. No interface wiring, which is a later unit.
+summary: Phase 3 of the web-panel proposal as built, Rust side only — a `shared_workarea` on `HostInfo` reserved at `<config root>/ui/`, a four-variant web asset message family, and `crates/ubiq-host/src/web_assets/` fetching a manifest's 554 files six at a time, verifying each against its SHA-256, and writing them into one compressed `.bundle` file whose rename over a `.part` sibling is the only proof of done. No interface wiring, which is a later unit.
 read_when: you are fetching or serving a vendor bundle, changing the shared workarea, or wiring the interface to `EnsureWebBundle`
-updated: 2026-09-11
-verified: 2026-09-11
-code_anchors: [crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-host/src/web_assets/manifest.rs, crates/ubiq-host/src/projects.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/messages.rs]
+updated: 2026-09-12
+verified: 2026-09-12
+code_anchors: [crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-host/src/web_assets/archive.rs, crates/ubiq-host/src/web_assets/manifest.rs, crates/ubiq-host/src/projects.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/messages.rs]
 depends_on: [tech-architecture, tech-transport, wip-web-panel-phase2]
 ---
 
@@ -64,21 +64,30 @@ than a sweep.
 ## On disk
 
 ```
-<shared workarea>/web/<app>/<version>/<entry.path>   the mirror; cache path = URL path exactly
-<shared workarea>/web/<app>/<version>/importmap.json the map, at a fixed name the chrome knows
-<shared workarea>/web/<app>/<version>/.complete      written last, and the only proof of done
+<shared workarea>/web/<app>/<version>.bundle        one file: every entry, deflated, then an
+                                                     index and a footer — see `archive.rs`
+<shared workarea>/web/<app>/<version>.bundle.part   where a fetch in progress writes
 ```
 
+A vendor bundle is one compressed file, `crates/ubiq-host/src/web_assets/archive.rs`'s container,
+rather than a directory of hundreds of small files: each entry's body is raw deflate at
+`Compression::fast()` — deliberately light, since these bytes are read back over loopback once and
+never shipped anywhere — and the file ends with a JSON index of `["path", offset, compressed_len,
+uncompressed_len]` tuples, a little-endian `u64` index offset, then the 8-byte magic `UBIQBND1`.
+The import map lands inside the archive under a fixed name (`web_assets::IMPORT_MAP_FILE`), not as
+a sibling file.
+
 `<version>` is `manifest::VERSION`, pinned in generated source. A build that pins a new one looks
-in a directory that does not exist, fetches, and leaves the old one alone — versioned by directory,
-with no TTL and no staleness question to ask.
+for a file that does not exist, fetches, and leaves the old one alone — versioned by file, with no
+TTL and no staleness question to ask.
 
-**The marker is the whole completeness test.** A process killed mid-fetch leaves a directory of
-real, verified files and no marker, and that must not read as done. The marker is written after the
-last entry is verified and never before, so the only two states a reader sees are "not finished" and
-"finished".
-
-`.complete` is dotted so the interface's own server, which refuses dotfiles, can never serve it.
+**The rename is the whole completeness test, and there is no resume.** Every entry lands in the
+sibling `.part` file as it is verified; only once the import map is appended and the footer written
+is `.part` renamed over the real name, so the only two states a reader sees are "no `.bundle` file"
+and "a finished one". A process killed mid-fetch leaves a `.part` file and no `.bundle` — its
+content is never trusted, and the next ask overwrites it and fetches every entry again. This is why
+the `.complete` marker file is gone: the rename replaces it as the single proof of done, and a
+`.part` file is what a marker file used to be needed to disprove.
 
 ## The fetch
 
@@ -88,14 +97,15 @@ coordinator for the one thing the thread cannot do.
 
 - **Six connections, one queue.** `PARALLEL` workers pull from a `flume` channel of manifest
   entries. 554 serial round trips is minutes of latency; 554 threads is an attack on a CDN.
-- **A file already on disk with the right length and hash is skipped**, so an interrupted fetch
-  resumes rather than starting again.
 - **Verify, then write.** The bytes are hashed before anything touches disk, so a file whose SHA-256
   is not the manifest's is discarded rather than cached, and fails the whole fetch with an error
   naming it. The length is checked too, but the hash is the test — the interesting failure is right
-  length, wrong bytes.
-- **`atomic::write_atomic`** does the writing: temp sibling, fsync, rename. Reused rather than
-  reimplemented from `state/diagrams.rs`.
+  length, wrong bytes. There is no resume: a killed fetch's `.part` file is never read back, only
+  overwritten.
+- **A bounded channel, not `atomic::write_atomic`, does the writing.** The `PARALLEL` workers only
+  fetch and verify; a verified body travels over a bounded `flume` channel to the single thread that
+  owns the `archive::Writer` and the `.part` file, so 554 bodies never race a write. That thread
+  renames `.part` onto the real name once the writer's `finish()` returns.
 - **`WebBundlePending` is throttled** to 250ms, `clone.rs`'s constant for `clone.rs`'s reason. Each
   file landing is also a `tracing::debug!` line, for the run that needs more than the throttled
   reports.
@@ -108,17 +118,17 @@ The coordinator holds `WebAssets`: one row per fetch in flight, naming the windo
 under a `Mutex` the worker thread shares, which is how a late joiner is told and how a departed
 window stops being told. A row is reaped where the next fetch is started, on `Repos::clone`'s rule,
 and the worker posts its own end *before* it answers, so a window asking at that exact moment starts
-a fresh fetch that finds a finished directory rather than joining a thread that is about to end.
+a fresh fetch that finds a finished `.bundle` rather than joining a thread that is about to end.
 
 ## Testing it
 
 `Fetch = fn(&str) -> Result<Vec<u8>, String>` is the one seam, and `WebAssets::with` takes it along
-with the bundles to offer. Everything else — the hashing, the marker, the resume, the join, the
-throttle — is the real code in the tests as in a real run, and no test reaches a network. The six
-in `web_assets::tests` cover a complete directory answered without touching the network, a hash
+with the bundles to offer. Everything else — the hashing, the rename, the join, the throttle — is
+the real code in the tests as in a real run, and no test reaches a network. The six in
+`web_assets::tests` cover a complete `.bundle` answered without touching the network, a hash
 mismatch discarding the file and failing, progress carrying the count up front and then the file, a
-directory with files and no marker that is not complete and then resumes, two asks that become one
-fetch, and an app with no manifest.
+leftover `.part` file from a killed fetch that is not complete and is overwritten rather than
+resumed, two asks that become one fetch, and an app with no manifest.
 `a_window_is_told_a_shared_workarea_the_host_reserves_and_leaves_alone` in
 `tests/coordinator.rs` mirrors the per-project workarea test over the bus.
 

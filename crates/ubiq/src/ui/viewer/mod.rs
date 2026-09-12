@@ -55,8 +55,8 @@ pub fn render(app: &AppState, file: &OpenFile, cx: &mut Context<AppState>) -> An
 /// `AppState` and comes back as the file's own `layout` — which is also what the panel writes into
 /// the dock's saved arrangement, so a document reopens as it was left.
 fn header(app: &AppState, file: &OpenFile, cx: &mut Context<AppState>) -> impl IntoElement {
-    // A capture's strip is its toolbar; every other viewer keeps the layout toggle.
-    if file.viewer.takes_panel_focus() {
+    // A picture's strip is the annotation toolbar; every other viewer keeps the layout toggle.
+    if file.editable_image() {
         return image_edit::toolbar(app, file, cx).into_any_element();
     }
     let key = file.key();
@@ -124,8 +124,12 @@ fn drawn(
         return match file.viewer {
             ViewerKind::Editor => buf(),
             ViewerKind::Image => note("Nothing to draw", theme::text_faint()),
-            // Markdown, Mermaid and Excalidraw do have the toggle, so these are unreachable here.
-            ViewerKind::Markdown | ViewerKind::Mermaid | ViewerKind::Excalidraw => {
+            // Markdown, Mermaid, Excalidraw and Drawio do have the toggle, so these are
+            // unreachable here.
+            ViewerKind::Markdown
+            | ViewerKind::Mermaid
+            | ViewerKind::Excalidraw
+            | ViewerKind::Drawio => {
                 let source = state.read(cx).value().to_string();
                 markdown::render(app, &key, &source, font_size, file.frontmatter_open, cx)
             }
@@ -145,14 +149,20 @@ fn drawn(
             let source = state.read(cx).value().to_string();
             scene::live(app, &key, &source, cx)
         }
-        // `has_preview` names Markdown, Mermaid and Excalidraw and nothing else.
+        // draw.io has no native painter: the picture is the panel's own SVG export, kept in the
+        // diagram cache and read back from the workarea. See `app/web_panel.rs`.
+        ViewerKind::Drawio => {
+            let source = state.read(cx).value().to_string();
+            diagram::exported(app, &key, &source, cx)
+        }
+        // `has_preview` names Markdown, Mermaid, Excalidraw and Drawio and nothing else.
         ViewerKind::Editor | ViewerKind::Image => note("Nothing to draw", theme::text_faint()),
     };
 
     match file.layout {
         ViewLayout::Source => buf(),
         ViewLayout::Preview => preview(),
-        // Only Excalidraw offers it, and only it has a component to host.
+        // Only Excalidraw and Drawio offer it, and only they have a component to host.
         ViewLayout::Edit => web::render(app, file, cx),
         ViewLayout::Split => div()
             .flex()

@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>draw.io — Ubiq</title>
+<style>
+  /* System colours only: this page draws nothing but the failure notice, and that must be
+     legible in either palette. draw.io brings its own. */
+  :root { color-scheme: light dark; }
+  html, body { height: 100%; margin: 0; background: Canvas; color: CanvasText; }
+  #frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+  #failure {
+    position: absolute; inset: 0; margin: 0; padding: 2rem;
+    font: 13px/1.5 ui-monospace, monospace; white-space: pre-wrap;
+    background: Canvas; color: CanvasText;
+  }
+  #failure[hidden] { display: none; }
+</style>
+</head>
+<body>
+  <iframe id="frame" title="draw.io"></iframe>
+  <pre id="failure" hidden></pre>
+
+  <!-- Both classic scripts: `app.js` needs `window.ubiq` before it runs, and this tenant loads
+       no module of its own — the editor is the mirrored webapp inside the frame. -->
+  <script src="bridge.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

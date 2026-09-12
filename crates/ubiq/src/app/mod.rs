@@ -74,6 +74,7 @@ use gpui::{
     UniformListScrollHandle, WeakEntity, Window, WindowBounds, WindowId, WindowOptions, point,
     prelude::*, px, size,
 };
+use gpui_component::color_picker::{ColorPickerEvent, ColorPickerState};
 use gpui_component::dock::{DockArea, DockEvent, PanelId};
 use gpui_component::input::{
     EditorState, InputEvent, InputState, TabSize, TextDecoration, TextareaState,
@@ -591,6 +592,10 @@ pub struct AppState {
     /// anyway — so they queue here and are handed to the background executor once the frame is
     /// built.
     diagram_asks: RefCell<Vec<(String, DiagramPalette)>>,
+    /// The same, for a picture a web panel exported rather than one this window can draw: the
+    /// document and the palette it was asked for. The ask only ever reads the disk tier — nothing
+    /// here renders a `.drawio` file.
+    exported_asks: RefCell<Vec<(String, DiagramPalette)>>,
 
     /// The camera on each diagram and scene this window is showing, keyed by the tab (or the
     /// sink document) that holds it. Behind a cell because a viewer meets it mid-frame the same
@@ -649,6 +654,9 @@ pub struct AppState {
     /// What a file dialog is typing into: a new path's name, a rename, or where an untitled buffer
     /// is to be saved. One field, because one dialog is up at a time.
     pub file_name: Entity<InputState>,
+    /// The capture toolbar's stroke colour: the six the editor suggests, the full picker behind
+    /// them. One per window, because one capture is annotated at a time.
+    pub image_stroke: Entity<ColorPickerState>,
     /// The Git screen's search over the log, and its commit box. The entities are the window's and
     /// the text in them is the project's, so both are mirrored into the project's `GitView`.
     pub git_search: Entity<InputState>,

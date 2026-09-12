@@ -23,7 +23,12 @@
     }
   }
 
-  var hasIpc = !!(window.ipc && window.ipc.postMessage);
+  // wry defines `window.ipc.postMessage` in every page it loads, whether or not the host
+  // registered a handler for it — so its presence proves nothing. Transport A is used only when
+  // the host says so by injecting `window.__ubiq_ipc = true`, which it does alongside the
+  // handler that reads those frames. Everything else, the embedded webview included, long-polls
+  // the loopback bridge that serves this page.
+  var hasIpc = window.__ubiq_ipc === true && !!(window.ipc && window.ipc.postMessage);
 
   // A dropped POST is retried rather than swallowed. `ready` is posted exactly once and the
   // panel's loader lifts on nothing else, so one lost request — a loopback port not yet

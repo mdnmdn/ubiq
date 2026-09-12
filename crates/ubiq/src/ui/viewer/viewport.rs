@@ -22,13 +22,16 @@ use crate::ui::eid;
 ///
 /// `picture` is what is shown; this wraps it in the camera. A recording canvas sits under it so
 /// the panel's size is known to the next wheel or drag, and a hit layer sits over it so those
-/// events land here rather than on the image.
+/// events land here rather than on the image. `overlay` is drawn *above* that hit layer — the
+/// image editor's tool layer — so a gesture it consumes takes precedence over pan and zoom, and
+/// one it declines falls through to them.
 pub fn surface(
     app: &AppState,
     key: &str,
     ground: Rgba,
     content: Content,
     picture: impl IntoElement,
+    overlay: AnyElement,
     cx: &mut Context<AppState>,
 ) -> AnyElement {
     app.touch_viewport(key, content);
@@ -97,6 +100,7 @@ pub fn surface(
                     this.zoom_viewport(&key_pinch, 1.0 + event.delta, event.position, cx);
                 })),
         )
+        .child(overlay)
         .into_any_element()
 }
 

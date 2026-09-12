@@ -222,3 +222,29 @@ categories:
     tab-pin:
       goal: a tab protected from close, drawn before its label
       keywords: [pin, pinned, protect, lock, keep]
+
+  # The capture editor's toolbar (`ui/viewer/image_edit.rs`). Undo, redo, copy, delete and the
+  # stroke colour are `IconName::Undo`, `Redo`, `Copy`, `Delete` and `Palette` at the call site;
+  # only the seven tools with no Lucide equivalent are drawn.
+  annotate:
+    annotate-select:
+      goal: pick and move an annotation already on the picture — a pointer, not a hand
+      keywords: [select, pointer, cursor, arrow, move, pick]
+    annotate-crop:
+      goal: narrow the picture to a dragged rectangle
+      keywords: [crop, trim, frame, region]
+    annotate-rect:
+      goal: draw a rectangle over the picture
+      keywords: [rectangle, rect, box, square, shape]
+    annotate-ellipse:
+      goal: draw an ellipse over the picture
+      keywords: [ellipse, circle, oval, shape]
+    annotate-arrow:
+      goal: draw an arrow that points at something in the picture
+      keywords: [arrow, point, callout]
+    annotate-draw:
+      goal: draw freehand over the picture
+      keywords: [draw, freehand, pen, pencil, scribble]
+    annotate-text:
+      goal: place a line of text on the picture
+      keywords: [text, label, caption, type, letter]

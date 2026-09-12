@@ -17,21 +17,36 @@ use gpui_component::{Sizable as _, Size};
 
 use crate::app::AppState;
 use crate::state::OpenFile;
+use crate::state::editor::ViewerKind;
 use crate::state::web_panel::BundleState;
 use crate::theme;
 use crate::ui::kit::mono;
 use crate::ui::web_view;
+use crate::web_export::bridge;
+
+/// The tenant's own name, for the loader's fallback text. Every viewer that opens a web panel
+/// names itself here; one that does not is never asked.
+fn tenant_name(viewer: ViewerKind) -> &'static str {
+    match viewer {
+        ViewerKind::Excalidraw => "Excalidraw",
+        ViewerKind::Drawio => "draw.io",
+        _ => "the editor",
+    }
+}
 
 /// Draw the editor for one tab.
 pub fn render(app: &AppState, file: &OpenFile, _cx: &mut Context<AppState>) -> AnyElement {
     let key = file.key();
     let session = app.web_panels.sessions.get(&key);
+    let bundle = bridge::web_app(file.viewer)
+        .map(|app_id| app.web_panels.bundle(app_id))
+        .unwrap_or_default();
 
     // A chrome that failed says so where the drawing would have been, and the buffer is untouched.
     if let Some(error) = session.and_then(|session| session.error.clone()) {
         return super::note(error, theme::danger());
     }
-    if let BundleState::Unavailable { reason } = &app.web_panels.bundle {
+    if let BundleState::Unavailable { reason } = &bundle {
         return super::note(reason.clone(), theme::danger());
     }
 
@@ -49,12 +64,11 @@ pub fn render(app: &AppState, file: &OpenFile, _cx: &mut Context<AppState>) -> A
         Some(_) => web_view::element(&key)
             .unwrap_or_else(|| loading("Starting\u{2026}", None, None, "starting the browser")),
         None => loading(
-            app.web_panels
-                .bundle
+            bundle
                 .unavailable()
-                .unwrap_or_else(|| "Loading Excalidraw\u{2026}".to_string()),
-            fetched(&app.web_panels.bundle),
-            app.web_panels.bundle.fetching_file().map(str::to_string),
+                .unwrap_or_else(|| format!("Loading {}\u{2026}", tenant_name(file.viewer))),
+            fetched(&bundle),
+            bundle.fetching_file().map(str::to_string),
             "downloading the drawing editor",
         ),
     }

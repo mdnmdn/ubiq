@@ -123,6 +123,9 @@ fn draw_static(scene: Scene) -> AnyElement {
         .w(px(panel_w))
         .h(px(panel_h))
         .bg(ground)
+        // The pictures paint under the vector layer, because an embedded image is a ground the
+        // rest of the scene is drawn on — which is also the order the flatten writes.
+        .children(pictures)
         .child(
             canvas(
                 |_, _, _| {},
@@ -133,10 +136,11 @@ fn draw_static(scene: Scene) -> AnyElement {
                     }
                 },
             )
+            .absolute()
+            .inset_0()
             .w(px(panel_w))
             .h(px(panel_h)),
         )
-        .children(pictures)
         .into_any_element()
 }
 
@@ -170,6 +174,9 @@ pub(crate) fn live_with_overlay(
             .inset_0()
             .size_full()
             .relative()
+            // The pictures first: an embedded image is the ground the annotations are drawn on,
+            // in the panel exactly as in the flatten.
+            .children(pictures)
             .child(
                 canvas(|_, _, _| {}, {
                     let scene = scene.clone();
@@ -188,9 +195,8 @@ pub(crate) fn live_with_overlay(
                 .absolute()
                 .inset_0()
                 .size_full(),
-            )
-            .children(pictures)
-            .child(overlay),
+            ),
+        overlay,
         cx,
     )
 }

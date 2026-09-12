@@ -184,10 +184,18 @@ pub fn view_box(svg: &str) -> Option<(f32, f32)> {
 /// orphans the old entries instead of overwriting them — and orphans in a disposable directory cost
 /// only space.
 pub fn key(source: &str, palette: DiagramPalette) -> String {
+    key_for(RENDERER, source, palette)
+}
+
+/// The same key, for a picture something other than merman drew — a web panel's export, which is
+/// filed beside the renders because it is the same kind of thing and lives in the same directory.
+/// The renderer is in the hash, so the two never collide and an upgrade to one orphans only its
+/// own entries.
+pub fn key_for(renderer: &str, source: &str, palette: DiagramPalette) -> String {
     let mut hash = Sha256::new();
     hash.update(CACHE_FORMAT.as_bytes());
     hash.update([0]);
-    hash.update(RENDERER.as_bytes());
+    hash.update(renderer.as_bytes());
     hash.update([0]);
     hash.update(match palette {
         DiagramPalette::Light => b"light".as_slice(),
@@ -295,6 +303,51 @@ pub fn resolve(source: &str, palette: DiagramPalette, dir: Option<PathBuf>) -> D
         disk.write(&key, image);
     }
     DiagramAnswer { key, result }
+}
+
+/// The renderer name a web panel's export is filed under. It is the tenant's, not a library's:
+/// what the picture looks like is the mirrored webapp's business.
+pub const EXPORTED: &str = "web panel export";
+
+/// One picture the interface did not draw, read back from the disk tier and nothing else.
+///
+/// A web panel's export is the only way a document it owns becomes a picture, so a miss is "not
+/// exported yet" rather than a failure — the viewer says so and the panel fills it in the first
+/// time it is opened.
+pub fn resolve_exported(
+    source: &str,
+    palette: DiagramPalette,
+    dir: Option<PathBuf>,
+) -> DiagramAnswer {
+    let key = key_for(EXPORTED, source, palette);
+    let result = dir
+        .map(Disk::new)
+        .and_then(|disk| disk.read(&key))
+        .ok_or_else(|| "not exported yet".to_string());
+    DiagramAnswer { key, result }
+}
+
+/// Keep a picture a web panel exported: its key and its size, and the disk entry written.
+///
+/// Returns nothing for markup with no `viewBox` — the same miss `Disk::read` answers for bytes
+/// that are not an SVG, so half an export is never filed as a whole one.
+pub fn keep_exported(
+    source: &str,
+    palette: DiagramPalette,
+    dir: Option<PathBuf>,
+    svg: String,
+) -> Option<(String, DiagramImage)> {
+    let (width, height) = view_box(&svg)?;
+    let image = DiagramImage {
+        bytes: svg.into_bytes(),
+        width,
+        height,
+    };
+    let key = key_for(EXPORTED, source, palette);
+    if let Some(dir) = dir {
+        Disk::new(dir).write(&key, &image);
+    }
+    Some((key, image))
 }
 
 /// What comes back from one background render: the key it was filed under, and the picture or the

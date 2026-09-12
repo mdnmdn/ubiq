@@ -138,7 +138,9 @@ crates/ubiq-host/src/
 │   └── tools.rs
 └── web_assets/
     ├── manifest.rs
-    └── mod.rs
+    ├── mod.rs
+    ├── archive.rs
+    └── manifest_drawio.rs
 
 crates/ubiq/src/
 ├── state/
@@ -300,7 +302,8 @@ crates/ubiq/src/
 │   ├── mod.rs
 │   ├── routes.rs
 │   ├── server.rs
-│   └── bridge.rs
+│   ├── bridge.rs
+│   └── archive.rs
 ├── app/
 │   ├── agents.rs      agents, conversations and the new-agent menu
 │   ├── board.rs       the task board and the jumps out of it
@@ -435,6 +438,7 @@ the documents in its row.
 | `crates/ubiq-host/src/store/mod.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq-host/src/store/usage.rs` | [`features/stats.md`](../features/stats.md), [`project-structure.md`](./project-structure.md) |
 | `crates/ubiq-host/src/watch/mod.rs` | [`architecture.md`](./architecture.md), [`version-control.md`](./version-control.md), [`wip/indexing.md`](../wip/indexing.md) |
+| `crates/ubiq-host/src/web_assets/archive.rs` | [`wip/web-panel-phase3.md`](../wip/web-panel-phase3.md) |
 | `crates/ubiq-host/src/web_assets/manifest.rs` | [`wip/web-panel-phase3.md`](../wip/web-panel-phase3.md) |
 | `crates/ubiq-host/src/web_assets/mod.rs` | [`architecture.md`](./architecture.md), [`transport-contract.md`](./transport-contract.md), [`wip/web-panel-phase3.md`](../wip/web-panel-phase3.md) |
 | `crates/ubiq-host/src/work/mod.rs` | [`architecture.md`](./architecture.md) |
@@ -461,6 +465,8 @@ the documents in its row.
 | `crates/ubiq-proto/src/work.rs` | [`transport-contract.md`](./transport-contract.md), [`wip/agent-setup.md`](../wip/agent-setup.md) |
 | `crates/ubiq/Cargo.toml` | [`project-structure.md`](./project-structure.md), [`wip/web-panel-phase6.md`](../wip/web-panel-phase6.md) |
 | `crates/ubiq/assets/web/bridge.js` | [`wip/web-panel-phase2.md`](../wip/web-panel-phase2.md) |
+| `crates/ubiq/assets/web/drawio/app.js` | [`wip/web-panel-phase45.md`](../wip/web-panel-phase45.md) |
+| `crates/ubiq/assets/web/drawio/index.html` | [`wip/web-panel-phase45.md`](../wip/web-panel-phase45.md) |
 | `crates/ubiq/assets/web/excalidraw/app.js` | [`wip/web-panel-phase45.md`](../wip/web-panel-phase45.md) |
 | `crates/ubiq/assets/web/excalidraw/index.html` | [`wip/web-panel-phase45.md`](../wip/web-panel-phase45.md) |
 | `crates/ubiq/build.rs` | [`wip/web-panel-phase2.md`](../wip/web-panel-phase2.md) |
@@ -499,9 +505,10 @@ the documents in its row.
 | `crates/ubiq/src/state/chat.rs` | [`features/chat.md`](../features/chat.md), [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/clone.rs` | [`features/workbench.md`](../features/workbench.md), [`wip/clone-a-project.md`](../wip/clone-a-project.md) |
 | `crates/ubiq/src/state/conversation.rs` | [`features/chat.md`](../features/chat.md), [`features/workbench.md`](../features/workbench.md), [`wip/agent-setup.md`](../wip/agent-setup.md) |
-| `crates/ubiq/src/state/diagrams.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/state/diagrams.rs` | [`features/workbench.md`](../features/workbench.md), [`wip/web-panel-phase6.md`](../wip/web-panel-phase6.md) |
 | `crates/ubiq/src/state/dock.rs` | [`features/chat.md`](../features/chat.md), [`features/logs.md`](../features/logs.md), [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/workbench.md`](../features/workbench.md), [`wip/agent-vocabulary.md`](../wip/agent-vocabulary.md) |
 | `crates/ubiq/src/state/editor.rs` | [`features/workbench.md`](../features/workbench.md), [`wip/web-panel-phase6.md`](../wip/web-panel-phase6.md) |
+| `crates/ubiq/src/state/explorer/menu.rs` | [`features/workbench.md`](../features/workbench.md), [`wip/web-panel-phase6.md`](../wip/web-panel-phase6.md) |
 | `crates/ubiq/src/state/explorer/mod.rs` | [`features/workbench.md`](../features/workbench.md), [`wip/web-panel-phase6.md`](../wip/web-panel-phase6.md) |
 | `crates/ubiq/src/state/explorer/rows.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/explorer/tree.rs` | [`features/workbench.md`](../features/workbench.md) |
@@ -552,6 +559,7 @@ the documents in its row.
 | `crates/ubiq/src/ui/editor.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/empty.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/explorer.rs` | [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
+| `crates/ubiq/src/ui/file_dialog.rs` | [`features/workbench.md`](../features/workbench.md), [`wip/web-panel-phase6.md`](../wip/web-panel-phase6.md) |
 | `crates/ubiq/src/ui/file_picker.rs` | [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/ui/git/changes.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/git/diff.rs` | [`features/workbench.md`](../features/workbench.md) |
@@ -596,7 +604,7 @@ the documents in its row.
 | `crates/ubiq/src/ui/terminal.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/ui/titlebar.rs` | [`features/notifications.md`](../features/notifications.md), [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/ui/tools.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md) |
-| `crates/ubiq/src/ui/viewer/diagram.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/ui/viewer/diagram.rs` | [`features/workbench.md`](../features/workbench.md), [`wip/web-panel-phase6.md`](../wip/web-panel-phase6.md) |
 | `crates/ubiq/src/ui/viewer/diff.rs` | [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/ui/viewer/image.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/viewer/image_edit.rs` | [`features/workbench.md`](../features/workbench.md) |
@@ -608,6 +616,7 @@ the documents in its row.
 | `crates/ubiq/src/ui/web_view.rs` | [`features/workbench.md`](../features/workbench.md), [`wip/web-panel-phase6.md`](../wip/web-panel-phase6.md) |
 | `crates/ubiq/src/ui/work.rs` | [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/version.rs` | [`architecture.md`](./architecture.md) |
+| `crates/ubiq/src/web_export/archive.rs` | [`wip/web-panel-phase2.md`](../wip/web-panel-phase2.md), [`wip/web-panel-phase45.md`](../wip/web-panel-phase45.md) |
 | `crates/ubiq/src/web_export/assets.rs` | [`wip/web-panel-phase2.md`](../wip/web-panel-phase2.md), [`wip/web-panel-phase45.md`](../wip/web-panel-phase45.md) |
 | `crates/ubiq/src/web_export/bridge.rs` | [`wip/web-panel-phase2.md`](../wip/web-panel-phase2.md), [`wip/web-panel-phase6.md`](../wip/web-panel-phase6.md) |
 | `crates/ubiq/src/web_export/mod.rs` | [`architecture.md`](./architecture.md) |
@@ -624,6 +633,7 @@ the documents in its row.
 | `crates/ubiq/tests/file_picker.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/tests/files_changed.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/tests/git.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/tests/image_gestures.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/tests/mode_restore.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/tests/nav.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/tests/nav_text.rs` | [`features/workbench.md`](../features/workbench.md) |
@@ -670,6 +680,7 @@ No document's `code_anchors` names these. Restricted to Ubiq's own crates.
 | `crates/ubiq-host/src/search/fallback.rs` |
 | `crates/ubiq-host/src/search/mod.rs` |
 | `crates/ubiq-host/src/search/walk.rs` |
+| `crates/ubiq-host/src/web_assets/manifest_drawio.rs` |
 | `crates/ubiq-host/src/work/mock.rs` |
 | `crates/ubiq-proto/src/search.rs` |
 | `crates/ubiq/src/app/board.rs` |
@@ -677,10 +688,8 @@ No document's `code_anchors` names these. Restricted to Ubiq's own crates.
 | `crates/ubiq/src/app/remote_hosts.rs` |
 | `crates/ubiq/src/state/explorer/filter.rs` |
 | `crates/ubiq/src/state/explorer/keys.rs` |
-| `crates/ubiq/src/state/explorer/menu.rs` |
 | `crates/ubiq/src/state/remote_hosts.rs` |
 | `crates/ubiq/src/state/search.rs` |
-| `crates/ubiq/src/ui/file_dialog.rs` |
 | `crates/ubiq/src/ui/kit/icons.rs` |
 | `crates/ubiq/src/ui/kit/panel.rs` |
 | `crates/ubiq/src/ui/remote_hosts.rs` |

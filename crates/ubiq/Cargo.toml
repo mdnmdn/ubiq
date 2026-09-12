@@ -50,6 +50,10 @@ serde = { version = "1.0", features = ["derive"] }
 # The view-state blob the host stores opaquely is JSON, and its schema is the interface's
 serde_json = "1.0"
 
+# Inflates one entry at a time out of a vendor bundle archive (`web_export/archive.rs`). Already
+# a build-dependency below for the same reason on the writing side; needed here too to read back.
+flate2 = "1"
+
 # Logging
 tracing = "0.1"
 # Wall-clock timestamps for the log console, in the reader's own zone

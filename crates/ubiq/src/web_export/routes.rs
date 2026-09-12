@@ -430,6 +430,26 @@ fn excalidraw_csp(nonce: &str) -> String {
     )
 }
 
+/// The policy a **document** served out of a vendor mirror runs under. A chrome page is written
+/// here and needs nothing but [`CHROME_CSP`]; a mirrored webapp is somebody else's HTML, framed
+/// by the chrome, and draw.io's carries inline bootstrap script and evaluates shape and formula
+/// code it builds at runtime. Every widening below stays inside this origin — **no remote origin
+/// is permitted, deliberately**: the webapp still names `app.diagrams.net` in a handful of
+/// optional paths, and a hole in the mirror must fail loudly here rather than quietly reach the
+/// network, which is the whole point of mirroring it.
+///
+/// - `script-src` takes `'unsafe-inline'` (the webapp's own `index.html` bootstraps inline) and
+///   `'unsafe-eval'` (mxGraph builds shape and formula functions at runtime).
+/// - `img-src`/`font-src`/`connect-src` take `data:` and `blob:`: that is how an embedded image,
+///   an embedded font and an export preview travel. None is a network fetch.
+/// - `worker-src` takes `blob:` for the export worker.
+/// - `frame-ancestors 'self'` because the chrome page frames it; it still cannot be framed from
+///   anywhere else.
+const VENDOR_DOCUMENT_CSP: &str = "default-src 'self'; \
+     script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; \
+     img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' data: blob:; \
+     worker-src 'self' blob:; frame-ancestors 'self'; base-uri 'none'; object-src 'none'";
+
 fn serve_web(request: Request, registry: &SharedRegistry, tail: &[String]) {
     let (Some(app), Some(token)) = (tail.first(), tail.get(1)) else {
         tracing::debug!("web panel: request with no app/token pair");
@@ -473,6 +493,11 @@ fn serve_chrome(request: Request, app: &str) {
             assets::demo_index_html(),
             vec![csp_header(CHROME_CSP)],
         ),
+        super::bridge::DRAWIO_APP => respond_asset(
+            request,
+            assets::drawio_index_html(),
+            vec![csp_header(CHROME_CSP)],
+        ),
         super::bridge::EXCALIDRAW_APP => {
             let Ok(nonce) = super::server::mint_token() else {
                 // No secure random is no nonce, and a guessable one is worse than none.
@@ -500,40 +525,46 @@ fn chrome_module(app: &str) -> Option<assets::Asset> {
     match app {
         super::bridge::DEMO_APP => Some(assets::demo_app_js()),
         super::bridge::EXCALIDRAW_APP => Some(assets::excalidraw_app_js()),
+        super::bridge::DRAWIO_APP => Some(assets::drawio_app_js()),
         _ => None,
     }
 }
 
-/// The cached vendor bundle, off the session's own root. `resolve_path` is reused unchanged, so
-/// `..`, empty and dot-leading segments are refused here exactly as they are for a project.
+/// The cached vendor bundle, read out of the session's own compressed archive by an exact name
+/// lookup — `rest` joined back into one string is the key, nothing more. There is no path to
+/// resolve here and so no traversal surface at all: a name the archive's index doesn't have is
+/// simply a miss, the same 404 a `..` or a dotfile segment would have been under a filesystem
+/// walk. `resolve_path` (below) is not used on this route any more — it still guards the project
+/// file routes, which do serve out of a real directory.
 fn serve_vendor(request: Request, channel: &super::server::WebChannel, rest: &[&str]) {
-    let Some(root) = channel.vendor_root() else {
-        // Phase 3 fills this in. Until there is a cache, the route exists and answers nothing.
+    let name = rest.join("/");
+    let Some(bytes) = channel.read_vendor(&name) else {
         let _ = request.respond(not_found());
         return;
     };
-    let Some(resolved) = resolve_path(&root, rest) else {
-        let _ = request.respond(not_found());
-        return;
-    };
-    let Ok(bytes) = std::fs::read(&resolved) else {
-        let _ = request.respond(not_found());
-        return;
-    };
-    let response =
-        Response::from_data(bytes).with_header(content_type_header(vendor_mime(&resolved)));
+    let mime = vendor_mime(&name);
+    let mut response = Response::from_data(bytes).with_header(content_type_header(mime));
+    if mime.starts_with("text/html") {
+        response = response.with_header(csp_header(VENDOR_DOCUMENT_CSP));
+    }
     let _ = request.respond(response);
 }
 
 /// MIME is a hard failure here, not a degradation. A module served as `application/octet-stream`
 /// does not fall back — the browser refuses it with *"Expected a JavaScript-or-Wasm module
 /// script"* and the panel is blank. jsDelivr's `+esm` output has **no extension**, so an
-/// extensionless file under `vendor/` is JavaScript by rule, not by guess.
-fn vendor_mime(path: &Path) -> &'static str {
-    match path.extension().and_then(|e| e.to_str()) {
+/// extensionless entry under `vendor/` is JavaScript by rule, not by guess. Keyed off the
+/// archive entry's name rather than a filesystem path — there is no path any more.
+fn vendor_mime(name: &str) -> &'static str {
+    match Path::new(name).extension().and_then(|e| e.to_str()) {
         Some("js") | Some("mjs") | None => "text/javascript; charset=utf-8",
         Some("css") => "text/css; charset=utf-8",
         Some("woff2") => "font/woff2",
+        // A mirrored webapp is documents and data, not just modules: draw.io's own `index.html`
+        // is what the chrome frames, and it reads its shapes and strings back as XML and JSON.
+        Some("html") => "text/html; charset=utf-8",
+        Some("xml") => "text/xml; charset=utf-8",
+        Some("json") => "application/json",
         Some(ext) => mime_for_ext(&ext.to_ascii_lowercase()),
     }
 }

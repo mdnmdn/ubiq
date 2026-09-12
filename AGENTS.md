@@ -12,7 +12,7 @@ harness-management library they embed in `crates/agent-manager`.
 
 Read `_docs/INDEX.md` first — it names the two or three documents your task needs, and nothing more.
 
-Six skills under `.claude/skills/` hold the working reference for each area — the rules, the module
+Eight skills under `.claude/skills/` hold the working reference for each area — the rules, the module
 maps and the recipes, gathered from the code and the documents it is anchored to. Read the one your
 task lands in **before** the documents, and it will tell you which of those you still need. Claude
 Code loads them by name; any other harness reads `.claude/skills/<name>/SKILL.md` directly, and the
@@ -25,6 +25,7 @@ Code loads them by name; any other harness reads `.claude/skills/<name>/SKILL.md
 | `ubiq-host` | The coordinator, a pane's lifecycle, the project catalogue, a store or a worker thread |
 | `ubiq-transport` | A message, the bus and its routing, the framing, an id type, a log subsystem, a remote host |
 | `ubiq-files` | The file, search, index or watch workers, the explorer tree, the picker or the search panel |
+| `ubiq-web-panels` | A web panel — a tenant, the bridge, the chrome page and its CSP, the vendor mirror |
 | `ubiq-icons` | An icon — the registry, the SVG spec, the draw-and-review loop |
 | `ubiq-docs` | Finishing any change — the same-commit duty, the frontmatter, the lint, `Dnn` and `Gnn` |
 
@@ -45,7 +46,6 @@ document; file it instead.
    - Unless the task is trivial, the main agent should act as a pm/coordinator an spawn subagents to performs the tasks. 
    - create subagents with smaller model according to the task (eg sonnet, haiku), use big model for more reasoning tasks
    - max 3 subagents running
-- Keep it simple.
 - Follow the project conventions and existing patterns if possible
 - Be coincise and efficient
 - Say what the tree actually does. A `status: draft` document describes a settled design; the gaps
@@ -62,7 +62,7 @@ document; file it instead.
   change across many files — and a batched tree-wide operation belongs in `_tools`.
   This applies to subagents too: say it in their prompt.
 - If you have a technical problem compiling or other automated task notify it and envetually do other remaing activities, don't use
-- be breif
+- be brief
 
 ## Architecture rules
 

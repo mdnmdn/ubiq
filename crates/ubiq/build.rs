@@ -11,6 +11,8 @@ const ASSETS: &[&str] = &[
     "web/demo/index.html",
     "web/demo/app.js",
     "web/excalidraw/app.js",
+    "web/drawio/index.html",
+    "web/drawio/app.js",
 ];
 
 /// Assets that are substitution sources rather than bytes on the wire, so gzipping them would buy

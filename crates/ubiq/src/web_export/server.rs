@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::Duration;
 
+use super::archive;
 use super::routes;
 
 #[derive(Clone)]
@@ -40,11 +41,13 @@ struct Queues {
 /// registry lock is dropped.
 pub(super) struct WebChannel {
     pub(super) app: &'static str,
-    /// The cached vendor bundle this app serves under `vendor/`. `None` until something sets it,
-    /// and nothing in the interface does yet — the asset cache is phase 3, and until then the
-    /// vendor route 404s. It is behind its own lock because the cache is ensured after the panel
-    /// is already open.
-    vendor_root: Mutex<Option<PathBuf>>,
+    /// The vendor archive this app's `vendor/` route serves out of — one compressed bundle file,
+    /// opened once by `set_vendor_root` and held for the session's life; a route seeks into it
+    /// and inflates one entry per request, nothing is ever extracted to disk. `None` until a
+    /// bundle lands, or if it failed to open. It is behind its own lock because the bundle is
+    /// ensured after the panel is already open, and a route only ever needs to lock it for the
+    /// one entry it reads.
+    vendor_root: Mutex<Option<archive::Reader>>,
     queues: Mutex<Queues>,
     wake: Condvar,
 }
@@ -63,8 +66,9 @@ impl WebChannel {
         }
     }
 
-    pub(super) fn vendor_root(&self) -> Option<PathBuf> {
-        self.vendor_root.lock().unwrap().clone()
+    /// Locks the archive and reads one entry out of it, if one is open and `path` is in it.
+    pub(super) fn read_vendor(&self, path: &str) -> Option<Vec<u8>> {
+        self.vendor_root.lock().unwrap().as_mut()?.read(path)
     }
 
     fn push_outbound(&self, frame: serde_json::Value) {
@@ -229,13 +233,22 @@ pub fn receive(token: &str) -> Vec<serde_json::Value> {
         .unwrap_or_default()
 }
 
-/// Points the session's `vendor/` route at a directory of cached bundle files. Phase 3's hook:
-/// the cache is ensured after the panel is already open, so this is a later call rather than an
-/// argument to `open_session`.
+/// Points the session's `vendor/` route at a compressed vendor archive on disk — opened once
+/// here and held for the life of the session. This is a later call rather than an argument to
+/// `open_session`, since the bundle is ensured after the panel is already open. `None` clears it;
+/// an archive that fails to open is logged and treated the same as `None`.
 pub fn set_vendor_root(token: &str, root: Option<PathBuf>) {
-    if let Some(channel) = channel(token) {
-        *channel.vendor_root.lock().unwrap() = root;
-    }
+    let Some(channel) = channel(token) else {
+        return;
+    };
+    let reader = root.and_then(|path| match archive::Reader::open(&path) {
+        Ok(reader) => Some(reader),
+        Err(err) => {
+            tracing::error!("web panel: failed to open vendor archive at {path:?}: {err}");
+            None
+        }
+    });
+    *channel.vendor_root.lock().unwrap() = reader;
 }
 
 /// Drops the session. Every subsequent request on that token 404s.

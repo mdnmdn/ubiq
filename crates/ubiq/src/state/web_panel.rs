@@ -93,10 +93,12 @@ pub struct WebPanelSession {
     pub error: Option<String>,
 }
 
-/// Every web panel this window has open, and the one bundle they all need.
+/// Every web panel this window has open, and the bundle each tenant needs.
 #[derive(Default)]
 pub struct WebPanels {
-    pub bundle: BundleState,
+    /// One [`BundleState`] per tenant app id, e.g. `"excalidraw"`. A tenant never asked for is
+    /// simply absent, which [`WebPanels::bundle`] reads back as [`BundleState::Unknown`].
+    pub bundles: HashMap<String, BundleState>,
     /// Live sessions, by tab key. At most one per tab.
     pub sessions: HashMap<String, WebPanelSession>,
     /// Tabs that pressed `Edit` while the bundle was still being fetched, opened when it lands.
@@ -109,4 +111,11 @@ pub struct WebPanels {
     pub saving: Vec<String>,
     /// Whether the drain loop is running. One per window, however many sessions there are.
     pub polling: bool,
+}
+
+impl WebPanels {
+    /// This tenant's bundle, or [`BundleState::Unknown`] if it was never asked for.
+    pub fn bundle(&self, app: &str) -> BundleState {
+        self.bundles.get(app).cloned().unwrap_or_default()
+    }
 }

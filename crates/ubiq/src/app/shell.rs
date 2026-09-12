@@ -938,6 +938,7 @@ impl Render for AppState {
         // the update the frame was built inside is done with `AppState` — never from inside one,
         // and never on this thread.
         self.drain_diagram_asks(cx);
+        self.drain_exported_asks(cx);
         tree
     }
 }

@@ -14,6 +14,20 @@ use gpui_component::IconNamed;
 /// An icon Ubiq draws itself.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum UbiqIcon {
+    /// draw an arrow that points at something in the picture
+    AnnotateArrow,
+    /// narrow the picture to a dragged rectangle
+    AnnotateCrop,
+    /// draw freehand over the picture
+    AnnotateDraw,
+    /// draw an ellipse over the picture
+    AnnotateEllipse,
+    /// draw a rectangle over the picture
+    AnnotateRect,
+    /// pick and move an annotation already on the picture — a pointer, not a hand
+    AnnotateSelect,
+    /// place a line of text on the picture
+    AnnotateText,
     /// photograph this window into an editable tab — the picture, not just a frame
     CaptureWindow,
     /// a notification from a connector
@@ -125,6 +139,13 @@ pub enum UbiqIcon {
 impl IconNamed for UbiqIcon {
     fn path(self) -> SharedString {
         SharedString::new_static(match self {
+            Self::AnnotateArrow => "icons/annotate-arrow.svg",
+            Self::AnnotateCrop => "icons/annotate-crop.svg",
+            Self::AnnotateDraw => "icons/annotate-draw.svg",
+            Self::AnnotateEllipse => "icons/annotate-ellipse.svg",
+            Self::AnnotateRect => "icons/annotate-rect.svg",
+            Self::AnnotateSelect => "icons/annotate-select.svg",
+            Self::AnnotateText => "icons/annotate-text.svg",
             Self::CaptureWindow => "icons/capture-window.svg",
             Self::FamilyConnectors => "icons/family-connectors.svg",
             Self::FamilyUbiq => "icons/family-ubiq.svg",
@@ -184,6 +205,13 @@ impl IconNamed for UbiqIcon {
 
 /// Every variant, so a test can assert each one still has a file behind it.
 pub const ALL: &[UbiqIcon] = &[
+    UbiqIcon::AnnotateArrow,
+    UbiqIcon::AnnotateCrop,
+    UbiqIcon::AnnotateDraw,
+    UbiqIcon::AnnotateEllipse,
+    UbiqIcon::AnnotateRect,
+    UbiqIcon::AnnotateSelect,
+    UbiqIcon::AnnotateText,
     UbiqIcon::CaptureWindow,
     UbiqIcon::FamilyConnectors,
     UbiqIcon::FamilyUbiq,
@@ -253,6 +281,13 @@ macro_rules! ours {
 /// `gpui-component` ships.
 pub fn bytes(path: &str) -> Option<&'static [u8]> {
     Some(match path {
+        "icons/annotate-arrow.svg" => ours!("annotate-arrow"),
+        "icons/annotate-crop.svg" => ours!("annotate-crop"),
+        "icons/annotate-draw.svg" => ours!("annotate-draw"),
+        "icons/annotate-ellipse.svg" => ours!("annotate-ellipse"),
+        "icons/annotate-rect.svg" => ours!("annotate-rect"),
+        "icons/annotate-select.svg" => ours!("annotate-select"),
+        "icons/annotate-text.svg" => ours!("annotate-text"),
         "icons/capture-window.svg" => ours!("capture-window"),
         "icons/family-connectors.svg" => ours!("family-connectors"),
         "icons/family-ubiq.svg" => ours!("family-ubiq"),

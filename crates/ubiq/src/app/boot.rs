@@ -50,6 +50,13 @@ impl AppState {
         // for a rename — so this placeholder is only ever seen ahead of that.
         let file_name = cx.new(|cx| InputState::new(window, cx).placeholder("name\u{2026}"));
 
+        // The capture toolbar's stroke, starting on the first colour the editor suggests.
+        let image_stroke = cx.new(|cx| {
+            ColorPickerState::new(window, cx).default_value(
+                crate::ui::viewer::image_edit::stroke_hsla(crate::state::image_edit::STROKES[0]),
+            )
+        });
+
         let git_search = cx.new(|cx| {
             InputState::new(window, cx).placeholder("Search message, author or SHA\u{2026}")
         });
@@ -594,6 +601,19 @@ impl AppState {
             },
         ));
 
+        // The stroke picker answers here rather than at the toolbar, because the popover outlives
+        // the click that opened it: the colour lands on whichever capture is active when it does.
+        subscriptions.push(cx.subscribe_in(
+            &image_stroke,
+            window,
+            |this, _picker, event: &ColorPickerEvent, _window, cx| {
+                let ColorPickerEvent::Change(Some(colour)) = event else {
+                    return;
+                };
+                this.set_active_image_stroke(*colour, cx);
+            },
+        ));
+
         // The titlebar's field is the same contract, one level up: Enter is the only thing it
         // does, and what it does is hand off to the search panel — see `submit_header_search`.
         subscriptions.push(cx.subscribe_in(
@@ -963,6 +983,7 @@ impl AppState {
             pending_files: Vec::new(),
             diagrams: RefCell::new(HashMap::new()),
             diagram_asks: RefCell::new(Vec::new()),
+            exported_asks: RefCell::new(Vec::new()),
             viewports: RefCell::new(HashMap::new()),
             viewport_drag: RefCell::new(None),
             vim: VimState::default(),
@@ -974,6 +995,7 @@ impl AppState {
             composer_drag: None,
             file_filter,
             file_name,
+            image_stroke,
             git_search,
             git_message,
             picker_filter,

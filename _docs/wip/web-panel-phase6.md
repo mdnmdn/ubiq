@@ -3,11 +3,11 @@ id: wip-web-panel-phase6
 title: Web panels — the embedded browser
 kind: wip
 status: current
-summary: Phase 6 of the web-panel proposal as built — the container moves from an external browser into the window through `gpui-wry` on macOS and Windows, `Edit` becomes a fourth `ViewLayout` (reversing phase 5's call), a mark-and-sweep module keeps the child webview clipped to its own dock tab, sessions are settled every render rather than on a click, saving reaches the file through the existing `⌘S` path with a new `Save` bridge frame, and the explorer gains a `New Excalidraw` row. Every platform without `gpui-wry`'s finished Unix path keeps phase 5's external browser.
+summary: Phase 6 of the web-panel proposal as built — the container moves from an external browser into the window through `gpui-wry` on macOS and Windows, `Edit` becomes a fourth `ViewLayout` (reversing phase 5's call), a mark-and-sweep module keeps the child webview clipped to its own dock tab, sessions are settled every render rather than on a click, saving reaches the file through the existing `⌘S` path with a new `Save` bridge frame, and the explorer gains a `New Excalidraw` row. Every platform without `gpui-wry`'s finished Unix path keeps phase 5's external browser. A later addition, draw.io, is the second tenant on this same axis — it offers the same `[Edit, Preview]` layouts, the explorer gains a matching `New draw.io` row, and a new `Preview { svg }` bridge frame gives its Preview position a picture for a format the interface has no native renderer for.
 read_when: you are touching the embedded webview, the mark-and-sweep in `ui/web_view.rs`, the `Editor` `ViewLayout`, the web panel's save path, or the explorer's `New Excalidraw` row
 updated: 2026-09-11
 verified: 2026-09-11
-code_anchors: [crates/ubiq/Cargo.toml, crates/ubiq-app/Cargo.toml, crates/ubiq/src/state/editor.rs, crates/ubiq/src/ui/web_view.rs, crates/ubiq/src/ui/viewer/web.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/app/editor.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/web_export/bridge.rs, crates/ubiq/src/app/explorer.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/workbench.rs]
+code_anchors: [crates/ubiq/Cargo.toml, crates/ubiq-app/Cargo.toml, crates/ubiq/src/state/editor.rs, crates/ubiq/src/ui/web_view.rs, crates/ubiq/src/ui/viewer/web.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/app/editor.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/web_export/bridge.rs, crates/ubiq/src/app/explorer.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/menu.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/ui/viewer/diagram.rs]
 depends_on: [wip-web-panel-phase2, wip-web-panel-phase3, wip-web-panel-phase45, feat-workbench, tech-decisions]
 ---
 
@@ -47,15 +47,17 @@ it named as the alternative and phase 5 declined.
 `ViewerKind::layouts() -> &'static [ViewLayout]` and `ViewerKind::offers(layout)`.
 **Excalidraw's toggle is `[Edit, Preview]` and nothing else** — no Source, no Split: its document is
 JSON nobody edits by hand, and reading the raw bytes is what the general-purpose editor is for.
-Markdown and Mermaid keep all three. `OpenFile::set_layout` now refuses a layout the viewer does not
+Markdown and Mermaid keep all three. draw.io's `ViewerKind::Drawio`, added when that tenant landed,
+offers the identical `[Edit, Preview]` pair — its document is XML nobody edits by hand either, for
+the same reason. `OpenFile::set_layout` now refuses a layout the viewer does not
 offer, which is also the coercion for an arrangement saved by a build whose toggle held a different
-set of positions. `ViewerKind::shows_buffer` is `false` for Excalidraw in every layout, because the
-webview takes the keyboard itself once it is open. `ViewLayout::all()` survives as "every variant,
-for a test that has to cover them all" — not what a header draws, which is `ViewerKind::layouts()`.
-The `edit_action` pill that used to sit beside the three-way toggle in `ui/viewer/mod.rs` is gone;
-the header draws whatever `file.viewer.layouts()` returns. The sink fixture page keeps its own three
-positions (`SINK_LAYOUTS` in `ui/sink/docs.rs`), because it hosts no session and has no fourth
-layout to offer.
+set of positions. `ViewerKind::shows_buffer` is `false` for Excalidraw and draw.io in every layout,
+because the webview takes the keyboard itself once it is open. `ViewLayout::all()` survives as
+"every variant, for a test that has to cover them all" — not what a header draws, which is
+`ViewerKind::layouts()`. The `edit_action` pill that used to sit beside the three-way toggle in
+`ui/viewer/mod.rs` is gone; the header draws whatever `file.viewer.layouts()` returns. The sink
+fixture page keeps its own three positions (`SINK_LAYOUTS` in `ui/sink/docs.rs`), because it hosts no
+session and has no fourth layout to offer.
 
 ## The mark and sweep
 
@@ -128,7 +130,23 @@ save path and no new transport message**: the version check, the dirty dot and
 the layout the file *took* into the panel rather than the one asked for, since a viewer can refuse a
 layout it does not offer and the panel must agree with what actually settled.
 
-## A `New Excalidraw` row on the explorer
+## A second tenant with no native painter draws its Preview from an export
+
+Excalidraw's Preview position is the native scene painter, so a `.excalidraw` file costs no download
+until `Edit` is chosen. draw.io has no such painter in the interface, so its Preview needs a picture
+from somewhere else: a new bridge frame, `FromWeb::Preview { svg }` in
+`crates/ubiq/src/web_export/bridge.rs`, carries the SVG the editor itself exports.
+
+`crates/ubiq/src/state/diagrams.rs` files it in a second, read-only tier beside the Mermaid renderer's
+— `key_for(EXPORTED, …)`, `resolve_exported`, `keep_exported` — in the same workarea directory, so a
+preview survives a restart without the panel being reopened. `app/web_panel.rs` gained
+`exported_preview`, `drain_exported_asks` and `keep_exported`, mirroring the diagram-cache trio; and
+`ui/viewer/diagram.rs` gained `exported`, drawn beside `render` for the Preview position of a
+`ViewerKind::Drawio` tab. Nothing in the interface *renders* a `.drawio` file — a document never
+opened in `Edit` reads "Open the editor once to draw this." rather than a picture, since exporting
+one is the editor's own act and nothing else in Ubiq can perform it.
+
+## A `New Excalidraw` row on the explorer, and `New draw.io` beside it
 
 `ExplorerAction::NewExcalidraw` sits beside `NewFile` and `NewFolder` in both context-menu groups in
 `crates/ubiq/src/state/explorer/menu.rs`. `FileDialog::New` gains `ext: Option<String>`, and
@@ -137,6 +155,12 @@ when it does not already end with it — forced rather than merely suggested, so
 suffix cannot turn a drawing into a plain text file. The name field is seeded `drawing.excalidraw`.
 The host still creates the file empty (`PathOp::Create` always writes `b""`), which is what an empty
 Excalidraw scene is.
+
+`ExplorerAction::NewDrawio` is the same row for the second tenant, seeded `diagram.drawio`, and
+`ui/file_dialog.rs`'s modal title follows suit: it is keyed off the extension being created —
+`New Excalidraw`, `New draw.io`, or `New file` for any other one — rather than off a flag that only
+said some extension was set, which is what lets a second forced extension add a second title with no
+new branch in the dialog's own logic.
 
 ## The webcomponent evaluation
 
@@ -187,6 +211,10 @@ native — `ui/viewer/web.rs`'s spinner — rather than drawn inside the page.
   What is verified is `cargo test -p ubiq` (every suite), `cargo clippy -p ubiq --all-targets -- -D
   warnings`, `cargo fmt --all`, `cargo check -p ubiq --all-targets` and `cargo check -p ubiq
   --release --lib`.
+- **The embedded draw.io was never seen to boot either**, and its `Preview { svg }` round trip is
+  verified only at the bridge and the route, not by an editor actually exporting one: no session was
+  opened by hand, no diagram was drawn, and no export landed in the disk tier a real restart would
+  read back.
 - **`just check` and `just verify` still cannot be run here** — the `foundation-models` Swift build
   script fails under `sandbox-exec`, as phase 5 recorded.
 - **The mark-and-sweep depends on GPUI prepainting a later root sibling after every earlier

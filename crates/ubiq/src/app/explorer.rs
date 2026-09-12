@@ -590,14 +590,19 @@ impl AppState {
                 cx.notify();
             }
             ExplorerAction::CollapseAll => self.collapse_explorer(cx),
-            ExplorerAction::NewFile | ExplorerAction::NewFolder | ExplorerAction::NewExcalidraw => {
+            ExplorerAction::NewFile
+            | ExplorerAction::NewFolder
+            | ExplorerAction::NewExcalidraw
+            | ExplorerAction::NewDrawio => {
                 let dir = entry.action == ExplorerAction::NewFolder;
                 let ext = match entry.action {
                     ExplorerAction::NewExcalidraw => Some("excalidraw".to_string()),
+                    ExplorerAction::NewDrawio => Some("drawio".to_string()),
                     _ => None,
                 };
                 let seed = match entry.action {
                     ExplorerAction::NewExcalidraw => "drawing.excalidraw",
+                    ExplorerAction::NewDrawio => "diagram.drawio",
                     _ => "",
                 };
                 let parent = self

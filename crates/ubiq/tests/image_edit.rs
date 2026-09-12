@@ -216,15 +216,34 @@ fn an_untitled_capture_is_dirty_and_editable() {
     assert!(tab.ensure_image_edit().is_some());
 }
 
-/// A PNG from the explorer stays read-only: never editable, never a scene.
+/// A PNG from the explorer opens as a scene, in View: the tools are a press away, the tab is
+/// clean until one of them lands, and the version it was read at travels into the scene so the
+/// flatten can be written back over it.
 #[test]
-fn an_explorer_png_stays_read_only() {
+fn an_explorer_png_opens_editable_in_view() {
     let mut tab = OpenFile::opening(
         "shots/a.png",
         ubiq::state::editor::Subject::File,
         ViewLayout::Preview,
     );
-    tab.set_bytes(png(12, 10, [255, 255, 255, 255]));
+    tab.set_image(png(12, 10, [255, 255, 255, 255]), Some(version()));
+    assert!(tab.editable_image());
+    assert!(!tab.image_editing, "a file from the explorer opens in View");
+    assert!(!tab.dirty());
+    assert!(tab.savable(), "the read's version came with it");
+    let edit = tab.ensure_image_edit().expect("a scene over the file");
+    assert_eq!((edit.width, edit.height), (12, 10));
+}
+
+/// Bytes with no decodable picture in them stay read-only, and say so by having no toggle.
+#[test]
+fn an_undecodable_image_stays_read_only() {
+    let mut tab = OpenFile::opening(
+        "shots/a.png",
+        ubiq::state::editor::Subject::File,
+        ViewLayout::Preview,
+    );
+    tab.set_image(b"not a picture".to_vec(), Some(version()));
     assert!(!tab.editable_image());
     assert!(tab.ensure_image_edit().is_none());
 }

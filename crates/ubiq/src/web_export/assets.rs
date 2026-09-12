@@ -129,3 +129,41 @@ pub fn excalidraw_app_js() -> Asset {
         gzip: true,
     }
 }
+
+/// The draw.io chrome. Unlike Excalidraw's it is static bytes: this tenant frames the mirrored
+/// webapp rather than importing modules, so it needs no import map and therefore no nonce.
+#[cfg(debug_assertions)]
+pub fn drawio_index_html() -> Asset {
+    Asset {
+        bytes: include_str!("../../assets/web/drawio/index.html").as_bytes(),
+        content_type: "text/html; charset=utf-8",
+        gzip: false,
+    }
+}
+
+#[cfg(not(debug_assertions))]
+pub fn drawio_index_html() -> Asset {
+    Asset {
+        bytes: include_bytes!(concat!(env!("OUT_DIR"), "/web-drawio-index.html.gz")),
+        content_type: "text/html; charset=utf-8",
+        gzip: true,
+    }
+}
+
+#[cfg(debug_assertions)]
+pub fn drawio_app_js() -> Asset {
+    Asset {
+        bytes: include_str!("../../assets/web/drawio/app.js").as_bytes(),
+        content_type: "text/javascript; charset=utf-8",
+        gzip: false,
+    }
+}
+
+#[cfg(not(debug_assertions))]
+pub fn drawio_app_js() -> Asset {
+    Asset {
+        bytes: include_bytes!(concat!(env!("OUT_DIR"), "/web-drawio-app.js.gz")),
+        content_type: "text/javascript; charset=utf-8",
+        gzip: true,
+    }
+}

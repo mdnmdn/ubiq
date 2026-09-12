@@ -117,6 +117,8 @@ pub enum ViewerKind {
     Mermaid,
     /// A scene drawn natively from its own JSON.
     Excalidraw,
+    /// A diagram authored in draw.io's own editor.
+    Drawio,
     /// The image itself.
     Image,
 }
@@ -128,6 +130,7 @@ impl ViewerKind {
             "md" | "markdown" => ViewerKind::Markdown,
             "mmd" | "mermaid" => ViewerKind::Mermaid,
             "excalidraw" => ViewerKind::Excalidraw,
+            "drawio" => ViewerKind::Drawio,
             "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp" | "tif" | "tiff" | "ico" => {
                 ViewerKind::Image
             }
@@ -136,38 +139,42 @@ impl ViewerKind {
     }
 
     /// Whether the viewer has a source to show beside what it drew. The editor is only ever
-    /// source and an image has none at all; an Excalidraw scene is a serialised document, but it
-    /// is still text worth reading raw, so it gets the same source/preview/split toggle as
-    /// Markdown and Mermaid.
+    /// source and an image has none at all; an Excalidraw or draw.io scene is a serialised
+    /// document, but it is still text worth reading raw, so it gets the same source/preview/split
+    /// toggle as Markdown and Mermaid.
     pub fn has_preview(self) -> bool {
         matches!(
             self,
-            ViewerKind::Markdown | ViewerKind::Mermaid | ViewerKind::Excalidraw
+            ViewerKind::Markdown
+                | ViewerKind::Mermaid
+                | ViewerKind::Excalidraw
+                | ViewerKind::Drawio
         )
     }
 
     /// Whether this viewer draws the buffer itself for `layout` — the only thing in a tab worth
     /// handing the keyboard to today. The editor always does; Image draws through its panel, so
     /// it never does; Markdown and Mermaid only do in the half of their toggle that shows source,
-    /// and Excalidraw never does, because its own editor is a webview that takes the keyboard
-    /// itself.
+    /// and Excalidraw and draw.io never do, because their own editor is a webview that takes the
+    /// keyboard itself.
     pub fn shows_buffer(self, layout: ViewLayout) -> bool {
         match self {
             ViewerKind::Editor => true,
-            ViewerKind::Image | ViewerKind::Excalidraw => false,
+            ViewerKind::Image | ViewerKind::Excalidraw | ViewerKind::Drawio => false,
             ViewerKind::Markdown | ViewerKind::Mermaid => layout.shows_source(),
         }
     }
 
     /// The layouts this viewer's header offers, in the order it draws them.
     ///
-    /// **Excalidraw is the one viewer with no source and no split.** Its document is JSON nobody
-    /// edits by hand, and it has a real editor of its own — so the toggle is `Editor` and
-    /// `Preview`, and reading the raw bytes is what the general-purpose editor is for. Markdown
-    /// and Mermaid keep all three, because their source *is* the thing an author writes.
+    /// **Excalidraw and draw.io are the viewers with no source and no split.** Their documents
+    /// are JSON or XML nobody edits by hand, and each has a real editor of its own — so the
+    /// toggle is `Edit` and `Preview`, and reading the raw bytes is what the general-purpose
+    /// editor is for. Markdown and Mermaid keep all three, because their source *is* the thing an
+    /// author writes.
     pub fn layouts(self) -> &'static [ViewLayout] {
         match self {
-            ViewerKind::Excalidraw => &[ViewLayout::Edit, ViewLayout::Preview],
+            ViewerKind::Excalidraw | ViewerKind::Drawio => &[ViewLayout::Edit, ViewLayout::Preview],
             ViewerKind::Markdown | ViewerKind::Mermaid => {
                 &[ViewLayout::Source, ViewLayout::Preview, ViewLayout::Split]
             }
@@ -371,6 +378,10 @@ pub struct OpenFile {
     /// Whether the YAML frontmatter disclosure is open. Per-tab UI state that defaults to closed
     /// so newly opened documents start clean.
     pub frontmatter_open: bool,
+    /// Whether an image tab is showing its annotation tools. Per-tab UI state, not written down:
+    /// a capture opens in Edit, a picture from the explorer opens in View and the header's toggle
+    /// is what moves between them.
+    pub image_editing: bool,
     /// Cached rather than compared every frame: a per-frame comparison is the file's length times
     /// the tabs open times the frame rate.
     dirty: bool,
@@ -419,6 +430,7 @@ impl OpenFile {
             guest: false,
             untitled: false,
             frontmatter_open: false,
+            image_editing: false,
             dirty: false,
             _change: None,
             restore: None,
@@ -503,6 +515,25 @@ impl OpenFile {
         self._change = None;
     }
 
+    /// Give an image tab the file's bytes, as a scene when they decode into one.
+    ///
+    /// Every picture the annotation editor can read opens with its tools a press away, so the
+    /// header's View/Edit toggle is offered on a file from the explorer and not only on a
+    /// capture. The version travels into the scene, because a save writes the flatten back over
+    /// the file it came from and needs what any other write needs. Bytes with no decodable
+    /// picture in them — an SVG, a format this build does not decode — stay read-only bytes.
+    pub fn set_image(&mut self, bytes: Vec<u8>, version: Option<FileVersion>) {
+        match ImageEdit::new(&bytes, version) {
+            Some(edit) => {
+                self.body = FileBody::ImageEdit(Box::new(edit));
+                self.save = SaveState::Idle;
+                self.dirty = false;
+                self._change = None;
+            }
+            None => self.set_bytes(bytes),
+        }
+    }
+
     /// Give the tab bytes to draw rather than a buffer to edit.
     ///
     /// This is what a file whose viewer is a decoder gets instead of [`OpenFile::set_binary`]: an
@@ -531,18 +562,21 @@ impl OpenFile {
                 self.body = FileBody::ImageEdit(Box::new(edit));
                 self.save = SaveState::Idle;
                 self.dirty = true;
+                self.image_editing = true;
                 self._change = None;
             }
             None => self.set_bytes_untitled(bytes),
         }
     }
 
-    /// Whether this tab is a capture the editor owns: untitled, image-viewed, and holding bytes
-    /// or their scene. A PNG from the explorer is none of the first, so it stays read-only.
+    /// Whether this tab holds a picture the annotation editor can work on — a capture, or any
+    /// image whose bytes decoded into a scene. Bytes that never decoded are read-only, and say so
+    /// by having no toggle at all.
     pub fn editable_image(&self) -> bool {
-        self.untitled
-            && self.viewer.takes_panel_focus()
-            && matches!(self.body, FileBody::Bytes(_) | FileBody::ImageEdit(_))
+        matches!(self.body, FileBody::ImageEdit(_))
+            || (self.untitled
+                && self.viewer.takes_panel_focus()
+                && matches!(self.body, FileBody::Bytes(_)))
     }
 
     /// The capture scene, upgrading untitled bytes to one on first use. A capture tab the
@@ -925,5 +959,30 @@ fn extension(path: &str) -> String {
         // A dotfile with no extension — `.gitignore` — is a name, not an extension.
         Some((stem, ext)) if !stem.is_empty() => ext.to_lowercase(),
         _ => String::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// draw.io gets the same viewer, toggle and layouts as Excalidraw — the second tenant with a
+    /// real editor of its own and no source anyone hand-edits.
+    #[test]
+    fn drawio_is_wired_like_excalidraw() {
+        assert_eq!(ViewerKind::of("diagram.drawio"), ViewerKind::Drawio);
+        assert!(ViewerKind::Drawio.has_preview());
+        assert_eq!(
+            ViewerKind::Drawio.shows_buffer(ViewLayout::Preview),
+            ViewerKind::Excalidraw.shows_buffer(ViewLayout::Preview)
+        );
+        assert_eq!(
+            ViewerKind::Drawio.layouts(),
+            ViewerKind::Excalidraw.layouts()
+        );
+        assert_eq!(
+            ViewerKind::Drawio.takes_panel_focus(),
+            ViewerKind::Excalidraw.takes_panel_focus()
+        );
     }
 }

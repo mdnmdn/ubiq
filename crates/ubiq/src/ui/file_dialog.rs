@@ -28,8 +28,10 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 true => "the project's top level".to_string(),
                 false => parent,
             };
-            let title = match (dir, &ext) {
-                (_, Some(_)) => "New Excalidraw",
+            let title = match (dir, ext.as_deref()) {
+                (_, Some("excalidraw")) => "New Excalidraw",
+                (_, Some("drawio")) => "New draw.io",
+                (_, Some(_)) => "New file",
                 (true, None) => "New folder",
                 (false, None) => "New file",
             };
