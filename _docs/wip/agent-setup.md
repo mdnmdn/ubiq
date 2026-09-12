@@ -5,8 +5,8 @@ kind: wip
 status: draft
 summary: The protocol, the library work and the order of packages behind a real conversation with a composed harness — what has landed, and the honest inventory of what today's library cannot yet deliver.
 read_when: you are picking up the next agent-integration package, or judging whether a proposed conversation message belongs on the wire
-updated: 2026-09-10
-verified: 2026-09-10
+updated: 2026-09-12
+verified: 2026-09-12
 code_anchors: [crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/coordinator.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/harness/claude.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/model.rs, crates/agent-manager/src/io/jsonl.rs, crates/ubiq-proto/src/work.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/state/conversation.rs, crates/agent-manager/src/profile.rs]
 depends_on: [tech-agent-manager, feat-workbench, feat-chat]
 review_cycle: monthly
@@ -34,7 +34,9 @@ remains is the thinking level and permissions (P7).
 `seed_zero_config_login` (`crates/agent-manager/src/provision.rs`) copies the harness's own
 login files from the real `$HOME` into the run directory whenever no account is named, and — for a
 harness whose login is not a `$HOME` file at all, Claude Code's Keychain-held OAuth token — falls
-back to `Harness::ambient_login()` when that copy lands nothing. The "Not logged in" transcript that
+back to `Harness::ambient_login()` when that copy lands no credential. (Until 2026-09-12 the check
+was "lands nothing", which the identity companion `~/.claude.json` satisfied on its own, so the
+Keychain tier never ran on macOS.) The "Not logged in" transcript that
 prompted the note was a **stale token**, not missing wiring. Account selection was still worth
 building — but for owning several identities, not for repairing authentication.
 

@@ -5,8 +5,8 @@ kind: tech
 status: draft
 summary: What the embedded harness-management library owns, what Ubiq owns, how the application consumes it, and the rule that keeps the two from growing into each other.
 read_when: you are about to write code that launches a harness, drives one as a conversation, names a harness config path, or touches accounts, skills or MCP servers
-updated: 2026-09-10
-verified: 2026-09-10
+updated: 2026-09-12
+verified: 2026-09-12
 code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/credentials/mod.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/mod.rs, crates/agent-manager/src/io/acp.rs, crates/agent-manager/src/io/acp_client.rs, crates/ubiq-host/src/mcp/mod.rs]
 depends_on: [tech-structure]
 review_cycle: monthly
@@ -141,12 +141,21 @@ differs between them beyond the mode is the run directory's name and the isolati
 finds no login named, and tries two tiers in order: first, copy the harness's own
 `Harness::config_anchor().login_seed` files out of the real `$HOME` — correct for every harness
 whose credential is a plain file, since that is the same file the harness itself reads. If that
-copy places nothing, it falls back to `Harness::ambient_login()`, a harness's own account of its
-live login when that login is **not** a `$HOME` file the first tier could ever find — Claude Code
-overrides it to read the OAuth blob the macOS Keychain holds, which is where it actually keeps a
-session rather than in `~/.claude/.credentials.json`. Either tier is skipped once a login has
+copy places no **credential**, it falls back to `Harness::ambient_login()`, a harness's own account
+of its live login when that login is **not** a `$HOME` file the first tier could ever find — Claude
+Code overrides it to read the OAuth blob the macOS Keychain holds, which is where it actually keeps
+a session rather than in `~/.claude/.credentials.json`. Either tier is skipped once a login has
 already landed from an account home or a profile overlay, and `ambient_login`'s default is `None`,
 so a harness that keeps no such out-of-band login is unaffected.
+
+**Only a `SeedFile::credential` counts as a login having landed** — in both tier checks, in
+`account_login_origin`, and in Ubiq's own `Agents::has_login`. A login seed also names identity and
+onboarding companions (Claude Code's `.claude.json`), and on the machine this matters for those
+companions are exactly the files that *are* present: a macOS user has `~/.claude.json` and no
+`~/.claude/.credentials.json`, because the token is in the Keychain. Counting a companion as a
+login makes tier 1 return before the Keychain is ever read, and the run starts with an
+authenticated identity and no token — which the harness reports as a plain login failure, with
+`has_login` suppressing the "not logged in" diagnostic that would have named it.
 
 **A login the run refreshes is written back to where it was seeded from, at teardown.** An OAuth
 refresh rotates the refresh token, so once a harness rewrites the copy in its run directory the

@@ -1263,9 +1263,17 @@ impl Agents {
     /// so a login held in the operating system's keychain leaves nothing behind and the run starts
     /// unauthenticated. A harness that declares no login files at all is not answerable this way,
     /// so it counts as fine.
+    ///
+    /// Only the credential answers the question. A login's identity companion (Claude Code's
+    /// `.claude.json`) is seeded from the real home whether or not the token was, so counting it
+    /// would report a keychain-only machine as logged in and swallow the warning.
     fn has_login(harness: &dyn harness::Harness, dir: &Path) -> bool {
         let seed = harness.config_anchor().login_seed;
-        seed.is_empty() || seed.iter().any(|file| dir.join(&file.dst).exists())
+        let mut creds = seed.iter().filter(|file| file.credential).peekable();
+        if creds.peek().is_none() {
+            return true;
+        }
+        creds.any(|file| dir.join(&file.dst).exists())
     }
 
     /// Write down the harness's own id for a conversation, while it is still

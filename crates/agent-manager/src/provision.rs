@@ -204,7 +204,15 @@ fn seed_zero_config_login(
         return Ok(None);
     }
     // A login was already materialized (account home or overlay) — respect it.
-    if anchor.login_seed.iter().any(|s| dir.join(&s.dst).exists()) {
+    // Only a *credential* counts: the identity companions (Claude's
+    // `.claude.json`) are onboarding state, and letting one of those stand in
+    // for a login is how a keychain-only machine ends up with an authenticated
+    // identity and no token.
+    if anchor
+        .login_seed
+        .iter()
+        .any(|s| s.credential && dir.join(&s.dst).exists())
+    {
         return Ok(None);
     }
     // Env/key/helper accounts manage their own auth; don't seed a stale OAuth login.
@@ -218,11 +226,19 @@ fn seed_zero_config_login(
     if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
         let home = Source::Dir(home);
         crate::harness::seed_login(dir, &home, &anchor.login_seed)?;
-        if anchor.login_seed.iter().any(|s| dir.join(&s.dst).exists()) {
+        // Again, only the credential settles it. On macOS Claude Code keeps its
+        // session in the Keychain, so `~/.claude/.credentials.json` is absent
+        // while `~/.claude.json` is not: counting the companion here would
+        // return before tier 2 ever reads the Keychain.
+        if anchor
+            .login_seed
+            .iter()
+            .any(|s| s.credential && dir.join(&s.dst).exists())
+        {
             return Ok(Some(home));
         }
     }
-    // Tier 2: no file landed — ask the harness for its own account of the
+    // Tier 2: no credential landed — ask the harness for its own account of the
     // live login (e.g. Claude Code's OS-Keychain session).
     if let Some(ambient) = harness.ambient_login() {
         crate::harness::seed_login(dir, &ambient, &anchor.login_seed)?;
@@ -237,10 +253,16 @@ fn seed_zero_config_login(
 /// `spec.account_login`, else the account's `home`), so it is recognised here
 /// by its result: the login files are already in `dir` before the zero-config
 /// fallback runs. A profile overlay can place the same files and names no
-/// origin — those yield `None` rather than a guess at the account's.
+/// origin — those yield `None` rather than a guess at the account's. Only a
+/// [`SeedFile::credential`] counts, since the credential is the only thing
+/// [`crate::harness::harvest_login`] ever writes back.
 fn account_login_origin(harness: &dyn Harness, spec: &RunSpec, dir: &Path) -> Option<Source> {
     let anchor = harness.config_anchor();
-    if !anchor.login_seed.iter().any(|s| dir.join(&s.dst).exists()) {
+    if !anchor
+        .login_seed
+        .iter()
+        .any(|s| s.credential && dir.join(&s.dst).exists())
+    {
         return None;
     }
     spec.account_login
@@ -315,10 +337,18 @@ impl Harness for AmbientDummyHarness {
     fn config_anchor(&self) -> crate::harness::ConfigAnchor {
         crate::harness::ConfigAnchor {
             levers: Vec::new(),
-            login_seed: vec![crate::harness::SeedFile::new(
-                "am-test-ambient-login-src-2f0c1e6a.json",
-                "ambient-login-dst.json",
-            )],
+            login_seed: vec![
+                crate::harness::SeedFile::credential(
+                    "am-test-ambient-login-src-2f0c1e6a.json",
+                    "ambient-login-dst.json",
+                ),
+                // The identity companion, mirroring Claude's `.claude.json`:
+                // seeded alongside the credential but never a login by itself.
+                crate::harness::SeedFile::new(
+                    "am-test-ambient-identity-src-2f0c1e6a.json",
+                    "ambient-identity-dst.json",
+                ),
+            ],
             requires_home_relocation: false,
         }
     }
@@ -388,6 +418,36 @@ mod tests {
             std::fs::read(&dst).unwrap(),
             b"REAL-LOGIN",
             "a pre-existing file must not be overwritten by ambient_login"
+        );
+    }
+
+    /// The regression: only the login's *identity companion* landed (tier 1
+    /// copied `~/.claude.json`, because the credential itself lives in the
+    /// macOS Keychain and no `~/.claude/.credentials.json` exists). That is
+    /// not a login, so tier 2 must still be consulted.
+    #[test]
+    fn seed_zero_config_login_still_asks_ambient_when_only_the_identity_landed() {
+        let config_dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(
+            config_dir.path().join("ambient-identity-dst.json"),
+            b"IDENTITY-ONLY",
+        )
+        .unwrap();
+        let spec = RunSpec::new("ambient-dummy".to_string(), PathBuf::from("."));
+        let harness = AmbientDummyHarness {
+            ambient: Some(Source::Files(vec![(
+                PathBuf::from("am-test-ambient-login-src-2f0c1e6a.json"),
+                b"AMBIENT-LOGIN".to_vec(),
+            )])),
+        };
+
+        seed_zero_config_login(&harness, &spec, config_dir.path()).unwrap();
+
+        let dst = config_dir.path().join("ambient-login-dst.json");
+        assert_eq!(
+            std::fs::read(&dst).unwrap(),
+            b"AMBIENT-LOGIN",
+            "an identity companion must not stand in for the credential"
         );
     }
 
