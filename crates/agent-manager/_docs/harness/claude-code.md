@@ -416,10 +416,11 @@ plus `ANTHROPIC_API_KEY` is the supported pattern.
   is a hard error ("A keychain cannot be found"), and login fails without
   writing a credential file. The working approach: **deny keychain access at the
   sandbox layer** using `am account login <id> --harness claude-code --isolate`.
-  isol8's deny-by-default sandbox (Seatbelt on macOS) makes the keychain
+  isol8's deny-by-default sandbox (Seatbelt on macOS, hook DLL on Windows) makes the keychain
   *inaccessible* (not missing), which triggers Claude's file-fallback path and
   writes `.credentials.json` cleanly. Use bare `--isolate` for the default
-  isol8 `base` profile, or `--isolate=<name>` to select a named policy. Verify
+  layer set (`macos/system-runtime` plus the OAuth browser layers on macOS,
+  `windows/system-runtime` on Windows), or `--isolate=<name>` to select a named policy. Verify
   post-capture that `$HOME/.claude/.credentials.json` exists in the account home.
 - **Default backend / observed:** macOS Keychain service `Claude Code-credentials`
   (account attribute = `$USER`). The on-disk `~/.claude/.credentials.json` is

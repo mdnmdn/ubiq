@@ -610,6 +610,13 @@ pub fn login_confined(
                     .push("integrations/launch-services".to_string());
                 cfg.default_profiles
                     .push("integrations/browser-native-messaging".to_string());
+            } else if isol8::Platform::current() == isol8::Platform::Windows {
+                // Nothing to add: `builtin_defaults` already carries
+                // `windows/system-runtime`, and the macOS OAuth layers would
+                // only contribute macOS paths here. The hook backend is
+                // path-only, so no credential API is denied by this policy —
+                // a Windows login capture rests on the relocated-HOME
+                // fallback, the same as the plain path.
             }
         }
     }
@@ -642,13 +649,21 @@ const WELL_KNOWN_RUNTIME_ROOTS: &[&str] = &[
 
 /// The real-home paths a login has to read to run at all.
 ///
+/// Shared with the CLI's hand-rolled login sandbox (`cli::account::login`),
+/// which cannot use [`login_confined`] — that returns a [`Confined`] for a
+/// caller-owned terminal, while the CLI lets isol8 own the spawn.
+///
 /// A login's `$HOME` is the capture directory, and isol8 auto-grants nothing from the real
 /// home when the home is replaced — so a harness that is not a self-contained binary in a
 /// directory this policy already names cannot even start. `confine_executable` grants the
 /// script and its npm package but never reads the shebang, so the interpreter is ours to
 /// find. Every entry is guarded by existence, so a machine without a given runtime manager
 /// pays nothing.
-fn login_runtime_grants(program: &Path) -> Vec<PathBuf> {
+///
+/// On Windows the same shape holds with Windows content: the realpath chain
+/// yields the install directory, and the well-known roots simply do not exist
+/// and contribute nothing.
+pub(crate) fn login_runtime_grants(program: &Path) -> Vec<PathBuf> {
     let mut grants: Vec<PathBuf> = Vec::new();
     // Canonicalised before it becomes a grant. A relative symlink target joins as
     // `<dir>/../lib/...`, which `is_dir` happily accepts — but isol8 renders a grant as a
@@ -765,9 +780,12 @@ pub fn describe(confined: &Confined) -> Result<isol8::DryRun> {
 /// `execve`s in place — the same thing isol8 does internally — so the harness
 /// is still one process, whatever is on its descriptors. Linux has no
 /// equivalent: Landlock is applied inside the target process between `fork`
-/// and `exec`, and no rendered form of it exists to hand anyone, so this
-/// errors there until isol8 grows the seam
-/// (`refs/isol8-pty-seam-update.md`).
+/// and `exec`, and no rendered form of it exists to hand anyone. Windows is
+/// confined the same way it is spawned — suspended `CreateProcessW` plus the
+/// hook DLL — so a caller-owned ConPTY is equally out of reach: isol8
+/// (v0.4.0) offers inherited stdio only, no ConPTY seam. Both error below
+/// until isol8 grows the seam (`refs/isol8-pty-seam-update.md` for unix;
+/// ConPTY is separate work).
 pub fn confined_launch(confined: &Confined) -> Result<Launch> {
     // Rendering the policy ourselves bypasses the guard `isol8::Sandbox::spawn`
     // applies, so it is applied here: a sandbox cannot nest, and the honest
@@ -795,6 +813,15 @@ pub fn confined_launch(confined: &Confined) -> Result<Launch> {
             env_remove: Vec::new(),
             env_clear: true,
         });
+    }
+
+    if cfg!(target_os = "windows") {
+        return Err(anyhow!(
+            "isolating a run whose terminal the caller owns is not supported on Windows: \
+             isol8 confines a process it creates itself (suspended CreateProcessW plus the \
+             hook DLL) and offers inherited stdio only, with no ConPTY seam. Run without \
+             --isolate, or confine an inherited-stdio run (e.g. `am account login --isolate`)"
+        ));
     }
 
     Err(anyhow!(
@@ -1406,41 +1433,39 @@ mod tests {
     // policy names `~/.cargo` on a machine whose cargo lives elsewhere, and
     // `cargo` fails in a way that looks like a broken toolchain — the
     // variable reaches the run through ENV_PASS and opens no path by itself.
+    //
+    // The roots are absolute on every platform under test (`/opt` is not
+    // absolute on Windows, so the suite would assert on paths the code
+    // correctly refuses).
+    #[cfg(windows)]
+    const TOOLCHAIN_TEST_ROOT: &str = "C:/opt";
+    #[cfg(not(windows))]
+    const TOOLCHAIN_TEST_ROOT: &str = "/opt";
     #[test]
     fn toolchain_env_roots_become_grants() {
+        let cargo = format!("{TOOLCHAIN_TEST_ROOT}/rust/sdk/cargo");
+        let rustup = format!("{TOOLCHAIN_TEST_ROOT}/rust/sdk/rustup");
+        let goroot = format!("{TOOLCHAIN_TEST_ROOT}/go/sdk/1.26.1");
+        let modcache = format!("{TOOLCHAIN_TEST_ROOT}/go/pkg/mod");
         let mut options = IsolateOptions::new("/state");
         options.grant_toolchains(|name| match name {
-            "CARGO_HOME" => Some("/opt/rust/sdk/cargo".into()),
-            "RUSTUP_HOME" => Some("/opt/rust/sdk/rustup".into()),
-            "GOROOT" => Some("/opt/go/sdk/1.26.1".into()),
-            "GOMODCACHE" => Some("/opt/go/pkg/mod".into()),
+            "CARGO_HOME" => Some(cargo.clone().into()),
+            "RUSTUP_HOME" => Some(rustup.clone().into()),
+            "GOROOT" => Some(goroot.clone().into()),
+            "GOMODCACHE" => Some(modcache.clone().into()),
             _ => None,
         });
 
+        assert!(options.extra_rw.contains(&PathBuf::from(&cargo)));
         assert!(
-            options
-                .extra_rw
-                .contains(&PathBuf::from("/opt/rust/sdk/cargo"))
-        );
-        assert!(
-            options
-                .extra_rw
-                .contains(&PathBuf::from("/opt/rust/sdk/rustup")),
+            options.extra_rw.contains(&PathBuf::from(&rustup)),
             "rustup writes its toolchains and downloads: {:?}",
             options.extra_rw
         );
-        assert!(options.extra_rw.contains(&PathBuf::from("/opt/go/pkg/mod")));
+        assert!(options.extra_rw.contains(&PathBuf::from(&modcache)));
         // An SDK tree a build reads and never writes.
-        assert!(
-            options
-                .extra_ro
-                .contains(&PathBuf::from("/opt/go/sdk/1.26.1"))
-        );
-        assert!(
-            !options
-                .extra_rw
-                .contains(&PathBuf::from("/opt/go/sdk/1.26.1"))
-        );
+        assert!(options.extra_ro.contains(&PathBuf::from(&goroot)));
+        assert!(!options.extra_rw.contains(&PathBuf::from(&goroot)));
     }
 
     // A relative or empty value grants nothing: isol8 resolves a grant against
@@ -1464,15 +1489,11 @@ mod tests {
     // and a grant on an absent path is inert.
     #[test]
     fn toolchain_env_roots_need_not_exist() {
+        let nowhere = format!("{TOOLCHAIN_TEST_ROOT}/nowhere/nuget/packages");
         let mut options = IsolateOptions::new("/state");
-        options.grant_toolchains(|name| {
-            (name == "NUGET_PACKAGES").then(|| "/nowhere/nuget/packages".into())
-        });
+        options.grant_toolchains(|name| (name == "NUGET_PACKAGES").then(|| nowhere.clone().into()));
 
-        assert_eq!(
-            options.extra_rw,
-            vec![PathBuf::from("/nowhere/nuget/packages")]
-        );
+        assert_eq!(options.extra_rw, vec![PathBuf::from(&nowhere)]);
     }
 
     // Every variable this grants a path for must also be forwarded into the
@@ -1640,16 +1661,19 @@ mod tests {
     }
 
     // Off the one platform `confined_launch` actually serves, it must fail
-    // loudly naming the pty seam it is waiting on rather than pretend to
-    // confine the run. Not run end-to-end on macOS (it would exec
-    // sandbox-exec); this only exercises the non-macOS early return, and is
-    // unverified on this development machine since it is compiled out here.
+    // loudly naming what it is waiting on rather than pretend to confine the
+    // run. Not run end-to-end on macOS (it would exec sandbox-exec); this
+    // only exercises the non-macOS early return.
     #[cfg(not(target_os = "macos"))]
     #[test]
     fn confined_launch_errors_on_platforms_without_a_native_seam() {
         let state = TempDir::new().expect("state dir");
         let cwd = TempDir::new().expect("cwd");
-        let spec = isol8::Spec::new(vec!["true".to_string()]);
+        // The test binary itself: guaranteed to resolve on every platform
+        // (`true` has no Windows equivalent, and an unresolvable command
+        // fails earlier, inside `confine_executable`).
+        let exe = std::env::current_exe().expect("test binary path");
+        let spec = isol8::Spec::new(vec![exe.display().to_string()]);
         let ctx = isol8::Context {
             real_home: cwd.path().to_path_buf(),
             cwd: cwd.path().to_path_buf(),
@@ -1660,6 +1684,89 @@ mod tests {
         let confined = Confined { spec, ctx };
 
         let err = confined_launch(&confined).expect_err("non-macOS must not confine");
-        assert!(err.to_string().contains("pseudo-terminal seam"));
+        #[cfg(target_os = "windows")]
+        assert!(
+            err.to_string().contains("ConPTY"),
+            "a Windows refusal must name the missing ConPTY seam: {err}"
+        );
+        #[cfg(not(target_os = "windows"))]
+        assert!(
+            err.to_string().contains("stdio seam"),
+            "a Linux refusal must name the missing stdio seam: {err}"
+        );
+    }
+
+    // A default login on Windows resolves the Windows system layer, not the
+    // macOS OAuth pair — the composition `run_login_isolated` mirrors.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn a_default_login_policy_resolves_the_windows_system_layer() {
+        let state = TempDir::new().expect("state dir");
+        let home = TempDir::new().expect("capture home");
+        let plan = crate::harness::LoginPlan {
+            launch: Launch {
+                program: "claude".to_string(),
+                args: vec!["auth".to_string(), "login".to_string()],
+                env: vec![("HOME".to_string(), home.path().display().to_string())],
+                env_remove: Vec::new(),
+                env_clear: false,
+            },
+            credential_files: vec![PathBuf::from(".claude/.credentials.json")],
+        };
+        let options = IsolateOptions::new(state.path().to_path_buf());
+
+        let confined = login_confined(home.path(), &plan, None, &options).expect("login policy");
+        let resolved = describe(&confined).expect("rendering the login policy");
+        let layers: Vec<&str> = resolved
+            .layer_names
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect();
+        assert!(
+            layers.contains(&"windows/system-runtime"),
+            "a Windows login needs the system runtime layer, got {layers:?}"
+        );
+        assert!(
+            !layers.iter().any(|name| name.starts_with("integrations/")),
+            "no macOS OAuth layer belongs on a Windows login, got {layers:?}"
+        );
+    }
+
+    // The macOS mirror: a default login resolves the OAuth pair and never the
+    // keychain (covered transitively by
+    // `a_login_policy_never_resolves_the_keychain_layer`, asserted directly
+    // here for the composition itself).
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_default_login_policy_resolves_the_macos_oauth_layers() {
+        let state = TempDir::new().expect("state dir");
+        let home = TempDir::new().expect("capture home");
+        let plan = crate::harness::LoginPlan {
+            launch: Launch {
+                program: "claude".to_string(),
+                args: vec!["auth".to_string(), "login".to_string()],
+                env: vec![("HOME".to_string(), home.path().display().to_string())],
+                env_remove: Vec::new(),
+                env_clear: false,
+            },
+            credential_files: vec![PathBuf::from(".claude/.credentials.json")],
+        };
+        let options = IsolateOptions::new(state.path().to_path_buf());
+
+        let confined = login_confined(home.path(), &plan, None, &options).expect("login policy");
+        let resolved = describe(&confined).expect("rendering the login policy");
+        let layers: Vec<&str> = resolved
+            .layer_names
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect();
+        assert!(
+            layers.contains(&"integrations/launch-services"),
+            "a macOS login needs the OAuth browser layers, got {layers:?}"
+        );
+        assert!(
+            layers.contains(&"integrations/browser-native-messaging"),
+            "a macOS login needs the OAuth browser layers, got {layers:?}"
+        );
     }
 }

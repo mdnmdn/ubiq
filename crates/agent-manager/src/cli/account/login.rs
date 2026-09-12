@@ -34,7 +34,9 @@ use super::*;
 /// - Neither flag: **macOS defaults to the sandbox** (bare-`--isolate`
 ///   behavior), because as of Claude Code 2.1.218 a merely-relocated HOME no
 ///   longer forces the plaintext fallback there; every other OS defaults to the
-///   plain path, where the keychain-denial problem doesn't arise.
+///   plain path, where the keychain-denial problem doesn't arise. Windows stays
+///   opt-in too, but `--isolate` there is real enforcement (isol8 v0.4.0's hook
+///   DLL), not a placeholder.
 pub(super) fn cmd_login(
     id: &str,
     harness_key: &str,
@@ -204,16 +206,16 @@ pub(super) fn cmd_login(
 /// Grants: `home` is replaced (`.home`) and granted read-write (`.grant_rw`)
 /// so `claude` writes `<home>/.claude/.credentials.json`; isol8's
 /// `confine_executable` auto-grants read+exec on the resolved `claude` binary,
-/// but the `~/.local/bin/claude` launcher symlinks into the real home's
-/// `~/.local/share/claude/versions/<v>` (a self-contained native binary), which
-/// HOME replacement doesn't relocate — so that real runtime tree is granted
-/// read-only by absolute path below.
+/// but a launcher shim symlinks into a runtime tree HOME replacement doesn't
+/// relocate — so that real tree is granted read-only by absolute path below
+/// (macOS: `~/.local/share/claude/versions/<v>`; Windows: whatever
+/// [`crate::isolate::login_runtime_grants`] finds).
 ///
-/// CAVEAT (not yet exercised against a live `sandbox-exec`): the grant/layer
+/// CAVEAT (not yet exercised against a live sandbox): the grant/layer
 /// set is a considered starting point, not an interactively-validated one. If
 /// the OAuth browser fails to open or `claude` can't start, diagnose the
-/// missing grant with `isol8 @diag claude` and either widen the composition
-/// here or pass an explicit `--isolate=<profile>`.
+/// missing grant with `isol8 @diag claude` (macOS) and either widen the
+/// composition here or pass an explicit `--isolate=<profile>`.
 fn run_login_isolated(
     home: &Path,
     plan: &crate::harness::LoginPlan,
@@ -241,7 +243,15 @@ fn run_login_isolated(
                 // Deliberately NOT `integrations/keychain` — its absence is
                 // what forces the plaintext-file fallback this path captures.
             }
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(target_os = "windows")]
+            {
+                // The hook backend enforces this composition for real
+                // (isol8 v0.4.0+). No keychain layer to withhold — the
+                // backend is path-only — so the capture rests on the
+                // relocated-HOME fallback, the same as the plain path.
+                sandbox = sandbox.profile("windows/system-runtime");
+            }
+            #[cfg(not(any(target_os = "macos", target_os = "windows")))]
             {
                 // The keychain-denial scenario is macOS-specific; elsewhere a
                 // bare `--isolate` just runs under the minimal base layer.
@@ -250,11 +260,19 @@ fn run_login_isolated(
         }
     }
 
+    #[cfg(not(target_os = "windows"))]
     if let Some(base_dirs) = directories::BaseDirs::new() {
         let versions_dir = base_dirs.home_dir().join(".local/share/claude");
         if versions_dir.is_dir() {
             sandbox = sandbox.grant_ro(versions_dir.to_string_lossy().into_owned());
         }
+    }
+
+    // Whatever the shim resolved through on this machine — a Windows npm
+    // global, a Unix version-manager tree — granted read-only, if it exists.
+    #[cfg(target_os = "windows")]
+    for grant in crate::isolate::login_runtime_grants(Path::new(&plan.launch.program)) {
+        sandbox = sandbox.grant_ro(grant.to_string_lossy().into_owned());
     }
 
     let mut argv = vec![plan.launch.program.clone()];

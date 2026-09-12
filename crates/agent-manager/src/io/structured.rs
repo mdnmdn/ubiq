@@ -133,10 +133,23 @@ mod tests {
         }
     }
 
+    /// The command interpreter for process mechanics below. Unix tests name
+    /// `/bin/sh` and `/usr/bin/printenv` absolutely; on Windows the
+    /// equivalents (`cmd`, `findstr`) are reached through COMSPEC so the
+    /// tests do not depend on PATH containing System32.
+    #[cfg(windows)]
+    fn comspec() -> String {
+        std::env::var("COMSPEC").expect("test precondition: COMSPEC must be set")
+    }
+
     #[test]
     fn spawn_piped_runs_a_trivial_command_to_success() {
         let cwd = std::env::current_dir().unwrap();
-        let mut child = spawn_piped(&launch("true", &[]), &cwd).unwrap();
+        #[cfg(windows)]
+        let l = launch(&comspec(), &["/C", "exit", "0"]);
+        #[cfg(not(windows))]
+        let l = launch("true", &[]);
+        let mut child = spawn_piped(&l, &cwd).unwrap();
         let status = child.wait().unwrap();
         assert!(status.success());
     }
@@ -144,6 +157,14 @@ mod tests {
     #[test]
     fn spawn_piped_wires_piped_stdio() {
         let cwd = std::env::current_dir().unwrap();
+        // `findstr "^"` is the Windows `cat`: every input line matches and
+        // is echoed. It normalizes line endings to CRLF, so the assertion
+        // compares past the terminator on both platforms. Spelled `"^^"`:
+        // `cmd` itself treats `^` as its escape character and would swallow
+        // a single one before `findstr` ever sees it.
+        #[cfg(windows)]
+        let l = launch(&comspec(), &["/C", "findstr", "^^"]);
+        #[cfg(not(windows))]
         let l = launch("/bin/sh", &["-c", "cat"]);
         let mut child = spawn_piped(&l, &cwd).unwrap();
 
@@ -165,7 +186,7 @@ mod tests {
             .unwrap();
         let status = child.wait().unwrap();
 
-        assert_eq!(out, "hello\n");
+        assert_eq!(out.trim_end(), "hello");
         assert!(status.success());
     }
 
@@ -209,6 +230,17 @@ mod tests {
         );
 
         let cwd = std::env::current_dir().unwrap();
+        // Windows has no `printenv`: `if defined` reports presence through
+        // the exit code with no output either way, which is the same
+        // contract (absent var ⇒ nonzero exit, empty stdout).
+        #[cfg(windows)]
+        let mut l = launch(
+            &comspec(),
+            &[
+                "/C", "if", "defined", "PATH", "(exit", "0)", "else", "(exit", "1)",
+            ],
+        );
+        #[cfg(not(windows))]
         let mut l = launch("/usr/bin/printenv", &["PATH"]);
         l.env_remove = vec!["PATH".to_string()];
 
@@ -232,6 +264,11 @@ mod tests {
     #[test]
     fn spawn_piped_applies_env() {
         let cwd = std::env::current_dir().unwrap();
+        // `echo %VAR%` terminates with CRLF, so the assertion compares past
+        // the terminator (see `spawn_piped_wires_piped_stdio`).
+        #[cfg(windows)]
+        let mut l = launch(&comspec(), &["/C", "echo", "%AM_STRUCTURED_TEST%"]);
+        #[cfg(not(windows))]
         let mut l = launch("/usr/bin/printenv", &["AM_STRUCTURED_TEST"]);
         l.env = vec![("AM_STRUCTURED_TEST".to_string(), "injected".to_string())];
 
@@ -247,6 +284,6 @@ mod tests {
         let status = child.wait().unwrap();
 
         assert!(status.success());
-        assert_eq!(out, "injected\n");
+        assert_eq!(out.trim_end(), "injected");
     }
 }

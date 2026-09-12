@@ -2958,7 +2958,7 @@ dependencies = [
  "log",
  "presser",
  "thiserror 2.0.18",
- "windows 0.62.2",
+ "windows 0.56.0",
 ]
 
 [[package]]
@@ -3836,7 +3836,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.62.2",
+ "windows-core 0.56.0",
 ]
 
 [[package]]
@@ -4232,8 +4232,8 @@ checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
 
 [[package]]
 name = "isol8"
-version = "0.3.0"
-source = "git+https://github.com/mdnmdn/isol8?rev=46c72edac4dda6d146af57f90121bb54820150eb#46c72edac4dda6d146af57f90121bb54820150eb"
+version = "0.4.0"
+source = "git+https://github.com/mdnmdn/isol8?rev=14a87bd50e8062442859fd4ee85cdd94f99b5de5#14a87bd50e8062442859fd4ee85cdd94f99b5de5"
 dependencies = [
  "anyhow",
  "isol8-core",
@@ -4241,11 +4241,12 @@ dependencies = [
 
 [[package]]
 name = "isol8-core"
-version = "0.3.0"
-source = "git+https://github.com/mdnmdn/isol8?rev=46c72edac4dda6d146af57f90121bb54820150eb#46c72edac4dda6d146af57f90121bb54820150eb"
+version = "0.4.0"
+source = "git+https://github.com/mdnmdn/isol8?rev=14a87bd50e8062442859fd4ee85cdd94f99b5de5#14a87bd50e8062442859fd4ee85cdd94f99b5de5"
 dependencies = [
  "anyhow",
  "enumflags2",
+ "isol8-path-policy",
  "landlock",
  "libc",
  "nix 0.31.3",
@@ -4254,7 +4255,16 @@ dependencies = [
  "serde_yaml",
  "thiserror 1.0.69",
  "toml 0.8.23",
- "windows 0.62.2",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "isol8-path-policy"
+version = "0.4.0"
+source = "git+https://github.com/mdnmdn/isol8?rev=14a87bd50e8062442859fd4ee85cdd94f99b5de5#14a87bd50e8062442859fd4ee85cdd94f99b5de5"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

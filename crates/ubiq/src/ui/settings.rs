@@ -981,9 +981,11 @@ fn index_level_choice(current: IndexLevel, cx: &mut Context<AppState>) -> AnyEle
 /// Confinement, the home a confined agent runs with, and the directories it may reach past its
 /// policy. Every value here is host-owned, so each control writes the Host layer.
 ///
-/// **Confinement is a macOS feature.** `confined_launch` in the harness library errors on every
-/// other target, so this says so plainly and disables the toggle rather than offering a switch
-/// that does nothing.
+/// **Confinement of terminal panes is a macOS feature.** `confined_launch` in the harness
+/// library renders a `sandbox-exec` policy there and errors on every other target — Windows has
+/// hook-DLL enforcement for inherited-stdio runs but no ConPTY seam, so a pane (which owns its
+/// terminal) cannot be confined. This says so plainly and disables the toggle rather than
+/// offering a switch that does nothing.
 fn isolation(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     let host = &app.workbench.settings.host;
     let supported = cfg!(target_os = "macos");
@@ -1016,11 +1018,13 @@ fn isolation(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                     theme::success(),
                     1.0,
                 ),
-                false => state_chip(
-                    "Confinement is macOS only \u{2014} agents here run unconfined",
-                    theme::warning(),
-                    1.0,
-                ),
+                false => {
+                    #[cfg(target_os = "windows")]
+                    let text = "Confinement needs a ConPTY seam isol8 does not provide yet \u{2014} agents here run unconfined";
+                    #[cfg(not(target_os = "windows"))]
+                    let text = "Confinement is macOS only \u{2014} agents here run unconfined";
+                    state_chip(text, theme::warning(), 1.0)
+                },
             })
             .into_any_element(),
         setting_row(
