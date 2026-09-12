@@ -192,6 +192,7 @@ impl AppState {
             search_excludes: None,
             index: None,
             tools: None,
+            managed_repos: None,
         });
         self.workbench.row_action = None;
         cx.notify();
@@ -216,6 +217,7 @@ impl AppState {
             search_excludes: None,
             index: Some(index),
             tools: None,
+            managed_repos: None,
         });
         cx.notify();
     }
@@ -243,6 +245,7 @@ impl AppState {
             search_excludes: Some(excludes),
             index: None,
             tools: None,
+            managed_repos: None,
         });
         cx.global_mut::<WindowRegistry>().apply(snapshot);
         cx.notify();
@@ -270,9 +273,60 @@ impl AppState {
             search_excludes: None,
             index: None,
             tools: Some(tools),
+            managed_repos: None,
         });
         cx.global_mut::<WindowRegistry>().apply(snapshot);
         cx.notify();
+    }
+
+    /// Write a project's whole managed-repositories list, sending it at once and updating the
+    /// snapshot every window redraws from — the same immediacy `set_project_search_excludes`
+    /// gives the excludes, rather than waiting on the host's echo. A managed repository starts
+    /// colouring the explorer and showing on the Git screen as soon as the next working-tree walk
+    /// answers, which is why this does not wait on a dialog's Save.
+    pub fn set_project_managed_repos(
+        &mut self,
+        project: ProjectId,
+        repos: Vec<String>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(mut snapshot) = WindowRegistry::read(cx).project(project).cloned() else {
+            return;
+        };
+        snapshot.record.managed_repos = repos.clone();
+        self.bus.send(Message::UpdateProject {
+            project_id: project,
+            name: None,
+            colour: None,
+            custom_colour: None,
+            search_excludes: None,
+            index: None,
+            tools: None,
+            managed_repos: Some(repos),
+        });
+        cx.global_mut::<WindowRegistry>().apply(snapshot);
+        cx.notify();
+    }
+
+    /// Flip one repository between managed and ignored — the settings dialog's tick box.
+    pub fn toggle_project_managed_repo(
+        &mut self,
+        project: ProjectId,
+        rel_path: String,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(mut repos) = WindowRegistry::read(cx)
+            .project(project)
+            .map(|snap| snap.record.managed_repos.clone())
+        else {
+            return;
+        };
+        if !repos.iter().any(|p| p == &rel_path) {
+            repos.push(rel_path);
+        } else {
+            repos.retain(|p| p != &rel_path);
+        }
+        self.set_project_managed_repos(project, repos, cx);
     }
 
     /// Drop one pattern from a project's search excludes — the settings dialog's remove control.

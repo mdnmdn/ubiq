@@ -2477,6 +2477,24 @@ menu picks, all go through `app/projects.rs::set_project_search_excludes`, which
 list in one `UpdateProject` and applies the snapshot at once rather than waiting on the host's
 echo.
 
+**The dialog is also where a project says which repositories inside it are its business.**
+`repos_row()` draws a Repositories section under the excludes: the project's own repository first,
+always managed and with no switch beside it — it is the repository the project *is* — and then one
+row per repository the last working-tree walk found inside it, each with a tick box and a
+`submodule` tag where the outer repository pins it. A nested repository starts **ignored** (`D112`):
+ticking it sends the whole list through `app/projects.rs::set_project_managed_repos`, the same
+immediacy the excludes get, and the host redoes the observation at once so the tree and the Git
+screen follow without a restart. The rows come from the window's own `OpenProject::git_repos` — what
+a walk found, not what the shared record says — so the section tells a project this window holds
+without showing that it has to be opened before it can be listed.
+
+An ignored repository is not drawn faintly or filtered late: the host never opens it, so it has no
+status to carry. Its folder gets no branch chip, no badge of its own, and not even the untracked
+mark the outer repository would otherwise give it, because the folder of every repository found is
+dropped from the outer repository's account either way. `ExplorerState::apply_git` takes only the
+managed ones into `git_repos`, which is the boundary it draws a branch on and the place inherited
+status stops.
+
 Project settings is `ui/sink/project.rs`: the sink draws it on the page, the
 shell paints the same dialog over the window when a project is being created or edited. Application
 settings is `ui/settings.rs`: the titlebar's gear raises it, `state/settings.rs` holds the overlay

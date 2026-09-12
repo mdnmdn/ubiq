@@ -81,7 +81,9 @@ fn gather(
     match subject {
         SuggestSubject::CommitMessage { .. } => {
             let root = root.ok_or_else(|| "that project is not in the catalogue".to_string())?;
-            let observation = git::observe(root, 0, true)
+            // No managed set: a commit message names what the project's *own* repository is about
+            // to commit, and a repository below it commits on its own.
+            let observation = git::observe(root, 0, true, &[])
                 .map_err(|error| format!("read the repository: {error:?}"))?;
             let entries = observation
                 .tree
@@ -1261,7 +1263,9 @@ impl Coordinator {
                 search_excludes,
                 index,
                 tools,
+                managed_repos,
             } => {
+                let managed_changed = managed_repos.is_some();
                 let replies = self.projects.update(
                     project_id,
                     name,
@@ -1270,6 +1274,7 @@ impl Coordinator {
                     search_excludes,
                     index,
                     tools,
+                    managed_repos,
                 );
                 self.answer(client, replies);
                 // A level the user just changed takes effect now, not at the next open: turning
@@ -1277,6 +1282,11 @@ impl Coordinator {
                 // does nothing.
                 if index.is_some() {
                     self.settle_index(project_id);
+                }
+                // The same for a repository just taken on or let go: the badges and the Git screen
+                // read the observation, so it is redone now rather than at the next restart.
+                if managed_changed {
+                    self.git_job(client, project_id, git::Request::Full);
                 }
             }
             Message::LocateProject { project_id, path } => {
@@ -3546,6 +3556,7 @@ impl Coordinator {
         self.git.submit(git::Job {
             project_id,
             root: PathBuf::from(&record.path),
+            managed_repos: record.managed_repos.clone(),
             request,
             reply_to: self.host.mailbox(To::Client(client)),
         });
@@ -3555,6 +3566,8 @@ impl Coordinator {
         self.git.submit(git::Job {
             project_id,
             root: PathBuf::new(),
+            // Forgetting drops a cached handle and reads nothing, so there is no set to carry.
+            managed_repos: Vec::new(),
             request: git::Request::Forget,
             reply_to: self.host.mailbox(To::Client(client)),
         });

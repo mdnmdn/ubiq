@@ -18,6 +18,7 @@ use ubiq::app::{AppState, BusHub, CloseEditor};
 use ubiq::state::{FileDialog, WindowRegistry};
 use ubiq_proto::bus::{self, FromClient, To};
 use ubiq_proto::files::{DirEntry, DirListing, EntryKind, PathOp};
+use ubiq_proto::git::{GitHead, GitNested};
 use ubiq_proto::ids::ProjectId;
 use ubiq_proto::messages::Message;
 use ubiq_proto::projects::{ProjectHealth, ProjectRecord, ProjectSnapshot};
@@ -185,6 +186,7 @@ fn a_project() -> ProjectSnapshot {
             search_excludes: Vec::new(),
             index: None,
             tools: Vec::new(),
+            managed_repos: Vec::new(),
         },
         health: ProjectHealth::Ok,
         open_panes: 0,
@@ -752,6 +754,7 @@ fn exclude_from_search_adds_the_path_then_offers_to_add_it_back(cx: &mut TestApp
             search_excludes,
             index,
             tools,
+            managed_repos,
         } => Some((
             project_id,
             name,
@@ -760,6 +763,7 @@ fn exclude_from_search_adds_the_path_then_offers_to_add_it_back(cx: &mut TestApp
             search_excludes,
             index,
             tools,
+            managed_repos,
         )),
         _ => None,
     });
@@ -771,6 +775,7 @@ fn exclude_from_search_adds_the_path_then_offers_to_add_it_back(cx: &mut TestApp
             None,
             None,
             Some(vec!["src".to_string()]),
+            None,
             None,
             None
         )),
@@ -790,6 +795,56 @@ fn exclude_from_search_adds_the_path_then_offers_to_add_it_back(cx: &mut TestApp
     });
     assert!(labels.contains(&"Add to search"));
     assert!(!labels.contains(&"Exclude from search"));
+}
+
+/// The project settings dialog's repository tick box sends the whole `managed_repos` list at
+/// once, the way the exclude field does — ticking it on adds the path, ticking it off again drops
+/// it.
+#[gpui::test]
+fn ticking_a_repository_sends_the_managed_list_then_clears_it(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let _ = fixture.said();
+
+    fixture.deliver(
+        Message::GitWorkingTree {
+            project_id: fixture.project,
+            generation: 1,
+            entries: Vec::new(),
+            rollups: Vec::new(),
+            repos: vec![GitNested {
+                rel_path: "vendor/lib".to_string(),
+                head: GitHead::Branch("main".to_string()),
+                submodule: false,
+                counts: None,
+                managed: false,
+            }],
+            truncated: false,
+        },
+        cx,
+    );
+
+    fixture.with(cx, |state, _, cx| state.open_edit_project(cx));
+    fixture.with(cx, |state, _, cx| {
+        state.toggle_project_managed_repo(fixture.project, "vendor/lib".to_string(), cx)
+    });
+    let sent = fixture.said().into_iter().find_map(|m| match m {
+        Message::UpdateProject { managed_repos, .. } => managed_repos,
+        _ => None,
+    });
+    assert_eq!(
+        sent,
+        Some(vec!["vendor/lib".to_string()]),
+        "the tick added the repository"
+    );
+
+    fixture.with(cx, |state, _, cx| {
+        state.toggle_project_managed_repo(fixture.project, "vendor/lib".to_string(), cx)
+    });
+    let sent = fixture.said().into_iter().find_map(|m| match m {
+        Message::UpdateProject { managed_repos, .. } => managed_repos,
+        _ => None,
+    });
+    assert_eq!(sent, Some(Vec::new()), "the tick removed it again");
 }
 
 /// The project settings dialog's own exclude field adds a pattern on Enter, sending the whole

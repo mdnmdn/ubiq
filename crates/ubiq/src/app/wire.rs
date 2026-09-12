@@ -976,6 +976,9 @@ impl AppState {
                 // the projection the tree got. A selection whose path has gone clean goes with it.
                 open.git_entries = entries;
                 open.git_view.settle(&open.git_entries);
+                // Kept whole, managed or not, so the settings dialog can draw what the walk found
+                // even for a repository the explorer never shows a mark for.
+                open.git_repos = repos;
                 cx.notify();
             }
 

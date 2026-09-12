@@ -1065,6 +1065,7 @@ fn naming_a_temporary_project_makes_it_durable() {
         search_excludes: None,
         index: None,
         tools: None,
+        managed_repos: None,
     });
     loop {
         match ui.from_host().recv_timeout(PATIENCE) {
@@ -1087,6 +1088,68 @@ fn naming_a_temporary_project_makes_it_durable() {
         body.contains(&folder.path().to_string_lossy().into_owned()),
         "the folder itself is in the catalogue now too: {body}"
     );
+}
+
+/// Which repositories inside a project it manages is catalogue state: it comes back on the
+/// broadcast and it is in `projects.toml`. An absent `managed_repos` leaves the set alone.
+#[test]
+fn the_managed_repositories_survive_the_round_trip() {
+    let (_hub, ui, root) = coordinator_with_catalogue();
+    let folder = tempfile::TempDir::new().unwrap();
+    let project_id = add_project(&ui, folder.path());
+
+    ui.send(Message::UpdateProject {
+        project_id,
+        name: None,
+        colour: None,
+        custom_colour: None,
+        search_excludes: None,
+        index: None,
+        tools: None,
+        managed_repos: Some(vec!["vendor/inner".to_string()]),
+    });
+    let changed = loop {
+        match ui.from_host().recv_timeout(PATIENCE) {
+            Ok(Message::ProjectChanged { project }) if project.id() == project_id => break project,
+            Ok(_) => continue,
+            Err(_) => panic!("the managed set was never answered"),
+        }
+    };
+    assert_eq!(
+        changed.record.managed_repos,
+        vec!["vendor/inner".to_string()]
+    );
+
+    let body = wait_for_body(&root.join("projects.toml"), "vendor/inner");
+    assert!(body.contains("managed_repos"), "{body}");
+
+    // A rename says nothing about the set, so it keeps what it had.
+    ui.send(Message::UpdateProject {
+        project_id,
+        name: Some("renamed".to_string()),
+        colour: None,
+        custom_colour: None,
+        search_excludes: None,
+        index: None,
+        tools: None,
+        managed_repos: None,
+    });
+    loop {
+        match ui.from_host().recv_timeout(PATIENCE) {
+            Ok(Message::ProjectChanged { project })
+                if project.id() == project_id && project.record.name == "renamed" =>
+            {
+                assert_eq!(
+                    project.record.managed_repos,
+                    vec!["vendor/inner".to_string()],
+                    "an absent set leaves it alone"
+                );
+                break;
+            }
+            Ok(_) => continue,
+            Err(_) => panic!("the rename was never answered"),
+        }
+    }
 }
 
 fn expect_project_list(ui: &Client) -> Vec<ubiq_proto::projects::ProjectSnapshot> {

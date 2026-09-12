@@ -2267,8 +2267,8 @@ tooltip is where the others are; a reader who wants all of them goes to Settings
 `D99` settled that a repository found below the project is walked and merged into the project's one
 map. What it did not settle is *which* of them: a folder full of vendored clones, a tool's checkout
 under `_tools/`, a reference copy of somebody else's tree — each was walked, each coloured the
-explorer, and each put its changes on the Git screen beside the project's own. So the project's
-settings now hold the answer. `ProjectRecord.managed_repos` names the repositories inside the
+explorer, and each put its changes on the Git screen beside the project's own. The project's
+settings hold the answer instead. `ProjectRecord.managed_repos` names the repositories inside the
 project it takes on, and the Git repositories section of the project dialog is the list it is
 ticked from.
 
@@ -2285,6 +2285,10 @@ choice nothing names. But an ignored repository is never opened: no `Repository:
 walk, no counts, no entries and no rollups. So the saving is real on a project holding thirty
 clones, and the interface has nothing to filter: a path with no status cannot be coloured, and the
 explorer draws the branch chip only where a managed repository sits.
+
+The folder of **every** repository found is dropped from the outer repository's own account, managed
+or not, so an ignored one is plain rather than untracked — a fold of `D99`'s rule, not an exception
+to it: the outer repository's opinion about a folder it does not own was never the thing being drawn.
 
 **Cost.** A repository's changes are invisible until somebody ticks it, and an agent working in an
 ignored clone leaves no mark on the tree — which is the point, and is also the trap. The settings
