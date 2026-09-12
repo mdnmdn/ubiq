@@ -15,11 +15,16 @@
 //! Events are coalesced by path over a 150ms quiet window, and the batch is bounded like a search
 //! batch: at 64 paths it flushes with `truncated`, and the reader re-lists the subtree instead of
 //! patching the named paths.
+//!
+//! The quiet window is a floor and not the only trigger: a project under a build writes into
+//! `target/` without a 150ms gap for as long as the build runs, and every one of those events is
+//! dropped here rather than reported — so a window measured from the last event alone would hold a
+//! real change back until the noise stopped. A change waits [`LATEST`] at the very most.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use notify::{RecursiveMode, Watcher as _};
 use ubiq_proto::bus::Mailbox;
@@ -32,6 +37,10 @@ const QUIET: Duration = Duration::from_millis(150);
 
 /// Paths per message, before the batch is called a burst instead of a list. Search's own bound.
 const BOUND: usize = 64;
+
+/// The longest a change waits, however busy the project stays. `QUIET` still decides when nothing
+/// is happening; this is what a stream of events with no gap in it cannot outlast.
+const LATEST: Duration = Duration::from_millis(750);
 
 /// One project's watch, addressed.
 pub struct Job {
@@ -89,9 +98,17 @@ fn debounce(job: Job, queue: flume::Receiver<notify::Event>) {
     let ignore = ignore(&job.root, &job.excludes);
     let mut changed: HashSet<String> = HashSet::new();
     let mut repository = false;
+    // When the oldest change still held was noticed. `None` means there is nothing to send.
+    let mut since: Option<Instant> = None;
 
     loop {
-        match queue.recv_timeout(QUIET) {
+        // Never wait past what the oldest held change is owed, so a project that keeps emitting
+        // events cannot keep the batch from going out.
+        let wait = match since {
+            Some(first) => QUIET.min(LATEST.saturating_sub(first.elapsed())),
+            None => QUIET,
+        };
+        match queue.recv_timeout(wait) {
             Ok(event) => {
                 for path in &event.paths {
                     match classify(&job.root, path, ignore.as_ref()) {
@@ -99,22 +116,35 @@ fn debounce(job: Job, queue: flume::Receiver<notify::Event>) {
                         Some(Change::File(rel)) => {
                             changed.insert(rel);
                         }
-                        None => {}
+                        None => continue,
                     }
+                    since = since.or_else(|| Some(Instant::now()));
                 }
                 // A burst larger than the window can carry: say so and drop the names.
                 if changed.len() >= BOUND {
                     changed.clear();
+                    since = None;
                     if !flush(&job, Vec::new(), true, std::mem::take(&mut repository)) {
+                        return;
+                    }
+                    continue;
+                }
+                // The project is not going quiet, and the oldest change has waited long enough.
+                if since.is_some_and(|first| first.elapsed() >= LATEST) {
+                    let names: Vec<String> = changed.drain().collect();
+                    since = None;
+                    if !flush(&job, names, false, std::mem::take(&mut repository)) {
                         return;
                     }
                 }
             }
             Err(flume::RecvTimeoutError::Timeout) => {
                 if changed.is_empty() && !repository {
+                    since = None;
                     continue;
                 }
                 let names: Vec<String> = changed.drain().collect();
+                since = None;
                 if !flush(&job, names, false, std::mem::take(&mut repository)) {
                     return;
                 }

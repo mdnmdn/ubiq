@@ -1789,3 +1789,31 @@ fn unload_and_resume_on_an_unknown_agent_are_safe_no_ops() {
         "an unknown agent must produce no reply from either message"
     );
 }
+
+#[test]
+fn opening_a_project_starts_its_filesystem_watch() {
+    let (_hub, ui) = coordinator();
+    let (project_id, path) = a_project(&ui);
+
+    ui.send(Message::OpenedProject { project_id });
+    std::fs::write(path.join("fresh.txt"), b"new\n").unwrap();
+
+    let deadline = std::time::Instant::now() + PATIENCE;
+    loop {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        match ui.from_host().recv_timeout(left) {
+            Ok(Message::ProjectFilesChanged {
+                project_id: named,
+                changed,
+                ..
+            }) => {
+                assert_eq!(named, project_id);
+                if changed.iter().any(|p| p == "fresh.txt") {
+                    return;
+                }
+            }
+            Ok(_) => continue,
+            Err(_) => panic!("the watch never reported the new file"),
+        }
+    }
+}
