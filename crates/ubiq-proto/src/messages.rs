@@ -709,6 +709,11 @@ pub enum Message {
         /// the whole list.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         tools: Option<Vec<ToolDef>>,
+        /// Which repositories inside the project it manages. Absent leaves the set as it is;
+        /// `Some` replaces the whole list. A path that names no repository the walk can find is
+        /// kept as it was given — a repository behind a branch switch is still the user's answer.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        managed_repos: Option<Vec<String>>,
     },
     /// Re-point a record at a folder that moved, keeping its id, colour and history. Unlike
     /// [`Message::UpdateProject`] this changes truth, so it can answer [`Message::ProjectError`].

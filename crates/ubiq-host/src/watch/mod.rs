@@ -40,7 +40,7 @@ const BOUND: usize = 64;
 
 /// The longest a change waits, however busy the project stays. `QUIET` still decides when nothing
 /// is happening; this is what a stream of events with no gap in it cannot outlast.
-const LATEST: Duration = Duration::from_millis(750);
+const LATEST: Duration = Duration::from_millis(1_200);
 
 /// One project's watch, addressed.
 pub struct Job {

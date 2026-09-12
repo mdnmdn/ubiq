@@ -241,7 +241,7 @@ and never an absolute path, on the same rule a search hit follows. A watch that 
 logged and the project simply has none.
 
 **The debounce window is a floor, not the only trigger.** Events are coalesced over a 150ms quiet
-window, and a change waits 750ms at the very most however busy the project stays: a build writing
+window, and a change waits 1.2s at the very most however busy the project stays: a build writing
 into an excluded `target/` emits events with no gap in them for as long as it runs, and every one of
 them is dropped by the watch rather than reported, so a window measured from the last event alone
 would hold a real change back until the noise stopped.
