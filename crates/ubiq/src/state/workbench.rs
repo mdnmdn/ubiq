@@ -652,6 +652,7 @@ impl WorkbenchState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ubiq_proto::quota::QuotaSource;
 
     fn harness(id: &str, available: bool) -> AgentTypeInfo {
         AgentTypeInfo {
@@ -663,6 +664,7 @@ mod tests {
             modes: Vec::new(),
             unattended_mode: None,
             keeps_sessions: true,
+            quota: QuotaSource::default(),
         }
     }
 

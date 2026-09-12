@@ -134,7 +134,9 @@ impl ExplorerState {
     ///
     /// `repos` are the repositories inside the project. Their paths are already merged into
     /// `entries` and `rollups`; what the list adds is the boundary — a row to draw a branch on,
-    /// and a place for inheritance to stop.
+    /// and a place for inheritance to stop. Only a **managed** repository enters `git_repos`: an
+    /// ignored one carries no marks in `entries`/`rollups` either, so drawing its boundary would
+    /// only stop inheritance at a folder that has nothing to inherit from in the first place.
     pub fn apply_git(
         &mut self,
         generation: u64,
@@ -151,6 +153,7 @@ impl ExplorerState {
         self.git_inherit.clear();
         self.git_repos = repos
             .iter()
+            .filter(|repo| repo.managed)
             .map(|repo| {
                 (
                     repo.rel_path.trim_end_matches('/').to_string(),

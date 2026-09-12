@@ -37,7 +37,7 @@ use std::time::SystemTime;
 use agent_manager::io::{
     AgentEvent, AgentInput, AgentInputSink, AgentKill, Content, IoBridge, PermissionOutcome,
 };
-use ubiq_proto::bus::{Direction, Mailbox};
+use ubiq_proto::bus::{Direction, Mailbox, Voice};
 use ubiq_proto::conversation::{
     ConfigCategory, ConfigChoice, ConfigOption, ConfigValue, ConvContent, ConvUpdate,
     PermissionKind, PermissionOption, PlanEntry, PlanPriority, PlanStatus, RateLimitRecord,
@@ -71,6 +71,30 @@ pub struct UsageMeter {
     /// The agent type: `claude-code`, `codex`, and the rest.
     pub harness: String,
     /// Empty when the harness ran as its own default identity.
+    pub account: String,
+}
+
+/// Where this conversation's *remaining* plan is filed, carried by the pump.
+///
+/// **The same seam the meter uses, for the same reason**: a `RateLimitUpdate` reaches the window
+/// as a `ConvUpdate::RateLimit` and nothing on that path comes back through the coordinator, so
+/// the only place the reading and the launch's identity are both in hand is here. It differs in
+/// where it files: spend goes to a database on this thread, while what is left is an account fact
+/// the coordinator caches and every window shows — so it is said into the host's own inbox with a
+/// [`Voice`], and the coordinator decides whether anything changed.
+///
+/// This is why an account with a running agent reads fresher than one without: Claude pushes a
+/// window mid-turn, and asking again would be a network call for a fact already in hand.
+#[derive(Clone)]
+pub struct QuotaVoice {
+    /// The way back into the host's inbox. A `Mailbox` addresses a window; this addresses the
+    /// coordinator, which is what owns the cache.
+    pub voice: Voice,
+    /// The agent type that pushed the reading: `claude-code`, and the rest.
+    pub harness: String,
+    /// The identity it ran as. A conversation running as the harness's own default identity has
+    /// none, and there is no account for a reading to be about — [`Conversation::start`] is given
+    /// `None` in that case.
     pub account: String,
 }
 
@@ -333,12 +357,17 @@ impl Conversation {
     /// `flags` are Ubiq's own two overrides, as the conversation's durable row records them. They
     /// are made by the caller rather than here because the coordinator answers a request to flip
     /// one whether or not a harness is running.
+    ///
+    /// `quota` is where a reading this harness pushes mid-turn is filed. `None` for a run with no
+    /// account behind it: a window belongs to an identity, and there is no identity to key one by.
+    #[allow(clippy::too_many_arguments)]
     pub fn start(
         id: AgentId,
         bridge: Box<dyn IoBridge>,
         out: Mailbox,
         start_seq: u64,
         usage: Option<UsageMeter>,
+        quota: Option<QuotaVoice>,
         quiet: bool,
         flags: Arc<ConvFlags>,
     ) -> Self {
@@ -375,6 +404,7 @@ impl Conversation {
                     pump_session,
                     pump_first_reply,
                     usage,
+                    quota,
                     pump_flags,
                     pump_input,
                 )
@@ -626,6 +656,7 @@ fn pump(
     session: Arc<Mutex<Option<String>>>,
     first_reply: Arc<Mutex<Option<String>>>,
     usage: Option<UsageMeter>,
+    quota: Option<QuotaVoice>,
     flags: Arc<ConvFlags>,
     input: Option<Arc<dyn AgentInputSink>>,
 ) {
@@ -670,6 +701,29 @@ fn pump(
             && let Ok(mut held) = session.lock()
         {
             *held = Some(session_id.clone());
+        }
+
+        // A pushed reading is *also* an account fact. The `ConvUpdate::RateLimit` below still goes
+        // to the window unchanged — it is what the chat's own readout reads — and this files the
+        // same numbers where an account with no agent running is looked up from.
+        if let AgentEvent::RateLimitUpdate {
+            five_hour,
+            seven_day,
+            ..
+        } = &event
+            && let Some(quota) = &quota
+        {
+            quota.voice.say(Message::QuotaChanged {
+                account: quota.account.clone(),
+                harness: quota.harness.clone(),
+                snapshot: rate_limit_snapshot(
+                    &quota.account,
+                    &quota.harness,
+                    five_hour.as_ref(),
+                    seven_day.as_ref(),
+                    now_seconds(),
+                ),
+            });
         }
 
         // `accept_all`: the host answers the ask itself, here, and the window never hears of it.
@@ -832,6 +886,60 @@ fn usage_row(meter: &UsageMeter, record: &UsageRecord) -> Option<UsageRow> {
         msgs_out: 0,
         tool_calls: 0,
     })
+}
+
+/// A pushed rate limit as the quota cache holds it: two windows re-expressed as gauges.
+///
+/// The library states Claude's two rolling windows as named fields, because that is what the
+/// harness says; the cache states every provider's limits as a list, because the providers do not
+/// agree on what a limit is. This is the one place the two shapes meet. The labels are the ones
+/// the probe uses, so a reading that arrived mid-turn and one that was asked for read the same.
+///
+/// A window the harness did not state produces no gauge — absent is not zero, and a gauge is a
+/// thing a provider named. `plan` is `None`: a rate-limit push says how full the windows are and
+/// never says which plan they belong to, and Ubiq does not guess one.
+fn rate_limit_snapshot(
+    account: &str,
+    harness: &str,
+    five_hour: Option<&agent_manager::io::RateLimitWindow>,
+    seven_day: Option<&agent_manager::io::RateLimitWindow>,
+    as_of: i64,
+) -> ubiq_proto::quota::QuotaSnapshot {
+    use ubiq_proto::quota::{QuotaGauge, QuotaReading};
+
+    let gauge = |label: &str, window: &agent_manager::io::RateLimitWindow| QuotaGauge {
+        label: label.to_string(),
+        reading: QuotaReading::Window {
+            used_pct: window.utilization_pct,
+        },
+        resets_at: Some(window.resets_at),
+        detail: None,
+    };
+
+    ubiq_proto::quota::QuotaSnapshot {
+        account: account.to_string(),
+        harness: harness.to_string(),
+        plan: None,
+        gauges: [
+            five_hour.map(|window| gauge("5 hours", window)),
+            seven_day.map(|window| gauge("Week", window)),
+        ]
+        .into_iter()
+        .flatten()
+        .collect(),
+        as_of,
+    }
+}
+
+/// Now, in unix seconds — when a pushed reading was heard.
+///
+/// A reading carries its own age so a surface says how stale it is. A clock set before the epoch
+/// reads as zero rather than failing a conversation over it.
+fn now_seconds() -> i64 {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|since| since.as_secs() as i64)
+        .unwrap_or_default()
 }
 
 /// Who said it, as the transcript needs it: the instance *and* the kind.
@@ -1364,6 +1472,61 @@ mod tests {
         assert_eq!(record.seven_day_pct, Some(21));
         assert_eq!(record.seven_day_resets_at, Some(1_788_796_800));
         assert_eq!(record.status, "allowed");
+    }
+
+    /// The same push, read the other way: the chat keeps its two named windows, and the account
+    /// cache gets the two gauges every provider's limits are stated as.
+    #[test]
+    fn rate_limit_is_also_two_gauges_for_the_account() {
+        use ubiq_proto::quota::QuotaReading;
+
+        let five_hour = agent_manager::io::RateLimitWindow {
+            utilization_pct: 7,
+            resets_at: 1_788_474_600,
+        };
+        let seven_day = agent_manager::io::RateLimitWindow {
+            utilization_pct: 21,
+            resets_at: 1_788_796_800,
+        };
+        let snapshot = rate_limit_snapshot(
+            "work",
+            "claude-code",
+            Some(&five_hour),
+            Some(&seven_day),
+            1_788_400_000,
+        );
+
+        assert_eq!(snapshot.account, "work");
+        assert_eq!(snapshot.harness, "claude-code");
+        assert_eq!(snapshot.plan, None, "a push never names the plan");
+        assert_eq!(snapshot.as_of, 1_788_400_000);
+        let labels: Vec<&str> = snapshot.gauges.iter().map(|g| g.label.as_str()).collect();
+        assert_eq!(labels, vec!["5 hours", "Week"]);
+        assert_eq!(
+            snapshot.gauges[0].reading,
+            QuotaReading::Window { used_pct: 7 }
+        );
+        assert_eq!(snapshot.gauges[0].resets_at, Some(1_788_474_600));
+        assert_eq!(snapshot.gauges[1].resets_at, Some(1_788_796_800));
+        assert_eq!(snapshot.worst_pct(), Some(21));
+    }
+
+    /// Absent is not zero: a window the harness did not state is a gauge nobody named.
+    #[test]
+    fn a_window_the_harness_did_not_state_is_not_a_gauge() {
+        let seven_day = agent_manager::io::RateLimitWindow {
+            utilization_pct: 21,
+            resets_at: 1_788_796_800,
+        };
+        let snapshot = rate_limit_snapshot("work", "claude-code", None, Some(&seven_day), 0);
+        assert_eq!(snapshot.gauges.len(), 1);
+        assert_eq!(snapshot.gauges[0].label, "Week");
+
+        assert!(
+            rate_limit_snapshot("work", "claude-code", None, None, 0)
+                .gauges
+                .is_empty()
+        );
     }
 
     /// A harness log line is already in the diagnostics ring; putting it in a

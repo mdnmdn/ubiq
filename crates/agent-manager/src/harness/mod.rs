@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use anyhow::Context;
 
 use crate::Result;
+use crate::quota::QuotaSource;
 use crate::source::Source;
 use crate::spec::{HarnessId, McpAsSkill, RunSpec};
 
@@ -222,6 +223,10 @@ pub struct IoSupport {
     /// know "can I speak the standard protocol at this harness" asks here instead
     /// of inferring it from the harness id.
     pub acp: bool,
+    /// How — if at all — this harness can be asked how much of the plan is left. Read *before*
+    /// anything is spawned, so a caller can offer the question, disable it, or say the provider
+    /// states nothing, rather than discovering that from a failed call.
+    pub quota: QuotaSource,
 }
 
 /// How a harness's native env lever relocates its config/credentials into a
@@ -968,6 +973,29 @@ pub trait Harness {
     ) -> Result<Box<dyn crate::io::IoBridge>> {
         anyhow::bail!("harness '{}' does not support structured I/O", self.id())
     }
+
+    /// How much of `account`'s plan is left, asked of the provider now.
+    ///
+    /// `login` is the account's captured-login source
+    /// ([`crate::account::AccountStore::login_source`]), which is how an implementation reaches
+    /// the credential without knowing whether the store keeps a home directory or the bytes
+    /// themselves. `None` where the account references an environment variable instead.
+    ///
+    /// Default: an error naming this harness, exactly as [`Self::discover_models`] and
+    /// [`Self::structured_bridge`] do — and, for the three harnesses whose providers publish no
+    /// queryable limit at all, the permanent and correct answer. Callers check
+    /// [`IoSupport::quota`] first if they want to tell "cannot be asked" from "asked and failed".
+    ///
+    /// **The credential never comes back out.** An implementation reads the token, spends it on
+    /// one request and returns percentages; nothing token-shaped reaches a [`QuotaSnapshot`], a
+    /// log, or the caller.
+    fn quota(
+        &self,
+        _account: &crate::account::Account,
+        _login: Option<&crate::Source>,
+    ) -> Result<crate::quota::QuotaSnapshot> {
+        Err(crate::quota::unreported(&self.id()))
+    }
 }
 
 /// Every harness `am` knows how to wrap. (P1: Claude Code only; more are
@@ -1155,6 +1183,7 @@ mod tests {
                     structured: false,
                     multi_turn: false,
                     acp: false,
+                    quota: Default::default(),
                 }
             }
             fn provision(&self, _spec: &crate::spec::RunSpec, _dir: &Path) -> Result<Launch> {
@@ -1213,6 +1242,7 @@ mod tests {
                 structured: false,
                 multi_turn: false,
                 acp: false,
+                quota: Default::default(),
             }
         }
         fn config_anchor(&self) -> ConfigAnchor {

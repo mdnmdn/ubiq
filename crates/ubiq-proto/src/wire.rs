@@ -159,6 +159,7 @@ mod tests {
                 last_opened_at: None,
                 search_excludes: vec![],
                 index: None,
+                managed_repos: vec![],
                 tools: vec![],
             },
             health: ProjectHealth::Ok,

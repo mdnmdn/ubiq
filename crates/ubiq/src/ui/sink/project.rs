@@ -19,6 +19,7 @@ use ubiq_proto::ids::ProjectId;
 use ubiq_proto::projects::{IndexChange, IndexLevel};
 
 use crate::app::AppState;
+use crate::state::git::head_label;
 use crate::state::settings::ToolEditScope;
 use crate::state::sink::{
     ColourField, PROJECT_ABOUT, PROJECT_ABOUT_LIMIT, PROJECT_BRANCH, PROJECT_COLOUR, PROJECT_MARK,
@@ -29,8 +30,8 @@ use crate::state::{RailMode, WindowRegistry};
 use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::kit::{
-    choice_pill, elided, ghost_button, heading, icon_button, mono, nav_item, primary_button,
-    setting_row,
+    check_box, choice_pill, elided, ghost_button, heading, icon_button, mono, nav_item,
+    primary_button, setting_row,
 };
 use crate::ui::rail::mode_icon;
 use crate::ui::sink::style::{framed_active, input_on, textarea_on};
@@ -382,6 +383,152 @@ fn body(app: &AppState, window: &Window, cx: &mut Context<AppState>, form: Form)
         .px_5()
         .py_4()
         .child(content)
+        .into_any_element()
+}
+
+/// The git repositories inside this project: the project's own root, always managed and never a
+/// switchable row, then one row per [`ubiq_proto::git::GitNested`] the last working-tree walk
+/// found. Ticking one sends the whole list at once, the same rule `search_excludes_row`'s controls
+/// follow — see `AppState::set_project_managed_repos`.
+///
+/// Reads the window's own data for the project the *form* names, not for the one on screen — this
+/// dialog is raised from the projects list as well, for a project the window holds without showing
+/// — because which repositories exist is what a walk found and not what the shared record says. A
+/// project this window does not hold has had no walk, and the list says so rather than claiming
+/// the project holds nothing.
+fn repos_row(app: &AppState, project: ProjectId, cx: &mut Context<AppState>) -> Option<AnyElement> {
+    let Some(open) = app.held_project(project) else {
+        return Some(unwalked_repos_row());
+    };
+    let own_head = open.git.as_ref().map(|overview| head_label(&overview.head));
+    let repos = open.git_repos.clone();
+
+    let mut rows: Vec<AnyElement> = Vec::new();
+    if let Some(head) = own_head {
+        rows.push(
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap_2()
+                .py_1()
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            mono(".".to_string(), theme::text())
+                                .text_size(theme::font(Family::Chrome, Role::Body)),
+                        )
+                        .child(
+                            div()
+                                .text_size(theme::font(Family::Chrome, Role::Meta))
+                                .text_color(theme::text_faint())
+                                .child(head),
+                        ),
+                )
+                .child(
+                    div()
+                        .text_size(theme::font(Family::Chrome, Role::Meta))
+                        .text_color(theme::text_faint())
+                        .child("this project's own repository"),
+                )
+                .into_any_element(),
+        );
+    }
+
+    if repos.is_empty() {
+        rows.push(
+            div()
+                .text_size(theme::font(Family::Chrome, Role::Label))
+                .text_color(theme::text_faint())
+                .child("No other repositories found inside the project.")
+                .into_any_element(),
+        );
+    } else {
+        for repo in &repos {
+            let rel_path = repo.rel_path.clone();
+            let managed = repo.managed;
+            let toggled = rel_path.clone();
+            let id = ElementId::Name(format!("project-repo-{rel_path}").into());
+            rows.push(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .gap_2()
+                    .py_1()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                mono(rel_path.clone(), theme::text())
+                                    .text_size(theme::font(Family::Chrome, Role::Body)),
+                            )
+                            .when(repo.submodule, |this| {
+                                this.child(
+                                    div()
+                                        .text_size(theme::font(Family::Chrome, Role::Meta))
+                                        .text_color(theme::text_faint())
+                                        .child("submodule"),
+                                )
+                            }),
+                    )
+                    .child(check_box(
+                        id,
+                        managed,
+                        cx.listener(move |this, _, _, cx| {
+                            this.toggle_project_managed_repo(project, toggled.clone(), cx)
+                        }),
+                    ))
+                    .into_any_element(),
+            );
+        }
+    }
+
+    Some(
+        div()
+            .flex()
+            .flex_col()
+            .gap_1p5()
+            .py_3()
+            .border_b_1()
+            .border_color(theme::border())
+            .child(label_line(
+                "Repositories",
+                "Every git repository the last walk found inside this project. A managed one \
+                 colours the explorer and shows on the Git screen; an ignored one is only listed \
+                 here.",
+            ))
+            .child(div().flex().flex_col().children(rows))
+            .into_any_element(),
+    )
+}
+
+/// What the repositories section says for a project this window does not hold open: nothing has
+/// walked it, so the list would be empty for a reason that has nothing to do with the project.
+fn unwalked_repos_row() -> AnyElement {
+    div()
+        .flex()
+        .flex_col()
+        .gap_1p5()
+        .py_3()
+        .border_b_1()
+        .border_color(theme::border())
+        .child(label_line(
+            "Repositories",
+            "Every git repository the last walk found inside this project. A managed one colours \
+             the explorer and shows on the Git screen; an ignored one is only listed here.",
+        ))
+        .child(
+            div()
+                .text_size(theme::font(Family::Chrome, Role::Label))
+                .text_color(theme::text_faint())
+                .child("Open this project to list the repositories inside it."),
+        )
         .into_any_element()
 }
 
@@ -741,6 +888,7 @@ fn general(app: &AppState, window: &Window, cx: &mut Context<AppState>, form: Fo
             form_project(app, form, cx)
                 .and_then(|project| search_excludes_row(app, project, window, cx)),
         )
+        .children(form_project(app, form, cx).and_then(|project| repos_row(app, project, cx)))
         .into_any_element()
 }
 

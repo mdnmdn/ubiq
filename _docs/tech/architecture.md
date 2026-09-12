@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: The two halves — coordinator and UI — the single bus between them, the rules neither may break, and why the split is drawn before it is needed.
 read_when: you are about to add a capability that crosses the UI/coordinator line, or you want to know why the code is shaped this way
-updated: 2026-09-11
-verified: 2026-09-11
+updated: 2026-09-12
+verified: 2026-09-12
 code_anchors: [crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq/src/lib.rs, crates/ubiq/src/version.rs, crates/ubiq-app/src/lib.rs, crates/ubiq-app/src/main.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/state/windows.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-proto/src/lib.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/files/mod.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq-host/src/store/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/store/memory.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq-host/src/links.rs, crates/ubiq/src/web_export/mod.rs, crates/ubiq-host/src/mcp/mod.rs]
 review_cycle: quarterly
 ---
@@ -239,6 +239,12 @@ opens another project or leaves, so a dropped handle is the whole of stopping a 
 is `ProjectFilesChanged` — project-relative paths and a flag for the git directory, never content
 and never an absolute path, on the same rule a search hit follows. A watch that will not start is
 logged and the project simply has none.
+
+**The debounce window is a floor, not the only trigger.** Events are coalesced over a 150ms quiet
+window, and a change waits 1.2s at the very most however busy the project stays: a build writing
+into an excluded `target/` emits events with no gap in them for as long as it runs, and every one of
+them is dropped by the watch rather than reported, so a window measured from the last event alone
+would hold a real change back until the noise stopped.
 
 **The same flush also feeds the index, and does not go through the coordinator to do it.** The
 watch thread pushes straight to its client, so the coordinator never sees a change and has nothing

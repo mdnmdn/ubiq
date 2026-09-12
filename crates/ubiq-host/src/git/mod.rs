@@ -57,6 +57,9 @@ pub struct Job {
     pub project_id: ProjectId,
     /// The record's path, taken from memory on the coordinator's thread.
     pub root: PathBuf,
+    /// The repositories inside the project it takes on, from the record beside `root`. Empty is
+    /// the ordinary answer: a nested repository is found and named until the user ticks it.
+    pub managed_repos: Vec<String>,
     pub request: Request,
     pub reply_to: Mailbox,
 }
@@ -330,14 +333,20 @@ fn observation(
         // each of them. The downward walk runs either way.
         return Ok(Observation {
             overview: None,
-            tree: observe::nested_only(&job.root, full),
+            tree: observe::nested_only(&job.root, full, &job.managed_repos),
         });
     }
     let cached = state
         .repos
         .get(&job.project_id)
         .expect("just inserted or confirmed");
-    observe_repo(&job.root, &cached.repo, generation, full)
+    observe_repo(
+        &job.root,
+        &cached.repo,
+        generation,
+        full,
+        &job.managed_repos,
+    )
 }
 
 fn ensure_repo(

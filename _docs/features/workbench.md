@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: The window's shell — the activity rail and its modes, the dock of movable panels the user arranges around the centre, the file explorer and editor a project owns, the Git screen of refs, history and uncommitted changes, the agents screen of parallel columns, the orchestration graph and the tasks board the rail's other built modes hold, the kitchen sink the application tests itself against, the file picker any screen raises to choose a path, the empty state a window with no project shows, and the status bar that reports on all of it.
 read_when: you are changing the window layout, a rail mode, where a panel may sit or when it is drawn, the explorer, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, capturing the window or annotating a capture, saving a file, the Git screen's refs, history, change lists or diff, the agents screen's columns, what a tab drag means or what the bench is, the orchestration screen's graph, how it arranges itself, its inspector or its tasks, the tasks board's columns, cards or task panel, the kitchen sink's pages or fixtures, the file picker a screen raises to choose a path, cloning a project, application settings, vim mode, or the status bar
-updated: 2026-09-11
-verified: 2026-09-11
+updated: 2026-09-12
+verified: 2026-09-12
 code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/tests/image_gestures.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/app/sink.rs, crates/ubiq/src/state/a2ui.rs, crates/ubiq/src/ui/a2ui.rs, crates/ubiq/src/ui/sink/a2ui.rs, crates/ubiq/tests/a2ui.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/stats.rs, crates/ubiq/src/ui/stats.rs, crates/ubiq/src/app/stats.rs, crates/ubiq/tests/stats.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/app/new_agent.rs, crates/ubiq/src/ui/new_agent.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/app/graph.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/ui/web_view.rs, crates/ubiq/src/ui/viewer/web.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/state/web_panel.rs, crates/ubiq/src/app/explorer.rs, crates/ubiq/src/state/explorer/menu.rs, crates/ubiq/src/ui/file_dialog.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
@@ -1185,6 +1185,25 @@ not a dialog of its own: it surfaces as a dismissible banner over the harnesses 
 same warning shape a project's own row confirmations use, and clears itself the next time the user
 opens a dialog, starts a login, or dismisses it by hand.
 
+**Under each harness line sits how much of that plan is left.** One row per window the provider
+states — its own label, a meter, the reading, and when it resets — then the plan, how old the
+reading is, and a Refresh. This is the surface that answers when nothing is running, which is the
+moment the question is actually asked, so it is filled by asking the host for every login on the
+page when settings opens; Refresh is the one control that makes the provider be asked again, because
+the endpoint behind Claude's is unofficial and rate-limits.
+
+**Every negative answer is drawn in place rather than hidden**, because an absent readout reads as a
+missing feature and for most harnesses this is a permanent fact about the provider instead. A
+harness whose provider publishes no queryable limit says so in one sentence. A provider that
+answered and named no limit says that, which is a different sentence. A failure is drawn as the
+sentence the host sent, since it is written to be read — "Claude is rate-limiting the usage
+endpoint" is not the same news as "this harness does not report usage limits". A reading with no
+denominator anybody stated — a count against no ceiling, a credit balance — draws the figure and
+**no meter**, on the rule the Control screen already keeps: a meter needs a denominator, and a
+fraction of an invented total is drawn with more confidence than the number behind it deserves.
+Meters take their colour from the same `theme::usage_tone` thresholds the conversation footer's ring
+does, so the two surfaces cannot disagree about where "nearly out" begins.
+
 **Signing in is a modal with a real terminal in it, because the harness runs its own login.** Add
 harness asks two things — which harness, and what to call the identity — and then the harness's own
 flow runs in a pane inside the modal, browser round-trip included. That running step alone draws
@@ -1512,7 +1531,10 @@ and the two need not be on one machine.
 **A change on disk reaches the window without being asked for.** The host watches the folder of the
 project a window has open and reports what changed; the explorer re-lists the parent of each changed
 path, but only the folders it already holds listed, so a change deep inside a shut folder costs
-nothing. A burst too large to name its paths re-lists the root instead. A change to the git
+nothing. A burst too large to name its paths names nothing, so what is on screen is re-listed
+instead: the root and every folder open under it, because one listing is a single level deep and the
+root alone would leave an open folder holding what it held before the burst. Every open tab is in
+the same position — nothing says which files moved — so each clean background one is read again. A change to the git
 directory refreshes the overview and the working-tree map, the same refresh a save already sends.
 Nothing is redrawn from the message itself — it names paths and carries no content, so the window
 asks for what it wants the ordinary way.
@@ -2455,6 +2477,24 @@ menu picks, all go through `app/projects.rs::set_project_search_excludes`, which
 list in one `UpdateProject` and applies the snapshot at once rather than waiting on the host's
 echo.
 
+**The dialog is also where a project says which repositories inside it are its business.**
+`repos_row()` draws a Repositories section under the excludes: the project's own repository first,
+always managed and with no switch beside it — it is the repository the project *is* — and then one
+row per repository the last working-tree walk found inside it, each with a tick box and a
+`submodule` tag where the outer repository pins it. A nested repository starts **ignored** (`D112`):
+ticking it sends the whole list through `app/projects.rs::set_project_managed_repos`, the same
+immediacy the excludes get, and the host redoes the observation at once so the tree and the Git
+screen follow without a restart. The rows come from the window's own `OpenProject::git_repos` — what
+a walk found, not what the shared record says — so the section tells a project this window holds
+without showing that it has to be opened before it can be listed.
+
+An ignored repository is not drawn faintly or filtered late: the host never opens it, so it has no
+status to carry. Its folder gets no branch chip, no badge of its own, and not even the untracked
+mark the outer repository would otherwise give it, because the folder of every repository found is
+dropped from the outer repository's account either way. `ExplorerState::apply_git` takes only the
+managed ones into `git_repos`, which is the boundary it draws a branch on and the place inherited
+status stops.
+
 Project settings is `ui/sink/project.rs`: the sink draws it on the page, the
 shell paints the same dialog over the window when a project is being created or edited. Application
 settings is `ui/settings.rs`: the titlebar's gear raises it, `state/settings.rs` holds the overlay
@@ -2952,9 +2992,10 @@ project open, not from a keystroke; `schedule_explorer_filter()` debounces the f
 and `RefreshProjectGit { full: true }`, a successful save and a pane exit send the full refresh
 again, and `ui/status_bar.rs` prints the overview's branch. `ProjectFilesChanged` is answered in the
 same three currencies: `RefreshProjectGit { full: true }` when it reports the git directory, one
-`ProjectTree` per deduplicated parent directory the tree already holds listed — the root instead
-when the batch is truncated — and one `ReadProjectFile` per open tab that is neither dirty nor
-already loading, put back to reading by `OpenFile::reload()` — after `set_restore()` has captured the
+`ProjectTree` per deduplicated parent directory the tree already holds listed — the root plus
+`ExplorerState::expanded()` when the batch is truncated and names no path — and one
+`ReadProjectFile` per open tab that is neither dirty nor already loading, every open tab being a
+candidate when the batch is truncated, put back to reading by `OpenFile::reload()` — after `set_restore()` has captured the
 outgoing buffer's `selected_range()` and scroll offset, so the fresh `Entity<EditorState>` the
 answering contents build is put back where the old one was read rather than opened at the top.
 `crates/ubiq/tests/files_changed.rs` is what asserts each of those without a frame, cursor position

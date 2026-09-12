@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: Editor-like chat tabs — many, movable to any dockable region, each a view onto a host-owned conversation or onto none, drawn by the composer, transcript and tool blocks the whole window shares.
 read_when: you are changing a chat tab, the control that starts or attaches a conversation, or which conversation a tab shows
-updated: 2026-09-10
-verified: 2026-09-10
+updated: 2026-09-12
+verified: 2026-09-12
 code_anchors: [crates/ubiq/src/ui/chat/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/app/projects.rs]
 depends_on: [feat-workbench]
 review_cycle: monthly
@@ -116,8 +116,8 @@ that is gone (`D97`). So a restart brings back exactly the tabs whose conversati
 
 **Every chat tab draws from the same shared conversation view.** What a tab shows for its attachment
 is `crates/ubiq/src/ui/conversation`, the transcript, the tool blocks, the footer and the composer
-every surface that hosts a live agent shares — the run pill, the context ring, the token cost, the
-launch-time model and thinking pickers. **A tab unattached to anything is one large play button**,
+every surface that hosts a live agent shares — the run pill, the context ring, the quota ring, the
+token cost, the launch-time model and thinking pickers. **A tab unattached to anything is one large play button**,
 centred, on `start a new agent` — no title and no note, because a tab with no conversation in it is
 the ordinary state of a fresh tab rather than a fault, and two lines of explanation said what the
 icon says. It is drawn at `EMPTY_START_SIZE` rather than through `kit::icon_button`: that is the
@@ -126,6 +126,18 @@ points**: the transcript hands `ui::on_link` to its `TextView`, so a relative pa
 project root or a full `ubiq://` opens that place in the window, `http`, `https` and `mailto` reach
 the operating system, and anything else does nothing — see
 [`workbench.md`](./workbench.md). A path merely *mentioned* in prose is text, not a link.
+
+**The footer's third ring says how much of the account's plan is left.** It is an account fact, not
+a conversation one — two agents signed in as the same identity read one window — so it is drawn from
+what the host cached for that account, falling back to the reading the harness pushed into this
+conversation while nothing has been asked. It takes its colour from the usage thresholds rather than
+the accent, because a ring's whole job here is to make "nearly out" visible without a hover, and
+because two accent rings side by side would read as one fact drawn twice. The figure, the window's
+name, its reset, the plan and the age of the reading are in the tooltip: the bare `5h N%` readout
+belongs to the chrome and does not return there (`D111`). A conversation with no account draws none,
+because there is no plan to have a window in; a provider that named no limit draws none rather than
+an empty ring; and a delegate's transcript draws none, on the same rule the context ring beside it
+follows.
 
 **A running turn is drawn at the tail of the transcript.** While the run is `Working` and nothing is
 waiting on a permission answer, the last thing in the transcript is `ui::conversation::writing_mark`
@@ -523,7 +535,12 @@ open set is `Conversation::open_groups` with `toggle_group()` beside it in
 `AppState::toggle_conversation_tool_group` in `crates/ubiq/src/app/agents.rs`; the reasoning fold
 has no open set of its own — the run is read off its last block, moved by
 `Conversation::toggle_thought_group` over the run's indices and remembered in `touched_thoughts`,
-reached through `AppState::toggle_conversation_thought_group`. `footer()` reads
+reached through `AppState::toggle_conversation_thought_group`. `footer()` takes the account's snapshot from
+`SettingsState::quota` in `crates/ubiq/src/state/settings.rs`, falls back to
+`snapshot_from_rate_limit` over `Conversation::rate_limit` where the host has said nothing yet,
+words the tooltip with `quota_tip`, and colours the ring with `theme::usage_tone` — the one
+accessor the settings meters share, so the two surfaces cannot disagree about where the thresholds
+fall. It also reads
 `show_cache_ring` off the workbench's UI settings and draws the cache ring from `cached_tokens()`
 over `total_tokens()` — or, on a delegate's transcript, from `Conversation::subagent_tokens()`,
 with `delegate_spend_tip()` for the tooltip that says which grain the figure is banked at; `stop_button()` is the composer's square, on `AppState::cancel_turn`, beside
@@ -572,6 +589,9 @@ field the filter. A grouped, searchable, partly-inert list was already what that
 | The conversation a chat tab is attached to is deleted, in this project or another | Every tab on it closes, dock leaf and composer slot with it — the one host event that ends a view |
 | A permission request offers no option of the reading ⌘⌥Y or ⌘⌥N asks for | The keyboard does nothing; the buttons the harness did offer are still there to press |
 | A conversation reports a total but no cached figure, or a total of zero | The cache ring is not drawn; a ring at nothing over nothing is not a reading |
+| The conversation runs as no account, or its provider names no limit | No quota ring; there is no window to draw, and a zero ring would claim one that is empty |
+| The host has cached nothing and the harness has pushed nothing | No quota ring. The reading arrives when a turn runs or the accounts page asks, and until then nothing is stated |
+| The cached snapshot is old | The ring still draws — a stale reading is a real one — and the tooltip says how old it is rather than implying it is current |
 | The turn is cancelled while asks are up | The outstanding set is dropped, the prompts and the strip go with it, and the host answers every one of them as cancelled before the cancel reaches the harness |
 | The harness ends or is unloaded while an ask is up | The prompts go with the process; there is nothing left waiting on an answer |
 | The conversation accepts everything and the harness offers no allowing option | The host emits the request unchanged, and it is drawn and answered like any other |

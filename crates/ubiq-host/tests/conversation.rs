@@ -221,7 +221,8 @@ fn what_the_harness_says_reaches_the_bus_in_order() {
     ]);
 
     let host = host_end.mailbox(To::Client(client.id()));
-    let conversation = Conversation::start(id, Box::new(bridge), host, 0, None, false, flags());
+    let conversation =
+        Conversation::start(id, Box::new(bridge), host, 0, None, None, false, flags());
     let messages = drain(&client, 4);
 
     let seqs: Vec<u64> = messages
@@ -285,6 +286,7 @@ fn a_tool_call_and_its_completion_keep_the_same_id() {
         host,
         0,
         None,
+        None,
         false,
         flags(),
     );
@@ -325,6 +327,7 @@ fn a_prompt_reaches_a_bridge_the_pump_thread_owns() {
         host,
         0,
         None,
+        None,
         false,
         flags(),
     );
@@ -349,6 +352,7 @@ fn a_one_shot_harness_refuses_a_second_turn() {
         Box::new(OneShot),
         host,
         0,
+        None,
         None,
         false,
         flags(),
@@ -375,6 +379,7 @@ fn two_conversations_share_one_bus_without_interleaving() {
         host_end.mailbox(To::Client(client.id())),
         0,
         None,
+        None,
         false,
         flags(),
     );
@@ -383,6 +388,7 @@ fn two_conversations_share_one_bus_without_interleaving() {
         Box::new(two),
         host_end.mailbox(To::Client(client.id())),
         0,
+        None,
         None,
         false,
         flags(),
@@ -421,6 +427,7 @@ fn a_pump_continues_from_its_start_seq() {
         host,
         41,
         None,
+        None,
         false,
         flags(),
     );
@@ -442,7 +449,8 @@ fn a_quiet_stop_sends_no_conversation_ended_and_returns_the_last_seq() {
     let (bridge, tx) = Cancellable::new();
 
     let host = host_end.mailbox(To::Client(client.id()));
-    let conversation = Conversation::start(id, Box::new(bridge), host, 0, None, false, flags());
+    let conversation =
+        Conversation::start(id, Box::new(bridge), host, 0, None, None, false, flags());
 
     tx.send(Some(text("hello"))).unwrap();
     tx.send(Some(text("again"))).unwrap();
@@ -477,7 +485,8 @@ fn a_stop_that_is_not_quiet_still_sends_conversation_ended() {
     let (bridge, _tx) = Cancellable::new();
 
     let host = host_end.mailbox(To::Client(client.id()));
-    let conversation = Conversation::start(id, Box::new(bridge), host, 0, None, false, flags());
+    let conversation =
+        Conversation::start(id, Box::new(bridge), host, 0, None, None, false, flags());
     conversation.stop(false);
 
     let messages = drain(&client, 1);
@@ -493,7 +502,8 @@ fn a_relaunch_after_an_unload_continues_the_conversations_own_sequence() {
     let (bridge, tx) = Cancellable::new();
 
     let host = host_end.mailbox(To::Client(client.id()));
-    let conversation = Conversation::start(id, Box::new(bridge), host, 0, None, false, flags());
+    let conversation =
+        Conversation::start(id, Box::new(bridge), host, 0, None, None, false, flags());
     tx.send(Some(text("hello"))).unwrap();
     drain(&client, 1);
     let last_seq = conversation.stop(true);
@@ -505,6 +515,7 @@ fn a_relaunch_after_an_unload_continues_the_conversations_own_sequence() {
         Box::new(bridge2),
         host_end.mailbox(To::Client(client.id())),
         last_seq + 1,
+        None,
         None,
         false,
         flags(),
@@ -540,6 +551,7 @@ fn the_opening_reply_is_gathered_whole_and_published_when_the_turn_ends() {
         host,
         0,
         None,
+        None,
         false,
         flags(),
     );
@@ -567,6 +579,7 @@ fn a_turn_of_only_subagent_prose_publishes_no_opening_reply() {
         Box::new(bridge),
         host,
         0,
+        None,
         None,
         false,
         flags(),
@@ -617,6 +630,7 @@ fn accept_all_answers_the_permission_and_emits_nothing() {
         Box::new(bridge),
         host,
         0,
+        None,
         None,
         false,
         ConvFlags::new(id, true, false),
@@ -671,6 +685,7 @@ fn accept_all_shows_a_request_it_has_no_allowing_answer_for() {
         host,
         0,
         None,
+        None,
         false,
         ConvFlags::new(id, true, false),
     );
@@ -700,6 +715,7 @@ fn the_capture_writes_the_conversation_to_a_file() {
         Box::new(bridge),
         host,
         0,
+        None,
         None,
         false,
         ConvFlags::new(id, false, true),

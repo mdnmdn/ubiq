@@ -124,6 +124,7 @@ fn a_project() -> ProjectSnapshot {
             search_excludes: Vec::new(),
             index: None,
             tools: Vec::new(),
+            managed_repos: Vec::new(),
         },
         health: ProjectHealth::Ok,
         open_panes: 0,
@@ -524,4 +525,82 @@ fn a_goto_mid_reload_beats_the_reloads_own_restore(cx: &mut TestAppContext) {
             });
         })
         .expect("the window is open");
+}
+
+/// A burst too large to name its paths re-lists everything on screen, not only the root.
+///
+/// A listing is one level deep, so the root alone leaves every open folder under it holding what it
+/// held before the burst — which is what makes a branch switch, or an agent rewriting a directory,
+/// a tree the user has to refresh by hand. Open tabs are in the same position: nothing says which
+/// files moved, so every clean background one is read again.
+#[gpui::test]
+fn a_burst_relists_every_open_folder_and_rereads_the_clean_background_tabs(
+    cx: &mut TestAppContext,
+) {
+    let fixture = Fixture::open(cx);
+
+    fixture.deliver(
+        Message::ProjectTreeListing {
+            project_id: fixture.project,
+            rel_path: String::new(),
+            listings: vec![listing("", vec![dir("src"), dir("vendor")])],
+        },
+        cx,
+    );
+    // `src` is opened the way the user opens it, so the tree holds it as a folder on screen.
+    fixture
+        .window
+        .update(cx, |_, _window, cx| {
+            fixture.state.update(cx, |state, cx| {
+                state.toggle_folder("src".to_string(), cx);
+            });
+        })
+        .expect("the window is open");
+    cx.run_until_parked();
+    fixture.deliver(
+        Message::ProjectTreeListing {
+            project_id: fixture.project,
+            rel_path: "src".to_string(),
+            listings: vec![listing(
+                "src",
+                vec![file("src", "main.rs"), file("src", "lib.rs")],
+            )],
+        },
+        cx,
+    );
+
+    fixture.open_file("src/lib.rs", "pub fn one() {}\n", cx);
+    fixture.open_file("src/main.rs", "fn main() {}\n", cx);
+
+    let _ = fixture.said();
+
+    fixture.deliver(
+        Message::ProjectFilesChanged {
+            project_id: fixture.project,
+            changed: Vec::new(),
+            truncated: true,
+            repository: false,
+        },
+        cx,
+    );
+
+    let said = fixture.said();
+    let listings = listings_asked(&said);
+    assert!(
+        listings.contains(&String::new()),
+        "the root is re-listed: {said:?}"
+    );
+    assert!(
+        listings.contains(&"src".to_string()),
+        "the folder open under the root is re-listed too: {said:?}"
+    );
+    assert!(
+        !listings.contains(&"vendor".to_string()),
+        "a folder the tree has not listed is not asked about: {said:?}"
+    );
+    assert_eq!(
+        reads_asked(&said),
+        vec!["src/lib.rs".to_string()],
+        "the clean background tab is read again; the tab on screen is left alone: {said:?}"
+    );
 }

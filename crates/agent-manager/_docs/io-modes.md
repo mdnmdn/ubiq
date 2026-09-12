@@ -270,6 +270,54 @@ per-message usage. Codex, opencode, and Copilot never report a context
 window at all, so their bridges emit no `UsageUpdate` ever — not a
 best-effort one with `size: 0`.
 
+### Quota: what is left, asked rather than streamed
+
+`UsageUpdate` says what a turn *spent*. The other direction — how much of the
+plan remains before the next long run — is an **account** fact, not a
+conversation one: two agents signed in as the same identity read the same
+window, and an account with nothing running still has one. So it lives in
+[`crate::quota`] rather than in the event model, and it is *asked for*:
+
+```rust
+pub struct QuotaSnapshot { account: String, harness: String, plan: Option<String>,
+                           gauges: Vec<QuotaGauge>, as_of: i64 }
+pub struct QuotaGauge { label: String, reading: QuotaReading,
+                        resets_at: Option<i64>, detail: Option<String> }
+pub enum QuotaReading { Window { used_pct: u8 },
+                        Count { used: u64, limit: Option<u64> },
+                        Credit { remaining: i64, currency: String } }
+```
+
+**A snapshot is a list of gauges, not a struct of every provider's fields.** The
+providers do not agree on what a limit is — Claude has two rolling windows,
+Copilot counts premium requests against a monthly ceiling, a credit endpoint has
+money left — so a union struct would grow a field per provider and read `None` on
+most of them. `QuotaReading` is the extension point; a provider that genuinely
+reads differently adds a variant and every gauge already drawn keeps drawing.
+
+`IoSupport::quota` says by what route a harness can be asked, before anything is
+spawned:
+
+| `QuotaSource` | Means | Who |
+|---|---|---|
+| `None` | The provider publishes no queryable limit | Copilot, opencode, Grok, Codex |
+| `Push` | It arrives unasked while a turn runs; there is no way to ask | — |
+| `Probe` | A stored credential and one request; no process | Claude Code |
+| `Bridge` | Askable, but only down a bridge already running | — |
+
+Claude answers both ways and they are the same fact: `AgentEvent::RateLimitUpdate`
+is the live bridge stating it for free mid-turn, and `Harness::quota` is the same
+windows read from `https://api.anthropic.com/api/oauth/usage` with the account's
+own OAuth token. That endpoint is **unofficial and rate-limits**, so every failure
+degrades to "not read" — a sentence a user reads — never to a wrong number and
+never to a broken caller. Codex's `codex app-server` answers
+`account/rateLimits/read` and is the obvious second `Bridge` implementation; it is
+not wired, so Codex declares `None` rather than a capability that would fail.
+
+**The credential never comes back out.** The probe reads the token, spends it on
+one request and drops it. Nothing token-shaped reaches a `QuotaSnapshot`, a log,
+or the caller — the same invariant the account index itself states.
+
 ### Permissions and cancellation
 
 ```rust

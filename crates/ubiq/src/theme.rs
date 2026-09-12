@@ -834,6 +834,21 @@ pub fn info_soft() -> Rgba {
     Theme::current().palette.status.info_soft
 }
 
+/// How full a plan reads, as a colour: fine under 75%, warning from 75, danger from 90.
+///
+/// A status colour rather than the accent, because a quota is something *reported* about the
+/// account and not something the user is acting in — and because two accent rings beside each
+/// other in the conversation footer would read as one fact drawn twice. One accessor so the ring
+/// in the footer and the meter in the settings section can never disagree about where the line
+/// falls.
+pub fn usage_tone(pct: u8) -> Rgba {
+    match pct {
+        90.. => danger(),
+        75..=89 => warning(),
+        _ => success(),
+    }
+}
+
 pub fn ribbon_alpha() -> Rgba {
     Theme::current().palette.status.ribbon_alpha
 }
@@ -1755,6 +1770,23 @@ mod tests {
                 count,
                 "{mode:?} has two families sharing a pill label"
             );
+        }
+    }
+
+    /// Where the two lines fall, in both grounds. The quota ring and the accounts meter read this
+    /// one accessor, so a threshold moving in one surface and not the other is not expressible —
+    /// but a threshold moving *at all* is a change to what "nearly out" means, which is why the
+    /// boundaries are asserted rather than left to the caller that happens to be looking.
+    #[test]
+    fn how_full_a_plan_reads_turns_at_seventy_five_and_ninety() {
+        for id in [ThemeId::DARK, ThemeId::LIGHT] {
+            Theme::set(resolve(id, None, Density::default()));
+            assert_eq!(usage_tone(0), success());
+            assert_eq!(usage_tone(74), success());
+            assert_eq!(usage_tone(75), warning());
+            assert_eq!(usage_tone(89), warning());
+            assert_eq!(usage_tone(90), danger());
+            assert_eq!(usage_tone(100), danger());
         }
     }
 

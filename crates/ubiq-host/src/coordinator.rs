@@ -81,7 +81,9 @@ fn gather(
     match subject {
         SuggestSubject::CommitMessage { .. } => {
             let root = root.ok_or_else(|| "that project is not in the catalogue".to_string())?;
-            let observation = git::observe(root, 0, true)
+            // No managed set: a commit message names what the project's *own* repository is about
+            // to commit, and a repository below it commits on its own.
+            let observation = git::observe(root, 0, true, &[])
                 .map_err(|error| format!("read the repository: {error:?}"))?;
             let entries = observation
                 .tree
@@ -160,6 +162,12 @@ struct Coordinator {
     search: Search,
     /// The full-text index, one open per project that keeps one.
     index: crate::index::Index,
+    /// The thread that asks a provider how much of an account's plan is left. A probe is a
+    /// blocking HTTPS call to an endpoint that rate-limits, so it never happens on this thread.
+    quota: crate::quota::Quota,
+    /// What each account last read. In memory and never written down: unlike spend, what is left
+    /// is re-derivable by asking again, so a restart re-probes — see [`crate::quota`].
+    quotas: crate::quota::Quotas,
     /// One live search per project. The flag means two things: a cancel request, set when a
     /// second search for the same project arrives or `CancelSearch` names this one; and "this
     /// search is over", set by the worker itself when it finishes, cancelled or not. `search_job`
@@ -738,6 +746,9 @@ impl Coordinator {
         // token. A restored row is what [`Self::revive_conversation`] reads its facts out of, not a
         // live agent — `drives` answers false for one, so nothing can be driven into it by accident
         // before a window has asked for it back.
+        // Taken before the root is moved into the struct: the quota worker probes from a thread of
+        // its own and everything it needs is a path.
+        let quota_root = root.path.clone();
         let pending_conversations = conversation_record::all(&root.path.join("sessions"))
             .into_iter()
             .filter(|(_, row)| row.persistent)
@@ -782,6 +793,8 @@ impl Coordinator {
             catalogue,
             files: Files::start(),
             git: Git::start(),
+            quota: crate::quota::Quota::start(quota_root),
+            quotas: crate::quota::Quotas::new(),
             search: Search::start(),
             index: crate::index::Index::start(),
             active_searches: HashMap::new(),
@@ -1250,7 +1263,9 @@ impl Coordinator {
                 search_excludes,
                 index,
                 tools,
+                managed_repos,
             } => {
+                let managed_changed = managed_repos.is_some();
                 let replies = self.projects.update(
                     project_id,
                     name,
@@ -1259,6 +1274,7 @@ impl Coordinator {
                     search_excludes,
                     index,
                     tools,
+                    managed_repos,
                 );
                 self.answer(client, replies);
                 // A level the user just changed takes effect now, not at the next open: turning
@@ -1266,6 +1282,11 @@ impl Coordinator {
                 // does nothing.
                 if index.is_some() {
                     self.settle_index(project_id);
+                }
+                // The same for a repository just taken on or let go: the badges and the Git screen
+                // read the observation, so it is redone now rather than at the next restart.
+                if managed_changed {
+                    self.git_job(client, project_id, git::Request::Full);
                 }
             }
             Message::LocateProject { project_id, path } => {
@@ -1358,6 +1379,37 @@ impl Coordinator {
                 account,
             } => {
                 self.delete_harness_login(client, agent_type, account);
+            }
+
+            // ── Quota family: how much of an account's plan is left ──
+            Message::QueryQuota {
+                account,
+                harness,
+                fresh,
+            } => {
+                self.query_quota(client, account, harness, fresh);
+            }
+            // Filed by a host-side thread rather than asked by a window: the quota worker says
+            // this when a probe worked, and a conversation's pump says it when a running harness
+            // pushed a reading mid-turn. Both reach here through `bus::Voice`, because `quotas`
+            // is this thread's — the same rule a finished clone's `Registered` obeys.
+            Message::QuotaChanged {
+                account,
+                harness,
+                snapshot,
+            } => {
+                if self.quotas.put(snapshot.clone()) {
+                    // Every window showing that account is looking at the same fact, so all of
+                    // them hear it — the precedent `ProjectFilesChanged` sets.
+                    self.host.send(
+                        To::Everyone,
+                        Message::QuotaChanged {
+                            account,
+                            harness,
+                            snapshot,
+                        },
+                    );
+                }
             }
 
             // ── Connector family: the identities an external *service* runs as ──
@@ -2401,6 +2453,18 @@ impl Coordinator {
             harness: pending.agent_type.clone(),
             account: pending.account.clone().unwrap_or_default(),
         });
+        // Where a reading this harness pushes mid-turn is filed. Only for a run with an identity
+        // behind it: what is left belongs to an account, and a run as the harness's own default
+        // identity has none to key one by.
+        let quota = pending
+            .account
+            .clone()
+            .filter(|account| !account.is_empty())
+            .map(|account| crate::conversation::QuotaVoice {
+                voice: self.host.voice(),
+                harness: pending.agent_type.clone(),
+                account,
+            });
         // A one-shot harness's process exits at the end of every turn, so its pump must not
         // announce that as the conversation ending — `finish_one_shot_turn` decides what it
         // means, and says `ConversationUnloaded` instead.
@@ -2423,6 +2487,7 @@ impl Coordinator {
             mailbox,
             pending.next_seq,
             usage,
+            quota,
             quiet,
             flags,
         );
@@ -3349,6 +3414,56 @@ impl Coordinator {
         });
     }
 
+    /// Answer how much of an account's plan is left: from the cache where that is honest, from
+    /// the provider where it is not.
+    ///
+    /// Three answers, in order. A harness whose provider states nothing is refused in place,
+    /// because a probe would be a network call that can only fail. A reading already held is the
+    /// answer unless `fresh` asks for another one — the endpoint behind a probe is unofficial and
+    /// rate-limits, so asking again is what a user's own refresh means and not what a panel
+    /// opening means. Otherwise the worker asks, and [`Message::QuotaRead`] arrives when it has.
+    fn query_quota(&self, client: ClientId, account: String, harness: String, fresh: bool) {
+        let refusal = match self.agents.quota_source(&harness) {
+            None => Some(format!("'{harness}' is not an agent type Ubiq knows")),
+            Some(source) if !source.reports() => {
+                Some(format!("{harness} states no limit anybody can read"))
+            }
+            Some(_) => None,
+        };
+        if let Some(error) = refusal {
+            self.host.send(
+                To::Client(client),
+                Message::QuotaRead {
+                    account,
+                    harness,
+                    snapshot: None,
+                    error: Some(error),
+                },
+            );
+            return;
+        }
+
+        if !fresh && let Some(snapshot) = self.quotas.get(&account, &harness) {
+            self.host.send(
+                To::Client(client),
+                Message::QuotaRead {
+                    account,
+                    harness,
+                    snapshot: Some(snapshot.clone()),
+                    error: None,
+                },
+            );
+            return;
+        }
+
+        self.quota.submit(crate::quota::Job {
+            account,
+            harness,
+            reply_to: self.host.mailbox(To::Client(client)),
+            voice: self.host.voice(),
+        });
+    }
+
     /// Try a typed command line on its own thread, so a hung or slow binary cannot stall the
     /// coordinator — the same reason [`Self::suggest_job`] runs a backend off this thread.
     /// Answered only to the client that asked; nothing here is persisted or fed back into
@@ -3441,6 +3556,7 @@ impl Coordinator {
         self.git.submit(git::Job {
             project_id,
             root: PathBuf::from(&record.path),
+            managed_repos: record.managed_repos.clone(),
             request,
             reply_to: self.host.mailbox(To::Client(client)),
         });
@@ -3450,6 +3566,8 @@ impl Coordinator {
         self.git.submit(git::Job {
             project_id,
             root: PathBuf::new(),
+            // Forgetting drops a cached handle and reads nothing, so there is no set to carry.
+            managed_repos: Vec::new(),
             request: git::Request::Forget,
             reply_to: self.host.mailbox(To::Client(client)),
         });
@@ -4750,6 +4868,7 @@ mod tests {
             Box::new(Idle::new()),
             mailbox,
             last_seq,
+            None,
             None,
             false,
             ConvFlags::new(agent_id, false, false),

@@ -3,11 +3,11 @@ id: tech-transport
 title: Transport contract
 kind: tech
 status: draft
-summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, profile, command-line, host browse, connector, repository, assist, notification and web asset families, the framing rules, and the procedure for adding a variant.
+summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, quota, profile, command-line, host browse, connector, repository, assist, notification and web asset families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
 updated: 2026-09-12
 verified: 2026-09-12
-code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs]
+code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
 ---
@@ -125,7 +125,7 @@ recolour and a move on disk.
 | `ListProjects` | UI → host | — | `ProjectList` |
 | `AddProject` | UI → host | `path`, `name?`, `colour?`, `custom_colour?`, `temporary` | `ProjectAdded` or `ProjectError` |
 | `ForgetProject` | UI → host | `project_id` | `ProjectForgotten` |
-| `UpdateProject` | UI → host | `project_id`, `name?`, `colour?`, `custom_colour?`, `search_excludes?`, `index?`, `tools?` | `ProjectChanged` |
+| `UpdateProject` | UI → host | `project_id`, `name?`, `colour?`, `custom_colour?`, `search_excludes?`, `index?`, `tools?`, `managed_repos?` | `ProjectChanged` |
 | `LocateProject` | UI → host | `project_id`, `path` | `ProjectChanged` or `ProjectError` |
 | `OpenedProject` | UI → host | `project_id` | `ProjectChanged` |
 | `RefreshProject` | UI → host | `project_id` | `ProjectChanged` |
@@ -496,11 +496,15 @@ fetches from; `GitSubmodule` is a different repository, pinned at a commit, with
 own. The overview carries both lists and flattens neither into the other, and a submodule outside
 the project's scope is omitted the way a file outside it never appears in a listing.
 
-**A nested repository is walked and merged, not listed.** `GitNested` names a repository whose
-working tree sits inside the project — a submodule the outer repository pins, or an independent
-clone the host knows only as one untracked folder — carrying its own `head` and, when the walk
-could read it, its own `counts`; `counts` absent means the repository could not be read, and it
-contributes no entries rather than failing the project's whole answer. Its paths join the one
+**A nested repository is walked and merged, not listed — once the project manages it.** `GitNested`
+names a repository whose working tree sits inside the project — a submodule the outer repository
+pins, or an independent clone the host knows only as one untracked folder — carrying its own `head`,
+whether the project `managed` it, and, when the walk could read it, its own `counts`; `counts`
+absent means the repository could not be read, or was not read at all because it is not managed, and
+it contributes no entries rather than failing the project's whole answer. Every repository the walk
+found is on the list either way, because the project settings offer the choice and cannot offer what
+nothing names (`D112`); `ProjectRecord.managed_repos` is where the answer is kept, and the project's
+own repository is never a member and is always managed. A managed one's paths join the one
 project-relative map on `GitWorkingTree.repos`, so the explorer draws a real badge on a file inside
 it, while `GitSubmodule` keeps its own account of what the outer repository pins — the two lists
 overlap by design, the same folder named on both. The walk is bounded by `MAX_NESTED_REPOS` (32)
@@ -940,7 +944,7 @@ Forty-seven records travel inside payloads.
 | `AgentTypeInfo` | `id`, `label`, `command`, `available`, `chat`, `modes[]`, `unattended_mode?`, `keeps_sessions` |
 | `ToolDef` | `id`, `name`, `command`, `args`, `env`, `platforms[]`, `wait_on_exit` |
 | `ListedTool` | `scope`, `tool`, `applicable` |
-| `ProjectRecord` | `id`, `name`, `path`, `colour`, `custom_colour?`, `temporary`, `created_at`, `last_opened_at?`, `search_excludes[]`, `index?`, `tools[]` |
+| `ProjectRecord` | `id`, `name`, `path`, `colour`, `custom_colour?`, `temporary`, `created_at`, `last_opened_at?`, `search_excludes[]`, `index?`, `tools[]`, `managed_repos[]` |
 | `ProjectSnapshot` | a `ProjectRecord`, flattened, plus `health`, `open_panes`, `workarea` and `ephemeral` |
 | `DirEntry` | `name`, `rel_path`, `kind`, `size?`, `symlink` |
 | `DirListing` | `rel_path`, `entries[]`, `truncated` |
@@ -1211,6 +1215,64 @@ pane's exit is never treated as a login outcome: nothing is written to the crede
 the host records no account and sends neither `HarnessLoginCaptured` nor `HarnessLoginFailed` for
 it — the pane simply closes, which the UI reads for itself from `PaneExited` rather than waiting on
 a host answer that will not come.
+
+## The quota family
+
+The account family's counterpart: that one says which identities exist, this one says how much of
+each identity's plan is left before the next long run.
+
+| Message | Direction | Payload | Responds with |
+|---|---|---|---|
+| `QueryQuota` | UI → host | `account`, `harness`, `fresh` | `QuotaRead` |
+| `QuotaRead` | host → UI | `account`, `harness`, `snapshot?`, `error?` | — |
+| `QuotaChanged` | host → everyone | `account`, `harness`, `snapshot` | — |
+
+| Record | Fields |
+|---|---|
+| `QuotaSnapshot` | `account`, `harness`, `plan?`, `gauges`, `as_of` |
+| `QuotaGauge` | `label`, `reading`, `resets_at?`, `detail?` |
+| `QuotaReading` | one of: `Window { used_pct }`, `Count { used, limit? }`, `Credit { remaining, currency }` |
+| `QuotaSource` | one of: `None`, `Push`, `Probe`, `Bridge` — rides `AgentTypeInfo` |
+
+**Quota is keyed by account, never by conversation.** A rate-limit window belongs to an identity:
+two agents signed in as the same account read the same window, each holding its own copy would be
+two copies of one fact, and an account with nothing running holds none at all — which is exactly
+the moment the question gets asked. The harness is a field on the snapshot rather than part of the
+key's meaning, because one account can serve several harnesses and each states its own limits.
+
+**A snapshot is a list of gauges, not a struct of every provider's fields.** The providers do not
+agree on what a limit is, so a union struct would grow a field per provider and read absent on most
+of them at every read. `QuotaReading`'s three variants are what they actually differ in, and a
+provider that genuinely reads differently adds a fourth without disturbing a gauge already drawn.
+
+**The cache is memory, and that is the decision.** `D110`. What was spent is a record, because
+nobody can ask a harness what it spent last Tuesday (`D78`); what is left is re-derivable by
+asking again, so it is a cache and a restart re-probes.
+
+**`snapshot` and `error` are both optional, and exactly one is set.** Three answers are distinct
+and none of them is a zero: a snapshot whose `gauges` is **empty** is a provider that was asked and
+named no limit; an `error` is a sentence saying why nothing could be read — "Claude is
+rate-limiting the usage endpoint" is a different thing on screen from "this harness does not report
+usage limits"; and a snapshot whose `as_of` is old is a real reading that is stale, which is what
+`as_of` exists to let a surface say rather than implying "now".
+
+**`fresh` asks the provider again.** The default answers from the host's cache, because the
+endpoint behind Claude's probe is unofficial and rate-limits; `fresh: true` is what a manual
+refresh sends, and it is the one probe a user explicitly asked for.
+
+**`QuotaChanged` is broadcast, on `ProjectFilesChanged`'s precedent.** Every window showing that
+account is looking at the same fact, so a reading a running agent pushed reaches all of them rather
+than only the window whose pane it arrived on. It is sent only when a cached snapshot actually
+changes — a re-read that says the same thing broadcasts nothing.
+
+**`AgentTypeInfo::quota` is read before the question is asked.** `QuotaSource::None` is the honest
+and permanent answer for the harnesses whose providers publish no queryable limit, so a surface
+draws that sentence in place rather than hiding the control: an absent control reads as a missing
+feature, and this is not one. It is the same fact-before-process split `AgentTypeInfo::chat` makes.
+
+**No credential crosses this family.** A snapshot is percentages, a plan name and a timestamp. The
+token that bought them is read inside `agent-manager`, spent on one request and dropped — the same
+rule the account family keeps, and for the same reason: the log sink listens to this bus.
 
 ## The profile family
 

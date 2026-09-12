@@ -7,7 +7,7 @@ summary: What the embedded harness-management library owns, what Ubiq owns, how 
 read_when: you are about to write code that launches a harness, drives one as a conversation, names a harness config path, or touches accounts, skills or MCP servers
 updated: 2026-09-12
 verified: 2026-09-12
-code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/credentials/mod.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/mod.rs, crates/agent-manager/src/io/acp.rs, crates/agent-manager/src/io/acp_client.rs, crates/ubiq-host/src/mcp/mod.rs]
+code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/quota.rs, crates/agent-manager/src/credentials/mod.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/mod.rs, crates/agent-manager/src/io/acp.rs, crates/agent-manager/src/io/acp_client.rs, crates/ubiq-host/src/mcp/mod.rs]
 depends_on: [tech-structure]
 review_cycle: monthly
 ---
@@ -44,6 +44,8 @@ Its full documentation lives with the crate, starting at `crates/agent-manager/_
 | Where a run's record is kept, under whose id, and when it is written | Ubiq |
 | How a harness's I/O is bridged into structured events, and what those events are called | the library |
 | The one translation from those events onto the bus | Ubiq |
+| Whether a provider states how much of a plan is left, by what route, and at which URL | the library |
+| When to ask, what to cache, and how long a reading may be called current | Ubiq |
 | What a policy grants, and how the operating system enforces it | the library |
 | Which policy layers a confined run stacks, and which of them are unusable | the library |
 | Whether an agent is confined at all, and where its run directory lives | Ubiq |
@@ -449,6 +451,15 @@ the harness with no change of its own — which is the whole point of the split.
 
 **5. A fact stated in the library's documentation is linked, never copied.** Two copies of a harness
 launch flag is one copy that goes stale silently.
+
+**6. Ubiq names no provider endpoint.** The usage URL, the beta header and the keychain service are
+the library's, like every other harness fact, and a quota probe lives behind `Harness::quota`. Ubiq
+decides *when* to ask and what to do with the answer; it never learns where the answer comes from.
+
+**7. Credential material is spent inside the library and never comes back out.** A probe reads the
+account's token, spends it on one request and drops it — the snapshot that crosses the boundary is
+percentages, a plan name and a timestamp. This is the account invariant applied to the one operation
+that uses a credential itself rather than handing it to a child process.
 
 ## Rationale
 

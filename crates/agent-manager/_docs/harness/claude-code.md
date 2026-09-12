@@ -455,6 +455,37 @@ plus `ANTHROPIC_API_KEY` is the supported pattern.
   `file-history/` — session/telemetry/machine-bound state. `~/.claude.json`'s
   `machineID` is machine-bound; let the harness regenerate it.
 
+### Usage limits (agent-manager)
+
+Claude is the one harness of the five whose remaining plan can be read with **no
+process at all**, so it declares `IoSupport::quota = QuotaSource::Probe` and
+implements `Harness::quota`.
+
+- **Endpoint:** `GET https://api.anthropic.com/api/oauth/usage`, with
+  `authorization: Bearer <accessToken>` and `anthropic-beta: oauth-2025-04-20`.
+- **Token:** the `claudeAiOauth.accessToken` of the account's own captured login,
+  reached through `AccountStore::login_source` so a store that keeps credential
+  *bytes* works as well as one that keeps a home dir. Where the account has no
+  captured home, the macOS Keychain entry `Claude Code-credentials` stands in.
+- **Answer:** a `five_hour` and a `seven_day` window (and `seven_day_opus` where
+  the plan has one), each with a utilization and a reset. Both a 0.0-1.0 fraction
+  and a 0-100 percentage are accepted and rounded the same way
+  `RateLimitWindow::utilization_pct` is; a window that states no utilization
+  produces **no gauge**, never a zero.
+- **Plan:** `claudeAiOauth.subscriptionType` from the credential — no request
+  needed, which is why a snapshot names the plan even when the endpoint refuses.
+
+**This endpoint is unofficial.** It is not in the published API, community tools
+are what establish it, and it rate-limits. Every failure degrades to a sentence
+a user reads — "Claude is rate-limiting the usage endpoint", "Claude refused the
+stored login" — and never to a number. A schema change costs the gauges, not the
+caller.
+
+The live bridge's `AgentEvent::RateLimitUpdate` states the same two windows for
+free during a turn (§"Output stream protocol"). It is a fresher reading of one
+fact, not a second fact: an account with a running agent has a more current
+snapshot than one without, and nothing has to choose between the two paths.
+
 ## Permissions
 
 ### Location

@@ -337,6 +337,7 @@ impl Agents {
                     // than of a running agent: does its own session store land in the run
                     // directory Ubiq owns, so keeping or copying that directory means anything.
                     keeps_sessions: !harness.config_anchor().levers.is_empty(),
+                    quota: quota_source(harness.io_support().quota),
                 }
             })
             .collect()
@@ -397,6 +398,27 @@ impl Agents {
     /// mean a login captured by another process stayed invisible until a restart.
     fn account_store(&self) -> FsAccountStore {
         FsAccountStore::new(self.root.join("accounts"))
+    }
+
+    /// Whether `agent_type` states a limit at all, and by what route. `None` for an id that names
+    /// no harness, which is the same refusal [`Self::is_agent_type`] tells apart.
+    ///
+    /// Asked before anything is spawned and before anything is probed, so a harness whose
+    /// provider publishes nothing costs no network call.
+    pub fn quota_source(&self, agent_type: &str) -> Option<ubiq_proto::quota::QuotaSource> {
+        harness::resolve(agent_type).map(|harness| quota_source(harness.io_support().quota))
+    }
+
+    /// How much of `account`'s plan is left under `agent_type`, asked of the provider now.
+    ///
+    /// A blocking network call: everything that asks does so from a thread of its own, which is
+    /// why the work is [`quota_of`] and this is the thin `&self` face of it.
+    pub fn quota(
+        &self,
+        account: &str,
+        agent_type: &str,
+    ) -> Result<ubiq_proto::quota::QuotaSnapshot> {
+        quota_of(&self.root, account, agent_type)
     }
 
     /// Every account Ubiq knows, each with the harnesses it can actually log in.
@@ -1657,6 +1679,95 @@ fn command_outcome(
         (true, line)
     } else {
         (false, format!("exited with status {status}"))
+    }
+}
+
+/// How much of `account`'s plan is left under `agent_type`, read from the provider.
+///
+/// A free function over the config root rather than a method, for the reason `probe_catalogue`
+/// is one: the quota worker has no `&self` to borrow and a probe is a blocking HTTPS call that
+/// must not happen on the coordinator's thread. The store is built here, per call, on the same
+/// bargain [`Agents::account_store`] makes.
+///
+/// The credential never comes back out: the library reads the token, spends it on one request
+/// and returns percentages.
+pub fn quota_of(
+    root: &Path,
+    account: &str,
+    agent_type: &str,
+) -> Result<ubiq_proto::quota::QuotaSnapshot> {
+    let harness =
+        harness::resolve(agent_type).ok_or_else(|| anyhow!("unknown agent type '{agent_type}'"))?;
+    let store = FsAccountStore::new(root.join("accounts"));
+    let record = store
+        .account(account)
+        .with_context(|| format!("reading the account '{account}'"))?
+        .ok_or_else(|| anyhow!("no account named '{account}'"))?;
+    let login = store
+        .login_source(account)
+        .with_context(|| format!("locating the login of '{account}'"))?;
+    let snapshot = harness
+        .quota(&record, login.as_ref())
+        .with_context(|| format!("asking {agent_type} what '{account}' has left"))?;
+    Ok(quota_snapshot(snapshot))
+}
+
+/// The library's quota source, as the wire spells it.
+///
+/// The two crates do not share a type and never will: `crates/ubiq` does not depend on
+/// `agent-manager`, and the host is the only thing that depends on both — the same reason
+/// `RateLimitRecord` mirrors the library's `RateLimitWindow`. A `From` impl would have to live
+/// in one of the two crates, so the mapping lives here instead.
+fn quota_source(source: agent_manager::quota::QuotaSource) -> ubiq_proto::quota::QuotaSource {
+    use agent_manager::quota::QuotaSource as Lib;
+    use ubiq_proto::quota::QuotaSource as Wire;
+    match source {
+        Lib::None => Wire::None,
+        Lib::Push => Wire::Push,
+        Lib::Probe => Wire::Probe,
+        Lib::Bridge => Wire::Bridge,
+    }
+}
+
+/// One snapshot, as the wire spells it. Mirrors field for field; see [`quota_source`] for why
+/// the mapping is written out rather than derived.
+fn quota_snapshot(
+    snapshot: agent_manager::quota::QuotaSnapshot,
+) -> ubiq_proto::quota::QuotaSnapshot {
+    ubiq_proto::quota::QuotaSnapshot {
+        account: snapshot.account,
+        harness: snapshot.harness,
+        plan: snapshot.plan,
+        gauges: snapshot.gauges.into_iter().map(quota_gauge).collect(),
+        as_of: snapshot.as_of,
+    }
+}
+
+/// One gauge, as the wire spells it.
+fn quota_gauge(gauge: agent_manager::quota::QuotaGauge) -> ubiq_proto::quota::QuotaGauge {
+    ubiq_proto::quota::QuotaGauge {
+        label: gauge.label,
+        reading: quota_reading(gauge.reading),
+        resets_at: gauge.resets_at,
+        detail: gauge.detail,
+    }
+}
+
+/// One reading, as the wire spells it. A variant added to the library must be added here too,
+/// which is what the exhaustive match is for.
+fn quota_reading(reading: agent_manager::quota::QuotaReading) -> ubiq_proto::quota::QuotaReading {
+    use agent_manager::quota::QuotaReading as Lib;
+    use ubiq_proto::quota::QuotaReading as Wire;
+    match reading {
+        Lib::Window { used_pct } => Wire::Window { used_pct },
+        Lib::Count { used, limit } => Wire::Count { used, limit },
+        Lib::Credit {
+            remaining,
+            currency,
+        } => Wire::Credit {
+            remaining,
+            currency,
+        },
     }
 }
 
