@@ -61,6 +61,15 @@ host:
     @! cargo tree -p ubiq-host -e no-dev --prefix none | grep -q '^gpui' \
         || { echo "the host draws: a gpui crate is in its tree"; exit 1; }
 
+# The lean host a drone links: no version control, no index, no harness library, no listener and
+# nothing that talks to a desktop. What is left is a machine's terminal, its files and its facts.
+relay:
+    cargo build -p ubiq-host --no-default-features --all-targets
+    @! cargo tree -p ubiq-host --no-default-features -e normal,build --prefix none \
+        | awk '{print $1}' | sort -u \
+        | grep -qxE 'git2|tantivy|rusqlite|agent-manager|isol8|notify-rust|trash|ureq|rustls|tiny_http|gpui' \
+        || { echo "the lean host is not lean: a gated crate reached its tree"; exit 1; }
+
 # The interface names the protocol and never the host, and never a type size of its own
 ui:
     cargo build -p ubiq --all-targets
@@ -94,7 +103,7 @@ test:
     cargo test --workspace < /dev/null
 
 # check + clippy + test + the crate boundary + docs-lint
-verify: check clippy test host ui docs-lint
+verify: check clippy test host relay ui docs-lint
 
 # Can a confined agent build? Run unconfined for a baseline, then under
 # `am run <harness> --isolate -- bash _tools/toolchain-smoke.sh` and diff.

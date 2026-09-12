@@ -15,6 +15,7 @@
 //! The comparison is [`diff`], which is the only place version control is read.
 
 pub mod browse;
+#[cfg(feature = "git")]
 pub mod diff;
 pub mod path;
 
@@ -362,9 +363,7 @@ pub fn edit(root: &Path, rel_path: &str, to: Option<&str>, op: PathOp) -> Result
         }
         PathOp::Trash => {
             let target = path::resolve_inside(root, rel_path)?;
-            // The platform's own service answers this, so its refusal is not one of ours: a
-            // headless session has no trash at all, and saying so is better than deleting instead.
-            trash::delete(&target).map_err(|error| FileError::Failed(error.to_string()))
+            trash_delete(&target)
         }
         PathOp::Delete => {
             let target = path::resolve_inside(root, rel_path)?;
@@ -375,6 +374,21 @@ pub fn edit(root: &Path, rel_path: &str, to: Option<&str>, op: PathOp) -> Result
             }
         }
     }
+}
+
+/// The platform's own trash service answers this, so its refusal is not one of ours.
+#[cfg(feature = "desktop")]
+fn trash_delete(target: &Path) -> Result<(), FileError> {
+    trash::delete(target).map_err(|error| FileError::Failed(error.to_string()))
+}
+
+/// Without `desktop` there is no trash service to ask — a headless session has none at all, and
+/// saying so is better than deleting instead.
+#[cfg(not(feature = "desktop"))]
+fn trash_delete(_target: &Path) -> Result<(), FileError> {
+    Err(FileError::Failed(
+        "this build has no trash to move it to".to_string(),
+    ))
 }
 
 /// Copy one folder with everything under it, spending `budget` as it goes.
@@ -577,14 +591,7 @@ fn file_answer(project_id: ProjectId, root: &Path, request: &Request) -> Message
             },
             Err(error) => file_error(project_id, rel_path, error),
         },
-        Request::Diff { rel_path, base } => match diff::diff(root, rel_path, *base) {
-            Ok(diff) => Message::ProjectFileDiffed {
-                project_id,
-                rel_path: rel_path.clone(),
-                diff,
-            },
-            Err(error) => file_error(project_id, rel_path, error),
-        },
+        Request::Diff { rel_path, base } => diff_answer(project_id, root, rel_path, *base),
         Request::Edit { rel_path, to, op } => match edit(root, rel_path, to.as_deref(), *op) {
             Ok(()) => Message::ProjectPathEdited {
                 project_id,
@@ -595,6 +602,30 @@ fn file_answer(project_id: ProjectId, root: &Path, request: &Request) -> Message
             Err(error) => file_error(project_id, rel_path, error),
         },
     }
+}
+
+/// A path's diff against its base, once version control is in the build.
+#[cfg(feature = "git")]
+fn diff_answer(project_id: ProjectId, root: &Path, rel_path: &str, base: DiffBase) -> Message {
+    match diff::diff(root, rel_path, base) {
+        Ok(diff) => Message::ProjectFileDiffed {
+            project_id,
+            rel_path: rel_path.to_string(),
+            diff,
+        },
+        Err(error) => file_error(project_id, rel_path, error),
+    }
+}
+
+/// Without `git`, there is no repository to diff against — say so the same way any other refusal
+/// is said, rather than leaving the request unanswered.
+#[cfg(not(feature = "git"))]
+fn diff_answer(project_id: ProjectId, _root: &Path, rel_path: &str, _base: DiffBase) -> Message {
+    file_error(
+        project_id,
+        rel_path,
+        FileError::Failed("version control is not in this build".to_string()),
+    )
 }
 
 /// One path's failure, addressed so the interface can mark the row or the tab it belongs to.

@@ -293,6 +293,7 @@ fn finish(job: &Job, state: &mut State, started: Instant, how: &str) {
 ///
 /// A subdirectory filter or an include glob does not disqualify the index: the candidates are
 /// filtered by both below, which is cheaper than walking the tree to apply the same test.
+#[cfg(feature = "index")]
 fn candidates(job: &Job, start: &Path) -> Option<Vec<PathBuf>> {
     let index = job.index.as_ref()?;
     if !index.ready() || job.query.regex {
@@ -338,6 +339,13 @@ fn candidates(job: &Job, start: &Path) -> Option<Vec<PathBuf>> {
     )
 }
 
+/// Without `index` there is no shortcut to take: the caller always walks, exactly as it did
+/// before any index existed.
+#[cfg(not(feature = "index"))]
+fn candidates(_job: &Job, _start: &Path) -> Option<Vec<PathBuf>> {
+    None
+}
+
 /// Whether the filter lets this file through, testing the directories above it as well as itself.
 ///
 /// The walk gets this for free: an exclude naming a directory makes `ignore` prune the whole
@@ -345,6 +353,7 @@ fn candidates(job: &Job, start: &Path) -> Option<Vec<PathBuf>> {
 /// like `vendor` matches the *directory* and not `vendor/skip.txt`, so the ancestors have to be
 /// asked about one at a time. Missing this is how an excluded folder's files come back the moment
 /// a project is indexed, and only then.
+#[cfg(feature = "index")]
 fn allowed(over: &ignore::overrides::Override, root: &Path, abs: &Path) -> bool {
     // The file itself. This is also where include globs are decided: `Override` answers "ignore"
     // for a file matching no whitelist glob when any whitelist glob exists.

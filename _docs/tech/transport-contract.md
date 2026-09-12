@@ -3,11 +3,11 @@ id: tech-transport
 title: Transport contract
 kind: tech
 status: draft
-summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, quota, profile, command-line, host browse, connector, repository, assist, notification and web asset families, the framing rules, and the procedure for adding a variant.
+summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, quota, profile, command-line, host browse, connector, repository, assist, notification, web asset and carrier families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
 updated: 2026-09-12
 verified: 2026-09-12
-code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs]
+code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
 ---
@@ -1816,6 +1816,65 @@ rule: 554 files finishing out of order is more events than an interface can draw
 did not match names the file it was — and whatever wanted the bundle says it is unavailable. No
 network and nothing cached is an ordinary outcome, not an error the user must act on.
 
+## The carrier family
+
+The eighteenth family, and the only one no dispatch ever sees. Four variants that establish a byte
+stream and keep it alive: they are read and written by the pumps on each end — `ubiq_host::carrier`
+and `spawn_pump` in `crates/ubiq/src/app/remote_connect.rs` — and swallowed there, on the same
+standing the HTTP upgrade in `crates/ubiq-host/src/remote.rs` has. A pump that delivered one of
+these to the hub would be a bug rather than a degradation: the coordinator's dispatch and the
+drone relay's would answer it with a refusal, and `AppState` has no arm for it.
+
+| Message | Direction | Payload | Responds with |
+|---|---|---|---|
+| `DroneHello` | drone → UI | `drone_version`, `os`, `arch`, `triplet`, `message_schema`, `capabilities[]` | `DroneReady` |
+| `DroneReady` | UI → drone | `ubiq_version`, `message_schema`, `accepted`, `reason?` | — |
+| `Ping` | either → either | `nonce` | `Pong` |
+| `Pong` | either → either | `nonce` | — |
+
+**They are ordinary frames, not a preamble.** The stream is already length-prefixed MessagePack by
+the time either end says anything, so a second encoding on it would be a second thing to get wrong,
+and a handshake with its own format would need its own ceiling, its own truncation rule and its own
+decode errors. What the handshake costs this way is two variants on an enum that already carries a
+hundred and fifty.
+
+**The hello is the drone's first frame and the ready is what it waits for.** `ubiq-drone` exchanges
+both on the bare stream before its hub, its relay thread and its pump exist, so a refusal costs a
+process that spawned no pseudo-terminal and left nothing on the far machine to clean up. By the time
+a relay exists it is too late to have not started one.
+
+**`message_schema` is `wire::MESSAGE_SCHEMA`**, a `u32` beside `MAX_FRAME`, bumped by hand. It
+covers exactly what a drone speaks — the pane family, the file family, the host browse family, the
+read half of the project family, `ListShells` and `HostInfo` — because those are the only messages
+an old drone and a new Ubiq can disagree about; every other family a drone refuses outright. A
+mismatch is answered with `accepted: false` and a sentence a modal shows, then both sides close
+cleanly. Reporting it as a `PaneError` instead would read like a crashed shell. **Nothing enforces
+the bump mechanically**: no test compares the message set against a recorded shape. It is a
+discipline, and what it buys when honoured is a sentence at connect time instead of a decode failure
+mid-session.
+
+**`capabilities` is a string set, advertised and never demanded.** A relay drone says `files` and
+nothing else — it refuses search, version control, persistence and every harness, and naming a
+capability it does not have would have the interface offer the user something that answers with a
+refusal. A set of strings rather than a bitfield is what lets the list grow without a schema bump: a
+peer that has never heard a name simply does not ask for it.
+
+**The heartbeat is a message pair, not a frame type** (`G189`). A frame type below the message would
+change `[u32 length][msgpack]` for every build that already exists, for a feature two variants on a
+self-describing enum express at no cost. Either end may ping and both answer, because either end can
+be the one that goes quiet. A ping is owed only after `PING_INTERVAL` — 20 seconds — of complete
+inbound silence, so a session with a live pane in it puts no extra frame on the wire at all; three
+unanswered pings, about a minute, and the peer is treated as gone and the session is torn down by
+the path a dropped socket already takes. The constants and the state machine are
+`ubiq_proto::carrier`, shared by both pumps: the threads are duplicated because `crates/ubiq` cannot
+depend on `crates/ubiq-host`, but the rules must not be, or the two ends drift about how long
+silence is allowed to last.
+
+**None of the four carries a `pane_id`**, so none is in `pane_id_of` in
+`crates/ubiq/src/app/hosts.rs` and its catch-all answers "no pane" for them — which is right twice
+over: a heartbeat belongs to the carrier rather than to any pane, and no carrier frame reaches
+`Bus::send` to be routed in the first place.
+
 ## Framing
 
 - **Message boundaries are explicit.** The in-memory channel carries whole values; a socket
@@ -1881,7 +1940,9 @@ ever dropped.
    borrowed data, no handles, nothing that fails to serialise.
 3. Add a row to the table above, in the same commit.
 4. Handle it in the coordinator's dispatch. A message the coordinator receives but ignores is worse
-   than one that does not exist.
+   than one that does not exist. The carrier family is the single exception, and it is an exception
+   because it is handled *below* the dispatch: a `Ping` or a `DroneHello` that reached the
+   coordinator would mean a pump forgot to intercept it.
 5. If it carries a `pane_id`, add it to `pane_id_of` in `crates/ubiq/src/app/hosts.rs`. That match
    is how the interface decides which of its hosts a message belongs to, and its catch-all arm
    answers "no pane" — so a pane-carrying variant left out of it routes to whichever host is

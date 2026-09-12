@@ -25,6 +25,28 @@ use crate::messages::Message;
 /// corrupt or hostile header, not a message running long.
 pub const MAX_FRAME: usize = 64 * 1024 * 1024;
 
+/// The version of the message set a drone and the Ubiq it attaches to must agree on, exchanged in
+/// [`crate::messages::Message::DroneHello`] and checked at [`crate::messages::Message::DroneReady`].
+///
+/// **What it covers is exactly what a drone speaks**, and nothing else in this enum: the pane
+/// family, the file family, the host browse family, the read half of the project family,
+/// `ListShells` and `HostInfo`. A change to the shape of any of those — a field added to a message
+/// a drone answers, a field's meaning changed, a variant a drone must now answer — is a bump. A
+/// change anywhere else in the message set is not: a drone refuses the conversation, account,
+/// quota, connector, repository, git, work, search, assist and web-asset families outright, so
+/// their shape cannot make an old drone and a new Ubiq disagree about anything.
+///
+/// The self-describing encoding (see the note at the top of this module) is what keeps most
+/// additions compatible without a bump at all: a field added with `#[serde(default)]` decodes on a
+/// build that has never heard of it. The bump is for the changes that *are* breaking.
+///
+/// **Nothing enforces this mechanically.** No test compares the message set against a recorded
+/// shape, and no build step notices a breaking change and raises the number. It is a discipline —
+/// the author of a breaking change bumps it — and it buys one thing when honoured: the mismatch is
+/// reported as a sentence at connect time rather than as a decode failure in the middle of a
+/// session.
+pub const MESSAGE_SCHEMA: u32 = 1;
+
 const LEN_PREFIX: usize = 4;
 
 /// Everything that can go wrong turning a [`Message`] into bytes and back.

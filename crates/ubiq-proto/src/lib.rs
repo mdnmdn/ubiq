@@ -26,9 +26,11 @@
 //! - `bus`: the switchboard between the one host and the windows attached to it
 //! - `log`: the process-wide sink every subsystem writes its diagnostics to
 //! - `wire`: the binary framing a socket transport puts the contract in
+//! - `carrier`: what both pumps on a byte stream must agree on — the handshake and the heartbeat
 
 pub mod assist;
 pub mod bus;
+pub mod carrier;
 pub mod connectors;
 pub mod conversation;
 pub mod files;

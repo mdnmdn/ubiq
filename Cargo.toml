@@ -4,6 +4,7 @@ members = [
     "crates/agent-manager",
     "crates/ubiq",
     "crates/ubiq-app",
+    "crates/ubiq-drone",
     "crates/ubiq-host",
     "crates/ubiq-proto",
     "vendor/gpui-terminal",

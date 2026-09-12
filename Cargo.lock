@@ -10533,6 +10533,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ubiq-drone"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "tempfile",
+ "tracing",
+ "ubiq-host",
+ "ubiq-proto",
+]
+
+[[package]]
 name = "ubiq-host"
 version = "0.1.0"
 dependencies = [

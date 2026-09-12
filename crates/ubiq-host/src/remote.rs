@@ -24,14 +24,14 @@ use std::io::{self, Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
 use rand::RngCore;
 
 use ubiq_proto::bus::Hub;
-use ubiq_proto::wire;
+
+use crate::carrier::{Closer, Socket, pump};
 
 /// A header claiming more than this before the blank line that ends it is refused before any more
 /// of it is read — an unauthenticated peer gets no chance to make this host buffer without bound.
@@ -187,14 +187,6 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     }
     diff == 0
 }
-
-/// A socket half the pumps can own: anything readable, writable and sendable across threads.
-///
-/// An accepted TCP socket hands over itself and its `try_clone`; a TLS session hands over two
-/// handles to the same session behind a lock, because rustls has no `try_clone`.
-trait Socket: Read + Write + Send + 'static {}
-
-impl<T: Read + Write + Send + 'static> Socket for T {}
 
 /// The TLS half of an accepted connection: one session, shared by the reader and writer pumps
 /// behind a lock. Same shape as the dialer's `SharedTls`, mirrored — see that type for why the
@@ -371,7 +363,7 @@ fn handle_connection(
             // The deadline was the handshake's, not the session's: a client that says nothing for
             // an hour is an idle window, not a stalled peer.
             on_upgrade();
-            pump(reader, writer, closer, hub);
+            pump(reader, writer, Box::new(SocketCloser(closer)), hub);
         }
         Request::Root => {
             let _ = write_response(
@@ -513,64 +505,13 @@ fn write_response_line(stream: &mut dyn Write, status: &str) -> io::Result<()> {
     )
 }
 
-/// How often the writer thread wakes to check whether the reader has given up, when nothing has
-/// arrived from the coordinator to write. Bounds how long a dead read direction takes to end the
-/// whole session; short enough nobody notices, long enough to cost nothing while both sides are
-/// healthy.
-const STOP_POLL: Duration = Duration::from_millis(200);
+/// Ending a TCP session's read direction: shut the kernel socket down while a handle still
+/// exists. Dropping a TLS `SharedTls` or one TCP clone does not send EOF while the reader holds
+/// the other half, so the host would never see `Gone` and would not reap panes.
+struct SocketCloser(TcpStream);
 
-/// The session, once the handshake is done: attach a `Client`, and shuttle frames between it and
-/// the socket until either side stops. This is the whole of what a remote client is — the same
-/// `Client` a local window gets from `Hub::connect`, so every message family works with nothing
-/// written here that knows what any of them mean.
-///
-/// The `Client` is shared behind an `Arc` because both directions need it — the reader calls
-/// `send`, the writer drains `from_host` — and both take `&self`. It drops, telling the coordinator
-/// `FromClient::Gone`, once both threads have released their half. A blocking `recv()` on the
-/// writer's side would not notice the reader giving up (the coordinator has no reason to stop
-/// answering just because the socket died), so the writer polls `from_host` instead and checks
-/// `stopped`, which the reader sets on its way out.
-fn pump(reader: Box<dyn Socket>, writer: Box<dyn Socket>, closer: TcpStream, hub: Hub) {
-    let client = Arc::new(hub.connect());
-    let stopped = Arc::new(AtomicBool::new(false));
-
-    let mut reader_stream = reader;
-    let mut writer_stream = writer;
-
-    let writer_client = client.clone();
-    let writer_stopped = stopped.clone();
-    let writer = thread::Builder::new()
-        .name("ubiq-remote-writer".to_string())
-        .spawn(move || {
-            loop {
-                match writer_client.from_host().recv_timeout(STOP_POLL) {
-                    Ok(message) => {
-                        if wire::write_frame(&mut writer_stream, &message).is_err() {
-                            break;
-                        }
-                    }
-                    Err(flume::RecvTimeoutError::Timeout) => {
-                        if writer_stopped.load(Ordering::Relaxed) {
-                            break;
-                        }
-                    }
-                    Err(flume::RecvTimeoutError::Disconnected) => break,
-                }
-            }
-            // Shutdown the kernel socket while a handle still exists. Dropping a TLS
-            // `SharedTls` or one TCP clone does not send EOF while the reader holds the
-            // other half, so the host would never see `Gone` and would not reap panes.
-            let _ = closer.shutdown(Shutdown::Both);
-            drop(writer_stream);
-            drop(writer_client);
-        })
-        .expect("the remote writer thread");
-
-    while let Ok(message) = wire::read_frame(&mut reader_stream) {
-        client.send(message);
+impl Closer for SocketCloser {
+    fn close(&self) {
+        let _ = self.0.shutdown(Shutdown::Both);
     }
-    stopped.store(true, Ordering::Relaxed);
-    drop(client);
-
-    let _ = writer.join();
 }

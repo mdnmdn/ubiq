@@ -57,6 +57,7 @@ pub struct Job {
     /// straight from this thread to its client, so the coordinator never sees a change and has
     /// nothing to forward. The 150ms debounce has already coalesced the burst, so this is one
     /// extra send per flush and never one per event.
+    #[cfg(feature = "index")]
     pub index: Option<flume::Sender<crate::index::Job>>,
     pub reply_to: Mailbox,
 }
@@ -156,20 +157,10 @@ fn debounce(job: Job, queue: flume::Receiver<notify::Event>) {
 
 /// Send one batch. `false` means the window has gone and there is nothing left to tell.
 fn flush(job: &Job, changed: Vec<String>, truncated: bool, repository: bool) -> bool {
-    if let Some(index) = &job.index {
-        // The index is told before the interface, and its failure is not the interface's problem:
-        // an index thread that has gone means searches walk, which is what they did before one
-        // existed. Only a file change matters — repository plumbing moving changes no file's
-        // content.
-        if !changed.is_empty() || truncated {
-            let _ = index.send(crate::index::Job::Changed {
-                project_id: job.project_id,
-                root: job.root.clone(),
-                paths: changed.clone(),
-                truncated,
-            });
-        }
-    }
+    // The index is told before the interface, and its failure is not the interface's problem: an
+    // index thread that has gone means searches walk, which is what they did before one existed.
+    // Only a file change matters — repository plumbing moving changes no file's content.
+    notify_index(job, &changed, truncated);
 
     job.reply_to.send(Message::ProjectFilesChanged {
         project_id: job.project_id,
@@ -178,6 +169,24 @@ fn flush(job: &Job, changed: Vec<String>, truncated: bool, repository: bool) -> 
         repository,
     })
 }
+
+#[cfg(feature = "index")]
+fn notify_index(job: &Job, changed: &[String], truncated: bool) {
+    if let Some(index) = &job.index
+        && (!changed.is_empty() || truncated)
+    {
+        let _ = index.send(crate::index::Job::Changed {
+            project_id: job.project_id,
+            root: job.root.clone(),
+            paths: changed.to_vec(),
+            truncated,
+        });
+    }
+}
+
+/// Without `index` there is no index thread to tell.
+#[cfg(not(feature = "index"))]
+fn notify_index(_job: &Job, _changed: &[String], _truncated: bool) {}
 
 enum Change {
     /// A project file, as a project-relative forward-slashed path.

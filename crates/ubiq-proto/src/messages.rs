@@ -1725,6 +1725,58 @@ pub enum Message {
         app: String,
         error: String,
     },
+
+    // ── Carrier family: transport only, never dispatched ────────────
+    //
+    // The four variants below are the only ones in this enum that no dispatch ever sees. They are
+    // read and written by the pumps on each end of a byte stream — `ubiq_host::carrier::pump` and
+    // `crates/ubiq/src/app/remote_connect.rs`'s — and swallowed there, on the same standing the
+    // HTTP upgrade in `ubiq_host::remote` has: they are how a carrier is established and kept
+    // alive, not something either half of Ubiq says. They travel as ordinary frames because the
+    // stream is already framed, and a second encoding on it is a second thing to get wrong.
+    //
+    // A pump that delivered one of these to the hub would be a bug, not a degradation: the
+    // coordinator's dispatch and the relay's would answer it with a refusal, and `AppState` would
+    // see a message it has no arm for.
+    /// A drone naming itself, the first frame it writes on a new carrier. Answered with
+    /// [`Message::DroneReady`], which it waits for before serving anything.
+    ///
+    /// `message_schema` is [`crate::wire::MESSAGE_SCHEMA`] as the drone was built with it, and is
+    /// what the far end compares against its own. `capabilities` is a string set, so a build that
+    /// gains one is understood by an interface that does not know the name yet; a relay drone
+    /// advertises `files` and nothing else.
+    DroneHello {
+        drone_version: String,
+        os: String,
+        arch: String,
+        triplet: String,
+        message_schema: u32,
+        capabilities: Vec<String>,
+    },
+    /// Ubiq's answer to a [`Message::DroneHello`]: serve, or do not.
+    ///
+    /// `accepted` false carries a `reason` a modal can show — a schema mismatch is a mismatch of
+    /// builds, and reporting it as a `PaneError` would read like a crashed shell. Both sides close
+    /// the stream cleanly after a refusal, and the drone spawns nothing.
+    DroneReady {
+        ubiq_version: String,
+        message_schema: u32,
+        accepted: bool,
+        reason: Option<String>,
+    },
+    /// Are you still there? Sent by either end on an idle carrier; answered with a
+    /// [`Message::Pong`] carrying the same `nonce`.
+    ///
+    /// A message pair rather than a frame type below the message: a frame type would change
+    /// `[u32 length][msgpack]` for every existing build, and two variants on a self-describing
+    /// enum cost nothing by comparison (`G189`).
+    Ping {
+        nonce: u64,
+    },
+    /// The answer to a [`Message::Ping`], echoing its `nonce`.
+    Pong {
+        nonce: u64,
+    },
 }
 
 impl Message {

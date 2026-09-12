@@ -13,8 +13,8 @@ ubiq-proto = { path = "../ubiq-proto" }
 # The harness library, embedded. It owns every fact about how an agent is configured and launched;
 # this crate owns the pseudo-terminal it lands in. `default-features = false` drops its own CLI and
 # TUI front ends — an application with a window needs neither — and leaves the core that composes a
-# run. See `_docs/tech/agent-manager.md` for the rules across this edge.
-agent-manager = { path = "../agent-manager", default-features = false }
+# run. See `_docs/tech/agent-manager.md` for the rules across this edge. Behind `harness`.
+agent-manager = { path = "../agent-manager", default-features = false, optional = true }
 portable-pty = "0.9"
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
@@ -29,9 +29,10 @@ flume = "0.12"
 # is, and needs no transport at all. `https` is compiled in for exactly one thing: cloning a
 # repository into existence, which is the only moment Ubiq's git talks to a network. Everything
 # after the clone is still read-only, and ssh stays out — a clone goes over https or not at all.
-git2 = { version = "0.21", default-features = false, features = ["https"] }
-# The hunks themselves. A diff library lives here and never in the interface.
-similar = "2"
+# Behind `git`.
+git2 = { version = "0.21", default-features = false, features = ["https"], optional = true }
+# The hunks themselves. A diff library lives here and never in the interface. Behind `git`.
+similar = { version = "2", optional = true }
 # Content search: walk the tree with the project's own ignore rules, match with the ripgrep
 # libraries. None of these draw; `just host` stays green.
 ignore = "0.4"
@@ -44,61 +45,63 @@ num_cpus = "1"
 # answer identically. `default-features = false` drops the stemmer (it would break the superset
 # property a trigram index is chosen for), the stopword lists, and both docstore compressors,
 # which would otherwise drag `zstd-sys` and a C compile in to squeeze a stored path. `mmap` stays
-# because that is what an on-disk index is. Draws nothing; `just host` stays green.
-tantivy = { version = "0.26", default-features = false, features = ["mmap"] }
+# because that is what an on-disk index is. Draws nothing; `just host` stays green. Behind `index`.
+tantivy = { version = "0.26", default-features = false, features = ["mmap"], optional = true }
 # Filesystem watch: one recursive handle per open project. Already in the workspace build graph
 # through `gpui-component`, so a direct edge here is a manifest line, not a new crate to vet.
 notify = "7"
 # Deleting to the platform's trash, so a removal the user regrets is recoverable outside Ubiq. It
-# talks to the desktop's own trash service and draws nothing, so `just host` stays green.
-trash = "5"
+# talks to the desktop's own trash service and draws nothing, so `just host` stays green. Behind
+# `desktop`.
+trash = { version = "5", optional = true }
 # Telling the desktop about a notification, on the one path in the notification family that leaves
 # Ubiq. One crate for three platforms — the Freedesktop D-Bus service, `NSUserNotification`, a
 # WinRT toast — so the host writes no platform code of its own. `default-features = false` drops
 # the image support, which would drag an image decoder in to show an icon nothing here sends, and
 # `z` picks the pure-Rust `zbus` backend over the one that links the system's D-Bus C library —
 # nothing else in this tree needs a C toolchain, and a notification is not the thing to start.
-# Draws nothing; `just host` stays green.
-notify-rust = { version = "4", default-features = false, features = ["z"] }
+# Draws nothing; `just host` stays green. Behind `desktop`.
+notify-rust = { version = "4", default-features = false, features = ["z"], optional = true }
 
 # The connector family's HTTP: a blocking client, because every request it makes is already on a
 # flow's own thread and an async runtime would be a second scheduler for nobody. `default-features
 # = false` drops its gzip and cookie machinery; `tls` is the rustls backend the pin verifier below
-# plugs into. Draws nothing.
-ureq = { version = "2.12", default-features = false, features = ["tls", "json"] }
+# plugs into. Draws nothing. Behind `listener`.
+ureq = { version = "2.12", default-features = false, features = ["tls", "json"], optional = true }
 # TLS itself, named rather than inherited: the pin verifier is a `ServerCertVerifier`, and the
 # crypto provider is pinned to `ring` here so a crate elsewhere enabling `aws-lc-rs` cannot turn a
-# missing process default into a runtime panic. No window, no drawing.
-rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+# missing process default into a runtime panic. No window, no drawing. Behind `listener`.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"], optional = true }
 # The machine's own trust store, so a company's internal CA works without anyone being asked to
-# vouch for a certificate. Reads the platform's roots and nothing else.
-rustls-native-certs = "0.8"
+# vouch for a certificate. Reads the platform's roots and nothing else. Behind `listener`.
+rustls-native-certs = { version = "0.8", optional = true }
 # The floor under the platform roots, for a machine whose trust store cannot be read. A static
-# table of public CAs — no code runs, nothing draws.
-webpki-roots = "0.26"
+# table of public CAs — no code runs, nothing draws. Behind `listener`.
+webpki-roots = { version = "0.26", optional = true }
 # Reading a leaf certificate so the user can be shown what they are vouching for: subject, SANs,
-# issuer, validity. A parser, no I/O, no UI.
-x509-parser = "0.18"
-# The fingerprint a pin is: SHA-256 over a certificate's DER. One hash, no drawing.
-sha2 = "0.10"
+# issuer, validity. A parser, no I/O, no UI. Behind `listener`.
+x509-parser = { version = "0.18", optional = true }
+# The fingerprint a pin is: SHA-256 over a certificate's DER. One hash, no drawing. Behind
+# `listener`.
+sha2 = { version = "0.10", optional = true }
 # Deflating each web bundle entry into the `.bundle` container. Already in the workspace lockfile
 # via crates/ubiq, so this pulls nothing new.
 flate2 = "1"
-# The PKCE verifier and the `state` nonce. A CSPRNG and nothing else.
-rand = "0.8"
+# The PKCE verifier and the `state` nonce. A CSPRNG and nothing else. Behind `listener`.
+rand = { version = "0.8", optional = true }
 # PEM parsing for `--tls-cert`/`--tls-key`: the two files a served host reads its
-# server identity from. A parser, no I/O, no UI.
-rustls-pemfile = "2"
+# server identity from. A parser, no I/O, no UI. Behind `listener`.
+rustls-pemfile = { version = "2", optional = true }
 # The loopback listener an OAuth redirect lands on: one bound port, one request, then dropped. A
-# blocking HTTP server small enough to have no runtime and no view layer.
-tiny_http = "0.12"
+# blocking HTTP server small enough to have no runtime and no view layer. Behind `listener`.
+tiny_http = { version = "0.12", optional = true }
 
 # The usage meter's storage. A counter that survives a restart is a database, and this is the one
 # every machine already has. `bundled` compiles SQLite into the binary on purpose: the OS's own
 # libsqlite3 varies by platform and by decade, and which SQL is understood — `WITHOUT ROWID`, the
 # upsert the meter is built on — must not be a property of the machine Ubiq happens to run on. It
-# is a C library with a Rust wrapper: no runtime, no window, nothing that draws.
-rusqlite = { version = "0.37", features = ["bundled"] }
+# is a C library with a Rust wrapper: no runtime, no window, nothing that draws. Behind `harness`.
+rusqlite = { version = "0.37", features = ["bundled"], optional = true }
 # The host's own resident set, for the stats screen. One call per sample, no sampling thread, and
 # a `None` on a platform that will not say. Draws nothing.
 memory-stats = "1"
@@ -109,11 +112,95 @@ sysinfo = "0.31"
 hostname = "0.4"
 
 [features]
+default = ["full"]
+# Version control: `git/`, `repos/`, and a project's diff.
+git = ["dep:git2", "dep:similar"]
+# The full-text index: `index/`.
+index = ["dep:tantivy"]
+# The harness library and everything that drives a conversation through it: `agent`,
+# `conversation`, `conversation_record`, `gc`, `quota`, `mcp`, `assist`, `cli_shortcut`, `work`, and
+# the usage meter's SQLite store.
+harness = ["dep:agent-manager", "dep:rusqlite"]
+# The remote listener and everything that answers on it: `remote`, `connectors`, `web_assets`.
+# `links` stays out: it is a byte scanner with no dependency of its own, so a lean build carries
+# it for nothing rather than forking `pty`'s read loop around it.
+listener = [
+    "dep:rustls",
+    "dep:rustls-native-certs",
+    "dep:webpki-roots",
+    "dep:x509-parser",
+    "dep:sha2",
+    "dep:rustls-pemfile",
+    "dep:tiny_http",
+    "dep:ureq",
+    "dep:rand",
+]
+# Talking to the desktop directly: `notifications`, and deleting to its trash.
+desktop = ["dep:notify-rust", "dep:trash"]
+# Everything above, together — what the coordinator needs, and what `default` turns on. Not a
+# lean embedder's feature; it exists so `coordinator` has one name to gate on instead of five.
+full = ["git", "index", "harness", "listener", "desktop"]
 # The on-device assist backend. Off, `assist::select` answers with the stub backend, which reports
 # assistance unavailable — a complete build, and the only one possible on a machine without a
 # Swift toolchain and the macOS 26 SDK. Not a default here: `ubiq-app` turns it on, so switching it
 # off there is enough to switch it off everywhere.
 assist-apple = ["dep:foundation-models"]
+
+# An integration test that names a gated module is a target of that feature, not of the crate.
+# Without these, `cargo test --no-default-features` fails to compile tests for modules a lean
+# build deliberately does not have. Every test not named here compiles in every configuration,
+# which is the property the lean build is checked by.
+[[test]]
+name = "conversation"
+required-features = ["harness"]
+
+[[test]]
+name = "coordinator"
+required-features = ["full"]
+
+[[test]]
+name = "usage"
+required-features = ["harness"]
+
+[[test]]
+name = "work"
+required-features = ["harness"]
+
+[[test]]
+name = "diff"
+required-features = ["git"]
+
+[[test]]
+name = "git"
+required-features = ["git"]
+
+[[test]]
+name = "git_history"
+required-features = ["git"]
+
+[[test]]
+name = "repos"
+required-features = ["git"]
+
+[[test]]
+name = "index"
+required-features = ["index"]
+
+[[test]]
+name = "search"
+required-features = ["index"]
+
+[[test]]
+name = "watch"
+required-features = ["index"]
+
+[[test]]
+name = "remote"
+required-features = ["listener"]
+
+[[test]]
+name = "connectors"
+required-features = ["listener"]
 
 [dev-dependencies]
 tempfile = "3"

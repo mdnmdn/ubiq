@@ -5,9 +5,9 @@ kind: tech
 status: current
 summary: Every folder in the workspace, what belongs in it, what must never go in it, and the two crates' division of labour.
 read_when: you are adding a file and are not certain where it goes, or you are new to the repository
-updated: 2026-09-11
-verified: 2026-09-11
-code_anchors: [Cargo.toml, crates/ubiq-host/src/store/usage.rs, crates/ubiq/Cargo.toml, crates/ubiq-proto/Cargo.toml, crates/ubiq-host/Cargo.toml, crates/ubiq-app/Cargo.toml, vendor/gpui-terminal/Cargo.toml, _tools/icns.py]
+updated: 2026-09-12
+verified: 2026-09-12
+code_anchors: [Cargo.toml, crates/ubiq-host/src/store/usage.rs, crates/ubiq-host/src/lib.rs, crates/ubiq/Cargo.toml, crates/ubiq-proto/Cargo.toml, crates/ubiq-host/Cargo.toml, crates/ubiq-app/Cargo.toml, vendor/gpui-terminal/Cargo.toml, _tools/icns.py]
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -131,6 +131,29 @@ The dependency runs one way: the application embeds the library. The library has
 exists. That is what lets the same composition logic serve the terminal and the window, and it is
 the reason `agent-manager` builds with `--no-default-features` — the application needs the core, not
 the CLI or the TUI. The boundary in detail is in [`agent-manager.md`](./agent-manager.md).
+
+`ubiq-host` itself carries a matching split, in `crates/ubiq-host/Cargo.toml`'s `[features]` table:
+five features, each gating a slice of its module tree and the dependencies only that slice needs,
+plus `full` — what `default` turns on — which is all five together and what `coordinator` needs. An
+ordinary `cargo build` is unaffected; the split exists for a lean embedder that wants the pseudo-terminal, file and machine-facts core without the rest.
+
+| Feature | Gates | Dependencies |
+|---|---|---|
+| `git` | `git/`, `repos/`, `files/diff.rs` | `git2`, `similar` |
+| `index` | `index/`, and the `Job.index` field in `search/` and `watch/` | `tantivy` |
+| `harness` | `agent`, `conversation`, `conversation_record`, `gc`, `quota`, `mcp`, `assist`, `cli_shortcut`, `work`, `store/usage.rs` | `agent-manager`, `rusqlite` |
+| `listener` | `remote`, `connectors`, `web_assets` | `rustls` and its certificate crates, `tiny_http`, `ureq`, `rand` |
+| `desktop` | `notifications`, and deleting to the platform's trash | `notify-rust`, `trash` |
+
+`coordinator` itself is gated on `full`, because it needs all five. `links` is deliberately **not**
+gated — a byte scanner with no dependency of its own, gating it would fork `pty`'s read loop for a
+crate it never pulls in. What stays in every build: `pty/`, `files/` minus `diff.rs`, `browse`,
+`path`, `host_path`, `shells`, `host_meta`, `watch/`, `search/`, `projects`, `health`, `config`,
+`atomic`, `store/` minus `usage.rs`, `reply`, `links`, `environment`. A `Diff` request without `git`
+and a `Trash` path operation without `desktop` each answer `FileError::Failed` naming what the build
+lacks, rather than going unanswered. `just relay` builds this lean configuration and checks that
+none of the five features' crates reached its tree — [`operations.md`](./operations.md) owns the
+recipe.
 
 ## Inside Ubiq's four crates
 

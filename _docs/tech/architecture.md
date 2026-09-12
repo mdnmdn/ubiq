@@ -7,7 +7,7 @@ summary: The two halves — coordinator and UI — the single bus between them, 
 read_when: you are about to add a capability that crosses the UI/coordinator line, or you want to know why the code is shaped this way
 updated: 2026-09-12
 verified: 2026-09-12
-code_anchors: [crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq/src/lib.rs, crates/ubiq/src/version.rs, crates/ubiq-app/src/lib.rs, crates/ubiq-app/src/main.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/state/windows.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-proto/src/lib.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/files/mod.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq-host/src/store/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/store/memory.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq-host/src/links.rs, crates/ubiq/src/web_export/mod.rs, crates/ubiq-host/src/mcp/mod.rs]
+code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq/src/lib.rs, crates/ubiq/src/version.rs, crates/ubiq-app/src/lib.rs, crates/ubiq-app/src/main.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/state/windows.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-proto/src/lib.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/files/mod.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq-host/src/store/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/store/memory.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq-host/src/links.rs, crates/ubiq/src/web_export/mod.rs, crates/ubiq-host/src/mcp/mod.rs]
 review_cycle: quarterly
 ---
 
@@ -29,6 +29,14 @@ Only the binary names both halves, and it names the host once: to start it and h
 the other end of the bus. The interface cannot reach around the bus because the host's types are
 not in its dependency graph, and `just host` and `just ui` check that mechanically — the first that
 no drawing crate reaches the host's tree, the second that the host never reaches the interface's.
+
+`crates/ubiq-host` is also linkable lean: `git`, `index`, `harness`, `listener` and `desktop` each
+gate a slice of its module tree behind a Cargo feature, `full` is all five together, and `default`
+turns `full` on, so an ordinary build is unaffected. This is what lets a second, windowless binary
+embed the host's own `pty`, `files` and `host_meta` — a machine's terminal, files and facts — without
+carrying the harness-composition half those modules never needed. `just relay` builds the lean
+configuration and checks the gated crates stay out of it — the feature split is in
+[`project-structure.md`](./project-structure.md).
 
 A `[[bin]]` inside `crates/ubiq` could not express this: a binary shares its package's
 `[dependencies]`, so naming the host there would put it in the library's graph too. That is why the
@@ -146,9 +154,14 @@ handed out at startup, and upgrades each one to raw `wire` frames. `ubiq-app --s
 host, reporting to the terminal it was started in. [`operations.md`](./operations.md) documents the
 flags and
 [`../backlog.md`](../backlog.md) (`G168`) what it still lacks — TLS chief among them. The handshake
-is the one part of a connection that is timed: an unauthenticated peer has ten seconds
+is the one part of a connection with a deadline: an unauthenticated peer has ten seconds
 (`HANDSHAKE_TIMEOUT`) to finish it, cleared the moment the `101` upgrade is written, because a
-session is idle between frames by design. **A remote
+session is idle between frames by design. **What the session that follows has instead is a
+heartbeat**: twenty seconds of inbound silence and a pump sends a `Ping`, the other answers a
+`Pong`, and three unanswered pings end the session by the same path a dropped socket takes. Both
+are swallowed in the pumps, reaching neither the coordinator nor `AppState`; the rules are
+`ubiq_proto::carrier`'s so the two pumps cannot drift, and the transport contract's carrier family
+owns the shape. **A remote
 connection is an ordinary client of the same `Hub`:** `remote.rs` does nothing but
 `Hub::connect()` plus two pumps, so a connection is a `ClientId` in the routing table like any
 window's, no message family is special-cased for it, and closing the socket is the same

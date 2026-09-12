@@ -1,0 +1,23 @@
+[package]
+name = "ubiq-drone"
+version = "0.1.0"
+edition = "2024"
+license-file = "../../LICENSE"
+description = "Ubiq: one machine's terminal, files and facts, served over a single duplex byte stream"
+publish = false
+
+# A drone knows nothing about agents, harnesses, accounts or version control. It is the lean host
+# and the protocol, and that is the whole of its tree — `just relay` is the check that says so.
+[dependencies]
+ubiq-proto = { path = "../ubiq-proto" }
+# `default-features = false` is the point of this binary: no harness library, no version control,
+# no index, no listener, nothing that talks to a desktop. What is left is a machine's terminal,
+# its files and its facts, which is exactly what a drone serves.
+ubiq-host = { path = "../ubiq-host", default-features = false }
+tracing = "0.1"
+# Stamping a seeded project record's `created_at`, which is a `chrono` type in the protocol. Named
+# here only to build that one value; already in the workspace graph through `ubiq-proto`.
+chrono = "0.4"
+
+[dev-dependencies]
+tempfile = "3"

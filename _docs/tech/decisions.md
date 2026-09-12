@@ -2386,6 +2386,71 @@ The refusal is **stated on screen** rather than degraded silently, because a pic
 does not appear reads as a renderer bug and sends the reader looking in the wrong place; and what
 would relax the rule is a decision about which origins a surface may reach, which nothing yet needs.
 
+### D116 — A drone attaches as an ordinary host, not as a project's remote origin
+
+`crates/ubiq-drone` is reached the way `ubiq --serve` is reached: it answers the whole contract on
+one duplex byte stream, and the interface adds it to the hosts a window is attached to (`D81`). The
+shelved drone proposal chose the opposite — `remote: Option<RemoteOrigin>` on `ProjectRecord`, with
+the *local* coordinator routing that project's pane and file messages over a connection it held —
+and the difference is worth naming because both designs reuse the same two message families.
+
+Routing through the local coordinator would put a second answering path inside
+`Coordinator::dispatch`: every arm that today calls `pty::spawn` or `files.submit` would first ask
+whether this project answers elsewhere. That is a branch in the busiest code in the tree, and it
+makes the coordinator hold a network connection — which architecture rule 2 keeps out of the UI,
+and which nothing has ever asked the coordinator to keep alive. Attaching as a
+host instead means `Bus::route_host`, `projects_not_on`, `replace_all_except` and `drop_remote`
+carry a drone with no change at all, and the coordinator never learns one exists.
+
+**Cost:** a drone's projects belong to the drone, so a machine that is not reachable has no rows in
+the catalogue rather than unreachable ones — there is no local record to mark unhealthy. That is the
+right answer for a host the user attaches to deliberately and the wrong one for "this project lives
+over there", which is what per-project configuration wants; closing that gap is where the multi-host
+model has to learn about a locally-owned record a remote host fills in, and it is the one place this
+choice costs more than the alternative rather than less.
+
+### D117 — The carrier family is the one part of the contract no dispatch ever sees
+
+`DroneHello`, `DroneReady`, `Ping` and `Pong` are `Message` variants carried by the ordinary
+framing, read and written by the pumps at each end and swallowed there. They never reach the `Hub`,
+the coordinator, a drone's relay or `AppState`.
+
+They are frames rather than a preamble of their own because the stream carries length-prefixed
+MessagePack regardless: a second encoding on the same socket would need its own ceiling, its own
+truncation rule and its own decode errors, all to avoid four variants on an enum that carries a
+hundred and fifty. The heartbeat is a message pair for the same reason, and `G189` named the
+alternative — a frame type below the message layer — which would change `[u32 length][msgpack]` for
+every build that speaks it.
+
+What makes this sound is that the exception is *total*: a carrier frame is classified before
+anything else looks at it, and `ubiq_proto::carrier::Heartbeat::inbound` takes the message by value
+and hands back only what should be delivered, so a pump cannot pass a `Ping` on by forgetting to
+match it. Step 4 of the transport contract's "Adding a variant" — handle it in the coordinator's
+dispatch — names this family as its single exception.
+
+**Cost:** the contract carries four variants whose rule is the opposite of every other variant's,
+and a reader who finds `Ping` in `messages.rs` has to know that. The transport contract states it
+once, in a section of its own, rather than leaving it to be inferred from the pumps.
+
+### D118 — The heartbeat pings only silence, and treats three misses as gone
+
+`PING_INTERVAL` is 20 seconds and `MISSED_PINGS_BEFORE_GONE` is 3, so a peer is abandoned after
+about a minute. A ping is owed only after a whole interval of **complete inbound silence**: any
+frame at all — a keystroke's echo, a file listing, a pong — resets the clock, so a session with a
+live pane never puts an extra frame on the wire, and a dead stream under a busy pane is still caught
+by the next failed write.
+
+Twenty seconds sits inside the shortest NAT idle timeouts in common use, which makes the ping a
+keepalive as well as a detector. One miss would make a single stall look like a death; a minute
+survives a machine paging back in, and still ends well before a user has finished wondering. It is
+also what phase 6's linger countdown starts from, so an over-eager value would reap a drone whose
+client was merely slow.
+
+**Cost:** an idle session costs three frames a minute in each direction, and a peer that is alive
+but unable to answer for a minute — a stopped process, a suspended container — is torn down as
+though it had died. The teardown is the existing dropped-socket path rather than a second one,
+because a second shutdown path is a second chance to leave a pane running.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce

@@ -20,6 +20,7 @@ pub mod file;
 pub mod harness;
 pub mod memory;
 /// The usage meter — not a trait, and not a file. See the module for why it is neither.
+#[cfg(feature = "harness")]
 pub mod usage;
 
 use std::path::PathBuf;

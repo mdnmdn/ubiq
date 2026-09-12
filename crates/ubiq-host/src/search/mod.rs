@@ -73,7 +73,9 @@ pub struct Job {
     ///
     /// `None` is not a failure and not a special case — it is a project indexed at `none`, or one
     /// whose index has not been built yet. The worker walks, which is what it did before any index
-    /// existed, so this field only ever removes work.
+    /// existed, so this field only ever removes work. Absent entirely without `index`, where the
+    /// worker always walks — the same fallback, just the only one there is.
+    #[cfg(feature = "index")]
     pub index: Option<crate::index::text::Reader>,
     pub cancel: Arc<AtomicBool>,
     pub reply_to: Mailbox,

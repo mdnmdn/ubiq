@@ -30,6 +30,7 @@ use std::thread;
 use std::time::Duration;
 
 use ubiq_proto::bus::{self, Client, FromClient};
+use ubiq_proto::carrier::{Beat, Heartbeat};
 use ubiq_proto::settings::RemoteScheme;
 use ubiq_proto::wire;
 
@@ -558,13 +559,39 @@ fn spawn_pump(
     let mut reader_stream = reader_stream;
     let mut writer_stream = writer_stream;
 
+    // The interface's half of the heartbeat, and it is the same half: both ends of a carrier ping
+    // and both answer, because either end can be the one that goes quiet. The rules are
+    // `ubiq_proto::carrier`'s so this pump and `ubiq_host::carrier::pump` cannot drift — the
+    // duplicated *threads* are forced by the crate boundary (`crates/ubiq` does not depend on
+    // `crates/ubiq-host`), the duplicated rules would not be.
+    let beat = Arc::new(Mutex::new(Heartbeat::new()));
+    // A `Pong` the reader owes, on its way to the thread that owns the write half. It never
+    // reaches `deliver`, and so never reaches `AppState`: a heartbeat is transport.
+    let (pongs, pongs_out) = flume::unbounded();
+
     let writer_said = said;
+    let writer_beat = beat.clone();
     thread::Builder::new()
         .name("ubiq-remote-client-writer".to_string())
         .spawn(move || {
             loop {
-                match writer_said.recv_timeout(STOP_POLL) {
-                    Ok(FromClient::Said { message, .. }) => {
+                // Checked before the wait, and so also after every frame written: a busy outbound
+                // direction with a dead inbound one never reaches the timeout arm below.
+                if writer_beat.lock().expect("the heartbeat").is_gone() {
+                    tracing::info!("the remote host stopped answering: ending the session");
+                    break;
+                }
+                let picked = flume::Selector::new()
+                    .recv(&pongs_out, |taken| taken.ok().map(Outbound::Pong))
+                    .recv(&writer_said, |taken| taken.ok().map(Outbound::Said))
+                    .wait_timeout(STOP_POLL);
+                match picked {
+                    Ok(Some(Outbound::Pong(pong))) => {
+                        if wire::write_frame(&mut writer_stream, &pong).is_err() {
+                            break;
+                        }
+                    }
+                    Ok(Some(Outbound::Said(FromClient::Said { message, .. }))) => {
                         if wire::write_frame(&mut writer_stream, &message).is_err() {
                             break;
                         }
@@ -572,10 +599,16 @@ fn spawn_pump(
                     // `Connected` never fires for a detached client — only `Hub::connect` sends
                     // it — and `Gone` is the local `Client` being dropped, an intentional
                     // teardown rather than a failure to report.
-                    Ok(FromClient::Connected(_)) => {}
-                    Ok(FromClient::Gone(_)) => break,
-                    Err(flume::RecvTimeoutError::Timeout) => {}
-                    Err(flume::RecvTimeoutError::Disconnected) => break,
+                    Ok(Some(Outbound::Said(FromClient::Connected(_)))) => {}
+                    Ok(Some(Outbound::Said(FromClient::Gone(_)))) | Ok(None) => break,
+                    Err(flume::select::SelectError::Timeout) => {
+                        let owed = writer_beat.lock().expect("the heartbeat").due();
+                        if let Some(ping) = owed
+                            && wire::write_frame(&mut writer_stream, &ping).is_err()
+                        {
+                            break;
+                        }
+                    }
                 }
             }
             // Shutdown the kernel socket while a handle still exists. Dropping a TLS
@@ -590,13 +623,30 @@ fn spawn_pump(
         .name("ubiq-remote-client-reader".to_string())
         .spawn(move || {
             while let Ok(message) = wire::read_frame(&mut reader_stream) {
-                if deliver.send(message).is_err() {
-                    break;
+                let verdict = beat.lock().expect("the heartbeat").inbound(message);
+                match verdict {
+                    Beat::Deliver(message) => {
+                        if deliver.send(message).is_err() {
+                            break;
+                        }
+                    }
+                    Beat::Answer(pong) => {
+                        if pongs.send(pong).is_err() {
+                            break;
+                        }
+                    }
+                    Beat::Swallow => {}
                 }
             }
             drop(reader_stream);
         })
         .expect("the remote client's reader thread");
+}
+
+/// What the writer thread picked up: a heartbeat answer it owes, or something the window said.
+enum Outbound {
+    Pong(Message),
+    Said(FromClient),
 }
 
 // ── The modal ───────────────────────────────────────────────────────────────

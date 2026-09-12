@@ -13,6 +13,7 @@ use ubiq_proto::ids::ProjectId;
 use ubiq_proto::projects::{IndexChange, ProjectRecord, ProjectSnapshot, Scope};
 use ubiq_proto::tools::ToolDef;
 
+#[cfg(feature = "harness")]
 use crate::gc;
 use crate::health::probe;
 use crate::host_path::{request_path, wire_string};
@@ -120,8 +121,11 @@ impl Projects {
                 this.loaded = true;
                 // Only ever after a load that worked. Collecting against the empty catalogue a
                 // *corrupt* file produces would delete every project's view state.
-                let keep: HashSet<ProjectId> = this.records.iter().map(|r| r.id).collect();
-                gc::collect(&this.root, &keep);
+                #[cfg(feature = "harness")]
+                {
+                    let keep: HashSet<ProjectId> = this.records.iter().map(|r| r.id).collect();
+                    gc::collect(&this.root, &keep);
+                }
             }
             Err(error) => {
                 this.warned = true;

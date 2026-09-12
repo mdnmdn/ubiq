@@ -3,12 +3,15 @@
 //! The interesting cases are all failures — a corrupt file, an unwritable directory, a folder that
 //! went away — because those are what the design actually turns on.
 
+#[cfg(feature = "harness")]
 use std::collections::HashSet;
 use std::fs;
+#[cfg(feature = "harness")]
 use std::path::Path;
 
 use chrono::{TimeZone, Utc};
 use tempfile::TempDir;
+#[cfg(feature = "harness")]
 use ubiq_host::gc;
 use ubiq_host::health::probe;
 use ubiq_host::store::file::FileProjectStore;
@@ -230,6 +233,7 @@ fn a_folder_that_comes_back_probes_ok_again() {
 
 // ── the collector ───────────────────────────────────────────────────
 
+#[cfg(feature = "harness")]
 fn project_dir(root: &Path, name: &str) -> std::path::PathBuf {
     let dir = root.join("projects").join(name);
     fs::create_dir_all(&dir).unwrap();
@@ -237,6 +241,8 @@ fn project_dir(root: &Path, name: &str) -> std::path::PathBuf {
     dir
 }
 
+// The collector is the catalogue's one edge into the harness library, so these two go with it.
+#[cfg(feature = "harness")]
 #[test]
 fn the_collector_takes_only_directories_no_record_names() {
     let root = TempDir::new().unwrap();
@@ -259,6 +265,7 @@ fn the_collector_takes_only_directories_no_record_names() {
     assert!(stranger.exists(), "a name that is not an id is left alone");
 }
 
+#[cfg(feature = "harness")]
 #[test]
 fn the_collector_is_quiet_when_there_is_nothing_to_collect() {
     let root = TempDir::new().unwrap();
