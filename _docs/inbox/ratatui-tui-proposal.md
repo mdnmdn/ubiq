@@ -3,8 +3,8 @@ id: inbox-tui
 title: Proposal — a terminal interface, on ratatui
 kind: proposal
 status: proposal
-summary: A second interface crate drawn with ratatui that attaches to a host as an ordinary client over the transport the remote listener already speaks, covering the Control readings, a reduced IDE and the agents screen — three areas of the workbench and not the fourth, because a terminal already has git; what it may share with the GPUI interface, why a pane inside a pane is the expensive part, and the ownership rule that decides whether it can watch the window's panes or only its own.
-read_when: you are deciding whether Ubiq gets a second front end, what a non-GPUI client may reuse, or how a terminal reaches a host on another machine
+summary: A second interface crate drawn with ratatui that attaches to a host as an ordinary client over the transport the remote listener already speaks, covering the Control readings, a reduced IDE and the agents screen — three areas of the workbench and not the fourth, because a terminal already has git; what it may share with the GPUI interface, why a pane inside a pane is the expensive part, the ownership rule that decides whether it can watch the window's panes or only its own, the host record that lets either interface attach to whichever one is running, and the three shapes the application builds in.
+read_when: you are deciding whether Ubiq gets a second front end, what a non-GPUI client may reuse, how a front end finds a host that is already running, or how a terminal reaches a host on another machine
 updated: 2026-09-12
 depends_on: [tech-architecture, tech-transport, tech-structure, tech-decisions, feat-stats, feat-workbench, feat-chat, feat-panes, inbox-drone]
 ---
@@ -19,8 +19,9 @@ another desktop window on another desktop.
 
 This proposes **a second interface, drawn with ratatui**, that attaches to a host as an ordinary
 client and covers three of the workbench's areas: the Control readings, a reduced IDE — explorer,
-search, a text viewer — and the agents screen, conversations and the panes under them. Git is not
-one of them. A terminal already has git, and the Git screen is the one part of the window whose
+search, a text viewer — and the agents screen, conversations and the panes under them. The host it
+attaches to is whichever one is running: the window's, another terminal's, one on a machine reached
+over SSH, or one it starts itself because none was. Git is not one of the areas. A terminal already has git, and the Git screen is the one part of the window whose
 terminal equivalent is a solved, better product someone else ships.
 
 The argument is not that a terminal is a nicer window. It is that the architecture claims a UI is
@@ -72,6 +73,9 @@ stating flat, because each one is a decision someone would otherwise make by acc
   units.
 - **What it may share is state, and only state.** The fold from a conversation delta into a
   transcript is a rule, not a picture, and two interfaces that disagree about it are a bug.
+- **It attaches before it starts.** A front end that finds a host already running against its config
+  root joins that one instead of raising a second, whichever interface raised it — and the rule runs
+  in both directions, so the window obeys it too (§8).
 - **`just tui` is the check**, beside `just ui` and `just host`: the terminal interface's tree
   contains no drawing crate and no host crate.
 
@@ -171,33 +175,81 @@ client-scoped today, and making it cross-client is one design, not two. The hone
 that the first release is a terminal interface *to a host*, not a terminal view *of the window* —
 which is what the SSH case actually wants.
 
-## 7. How it is built, and how it starts
+## 7. How it is built: three shapes
 
 **One crate for the interface**, `crates/ubiq-tui/`, holding its own state, its own frame loop and
 its own draw functions. It depends on the contract crate and on ratatui, and on nothing else of
 Ubiq's.
 
-**One composition root, still.** The binary crate is the only place that names both halves, and that
-rule is worth keeping: it grows a second binary target behind a feature, with the GPUI interface an
-optional dependency, so that a build with the window switched off produces a terminal binary with no
-drawing crate anywhere in its tree. That is the build a headless server wants, and it is a manifest
-change rather than a fifth crate.
+**One composition root, still.** The binary crate stays the only place that names both halves. It
+grows a second binary target and two features, each interface an optional dependency behind its own,
+and every target naming its feature in `required-features` — so a narrowed build simply produces one
+fewer binary rather than failing to compile.
 
-**Two ways to start, and the second is the point.**
+| Build | Features | Produces | For |
+|---|---|---|---|
+| Both | the default | `ubiq` and `ubiq-tui` | The desktop install: a window, and a terminal that attaches to the same host |
+| Window only | `--no-default-features --features gui` | `ubiq` | A packaged desktop application that has no business shipping a second command |
+| Terminal only | `--no-default-features --features tui` | `ubiq-tui` | A server, a container, a build box: no drawing crate anywhere in the tree, no GPU, no font stack, no display |
 
-- *Owning a host.* The binary starts a coordinator exactly as the window's does and connects to it
-  in-process. One host per process still holds.
-- *Dialling one.* It attaches to a running host over the listener that exists, with an address and a
-  token. This is the SSH case, the container case and the "my window is on the other desk" case.
+The terminal-only build is the one that has to be defended, because it is the reason the features
+exist rather than a runtime flag: a machine with no display must be able to compile and run Ubiq
+without GPUI in its dependency graph at all. On-device assistance is a default feature and drops out
+of a narrowed build alongside the rest; the host answers from its stub backend, which every call
+site already reads correctly.
 
-The trap between them is the single-instance lock in `crates/ubiq-app/src/handoff.rs`: its socket is
-named from the hash of the running executable's path, so two binaries never hand off to each other,
-and two coordinators over one config root would race the catalogue. The rule that avoids it:
-**a terminal interface that finds a host running against its config root dials it, and starts one
-only when none does.** Finding one needs a way to ask — the handoff socket is the obvious place to
-answer "who serves, and where" — and that is a gap, not a design.
+**`just tui` is the check that keeps it true**, mirroring `just ui`: the terminal interface names the
+contract and neither the host nor the window's crate. `just check` gains the two narrowed builds, and
+the terminal-only one carries the assertion that matters — no drawing crate in the tree of a binary
+meant for a machine with none.
 
-## 8. Colour, in a place with sixteen of them
+## 8. Attach, or start
+
+**A host belongs to a config root, and a front end asks the root before it starts one.**
+
+Two mechanisms come close to answering that today and neither does. The single-instance lock in
+`crates/ubiq-app/src/handoff.rs` is per *application*: its socket is named from the hash of the
+running executable, so a relaunch of the window hands its paths to the running window and exits,
+while a differently-named binary never meets it at all — and it is Unix-only. A served run
+advertises to the network, and nothing local is told it exists.
+
+**The host record.** Whichever process owns a coordinator binds the listener that exists on loopback
+with a kernel-assigned port — `remote::serve` hands back the address and the token it minted — and
+writes a record beside the catalogue in the config root: address, token, the owner's process id, and
+which interface owns it. It is written with the same atomic helper the catalogue uses, readable only
+by its owner, and removed when the process ends.
+
+Every front end then starts the same way:
+
+1. **Read the record.** None → own a host, write one, draw.
+2. **Dial what it names.** The dial is the liveness test, exactly as a handoff socket left by a crash
+   is proved stale by connecting to it: a record whose address refuses is removed, and the front end
+   owns a host instead.
+3. **Attach and draw.** For the window this is the path it has rather than a new one — the bus
+   wrapper in `crates/ubiq/src/app/hosts.rs` already multiplexes a local client and dialled ones.
+
+**It runs in both directions.** A terminal started while a window runs attaches to the window's host:
+the same projects, the same conversations, the same readings, its own panes (§6). A window started
+while a terminal owns the host attaches to that one. Which interface got there first stops being
+something anyone has to know.
+
+**And the other choice stays available.** `--own` starts a host regardless, and refuses unless
+`--config-root` names a root nothing serves: two coordinators over one root do not corrupt it — every
+store write is temp, fsync, rename — but they do lose each other's updates, because each rewrites the
+whole catalogue from its own memory. `--connect <addr>` with a token skips the record and dials what
+it is told, which is the SSH case, where the record is on the far machine and is not the near one's
+to read.
+
+**The terminal interface claims no single-instance lock.** Handoff exists so that a second launch of a
+windowed application is not a second window; a second terminal in a second tmux pane is a second
+client on purpose. It reads the record, attaches, and never binds that socket.
+
+The cost is a loopback listener and a token file for every running Ubiq, where a listener exists
+today only when asked for. Loopback only, a port the kernel picks, a file inside a root that already
+holds the catalogue and the account references — and a preference for anyone who wants no listening
+socket at all, which costs them the duality and nothing else.
+
+## 9. Colour, in a place with sixteen of them
 
 `D10` puts every colour behind a token, in one file, in the window's crate. A terminal interface
 cannot import that file and must not invent literals of its own, so it carries **the same token
@@ -210,23 +262,27 @@ Two consequences: the palette registry's slugs are worth mirroring, so a user's 
 something in both; and the terminal interface's theme file is the second file in the tree allowed to
 name a colour, which is a rule change and therefore a decision row.
 
-## 9. Phases
+## 10. Phases
 
 Each phase ships something usable and proves one risky thing.
 
 | # | Ships | Proves |
 |---|---|---|
-| 0 | Attach — in-process and dialled — plus the Control readings, on one screen | The client, the dial, the frame loop and the token. About a week |
+| 0 | Attach — owned, recorded and dialled — plus the Control readings, on one screen | The client, the record, the frame loop and the token. About a week |
 | 1 | Projects, the explorer, search, and a read-only viewer with syntax colour | The file families under a terminal's keyboard model, and the first real layout |
 | 2 | Conversations: transcript, tool blocks, composer, permission prompts, delegates | That an agent can be run and answered from a terminal — the release that justifies the rest |
 | 3 | Panes: the emulator, the leader key, resize, the redraw budget | The expensive one. Nesting, at the frame rate a harness needs |
-| 4 | Remote polish: discovery, reconnect, TLS by default on a dialled host | That the SSH case is a product rather than a demo |
+| 4 | Remote polish: reconnect, TLS by default on a dialled host, the terminal-only build in CI | That the SSH case is a product rather than a demo |
+
+Phase 0 carries the record from §8, and the window is the second half of it: teaching the window to
+read the record and attach is a change to one crate's boot, and it is what makes the duality real in
+both directions rather than only from the terminal.
 
 Phase 2 is the one to judge the proposal by. If a developer will run an agent from a terminal
 interface over SSH and watch it work, phases 3 and 4 pay for themselves; if they will not, phase 3
 should never be built.
 
-## 10. What it costs
+## 11. What it costs
 
 **Every message becomes two front ends' work.** The contract grows, and a second consumer means a
 second place to add an arm. The mitigation is that the terminal interface is allowed to be behind:
@@ -247,21 +303,32 @@ building both first is how neither gets finished.
 for the same person on the same host is inside that line; a shared terminal server for a team is
 not, and no phase here moves toward one.
 
-## 11. What this would record
+## 12. What this would record
 
-If accepted, one decision row and four backlog rows:
+If accepted, two decision rows and five backlog rows:
 
 - **`D113` — a second interface is a client, not a mode.** The terminal interface is its own crate
-  with its own token table; the window's crate stays GPUI's, and the shared layer is state or
-  nothing. Cost: a second place to add a screen, and a second colour table to keep honest.
+  with its own token table and its own binary target, so the application builds in three shapes
+  rather than switching interfaces at runtime; the window's crate stays GPUI's, and the shared layer
+  is state or nothing. Cost: a second place to add a screen, a second colour table to keep honest,
+  and a feature matrix that has to be built in CI or it rots.
+- **`D114` — a host advertises itself in its config root, and a front end attaches before it starts
+  one.** Owning a coordinator means binding loopback and writing a record; finding a live record
+  means attaching to it, whichever interface wrote it. Cost: a listening socket and a token file for
+  every running Ubiq, and one more piece of state in the config root that a crash can leave behind.
 - **`G250`** — pane output routes to one client and the host holds no scrollback, so a second
   interface cannot watch the window's panes; the hand-over message is unspecified.
-- **`G251`** — a running host has no discovery: a terminal interface cannot tell whether to dial one
-  or start one.
+- **`G251`** — nothing enforces one host per config root. `--own` against a served root is fenced by
+  a check at boot and by nothing at all afterwards, and two coordinators that reach one catalogue
+  lose each other's updates rather than failing.
 - **`G252`** — the conversation fold lives in the window's crate; sharing it with a second interface
   is a crate move that has not been made.
-- **`G253`** — the dialled transport is token-only and plaintext by default, which a terminal
-  interface over an untrusted network makes routine rather than exceptional.
+- **`G253`** — the dialled transport is token-only and plaintext by default, and the host record puts
+  a token in a file, so anything that can read the config root can attach as a client. Over an
+  untrusted network a terminal interface makes that routine rather than exceptional.
+- **`G254`** — "one application per config root" and "one host per config root" are two mechanisms
+  answering nearly one question: the handoff socket is per executable and Unix-only, the record is
+  per root and everywhere. Whether the first should be folded into the second is open.
 
 ## Related docs
 
