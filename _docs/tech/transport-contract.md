@@ -125,7 +125,7 @@ recolour and a move on disk.
 | `ListProjects` | UI → host | — | `ProjectList` |
 | `AddProject` | UI → host | `path`, `name?`, `colour?`, `custom_colour?`, `temporary` | `ProjectAdded` or `ProjectError` |
 | `ForgetProject` | UI → host | `project_id` | `ProjectForgotten` |
-| `UpdateProject` | UI → host | `project_id`, `name?`, `colour?`, `custom_colour?`, `search_excludes?`, `index?`, `tools?` | `ProjectChanged` |
+| `UpdateProject` | UI → host | `project_id`, `name?`, `colour?`, `custom_colour?`, `search_excludes?`, `index?`, `tools?`, `managed_repos?` | `ProjectChanged` |
 | `LocateProject` | UI → host | `project_id`, `path` | `ProjectChanged` or `ProjectError` |
 | `OpenedProject` | UI → host | `project_id` | `ProjectChanged` |
 | `RefreshProject` | UI → host | `project_id` | `ProjectChanged` |
@@ -496,11 +496,15 @@ fetches from; `GitSubmodule` is a different repository, pinned at a commit, with
 own. The overview carries both lists and flattens neither into the other, and a submodule outside
 the project's scope is omitted the way a file outside it never appears in a listing.
 
-**A nested repository is walked and merged, not listed.** `GitNested` names a repository whose
-working tree sits inside the project — a submodule the outer repository pins, or an independent
-clone the host knows only as one untracked folder — carrying its own `head` and, when the walk
-could read it, its own `counts`; `counts` absent means the repository could not be read, and it
-contributes no entries rather than failing the project's whole answer. Its paths join the one
+**A nested repository is walked and merged, not listed — once the project manages it.** `GitNested`
+names a repository whose working tree sits inside the project — a submodule the outer repository
+pins, or an independent clone the host knows only as one untracked folder — carrying its own `head`,
+whether the project `managed` it, and, when the walk could read it, its own `counts`; `counts`
+absent means the repository could not be read, or was not read at all because it is not managed, and
+it contributes no entries rather than failing the project's whole answer. Every repository the walk
+found is on the list either way, because the project settings offer the choice and cannot offer what
+nothing names (`D112`); `ProjectRecord.managed_repos` is where the answer is kept, and the project's
+own repository is never a member and is always managed. A managed one's paths join the one
 project-relative map on `GitWorkingTree.repos`, so the explorer draws a real badge on a file inside
 it, while `GitSubmodule` keeps its own account of what the outer repository pins — the two lists
 overlap by design, the same folder named on both. The walk is bounded by `MAX_NESTED_REPOS` (32)
@@ -940,7 +944,7 @@ Forty-seven records travel inside payloads.
 | `AgentTypeInfo` | `id`, `label`, `command`, `available`, `chat`, `modes[]`, `unattended_mode?`, `keeps_sessions` |
 | `ToolDef` | `id`, `name`, `command`, `args`, `env`, `platforms[]`, `wait_on_exit` |
 | `ListedTool` | `scope`, `tool`, `applicable` |
-| `ProjectRecord` | `id`, `name`, `path`, `colour`, `custom_colour?`, `temporary`, `created_at`, `last_opened_at?`, `search_excludes[]`, `index?`, `tools[]` |
+| `ProjectRecord` | `id`, `name`, `path`, `colour`, `custom_colour?`, `temporary`, `created_at`, `last_opened_at?`, `search_excludes[]`, `index?`, `tools[]`, `managed_repos[]` |
 | `ProjectSnapshot` | a `ProjectRecord`, flattened, plus `health`, `open_panes`, `workarea` and `ephemeral` |
 | `DirEntry` | `name`, `rel_path`, `kind`, `size?`, `symlink` |
 | `DirListing` | `rel_path`, `entries[]`, `truncated` |

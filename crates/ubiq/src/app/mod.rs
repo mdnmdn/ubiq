@@ -86,7 +86,7 @@ use ubiq_proto::assist::{
 use ubiq_proto::bus;
 use ubiq_proto::connectors::{AuthKind, ConnectStage, ProviderId, origin};
 use ubiq_proto::files::{DiffBase, FileContents, FileError, PathOp};
-use ubiq_proto::git::{GitEntry, GitError as GitFailure, RepoOverview};
+use ubiq_proto::git::{GitEntry, GitError as GitFailure, GitNested, RepoOverview};
 use ubiq_proto::ids::{
     AiProviderId, ConnectId, ConnectionId, OauthAppId, PaneId, ProjectId, SearchId, SessionId,
     StepId, SuggestId, TaskId, ToolId,
@@ -306,6 +306,10 @@ pub struct OpenProject {
     /// sent. The explorer keeps the projection of these; the Git screen's change lists need the
     /// pair itself, because staged-and-modified is two rows there and one badge in the tree.
     pub git_entries: Vec<GitEntry>,
+    /// Every repository the last working-tree walk found inside the project, managed or not, as
+    /// the host sent them — the project settings dialog draws this list, not the explorer's
+    /// projection of it.
+    pub git_repos: Vec<GitNested>,
     /// The Git screen's view of all of it: which sections are open, what is selected, what is
     /// typed in the commit box. Per project, for the reason the graph's view is.
     pub git_view: GitView,
@@ -341,6 +345,7 @@ impl OpenProject {
             git: None,
             git_truncated: false,
             git_entries: Vec::new(),
+            git_repos: Vec::new(),
             git_view: GitView::default(),
             just_saved: HashSet::new(),
         }

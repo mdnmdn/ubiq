@@ -48,6 +48,20 @@ pub struct ProjectRecord {
     /// project that never said otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub index: Option<IndexLevel>,
+    /// The repositories *inside* this project the user has taken on, project-relative and
+    /// forward-slashed, as [`crate::git::GitNested::rel_path`] spells them.
+    ///
+    /// A managed repository is walked: its paths join the project's one status map, so it colours
+    /// the explorer and its changes show on the Git screen. One that is not on this list is found
+    /// and named — the project settings list every repository there is — and nothing more is read
+    /// from it. The project's **own** repository is never a member and is always managed: it is
+    /// the repository the project *is*, and an entry for it would be a setting with one value.
+    ///
+    /// Replaced whole through [`Message::UpdateProject`], the way `search_excludes` above is.
+    ///
+    /// [`Message::UpdateProject`]: crate::messages::Message::UpdateProject
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub managed_repos: Vec<String>,
     /// Runnable tools defined for this project, on top of the machine-wide set in
     /// [`crate::settings::HostSettings::tools`]. Replaced whole through
     /// [`Message::UpdateProject`], the way `search_excludes` above is.

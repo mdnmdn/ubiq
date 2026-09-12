@@ -207,3 +207,70 @@ fn a_nested_git_write_raises_repository_and_names_no_file() {
         }
     }
 }
+
+/// A project that never goes quiet still reports. An ignored directory under a build writes without
+/// a 150ms gap for as long as the build runs, and every one of those events is dropped by the
+/// watch — so a window measured from the last event alone would hold a real change back until the
+/// noise stopped, which is a tree that needs a manual refresh to show what an agent just wrote.
+#[test]
+fn a_change_is_reported_while_an_ignored_directory_keeps_churning() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    fs::create_dir(root.join("target")).unwrap();
+
+    let (hub, host) = bus::hub();
+    let client = hub.connect();
+    let project_id = ProjectId::generate();
+    let _watcher = watch::start(watch::Job {
+        project_id,
+        root: root.clone(),
+        // The application-wide excludes the coordinator merges in, as the watch receives them.
+        excludes: vec!["target".to_string()],
+        index: None,
+        reply_to: host.mailbox(To::Client(client.id())),
+    })
+    .expect("the watch to start");
+
+    // The build, as far as the watcher is concerned: events with no gap in them, none of them
+    // reportable. It outlasts the deadline below, so nothing the test asserts can be waiting for
+    // the noise to stop.
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let churn = std::thread::spawn({
+        let root = root.clone();
+        let stop = stop.clone();
+        move || {
+            let mut n = 0u32;
+            while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                let _ = fs::write(root.join(format!("target/o{n}")), "x");
+                n += 1;
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+    });
+
+    // One real change, made while the churn is already running.
+    std::thread::sleep(Duration::from_millis(300));
+    fs::write(root.join("seen.txt"), "yes").unwrap();
+
+    // Deliberately shorter than `PATIENCE`: what is under test is that the batch goes out while the
+    // project is still busy, not that it goes out eventually.
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let mut named = false;
+    while !named {
+        let left = deadline.saturating_duration_since(Instant::now());
+        match client.from_host().recv_timeout(left) {
+            Ok(Message::ProjectFilesChanged { changed, .. }) => {
+                assert!(
+                    !changed.iter().any(|path| path.starts_with("target/")),
+                    "an excluded path must not be reported: {changed:?}"
+                );
+                named = changed.iter().any(|path| path == "seen.txt");
+            }
+            Ok(other) => panic!("expected a change, got {other:?}"),
+            Err(_) => panic!("the change waited for the churn to stop instead of being reported"),
+        }
+    }
+
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    churn.join().unwrap();
+}

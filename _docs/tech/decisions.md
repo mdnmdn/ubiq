@@ -2262,6 +2262,39 @@ hovers learns the threshold from the colour alone — which is why the colour ca
 is one glyph over a snapshot that may hold several gauges, so it reports the fullest window and the
 tooltip is where the others are; a reader who wants all of them goes to Settings.
 
+### D112 — A repository inside a project is ignored until the project takes it on
+
+`D99` settled that a repository found below the project is walked and merged into the project's one
+map. What it did not settle is *which* of them: a folder full of vendored clones, a tool's checkout
+under `_tools/`, a reference copy of somebody else's tree — each was walked, each coloured the
+explorer, and each put its changes on the Git screen beside the project's own. The project's
+settings hold the answer instead. `ProjectRecord.managed_repos` names the repositories inside the
+project it takes on, and the Git repositories section of the project dialog is the list it is
+ticked from.
+
+**The project's own repository is always managed and is never a row with a switch.** It is the
+repository the project *is*; a setting for it would be a setting with one value. A repository below
+it starts **ignored**, because the cost falls the wrong way otherwise: a clone nobody asked about
+contributing badges and change rows is noise the user has to notice before they can remove it, while
+one that is ignored is named in the settings with a tick beside it, which is where somebody looking
+for it will look.
+
+**Ignored means unread, not filtered.** The walk still finds every repository, and every one of them
+arrives on `GitWorkingTree.repos` with `managed` saying which is which — the settings cannot offer a
+choice nothing names. But an ignored repository is never opened: no `Repository::open`, no status
+walk, no counts, no entries and no rollups. So the saving is real on a project holding thirty
+clones, and the interface has nothing to filter: a path with no status cannot be coloured, and the
+explorer draws the branch chip only where a managed repository sits.
+
+The folder of **every** repository found is dropped from the outer repository's own account, managed
+or not, so an ignored one is plain rather than untracked — a fold of `D99`'s rule, not an exception
+to it: the outer repository's opinion about a folder it does not own was never the thing being drawn.
+
+**Cost.** A repository's changes are invisible until somebody ticks it, and an agent working in an
+ignored clone leaves no mark on the tree — which is the point, and is also the trap. The settings
+list is therefore the whole of the remedy: every repository there is, in one place, with its state
+stated rather than inferred.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce

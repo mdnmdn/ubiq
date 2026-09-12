@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: How the host reads a project's repositories — the rule that Ubiq creates a repository or reads one and never writes into one, where a clone runs, upward discovery and scope, the bounded downward walk that finds the repositories inside a project and merges them into one map, the git worker's two queues and its per-project caches, the three shapes it answers with, the commit-graph lane engine, the refresh discipline that narrows the staleness window, and the ceilings and assumptions the model rests on.
 read_when: you are extending version control, adding the write family, touching how a clone runs, working on a project that holds more than one repository, or wondering why the commit graph's lane engine is hand-rolled rather than a dependency
-updated: 2026-09-10
-verified: 2026-09-10
+updated: 2026-09-12
+verified: 2026-09-12
 code_anchors: [crates/ubiq-proto/src/git.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/git/nested.rs, crates/ubiq-host/src/git/history.rs, crates/ubiq-host/src/git/graph.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq-host/src/repos/list.rs]
 depends_on: [tech-architecture, tech-transport, tech-decisions, feat-workbench]
 review_cycle: monthly
@@ -72,13 +72,21 @@ descends into a repository once it has found one — a repository inside a repos
 project is that repository's business — and is bounded twice: `MAX_NESTED_REPOS` (32) roots and
 `MAX_NESTED_DEPTH` (8) levels. Past either it stops looking, and the map arrives `truncated`.
 
-Each one found is **walked and merged into the project's one map** (`D99`): the nested repository's
-status walk runs with an empty scope, its paths are prefixed with its own project-relative root,
-the outer repository's own entry at that folder is dropped first, and the rollups are recomputed
-over the merged set. `GitNested` is the boundary — one row per repository inside the project,
-carrying its `HEAD`, whether the outer repository pins it as a submodule, and its own counts. A
-nested repository that will not open is reported there with **absent counts** and contributes no
-entries; one broken clone is not an error for the whole project.
+Each one the project **manages** is **walked and merged into the project's one map** (`D99`): the
+nested repository's status walk runs with an empty scope, its paths are prefixed with its own
+project-relative root, the outer repository's own entry at that folder is dropped first, and the
+rollups are recomputed over the merged set. `GitNested` is the boundary — one row per repository
+inside the project, carrying its `HEAD`, whether the outer repository pins it as a submodule,
+whether the project manages it, and its own counts. A nested repository that will not open is
+reported there with **absent counts** and contributes no entries; one broken clone is not an error
+for the whole project.
+
+**A repository the project does not manage is found, named, and not opened** (`D112`). It starts
+that way: `ProjectRecord.managed_repos` is ticked in the project's settings, the project's own
+repository is always managed and never a member, and a nested one is ignored until somebody says
+otherwise. An ignored repository costs one `.git` test during the walk and nothing after it — no
+`Repository::open`, no status walk, no counts, no entries, no rollups — so its folder carries no
+badge, no branch chip and no change rows, and there is nothing downstream to filter.
 
 Nothing above requires a repository of the project's own. A folder holding several independent
 clones answers `overview: None` and a working tree all the same, which is why the downward walk runs
@@ -270,10 +278,11 @@ none is measured against a repository of the size Ubiq is opened on (`G133`).
   diff in `crates/ubiq-host/src/files/diff.rs` runs its own discovery per request, uncached
   (`G130`). `D43` accepted a second comparison engine, not a second discovery walk on every file
   opened.
-- **A nested repository is opened on every full refresh.** Nothing caches those handles: the
-  worker's cache is keyed by `ProjectId` alone, and `Repository::open` on an exact root takes no
-  upward walk, so the cost is one open plus one status walk per nested repository per refresh and
-  has not been measured against a project holding many (`G226`).
+- **A managed nested repository is opened on every full refresh.** Nothing caches those handles:
+  the worker's cache is keyed by `ProjectId` alone, and `Repository::open` on an exact root takes no
+  upward walk, so the cost is one open plus one status walk per *managed* nested repository per
+  refresh and has not been measured against a project managing many (`G226`). An ignored one is not
+  opened at all (`D112`), which is what bounds the cost on a project full of vendored clones.
 - **The ignore rules are read three times** — by libgit2 for the status walk, by the watch's own
   matcher, and by search's walker — and the three do not agree (`G110`).
 - **The project catalogue's health probe is filesystem-only.** `probe()` looks at the path, not at

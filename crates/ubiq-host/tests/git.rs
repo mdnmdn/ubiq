@@ -42,6 +42,11 @@ fn repository() -> TempDir {
     dir
 }
 
+/// The managed set as a record carries it: the repositories inside the project it takes on.
+fn managed(paths: &[&str]) -> Vec<String> {
+    paths.iter().map(|path| path.to_string()).collect()
+}
+
 fn entry<'a>(tree: &'a ubiq_host::git::WorkingTree, path: &str) -> &'a ubiq_proto::git::GitEntry {
     tree.entries
         .iter()
@@ -52,7 +57,7 @@ fn entry<'a>(tree: &'a ubiq_host::git::WorkingTree, path: &str) -> &'a ubiq_prot
 #[test]
 fn a_folder_with_no_repository_answers_none() {
     let dir = TempDir::new().unwrap();
-    let found = observe(dir.path(), 0, true).unwrap();
+    let found = observe(dir.path(), 0, true, &[]).unwrap();
     assert!(found.overview.is_none());
     assert!(found.tree.is_none());
 }
@@ -60,7 +65,7 @@ fn a_folder_with_no_repository_answers_none() {
 #[test]
 fn a_repository_on_main_names_the_branch() {
     let dir = repository();
-    let found = observe(dir.path(), 1, false).unwrap();
+    let found = observe(dir.path(), 1, false, &[]).unwrap();
     let overview = found.overview.expect("a repository");
     assert_eq!(overview.head, GitHead::Branch("main".into()));
     assert!(overview.upstream.is_none());
@@ -76,7 +81,7 @@ fn a_repository_on_main_names_the_branch() {
 fn an_unborn_head_keeps_the_branch_name() {
     let dir = TempDir::new().unwrap();
     git(dir.path(), &["init", "-q", "-b", "main"]);
-    let overview = observe(dir.path(), 0, false)
+    let overview = observe(dir.path(), 0, false, &[])
         .unwrap()
         .overview
         .expect("a repository");
@@ -88,7 +93,7 @@ fn an_unborn_head_keeps_the_branch_name() {
 fn a_detached_head_draws_the_short_id() {
     let dir = repository();
     git(dir.path(), &["checkout", "-q", "--detach"]);
-    let overview = observe(dir.path(), 0, false)
+    let overview = observe(dir.path(), 0, false, &[])
         .unwrap()
         .overview
         .expect("a repository");
@@ -102,7 +107,7 @@ fn a_detached_head_draws_the_short_id() {
 fn a_modified_file_is_in_the_map() {
     let dir = repository();
     fs::write(dir.path().join("file.txt"), b"changed\n").unwrap();
-    let found = observe(dir.path(), 2, true).unwrap();
+    let found = observe(dir.path(), 2, true, &[]).unwrap();
     let tree = found.tree.expect("a working tree");
     let file = entry(&tree, "file.txt");
     assert_eq!(file.worktree, Some(GitPathChange::Modified));
@@ -118,7 +123,7 @@ fn a_modified_file_is_in_the_map() {
 fn an_untracked_file_is_in_the_map() {
     let dir = repository();
     fs::write(dir.path().join("new.txt"), b"new\n").unwrap();
-    let tree = observe(dir.path(), 1, true)
+    let tree = observe(dir.path(), 1, true, &[])
         .unwrap()
         .tree
         .expect("a working tree");
@@ -132,7 +137,7 @@ fn a_staged_file_is_in_the_map() {
     let dir = repository();
     fs::write(dir.path().join("file.txt"), b"changed\n").unwrap();
     git(dir.path(), &["add", "file.txt"]);
-    let tree = observe(dir.path(), 1, true)
+    let tree = observe(dir.path(), 1, true, &[])
         .unwrap()
         .tree
         .expect("a working tree");
@@ -148,7 +153,7 @@ fn a_file_staged_and_modified_draws_as_modified() {
     fs::write(dir.path().join("file.txt"), b"staged\n").unwrap();
     git(dir.path(), &["add", "file.txt"]);
     fs::write(dir.path().join("file.txt"), b"unstaged\n").unwrap();
-    let tree = observe(dir.path(), 1, true)
+    let tree = observe(dir.path(), 1, true, &[])
         .unwrap()
         .tree
         .expect("a working tree");
@@ -176,7 +181,7 @@ fn a_conflicted_file_draws_as_conflict() {
         .expect("git merge");
     assert!(!merge.status.success(), "the merge should conflict");
 
-    let found = observe(dir.path(), 1, true).unwrap();
+    let found = observe(dir.path(), 1, true, &[]).unwrap();
     let file = entry(found.tree.as_ref().unwrap(), "file.txt");
     assert!(file.conflicted);
     assert_eq!(file.mark(), Some(GitMark::Conflict));
@@ -196,7 +201,7 @@ fn a_project_inside_a_repository_is_scoped() {
     fs::write(dir.path().join("file.txt"), b"changed\n").unwrap();
     fs::write(dir.path().join("pkg/inner.txt"), b"changed inner\n").unwrap();
 
-    let found = observe(&dir.path().join("pkg"), 1, true).unwrap();
+    let found = observe(&dir.path().join("pkg"), 1, true, &[]).unwrap();
     let overview = found.overview.unwrap();
     assert_eq!(overview.head, GitHead::Branch("main".into()));
     assert_eq!(overview.scoped_to, "pkg");
@@ -221,7 +226,7 @@ fn an_untracked_directory_is_one_entry() {
     fs::create_dir(dir.path().join("fresh/nested")).unwrap();
     fs::write(dir.path().join("fresh/nested/b.rs"), b"b\n").unwrap();
 
-    let tree = observe(dir.path(), 1, true)
+    let tree = observe(dir.path(), 1, true, &[])
         .unwrap()
         .tree
         .expect("a working tree");
@@ -242,7 +247,7 @@ fn a_ds_store_is_absent_from_the_map() {
     let dir = repository();
     fs::write(dir.path().join(".DS_Store"), b"junk").unwrap();
     fs::write(dir.path().join("new.txt"), b"new\n").unwrap();
-    let tree = observe(dir.path(), 1, true)
+    let tree = observe(dir.path(), 1, true, &[])
         .unwrap()
         .tree
         .expect("a working tree");
@@ -267,7 +272,7 @@ fn a_changed_file_rolls_up_its_parent() {
     )
     .unwrap();
 
-    let tree = observe(dir.path(), 1, true)
+    let tree = observe(dir.path(), 1, true, &[])
         .unwrap()
         .tree
         .expect("a working tree");
@@ -287,7 +292,7 @@ fn a_remote_is_named_in_the_overview() {
         dir.path(),
         &["remote", "add", "origin", "https://example/x"],
     );
-    let overview = observe(dir.path(), 0, false)
+    let overview = observe(dir.path(), 0, false, &[])
         .unwrap()
         .overview
         .expect("a repository");
@@ -318,7 +323,7 @@ fn an_uninitialised_submodule_is_listed_not_walked() {
     // but nothing checked out. `deinit` reproduces exactly that, without a second clone.
     git(dir.path(), &["submodule", "deinit", "-f", "sub"]);
 
-    let found = observe(dir.path(), 1, true).unwrap();
+    let found = observe(dir.path(), 1, true, &[]).unwrap();
     let overview = found.overview.expect("a repository");
     assert_eq!(overview.submodules.len(), 1);
     assert_eq!(overview.submodules[0].rel_path, "sub");
@@ -345,7 +350,7 @@ fn an_ignored_directory_is_one_entry() {
     fs::write(dir.path().join("target/a"), b"a\n").unwrap();
     fs::write(dir.path().join("target/b"), b"b\n").unwrap();
 
-    let tree = observe(dir.path(), 1, true)
+    let tree = observe(dir.path(), 1, true, &[])
         .unwrap()
         .tree
         .expect("a working tree");
@@ -379,7 +384,7 @@ fn an_ignored_directory_does_not_outrank_a_modified_sibling() {
     fs::write(dir.path().join("area/target/a"), b"a\n").unwrap();
     fs::write(dir.path().join("area/file.txt"), b"changed\n").unwrap();
 
-    let tree = observe(dir.path(), 1, true)
+    let tree = observe(dir.path(), 1, true, &[])
         .unwrap()
         .tree
         .expect("a working tree");
@@ -398,8 +403,9 @@ fn an_ignored_directory_does_not_outrank_a_modified_sibling() {
 // ── Repositories inside the project ─────────────────────────────
 //
 // A project may hold repositories below it: submodules the outer one pins, and independent trees
-// it knows only as one untracked folder. They are walked and merged into the one project-relative
-// map (`D99`), so these assert on `rel_path`s that carry the nested root as a prefix.
+// it knows only as one untracked folder. One the project *manages* is walked and merged into the
+// one project-relative map (`D99`), so these assert on `rel_path`s that carry the nested root as a
+// prefix. One it does not manage is named and nothing more, which is what a fresh discovery is.
 
 /// An independent clone inside the project reports its own file statuses, not one untracked folder.
 #[test]
@@ -414,7 +420,7 @@ fn a_nested_repository_is_walked_and_merged() {
     fs::write(inner.join("kept.txt"), b"changed\n").unwrap();
     fs::write(inner.join("fresh.txt"), b"fresh\n").unwrap();
 
-    let found = observe(dir.path(), 1, true).unwrap();
+    let found = observe(dir.path(), 1, true, &managed(&["inner"])).unwrap();
     let tree = found.tree.expect("a working tree");
     assert_eq!(
         entry(&tree, "inner/kept.txt").mark(),
@@ -443,6 +449,7 @@ fn a_nested_repository_is_walked_and_merged() {
         .expect("the nested repository should be named");
     assert_eq!(nested.head, GitHead::Branch("main".into()));
     assert!(!nested.submodule, "an independent clone is not a submodule");
+    assert!(nested.managed, "the project took this one on");
     let counts = nested.counts.expect("a readable repository has counts");
     assert_eq!(counts.modified, 1);
     assert_eq!(counts.untracked, 1);
@@ -451,6 +458,90 @@ fn a_nested_repository_is_walked_and_merged() {
     let outer = found.overview.unwrap().counts.unwrap();
     assert_eq!(outer.modified, 0);
     assert_eq!(outer.untracked, 0);
+}
+
+/// A repository with a dirty file and a nested clone beside it, for the managed-set tests.
+fn with_a_nested_clone() -> TempDir {
+    let dir = repository();
+    let inner = dir.path().join("inner");
+    fs::create_dir(&inner).unwrap();
+    git(&inner, &["init", "-q", "-b", "main"]);
+    fs::write(inner.join("kept.txt"), b"kept\n").unwrap();
+    git(&inner, &["add", "kept.txt"]);
+    git(&inner, &["commit", "-q", "-m", "inner first"]);
+    fs::write(inner.join("kept.txt"), b"changed\n").unwrap();
+    dir
+}
+
+/// A repository the project does not manage is named and read no further.
+#[test]
+fn an_unmanaged_nested_repository_is_named_and_not_walked() {
+    let dir = with_a_nested_clone();
+
+    let tree = observe(dir.path(), 1, true, &[])
+        .unwrap()
+        .tree
+        .expect("a working tree");
+    let nested = tree
+        .repos
+        .iter()
+        .find(|r| r.rel_path == "inner")
+        .expect("every repository found is named, managed or not");
+    assert!(!nested.managed, "a discovery defaults to ignored");
+    assert!(
+        nested.counts.is_none(),
+        "nothing is read from a repository that is not opened"
+    );
+    assert!(
+        tree.entries
+            .iter()
+            .all(|e| !e.rel_path.starts_with("inner")),
+        "an unmanaged repository contributes no entries: {:?}",
+        tree.entries
+    );
+    assert!(
+        tree.rollups
+            .iter()
+            .all(|r| !r.rel_path.starts_with("inner")),
+        "and no rollups: {:?}",
+        tree.rollups
+    );
+}
+
+/// The same repository, once the project manages it, is walked and merged.
+#[test]
+fn a_managed_nested_repository_joins_the_map() {
+    let dir = with_a_nested_clone();
+
+    let tree = observe(dir.path(), 1, true, &managed(&["inner"]))
+        .unwrap()
+        .tree
+        .expect("a working tree");
+    let nested = tree
+        .repos
+        .iter()
+        .find(|r| r.rel_path == "inner")
+        .expect("the repository is still named");
+    assert!(nested.managed);
+    assert_eq!(nested.counts.expect("counts").modified, 1);
+    assert_eq!(
+        entry(&tree, "inner/kept.txt").mark(),
+        Some(GitMark::Modified)
+    );
+}
+
+/// An empty managed set says nothing about the repository the project *is*.
+#[test]
+fn an_empty_managed_set_leaves_the_project_s_own_repository_alone() {
+    let dir = with_a_nested_clone();
+    fs::write(dir.path().join("file.txt"), b"changed\n").unwrap();
+
+    let found = observe(dir.path(), 1, true, &[]).unwrap();
+    let overview = found.overview.expect("the project's own repository");
+    assert_eq!(overview.head, GitHead::Branch("main".into()));
+    assert_eq!(overview.counts.expect("counts").modified, 1);
+    let tree = found.tree.expect("a working tree");
+    assert_eq!(entry(&tree, "file.txt").mark(), Some(GitMark::Modified));
 }
 
 /// A folder that is no repository itself but holds one still answers a working tree.
@@ -462,7 +553,7 @@ fn a_project_with_only_nested_repositories_answers_a_tree() {
     git(&inner, &["init", "-q", "-b", "main"]);
     fs::write(inner.join("new.txt"), b"new\n").unwrap();
 
-    let found = observe(dir.path(), 1, true).unwrap();
+    let found = observe(dir.path(), 1, true, &managed(&["clone"])).unwrap();
     assert!(
         found.overview.is_none(),
         "there is no repository of its own"
@@ -497,7 +588,7 @@ fn an_initialised_submodule_is_named_as_nested() {
     git(dir.path(), &["commit", "-q", "-m", "add submodule"]);
     fs::write(dir.path().join("sub/loose.txt"), b"loose\n").unwrap();
 
-    let found = observe(dir.path(), 1, true).unwrap();
+    let found = observe(dir.path(), 1, true, &managed(&["sub"])).unwrap();
     let tree = found.tree.expect("a working tree");
     let nested = tree
         .repos
@@ -526,7 +617,7 @@ fn a_broken_nested_repository_keeps_the_project_answering() {
     fs::write(broken.join(".git"), b"gitdir: /nowhere/at/all\n").unwrap();
     fs::write(dir.path().join("file.txt"), b"changed\n").unwrap();
 
-    let tree = observe(dir.path(), 1, true)
+    let tree = observe(dir.path(), 1, true, &managed(&["broken"]))
         .unwrap()
         .tree
         .expect("a working tree");

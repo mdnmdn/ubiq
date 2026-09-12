@@ -28,6 +28,7 @@ fn record(name: &str, path: &str) -> ProjectRecord {
         last_opened_at: None,
         search_excludes: Vec::new(),
         index: None,
+        managed_repos: Vec::new(),
         tools: Vec::new(),
     }
 }

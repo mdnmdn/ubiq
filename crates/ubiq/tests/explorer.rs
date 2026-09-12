@@ -1203,12 +1203,13 @@ fn a_stale_working_tree_is_discarded() {
     assert_eq!(tree.rows("")[1].git, Some(GitStatus::Modified));
 }
 
-fn nested(path: &str, head: &str, submodule: bool) -> GitNested {
+fn nested(path: &str, head: &str, submodule: bool, managed: bool) -> GitNested {
     GitNested {
         rel_path: path.to_string(),
         head: GitHead::Branch(head.to_string()),
         submodule,
         counts: None,
+        managed,
     }
 }
 
@@ -1221,7 +1222,7 @@ fn a_nested_repository_carries_its_head_on_its_folder_row() {
     tree.toggle("vendor");
     tree.merge(listing("vendor", vec![dir("vendor", "lib")]));
 
-    tree.apply_git(1, &[], &[], &[nested("vendor/lib", "main", true)]);
+    tree.apply_git(1, &[], &[], &[nested("vendor/lib", "main", true, true)]);
 
     let row_of = |path: &str| {
         tree.rows("")
@@ -1254,7 +1255,7 @@ fn a_nested_repository_stops_an_outer_untracked_status() {
         1,
         &[git_entry("fresh/", Some(GitPathChange::Untracked), None)],
         &[],
-        &[nested("fresh/inner", "trunk", false)],
+        &[nested("fresh/inner", "trunk", false, true)],
     );
 
     let git_of = |path: &str| {
@@ -1276,7 +1277,7 @@ fn a_nested_repository_stops_an_outer_untracked_status() {
 fn leaving_a_repository_forgets_the_nested_ones() {
     let mut tree = ExplorerState::empty();
     tree.merge(listing("", vec![dir("", "lib")]));
-    tree.apply_git(1, &[], &[], &[nested("lib", "main", false)]);
+    tree.apply_git(1, &[], &[], &[nested("lib", "main", false, true)]);
     assert!(
         tree.rows("")
             .iter()
@@ -1285,6 +1286,39 @@ fn leaving_a_repository_forgets_the_nested_ones() {
 
     tree.clear_git();
     assert!(tree.rows("").iter().all(|row| row.repo.is_none()));
+}
+
+/// A repository the walk found but the project has not taken on draws no branch chip: it carries
+/// no marks either, so the folder it sits in must not stop status inheritance there — the same
+/// row that would be a boundary once managed is simply not one yet.
+#[test]
+fn an_unmanaged_nested_repository_paints_no_chip() {
+    let mut tree = ExplorerState::empty();
+    tree.merge(listing("", vec![dir("", "vendor")]));
+    tree.toggle("vendor");
+    tree.merge(listing("vendor", vec![dir("vendor", "lib")]));
+
+    tree.apply_git(1, &[], &[], &[nested("vendor/lib", "main", false, false)]);
+    assert!(
+        tree.rows("")
+            .into_iter()
+            .find(|row| row.path == "vendor/lib")
+            .expect("row is drawn")
+            .repo
+            .is_none(),
+        "an ignored repository draws no boundary"
+    );
+
+    tree.apply_git(2, &[], &[], &[nested("vendor/lib", "main", false, true)]);
+    assert!(
+        tree.rows("")
+            .into_iter()
+            .find(|row| row.path == "vendor/lib")
+            .expect("row is drawn")
+            .repo
+            .is_some(),
+        "a managed repository draws the boundary"
+    );
 }
 
 /// Backspace on macOS, Delete elsewhere: the row the keyboard is on is offered up for removal.

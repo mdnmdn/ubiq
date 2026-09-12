@@ -781,11 +781,20 @@ impl AppState {
                 let open = self.projects.get(&project_id)?;
                 // Only folders the tree already holds are re-asked: a listing for one it does not
                 // know is thrown away by `merge` anyway. A burst too large to name its paths says
-                // to re-list the root instead.
+                // to re-list what is on screen instead — the root and every folder open under it.
                 let mut dirs: Vec<String> = Vec::new();
                 if truncated {
+                    // A listing is one level deep, so the root alone would leave every open folder
+                    // below it holding what it held before the burst — which is the tree that has
+                    // to be refreshed by hand after a branch switch. Every folder on screen is
+                    // asked about instead.
                     if open.explorer.is_listed() {
                         dirs.push(String::new());
+                    }
+                    for dir in open.explorer.expanded() {
+                        if !dirs.contains(&dir) && open.explorer.is_folder_listed(&dir) {
+                            dirs.push(dir);
+                        }
                     }
                 } else {
                     for path in &changed {
@@ -811,7 +820,19 @@ impl AppState {
                 // looking at just changed under them, in place.
                 let active_key = open.editor.active_file().map(|file| file.key());
                 type Restore = (std::ops::Range<usize>, gpui::Point<Pixels>);
-                let reload: Vec<(String, Option<Restore>)> = changed
+                // A burst names no paths, so every open tab is a candidate: there is no way to
+                // tell which of them the burst moved, and a tab left holding what the file said
+                // before a branch switch is the same staleness the tree would have.
+                let candidates: Vec<String> = if truncated {
+                    open.editor
+                        .open
+                        .iter()
+                        .map(|file| file.path.clone())
+                        .collect()
+                } else {
+                    changed.clone()
+                };
+                let reload: Vec<(String, Option<Restore>)> = candidates
                     .iter()
                     .filter_map(|path| {
                         if open.just_saved.contains(path) {
@@ -833,7 +854,11 @@ impl AppState {
                     .collect();
 
                 if let Some(open) = self.projects.get_mut(&project_id) {
-                    // The echo this arrival might be has now arrived either way.
+                    // The echo this arrival might be has now arrived either way. A burst names
+                    // nothing, so it is the echo of every write this window was still waiting on.
+                    if truncated {
+                        open.just_saved.clear();
+                    }
                     for path in &changed {
                         open.just_saved.remove(path);
                     }
@@ -951,6 +976,9 @@ impl AppState {
                 // the projection the tree got. A selection whose path has gone clean goes with it.
                 open.git_entries = entries;
                 open.git_view.settle(&open.git_entries);
+                // Kept whole, managed or not, so the settings dialog can draw what the walk found
+                // even for a repository the explorer never shows a mark for.
+                open.git_repos = repos;
                 cx.notify();
             }
 

@@ -50,14 +50,23 @@ pub fn open(root: &Path) -> Result<Option<Repository>, GitError> {
 }
 
 /// Observe the repository at `root`. `full` walks the working tree; otherwise only refs are read.
-pub fn observe(root: &Path, generation: u64, full: bool) -> Result<Observation, GitError> {
+///
+/// `managed` is the project's answer about the repositories *inside* it — the record's
+/// `managed_repos`, as [`GitNested::rel_path`] spells them. Every repository found is named either
+/// way; only one on that list is opened.
+pub fn observe(
+    root: &Path,
+    generation: u64,
+    full: bool,
+    managed: &[String],
+) -> Result<Observation, GitError> {
     let Some(repo) = open(root)? else {
         return Ok(Observation {
             overview: None,
-            tree: nested_only(root, full),
+            tree: nested_only(root, full, managed),
         });
     };
-    observe_repo(root, &repo, generation, full)
+    observe_repo(root, &repo, generation, full, managed)
 }
 
 /// The working tree of a project that has no repository of its own but holds some.
@@ -65,7 +74,7 @@ pub fn observe(root: &Path, generation: u64, full: bool) -> Result<Observation, 
 /// A folder holding several independent clones is a real project: there is no overview to draw,
 /// and the badges inside each clone are still the truth. `None` when nothing was found, which is
 /// what an ordinary folder answers.
-pub fn nested_only(root: &Path, full: bool) -> Option<WorkingTree> {
+pub fn nested_only(root: &Path, full: bool, managed: &[String]) -> Option<WorkingTree> {
     if !full {
         return None;
     }
@@ -74,7 +83,7 @@ pub fn nested_only(root: &Path, full: bool) -> Option<WorkingTree> {
         return None;
     }
     let mut entries = Vec::new();
-    let repos = merge_nested(root, &found.roots, &[], &mut entries);
+    let repos = merge_nested(root, &found.roots, &[], managed, &mut entries);
     Some(finish(entries, repos, found.truncated))
 }
 
@@ -83,6 +92,7 @@ pub(crate) fn observe_repo(
     repo: &Repository,
     generation: u64,
     full: bool,
+    managed: &[String],
 ) -> Result<Observation, GitError> {
     let is_bare = repo.is_bare();
     let scoped_to = scope(root, repo)?;
@@ -101,7 +111,7 @@ pub(crate) fn observe_repo(
         // status bar reads the branch it names, not the sum of every clone below it.
         let counts = counts_of(&entries);
         let pinned: Vec<&str> = submodules.iter().map(|sm| sm.rel_path.as_str()).collect();
-        let repos = merge_nested(root, &found.roots, &pinned, &mut entries);
+        let repos = merge_nested(root, &found.roots, &pinned, managed, &mut entries);
         (Some(counts), Some(finish(entries, repos, truncated)))
     } else {
         (None, None)
@@ -300,12 +310,16 @@ fn operation(state: RepositoryState) -> Option<GitOperation> {
     }
 }
 
-/// Walk every repository in `roots`, prefix its paths with its own project-relative root, and
-/// merge them into `entries`.
+/// Walk every repository in `roots` the project manages, prefix its paths with its own
+/// project-relative root, and merge them into `entries`. Every root is listed either way.
 ///
 /// Each repository is walked with an **empty** scope: the project's prefix is a fact about the
 /// *outer* repository and means nothing inside this one. `drop_nested_roots` has already taken the
 /// outer repository's own entry off these folders.
+///
+/// A root not in `managed` is named and nothing else: it is never opened, so it has no HEAD to
+/// read, no counts and no entries. That is what the setting means — found, listed for the user to
+/// tick, and unread until they do.
 ///
 // ponytail: no handle is cached. `Repository::open` on an exact working-tree root takes no upward
 // walk, and the worker's cache is keyed by `ProjectId` alone — a cache holding one handle per
@@ -315,6 +329,7 @@ fn merge_nested(
     root: &Path,
     roots: &[String],
     pinned: &[&str],
+    managed: &[String],
     entries: &mut Vec<GitEntry>,
 ) -> Vec<GitNested> {
     if roots.is_empty() {
@@ -323,6 +338,20 @@ fn merge_nested(
     let mut repos = Vec::with_capacity(roots.len());
     for rel_root in roots {
         let submodule = pinned.contains(&rel_root.as_str());
+        if !managed.contains(rel_root) {
+            // Nothing is read from it: no `Repository::open`, no status walk, no entries and no
+            // rollups. An unborn branch with no name is the wire's shape for "no commit to point
+            // at", which is as much as can be said without opening anything. The pin is still the
+            // outer repository's own account and holds either way.
+            repos.push(GitNested {
+                rel_path: rel_root.clone(),
+                head: GitHead::Unborn(String::new()),
+                submodule,
+                counts: None,
+                managed: false,
+            });
+            continue;
+        }
         let Ok(repo) = Repository::open(root.join(rel_root)) else {
             // One broken clone must not blank the project's badges: it is reported with no counts
             // and contributes no entries, and every other repository is still walked.
@@ -333,6 +362,7 @@ fn merge_nested(
                 head: GitHead::Unborn(String::new()),
                 submodule,
                 counts: None,
+                managed: true,
             });
             continue;
         };
@@ -351,6 +381,7 @@ fn merge_nested(
                 head,
                 submodule,
                 counts: None,
+                managed: true,
             });
             continue;
         };
@@ -359,6 +390,7 @@ fn merge_nested(
             head,
             submodule,
             counts: Some(counts_of(&inner)),
+            managed: true,
         });
         entries.extend(inner.into_iter().map(|mut entry| {
             entry.rel_path = format!("{rel_root}/{}", entry.rel_path);

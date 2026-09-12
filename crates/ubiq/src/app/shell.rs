@@ -213,6 +213,13 @@ impl AppState {
         self.projects.get_mut(&id)
     }
 
+    /// What the window holds for one named project, which is not necessarily the one on screen: a
+    /// dialog raised from the projects list edits a project this window may hold without showing.
+    /// `None` for a project it does not hold at all, which has no walk of its own to read.
+    pub fn held_project(&self, project: ProjectId) -> Option<&OpenProject> {
+        self.projects.get(&project)
+    }
+
     /// The tree the explorer draws, which belongs to the project it is showing.
     pub fn explorer(&self, cx: &App) -> Option<&ExplorerState> {
         self.open_project(cx).map(|open| &open.explorer)

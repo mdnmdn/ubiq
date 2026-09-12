@@ -1531,7 +1531,10 @@ and the two need not be on one machine.
 **A change on disk reaches the window without being asked for.** The host watches the folder of the
 project a window has open and reports what changed; the explorer re-lists the parent of each changed
 path, but only the folders it already holds listed, so a change deep inside a shut folder costs
-nothing. A burst too large to name its paths re-lists the root instead. A change to the git
+nothing. A burst too large to name its paths names nothing, so what is on screen is re-listed
+instead: the root and every folder open under it, because one listing is a single level deep and the
+root alone would leave an open folder holding what it held before the burst. Every open tab is in
+the same position — nothing says which files moved — so each clean background one is read again. A change to the git
 directory refreshes the overview and the working-tree map, the same refresh a save already sends.
 Nothing is redrawn from the message itself — it names paths and carries no content, so the window
 asks for what it wants the ordinary way.
@@ -2474,6 +2477,24 @@ menu picks, all go through `app/projects.rs::set_project_search_excludes`, which
 list in one `UpdateProject` and applies the snapshot at once rather than waiting on the host's
 echo.
 
+**The dialog is also where a project says which repositories inside it are its business.**
+`repos_row()` draws a Repositories section under the excludes: the project's own repository first,
+always managed and with no switch beside it — it is the repository the project *is* — and then one
+row per repository the last working-tree walk found inside it, each with a tick box and a
+`submodule` tag where the outer repository pins it. A nested repository starts **ignored** (`D112`):
+ticking it sends the whole list through `app/projects.rs::set_project_managed_repos`, the same
+immediacy the excludes get, and the host redoes the observation at once so the tree and the Git
+screen follow without a restart. The rows come from the window's own `OpenProject::git_repos` — what
+a walk found, not what the shared record says — so the section tells a project this window holds
+without showing that it has to be opened before it can be listed.
+
+An ignored repository is not drawn faintly or filtered late: the host never opens it, so it has no
+status to carry. Its folder gets no branch chip, no badge of its own, and not even the untracked
+mark the outer repository would otherwise give it, because the folder of every repository found is
+dropped from the outer repository's account either way. `ExplorerState::apply_git` takes only the
+managed ones into `git_repos`, which is the boundary it draws a branch on and the place inherited
+status stops.
+
 Project settings is `ui/sink/project.rs`: the sink draws it on the page, the
 shell paints the same dialog over the window when a project is being created or edited. Application
 settings is `ui/settings.rs`: the titlebar's gear raises it, `state/settings.rs` holds the overlay
@@ -2971,9 +2992,10 @@ project open, not from a keystroke; `schedule_explorer_filter()` debounces the f
 and `RefreshProjectGit { full: true }`, a successful save and a pane exit send the full refresh
 again, and `ui/status_bar.rs` prints the overview's branch. `ProjectFilesChanged` is answered in the
 same three currencies: `RefreshProjectGit { full: true }` when it reports the git directory, one
-`ProjectTree` per deduplicated parent directory the tree already holds listed — the root instead
-when the batch is truncated — and one `ReadProjectFile` per open tab that is neither dirty nor
-already loading, put back to reading by `OpenFile::reload()` — after `set_restore()` has captured the
+`ProjectTree` per deduplicated parent directory the tree already holds listed — the root plus
+`ExplorerState::expanded()` when the batch is truncated and names no path — and one
+`ReadProjectFile` per open tab that is neither dirty nor already loading, every open tab being a
+candidate when the batch is truncated, put back to reading by `OpenFile::reload()` — after `set_restore()` has captured the
 outgoing buffer's `selected_range()` and scroll offset, so the fresh `Entity<EditorState>` the
 answering contents build is put back where the old one was read rather than opened at the top.
 `crates/ubiq/tests/files_changed.rs` is what asserts each of those without a frame, cursor position
