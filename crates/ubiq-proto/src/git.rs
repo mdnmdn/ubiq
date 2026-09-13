@@ -344,6 +344,18 @@ pub enum GitWriteOp {
     Pull,
     /// Push the current branch to its upstream, or to the default remote under the same name.
     Push,
+    /// Put every project-relative change in the index — modified, untracked, and deletions.
+    StageAll,
+    /// Restore the index to HEAD for every path in the project's scope.
+    UnstageAll,
+}
+
+/// One path that differs between two revs. The Git screen's range comparison lists these.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GitChangedPath {
+    /// Project-relative, forward-slashed, on the same discipline as the file family.
+    pub rel_path: String,
+    pub change: GitPathChange,
 }
 
 impl std::fmt::Display for GitError {

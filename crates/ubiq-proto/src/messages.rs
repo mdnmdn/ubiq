@@ -18,7 +18,9 @@ use crate::files::{
     DiffBase, DirListing, FileContents, FileDiff, FileError, FileVersion, HostDirEntry,
     HostPathError, PathOp,
 };
-use crate::git::{self, GitCommit, GitEntry, GitNested, GitRef, GitRollup, RepoOverview};
+use crate::git::{
+    self, GitChangedPath, GitCommit, GitEntry, GitNested, GitRef, GitRollup, RepoOverview,
+};
 use crate::ids::{
     AiProviderId, CloneId, ConnectId, ConnectionId, NotificationId, OauthAppId, PaneId, ProjectId,
     RepoQueryId, SearchId, SessionId, StepId, SuggestId, TaskId, ToolId,
@@ -879,11 +881,16 @@ pub enum Message {
         expected: Option<FileVersion>,
     },
     /// Compare a file against a version-control base. The host computes the hunks; the interface
-    /// draws rows and holds no diff library.
+    /// draws rows and holds no diff library. `old` and `new` are the two commit ids when `base`
+    /// is [`DiffBase::Commits`]; they are ignored otherwise.
     DiffProjectFile {
         project_id: ProjectId,
         rel_path: String,
         base: DiffBase,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        old: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        new: Option<String>,
     },
     /// Create, move, copy or remove one path.
     ///
@@ -1023,6 +1030,14 @@ pub enum Message {
         project_id: ProjectId,
         op: git::GitWriteOp,
     },
+    /// The paths that differ between two revs. `from` absent is the empty tree — the files a
+    /// single commit introduced against nothing. Answered with [`Message::GitChanged`], or
+    /// [`Message::GitError`].
+    ProjectGitChanged {
+        project_id: ProjectId,
+        from: Option<String>,
+        to: String,
+    },
 
     // ── Git family: host → UI ───────────────────────────────────────
     /// `overview` absent means the project is not in a repository. That is an ordinary answer.
@@ -1067,6 +1082,13 @@ pub enum Message {
     GitRefs {
         project_id: ProjectId,
         refs: Vec<GitRef>,
+    },
+    /// The paths that differ between the two revs [`Message::ProjectGitChanged`] asked for.
+    GitChanged {
+        project_id: ProjectId,
+        from: Option<String>,
+        to: String,
+        files: Vec<GitChangedPath>,
     },
 
     // ── Work family: UI → host ──────────────────────────────────────
@@ -1829,7 +1851,9 @@ impl Message {
             | Message::ProjectGitLog { project_id, .. }
             | Message::ProjectGitRefs { project_id, .. }
             | Message::WriteProjectGit { project_id, .. }
+            | Message::ProjectGitChanged { project_id, .. }
             | Message::GitOverview { project_id, .. }
+            | Message::GitChanged { project_id, .. }
             | Message::GitWorkingTree { project_id, .. }
             | Message::GitError { project_id, .. }
             | Message::GitLogPage { project_id, .. }

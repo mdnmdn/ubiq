@@ -1179,6 +1179,8 @@ impl AppState {
                 project_id: project,
                 rel_path: path,
                 base,
+                old: None,
+                new: None,
             });
         }
         self.remember(project, cx);

@@ -40,6 +40,7 @@ impl AppState {
             // a stale one still in flight from before.
             git.log_cursor = None;
             git.log_inflight = Some(None);
+            git.pending = Some(GitPending::Refresh);
         }
         self.send_git_log(None, cx);
         cx.notify();
@@ -65,6 +66,16 @@ impl AppState {
             false,
             cx,
         );
+    }
+
+    /// Put every project-relative change in the index.
+    pub fn stage_all_git(&mut self, cx: &mut Context<Self>) {
+        self.write_git(GitWriteOp::StageAll, false, cx);
+    }
+
+    /// Restore the index to HEAD for every path in the project's scope.
+    pub fn unstage_all_git(&mut self, cx: &mut Context<Self>) {
+        self.write_git(GitWriteOp::UnstageAll, false, cx);
     }
 
     /// Commit what is staged, with the message in the commit box. A blank message is a no-op.
@@ -93,6 +104,18 @@ impl AppState {
         let Some(project_id) = self.project(cx) else {
             return;
         };
+        if let Some(git) = self.git_view_mut(cx) {
+            git.pending = Some(match &op {
+                GitWriteOp::Stage { .. } => GitPending::Stage,
+                GitWriteOp::Unstage { .. } => GitPending::Unstage,
+                GitWriteOp::StageAll => GitPending::StageAll,
+                GitWriteOp::UnstageAll => GitPending::UnstageAll,
+                GitWriteOp::Commit { .. } => GitPending::Commit,
+                GitWriteOp::FetchAll => GitPending::FetchAll,
+                GitWriteOp::Pull => GitPending::Pull,
+                GitWriteOp::Push => GitPending::Push,
+            });
+        }
         self.bus.send(Message::WriteProjectGit { project_id, op });
         if refresh_history {
             self.bus.send(Message::ProjectGitRefs {
@@ -152,6 +175,13 @@ impl AppState {
         cx.notify();
     }
 
+    pub fn toggle_git_change_section(&mut self, section: ChangeSection, cx: &mut Context<Self>) {
+        if let Some(git) = self.git_view_mut(cx) {
+            git.toggle_change_section(section);
+        }
+        cx.notify();
+    }
+
     pub fn select_git_ref(&mut self, index: usize, cx: &mut Context<Self>) {
         if let Some(git) = self.git_view_mut(cx) {
             git.selected_ref = Some(index);
@@ -204,12 +234,132 @@ impl AppState {
     }
 
     /// Point the screen at a commit, or at the working tree. `None` is the uncommitted row, which
-    /// is a selection like any other rather than nothing selected.
+    /// is a selection like any other rather than nothing selected. Any comparison in progress
+    /// drops: a plain click asks a new question, not a third end to the old one.
     pub fn select_git_commit(&mut self, index: Option<usize>, cx: &mut Context<Self>) {
         if let Some(git) = self.git_view_mut(cx) {
             git.selected_commit = index;
+            git.compare_commit = None;
+            git.range_from = None;
+            git.range_to = None;
+            git.range_files.clear();
+            git.range_inflight = false;
         }
         cx.notify();
+    }
+
+    /// Cmd/ctrl-click on a commit: the second end of a range comparison, or dropping the one
+    /// already set. A pair asks the host for the paths between them; breaking the pair clears
+    /// what it asked without asking again.
+    pub fn toggle_git_compare(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(project_id) = self.project(cx) else {
+            return;
+        };
+        let request = {
+            let Some(git) = self.git_view_mut(cx) else {
+                return;
+            };
+            if git.toggle_compare(index) {
+                let Some((from, to)) = git.compare_ids() else {
+                    return;
+                };
+                git.range_from = Some(from.clone());
+                git.range_to = Some(to.clone());
+                git.range_inflight = true;
+                git.range_files.clear();
+                git.selected_path = None;
+                git.diff = None;
+                Some((from, to))
+            } else {
+                git.range_from = None;
+                git.range_to = None;
+                git.range_files.clear();
+                git.range_inflight = false;
+                None
+            }
+        };
+        if let Some((from, to)) = request {
+            self.bus.send(Message::ProjectGitChanged {
+                project_id,
+                from: Some(from),
+                to,
+            });
+        }
+        cx.notify();
+    }
+
+    /// Raise a Git screen context menu at the pointer: a changed path, a commit, or a ref.
+    pub fn open_git_menu(&mut self, kind: GitMenuKind, at: (f32, f32), cx: &mut Context<Self>) {
+        if let Some(git) = self.git_view_mut(cx) {
+            git.open_menu(kind, at.0, at.1);
+        }
+        cx.notify();
+    }
+
+    pub fn dismiss_git_menu(&mut self, epoch: u64, cx: &mut Context<Self>) {
+        if let Some(git) = self.git_view_mut(cx) {
+            git.close_menu(epoch);
+        }
+        cx.notify();
+    }
+
+    /// Answer a pick from the Git screen's context menu. What each row does today: stage,
+    /// unstage, and the copies — the rest are drawn disabled until the host has an operation
+    /// behind them.
+    pub fn pick_git_menu_action(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(menu) = self.git_view(cx).and_then(|git| git.menu.clone()) else {
+            return;
+        };
+        let (stageable, unstageable) = match &menu.kind {
+            GitMenuKind::Change { path, .. } => self
+                .git_entries(cx)
+                .unwrap_or(&[])
+                .iter()
+                .find(|entry| &entry.rel_path == path)
+                .map(|entry| (can_stage(entry), can_unstage(entry)))
+                .unwrap_or((false, false)),
+            _ => (false, false),
+        };
+        let Some(entry) = menu.entries(stageable, unstageable).get(index).copied() else {
+            return;
+        };
+        let epoch = menu.epoch;
+        if !entry.enabled {
+            self.dismiss_git_menu(epoch, cx);
+            return;
+        }
+
+        match (&menu.kind, entry.action) {
+            (GitMenuKind::Change { path, .. }, GitAction::Stage) => {
+                self.stage_git_path(path, cx);
+            }
+            (GitMenuKind::Change { path, .. }, GitAction::Unstage) => {
+                self.unstage_git_path(path, cx);
+            }
+            (GitMenuKind::Change { path, .. }, GitAction::CopyPath) => {
+                cx.write_to_clipboard(gpui::ClipboardItem::new_string(path.clone()));
+            }
+            (GitMenuKind::Commit { index }, GitAction::CopySha) => {
+                if let Some(id) = self
+                    .git_view(cx)
+                    .and_then(|git| git.commits.get(*index))
+                    .map(|commit| commit.id.clone())
+                {
+                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(id));
+                }
+            }
+            (GitMenuKind::Ref { index }, GitAction::CopyName) => {
+                if let Some(name) = self
+                    .git_view(cx)
+                    .and_then(|git| git.refs.get(*index))
+                    .map(|row| row.name.clone())
+                {
+                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(name));
+                }
+            }
+            _ => {}
+        }
+        self.dismiss_git_menu(epoch, cx);
     }
 
     pub fn toggle_git_mine(&mut self, cx: &mut Context<Self>) {
@@ -335,11 +485,18 @@ impl AppState {
         };
         let moved = git.select_path(side, path);
         let base = git.base;
+        let (old, new) = if base == DiffBase::Commits {
+            (git.range_from.clone(), git.range_to.clone())
+        } else {
+            (None, None)
+        };
         if moved {
             self.bus.send(Message::DiffProjectFile {
                 project_id,
                 rel_path: path.to_string(),
                 base,
+                old,
+                new,
             });
             self.pending_panels
                 .push(PanelEdit::Reveal(PanelKind::GitDiff));

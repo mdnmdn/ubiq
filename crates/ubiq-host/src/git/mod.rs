@@ -54,6 +54,11 @@ pub enum Request {
     },
     /// Mutate the repository, then re-observe it as a full refresh.
     Write { op: GitWriteOp },
+    /// Paths that differ between two revs. `from` absent is the empty tree.
+    Changed {
+        from: Option<String>,
+        to: String,
+    },
 }
 
 /// One request, addressed.
@@ -187,7 +192,8 @@ fn enqueue(
         | Request::Forget
         | Request::Refs { .. }
         | Request::Log { .. }
-        | Request::Write { .. } => cheap.push_back(job),
+        | Request::Write { .. }
+        | Request::Changed { .. } => cheap.push_back(job),
         Request::Full => {
             let project_id = job.project_id;
             if fulls.insert(project_id, job).is_none() {
@@ -395,6 +401,31 @@ fn answer(state: &mut State, job: Job) {
                     job.reply_to.send(git_error(job.project_id, error));
                 }
             }
+        }
+        Request::Changed { from, to } => {
+            let message = match ensure_repo(state, job.project_id, &job.root) {
+                Ok(false) => git_error(
+                    job.project_id,
+                    GitError::Failed("the project is not a repository".into()),
+                ),
+                Err(error) => git_error(job.project_id, error),
+                Ok(true) => {
+                    let cached = state
+                        .repos
+                        .get(&job.project_id)
+                        .expect("just inserted or confirmed");
+                    match history::changed(&cached.repo, &job.root, from.as_deref(), &to) {
+                        Ok(files) => Message::GitChanged {
+                            project_id: job.project_id,
+                            from,
+                            to,
+                            files,
+                        },
+                        Err(error) => git_error(job.project_id, error),
+                    }
+                }
+            };
+            job.reply_to.send(message);
         }
     }
 }

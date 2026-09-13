@@ -667,6 +667,8 @@ fn a_diff_answers_the_window_that_asked_and_no_other() {
         project_id,
         rel_path: "file.txt".to_string(),
         base: DiffBase::Head,
+        old: None,
+        new: None,
     });
 
     let diff = loop {
@@ -710,6 +712,8 @@ fn a_diff_in_a_project_with_no_version_control_is_refused() {
         project_id,
         rel_path: "alone.txt".to_string(),
         base: DiffBase::Head,
+        old: None,
+        new: None,
     });
 
     loop {

@@ -268,6 +268,8 @@ impl Subject {
             Subject::File => "",
             Subject::Diff(DiffBase::Head) => "diff:head:",
             Subject::Diff(DiffBase::Index) => "diff:index:",
+            Subject::Diff(DiffBase::Staged) => "diff:staged:",
+            Subject::Diff(DiffBase::Commits) => "diff:commits:",
         }
     }
 
@@ -277,6 +279,8 @@ impl Subject {
             Subject::File => "",
             Subject::Diff(DiffBase::Head) => " · diff",
             Subject::Diff(DiffBase::Index) => " · staged",
+            Subject::Diff(DiffBase::Staged) => " · index",
+            Subject::Diff(DiffBase::Commits) => " · commits",
         }
     }
 }

@@ -9,8 +9,13 @@ use std::path::Path;
 use std::process::Command;
 
 use tempfile::TempDir;
-use ubiq_host::files::diff::diff;
-use ubiq_proto::files::{DiffBase, DiffRowKind, FileError};
+use ubiq_host::files::diff::diff as diff_sides;
+use ubiq_proto::files::{DiffBase, DiffRowKind, FileDiff, FileError};
+
+/// Working-tree comparison. Commit-to-commit diffs pass the two ids to [`diff_sides`].
+fn diff(root: &Path, rel_path: &str, base: DiffBase) -> Result<FileDiff, FileError> {
+    diff_sides(root, rel_path, base, None, None)
+}
 
 /// Run one git command in `dir`, ignoring whatever the machine's own configuration says.
 fn git(dir: &Path, args: &[&str]) {
@@ -344,4 +349,123 @@ fn a_project_inside_a_repository_is_diffed_against_that_repository() {
     let answer = diff(&dir.path().join("crate"), "inner.txt", DiffBase::Head).unwrap();
     assert_eq!(answer.hunks.len(), 1, "{answer:?}");
     assert_eq!(answer.hunks[0].rows.len(), 2);
+}
+
+#[test]
+fn staged_compares_the_index_against_head_not_the_working_tree() {
+    let dir = repository();
+    fs::write(
+        dir.path().join("file.txt"),
+        lines(&["one", "staged", "three"]),
+    )
+    .unwrap();
+    git(dir.path(), &["add", "file.txt"]);
+    fs::write(
+        dir.path().join("file.txt"),
+        lines(&["one", "staged", "unstaged"]),
+    )
+    .unwrap();
+
+    let staged = diff(dir.path(), "file.txt", DiffBase::Staged).unwrap();
+    let staged_texts: Vec<&str> = staged.hunks[0]
+        .rows
+        .iter()
+        .filter(|row| row.kind != DiffRowKind::Context)
+        .map(|row| row.text.as_str())
+        .collect();
+    assert_eq!(staged_texts, vec!["two", "staged"], "{staged:?}");
+
+    let unstaged = diff(dir.path(), "file.txt", DiffBase::Index).unwrap();
+    let unstaged_texts: Vec<&str> = unstaged.hunks[0]
+        .rows
+        .iter()
+        .filter(|row| row.kind != DiffRowKind::Context)
+        .map(|row| row.text.as_str())
+        .collect();
+    assert_eq!(unstaged_texts, vec!["three", "unstaged"], "{unstaged:?}");
+}
+
+fn git_stdout(dir: &Path, args: &[&str]) -> String {
+    let output = Command::new("git")
+        .current_dir(dir)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .env("GIT_AUTHOR_NAME", "Ubiq")
+        .env("GIT_AUTHOR_EMAIL", "ubiq@example.invalid")
+        .env("GIT_COMMITTER_NAME", "Ubiq")
+        .env("GIT_COMMITTER_EMAIL", "ubiq@example.invalid")
+        .args(args)
+        .output()
+        .expect("git");
+    assert!(
+        output.status.success(),
+        "git {args:?} failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
+}
+
+#[test]
+fn commits_compares_two_blobs_and_a_deleted_file_still_answers() {
+    let dir = repository();
+    let first = git_stdout(dir.path(), &["rev-parse", "HEAD"]);
+    fs::write(dir.path().join("file.txt"), lines(&["changed"])).unwrap();
+    git(dir.path(), &["commit", "-q", "-am", "second"]);
+    let second = git_stdout(dir.path(), &["rev-parse", "HEAD"]);
+
+    let answer = diff_sides(
+        dir.path(),
+        "file.txt",
+        DiffBase::Commits,
+        Some(&first),
+        Some(&second),
+    )
+    .unwrap();
+    assert_eq!(answer.base, DiffBase::Commits);
+    let texts: Vec<&str> = answer.hunks[0]
+        .rows
+        .iter()
+        .filter(|row| row.kind != DiffRowKind::Context)
+        .map(|row| row.text.as_str())
+        .collect();
+    assert_eq!(texts, vec!["one", "two", "three", "changed"], "{answer:?}");
+
+    git(dir.path(), &["rm", "-q", "file.txt"]);
+    git(dir.path(), &["commit", "-q", "-m", "delete"]);
+    let third = git_stdout(dir.path(), &["rev-parse", "HEAD"]);
+
+    let deleted = diff_sides(
+        dir.path(),
+        "file.txt",
+        DiffBase::Commits,
+        Some(&second),
+        Some(&third),
+    )
+    .unwrap();
+    assert!(
+        deleted
+            .hunks
+            .iter()
+            .flat_map(|hunk| &hunk.rows)
+            .any(|row| row.kind == DiffRowKind::Removed && row.text == "changed"),
+        "{deleted:?}"
+    );
+    assert!(
+        deleted
+            .hunks
+            .iter()
+            .flat_map(|hunk| &hunk.rows)
+            .all(|row| row.kind != DiffRowKind::Added),
+        "a deleted file should have no new side: {deleted:?}"
+    );
+}
+
+#[test]
+fn a_commit_diff_without_both_ids_fails() {
+    let dir = repository();
+    let error = diff_sides(dir.path(), "file.txt", DiffBase::Commits, None, None).unwrap_err();
+    assert!(
+        matches!(error, FileError::Failed(reason) if reason.contains("commit")),
+        "answered {error:?}"
+    );
 }

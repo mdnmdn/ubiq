@@ -144,6 +144,8 @@ impl AppState {
                     project_id: project,
                     rel_path,
                     base,
+                    old: None,
+                    new: None,
                 }),
             }
         }

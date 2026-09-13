@@ -1756,6 +1756,17 @@ pub fn palette_for(id: ThemeId) -> Theme {
     resolve(id, None, Density::Regular)
 }
 
+/// A fully transparent fill. Used where a 1px border has to occupy its slot on every row so a
+/// selected accent edge does not shift the content.
+pub fn transparent() -> Rgba {
+    Rgba {
+        r: 0.0,
+        g: 0.0,
+        b: 0.0,
+        a: 0.0,
+    }
+}
+
 /// The same colour at another alpha.
 ///
 /// Not a colour of its own: a token stays the token it was, and this is how something that has to

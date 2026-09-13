@@ -15,7 +15,7 @@
 
 use std::fs;
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use git2::{ErrorCode, ObjectType, Oid, Repository};
 use similar::{ChangeTag, TextDiff};
@@ -41,16 +41,35 @@ const MAX_ROWS: usize = 10_000;
 /// Unchanged lines kept on either side of a run of changed ones. Three, as a unified diff has.
 const CONTEXT: usize = 3;
 
-/// Compare the working tree's copy of `rel_path` with `base`.
+/// Compare `rel_path` with `base`.
+///
+/// [`DiffBase::Head`] and [`DiffBase::Index`] compare the working tree's copy, so the file must
+/// exist on disk. [`DiffBase::Staged`] and [`DiffBase::Commits`] compare two blobs and do not:
+/// a staged deletion, or a file that a later commit removed, still answers.
 ///
 /// A file with no change answers with no hunks and no error. A file version control has never seen
-/// — untracked, or ignored — has no blob on either base, and is answered as wholly added: that is
-/// what the working tree actually adds against the base, and it is what an editor's gutter shows.
-pub fn diff(root: &Path, rel_path: &str, base: DiffBase) -> Result<FileDiff, FileError> {
-    let file = path::resolve(root, rel_path)?;
-    let stat = fs::metadata(&file).map_err(from_io)?;
-    if !stat.is_file() {
-        return Err(FileError::WrongKind);
+/// — untracked, or ignored — has no blob on either working-tree base, and is answered as wholly
+/// added: that is what the working tree actually adds against the base, and it is what an editor's
+/// gutter shows.
+pub fn diff(
+    root: &Path,
+    rel_path: &str,
+    base: DiffBase,
+    old: Option<&str>,
+    new: Option<&str>,
+) -> Result<FileDiff, FileError> {
+    let resolved = match path::resolve(root, rel_path) {
+        Ok(file) => Some(file),
+        // Staged and commit-to-commit comparisons read blobs, so a path that is gone from disk
+        // is still a path — a staged deletion, a file the later commit removed.
+        Err(FileError::Missing) if matches!(base, DiffBase::Staged | DiffBase::Commits) => None,
+        Err(error) => return Err(error),
+    };
+    if let Some(file) = resolved.as_ref() {
+        let stat = fs::metadata(file).map_err(from_io)?;
+        if !stat.is_file() {
+            return Err(FileError::WrongKind);
+        }
     }
 
     // Upwards from the project's root, so a project that is a folder inside a repository is
@@ -68,18 +87,33 @@ pub fn diff(root: &Path, rel_path: &str, base: DiffBase) -> Result<FileDiff, Fil
     // Canonical on both sides, because the resolved file is canonical and a repository discovered
     // through a symlinked temporary directory is not.
     let workdir = fs::canonicalize(&workdir).map_err(from_io)?;
-    let tracked = file.strip_prefix(&workdir).map_err(|_| {
-        FileError::Refused("the file is outside the repository's working tree".to_string())
-    })?;
+    let tracked: PathBuf = if let Some(file) = resolved.as_ref() {
+        file.strip_prefix(&workdir)
+            .map_err(|_| {
+                FileError::Refused("the file is outside the repository's working tree".to_string())
+            })?
+            .to_path_buf()
+    } else {
+        PathBuf::from(rel_path)
+    };
 
-    let old = match base {
-        DiffBase::Head => head_blob(&repo, tracked)?,
-        DiffBase::Index => index_blob(&repo, tracked)?,
+    let old_bytes = match base {
+        DiffBase::Head | DiffBase::Staged => head_blob(&repo, &tracked)?,
+        DiffBase::Index => index_blob(&repo, &tracked)?,
+        DiffBase::Commits => commit_blob(&repo, &tracked, old)?,
     }
     .unwrap_or_default();
-    let (new, over_ceiling) = working_tree(&file)?;
+    let (new_bytes, over_ceiling) = match (base, resolved.as_ref()) {
+        (DiffBase::Staged, _) => (index_blob(&repo, &tracked)?.unwrap_or_default(), false),
+        (DiffBase::Commits, _) => (
+            commit_blob(&repo, &tracked, new)?.unwrap_or_default(),
+            false,
+        ),
+        (DiffBase::Head | DiffBase::Index, Some(file)) => working_tree(file)?,
+        (DiffBase::Head | DiffBase::Index, None) => return Err(FileError::Missing),
+    };
 
-    if looks_binary(&old) || looks_binary(&new) {
+    if looks_binary(&old_bytes) || looks_binary(&new_bytes) {
         return Ok(FileDiff {
             base,
             hunks: Vec::new(),
@@ -87,7 +121,10 @@ pub fn diff(root: &Path, rel_path: &str, base: DiffBase) -> Result<FileDiff, Fil
             truncated: false,
         });
     }
-    if over_ceiling || old.len() as u64 > MAX_SIDE_BYTES {
+    if over_ceiling
+        || old_bytes.len() as u64 > MAX_SIDE_BYTES
+        || new_bytes.len() as u64 > MAX_SIDE_BYTES
+    {
         return Ok(FileDiff {
             base,
             hunks: Vec::new(),
@@ -99,8 +136,8 @@ pub fn diff(root: &Path, rel_path: &str, base: DiffBase) -> Result<FileDiff, Fil
     // Lossy is safe here and only here: a side holding a NUL has already left as `binary`, and
     // what is left is text with at worst a severed sequence in it, which is the interface's
     // problem to draw rather than a reason to refuse the whole comparison.
-    let old = String::from_utf8_lossy(&old);
-    let new = String::from_utf8_lossy(&new);
+    let old = String::from_utf8_lossy(&old_bytes);
+    let new = String::from_utf8_lossy(&new_bytes);
     let (hunks, truncated) = hunks(&old, &new);
 
     Ok(FileDiff {
@@ -125,6 +162,28 @@ fn head_blob(repo: &Repository, tracked: &Path) -> Result<Option<Vec<u8>>, FileE
         Ok(entry) if entry.kind() == Some(ObjectType::Blob) => blob(repo, entry.id()).map(Some),
         // A path that is a file on disk and a directory or a submodule in the commit. There is no
         // old side to show, so the working tree's copy is what was added.
+        Ok(_) => Ok(None),
+        Err(error) if error.code() == ErrorCode::NotFound => Ok(None),
+        Err(error) => Err(failed(error)),
+    }
+}
+
+/// The blob a commit's tree holds for this path, if it holds one.
+///
+/// `rev` is a revparse spec — a commit id, a tag, `HEAD~1`. Missing or empty is a failed
+/// comparison rather than an empty old side: the caller asked for two commits and named one.
+fn commit_blob(
+    repo: &Repository,
+    tracked: &Path,
+    rev: Option<&str>,
+) -> Result<Option<Vec<u8>>, FileError> {
+    let Some(rev) = rev.filter(|rev| !rev.is_empty()) else {
+        return Err(FileError::Failed("a commit diff needs both commits".into()));
+    };
+    let object = repo.revparse_single(rev).map_err(failed)?;
+    let tree = object.peel_to_tree().map_err(failed)?;
+    match tree.get_path(tracked) {
+        Ok(entry) if entry.kind() == Some(ObjectType::Blob) => blob(repo, entry.id()).map(Some),
         Ok(_) => Ok(None),
         Err(error) if error.code() == ErrorCode::NotFound => Ok(None),
         Err(error) => Err(failed(error)),

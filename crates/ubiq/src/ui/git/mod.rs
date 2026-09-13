@@ -87,6 +87,11 @@ pub fn toolbar(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> i
         .child(inert("Stash"))
         .child(inert("Undo"))
         .child(div().flex_1().min_w(px(0.)))
+        .children(
+            app.git_view(cx)
+                .and_then(|git| git.in_progress())
+                .map(|label| mono(label, theme::warning())),
+        )
         .children(changed_label(overview).map(|label| mono(label, theme::text_muted())))
         .child(icon_button(
             "git-refresh",

@@ -9,7 +9,7 @@ use std::path::Path;
 use std::process::Command;
 
 use tempfile::TempDir;
-use ubiq_host::git::{nested, observe, write};
+use ubiq_host::git::{history, nested, observe, write};
 use ubiq_proto::git::{GitError, GitHead, GitMark, GitPathChange, GitSubmoduleState, GitWriteOp};
 
 /// Run one git command in `dir`, ignoring whatever the machine's own configuration says.
@@ -30,6 +30,26 @@ fn git(dir: &Path, args: &[&str]) {
         "git {args:?} failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+fn git_stdout(dir: &Path, args: &[&str]) -> String {
+    let output = Command::new("git")
+        .current_dir(dir)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .env("GIT_AUTHOR_NAME", "Ubiq")
+        .env("GIT_AUTHOR_EMAIL", "ubiq@example.invalid")
+        .env("GIT_COMMITTER_NAME", "Ubiq")
+        .env("GIT_COMMITTER_EMAIL", "ubiq@example.invalid")
+        .args(args)
+        .output()
+        .expect("git");
+    assert!(
+        output.status.success(),
+        "git {args:?} failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
 }
 
 /// A repository with `file.txt` committed on `main`.
@@ -756,6 +776,70 @@ fn staging_a_modified_file_puts_it_in_the_index() {
     let file = entry(&tree, "file.txt");
     assert_eq!(file.index, Some(GitPathChange::Modified));
     assert_eq!(file.worktree, None);
+}
+
+#[test]
+fn stage_all_picks_up_a_modified_and_an_untracked_file() {
+    let dir = repository();
+    fs::write(dir.path().join("file.txt"), b"changed\n").unwrap();
+    fs::write(dir.path().join("new.txt"), b"new\n").unwrap();
+    write::apply_at(dir.path(), &[], &GitWriteOp::StageAll).unwrap();
+    let tree = tree_of(&dir);
+    let modified = entry(&tree, "file.txt");
+    assert_eq!(modified.index, Some(GitPathChange::Modified));
+    assert_eq!(modified.worktree, None);
+    let added = entry(&tree, "new.txt");
+    assert_eq!(added.index, Some(GitPathChange::Added));
+    assert_eq!(added.worktree, None);
+}
+
+#[test]
+fn unstage_all_restores_the_index_to_head() {
+    let dir = repository();
+    fs::write(dir.path().join("file.txt"), b"changed\n").unwrap();
+    fs::write(dir.path().join("new.txt"), b"new\n").unwrap();
+    write::apply_at(dir.path(), &[], &GitWriteOp::StageAll).unwrap();
+    write::apply_at(dir.path(), &[], &GitWriteOp::UnstageAll).unwrap();
+    let tree = tree_of(&dir);
+    let modified = entry(&tree, "file.txt");
+    assert_eq!(modified.index, None);
+    assert_eq!(modified.worktree, Some(GitPathChange::Modified));
+    let added = entry(&tree, "new.txt");
+    assert_eq!(added.worktree, Some(GitPathChange::Untracked));
+    assert_eq!(added.index, None);
+}
+
+#[test]
+fn changed_lists_the_modified_path_between_two_commits() {
+    let dir = repository();
+    let from = git_stdout(dir.path(), &["rev-parse", "HEAD"]);
+    fs::write(dir.path().join("file.txt"), b"changed\n").unwrap();
+    git(dir.path(), &["commit", "-q", "-am", "second"]);
+    let to = git_stdout(dir.path(), &["rev-parse", "HEAD"]);
+    let repo = observe::open(dir.path()).unwrap().expect("a repository");
+    let files = history::changed(&repo, dir.path(), Some(&from), &to).unwrap();
+    assert_eq!(files.len(), 1, "{files:?}");
+    assert_eq!(files[0].rel_path, "file.txt");
+    assert_eq!(files[0].change, GitPathChange::Modified);
+}
+
+#[test]
+fn changed_reports_a_rename() {
+    let dir = repository();
+    let from = git_stdout(dir.path(), &["rev-parse", "HEAD"]);
+    git(dir.path(), &["mv", "file.txt", "renamed.txt"]);
+    git(dir.path(), &["commit", "-q", "-m", "rename"]);
+    let to = git_stdout(dir.path(), &["rev-parse", "HEAD"]);
+    let repo = observe::open(dir.path()).unwrap().expect("a repository");
+    let files = history::changed(&repo, dir.path(), Some(&from), &to).unwrap();
+    assert_eq!(files.len(), 1, "{files:?}");
+    assert_eq!(files[0].rel_path, "renamed.txt");
+    assert_eq!(
+        files[0].change,
+        GitPathChange::Renamed {
+            from: "file.txt".into()
+        }
+    );
 }
 
 #[test]

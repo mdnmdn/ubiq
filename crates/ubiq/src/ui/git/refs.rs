@@ -10,23 +10,26 @@
 //! overview's submodules, into what this module draws.
 
 use gpui::{
-    AnyElement, ClickEvent, Context, InteractiveElement, IntoElement, ParentElement,
-    StatefulInteractiveElement, Styled, div, px,
+    AnyElement, ClickEvent, Context, InteractiveElement, IntoElement, MouseButton,
+    MouseDownEvent, ParentElement, StatefulInteractiveElement, Styled, div, point, px,
 };
 
 use crate::app::AppState;
-use crate::state::git::{RefRow, RefSection, RefTreeKind};
+use crate::state::git::{GitMenuKind, RefRow, RefSection, RefTreeKind};
 use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::eid;
 use crate::ui::kit::{
-    disclosure, elided, elided_with, file_row, mono, panel, row_font, status_dot, twisty,
+    ContextItem, context_menu, disclosure, elided, elided_with, file_row, mono, panel, row_font,
+    status_dot, twisty,
 };
+use crate::ui::{handler, indexed};
 
 pub fn render(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     let Some(git) = app.git_view(cx) else {
         return div().into_any_element();
     };
+    let menu = git.menu.clone();
 
     let mut body = div()
         .id("git-refs")
@@ -73,7 +76,37 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         }
     }
 
-    panel().child(body).into_any_element()
+    let mut root = panel().child(body);
+
+    if let Some(menu) = menu
+        && let GitMenuKind::Ref { .. } = menu.kind
+    {
+        let epoch = menu.epoch;
+        let items: Vec<ContextItem> = menu
+            .entries(false, false)
+            .into_iter()
+            .map(|entry| {
+                if entry.is_separator() {
+                    return ContextItem::separator();
+                }
+                let item = ContextItem::new(entry.label());
+                if entry.enabled { item } else { item.disabled() }
+            })
+            .collect();
+        root = root.child(context_menu(
+            "git-ref-menu",
+            point(px(menu.x), px(menu.y)),
+            items,
+            indexed(&cx.entity(), |this, index, _, cx| {
+                this.pick_git_menu_action(index, cx)
+            }),
+            handler(&cx.entity(), move |this, _, cx| {
+                this.dismiss_git_menu(epoch, cx)
+            }),
+        ));
+    }
+
+    root.into_any_element()
 }
 
 fn tree_row(
@@ -205,6 +238,16 @@ fn ref_row(
                 this.select_git_ref(index, cx);
             }
         }))
+        .on_mouse_down(
+            MouseButton::Right,
+            cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                this.open_git_menu(
+                    GitMenuKind::Ref { index },
+                    (f32::from(event.position.x), f32::from(event.position.y)),
+                    cx,
+                );
+            }),
+        )
         .into_any_element()
 }
 

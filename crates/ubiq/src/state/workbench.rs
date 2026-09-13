@@ -216,6 +216,9 @@ pub enum MenuId {
     GitRepo,
     /// The history's branch picker: which ref the commit list is walking.
     GitBranch,
+    /// A right-click on a Git screen row — a changed path, a commit or a ref. Which row, and where,
+    /// is `GitView::menu`.
+    Git,
 }
 
 /// One row of the new-pane control's menu, in the order it is drawn.

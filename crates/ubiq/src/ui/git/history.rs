@@ -14,19 +14,24 @@
 //! this module draws.
 
 use gpui::{
-    AnyElement, Context, Entity, Focusable, InteractiveElement, IntoElement, ParentElement, Rgba,
-    StatefulInteractiveElement, Styled, Window, div, px, uniform_list,
+    AnyElement, ClickEvent, Context, Entity, Focusable, InteractiveElement, IntoElement,
+    MouseButton, MouseDownEvent, ParentElement, Rgba, StatefulInteractiveElement, Styled, Window,
+    div, point, px, uniform_list,
 };
 use gpui_component::input::Input;
 
 use crate::app::AppState;
 use crate::state::MenuId;
-use crate::state::git::{COMMIT_ROW, CommitRow, LANE_GUTTER, LANE_PITCH, RefSection};
+use crate::state::git::{
+    AUTHOR_COL, COMMIT_ROW, CommitRow, GitMenuKind, LANE_GUTTER, LANE_PITCH, RefSection, SHA_COL,
+    WHEN_COL,
+};
 use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::eid;
 use crate::ui::kit::{
-    Picker, PickerStyle, elided, filter_bar, ghost_button, mono, panel, pill, toggle_pill,
+    ContextItem, Picker, PickerStyle, context_menu, elided, filter_bar, ghost_button, mono, panel,
+    pill, toggle_pill,
 };
 use crate::ui::{handler, indexed};
 
@@ -62,7 +67,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
                         Some(commit_row(
                             index,
                             commit,
-                            git.selected_commit == Some(index),
+                            git.commit_selected(index),
                             lanes,
                             &view,
                             window,
@@ -79,7 +84,9 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
         list = list.child(load_more_row(git.log_inflight.is_some(), cx));
     }
 
-    panel()
+    let menu = git.menu.clone();
+
+    let mut root = panel()
         .flex_1()
         .child(
             div()
@@ -126,8 +133,37 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
                         ),
                 ),
         )
-        .child(list)
-        .into_any_element()
+        .child(list);
+
+    if let Some(menu) = menu
+        && matches!(menu.kind, GitMenuKind::Commit { .. })
+    {
+        let epoch = menu.epoch;
+        let items: Vec<ContextItem> = menu
+            .entries(false, false)
+            .into_iter()
+            .map(|entry| {
+                if entry.is_separator() {
+                    return ContextItem::separator();
+                }
+                let item = ContextItem::new(entry.label());
+                if entry.enabled { item } else { item.disabled() }
+            })
+            .collect();
+        root = root.child(context_menu(
+            "git-commit-menu",
+            point(px(menu.x), px(menu.y)),
+            items,
+            indexed(&cx.entity(), |this, index, _, cx| {
+                this.pick_git_menu_action(index, cx)
+            }),
+            handler(&cx.entity(), move |this, _, cx| {
+                this.dismiss_git_menu(epoch, cx)
+            }),
+        ));
+    }
+
+    root.into_any_element()
 }
 
 /// Which ref the history is walking. `All branches` is HEAD; any other row re-asks the host for
@@ -213,16 +249,18 @@ fn uncommitted_row(app: &AppState, lanes: usize, cx: &mut Context<AppState>) -> 
             mono(format!("{changed} paths"), theme::text_muted())
                 .text_size(theme::font(Family::Chrome, Role::Meta)),
         )
-        .child(div().w(px(78.)).flex_none().child(
+        .child(div().w(px(WHEN_COL)).flex_none().child(
             mono("now", theme::text_faint()).text_size(theme::font(Family::Chrome, Role::Meta)),
         ))
-        .child(div().w(px(70.)).flex_none())
+        .child(div().w(px(SHA_COL)).flex_none())
         .on_click(cx.listener(|this, _, _, cx| this.select_git_commit(None, cx)))
         .into_any_element()
 }
 
 /// One commit: its lanes, whatever points at it, its summary, who wrote it, when, and its
-/// abbreviated id.
+/// abbreviated id. A plain click selects it; cmd/ctrl-click makes it the other end of a two-commit
+/// comparison, drawn under the history once both ends are set. A right-click raises the row's
+/// context menu.
 fn commit_row(
     index: usize,
     commit: &CommitRow,
@@ -254,7 +292,7 @@ fn commit_row(
         ))
         .child(
             div()
-                .w(px(150.))
+                .w(px(AUTHOR_COL))
                 .flex_none()
                 .text_size(theme::font(Family::Chrome, Role::Label))
                 .text_color(theme::text_muted())
@@ -262,20 +300,34 @@ fn commit_row(
                 .child(commit.author.clone()),
         )
         .child(
-            div().w(px(78.)).flex_none().child(
+            div().w(px(WHEN_COL)).flex_none().child(
                 mono(commit.when.clone(), theme::text_faint())
                     .text_size(theme::font(Family::Chrome, Role::Meta)),
             ),
         )
         .child(
-            div().w(px(70.)).flex_none().child(
+            div().w(px(SHA_COL)).flex_none().child(
                 mono(commit.short_id.clone(), theme::text_muted())
                     .text_size(theme::font(Family::Chrome, Role::Meta)),
             ),
         )
-        .on_click(window.listener_for(view, move |this, _, _, cx| {
-            this.select_git_commit(Some(index), cx)
+        .on_click(window.listener_for(view, move |this, event: &ClickEvent, _, cx| {
+            if event.modifiers().platform {
+                this.toggle_git_compare(index, cx);
+            } else {
+                this.select_git_commit(Some(index), cx);
+            }
         }))
+        .on_mouse_down(
+            MouseButton::Right,
+            window.listener_for(view, move |this, event: &MouseDownEvent, _, cx| {
+                this.open_git_menu(
+                    GitMenuKind::Commit { index },
+                    (f32::from(event.position.x), f32::from(event.position.y)),
+                    cx,
+                );
+            }),
+        )
         .into_any_element()
 }
 
@@ -306,6 +358,10 @@ fn load_more_row(loading: bool, cx: &mut Context<AppState>) -> AnyElement {
 
 /// The shape every row in the list has: one line, selectable, marked on its left edge the way the
 /// file lists mark theirs.
+///
+/// The left border is drawn on every row, transparent when not selected — the same 2px it becomes
+/// on a selected row, so a selection never shifts the row's own content over by the border's
+/// width the way an edge that only appears when picked would.
 fn row_base(id: impl Into<gpui::ElementId>, selected: bool) -> gpui::Stateful<gpui::Div> {
     let mut row = div()
         .id(id)
@@ -316,13 +372,12 @@ fn row_base(id: impl Into<gpui::ElementId>, selected: bool) -> gpui::Stateful<gp
         .items_center()
         .gap_2()
         .cursor_pointer()
+        .border_l_2()
+        .border_color(theme::transparent())
         .hover(|this| this.bg(theme::hover()));
 
     if selected {
-        row = row
-            .bg(theme::accent_soft())
-            .border_l_2()
-            .border_color(theme::accent());
+        row = row.bg(theme::accent_soft()).border_color(theme::accent());
     }
     row
 }

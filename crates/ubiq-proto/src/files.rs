@@ -201,8 +201,8 @@ pub enum PathOp {
 
 /// What a diff is taken against.
 ///
-/// The two the working tree can be compared with, and nothing else: a diff the interface draws is
-/// always about what is on disk right now.
+/// The working-tree bases compare what is on disk right now; [`DiffBase::Staged`] and
+/// [`DiffBase::Commits`] compare two blobs and do not need the file on disk.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DiffBase {
     /// The working tree against the commit that is checked out — every unstaged and staged change
@@ -210,6 +210,11 @@ pub enum DiffBase {
     Head,
     /// The working tree against the index, so only what has not been staged yet.
     Index,
+    /// The index against HEAD — only what a commit would carry.
+    Staged,
+    /// Two commits' blobs for this path. Neither side is the working tree.
+    /// [`crate::messages::Message::DiffProjectFile`] carries the two ids as `old` and `new`.
+    Commits,
 }
 
 /// What one row of a hunk is.

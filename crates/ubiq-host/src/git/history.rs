@@ -2,12 +2,15 @@
 //! subject: one is the working tree's present, this is the repository's past.
 
 use std::collections::HashMap;
+use std::path::Path;
 
-use git2::{BranchType, DiffOptions, Oid, Sort};
-use ubiq_proto::git::{GitCommit, GitError, GitRef, GitRefKind, GitWho};
+use git2::{BranchType, Delta, DiffFindOptions, DiffOptions, Oid, Sort};
+use ubiq_proto::git::{
+    GitChangedPath, GitCommit, GitError, GitPathChange, GitRef, GitRefKind, GitWho,
+};
 
 use super::graph::{self, Lanes};
-use super::observe::{map_error, short_id, tracking};
+use super::observe::{map_error, project_rel, scope, short_id, tracking};
 
 /// A path with no history would walk to the root. The scan is bounded at this many commits and
 /// the page simply comes back short; if that reads badly in a history view, the upgrade is a
@@ -282,4 +285,82 @@ fn who_of(sig: &git2::Signature<'_>) -> GitWho {
         time: sig.when().seconds(),
         offset: sig.when().offset_minutes(),
     }
+}
+
+/// Paths that differ between two revs. `from` absent is the empty tree.
+///
+/// Paths are project-relative: the project's prefix inside the repository is stripped, and a
+/// change outside that prefix is not the project's business.
+pub fn changed(
+    repo: &git2::Repository,
+    root: &Path,
+    from: Option<&str>,
+    to: &str,
+) -> Result<Vec<GitChangedPath>, GitError> {
+    let scoped_to = scope(root, repo)?;
+    let to_obj = repo.revparse_single(to).map_err(map_error)?;
+    let to_tree = to_obj.peel_to_tree().map_err(map_error)?;
+    let from_obj = match from {
+        Some(rev) => Some(repo.revparse_single(rev).map_err(map_error)?),
+        None => None,
+    };
+    let from_tree = match from_obj.as_ref() {
+        Some(obj) => Some(obj.peel_to_tree().map_err(map_error)?),
+        None => None,
+    };
+
+    let mut diff = repo
+        .diff_tree_to_tree(from_tree.as_ref(), Some(&to_tree), None)
+        .map_err(map_error)?;
+    let mut find = DiffFindOptions::new();
+    find.renames(true);
+    diff.find_similar(Some(&mut find)).map_err(map_error)?;
+
+    let mut files = Vec::new();
+    diff.foreach(
+        &mut |delta, _progress| {
+            if let Some(path) = changed_path(&delta, &scoped_to) {
+                files.push(path);
+            }
+            true
+        },
+        None,
+        None,
+        None,
+    )
+    .map_err(map_error)?;
+    Ok(files)
+}
+
+fn changed_path(delta: &git2::DiffDelta<'_>, scoped_to: &str) -> Option<GitChangedPath> {
+    let change = match delta.status() {
+        Delta::Added | Delta::Copied => GitPathChange::Added,
+        Delta::Deleted => GitPathChange::Deleted,
+        Delta::Modified => GitPathChange::Modified,
+        Delta::Renamed => GitPathChange::Renamed {
+            from: path_str(delta.old_file().path()).unwrap_or_default(),
+        },
+        Delta::Typechange => GitPathChange::TypeChange,
+        Delta::Untracked
+        | Delta::Unmodified
+        | Delta::Ignored
+        | Delta::Unreadable
+        | Delta::Conflicted => return None,
+    };
+    let git_path = match &change {
+        GitPathChange::Deleted => path_str(delta.old_file().path()),
+        _ => path_str(delta.new_file().path()).or_else(|| path_str(delta.old_file().path())),
+    }?;
+    let rel_path = project_rel(&git_path, scoped_to)?;
+    let change = match change {
+        GitPathChange::Renamed { from } => GitPathChange::Renamed {
+            from: project_rel(&from, scoped_to).unwrap_or(from),
+        },
+        other => other,
+    };
+    Some(GitChangedPath { rel_path, change })
+}
+
+fn path_str(path: Option<&Path>) -> Option<String> {
+    path.map(|path| path.to_string_lossy().replace('\\', "/"))
 }

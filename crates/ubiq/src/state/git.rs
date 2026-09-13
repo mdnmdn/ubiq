@@ -16,7 +16,7 @@
 //! allocator over real parent ids — this screen carries them through rather than computing a
 //! topology it was not given. Everything else on the screen is the host's answer too: the
 //! branch, the ahead and behind counts, the in-progress
-//! operation, the working-tree totals, the modified / untracked / conflicted lists, and the
+//! operation, the working-tree totals, the conflicted / staged / unstaged lists, and the
 //! diff under them.
 //!
 //! **This screen writes.** Stage and unstage run through `+` / `-` on each path; commit, fetch
@@ -30,7 +30,7 @@ use std::collections::HashSet;
 use chrono::{DateTime, Utc};
 use ubiq_proto::files::{DiffBase, FileDiff};
 use ubiq_proto::git::{
-    GitCommit, GitEntry, GitHead, GitPathChange, GitRef, GitRefKind, GitSubmodule,
+    GitChangedPath, GitCommit, GitEntry, GitHead, GitPathChange, GitRef, GitRefKind, GitSubmodule,
 };
 
 use crate::state::when;
@@ -41,6 +41,11 @@ pub const CHANGES_WIDTH: f32 = 380.0;
 /// How tall the diff under the history is when it is open, and the height of one commit row.
 pub const DIFF_HEIGHT: f32 = 320.0;
 pub const COMMIT_ROW: f32 = 26.0;
+/// Fixed trailing columns on a history row, so refs of different widths cannot shove author, when
+/// or the short id around.
+pub const AUTHOR_COL: f32 = 150.0;
+pub const WHEN_COL: f32 = 78.0;
+pub const SHA_COL: f32 = 70.0;
 /// How far apart two lanes of the history graph sit, and how wide the lane gutter is.
 pub const LANE_PITCH: f32 = 14.0;
 pub const LANE_GUTTER: f32 = 72.0;
@@ -359,32 +364,198 @@ fn commit_haystack(commit: &CommitRow) -> String {
     )
 }
 
-/// Which of the three change lists a row is in. Each path lands in exactly one.
+/// One collapsible group in the changes panel. Conflicted draws first when it is not empty;
+/// Staged and Unstaged are always on screen, even at zero.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum ChangeSection {
+    Conflicted,
+    Staged,
+    Unstaged,
+}
+
+impl ChangeSection {
+    pub fn label(self) -> &'static str {
+        match self {
+            ChangeSection::Conflicted => "Conflicted",
+            ChangeSection::Staged => "Staged",
+            ChangeSection::Unstaged => "Unstaged",
+        }
+    }
+}
+
+/// Which of the three change lists a row is in. A path that is both staged and modified appears
+/// in Staged and Unstaged; a conflicted path is only ever in Conflicted.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Side {
     Conflicted,
-    Modified,
-    Untracked,
+    Staged,
+    Unstaged,
 }
 
 impl Side {
-    /// What a row from this list is compared against.
-    ///
-    /// An untracked row is the worktree against the index. A modified or conflicted row is the
-    /// worktree against HEAD — the whole change together — because the file family offers no
-    /// index-against-HEAD comparison.
+    /// What a row from this list is compared against, when the screen is not already comparing
+    /// two commits.
     pub fn base(self) -> DiffBase {
         match self {
-            Side::Untracked => DiffBase::Index,
-            Side::Modified | Side::Conflicted => DiffBase::Head,
+            Side::Conflicted => DiffBase::Head,
+            Side::Staged => DiffBase::Staged,
+            Side::Unstaged => DiffBase::Index,
         }
     }
 
     pub fn label(self) -> &'static str {
+        self.section().label()
+    }
+
+    pub fn section(self) -> ChangeSection {
         match self {
-            Side::Conflicted => "Conflicted",
-            Side::Modified => "Modified",
-            Side::Untracked => "Untracked",
+            Side::Conflicted => ChangeSection::Conflicted,
+            Side::Staged => ChangeSection::Staged,
+            Side::Unstaged => ChangeSection::Unstaged,
+        }
+    }
+}
+
+/// A write or refresh the screen has sent and not yet heard back from. Drawn as a status word
+/// until a working-tree reply, or a failed write, clears it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GitPending {
+    Stage,
+    Unstage,
+    StageAll,
+    UnstageAll,
+    Commit,
+    FetchAll,
+    Pull,
+    Push,
+    Refresh,
+    Log,
+    Compare,
+}
+
+impl GitPending {
+    pub fn label(self) -> &'static str {
+        match self {
+            GitPending::Stage | GitPending::StageAll => "Staging\u{2026}",
+            GitPending::Unstage | GitPending::UnstageAll => "Unstaging\u{2026}",
+            GitPending::Commit => "Committing\u{2026}",
+            GitPending::FetchAll => "Fetching\u{2026}",
+            GitPending::Pull => "Pulling\u{2026}",
+            GitPending::Push => "Pushing\u{2026}",
+            GitPending::Refresh => "Refreshing\u{2026}",
+            GitPending::Log => "Loading history\u{2026}",
+            GitPending::Compare => "Comparing\u{2026}",
+        }
+    }
+}
+
+/// The menu a right-click on the Git screen raised, until it is dismissed or another menu takes
+/// its place.
+#[derive(Clone, Debug)]
+pub struct GitMenu {
+    /// Which menu this is, so a dismiss aimed at a menu that has already been replaced does
+    /// nothing. See [`GitView::close_menu`].
+    pub epoch: u64,
+    pub kind: GitMenuKind,
+    pub x: f32,
+    pub y: f32,
+}
+
+/// Which row a Git context menu opened on.
+#[derive(Clone, Debug)]
+pub enum GitMenuKind {
+    /// A changed path. `changes.rs` raises this from a file row.
+    Change { path: String, side: Side },
+    Commit { index: usize },
+    Ref { index: usize },
+}
+
+/// One row of a Git context menu, matched by index the way the explorer's is.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct GitMenuEntry {
+    pub action: GitAction,
+    pub enabled: bool,
+}
+
+impl GitMenuEntry {
+    pub fn label(self) -> &'static str {
+        self.action.label()
+    }
+
+    pub fn is_separator(self) -> bool {
+        self.action == GitAction::Separator
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum GitAction {
+    Stage,
+    Unstage,
+    Discard,
+    Open,
+    CopyPath,
+    CopySha,
+    CherryPick,
+    Revert,
+    Reset,
+    Checkout,
+    Merge,
+    Delete,
+    CopyName,
+    Separator,
+}
+
+impl GitAction {
+    pub fn label(self) -> &'static str {
+        match self {
+            GitAction::Stage => "Stage",
+            GitAction::Unstage => "Unstage",
+            GitAction::Discard => "Discard",
+            GitAction::Open => "Open",
+            GitAction::CopyPath => "Copy path",
+            GitAction::CopySha => "Copy SHA",
+            GitAction::CherryPick => "Cherry-pick",
+            GitAction::Revert => "Revert",
+            GitAction::Reset => "Reset",
+            GitAction::Checkout => "Checkout",
+            GitAction::Merge => "Merge",
+            GitAction::Delete => "Delete",
+            GitAction::CopyName => "Copy name",
+            GitAction::Separator => "",
+        }
+    }
+}
+
+impl GitMenu {
+    /// What this click offers, in the order the menu draws it. `stageable`/`unstageable` are
+    /// frozen from the working tree as of open, so a pick's index still names the row that was
+    /// drawn even if the path has since moved.
+    pub fn entries(&self, stageable: bool, unstageable: bool) -> Vec<GitMenuEntry> {
+        let row = |action, enabled| GitMenuEntry { action, enabled };
+        let dead = |action| row(action, false);
+        match &self.kind {
+            GitMenuKind::Change { .. } => vec![
+                row(GitAction::Stage, stageable),
+                row(GitAction::Unstage, unstageable),
+                row(GitAction::Separator, false),
+                dead(GitAction::Discard),
+                dead(GitAction::Open),
+                row(GitAction::CopyPath, true),
+            ],
+            GitMenuKind::Commit { .. } => vec![
+                row(GitAction::CopySha, true),
+                row(GitAction::Separator, false),
+                dead(GitAction::CherryPick),
+                dead(GitAction::Revert),
+                dead(GitAction::Reset),
+            ],
+            GitMenuKind::Ref { .. } => vec![
+                dead(GitAction::Checkout),
+                dead(GitAction::Merge),
+                dead(GitAction::Delete),
+                row(GitAction::Separator, false),
+                row(GitAction::CopyName, true),
+            ],
         }
     }
 }
@@ -445,29 +616,33 @@ pub fn can_unstage(entry: &GitEntry) -> bool {
     !entry.conflicted && entry.index.is_some()
 }
 
-/// [`conflicted`], then modified, then untracked — each path in exactly one list.
+/// [`conflicted`] first, then staged, then unstaged. A conflicted path is only in conflicted; a
+/// path with both index and worktree content is in staged and unstaged.
 ///
 /// Indices rather than references, because the list that draws them is virtual: it holds the
 /// grouping across frames and looks each row's entry up when it builds the rows on screen.
 pub struct ChangeGroups {
     pub conflicted: Vec<usize>,
-    pub modified: Vec<usize>,
-    pub untracked: Vec<usize>,
+    pub staged: Vec<usize>,
+    pub unstaged: Vec<usize>,
 }
 
 pub fn group_changes(entries: &[GitEntry]) -> ChangeGroups {
     let mut groups = ChangeGroups {
         conflicted: Vec::new(),
-        modified: Vec::new(),
-        untracked: Vec::new(),
+        staged: Vec::new(),
+        unstaged: Vec::new(),
     };
     for (index, entry) in entries.iter().enumerate() {
         if entry.conflicted {
             groups.conflicted.push(index);
-        } else if entry.worktree == Some(GitPathChange::Untracked) {
-            groups.untracked.push(index);
-        } else if entry.index.is_some() || entry.worktree.is_some() {
-            groups.modified.push(index);
+        } else {
+            if entry.index.is_some() {
+                groups.staged.push(index);
+            }
+            if entry.worktree.is_some() {
+                groups.unstaged.push(index);
+            }
         }
     }
     groups
@@ -492,6 +667,12 @@ pub struct GitView {
     /// Which commit is selected, as an index into `commits`. **`None` is the uncommitted row**,
     /// which is a real selection and the one the screen opens on — not "nothing selected".
     pub selected_commit: Option<usize>,
+    /// The other end of a two-commit comparison, as an index into `commits`. Set together with
+    /// `selected_commit`; the changes panel lists the paths between them while both are present.
+    pub compare_commit: Option<usize>,
+
+    /// The change-list sections the user has shut. Absent means open, same as `shut`.
+    shut_changes: HashSet<ChangeSection>,
 
     /// The changed path the diff under the history is about, and which list it was picked from.
     pub selected_path: Option<(Side, String)>,
@@ -517,6 +698,8 @@ pub struct GitView {
     /// The last write that failed, drawn under the commit box until the next successful working
     /// tree arrives.
     pub last_error: Option<String>,
+    /// A write or refresh still in flight. Cleared by a working-tree reply or a failed write.
+    pub pending: Option<GitPending>,
 
     /// The sidebar's rows, from the host's refs and the overview's submodules.
     pub refs: Vec<RefRow>,
@@ -547,6 +730,20 @@ pub struct GitView {
     /// reply matches — every other reply, whenever it lands, is stale and is discarded rather than
     /// applied.
     pub log_inflight: Option<Option<String>>,
+
+    /// The two revs a range comparison asked for, and the paths that differ between them.
+    /// `range_from` absent with `range_to` set is a commit against the empty tree.
+    pub range_from: Option<String>,
+    pub range_to: Option<String>,
+    pub range_files: Vec<GitChangedPath>,
+    /// A `ProjectGitChanged` request is in flight. Stale `GitChanged` replies are discarded
+    /// unless their `from`/`to` still match these.
+    pub range_inflight: bool,
+
+    /// The right-click menu, while it is down. Absent is no menu of this screen's.
+    pub menu: Option<GitMenu>,
+    /// Stamped onto every menu that opens, so a dismiss can say which menu it was aimed at.
+    menu_epoch: u64,
 }
 
 impl GitView {
@@ -561,6 +758,8 @@ impl GitView {
             branch_filter: None,
             mine_only: false,
             selected_commit: None,
+            compare_commit: None,
+            shut_changes: HashSet::new(),
             selected_path: None,
             base: DiffBase::Head,
             diff: None,
@@ -569,6 +768,7 @@ impl GitView {
             message: String::new(),
             amend: false,
             last_error: None,
+            pending: None,
             refs,
             commits: Vec::new(),
             search_haystacks: Vec::new(),
@@ -576,6 +776,12 @@ impl GitView {
             log_cursor: None,
             log_done: false,
             log_inflight: None,
+            range_from: None,
+            range_to: None,
+            range_files: Vec::new(),
+            range_inflight: false,
+            menu: None,
+            menu_epoch: 0,
         };
         view.set_commits(commits);
         view
@@ -588,6 +794,83 @@ impl GitView {
     pub fn toggle_section(&mut self, section: RefSection) {
         if !self.shut.remove(&section) {
             self.shut.insert(section);
+        }
+    }
+
+    pub fn is_change_open(&self, section: ChangeSection) -> bool {
+        !self.shut_changes.contains(&section)
+    }
+
+    pub fn toggle_change_section(&mut self, section: ChangeSection) {
+        if !self.shut_changes.remove(&section) {
+            self.shut_changes.insert(section);
+        }
+    }
+
+    /// A word for whatever the screen is still waiting on: a write, a history page, or a range
+    /// comparison. The write wins when more than one is in flight.
+    pub fn in_progress(&self) -> Option<&'static str> {
+        self.pending
+            .map(GitPending::label)
+            .or(self
+                .log_inflight
+                .is_some()
+                .then_some("Loading history\u{2026}"))
+            .or(self.range_inflight.then_some("Comparing\u{2026}"))
+    }
+
+    /// Whether this history row is one end of the current selection: the selected commit, or the
+    /// other end of a two-commit comparison.
+    pub fn commit_selected(&self, index: usize) -> bool {
+        self.selected_commit == Some(index) || self.compare_commit == Some(index)
+    }
+
+    /// The two ids a range comparison would ask for, older then newer. History is newest first, so
+    /// the larger index is the older commit. Absent unless both ends are set and still in the list.
+    pub fn compare_ids(&self) -> Option<(String, String)> {
+        let a = self.selected_commit?;
+        let b = self.compare_commit?;
+        let (older, newer) = if a > b { (a, b) } else { (b, a) };
+        Some((
+            self.commits.get(older)?.id.clone(),
+            self.commits.get(newer)?.id.clone(),
+        ))
+    }
+
+    /// Cmd/ctrl-click on a commit: toggle it as the other end of a comparison. Returns whether a
+    /// pair is now set.
+    ///
+    /// Uncommitted cannot be compared, so a click while that row is selected is a normal select.
+    /// Clicking the already-selected commit, or the compare commit again, clears the pair only.
+    pub fn toggle_compare(&mut self, index: usize) -> bool {
+        if self.selected_commit.is_none() {
+            self.selected_commit = Some(index);
+            self.compare_commit = None;
+            return false;
+        }
+        if self.selected_commit == Some(index) || self.compare_commit == Some(index) {
+            self.compare_commit = None;
+            return false;
+        }
+        self.compare_commit = Some(index);
+        true
+    }
+
+    /// Raise the menu at the pointer.
+    pub fn open_menu(&mut self, kind: GitMenuKind, x: f32, y: f32) {
+        self.menu_epoch = self.menu_epoch.wrapping_add(1);
+        self.menu = Some(GitMenu {
+            epoch: self.menu_epoch,
+            kind,
+            x,
+            y,
+        });
+    }
+
+    /// Take the menu away, if the menu that is up is still the one being dismissed.
+    pub fn close_menu(&mut self, epoch: u64) {
+        if self.menu.as_ref().is_some_and(|menu| menu.epoch == epoch) {
+            self.menu = None;
         }
     }
 
@@ -706,13 +989,22 @@ impl GitView {
     }
 
     /// Point the diff pane at a changed path. Returns whether the selection moved, which is what
-    /// tells the caller a comparison has to be asked for.
+    /// tells the caller a comparison has to be asked for. The same path from Staged and from
+    /// Unstaged are two questions: the bases differ.
     pub fn select_path(&mut self, side: Side, path: &str) -> bool {
-        if self.selected_path.as_ref().map(|(_, held)| held.as_str()) == Some(path) {
+        if self
+            .selected_path
+            .as_ref()
+            .is_some_and(|(held_side, held)| *held_side == side && held == path)
+        {
             return false;
         }
         self.selected_path = Some((side, path.to_string()));
-        self.base = side.base();
+        self.base = if self.range_from.is_some() {
+            DiffBase::Commits
+        } else {
+            side.base()
+        };
         self.diff = None;
         true
     }
@@ -723,12 +1015,19 @@ impl GitView {
     }
 
     /// Drop a selection whose path the working tree no longer has anything to say about. A diff
-    /// left under a name that has gone clean is a comparison of nothing.
+    /// left under a name that has gone clean is a comparison of nothing. While a range comparison
+    /// is active, the path has to still be in `range_files`.
     pub fn settle(&mut self, entries: &[GitEntry]) {
         let Some((_, path)) = &self.selected_path else {
             return;
         };
-        if !entries.iter().any(|entry| &entry.rel_path == path) {
+        let path = path.clone();
+        let keep = if self.range_from.is_some() {
+            self.range_files.iter().any(|file| file.rel_path == path)
+        } else {
+            entries.iter().any(|entry| entry.rel_path == path)
+        };
+        if !keep {
             self.selected_path = None;
             self.diff = None;
         }

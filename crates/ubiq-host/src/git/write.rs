@@ -7,8 +7,8 @@
 use std::path::{Component, Path, PathBuf};
 
 use git2::{
-    BranchType, ErrorCode, FetchOptions, PushOptions, RemoteCallbacks, Repository, RepositoryState,
-    build::CheckoutBuilder,
+    BranchType, ErrorCode, FetchOptions, IndexAddOption, PushOptions, RemoteCallbacks, Repository,
+    RepositoryState, build::CheckoutBuilder,
 };
 use ubiq_proto::git::{GitError, GitWriteOp};
 
@@ -56,6 +56,16 @@ pub fn apply(
         GitWriteOp::Push => {
             refuse_if_busy(repo)?;
             push(repo)
+        }
+        GitWriteOp::StageAll => {
+            let scope = super::observe::scope(root, repo)?;
+            let pathspec = if scope.is_empty() { "." } else { scope.as_str() };
+            stage_all(repo, pathspec)
+        }
+        GitWriteOp::UnstageAll => {
+            let scope = super::observe::scope(root, repo)?;
+            let pathspec = if scope.is_empty() { "." } else { scope.as_str() };
+            unstage_all(repo, pathspec)
         }
     }
 }
@@ -153,6 +163,55 @@ fn stage(repo: &Repository, rel: &str) -> Result<(), GitError> {
         index.remove_path(path).map_err(map_error)?;
     }
     index.write().map_err(map_error)?;
+    Ok(())
+}
+
+fn stage_all(repo: &Repository, pathspec: &str) -> Result<(), GitError> {
+    let mut index = repo.index().map_err(map_error)?;
+    index
+        .add_all([pathspec], IndexAddOption::DEFAULT, None)
+        .map_err(map_error)?;
+    index
+        .update_all([pathspec], None)
+        .map_err(map_error)?;
+    index.write().map_err(map_error)?;
+    Ok(())
+}
+
+fn unstage_all(repo: &Repository, pathspec: &str) -> Result<(), GitError> {
+    match repo.head() {
+        Ok(head) => {
+            let commit = head.peel_to_commit().map_err(map_error)?;
+            repo.reset_default(Some(commit.as_object()), [pathspec])
+                .map_err(map_error)?;
+        }
+        Err(error)
+            if error.code() == ErrorCode::UnbornBranch || error.code() == ErrorCode::NotFound =>
+        {
+            let mut index = repo.index().map_err(map_error)?;
+            if pathspec == "." {
+                index.clear().map_err(map_error)?;
+            } else {
+                let prefix = pathspec.trim_end_matches('/');
+                let victims: Vec<PathBuf> = index
+                    .iter()
+                    .filter_map(|entry| {
+                        let path = std::str::from_utf8(&entry.path).ok()?;
+                        if path == prefix || path.starts_with(&format!("{prefix}/")) {
+                            Some(PathBuf::from(path))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                for path in victims {
+                    let _ = index.remove_path(&path);
+                }
+            }
+            index.write().map_err(map_error)?;
+        }
+        Err(error) => return Err(map_error(error)),
+    }
     Ok(())
 }
 

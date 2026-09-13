@@ -59,7 +59,10 @@ pub use file_picker::{
     Commit, FilePickerState, PickKind, PickerCount, PickerNode, PickerOwner, PickerRequest,
     PickerRow, PickerView,
 };
-pub use git::{CommitRow, GitView, RefRow, RefSection, Side};
+pub use git::{
+    ChangeSection, CommitRow, GitAction, GitMenu, GitMenuEntry, GitMenuKind, GitPending, GitView,
+    RefRow, RefSection, Side,
+};
 pub use image_edit::{EditOp, ImageEdit, ImageTool, ShapeKind};
 pub use layout::Layout;
 pub use logs::LogState;

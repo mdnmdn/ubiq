@@ -977,6 +977,7 @@ impl AppState {
                 open.git_entries = entries;
                 open.git_view.settle(&open.git_entries);
                 open.git_view.last_error = None;
+                open.git_view.pending = None;
                 // Kept whole, managed or not, so the settings dialog can draw what the walk found
                 // even for a repository the explorer never shows a mark for.
                 open.git_repos = repos;
@@ -998,6 +999,7 @@ impl AppState {
                     GitFailure::Denied => {}
                     GitFailure::Failed(reason) => {
                         open.git_view.last_error = Some(reason);
+                        open.git_view.pending = None;
                     }
                 }
                 cx.notify();
@@ -1041,6 +1043,24 @@ impl AppState {
                 }
                 open.git_view.log_done = next_cursor.is_none();
                 open.git_view.log_cursor = next_cursor;
+                cx.notify();
+            }
+
+            Message::GitChanged {
+                project_id,
+                from,
+                to,
+                files,
+            } => {
+                let open = self.projects.get_mut(&project_id)?;
+                if open.git_view.range_from != from
+                    || open.git_view.range_to.as_deref() != Some(to.as_str())
+                {
+                    return None;
+                }
+                open.git_view.range_files = files;
+                open.git_view.range_inflight = false;
+                open.git_view.settle(&open.git_entries);
                 cx.notify();
             }
 

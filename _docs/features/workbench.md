@@ -692,18 +692,37 @@ same way a commit is and is what the screen opens on; picking a commit points th
 at that commit instead. The panel says what the log said and no more — a commit's own file list
 needs a log the git family does not carry.
 
-**The change lists are modified and untracked.** A tracked path with an index or worktree change
-is in Modified; an untracked path is in Untracked. Conflicted paths are a list of their own, drawn
-first. Each path appears once. `+` on the right of a row stages that path — an untracked file
-becomes tracked — and `-` unstages it — a newly-added file becomes untracked again. A conflicted
-row has neither. A row takes the colour the explorer paints the same path in, so the two never
-disagree.
+**The change lists are conflicted, staged and unstaged, each a collapsible section with its own
+counter.** A path with an index change is in Staged; a path with a worktree change is in Unstaged —
+a path changed both ways appears in both, once each. Conflicted draws first and only when it has
+something to say; Staged and Unstaged stay on screen even at zero, so the split itself is always
+visible. A click on a section's heading shuts or reopens it; the count keeps reading while it is
+shut. `+` on the right of a row stages that path and `-` unstages it, right-justified the way the
+section heading's own `+` (Unstaged, stage all) and `-` (Staged, unstage all) are. A conflicted row
+has neither. A row takes the colour the explorer paints the same path in, so the two never disagree.
 
 **Picking a changed path compares it, and the comparison is the host's.** The pane under the
 history draws the hunks `DiffProjectFile` answers with, through the same renderer a diff tab uses.
-An untracked row is compared against the index and a modified or conflicted row against HEAD,
-because the file family offers those two and no index-against-HEAD. The pane shuts rather than the
-history shrinking, and switches between unified and side by side.
+A staged row is compared against the index and an unstaged or conflicted row against HEAD, because
+the file family offers those two and no index-against-HEAD. The pane shuts rather than the history
+shrinking, and switches between unified and side by side.
+
+**Cmd/ctrl-click a second commit to compare it against the first.** The panel beside the history
+lists the paths that differ between the two — oldest to newest, no `+` / `-`, because a range is a
+read — and picking one asks `ProjectGitChanged` for the diff between those two revisions rather
+than against the working tree. A plain click on any row, including the uncommitted one, drops the
+pair and returns to that row's own view.
+
+**A right-click on a changed path, a commit or a branch raises that row's own menu**, the same
+`kit::context_menu` every other right-click on the window draws with. A changed path offers stage
+and unstage today; a commit offers copying its SHA; a branch offers copying its name. The rest of
+each menu is drawn and disabled — checkout, cherry-pick, discard and the like have no operation
+behind them yet — so the vocabulary is visible before the write is.
+
+**Whatever the screen is waiting on is named, not just spun.** `GitView::in_progress()` reads
+whichever of a write, a history page or a two-commit comparison is still in flight and the toolbar
+prints its word — `Staging…`, `Committing…`, `Loading history…` — beside the changed-paths count,
+so a click that has not answered yet is a state the user can read rather than a guess.
 
 **A diff's rows are one height, so a long line is scrolled to rather than wrapped.** The body is a
 virtual list over the hunks flattened into one row per header, line or side-by-side pair, which is

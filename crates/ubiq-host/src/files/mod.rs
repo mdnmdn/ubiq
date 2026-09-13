@@ -470,6 +470,8 @@ pub enum Request {
     Diff {
         rel_path: String,
         base: DiffBase,
+        old: Option<String>,
+        new: Option<String>,
     },
     Edit {
         rel_path: String,
@@ -591,7 +593,12 @@ fn file_answer(project_id: ProjectId, root: &Path, request: &Request) -> Message
             },
             Err(error) => file_error(project_id, rel_path, error),
         },
-        Request::Diff { rel_path, base } => diff_answer(project_id, root, rel_path, *base),
+        Request::Diff {
+            rel_path,
+            base,
+            old,
+            new,
+        } => diff_answer(project_id, root, rel_path, *base, old.as_deref(), new.as_deref()),
         Request::Edit { rel_path, to, op } => match edit(root, rel_path, to.as_deref(), *op) {
             Ok(()) => Message::ProjectPathEdited {
                 project_id,
@@ -606,8 +613,15 @@ fn file_answer(project_id: ProjectId, root: &Path, request: &Request) -> Message
 
 /// A path's diff against its base, once version control is in the build.
 #[cfg(feature = "git")]
-fn diff_answer(project_id: ProjectId, root: &Path, rel_path: &str, base: DiffBase) -> Message {
-    match diff::diff(root, rel_path, base) {
+fn diff_answer(
+    project_id: ProjectId,
+    root: &Path,
+    rel_path: &str,
+    base: DiffBase,
+    old: Option<&str>,
+    new: Option<&str>,
+) -> Message {
+    match diff::diff(root, rel_path, base, old, new) {
         Ok(diff) => Message::ProjectFileDiffed {
             project_id,
             rel_path: rel_path.to_string(),
@@ -620,7 +634,14 @@ fn diff_answer(project_id: ProjectId, root: &Path, rel_path: &str, base: DiffBas
 /// Without `git`, there is no repository to diff against — say so the same way any other refusal
 /// is said, rather than leaving the request unanswered.
 #[cfg(not(feature = "git"))]
-fn diff_answer(project_id: ProjectId, _root: &Path, rel_path: &str, _base: DiffBase) -> Message {
+fn diff_answer(
+    project_id: ProjectId,
+    _root: &Path,
+    rel_path: &str,
+    _base: DiffBase,
+    _old: Option<&str>,
+    _new: Option<&str>,
+) -> Message {
     file_error(
         project_id,
         rel_path,

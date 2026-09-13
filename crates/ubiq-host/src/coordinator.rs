@@ -1701,10 +1701,14 @@ impl Coordinator {
                 project_id,
                 rel_path,
                 base,
+                old,
+                new,
             } => {
                 let request = files::Request::Diff {
                     rel_path: rel_path.clone(),
                     base,
+                    old,
+                    new,
                 };
                 self.file_job(client, project_id, &rel_path, request);
             }
@@ -1765,6 +1769,13 @@ impl Coordinator {
             }
             Message::WriteProjectGit { project_id, op } => {
                 self.git_job(client, project_id, git::Request::Write { op });
+            }
+            Message::ProjectGitChanged {
+                project_id,
+                from,
+                to,
+            } => {
+                self.git_job(client, project_id, git::Request::Changed { from, to });
             }
 
             // ── the work family ─────────────────────────────────────

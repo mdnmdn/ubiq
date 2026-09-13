@@ -36,7 +36,8 @@ use crate::state::file_picker::{
     Commit, FilePickerState, PickKind, PickerCount, PickerKey, PickerOwner, PickerView, Pressed,
 };
 use crate::state::git::{
-    GitView, RefSection, Side as GitSide, commit_rows, ref_rows, submodule_rows,
+    ChangeSection, GitAction, GitMenuKind, GitPending, GitView, RefSection, Side as GitSide,
+    can_stage, can_unstage, commit_rows, ref_rows, submodule_rows,
 };
 use crate::state::nav::{
     Anchored, Bookmark, Destination, Fate, History, Locus, View, range_for, resolve_anchor,
