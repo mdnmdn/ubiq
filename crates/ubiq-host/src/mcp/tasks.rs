@@ -697,11 +697,13 @@ fn parse_status(value: &str) -> Result<Status, String> {
     match compact.as_str() {
         "backlog" => Ok(Status::Backlog),
         "ready" => Ok(Status::Ready),
+        "blocked" => Ok(Status::Blocked),
         "inprogress" => Ok(Status::InProgress),
         "inreview" => Ok(Status::InReview),
         "done" => Ok(Status::Done),
+        "abandoned" => Ok(Status::Abandoned),
         _ => Err(format!(
-            "unknown status '{value}': use backlog, ready, in progress, in review, or done"
+            "unknown status '{value}': use backlog, ready, blocked, in progress, in review, done, or abandoned"
         )),
     }
 }

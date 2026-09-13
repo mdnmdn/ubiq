@@ -475,6 +475,7 @@ is a relative string.
 | `RefreshProjectGit` | UI → host | `project_id`, `full` | `GitOverview`, and `GitWorkingTree` when `full`; or `GitError` |
 | `ProjectGitLog` | UI → host | `project_id`, `cursor?`, `count`, `rel_path?`, `first_parent`, `rev?` | `GitLogPage` or `GitError` |
 | `ProjectGitRefs` | UI → host | `project_id`, `with_tracking` | `GitRefs` or `GitError` |
+| `WriteProjectGit` | UI → host | `project_id`, `op` | `GitOverview` and `GitWorkingTree`, or `GitError` |
 | `GitOverview` | host → UI | `project_id`, `overview?` | — |
 | `GitWorkingTree` | host → UI | `project_id`, `generation`, `entries[]`, `rollups[]`, `repos[]`, `truncated` | — |
 | `GitError` | host → UI | `project_id`, `error` | — |
@@ -483,7 +484,17 @@ is a relative string.
 
 **`overview` absent is an ordinary answer**, not a failure: the project is not in a repository, and
 the interface draws no branch and no badges. `GitError` is for a repository that exists and could
-not be read — `NotFound`, `Corrupt`, `Denied`, `Interrupted` or `Failed`.
+not be read — `NotFound`, `Corrupt`, `Denied`, `Interrupted` or `Failed` — and for a write that
+was refused, which is always `Failed` with a reason.
+
+**`WriteProjectGit` mutates the project's repository.** `op` is a `GitWriteOp`: `Stage` and
+`Unstage` name one project-relative path; `Commit` carries the message and whether it amends;
+`FetchAll`, `Pull` and `Push` name nothing else. A successful write is answered as a full refresh
+— the same `GitOverview` plus `GitWorkingTree` pair `RefreshProjectGit { full: true }` would send
+— so the interface does not ask again for the working tree. Pull is a fast-forward or a `Failed`;
+a diverged branch is not merged. Credentials for fetch, pull and push are git's helper and the
+ssh agent, not a connector (`G145`). The git worker serialises these against its own reads; an
+agent committing in the same second is a collision the worker does not see (`D122`).
 
 **The overview is cheap.** It is refs and a handful of files in the git directory: `HEAD` as a
 branch name, a detached short id or an unborn name; the upstream and ahead/behind when there is
@@ -579,10 +590,11 @@ sessions and agents are minted per project. A task id alone would not say which 
 | `AgentChanged` | host → UI | `project_id`, `agent` | — |
 | `WorkError` | host → UI | `project_id`, `task_id?`, `error` | — |
 
-**Nothing in this family is broadcast.** Every reply goes to the window that asked, on the file
-family's rule for the file family's reason: a project is open in exactly one window at a time, so
-the window that asked is the only one drawing that project's work, and what one window is looking at
-is not a fact about the catalogue.
+**Nothing in this family is broadcast from a window's own request.** Every reply to a click goes to
+the window that asked, on the file family's rule for the file family's reason: a project is open in
+exactly one window at a time, so the window that asked is the only one drawing that project's work.
+A `WorkList` the host pushes because a loaded `tasks.toml` changed on disk is the exception, and
+goes to every window — the same posture MCP task mutations already take (`D120`).
 
 **`project_id` is echoed on every reply**, and `task_id` on a `TaskDeleted`, because an answer
 arrives after the click that asked for it and the window may have moved on.
@@ -603,13 +615,14 @@ also spares the wire an `Option<Option<SessionId>>` inside an update, which is a
 have to read.
 
 **`SetTaskField` is one variant carrying a field, not a field per fact on `UpdateTask`.** It is the
-`AssignTask` reasoning generalised: a shape, a kind, a key, a link and a label set are all facts a
-task can perfectly well *not* have, so each of them needs to tell "leave it alone" from "clear it" —
-and five `Option<Option<T>>` fields inside an update would be five copies of the type nobody should
-have to read. `UpdateTask` keeps the three that can never be absent. A trimmed-empty `Key` or `Link`
-is the clear, the way an emptied description is: the user rubbed the field out, which is a thing to
-mean. `Labels` replaces the whole set, because a label list is short and is edited as a set, so a
-delta would be two messages and an ordering rule to save a handful of bytes.
+`AssignTask` reasoning generalised: a shape, a kind, a key, a link, a label set and a colour are all
+facts a task can perfectly well *not* have, so each of them needs to tell "leave it alone" from
+"clear it" — and six `Option<Option<T>>` fields inside an update would be six copies of the type
+nobody should have to read. `UpdateTask` keeps the three that can never be absent. A trimmed-empty
+`Key` or `Link` is the clear, the way an emptied description is: the user rubbed the field out,
+which is a thing to mean. `Labels` replaces the whole set, because a label list is short and is
+edited as a set, so a delta would be two messages and an ordering rule to save a handful of bytes.
+`Colour` is a swatch index, or `None` to clear it.
 
 **`MoveTask.before` names a task, where `MoveStep.to` names an index.** The two lists differ in one
 way that decides it: the board filters and a step list does not, so an index into what the user can
@@ -649,8 +662,10 @@ taken off it and reported as an `AgentChanged`, because a card pointing at a tas
 be drawn in no container and counted in one, and the repair is the interface's to hear rather than to
 work out.
 
-**Nothing in this family is unsolicited.** The host never pushes a change nobody asked for, so there
-is no variant for an agent making progress of its own — a gap in [`../backlog.md`](../backlog.md).
+**Almost nothing in this family is unsolicited.** A loaded project's `tasks.toml` is re-read on a
+short interval, and a listing that has moved on disk is pushed to every window as `WorkList`, so an
+edit from another process reaches a board that is already open. There is still no variant for an
+agent making progress of its own — a gap in [`../backlog.md`](../backlog.md).
 
 **`WorkError.error` is a sentence rather than an enum**, and deliberately the opposite of `D34`. An
 enum earns its keep when each arm is a different thing for the interface to do; every failure here —
@@ -977,10 +992,11 @@ Forty-seven records travel inside payloads.
 | `DiffRow` | `kind`, `old_line?`, `new_line?`, `text` |
 | `DiffHunk` | `old_start`, `old_lines`, `new_start`, `new_lines`, `rows[]` |
 | `FileDiff` | `base`, `hunks[]`, `binary`, `truncated` |
-| `TaskRecord` | `id`, `session?`, `status`, `priority`, `shape?`, `kind?`, `key?`, `link?`, `labels[]`, `title`, `description`, `steps[]`, `created_at`, `updated_at` |
+| `TaskRecord` | `id`, `session?`, `status`, `priority`, `shape?`, `kind?`, `key?`, `link?`, `labels[]`, `colour?`, `title`, `description`, `steps[]`, `comments[]`, `created_at`, `updated_at` |
 | `Step` | `id`, `title`, `state`, `owner?` |
 | `Label` | `name`, `colour` |
-| `TaskField` | one of `Shape?`, `Kind?`, `Key?`, `Link?`, `Labels[]` |
+| `Comment` | `id`, `author`, `text`, `created_at` |
+| `TaskField` | one of `Shape?`, `Kind?`, `Key?`, `Link?`, `Labels[]`, `Colour?` |
 | `WorkSession` | `id`, `name`, `branch`, `worktree` |
 | `WorkAgent` | `id`, `session`, `task?`, `parent?`, `name`, `summary?`, `role`, `activity`, `note`, `branch`, `tokens`, `harness`, `model`, `context_pct`, `persistent`, `accept_all`, `debug_dump?`, `thread[]` |
 | `Turn` | `from`, `text` |
@@ -1121,8 +1137,8 @@ Six of the fifteen are the work's, and all but `Speaker` carry the words they an
 plus a `note()`, an `all()` or a `bucket()` where there is one — because the host needs those as much
 as the interface does: it seeds the columns, it writes a `Status` down, and it classifies its own
 agents. `Status` is
-`Backlog`, `Ready`, `InProgress`, `InReview` or `Done`, in the order the board draws and work moves
-along. `Priority` is `Low`, `Normal` or `High`, where `Normal` is the absence of a claim rather than
+`Backlog`, `Ready`, `Blocked`, `InProgress`, `InReview`, `Done` or `Abandoned`, in the order the
+board draws and work moves along. `Priority` is `Low`, `Normal` or `High`, where `Normal` is the absence of a claim rather than
 a middle value and so has no word. `Shape` is `Direct`, `Chain` or `Coordinated`, and says whether
 the agents on a task run in order. `StepState` is `Idle`, `Working`, `NeedsYou`, `Failed` or `Done`.
 `Activity` is `Thinking`, `Writing`, `Tools`, `NeedsYou`, `Ended` or `Failed`, and buckets into the

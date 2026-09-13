@@ -17,7 +17,7 @@
 
 use ubiq_proto::ids::{SessionId, StepId, TaskId};
 use ubiq_proto::work::{
-    Activity, AgentId, Bucket, Label, Shape, Step, TaskRecord, WorkAgent, WorkSession,
+    Activity, AgentId, Bucket, Label, Shape, Status, Step, TaskRecord, WorkAgent, WorkSession,
 };
 
 /// The sessions, agents and tasks of one project, and whether the host has answered yet.
@@ -72,6 +72,38 @@ impl WorkProjection {
                 true
             }
         }
+    }
+
+    /// Splice a task into a column, the same act a drop asks the host for.
+    ///
+    /// The board applies this the moment the card is put down so a reorder is visible without
+    /// waiting for a `WorkList`. `before` names the card it lands in front of; `None` is the end
+    /// of that column. A `before` that names the card being moved is the gap it already occupies,
+    /// rewritten to the next neighbour so the host's "missing id → end of column" fallback is
+    /// never what a drop onto itself becomes.
+    pub fn place(&mut self, id: TaskId, status: Status, before: Option<TaskId>) {
+        let Some(from) = self.tasks.iter().position(|t| t.id == id) else {
+            return;
+        };
+        let before = match before {
+            Some(named) if named == id => self.tasks[from + 1..]
+                .iter()
+                .find(|task| task.status == status)
+                .map(|task| task.id),
+            other => other,
+        };
+        let mut record = self.tasks.remove(from);
+        record.status = status;
+        let target = before
+            .and_then(|named| self.tasks.iter().position(|task| task.id == named))
+            .filter(|&index| self.tasks[index].status == status);
+        let insert_at = target.unwrap_or_else(|| {
+            self.tasks
+                .iter()
+                .rposition(|task| task.status == status)
+                .map_or(self.tasks.len(), |index| index + 1)
+        });
+        self.tasks.insert(insert_at, record);
     }
 
     /// The host has dropped a task. Answers whether it was there, so a delete that names nothing

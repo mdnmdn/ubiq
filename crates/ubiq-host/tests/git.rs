@@ -9,8 +9,8 @@ use std::path::Path;
 use std::process::Command;
 
 use tempfile::TempDir;
-use ubiq_host::git::{nested, observe};
-use ubiq_proto::git::{GitHead, GitMark, GitPathChange, GitSubmoduleState};
+use ubiq_host::git::{nested, observe, write};
+use ubiq_proto::git::{GitHead, GitMark, GitPathChange, GitSubmoduleState, GitWriteOp};
 
 /// Run one git command in `dir`, ignoring whatever the machine's own configuration says.
 fn git(dir: &Path, args: &[&str]) {
@@ -36,10 +36,17 @@ fn git(dir: &Path, args: &[&str]) {
 fn repository() -> TempDir {
     let dir = TempDir::new().unwrap();
     git(dir.path(), &["init", "-q", "-b", "main"]);
+    identity(dir.path());
     fs::write(dir.path().join("file.txt"), b"hello\n").unwrap();
     git(dir.path(), &["add", "file.txt"]);
     git(dir.path(), &["commit", "-q", "-m", "first"]);
     dir
+}
+
+/// libgit2 reads `user.name` / `user.email` from the repository, not from the author env.
+fn identity(dir: &Path) {
+    git(dir, &["config", "user.name", "Ubiq"]);
+    git(dir, &["config", "user.email", "ubiq@example.invalid"]);
 }
 
 /// The managed set as a record carries it: the repositories inside the project it takes on.
@@ -679,4 +686,212 @@ fn discovery_does_not_descend_into_a_repository() {
     let found = nested::discover(dir.path());
     assert_eq!(found.roots, vec!["outer".to_string()]);
     assert!(!found.truncated);
+}
+
+fn tree_of(dir: &TempDir) -> ubiq_host::git::WorkingTree {
+    observe(dir.path(), 1, true, &[])
+        .unwrap()
+        .tree
+        .expect("a working tree")
+}
+
+#[test]
+fn staging_an_untracked_file_tracks_it() {
+    let dir = repository();
+    fs::write(dir.path().join("new.txt"), b"new\n").unwrap();
+    write::apply_at(
+        dir.path(),
+        &[],
+        &GitWriteOp::Stage {
+            rel_path: "new.txt".into(),
+        },
+    )
+    .unwrap();
+    let tree = tree_of(&dir);
+    let file = entry(&tree, "new.txt");
+    assert_eq!(file.index, Some(GitPathChange::Added));
+    assert_eq!(file.worktree, None);
+    assert_eq!(file.mark(), Some(GitMark::Staged));
+}
+
+#[test]
+fn unstaging_a_new_file_makes_it_untracked() {
+    let dir = repository();
+    fs::write(dir.path().join("new.txt"), b"new\n").unwrap();
+    write::apply_at(
+        dir.path(),
+        &[],
+        &GitWriteOp::Stage {
+            rel_path: "new.txt".into(),
+        },
+    )
+    .unwrap();
+    write::apply_at(
+        dir.path(),
+        &[],
+        &GitWriteOp::Unstage {
+            rel_path: "new.txt".into(),
+        },
+    )
+    .unwrap();
+    let tree = tree_of(&dir);
+    let file = entry(&tree, "new.txt");
+    assert_eq!(file.worktree, Some(GitPathChange::Untracked));
+    assert_eq!(file.index, None);
+}
+
+#[test]
+fn staging_a_modified_file_puts_it_in_the_index() {
+    let dir = repository();
+    fs::write(dir.path().join("file.txt"), b"changed\n").unwrap();
+    write::apply_at(
+        dir.path(),
+        &[],
+        &GitWriteOp::Stage {
+            rel_path: "file.txt".into(),
+        },
+    )
+    .unwrap();
+    let tree = tree_of(&dir);
+    let file = entry(&tree, "file.txt");
+    assert_eq!(file.index, Some(GitPathChange::Modified));
+    assert_eq!(file.worktree, None);
+}
+
+#[test]
+fn a_commit_clears_the_index() {
+    let dir = repository();
+    fs::write(dir.path().join("file.txt"), b"changed\n").unwrap();
+    write::apply_at(
+        dir.path(),
+        &[],
+        &GitWriteOp::Stage {
+            rel_path: "file.txt".into(),
+        },
+    )
+    .unwrap();
+    write::apply_at(
+        dir.path(),
+        &[],
+        &GitWriteOp::Commit {
+            message: "second".into(),
+            amend: false,
+        },
+    )
+    .unwrap();
+    let found = observe(dir.path(), 1, true, &[]).unwrap();
+    assert!(
+        found
+            .tree
+            .map(|tree| tree.entries.is_empty())
+            .unwrap_or(true),
+        "the working tree is clean after a commit"
+    );
+    let overview = found.overview.expect("a repository");
+    match overview.head {
+        GitHead::Branch(name) => assert_eq!(name, "main"),
+        other => panic!("expected main, got {other:?}"),
+    }
+}
+
+#[test]
+fn an_empty_message_is_refused() {
+    let dir = repository();
+    let error = write::apply_at(
+        dir.path(),
+        &[],
+        &GitWriteOp::Commit {
+            message: "   ".into(),
+            amend: false,
+        },
+    )
+    .unwrap_err();
+    assert!(
+        matches!(error, ubiq_proto::git::GitError::Failed(reason) if reason.contains("message"))
+    );
+}
+
+#[test]
+fn fetch_all_updates_the_remote_tracking_ref() {
+    let origin = repository();
+    let local = TempDir::new().unwrap();
+    git(
+        local.path(),
+        &["clone", "-q", origin.path().to_str().unwrap(), "."],
+    );
+    identity(local.path());
+    fs::write(origin.path().join("file.txt"), b"from origin\n").unwrap();
+    git(origin.path(), &["commit", "-q", "-am", "origin moved"]);
+
+    write::apply_at(local.path(), &[], &GitWriteOp::FetchAll).unwrap();
+
+    let overview = observe(local.path(), 1, false, &[])
+        .unwrap()
+        .overview
+        .expect("a repository");
+    assert_eq!(overview.behind, Some(1));
+}
+
+#[test]
+fn pull_fast_forwards_to_the_upstream() {
+    let origin = repository();
+    let local = TempDir::new().unwrap();
+    git(
+        local.path(),
+        &["clone", "-q", origin.path().to_str().unwrap(), "."],
+    );
+    identity(local.path());
+    fs::write(origin.path().join("file.txt"), b"from origin\n").unwrap();
+    git(origin.path(), &["commit", "-q", "-am", "origin moved"]);
+
+    write::apply_at(local.path(), &[], &GitWriteOp::Pull).unwrap();
+
+    let body = fs::read_to_string(local.path().join("file.txt")).unwrap();
+    assert_eq!(body, "from origin\n");
+    let found = observe(local.path(), 1, true, &[]).unwrap();
+    assert!(
+        found
+            .tree
+            .map(|tree| tree.entries.is_empty())
+            .unwrap_or(true)
+    );
+}
+
+#[test]
+fn push_sends_the_current_branch() {
+    let origin = TempDir::new().unwrap();
+    git(origin.path(), &["init", "-q", "-b", "main", "--bare"]);
+    let local = repository();
+    git(
+        local.path(),
+        &["remote", "add", "origin", origin.path().to_str().unwrap()],
+    );
+    git(local.path(), &["push", "-q", "-u", "origin", "main"]);
+    fs::write(local.path().join("file.txt"), b"pushed\n").unwrap();
+    write::apply_at(
+        local.path(),
+        &[],
+        &GitWriteOp::Stage {
+            rel_path: "file.txt".into(),
+        },
+    )
+    .unwrap();
+    write::apply_at(
+        local.path(),
+        &[],
+        &GitWriteOp::Commit {
+            message: "to push".into(),
+            amend: false,
+        },
+    )
+    .unwrap();
+    write::apply_at(local.path(), &[], &GitWriteOp::Push).unwrap();
+
+    let mirror = TempDir::new().unwrap();
+    git(
+        mirror.path(),
+        &["clone", "-q", origin.path().to_str().unwrap(), "."],
+    );
+    let body = fs::read_to_string(mirror.path().join("file.txt")).unwrap();
+    assert_eq!(body, "pushed\n");
 }

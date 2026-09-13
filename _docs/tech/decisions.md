@@ -365,7 +365,7 @@ discovered by the half that wrote it.
 Everything Ubiq remembers about a project lives under its own config root, keyed by the project's
 ULID. Forgetting a project then cleans up completely, a read-only or missing folder still has its
 view state, no repository acquires a file to gitignore, and no team has to agree on one. The git
-directory is inside the project's folder, so this covers it too: the host never writes a ref, never
+directory is inside the project's folder, so this covers it too: a *read* never writes a ref, never
 stages, and never lets libgit2 refresh the index stat cache.
 
 That root is movable — `--config-root`, then `UBIQ_CONFIG_DIR`, then the nearest `ubiq.toml`, then
@@ -376,6 +376,11 @@ is precisely the accident the mechanism exists to prevent.
 **Cost:** a config root you cannot see is a foot-gun, which is why the status bar says when it is
 not the default. Redirecting the embedded harness library's own roots is not done yet, so a
 development run is self-contained only as far as Ubiq's own stores, which is filed as a gap.
+
+**Half reversed by `D122`.** What reversed is "never stages, never writes a ref": the Git screen's
+`WriteProjectGit` mutates the repository the user asked it to. What stands is the half that
+mattered for Ubiq's own files — nothing Ubiq owns lands in the project's folder — and the half
+that keeps a status walk from touching the index.
 
 ### D31 — Locating a project is its own message, and the interface chooses the colour
 
@@ -724,23 +729,20 @@ nothing change on the other, because a column and a card are not the same claim 
 
 `Git` is a rail mode beside `IDE`, holding the refs, the history, the uncommitted changes and the
 diff on one screen. It draws the working tree from the pairs the git family sends and the
-comparison from the file family's `DiffProjectFile`; its branch list and its log are fixtures until
-the family carries them. Nothing on it writes: the actions a write version would offer are drawn
-inert, and the toolbar says why.
+comparison from the file family's `DiffProjectFile`.
 
 **Why:** the explorer's badges answer "is this file changed" and the status bar's branch answers
 "where am I", and neither can answer "what has this repository been doing" — which is the question
 a user asks before every commit and after every agent's turn. A screen is also where the *pair*
-finally has somewhere to go: staged and unstaged are two lists here and one badge in the tree, so
-the fact the wire carries stops being thrown away at the edge. Drawing the write shape
-and refusing to wire it is what keeps the read version shippable: the layout is settled, and the
-write family is one message set rather than a redesign.
+finally has somewhere to go: the wire still carries both sides, and the lists here are where that
+fact is read.
 
-**Cost:** a screen whose two most eye-catching areas are invented, which is a standing obligation
-to say so — in its module headers, on the screen itself, and in `G83`. Controls that do nothing,
-which is a defect anywhere else in this interface and is only defensible because the toolbar names
-the reason. And a staged row compared against HEAD rather than the index, because the file family
-has no third base — `G85`.
+**Cost:** a staged row compared against HEAD rather than the index, because the file family has no
+third base — `G85`.
+
+**Half reversed by `D122`.** What reversed is "nothing on it writes": stage, unstage, commit, fetch,
+pull and push go through `WriteProjectGit`. What stands is the screen itself, and branch, stash
+and undo, which stay drawn and inert (`G84`).
 
 ### D49 — A shell pane is a login shell, and which shells exist is the host's answer
 
@@ -1212,13 +1214,13 @@ like a small convenience and would not be one.
 ### D72 — `git2` gains an https transport, for cloning and nothing else
 
 `git2` is linked for reading a repository that sits on disk, which needs no transport at all. Cloning one into existence does, so the crate is compiled with `features = ["https"]`.
-The read-only rule survives the change intact: a clone creates a repository where there was none,
-and every operation after it is the same read it always was — see
-[`version-control.md`](./version-control.md).
 
-**Cost:** a larger dependency tree and a TLS stack in the host that only one code path uses, plus a
-standing invitation to reach for `push` or `fetch`, since the transport is in the build. What stops
-that is the rule, not the build.
+**Cost:** a larger dependency tree and a TLS stack in the host, plus a standing invitation to reach
+for `push` or `fetch`, since the transport is in the build.
+
+**Half reversed by `D122`.** What reversed is "and nothing else": fetch, pull and push use the same
+https transport. What stands is ssh staying out, and a clone still being the write that creates a
+repository where there was none.
 
 ### D73 — A clone runs on its own thread, never on the git worker
 
@@ -2498,6 +2500,27 @@ which it is.
 
 **Cost.** A comment typed in a window is always `user`, even if the person is pasting an agent's
 words. There is no third author.
+
+### D122 — The Git screen writes, on the git worker's thread
+
+Stage, unstage, commit, fetch, pull and push go through `WriteProjectGit` and run on the git
+worker — the same thread that reads. The per-project `Repository` handle stays un-mutexed: the
+thread is the lock. A successful write re-observes as a full refresh. Pull is a fast-forward or a
+refusal. Credentials are git's credential helper and the ssh agent.
+
+The alternative was to keep the screen read-only (`D48`) and leave every mutation to the agents in
+the panes. That made a second writer a correctness problem. An explicit click on the Git screen is
+a different kind of writer: the user asked, and the worker serialises the click against its own
+reads.
+
+**Why.** G84 named the cache as the thing that had to change before the first write. Putting writes
+on the existing worker changes nothing about the cache's shape. A mutex would be the right lock if
+a second thread ever touched those handles; this thread is the only one that does.
+
+**Cost.** The worker serialises Ubiq's own writes, not an agent's `git commit` in the same second.
+Pull refuses anything that is not a fast-forward, so a diverged branch is a terminal and not a
+merge. Fetch, pull and push over https use the credential helper, not a connector (`G145`).
+Branch, stash and undo stay inert (`G84`).
 
 ## Related docs
 

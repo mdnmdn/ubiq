@@ -54,6 +54,7 @@ fn a_task_with_everything_on_it_survives_the_wire_unchanged() {
         key: Some("UBQ-1".to_string()),
         link: Some("https://tracker.example/1".to_string()),
         labels: vec![Label::new("urgent".to_string(), 1)],
+        colour: Some(3),
         title: "Split the work family off the session family".to_string(),
         // Markdown the host stores and never parses. The newlines and the markers are exactly what
         // a serialiser that decided to be clever would tidy away.
@@ -111,6 +112,10 @@ fn what_a_task_does_not_have_is_absent_from_the_encoding_rather_than_null() {
     assert!(
         !json.contains("comment"),
         "no comments is no array, not an empty one: {json}"
+    );
+    assert!(
+        !json.contains("colour"),
+        "a card with no colour of its own names none: {json}"
     );
     // The keys that are always there, so the absences above are absences and not a typo.
     for key in ["id", "status", "priority", "title", "created_at"] {
@@ -428,9 +433,11 @@ fn each_state_lists_every_one_of_its_variants_exactly_once() {
         [
             Status::Backlog,
             Status::Ready,
+            Status::Blocked,
             Status::InProgress,
             Status::InReview,
             Status::Done,
+            Status::Abandoned,
         ],
         "the order is the order the board draws them in"
     );
@@ -467,9 +474,11 @@ fn each_state_lists_every_one_of_its_variants_exactly_once() {
         match status {
             Status::Backlog
             | Status::Ready
+            | Status::Blocked
             | Status::InProgress
             | Status::InReview
-            | Status::Done => {}
+            | Status::Done
+            | Status::Abandoned => {}
         }
     }
     for shape in shapes {

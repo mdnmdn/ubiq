@@ -45,6 +45,69 @@ impl AppState {
         cx.notify();
     }
 
+    /// Stage one path in the project's repository.
+    pub fn stage_git_path(&mut self, path: &str, cx: &mut Context<Self>) {
+        self.write_git(
+            GitWriteOp::Stage {
+                rel_path: path.to_string(),
+            },
+            false,
+            cx,
+        );
+    }
+
+    /// Take one path out of the index.
+    pub fn unstage_git_path(&mut self, path: &str, cx: &mut Context<Self>) {
+        self.write_git(
+            GitWriteOp::Unstage {
+                rel_path: path.to_string(),
+            },
+            false,
+            cx,
+        );
+    }
+
+    /// Commit what is staged, with the message in the commit box. A blank message is a no-op.
+    pub fn commit_git(&mut self, cx: &mut Context<Self>) {
+        let message = self.git_message.read(cx).value().trim().to_string();
+        if message.is_empty() {
+            return;
+        }
+        let amend = self.git_view(cx).is_some_and(|git| git.amend);
+        self.write_git(GitWriteOp::Commit { message, amend }, true, cx);
+    }
+
+    pub fn fetch_all_git(&mut self, cx: &mut Context<Self>) {
+        self.write_git(GitWriteOp::FetchAll, true, cx);
+    }
+
+    pub fn pull_git(&mut self, cx: &mut Context<Self>) {
+        self.write_git(GitWriteOp::Pull, true, cx);
+    }
+
+    pub fn push_git(&mut self, cx: &mut Context<Self>) {
+        self.write_git(GitWriteOp::Push, true, cx);
+    }
+
+    fn write_git(&mut self, op: GitWriteOp, refresh_history: bool, cx: &mut Context<Self>) {
+        let Some(project_id) = self.project(cx) else {
+            return;
+        };
+        self.bus.send(Message::WriteProjectGit { project_id, op });
+        if refresh_history {
+            self.bus.send(Message::ProjectGitRefs {
+                project_id,
+                with_tracking: true,
+            });
+            if let Some(git) = self.git_view_mut(cx) {
+                git.log_cursor = None;
+                git.log_inflight = Some(None);
+            }
+            self.send_git_log(None, cx);
+        }
+        cx.notify();
+    }
+
     /// Ask for the next page of history — what a "load more" trigger at the bottom of the list
     /// sends. A no-op with a page already in flight or nothing left to page in, on the same
     /// `log_inflight`/`log_done` bookkeeping `refresh_git` and `receive_git` already keep.

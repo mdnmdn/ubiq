@@ -20,7 +20,7 @@
 
 use gpui::{
     AnyElement, App, Context, Entity, Focusable, InteractiveElement, IntoElement, ParentElement,
-    SharedString, StatefulInteractiveElement, Styled, Window, div, px,
+    SharedString, StatefulInteractiveElement, Styled, Window, div, prelude::FluentBuilder, px,
 };
 use gpui_component::input::{Input, InputState, Textarea};
 use gpui_component::text::TextView;
@@ -450,6 +450,43 @@ fn label_picker(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -
                 .gap_1()
                 .children(swatches)
         }))
+        .into_any_element()
+}
+
+/// The card's own left-edge swatch. Optional: a pick of none is a card that reads the pulse of
+/// whatever is happening in it, which is the default.
+pub fn colour(task: &TaskRecord, cx: &mut Context<AppState>) -> AnyElement {
+    let swatches: Vec<AnyElement> = (0..theme::project_colour_count())
+        .map(|index| {
+            let colour = theme::project_colour(index);
+            let lit = task.colour == Some(index);
+            div()
+                .id(("board-task-swatch", index as u32))
+                .size(px(16.))
+                .flex_none()
+                .bg(colour)
+                .when(lit, |this| this.border_2().border_color(theme::text()))
+                .cursor_pointer()
+                .hover(|this| this.opacity(0.7))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.set_task_colour(Some(index), cx);
+                }))
+                .into_any_element()
+        })
+        .collect();
+
+    div()
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .gap_1p5()
+        .child(choice_pill(
+            "board-task-colour-none",
+            "none",
+            task.colour.is_none(),
+            cx.listener(|this, _, _, cx| this.set_task_colour(None, cx)),
+        ))
+        .children(swatches)
         .into_any_element()
 }
 

@@ -143,7 +143,7 @@ pub enum PanelKind {
     Outline,
     /// Git refs explorer: branches, remotes, tags, stashes, submodules.
     GitRefs,
-    /// Git changes panel: staged/unstaged/conflicted files and commit message box.
+    /// Git changes panel: modified/untracked/conflicted files and commit message box.
     GitChanges,
     /// Git commit history panel: commit graph with search and filters.
     GitHistory,

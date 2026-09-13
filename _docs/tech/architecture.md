@@ -229,9 +229,9 @@ repository, takes the blob at `HEAD` or the one staged in the index, works the h
 numbers out, and sends them — which is what keeps a diff library out of the interface, on the
 discipline that keeps a VT parser out of the host. The overview and the working-tree map live in
 `crates/ubiq-host/src/git/` on a worker of their own, because a cold status on a large repository is
-seconds and seconds on the files worker would stall every expand behind it. Neither half writes
-into a repository: status walks with the index-stat refresh turned off, and the git directory is
-inside the project's folder, so `D30` covers it.
+seconds and seconds on the files worker would stall every expand behind it. Status walks with the
+index-stat refresh turned off, so a *read* cannot touch the index (`D30`). The Git screen's writes
+run on that same worker (`D122`).
 
 Four behaviours follow, and each is a thing the interface must not have to guess. The repository is
 looked for **upward from the project's root**, so a project that is a folder inside one is compared

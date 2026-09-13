@@ -28,6 +28,8 @@ pub enum UbiqIcon {
     AnnotateSelect,
     /// place a line of text on the picture
     AnnotateText,
+    /// how many comments a task has, as a speech balloon
+    BoardComment,
     /// photograph this window into an editable tab — the picture, not just a frame
     CaptureWindow,
     /// a notification from a connector
@@ -146,6 +148,7 @@ impl IconNamed for UbiqIcon {
             Self::AnnotateRect => "icons/annotate-rect.svg",
             Self::AnnotateSelect => "icons/annotate-select.svg",
             Self::AnnotateText => "icons/annotate-text.svg",
+            Self::BoardComment => "icons/board-comment.svg",
             Self::CaptureWindow => "icons/capture-window.svg",
             Self::FamilyConnectors => "icons/family-connectors.svg",
             Self::FamilyUbiq => "icons/family-ubiq.svg",
@@ -212,6 +215,7 @@ pub const ALL: &[UbiqIcon] = &[
     UbiqIcon::AnnotateRect,
     UbiqIcon::AnnotateSelect,
     UbiqIcon::AnnotateText,
+    UbiqIcon::BoardComment,
     UbiqIcon::CaptureWindow,
     UbiqIcon::FamilyConnectors,
     UbiqIcon::FamilyUbiq,
@@ -288,6 +292,7 @@ pub fn bytes(path: &str) -> Option<&'static [u8]> {
         "icons/annotate-rect.svg" => ours!("annotate-rect"),
         "icons/annotate-select.svg" => ours!("annotate-select"),
         "icons/annotate-text.svg" => ours!("annotate-text"),
+        "icons/board-comment.svg" => ours!("board-comment"),
         "icons/capture-window.svg" => ours!("capture-window"),
         "icons/family-connectors.svg" => ours!("family-connectors"),
         "icons/family-ubiq.svg" => ours!("family-ubiq"),

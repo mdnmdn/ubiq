@@ -7,17 +7,18 @@
 //! than of one session. Which is why a card carries an agent's name and a state: the screens are
 //! three questions about one set of facts, not three sets.
 //!
-//! **A card draws what it has.** A key, a kind, labels, a shape, a session, a link — each is drawn
-//! where somebody filled it in and takes no space where nobody did, down to the whole bottom row
-//! going away. A row saying a task has none of those would take the same space as one saying it
-//! has all of them, and say nothing.
+//! **A card draws what it has.** A key, a kind, labels, a colour, a shape, a session, a link, a
+//! comment count — each is drawn where somebody filled it in and takes no space where nobody did,
+//! down to the whole bottom row going away. A row saying a task has none of those would take the
+//! same space as one saying it has all of them, and say nothing.
 //!
 //! Three things on it are live. **A task is asked for** from the filter field — one field to find
 //! work and to name it — and lands in the backlog. **A card is dragged**, and unlike the graph's
 //! canvas the target is a box rather than a point: a task is filed somewhere rather than placed
 //! anywhere. The column it lands in lights up and the gap it lands in is marked with a bar, and
 //! the gap is a card's answer — each card claims the pointer over its own half before the column
-//! behind it does, which leaves the column meaning the end of itself.
+//! behind it does, which leaves the column meaning the end of itself. **A wheel over a lane moves
+//! that lane**, not the board sideways.
 //! **A column and a card both shut**, to a strip and to a title, because a board is read by
 //! ignoring most of it.
 //!
@@ -32,8 +33,8 @@ pub mod form;
 
 use gpui::{
     AnyElement, App, AppContext as _, Context, DragMoveEvent, Focusable, InteractiveElement,
-    IntoElement, ParentElement, Render, Rgba, SharedString, StatefulInteractiveElement, Styled,
-    Window, div, prelude::FluentBuilder, px,
+    IntoElement, ParentElement, Render, Rgba, ScrollWheelEvent, SharedString,
+    StatefulInteractiveElement, Styled, Window, div, prelude::FluentBuilder, px,
 };
 use gpui_component::input::Input;
 use gpui_component::{Icon, IconName, Sizable as _, Size};
@@ -47,7 +48,7 @@ use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::eid;
 use crate::ui::kit::{
-    card, choice_pill, field, ghost_button, meter, mono, pill, primary_button, section_label,
+    UbiqIcon, card, field, ghost_button, meter, mono, pill, primary_button, section_label,
     toggle_pill,
 };
 use crate::ui::work::{activity_colour, bucket_colour};
@@ -81,9 +82,11 @@ pub fn status_colour(status: Status) -> Rgba {
     match status {
         Status::Backlog => theme::text_faint(),
         Status::Ready => theme::info(),
+        Status::Blocked => theme::danger(),
         Status::InProgress => theme::success(),
         Status::InReview => theme::warning(),
         Status::Done => theme::accent_muted(),
+        Status::Abandoned => theme::text_muted(),
     }
 }
 
@@ -124,35 +127,19 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
         .into_any_element()
 }
 
-/// The strip over the columns: what is being looked for, whose work it is, and the way to add one.
+/// The strip over the columns: what is being looked for, and the way to add one.
 ///
-/// Every filter on it clears. The session row leads with an `all` that draws every session, and a
-/// label row with nothing lit is not filtering — so a board emptied by a filter is always one click
-/// from being full again, and the control at the end does the whole row at once. It is drawn only
-/// while something is being hidden: a reset with nothing to reset is a button that lies.
+/// Every filter on it clears. A label row with nothing lit is not filtering — so a board emptied
+/// by a filter is always one click from being full again, and the control at the end does the
+/// whole row at once. It is drawn only while something is being hidden: a reset with nothing to
+/// reset is a button that lies.
 fn toolbar(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl IntoElement {
     let (Some(work), Some(board)) = (app.work(cx), app.board(cx)) else {
         return div().into_any_element();
     };
 
-    let sessions: Vec<AnyElement> = work
-        .sessions
-        .iter()
-        .map(|session| {
-            let id = session.id;
-            choice_pill(
-                eid("board-session", id),
-                session.name.clone(),
-                board.session == Some(id),
-                cx.listener(move |this, _, _, cx| this.pick_board_session(Some(id), cx)),
-            )
-            .into_any_element()
-        })
-        .collect();
-
     // One pill per label anybody in the project has used, in the swatch that label was given. The
-    // pills narrow together rather than in turn, which is why they are switches and the session row
-    // beside them is a choice.
+    // pills narrow together rather than in turn: lighting a second one asks a narrower question.
     let labels: Vec<AnyElement> = work
         .labels()
         .into_iter()
@@ -190,13 +177,6 @@ fn toolbar(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl 
                 .flex_wrap()
                 .items_center()
                 .gap_1p5()
-                .child(choice_pill(
-                    "board-session-all",
-                    "all sessions",
-                    board.session.is_none(),
-                    cx.listener(|this, _, _, cx| this.pick_board_session(None, cx)),
-                ))
-                .children(sessions)
                 .children(labels),
         )
         .children(board.filtering().then(|| {
@@ -247,7 +227,6 @@ fn columns(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         .min_h(px(0.))
         .p_3()
         .gap_2()
-        .overflow_x_scroll()
         .children(
             Status::all()
                 .into_iter()
@@ -265,7 +244,7 @@ fn column(app: &AppState, status: Status, cx: &mut Context<AppState>) -> AnyElem
     let lit = board.carry.is_some_and(|carry| carry.over == Some(status));
     let colour = status_colour(status);
     // The three ids on a column key off the enum's discriminant rather than an id: a column is one
-    // of five stages, not a record, so there is nothing here for a ULID to name.
+    // of the stages, not a record, so there is nothing here for a ULID to name.
     let key = status as u32;
 
     let mut root = div()
@@ -276,26 +255,30 @@ fn column(app: &AppState, status: Status, cx: &mut Context<AppState>) -> AnyElem
             theme::COLUMN_WIDTH
         }))
         .flex()
-        .flex_none()
+        .when(shut, |this| this.flex_none())
+        .when(!shut, |this| this.flex_1().min_w(px(160.)))
         .flex_col()
+        .min_h(px(0.))
         .bg(theme::pane_bg())
         .border_l(px(theme::accent_edge()))
         .border_color(if lit { theme::accent() } else { colour })
         // The column a drop would file the card into says so by lighting up, which is the only
         // answer the user gets before letting go.
         .when(lit, |this| this.bg(theme::accent_soft()))
-        // A drag that never enters a column changes nothing: the pointer has to be inside this
-        // box for it to claim the drop. The column means the *end* of itself — a card claims the
-        // gap it is over before this sees the pointer, so what is left is the space under them all,
-        // and the empty column.
+        // Entering the column names the column, not a place in it. A card overwrites `before`
+        // with the gap it is over; the space under the cards claims the end. Resetting `before`
+        // here on every move is what put every drop at the bottom of the lane.
         .on_drag_move(
             cx.listener(move |this, event: &DragMoveEvent<Dragged>, _, cx| {
                 if event.bounds.contains(&event.event.position) {
-                    this.drag_task_over(status, None, cx);
+                    this.drag_task_column(status, cx);
                 }
             }),
         )
-        .on_drop(cx.listener(move |this, _: &Dragged, _, cx| this.drop_task(status, None, cx)));
+        .on_drop(cx.listener(move |this, _: &Dragged, _, cx| {
+            let before = this.board(cx).and_then(|board| board.carry?.before);
+            this.drop_task(status, before, cx);
+        }));
 
     if shut {
         // Shut, a column is a strip that still counts and still takes a drop. The name is written
@@ -352,9 +335,13 @@ fn column(app: &AppState, status: Status, cx: &mut Context<AppState>) -> AnyElem
     if gap == Some(None) {
         cards.push(marker());
     }
+    // The space under the cards is the end of the column, claimed on purpose rather than as
+    // whatever the column-wide handler left over. A wheel over the lane stays in the lane.
+    cards.push(column_tail(status, cx));
 
     let body = if empty {
         div()
+            .id(("board-column-body", key))
             .flex()
             .flex_1()
             .min_h(px(0.))
@@ -377,6 +364,7 @@ fn column(app: &AppState, status: Status, cx: &mut Context<AppState>) -> AnyElem
             .p_2()
             .gap_2()
             .overflow_y_scroll()
+            .on_scroll_wheel(cx.listener(|_, _: &ScrollWheelEvent, _, cx| cx.stop_propagation()))
             .children(cards)
             .into_any_element()
     };
@@ -423,6 +411,27 @@ fn marker() -> AnyElement {
         .into_any_element()
 }
 
+/// The empty space under the cards: a drop here is the end of the column.
+fn column_tail(status: Status, cx: &mut Context<AppState>) -> AnyElement {
+    div()
+        .id(("board-column-tail", status as u32))
+        .flex_1()
+        .min_h(px(24.))
+        .w_full()
+        .on_drag_move(
+            cx.listener(move |this, event: &DragMoveEvent<Dragged>, _, cx| {
+                if event.bounds.contains(&event.event.position) {
+                    this.drag_task_over(status, None, cx);
+                }
+            }),
+        )
+        .on_drop(cx.listener(move |this, _: &Dragged, _, cx| {
+            cx.stop_propagation();
+            this.drop_task(status, None, cx);
+        }))
+        .into_any_element()
+}
+
 /// A word on a card, in the colour of whatever it is a word about.
 ///
 /// Smaller than the panel's tag: a card carries several of these at once and is read from across a
@@ -451,7 +460,10 @@ fn task_card(
         return div().into_any_element();
     };
     let id = task.id;
-    let colour = bucket_colour(work.pulse(task));
+    let colour = task
+        .colour
+        .map(theme::project_colour)
+        .unwrap_or_else(|| bucket_colour(work.pulse(task)));
     let selected = board.selected == Some(id) && board.show_detail;
     let folded = board.is_folded(id);
     let carried = board.carry.is_some_and(|carry| carry.task == id);
@@ -556,6 +568,7 @@ fn task_card(
             root = root.child(meter(work::fraction(task), colour));
         }
         root = root.child(now_line(app, task, cx));
+        root = root.children(comment_mark(task));
     }
 
     let status = task.status;
@@ -702,6 +715,32 @@ fn issue_provider(url: &str) -> (IconName, &'static str) {
     } else {
         (IconName::ExternalLink, "link")
     }
+}
+
+/// How many comments the task has, as a balloon and a count. Absent when there are none, so a
+/// card without comments does not spend a row saying so.
+fn comment_mark(task: &TaskRecord) -> Option<AnyElement> {
+    let count = task.comments.len();
+    if count == 0 {
+        return None;
+    }
+    Some(
+        div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap_1()
+            .child(
+                Icon::new(UbiqIcon::BoardComment)
+                    .with_size(Size::XSmall)
+                    .text_color(theme::text_faint()),
+            )
+            .child(
+                mono(format!("{count}"), theme::text_muted())
+                    .text_size(theme::font(Family::Chrome, Role::Meta)),
+            )
+            .into_any_element(),
+    )
 }
 
 /// The bottom line of a card: the agent holding the task and what it is saying, or — when nobody

@@ -838,6 +838,7 @@ mod tests {
             key: None,
             link: None,
             labels: Vec::new(),
+            colour: None,
             title: "task".to_string(),
             description: String::new(),
             steps: Vec::new(),

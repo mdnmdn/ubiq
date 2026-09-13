@@ -146,7 +146,7 @@ five echoing replies, `ProjectFileError`, and `ProjectFilesChanged`.
 
 ### 6. Git — a project's repository
 
-`ProjectGit`, `RefreshProjectGit`, `ProjectGitLog`, `ProjectGitRefs`; `GitOverview`,
+`ProjectGit`, `RefreshProjectGit`, `ProjectGitLog`, `ProjectGitRefs`, `WriteProjectGit`; `GitOverview`,
 `GitWorkingTree`, `GitLogPage`, `GitRefs`, `GitError`.
 
 Nothing broadcast — a project is open in exactly one window. No absolute path crosses. `overview`

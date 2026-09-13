@@ -254,6 +254,7 @@ fn body(
                 .child(fact("Link", form::link(app, task, window, cx)))
                 .child(fact("Kind", form::kind_pills(task, cx)))
                 .child(fact("Labels", form::labels(app, task, cx)))
+                .child(fact("Colour", form::colour(task, cx)))
                 .child(fact("Now", now)),
         )
         .child(form::description(app, task, window, cx))

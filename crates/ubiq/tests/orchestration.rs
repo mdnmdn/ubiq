@@ -80,6 +80,7 @@ fn task(id: TaskId, session: SessionId, title: &str, owners: &[Option<AgentId>])
         key: None,
         link: None,
         labels: Vec::new(),
+        colour: None,
         title: title.to_string(),
         description: String::new(),
         steps: owners

@@ -30,10 +30,11 @@ use ubiq_proto::notifications::{Family, NotificationRequest, UbiqLink};
 use crate::state::sink::{CHOICES, FACETS, MENU_ITEMS, SinkModal};
 use crate::theme;
 use crate::ui::kit::{
-    ContextItem, Picker, PickerStyle, Tab, badge, card, check_box, choice_pill, context_panel,
-    disclosure, file_row, filter_bar, ghost_button, hint_row, icon_button, kind_icon, label_hint,
-    meter, mono, panel_header, pill, primary_button, progress_ring, removable_tag, row_font,
-    section_label, slab, state_chip, status_dot, stepper, tab_strip, toggle_pill, view_switch,
+    ContextItem, Picker, PickerStyle, RIBBON_SIZE, RibbonCorner, Tab, badge, card, check_box,
+    choice_pill, context_panel, disclosure, file_row, filter_bar, ghost_button, hint_row,
+    icon_button, kind_icon, label_hint, meter, mono, panel_header, pill, primary_button,
+    progress_ring, removable_tag, ribbon, row_font, section_label, slab, state_chip, status_dot,
+    stepper, tab_strip, toggle_pill, view_switch,
 };
 use crate::ui::{handler, indexed};
 
@@ -51,6 +52,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
         .child(typography())
         .child(surfaces(cx))
         .child(controls(app, cx))
+        .child(ribbons())
         .child(files(app, cx))
         .child(fields(app, window, cx))
         .child(modals(cx))
@@ -91,6 +93,11 @@ fn tokens() -> AnyElement {
         ("warning_soft", theme::warning_soft()),
         ("info", theme::info()),
         ("info_soft", theme::info_soft()),
+        ("ribbon_alpha", theme::ribbon_alpha()),
+        ("ribbon_beta", theme::ribbon_beta()),
+        ("ribbon_ink", theme::ribbon_ink()),
+        ("ribbon_experimental", theme::ribbon_experimental()),
+        ("ribbon_experimental_ink", theme::ribbon_experimental_ink()),
         ("selection_background", theme::selection_background()),
         ("link_underline", theme::link_underline()),
         ("link_underline_hover", theme::link_underline_hover()),
@@ -617,6 +624,61 @@ fn controls(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         "A toggle is an independent facet; a choice is one value of a set. Off keeps its outline \
          so turning it back on does not move the row.",
         vec![buttons, hinted, pills, tags, reports, level],
+    )
+}
+
+/// One ribbon per corner, in a box the size of the band, so a missing rotation or a word that
+/// no longer fits the diagonal shows up here rather than on a screen.
+fn ribbons() -> AnyElement {
+    let box_of = |name: &str, word: &str, corner: RibbonCorner, band: Rgba, ink: Rgba| {
+        labelled(
+            name,
+            div()
+                .relative()
+                .size(px(RIBBON_SIZE))
+                .bg(theme::surface())
+                .border_1()
+                .border_color(theme::border())
+                .child(ribbon(word, corner, band, ink))
+                .into_any_element(),
+        )
+    };
+
+    group(
+        "Ribbon",
+        "A word across one corner of its parent. The parent is relative; the band is absolute. \
+         The build ribbon and Git's experimental ribbon are this function with a different \
+         corner, word and pair of tokens.",
+        vec![row(vec![
+            box_of(
+                "BottomLeft",
+                "alpha",
+                RibbonCorner::BottomLeft,
+                theme::ribbon_alpha(),
+                theme::ribbon_ink(),
+            ),
+            box_of(
+                "TopLeft",
+                "experimental",
+                RibbonCorner::TopLeft,
+                theme::ribbon_experimental(),
+                theme::ribbon_experimental_ink(),
+            ),
+            box_of(
+                "TopRight",
+                "beta",
+                RibbonCorner::TopRight,
+                theme::ribbon_beta(),
+                theme::ribbon_ink(),
+            ),
+            box_of(
+                "BottomRight",
+                "wip",
+                RibbonCorner::BottomRight,
+                theme::ribbon_experimental(),
+                theme::ribbon_experimental_ink(),
+            ),
+        ])],
     )
 }
 

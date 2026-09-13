@@ -86,7 +86,7 @@ use ubiq_proto::assist::{
 use ubiq_proto::bus;
 use ubiq_proto::connectors::{AuthKind, ConnectStage, ProviderId, origin};
 use ubiq_proto::files::{DiffBase, FileContents, FileError, PathOp};
-use ubiq_proto::git::{GitEntry, GitError as GitFailure, GitNested, RepoOverview};
+use ubiq_proto::git::{GitEntry, GitError as GitFailure, GitNested, GitWriteOp, RepoOverview};
 use ubiq_proto::ids::{
     AiProviderId, ConnectId, ConnectionId, OauthAppId, PaneId, ProjectId, SearchId, SessionId,
     StepId, SuggestId, TaskId, ToolId,

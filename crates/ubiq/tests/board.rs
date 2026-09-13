@@ -81,6 +81,7 @@ fn task(
         key: None,
         link: None,
         labels: Vec::new(),
+        colour: None,
         title: title.to_string(),
         description: String::new(),
         steps: steps
@@ -813,9 +814,11 @@ fn the_status_bar_counts_only_the_cards_the_filters_leave_on_screen() {
         vec![
             (Status::Backlog, 2),
             (Status::Ready, 0),
+            (Status::Blocked, 0),
             (Status::InProgress, 2),
             (Status::InReview, 0),
             (Status::Done, 0),
+            (Status::Abandoned, 0),
         ]
     );
     assert_eq!(board.steps(&f.work), (2, 4));
@@ -831,9 +834,11 @@ fn the_status_bar_counts_only_the_cards_the_filters_leave_on_screen() {
         vec![
             (Status::Backlog, 1),
             (Status::Ready, 0),
+            (Status::Blocked, 0),
             (Status::InProgress, 1),
             (Status::InReview, 0),
             (Status::Done, 0),
+            (Status::Abandoned, 0),
         ]
     );
     assert_eq!(board.steps(&f.work), (2, 3));
@@ -874,4 +879,69 @@ fn picking_a_card_opens_the_panel_and_a_shut_panel_reports_nothing() {
     board.show_detail = true;
     board.selected = Some(TaskId::generate());
     assert!(board.open_task(&f.work).is_none(), "no such task");
+}
+
+/// Entering a column names the column, not a place in it. A later card in the same column is
+/// allowed to name the gap; a drag-move on the column itself must not wipe that gap back to the
+/// end, which is how every drop used to land at the bottom of the lane.
+#[test]
+fn entering_a_column_does_not_clear_the_gap_a_card_already_named() {
+    let f = seeded();
+    let mut board = BoardState::default();
+    board.start_carry(f.parser);
+
+    assert!(board.carry_over_column(Status::InProgress));
+    assert_eq!(board.carry.unwrap().before, None);
+    assert!(board.carry_over(Status::InProgress, Some(f.pane)));
+    assert!(!board.carry_over_column(Status::InProgress));
+    assert_eq!(
+        board.carry.unwrap().before,
+        Some(f.pane),
+        "still the gap the card named"
+    );
+
+    assert!(board.carry_over_column(Status::Done));
+    assert_eq!(
+        board.carry.unwrap().before,
+        None,
+        "a new column starts at the end of itself"
+    );
+}
+
+#[test]
+fn placing_a_card_splices_it_in_front_of_the_named_neighbour() {
+    let mut f = seeded();
+    let backlog: Vec<TaskId> = f
+        .work
+        .tasks
+        .iter()
+        .filter(|t| t.status == Status::Backlog)
+        .map(|t| t.id)
+        .collect();
+    assert_eq!(backlog, vec![f.parser, f.unstarted]);
+
+    f.work.place(f.unstarted, Status::Backlog, Some(f.parser));
+    let backlog: Vec<TaskId> = f
+        .work
+        .tasks
+        .iter()
+        .filter(|t| t.status == Status::Backlog)
+        .map(|t| t.id)
+        .collect();
+    assert_eq!(backlog, vec![f.unstarted, f.parser]);
+
+    f.work
+        .place(f.unstarted, Status::Backlog, Some(f.unstarted));
+    let backlog: Vec<TaskId> = f
+        .work
+        .tasks
+        .iter()
+        .filter(|t| t.status == Status::Backlog)
+        .map(|t| t.id)
+        .collect();
+    assert_eq!(
+        backlog,
+        vec![f.unstarted, f.parser],
+        "a drop onto itself stays put rather than falling to the end"
+    );
 }

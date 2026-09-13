@@ -1156,6 +1156,7 @@ fn every_field_a_task_carries_survives_being_dropped_and_reopened() {
         task.id,
         TaskField::Labels(vec![Label::new("urgent".to_string(), 3)]),
     ));
+    changed(&work.set_field(project, task.id, TaskField::Colour(Some(3))));
     changed(&work.add_step(project, task.id, "step one".to_string()));
     let task = changed(&work.add_step(project, task.id, "step two".to_string()));
     changed(&work.add_comment(
@@ -1282,4 +1283,47 @@ fn a_drop_that_ends_exactly_where_it_started_costs_no_write() {
     let replies = work.move_task(project, b.id, Status::Backlog, None);
     assert!(replies.is_empty(), "got {replies:?}");
     assert_eq!(store.writes(), writes);
+}
+
+/// The card above's lower half names the dragged card as `before` — that is "insert after the
+/// card above", which is where it already sits. Looking the id up after remove used to miss it
+/// and dump the card at the end of the lane.
+#[test]
+fn dropping_a_card_onto_itself_leaves_it_where_it_was() {
+    let (_store, mut work, project) = unseeded();
+    created(&work.create(project, "a".to_string(), None));
+    let b = created(&work.create(project, "b".to_string(), None));
+    created(&work.create(project, "c".to_string(), None));
+
+    let replies = work.move_task(project, b.id, Status::Backlog, Some(b.id));
+    assert!(replies.is_empty(), "got {replies:?}");
+    assert_eq!(titles(&board(&mut work, project)), ["a", "b", "c"]);
+}
+
+#[test]
+fn a_file_changed_outside_this_process_is_picked_up_on_sync() {
+    let (store, mut work, project) = unseeded();
+    work.list(project);
+    let outsider = record("from elsewhere");
+    store
+        .save(project, std::slice::from_ref(&outsider))
+        .unwrap();
+
+    let replies = work.sync_from_disk();
+    assert!(
+        replies.iter().any(|reply| reply.is_broadcast()),
+        "every window showing the board needs the same cards: {replies:?}"
+    );
+    assert_eq!(titles(&listing(&replies).2), ["from elsewhere"]);
+    assert_eq!(titles(&board(&mut work, project)), ["from elsewhere"]);
+}
+
+#[test]
+fn a_colour_on_a_task_survives_the_round_trip() {
+    let (_store, mut work, project) = unseeded();
+    let task = created(&work.create(project, "painted".to_string(), None));
+    let after = changed(&work.set_field(project, task.id, TaskField::Colour(Some(3))));
+    assert_eq!(after.colour, Some(3));
+    let cleared = changed(&work.set_field(project, task.id, TaskField::Colour(None)));
+    assert_eq!(cleared.colour, None);
 }

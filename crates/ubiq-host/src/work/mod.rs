@@ -344,7 +344,11 @@ impl Work {
     /// and the session it names in the same frame.
     pub fn list(&mut self, project: ProjectId) -> Vec<Reply> {
         let mut replies = self.prepare(project);
+        replies.push(Reply::Asker(self.work_list(project)));
+        replies
+    }
 
+    fn work_list(&self, project: ProjectId) -> Message {
         let mock = &self.mocks[&project];
         // Live agents first: a real one belongs above the invented ones for as
         // long as both are in the list.
@@ -356,12 +360,38 @@ impl Work {
             .cloned()
             .unwrap_or_default();
         sessions.extend(mock.sessions.iter().cloned());
-        replies.push(Reply::Asker(Message::WorkList {
+        Message::WorkList {
             project_id: project,
             sessions,
             agents,
             tasks: self.loaded.get(&project).cloned().unwrap_or_default(),
-        }));
+        }
+    }
+
+    /// Re-read every loaded project's file and push a listing when the disk has moved on.
+    ///
+    /// Memory is still what a mutation writes; this is how an edit that happened *outside* this
+    /// process — another Ubiq, an agent, a hand-edit of `tasks.toml` — reaches a window that
+    /// already asked. A project whose last write failed is left alone, so a blip cannot throw
+    /// away the session's unsaved list. Broadcast: every window showing the board needs the same
+    /// cards.
+    pub fn sync_from_disk(&mut self) -> Vec<Reply> {
+        let projects: Vec<ProjectId> = self.loaded.keys().copied().collect();
+        let mut replies = Vec::new();
+        for project in projects {
+            if self.sealed.contains(&project) || self.warned.contains(&project) {
+                continue;
+            }
+            let Ok(Some(list)) = self.tasks.load(project) else {
+                continue;
+            };
+            if self.loaded.get(&project).is_some_and(|held| *held == list) {
+                continue;
+            }
+            self.loaded.insert(project, list);
+            self.mock(project);
+            replies.push(Reply::Everyone(self.work_list(project)));
+        }
         replies
     }
 
@@ -535,6 +565,11 @@ impl Work {
                     record.labels = labels;
                     changed
                 }
+                TaskField::Colour(colour) => {
+                    let changed = record.colour != colour;
+                    record.colour = colour;
+                    changed
+                }
             };
             Ok(changed)
         })
@@ -583,6 +618,18 @@ impl Work {
         // separately reasoning about which neighbour a card now sits beside.
         let old_status = list[from].status;
         let old_order: Vec<TaskId> = list.iter().map(|t| t.id).collect();
+
+        // A drop that names the card being moved is the gap it already occupies: the next
+        // same-status neighbour after it, or the end of the column. Looking the id up after
+        // remove would miss it and fall through to the end of the column — every reorder that
+        // landed on the card above's lower half named the dragged card itself.
+        let before = match before {
+            Some(id) if id == task => list[from + 1..]
+                .iter()
+                .find(|held| held.status == status)
+                .map(|held| held.id),
+            other => other,
+        };
 
         let mut record = list.remove(from);
         record.status = status;

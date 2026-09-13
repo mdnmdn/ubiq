@@ -1,17 +1,17 @@
 //! The panel beside the history: what the selected row is about.
 //!
 //! On the uncommitted row — the one the screen opens on — that is the working tree: the conflicted
-//! paths first, then what is staged, then what is not, and the commit box under them. On a commit
-//! it is what the log said about that commit, and nothing more: a commit's own file list needs the
-//! log family, and inventing one here would be the one thing on this screen that is not true.
+//! paths first, then modified, then untracked, and the commit box under them. On a commit it is
+//! what the log said about that commit, and nothing more: a commit's own file list needs the log
+//! family, and inventing one here would be the one thing on this screen that is not true.
 //!
-//! **The lists are the host's answer.** Each row is one [`ubiq_proto::git::GitEntry`] — the pair,
-//! not the projection — so a path both staged and modified appears in both lists, which is what
-//! the pair is for and what a single badge on an explorer row cannot say. The letter is the change
-//! on that side; the colour is the explorer's, so a path reads the same in both places.
+//! **The lists are the host's answer.** Each path appears once — conflicted, modified or
+//! untracked. `+` stages and `-` unstages; the letter is the worktree change when there is one,
+//! otherwise the index change. The colour is the explorer's, so a path reads the same in both
+//! places.
 //!
-//! **Nothing here commits.** The box keeps what is typed so the thought is not lost, and the
-//! button says why it cannot be pressed.
+//! **The commit box writes.** It commits when there is a message and something staged (or amend),
+//! and draws the last write error under the button when there is one.
 
 use gpui::{
     AnyElement, Context, Entity, Focusable, InteractiveElement, IntoElement, ParentElement, Rgba,
@@ -22,17 +22,19 @@ use ubiq_proto::git::{GitEntry, GitPathChange};
 
 use crate::app::AppState;
 use crate::state::GitStatus;
-use crate::state::git::{Side, change_letter, group_changes};
+use crate::state::git::{Side, can_stage, can_unstage, change_letter, group_changes, staged};
 use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::explorer::git_colour;
 use crate::ui::kit::{
-    badge, check_box, elided_with, field, mono, panel, panel_header, section_label,
+    badge, check_box, elided_with, field, mono, panel, panel_header, primary_button, section_label,
 };
 
 /// Every row in the list is this tall, a list heading included, so the list is uniform and only
 /// what is on screen is built.
 const ROW: f32 = 24.0;
+/// Click target for the stage / unstage glyphs.
+const ACTION: f32 = 18.0;
 
 /// One row of the flattened working tree: a list's heading, or one changed path in it as an index
 /// into the project's entries.
@@ -58,18 +60,16 @@ fn working_tree(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> 
         return div().into_any_element();
     }
     let entries = app.git_entries(cx).unwrap_or(&[]);
-    // Grouped once here instead of filtered three times below, plus a fourth pass for the staged
-    // count `commit_box` used to take on its own — `staged.len()` is that count.
     let groups = group_changes(entries);
-    let staged_count = groups.staged.len();
+    let staged_count = staged(entries).len();
 
     // The three lists become one, so the panel is a single virtual list: only the rows on screen
     // are built, and a heading is a row like any other.
     let mut rows: Vec<Flat> = Vec::new();
     for (side, group) in [
         (Side::Conflicted, &groups.conflicted),
-        (Side::Staged, &groups.staged),
-        (Side::Unstaged, &groups.unstaged),
+        (Side::Modified, &groups.modified),
+        (Side::Untracked, &groups.untracked),
     ] {
         if group.is_empty() {
             continue;
@@ -174,7 +174,7 @@ fn commit(app: &AppState, index: usize, cx: &mut Context<AppState>) -> AnyElemen
         .into_any_element()
 }
 
-/// One list's heading, with what a write version's bulk action would be beside it.
+/// One list's heading.
 fn list_header(side: Side, count: usize) -> impl IntoElement {
     div()
         .h(px(ROW))
@@ -193,8 +193,8 @@ fn list_header(side: Side, count: usize) -> impl IntoElement {
         )
 }
 
-/// One changed path. The letter is the change on this list's own side of the pair; the colour is
-/// the one the explorer paints the same path in.
+/// One changed path. The letter is the worktree change when there is one, otherwise the index
+/// change; conflicted rows say `!`. Non-conflicted rows carry right-justified `+` / `-`.
 fn change_row(
     side: Side,
     entry: &GitEntry,
@@ -202,10 +202,7 @@ fn change_row(
     view: &Entity<AppState>,
     window: &Window,
 ) -> AnyElement {
-    let change = match side {
-        Side::Staged => entry.index.as_ref(),
-        Side::Unstaged | Side::Conflicted => entry.worktree.as_ref(),
-    };
+    let change = entry.worktree.as_ref().or(entry.index.as_ref());
     let letter = match side {
         Side::Conflicted => "!",
         _ => change.map(change_letter).unwrap_or(" "),
@@ -214,6 +211,8 @@ fn change_row(
     let path = entry.rel_path.clone();
     let name = path.rsplit('/').next().unwrap_or(&path).to_string();
     let key = crate::ui::eid("git-change", &path);
+    let stageable = can_stage(entry);
+    let unstageable = can_unstage(entry);
 
     let mut row = div()
         .id(key)
@@ -246,6 +245,28 @@ fn change_row(
             },
         );
 
+    if side != Side::Conflicted {
+        row = row
+            .child(action_glyph(
+                crate::ui::eid("git-stage", &path),
+                "+",
+                stageable,
+                path.clone(),
+                true,
+                view,
+                window,
+            ))
+            .child(action_glyph(
+                crate::ui::eid("git-unstage", &path),
+                "-",
+                unstageable,
+                path.clone(),
+                false,
+                view,
+                window,
+            ));
+    }
+
     if selected {
         row = row
             .bg(theme::accent_soft())
@@ -259,16 +280,52 @@ fn change_row(
     .into_any_element()
 }
 
+/// An 18px `+` or `-`. Enabled glyphs stage or unstage; disabled ones take no click.
+fn action_glyph(
+    id: impl Into<gpui::ElementId>,
+    glyph: &'static str,
+    enabled: bool,
+    path: String,
+    stage: bool,
+    view: &Entity<AppState>,
+    window: &Window,
+) -> AnyElement {
+    let colour = if enabled {
+        theme::text()
+    } else {
+        theme::text_faint()
+    };
+    let mut btn = div()
+        .id(id)
+        .size(px(ACTION))
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .child(mono(glyph, colour));
+    if enabled {
+        btn = btn
+            .cursor_pointer()
+            .hover(|this| this.bg(theme::hover()))
+            .on_click(window.listener_for(view, move |this, _, _, cx| {
+                cx.stop_propagation();
+                if stage {
+                    this.stage_git_path(&path, cx);
+                } else {
+                    this.unstage_git_path(&path, cx);
+                }
+            }));
+    }
+    btn.into_any_element()
+}
+
 /// The colour a changed path takes, which is the explorer's for the same path: both are the same
 /// projection of the same pair.
 fn row_colour(entry: &GitEntry) -> Rgba {
     git_colour(entry.mark().map(GitStatus::from_mark))
 }
 
-/// The commit box: a message, whether it would amend, and the button that would do it.
-///
-/// Inert, and it says so. A message is kept because the thought is worth keeping even when the
-/// action is a version away.
+/// The commit box: a message, whether it amends, and the button that commits.
 fn commit_box(
     app: &AppState,
     window: &Window,
@@ -280,6 +337,37 @@ fn commit_box(
     };
     let focused = app.git_message.read(cx).focus_handle(cx).is_focused(window);
     let amend = git.amend;
+    let message = app.git_message.read(cx).value();
+    let can_commit = (staged_count > 0 || amend) && !message.trim().is_empty();
+    let last_error = git.last_error.clone();
+    let label = match staged_count {
+        1 => "Commit 1 file".to_string(),
+        n => format!("Commit {n} files"),
+    };
+
+    let commit_control: AnyElement = if can_commit {
+        primary_button(
+            "git-commit",
+            None,
+            label,
+            cx.listener(|this, _, _, cx| this.commit_git(cx)),
+        )
+        .into_any_element()
+    } else {
+        div()
+            .h(px(26.))
+            .px_2p5()
+            .flex()
+            .flex_none()
+            .items_center()
+            .bg(theme::surface())
+            .border_l(px(theme::accent_edge()))
+            .border_color(theme::border())
+            .text_size(theme::font(Family::Chrome, Role::Body))
+            .text_color(theme::text_faint())
+            .child(label)
+            .into_any_element()
+    };
 
     div()
         .flex()
@@ -329,31 +417,9 @@ fn commit_box(
                         .child("amend"),
                 )
                 .child(div().flex_1().min_w(px(0.)))
-                // The one obvious action, drawn where it will be and drained of the accent,
-                // because nothing behind it writes.
-                .child(
-                    div()
-                        .h(px(26.))
-                        .px_2p5()
-                        .flex()
-                        .flex_none()
-                        .items_center()
-                        .bg(theme::surface())
-                        .border_l(px(theme::accent_edge()))
-                        .border_color(theme::border())
-                        .text_size(theme::font(Family::Chrome, Role::Body))
-                        .text_color(theme::text_faint())
-                        .child(match staged_count {
-                            1 => "Commit 1 file".to_string(),
-                            n => format!("Commit {n} files"),
-                        }),
-                ),
+                .child(commit_control),
         )
-        .child(
-            mono(
-                "Ubiq observes this repository and never writes into it",
-                theme::text_faint(),
-            )
-            .text_size(theme::font(Family::Chrome, Role::Micro)),
-        )
+        .children(last_error.map(|reason| {
+            mono(reason, theme::danger()).text_size(theme::font(Family::Chrome, Role::Micro))
+        }))
 }

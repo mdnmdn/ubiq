@@ -17,7 +17,7 @@ thread-local — a call site never learns which palette answered.
 | Terminal | `selection_background`, `link_underline`, `link_underline_hover` | Selected cells in a pane; the OSC 8 / detected-URL underline |
 | Border | `border`, `border_focus` | Ordinary separation; the focused edge |
 | Status | `danger`, `success`, `warning`, `info` + a `_soft` each | Agent and process states, and the fills behind them |
-| Ribbon | `ribbon_alpha`, `ribbon_beta`, `ribbon_ink` | The build-channel ribbon — same value in both palettes |
+| Ribbon | `ribbon_alpha`, `ribbon_beta`, `ribbon_ink`, `ribbon_experimental`, `ribbon_experimental_ink` | The build-channel ribbon, and Git mode's experimental ribbon — same values in every palette |
 | Project | `project_colour(n)`, `project_colour_count()`, `project_temporary()`, `project_tint(temporary, colour, custom)`, `mark_dark(colour)` | One project's identity wherever it appears |
 
 Helpers: `set_mode(id, cx)`, `palette_for(id)`, `fade(colour, alpha)`, `rgba_of(rgb)`,
@@ -139,6 +139,12 @@ clears the query from either, `enter` opens what the query landed on without lea
 `dot_grid(spacing, offset)`, `Link` + `links(...)`, `Grain` + `sand(grains, colour)`,
 `dashed_box(rect, colour, active)`. Each is one layer filling its parent absolutely, taking no
 click, knowing nothing about what it draws — a caller stacks them in reading order.
+
+### `ribbon.rs` — a word across a corner
+
+`ribbon(word, corner, band, ink)`, `RibbonCorner`, `RIBBON_SIZE`. An SVG band pinned to one
+corner of a `.relative()` parent. `.size(px)` scales the box; `.on_click(id, …)` is taken only
+on the band. The build-channel ribbon and Git's experimental ribbon are this function.
 
 ## `ui/mod.rs` helpers
 

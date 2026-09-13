@@ -101,6 +101,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .child(rail::render(app, window, cx))
                 .child(
                     div()
+                        .relative()
                         .flex()
                         .flex_col()
                         .flex_1()
@@ -110,7 +111,11 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                             (app.workbench.rail_mode == RailMode::Git && app.project(cx).is_some())
                                 .then(|| git::toolbar(app, window, cx)),
                         )
-                        .child(app.dock().clone()),
+                        .child(app.dock().clone())
+                        .children(
+                            (app.workbench.rail_mode == RailMode::Git)
+                                .then(|| ribbon::experimental()),
+                        ),
                 ),
         )
         .child(status_bar::render(app, cx))

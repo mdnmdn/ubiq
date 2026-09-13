@@ -1,4 +1,5 @@
-//! What version control is on the wire: a project's repository as the host has observed it.
+//! What version control is on the wire: a project's repository as the host has observed it,
+//! and the writes the Git screen asks the host to make.
 //!
 //! A repository is a fact about a project, discovered by the host. The interface holds no
 //! repository identity of its own, and no absolute path crosses — a repository root above the
@@ -7,7 +8,7 @@
 //!
 //! **Not a repository is an ordinary answer**, not a failure: [`crate::messages::Message::GitOverview`]
 //! carries `overview: None`, and the interface draws no branch and no badges. [`GitError`] is for
-//! a repository that exists and could not be read.
+//! a repository that exists and could not be read, and for a write that was refused.
 //!
 //! Nothing here touches disk. The `git2` types stay in the host and are converted at the worker's
 //! edge.
@@ -322,6 +323,27 @@ pub enum GitError {
     Denied,
     Interrupted,
     Failed(String),
+}
+
+/// One mutation of a project's repository. The Git screen is what sends these; the agents in the
+/// panes remain writers of their own. The git worker serialises the two rather than preventing
+/// the collision (`D122`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GitWriteOp {
+    /// Put this project-relative path in the index. An untracked file becomes tracked; a modified
+    /// file's worktree content is staged.
+    Stage { rel_path: String },
+    /// Take this project-relative path out of the index. A newly-added file becomes untracked
+    /// again; a tracked file keeps its `HEAD` version in the index.
+    Unstage { rel_path: String },
+    /// Create a commit from the index. `amend` replaces `HEAD` rather than adding a commit.
+    Commit { message: String, amend: bool },
+    /// Fetch every remote.
+    FetchAll,
+    /// Fetch the current branch's upstream and fast-forward `HEAD` to it.
+    Pull,
+    /// Push the current branch to its upstream, or to the default remote under the same name.
+    Push,
 }
 
 impl std::fmt::Display for GitError {

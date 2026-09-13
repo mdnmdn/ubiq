@@ -86,7 +86,7 @@ process, a path on disk or a file descriptor.
 | `titlebar.rs` | What is open, where it lives, the switches for the dock's three edge regions, and the back/forward controls (their own helper, because `icon_button` has no room for a control with nowhere to go — `text_faint()` and inert at the history's end) |
 | `rail.rs` | The activity rail: destinations, grouped, exactly one active |
 | `status_bar.rs` | The bottom strip — open file and caret, or the agents screen's column fill, or the graph's selection |
-| `ribbon.rs` | The `alpha`/`beta` build-channel band across the bottom-left corner |
+| `ribbon.rs` | Which ribbons the shell draws — build-channel `alpha`/`beta`, Git `experimental` — on `kit::ribbon` |
 | `dock/mod.rs` | The window's arrangement and `WorkbenchPanel`, the adapter that makes a screen area a panel — a weak `AppState` handle plus a panel kind, its render a `match` delegating to the same free functions |
 | `dock/skin.rs` | Ubiq's appearance for the library's dock: tab strip, displayed-tab mark, panel dots, close affordance, drop indicator, resize strips. Ubiq writes no drag, no drop geometry, no layout serialisation |
 | `empty.rs` | The pages a screen with nothing to show draws |

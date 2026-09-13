@@ -1,29 +1,24 @@
-//! The build-channel ribbon: a diagonal band across the window's bottom-left corner reading
-//! `alpha` or `beta`.
+//! The ribbons the window and Git mode pin in a corner.
 //!
-//! Which word it carries is the bundle's version: a released version is named `vX.Y` and is beta;
-//! anything else — a bare `cargo build`'s `dev` included — is alpha.
+//! The picture itself is [`crate::ui::kit::ribbon`]: a word across a corner. This file is which
+//! ribbons the shell draws, and the dock-icon swap a click on the build band performs.
 //!
-//! Clicking it swaps the dock icon for the yellow mark, and clicking it again puts the bundle's
-//! own back — a one-gesture way to tell two running builds apart in the dock. macOS only:
-//! nothing else has an icon a running process may change.
+//! The build-channel ribbon sits in the window's bottom-left, reading `alpha` or `beta`. Which
+//! word it carries is the bundle's version: a released version is named `vX.Y` and is beta;
+//! anything else — a bare `cargo build`'s `dev` included — is alpha. Clicking it swaps the dock
+//! icon for the yellow mark, and clicking it again puts the bundle's own back — a one-gesture way
+//! to tell two running builds apart in the dock. macOS only: nothing else has an icon a running
+//! process may change.
 //!
-//! It is drawn as an SVG picture rather than styled markup because GPUI rotates images and not
-//! boxes, and a ribbon is a rotation. `Image::from_bytes` identifies a picture by the hash of its
-//! bytes, so rebuilding the same markup every frame hits the window's image cache rather than the
-//! renderer.
+//! Git mode draws a second band, red, across its own top-left, reading `experimental`.
 
-use gpui::{
-    Image, ImageFormat, ImageSource, InteractiveElement as _, IntoElement, ParentElement, Rgba,
-    StatefulInteractiveElement as _, Styled, div, img, px,
-};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::{theme, version};
+use gpui::IntoElement;
 
-/// How large the corner box is drawn, in pixels. The band lies across its diagonal.
-const SIZE: f32 = 96.0;
+use crate::theme;
+use crate::ui::kit::{RibbonCorner, ribbon};
+use crate::version;
 
 pub fn render() -> impl IntoElement {
     let beta = version::FULL.starts_with('v');
@@ -33,35 +28,21 @@ pub fn render() -> impl IntoElement {
         ("alpha", theme::ribbon_alpha())
     };
 
-    div()
-        .absolute()
-        .bottom_0()
-        .left_0()
-        .size(px(SIZE))
-        .child(
-            img(ImageSource::Image(Arc::new(Image::from_bytes(
-                ImageFormat::Svg,
-                markup(word, band, theme::ribbon_ink()).into_bytes(),
-            ))))
-            .size(px(SIZE)),
-        )
-        // The band is a diagonal and the box around it is not: only the corner the band actually
-        // crosses takes the click, or the ribbon would swallow every press in the bottom-left of
-        // the window.
-        .child(
-            div()
-                .id("build-ribbon")
-                .absolute()
-                .bottom_0()
-                .left_0()
-                .size(px(SIZE * BAND))
-                .cursor_pointer()
-                .on_click(|_, _, _| toggle_dock_icon()),
-        )
+    ribbon(word, RibbonCorner::BottomLeft, band, theme::ribbon_ink())
+        .on_click("build-ribbon", |_, _, _| toggle_dock_icon())
 }
 
-/// How much of the corner box the band crosses — the click target, as a fraction of [`SIZE`].
-const BAND: f32 = 0.42;
+/// A red `experimental` band across Git mode's top-left corner. It takes no click: the git
+/// toolbar sits under it. Larger than the build ribbon because the word is longer.
+pub fn experimental() -> impl IntoElement {
+    ribbon(
+        "experimental",
+        RibbonCorner::TopLeft,
+        theme::ribbon_experimental(),
+        theme::ribbon_experimental_ink(),
+    )
+    .size(128.0)
+}
 
 /// The yellow mark, worn by the dock while the swap is on.
 #[cfg(target_os = "macos")]
@@ -127,73 +108,4 @@ fn toggle_dock_icon() {
 #[cfg(not(target_os = "macos"))]
 fn toggle_dock_icon() {
     SWAPPED.fetch_xor(true, Ordering::Relaxed);
-}
-
-/// The picture, in a 100×100 box whose bottom-left corner the band crosses.
-///
-/// The band lies between the lines `y = x + 45` and `y = x + 72`; the word sits on the midline
-/// between them, rotated onto it: the band runs down-and-right from the left edge to the bottom one, so the word
-/// turns with it.
-fn markup(word: &str, band: Rgba, ink: Rgba) -> String {
-    format!(
-        r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-<polygon points="0,45 55,100 28,100 0,72" fill="{band}"/>
-<text x="20.75" y="79.25" transform="rotate(45 20.75 79.25)" fill="{ink}"
- font-family="sans-serif" font-size="11" font-weight="700" letter-spacing="1"
- text-anchor="middle" dominant-baseline="central">{word}</text>
-</svg>"##,
-        band = hex(band),
-        ink = hex(ink),
-    )
-}
-
-/// A token as SVG writes colours. Alpha is dropped: both ribbon tokens are opaque.
-fn hex(colour: Rgba) -> String {
-    let channel = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
-    format!(
-        "#{:02x}{:02x}{:02x}",
-        channel(colour.r),
-        channel(colour.g),
-        channel(colour.b)
-    )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn hex_writes_six_digits() {
-        assert_eq!(
-            hex(Rgba {
-                r: 1.0,
-                g: 0.0,
-                b: 0.5,
-                a: 1.0
-            }),
-            "#ff0080"
-        );
-    }
-
-    #[test]
-    fn markup_carries_the_word_and_the_colours() {
-        let svg = markup(
-            "alpha",
-            Rgba {
-                r: 1.0,
-                g: 1.0,
-                b: 0.0,
-                a: 1.0,
-            },
-            Rgba {
-                r: 0.0,
-                g: 0.0,
-                b: 0.0,
-                a: 1.0,
-            },
-        );
-        assert!(svg.contains(">alpha</text>"));
-        assert!(svg.contains("fill=\"#ffff00\""));
-        assert!(svg.contains("fill=\"#000000\""));
-    }
 }

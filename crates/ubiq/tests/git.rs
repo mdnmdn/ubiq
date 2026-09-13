@@ -21,13 +21,14 @@ use gpui_component::Root;
 use ubiq::app::{AppState, BusHub};
 use ubiq::state::WindowRegistry;
 use ubiq::state::git::{
-    CommitRow, GitView, RefRow, RefSection, RefTreeKind, Side, commit_rows, conflicted, ref_rows,
-    staged, unstaged,
+    CommitRow, GitView, RefRow, RefSection, RefTreeKind, Side, commit_rows, conflicted,
+    group_changes, ref_rows, staged, unstaged,
 };
 use ubiq_proto::bus::{self, FromClient, To};
 use ubiq_proto::files::DiffBase;
 use ubiq_proto::git::{
-    GitCommit, GitEntry, GitPathChange, GitRef, GitRefKind, GitSubmodule, GitSubmoduleState, GitWho,
+    GitCommit, GitEntry, GitPathChange, GitRef, GitRefKind, GitSubmodule, GitSubmoduleState,
+    GitWho, GitWriteOp,
 };
 use ubiq_proto::ids::ProjectId;
 use ubiq_proto::messages::Message;
@@ -288,7 +289,7 @@ fn a_same_length_replacement_never_serves_a_stale_haystack_or_lane_count() {
 }
 
 #[test]
-fn a_path_lands_in_a_list_for_each_side_of_its_pair() {
+fn staged_and_unstaged_helpers_still_split_the_pair() {
     let entries = working_tree();
 
     let staged: Vec<_> = staged(&entries)
@@ -317,7 +318,7 @@ fn a_path_lands_in_a_list_for_each_side_of_its_pair() {
             "src/panels/terminal.rs".to_string(),
             "docs/architecture.md".to_string()
         ],
-        "a path staged and modified is in both lists, which is what the pair is for"
+        "a path staged and modified has both sides of the pair"
     );
     assert_eq!(conflicted, vec!["Cargo.lock".to_string()]);
     assert!(
@@ -327,9 +328,47 @@ fn a_path_lands_in_a_list_for_each_side_of_its_pair() {
 }
 
 #[test]
+fn each_path_lands_in_exactly_one_working_tree_list() {
+    let entries = working_tree();
+    let groups = group_changes(&entries);
+    let path = |index: usize| entries[index].rel_path.clone();
+
+    assert_eq!(
+        groups
+            .conflicted
+            .iter()
+            .copied()
+            .map(path)
+            .collect::<Vec<_>>(),
+        vec!["Cargo.lock".to_string()]
+    );
+    assert_eq!(
+        groups
+            .modified
+            .iter()
+            .copied()
+            .map(path)
+            .collect::<Vec<_>>(),
+        vec![
+            "src/state/sessions.rs".to_string(),
+            "src/panels/terminal.rs".to_string()
+        ]
+    );
+    assert_eq!(
+        groups
+            .untracked
+            .iter()
+            .copied()
+            .map(path)
+            .collect::<Vec<_>>(),
+        vec!["docs/architecture.md".to_string()]
+    );
+}
+
+#[test]
 fn a_list_says_what_its_rows_are_compared_against() {
-    assert_eq!(Side::Unstaged.base(), DiffBase::Index);
-    assert_eq!(Side::Staged.base(), DiffBase::Head);
+    assert_eq!(Side::Untracked.base(), DiffBase::Index);
+    assert_eq!(Side::Modified.base(), DiffBase::Head);
     assert_eq!(Side::Conflicted.base(), DiffBase::Head);
 }
 
@@ -337,17 +376,17 @@ fn a_list_says_what_its_rows_are_compared_against() {
 fn picking_a_path_asks_once_and_forgets_the_last_comparison() {
     let mut git = view();
 
-    assert!(git.select_path(Side::Unstaged, "src/panels/terminal.rs"));
-    assert_eq!(git.path(), Some("src/panels/terminal.rs"));
+    assert!(git.select_path(Side::Untracked, "docs/architecture.md"));
+    assert_eq!(git.path(), Some("docs/architecture.md"));
     assert_eq!(git.base, DiffBase::Index);
 
     assert!(
-        !git.select_path(Side::Unstaged, "src/panels/terminal.rs"),
+        !git.select_path(Side::Untracked, "docs/architecture.md"),
         "the same row again is not a second question"
     );
 
     git.diff = None;
-    assert!(git.select_path(Side::Staged, "docs/architecture.md"));
+    assert!(git.select_path(Side::Modified, "src/panels/terminal.rs"));
     assert_eq!(git.base, DiffBase::Head);
     assert!(
         git.diff.is_none(),
@@ -359,7 +398,7 @@ fn picking_a_path_asks_once_and_forgets_the_last_comparison() {
 fn a_selection_goes_when_its_path_goes_clean() {
     let mut git = view();
     let entries = working_tree();
-    git.select_path(Side::Unstaged, "docs/architecture.md");
+    git.select_path(Side::Untracked, "docs/architecture.md");
 
     git.settle(&entries);
     assert_eq!(git.path(), Some("docs/architecture.md"), "still changed");
@@ -639,6 +678,51 @@ impl Fixture {
             .expect("the window is open");
     }
 
+    fn stage_git_path(&self, path: &str, cx: &mut TestAppContext) {
+        self.window
+            .update(cx, |_, _window, cx| {
+                self.state
+                    .update(cx, |state, cx| state.stage_git_path(path, cx));
+            })
+            .expect("the window is open");
+    }
+
+    fn commit_git(&self, message: &str, cx: &mut TestAppContext) {
+        self.window
+            .update(cx, |_, window, cx| {
+                self.state.update(cx, |state, cx| {
+                    let field = state.git_message.clone();
+                    field.update(cx, |input, cx| input.set_value(message, window, cx));
+                    state.commit_git(cx);
+                });
+            })
+            .expect("the window is open");
+    }
+
+    fn fetch_all_git(&self, cx: &mut TestAppContext) {
+        self.window
+            .update(cx, |_, _window, cx| {
+                self.state.update(cx, |state, cx| state.fetch_all_git(cx));
+            })
+            .expect("the window is open");
+    }
+
+    fn pull_git(&self, cx: &mut TestAppContext) {
+        self.window
+            .update(cx, |_, _window, cx| {
+                self.state.update(cx, |state, cx| state.pull_git(cx));
+            })
+            .expect("the window is open");
+    }
+
+    fn push_git(&self, cx: &mut TestAppContext) {
+        self.window
+            .update(cx, |_, _window, cx| {
+                self.state.update(cx, |state, cx| state.push_git(cx));
+            })
+            .expect("the window is open");
+    }
+
     fn commits(&self, cx: &mut TestAppContext) -> Vec<String> {
         self.window
             .update(cx, |_, _window, cx| {
@@ -732,5 +816,76 @@ fn a_stale_first_page_reply_is_discarded_not_appended(cx: &mut TestAppContext) {
         fixture.commits(cx),
         vec!["later".to_string()],
         "the stale reply is discarded, not appended onto the reply that already superseded it"
+    );
+}
+
+#[gpui::test]
+fn write_actions_send_the_matching_ops(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let _ = fixture.said();
+
+    fixture.stage_git_path("src/panels/terminal.rs", cx);
+    let said = fixture.said();
+    assert!(
+        said.iter().any(|message| matches!(
+            message,
+            Message::WriteProjectGit {
+                op: GitWriteOp::Stage { rel_path },
+                ..
+            } if rel_path == "src/panels/terminal.rs"
+        )),
+        "stage sends WriteProjectGit::Stage; got {said:?}"
+    );
+
+    fixture.commit_git("Refit the terminal", cx);
+    let said = fixture.said();
+    assert!(
+        said.iter().any(|message| matches!(
+            message,
+            Message::WriteProjectGit {
+                op: GitWriteOp::Commit { message, amend: false },
+                ..
+            } if message == "Refit the terminal"
+        )),
+        "commit sends WriteProjectGit::Commit; got {said:?}"
+    );
+
+    fixture.fetch_all_git(cx);
+    let said = fixture.said();
+    assert!(
+        said.iter().any(|message| matches!(
+            message,
+            Message::WriteProjectGit {
+                op: GitWriteOp::FetchAll,
+                ..
+            }
+        )),
+        "fetch all sends WriteProjectGit::FetchAll; got {said:?}"
+    );
+
+    fixture.pull_git(cx);
+    let said = fixture.said();
+    assert!(
+        said.iter().any(|message| matches!(
+            message,
+            Message::WriteProjectGit {
+                op: GitWriteOp::Pull,
+                ..
+            }
+        )),
+        "pull sends WriteProjectGit::Pull; got {said:?}"
+    );
+
+    fixture.push_git(cx);
+    let said = fixture.said();
+    assert!(
+        said.iter().any(|message| matches!(
+            message,
+            Message::WriteProjectGit {
+                op: GitWriteOp::Push,
+                ..
+            }
+        )),
+        "push sends WriteProjectGit::Push; got {said:?}"
     );
 }

@@ -1,5 +1,4 @@
-//! A project's repository as the host observes it: the overview the status bar reads, and the
-//! working-tree map the explorer's badges read.
+//! A project's repository as the host observes it — and, when the Git screen asks, writes it.
 //!
 //! **Nothing here runs on the coordinator's thread.** A cold status on a large repository is
 //! seconds, and seconds on the coordinator's thread is every pane's keystrokes stalled behind it.
@@ -7,17 +6,19 @@
 //! root rather than a way to look one up, and a coordinator that looks the record up in memory,
 //! submits, and answers nothing itself.
 //!
-//! **Ubiq never writes into a repository.** Status walks with the index-stat refresh turned off.
-//! The git directory is inside the project's folder; `D30` covers it.
+//! Status walks still leave the index-stat cache alone (`D30`). Writes — stage, unstage, commit,
+//! fetch, pull, push — run on this same thread, so the per-project handle stays un-mutexed: the
+//! thread is the lock (`D122`).
 //!
 //! Two queues on the one thread: overviews ahead of working-tree walks, so the branch name is not
 //! stuck behind badges. A second full refresh for a project still walking replaces the queued one
-//! rather than lining up behind it.
+//! rather than lining up behind it. A write is never replaced; it runs, then re-observes.
 
 pub mod graph;
 pub mod history;
 pub mod nested;
 pub mod observe;
+pub mod write;
 
 pub use observe::{Observation, WorkingTree, observe};
 
@@ -27,7 +28,7 @@ use std::thread;
 
 use git2::Repository;
 use ubiq_proto::bus::Mailbox;
-use ubiq_proto::git::GitError;
+use ubiq_proto::git::{GitError, GitWriteOp};
 use ubiq_proto::ids::ProjectId;
 use ubiq_proto::messages::Message;
 
@@ -51,6 +52,8 @@ pub enum Request {
         first_parent: bool,
         rev: Option<String>,
     },
+    /// Mutate the repository, then re-observe it as a full refresh.
+    Write { op: GitWriteOp },
 }
 
 /// One request, addressed.
@@ -180,9 +183,11 @@ fn enqueue(
     job: Job,
 ) {
     match job.request {
-        Request::Overview | Request::Forget | Request::Refs { .. } | Request::Log { .. } => {
-            cheap.push_back(job)
-        }
+        Request::Overview
+        | Request::Forget
+        | Request::Refs { .. }
+        | Request::Log { .. }
+        | Request::Write { .. } => cheap.push_back(job),
         Request::Full => {
             let project_id = job.project_id;
             if fulls.insert(project_id, job).is_none() {
@@ -337,6 +342,59 @@ fn answer(state: &mut State, job: Job) {
                 Err(error) => git_error(job.project_id, error),
             };
             job.reply_to.send(message);
+        }
+        Request::Write { ref op } => {
+            match ensure_repo(state, job.project_id, &job.root) {
+                Ok(false) => {
+                    job.reply_to.send(git_error(
+                        job.project_id,
+                        GitError::Failed("the project is not a repository".into()),
+                    ));
+                    return;
+                }
+                Err(error) => {
+                    job.reply_to.send(git_error(job.project_id, error));
+                    return;
+                }
+                Ok(true) => {}
+            }
+            let written = {
+                let cached = state
+                    .repos
+                    .get(&job.project_id)
+                    .expect("just inserted or confirmed");
+                write::apply(&cached.repo, &job.root, &job.managed_repos, op)
+            };
+            if let Err(error) = written {
+                job.reply_to.send(git_error(job.project_id, error));
+                return;
+            }
+            let generation = {
+                let held = state.generation.entry(job.project_id).or_insert(0);
+                *held = held.saturating_add(1);
+                *held
+            };
+            match observation(state, &job, generation, true) {
+                Ok(found) => {
+                    job.reply_to.send(Message::GitOverview {
+                        project_id: job.project_id,
+                        overview: found.overview,
+                    });
+                    if let Some(tree) = found.tree {
+                        job.reply_to.send(Message::GitWorkingTree {
+                            project_id: job.project_id,
+                            generation,
+                            entries: tree.entries,
+                            rollups: tree.rollups,
+                            repos: tree.repos,
+                            truncated: tree.truncated,
+                        });
+                    }
+                }
+                Err(error) => {
+                    job.reply_to.send(git_error(job.project_id, error));
+                }
+            }
         }
     }
 }

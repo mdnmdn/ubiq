@@ -636,6 +636,7 @@ fn refusal(message: &Message) -> Option<Message> {
         | RefreshProjectGit { project_id, .. }
         | ProjectGitLog { project_id, .. }
         | ProjectGitRefs { project_id, .. }
+        | WriteProjectGit { project_id, .. }
         | DiffProjectFile { project_id, .. } => GitError {
             project_id: *project_id,
             error: ubiq_proto::git::GitError::Failed(NOT_HERE.to_string()),

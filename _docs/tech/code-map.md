@@ -85,7 +85,8 @@ crates/ubiq-host/src/
 │   ├── graph.rs
 │   ├── history.rs
 │   ├── observe.rs
-│   └── nested.rs
+│   ├── nested.rs
+│   └── write.rs
 ├── settings.rs
 ├── shells.rs
 ├── conversation.rs
@@ -441,6 +442,7 @@ the documents in its row.
 | `crates/ubiq-host/src/git/mod.rs` | [`architecture.md`](./architecture.md), [`version-control.md`](./version-control.md) |
 | `crates/ubiq-host/src/git/nested.rs` | [`version-control.md`](./version-control.md) |
 | `crates/ubiq-host/src/git/observe.rs` | [`architecture.md`](./architecture.md), [`version-control.md`](./version-control.md) |
+| `crates/ubiq-host/src/git/write.rs` | [`version-control.md`](./version-control.md) |
 | `crates/ubiq-host/src/index/ceiling.rs` | [`wip/indexing.md`](../wip/indexing.md) |
 | `crates/ubiq-host/src/index/mod.rs` | [`wip/indexing.md`](../wip/indexing.md) |
 | `crates/ubiq-host/src/index/text.rs` | [`wip/indexing.md`](../wip/indexing.md) |

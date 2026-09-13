@@ -183,9 +183,11 @@ impl Label {
 pub enum Status {
     Backlog,
     Ready,
+    Blocked,
     InProgress,
     InReview,
     Done,
+    Abandoned,
 }
 
 impl Status {
@@ -193,19 +195,23 @@ impl Status {
         match self {
             Status::Backlog => "backlog",
             Status::Ready => "ready",
+            Status::Blocked => "blocked",
             Status::InProgress => "in progress",
             Status::InReview => "in review",
             Status::Done => "done",
+            Status::Abandoned => "abandoned",
         }
     }
 
-    pub fn all() -> [Status; 5] {
+    pub fn all() -> [Status; 7] {
         [
             Status::Backlog,
             Status::Ready,
+            Status::Blocked,
             Status::InProgress,
             Status::InReview,
             Status::Done,
+            Status::Abandoned,
         ]
     }
 }
@@ -384,6 +390,11 @@ pub struct TaskRecord {
     /// The colour labels on it, in the order they were added.
     #[serde(default, rename = "label", skip_serializing_if = "Vec::is_empty")]
     pub labels: Vec<Label>,
+    /// Optional swatch that paints the card's left edge. An index into the interface's project
+    /// swatches, the same as [`Label::colour`]: no colour crosses the bus. `None` is a card with
+    /// no colour of its own, which reads in the pulse of whatever is happening in it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub colour: Option<usize>,
     pub title: String,
     /// Markdown, which the host stores and never parses — the same discipline that keeps terminal
     /// bytes uninterpreted. Which of it is a heading is the interface's decision.
@@ -413,6 +424,7 @@ impl TaskRecord {
             key: None,
             link: None,
             labels: Vec::new(),
+            colour: None,
             title,
             description: String::new(),
             steps: Vec::new(),

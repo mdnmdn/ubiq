@@ -121,7 +121,7 @@ pub const SERVERS: &[ServerSpec] = &[
                             "type": "array",
                             "items": {
                                 "type": "string",
-                                "enum": ["backlog", "ready", "in progress", "in review", "done"]
+                                "enum": ["backlog", "ready", "blocked", "in progress", "in review", "done", "abandoned"]
                             },
                             "description": "Board columns to include. Omit, null or empty for all."
                         }
@@ -139,7 +139,7 @@ pub const SERVERS: &[ServerSpec] = &[
                             "type": "array",
                             "items": {
                                 "type": "string",
-                                "enum": ["backlog", "ready", "in progress", "in review", "done"]
+                                "enum": ["backlog", "ready", "blocked", "in progress", "in review", "done", "abandoned"]
                             },
                             "description": "Match any of these columns. Omit, null or empty for all."
                         },
@@ -192,7 +192,7 @@ pub const SERVERS: &[ServerSpec] = &[
                         "description": {"type": "string"},
                         "status": {
                             "type": "string",
-                            "enum": ["backlog", "ready", "in progress", "in review", "done"]
+                            "enum": ["backlog", "ready", "blocked", "in progress", "in review", "done", "abandoned"]
                         },
                         "priority": {"type": "string", "enum": ["low", "normal", "high"]},
                         "kind": {"type": "string", "enum": ["bug", "feature", "chore", "docs"]},
@@ -218,7 +218,7 @@ pub const SERVERS: &[ServerSpec] = &[
                         "description": {"type": "string"},
                         "status": {
                             "type": "string",
-                            "enum": ["backlog", "ready", "in progress", "in review", "done"]
+                            "enum": ["backlog", "ready", "blocked", "in progress", "in review", "done", "abandoned"]
                         },
                         "priority": {"type": "string", "enum": ["low", "normal", "high"]},
                         "kind": {"type": "string", "enum": ["bug", "feature", "chore", "docs"]},
@@ -323,7 +323,7 @@ pub const SERVERS: &[ServerSpec] = &[
                             "type": "array",
                             "items": {
                                 "type": "string",
-                                "enum": ["backlog", "ready", "in progress", "in review", "done"]
+                                "enum": ["backlog", "ready", "blocked", "in progress", "in review", "done", "abandoned"]
                             },
                             "description": "Match any of these columns. Omit, null or empty for all."
                         },
@@ -365,7 +365,7 @@ pub const SERVERS: &[ServerSpec] = &[
                         "task_id": {"type": "string"},
                         "status": {
                             "type": "string",
-                            "enum": ["backlog", "ready", "in progress", "in review", "done"]
+                            "enum": ["backlog", "ready", "blocked", "in progress", "in review", "done", "abandoned"]
                         }
                     },
                     "required": ["task_id", "status"]

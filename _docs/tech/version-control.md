@@ -3,11 +3,11 @@ id: tech-version-control
 title: Version control
 kind: tech
 status: current
-summary: How the host reads a project's repositories — the rule that Ubiq creates a repository or reads one and never writes into one, where a clone runs, upward discovery and scope, the bounded downward walk that finds the repositories inside a project and merges them into one map, the git worker's two queues and its per-project caches, the three shapes it answers with, the commit-graph lane engine, the refresh discipline that narrows the staleness window, and the ceilings and assumptions the model rests on.
-read_when: you are extending version control, adding the write family, touching how a clone runs, working on a project that holds more than one repository, or wondering why the commit graph's lane engine is hand-rolled rather than a dependency
-updated: 2026-09-12
-verified: 2026-09-12
-code_anchors: [crates/ubiq-proto/src/git.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/git/nested.rs, crates/ubiq-host/src/git/history.rs, crates/ubiq-host/src/git/graph.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq-host/src/repos/list.rs]
+summary: How the host reads a project's repositories and how the Git screen writes them — cloning, upward discovery and scope, the bounded downward walk that finds the repositories inside a project and merges them into one map, the git worker's two queues and its per-project caches, the three shapes it answers with, the commit-graph lane engine, the refresh discipline that narrows the staleness window, and the ceilings and assumptions the model rests on.
+read_when: you are extending version control, adding a write, touching how a clone runs, working on a project that holds more than one repository, or wondering why the commit graph's lane engine is hand-rolled rather than a dependency
+updated: 2026-09-13
+verified: 2026-09-13
+code_anchors: [crates/ubiq-proto/src/git.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/git/write.rs, crates/ubiq-host/src/git/nested.rs, crates/ubiq-host/src/git/history.rs, crates/ubiq-host/src/git/graph.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq-host/src/repos/list.rs]
 depends_on: [tech-architecture, tech-transport, tech-decisions, feat-workbench]
 review_cycle: monthly
 ---
@@ -20,33 +20,30 @@ refuses to do. The message table belongs to
 belongs to [`../features/workbench.md`](../features/workbench.md). This document is the layer under
 both.
 
-## 1. Ubiq creates a repository, or reads one; it never writes into one
+## 1. Ubiq creates a repository, reads one, and writes when the Git screen asks
 
-**The agents in the panes are what mutate the repository. Ubiq only observes.** That is the domain
-fact the whole subsystem is shaped around, and it is why the read-only line was worth drawing:
-Ubiq is a window onto a working tree that several harnesses are editing at once, and a second
-writer in that room is a correctness problem rather than a feature.
+**The agents in the panes mutate the working tree as they work. The Git screen is the other
+writer, and it is explicit.** Stage, unstage, commit, fetch, pull and push go through
+`WriteProjectGit` and run on the git worker — the same thread that reads, so the per-project
+handle stays un-mutexed (`D122`). A write and an agent's `git commit` in the same second can still
+collide; the worker serialises Ubiq's own writes, not the agent's.
 
-Two decisions hold the line. `D30` — Ubiq writes nothing inside a project's folder — covers the git
-directory, because the git directory is inside that folder: no ref written, nothing staged, and the
-status walk runs with libgit2's index-stat refresh turned off so a read cannot touch the index
-either. `D43` — the host links libgit2 and computes hunks itself — makes `git2` the one reader:
-no `git` subprocess whose output would have to be parsed, and gitoxide is not a second reader. Both
-are in [`decisions.md`](./decisions.md); `D9` is why the harness library, and not Ubiq, decides how
-an agent is launched into that same folder.
+`D30` covers everything Ubiq owns: no ubiq file lands in the project's folder, and a status walk
+leaves the index-stat cache alone so a *read* cannot touch the index. The Git screen's writes are
+the exception that mutates the repository the user asked it to. `D43` keeps `git2` the one
+library: no `git` subprocess, and gitoxide is not a second reader. Both are in
+[`decisions.md`](./decisions.md); `D9` is why the harness library, and not Ubiq, decides how an
+agent is launched into that same folder.
 
-**Cloning is the one write, and it is a write that has no repository to corrupt.** A clone brings a
-repository into existence at a path where none was — nothing is staged, no ref is moved, no working
-tree another writer is in is touched — and from the moment it registers the project, everything above
-applies to it unchanged. That is the whole of why `git2` is compiled with `https` (`D72`); a
-transport was left out while Ubiq only read, and it is in for exactly one operation. The line the
-rule draws is the useful one: **no message in this family mutates a repository Ubiq did not just
-make.** The clone itself belongs to
+**Cloning is the write that has no repository to corrupt.** A clone brings a repository into
+existence at a path where none was. `git2` is compiled with `https` for that clone and for fetch,
+pull and push (`D72`). The clone itself belongs to
 [`../features/workbench.md`](../features/workbench.md) and its wire form to
 [`transport-contract.md`](./transport-contract.md).
 
 The consequence to hold on to: **every fact this family reports is about a moment that has passed.**
-The machinery that narrows that window (§6) is the feature. The walk being fast is not.
+A write re-observes as a full refresh, which is how the window closes. The machinery that narrows
+that window (§6) is the feature. The walk being fast is not.
 
 ## 2. What a repository is, and what it is not
 
@@ -131,7 +128,7 @@ fires per object. The clone thread cannot reach the project catalogue, so it han
 folder back over a channel the coordinator drains in `register_clones()` beside
 `reap_conversations()`, and the run loop's wait is capped while `Repos::busy()`. Nothing about
 `repos/` touches this worker's repository cache — a clone opens no cached handle, which is why
-`G84`'s un-mutexed cache is untouched by it.
+the git worker's un-mutexed cache is untouched by it (`D122`).
 
 Three pieces of per-project state live on the worker:
 
@@ -309,12 +306,10 @@ they change a shape rather than fill a hole.
    wrong answer and should become an absent one. The second is a wire variant with no producer:
    either a cancellable walk gives it one, or it leaves the contract. Both are small; neither
    blocks anything.
-5. **The write family (`G84`).** Load-bearing, and it forces a design change first: the shared,
-   un-mutexed repository cache is safe only because nothing mutates, and staging or committing needs
-   a mutable repository — the same collision §4's stash reflog sidesteps. Two independent
-   handles (item 2) become a correctness hazard rather than a cost, and the missing staleness guard
-   (item 1) stops being a display glitch and becomes a write racing a read. **Change the cache
-   before the first write lands**, while nothing depends on its current shape.
+5. **What is left of the write family (`G84`).** Stage, unstage, commit, fetch, pull and push
+   write. Branch, stash and undo stay inert. Pull is a fast-forward or a refusal — a diverged
+   branch is a terminal, not a merge. There is no confirmation surface and no undo of a write.
+   Fetch, pull and push over https use git's credential helper, not a connector (`G145`).
 6. **What is left of `G125`.** The working-tree map is done: repositories below the project are
    found, walked and merged (`D99`). What is open is a linked worktree read as if it were the only
    repository, the repository *above* the project whose `.git` sits outside the watched root, and
@@ -333,5 +328,5 @@ they change a shape rather than fill a hole.
   the status bar's readout
 - [`architecture.md`](./architecture.md) — the two halves, and the second `git2` reader in the file
   family
-- [`decisions.md`](./decisions.md) — `D9`, `D30`, `D43`
+- [`decisions.md`](./decisions.md) — `D9`, `D30`, `D43`, `D72`, `D122`
 - [`../backlog.md`](../backlog.md) — every row cited above

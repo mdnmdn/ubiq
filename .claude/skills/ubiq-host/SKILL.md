@@ -58,8 +58,9 @@ Your change updates the documents it touched, in the same commit. `just docs-tou
 8. **One host per process**, started by the binary before the first window and outliving all of
    them — two hosts would race the catalogue file. Nothing drops when a window closes, so
    `client_gone` reaps that window's pseudo-terminals deliberately (`D28`).
-9. **Ubiq writes nothing inside a project's folder** except the workarea it reserves and never
-   reads (`D30`, architecture rule 6).
+9. **Ubiq writes nothing of its own inside a project's folder** except the workarea it reserves
+   and never reads (`D30`, architecture rule 6). The Git screen's `WriteProjectGit` is the
+   exception that mutates the repository the user asked it to (`D122`).
 10. **The host names no harness config path and hard-codes no launch.** `agent-manager` answers
     all of it; `agent.rs` overrides exactly four fields of what `resolve` returns.
 

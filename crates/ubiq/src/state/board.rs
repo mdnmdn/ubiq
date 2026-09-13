@@ -373,6 +373,22 @@ impl BoardState {
         true
     }
 
+    /// The pointer entered this column. If it was already here, the gap a card claimed is left
+    /// alone — the column only means the end of itself when the pointer first arrives, or when
+    /// the space under the cards claims it. Without that, every drag-move on the column would
+    /// overwrite the card's `before` with `None` and every drop would land at the bottom.
+    pub fn carry_over_column(&mut self, status: Status) -> bool {
+        let Some(carry) = self.carry.as_mut() else {
+            return false;
+        };
+        if carry.over == Some(status) {
+            return false;
+        }
+        carry.over = Some(status);
+        carry.before = None;
+        true
+    }
+
     /// Put it down, and answer the task, the column it landed in and the card it landed in front
     /// of — `None` being the end of that column.
     pub fn end_carry(&mut self) -> Option<(TaskId, Status, Option<TaskId>)> {

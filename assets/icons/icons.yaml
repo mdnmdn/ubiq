@@ -222,6 +222,9 @@ categories:
     tab-pin:
       goal: a tab protected from close, drawn before its label
       keywords: [pin, pinned, protect, lock, keep]
+    board-comment:
+      goal: how many comments a task has, as a speech balloon
+      keywords: [balloon, comment, comments, speech, note]
 
   # The capture editor's toolbar (`ui/viewer/image_edit.rs`). Undo, redo, copy, delete and the
   # stroke colour are `IconName::Undo`, `Redo`, `Copy`, `Delete` and `Palette` at the call site;

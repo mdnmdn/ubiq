@@ -231,6 +231,11 @@ impl AppState {
         self.set_task_field(TaskField::Kind(kind), cx);
     }
 
+    /// The card's own swatch, or none so the edge reads the pulse again.
+    pub fn set_task_colour(&mut self, colour: Option<usize>, cx: &mut Context<Self>) {
+        self.set_task_field(TaskField::Colour(colour), cx);
+    }
+
     /// Put one label on the open task, keeping the ones it already carries.
     ///
     /// The whole list is sent rather than the one that was added, because a label list is short and
@@ -641,22 +646,43 @@ impl AppState {
         }
     }
 
+    /// The pointer is inside a column but not over a card that has claimed a gap. Only the column
+    /// changes, so a drag across cards inside one column keeps the gap the last card named.
+    pub fn drag_task_column(&mut self, status: Status, cx: &mut Context<Self>) {
+        if self
+            .board_mut(cx)
+            .is_some_and(|board| board.carry_over_column(status))
+        {
+            cx.notify();
+        }
+    }
+
     /// Put it down. Unlike the graph's canvas, the column *is* the drop target: a card is filed
     /// somewhere rather than placed anywhere, so where it landed is what took the drop.
     ///
     /// Which column a task is in is written down, so the drop asks rather than moves. The card
     /// says it is waiting until the answer comes back, which is what keeps a slow host from
-    /// reading as a drag that failed.
+    /// reading as a drag that failed. The projection is spliced the same way so a reorder is
+    /// visible without waiting for the host to confirm the order it already holds.
     pub fn drop_task(&mut self, status: Status, before: Option<TaskId>, cx: &mut Context<Self>) {
         let Some(project_id) = self.project(cx) else {
             return;
         };
-        let Some(board) = self.board_mut(cx) else {
-            return;
+        let landed = {
+            let Some(board) = self.board_mut(cx) else {
+                return;
+            };
+            board.carry_over(status, before);
+            let landed = board.end_carry();
+            if let Some((task_id, status, _)) = landed {
+                board.moving = Some((task_id, status));
+            }
+            landed
         };
-        board.carry_over(status, before);
-        if let Some((task_id, status, before)) = board.end_carry() {
-            board.moving = Some((task_id, status));
+        if let Some((task_id, status, before)) = landed {
+            if let Some(work) = self.work_mut(cx) {
+                work.place(task_id, status, before);
+            }
             self.bus.send(Message::MoveTask {
                 project_id,
                 task_id,

@@ -16,12 +16,12 @@
 //! allocator over real parent ids — this screen carries them through rather than computing a
 //! topology it was not given. Everything else on the screen is the host's answer too: the
 //! branch, the ahead and behind counts, the in-progress
-//! operation, the working-tree totals, the staged and unstaged lists, and the diff under them.
+//! operation, the working-tree totals, the modified / untracked / conflicted lists, and the
+//! diff under them.
 //!
-//! **Nothing here writes.** Version control is read-only in this version, so the commit box and
-//! the toolbar's fetch, pull, push, branch, stash and undo are drawn as the shape the screen will
-//! have and are inert until the write family exists. What is typed into the box is kept here so a
-//! switch away and back does not lose it.
+//! **This screen writes.** Stage and unstage run through `+` / `-` on each path; commit, fetch
+//! all, pull and push are live. Branch, stash and undo stay inert. What is typed into the commit
+//! box is kept here so a switch away and back does not lose it.
 //!
 //! Nothing here draws and nothing here names a colour.
 
@@ -359,33 +359,32 @@ fn commit_haystack(commit: &CommitRow) -> String {
     )
 }
 
-/// Which of the three change lists a row is in.
+/// Which of the three change lists a row is in. Each path lands in exactly one.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Side {
     Conflicted,
-    Staged,
-    Unstaged,
+    Modified,
+    Untracked,
 }
 
 impl Side {
     /// What a row from this list is compared against.
     ///
-    /// An unstaged row is the worktree against the index, which is exactly what "not staged yet"
-    /// means. A staged or conflicted row is the worktree against HEAD — the whole change together
-    /// — because the file family offers no index-against-HEAD comparison, and showing a staged
-    /// path's change against the wrong side would be worse than showing more of it.
+    /// An untracked row is the worktree against the index. A modified or conflicted row is the
+    /// worktree against HEAD — the whole change together — because the file family offers no
+    /// index-against-HEAD comparison.
     pub fn base(self) -> DiffBase {
         match self {
-            Side::Unstaged => DiffBase::Index,
-            Side::Staged | Side::Conflicted => DiffBase::Head,
+            Side::Untracked => DiffBase::Index,
+            Side::Modified | Side::Conflicted => DiffBase::Head,
         }
     }
 
     pub fn label(self) -> &'static str {
         match self {
             Side::Conflicted => "Conflicted",
-            Side::Staged => "Staged",
-            Side::Unstaged => "Unstaged",
+            Side::Modified => "Modified",
+            Side::Untracked => "Untracked",
         }
     }
 }
@@ -421,8 +420,8 @@ pub fn staged(entries: &[GitEntry]) -> Vec<&GitEntry> {
         .collect()
 }
 
-/// The paths whose worktree differs from the index: what a commit would leave behind. Untracked
-/// files are here, because that is where git puts them and where the user looks for them.
+/// The paths whose worktree differs from the index. Useful for the commit count's counterpart —
+/// what a commit would leave behind.
 pub fn unstaged(entries: &[GitEntry]) -> Vec<&GitEntry> {
     entries
         .iter()
@@ -436,34 +435,39 @@ pub fn conflicted(entries: &[GitEntry]) -> Vec<&GitEntry> {
     entries.iter().filter(|entry| entry.conflicted).collect()
 }
 
-/// [`conflicted`], [`staged`] and [`unstaged`] together, in one pass over `entries` instead of
-/// three — plus the staged count a caller would otherwise take a fourth pass for, which is just
-/// `staged.len()` here.
+/// Whether `+` can stage this path: it has worktree content and is not conflicted.
+pub fn can_stage(entry: &GitEntry) -> bool {
+    !entry.conflicted && entry.worktree.is_some()
+}
+
+/// Whether `-` can unstage this path: it has index content and is not conflicted.
+pub fn can_unstage(entry: &GitEntry) -> bool {
+    !entry.conflicted && entry.index.is_some()
+}
+
+/// [`conflicted`], then modified, then untracked — each path in exactly one list.
 ///
 /// Indices rather than references, because the list that draws them is virtual: it holds the
 /// grouping across frames and looks each row's entry up when it builds the rows on screen.
 pub struct ChangeGroups {
     pub conflicted: Vec<usize>,
-    pub staged: Vec<usize>,
-    pub unstaged: Vec<usize>,
+    pub modified: Vec<usize>,
+    pub untracked: Vec<usize>,
 }
 
 pub fn group_changes(entries: &[GitEntry]) -> ChangeGroups {
     let mut groups = ChangeGroups {
         conflicted: Vec::new(),
-        staged: Vec::new(),
-        unstaged: Vec::new(),
+        modified: Vec::new(),
+        untracked: Vec::new(),
     };
     for (index, entry) in entries.iter().enumerate() {
         if entry.conflicted {
             groups.conflicted.push(index);
-            continue;
-        }
-        if entry.index.is_some() {
-            groups.staged.push(index);
-        }
-        if entry.worktree.is_some() {
-            groups.unstaged.push(index);
+        } else if entry.worktree == Some(GitPathChange::Untracked) {
+            groups.untracked.push(index);
+        } else if entry.index.is_some() || entry.worktree.is_some() {
+            groups.modified.push(index);
         }
     }
     groups
@@ -509,6 +513,10 @@ pub struct GitView {
     /// for the reason every other composer's draft is.
     pub message: String,
     pub amend: bool,
+
+    /// The last write that failed, drawn under the commit box until the next successful working
+    /// tree arrives.
+    pub last_error: Option<String>,
 
     /// The sidebar's rows, from the host's refs and the overview's submodules.
     pub refs: Vec<RefRow>,
@@ -560,6 +568,7 @@ impl GitView {
             diff_open: true,
             message: String::new(),
             amend: false,
+            last_error: None,
             refs,
             commits: Vec::new(),
             search_haystacks: Vec::new(),

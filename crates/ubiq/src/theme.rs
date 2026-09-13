@@ -208,6 +208,10 @@ pub struct StatusColors {
     pub ribbon_alpha: Rgba,
     pub ribbon_beta: Rgba,
     pub ribbon_ink: Rgba,
+    /// The Git screen's experimental ribbon, top-left. Same in every palette: it marks the
+    /// screen, not the mood.
+    pub ribbon_experimental: Rgba,
+    pub ribbon_experimental_ink: Rgba,
 }
 
 /// Colours the terminal emulator paints that are not ANSI — selection and links.
@@ -873,6 +877,14 @@ pub fn ribbon_ink() -> Rgba {
     Theme::current().palette.status.ribbon_ink
 }
 
+pub fn ribbon_experimental() -> Rgba {
+    Theme::current().palette.status.ribbon_experimental
+}
+
+pub fn ribbon_experimental_ink() -> Rgba {
+    Theme::current().palette.status.ribbon_experimental_ink
+}
+
 /// The swatch a project is identified by. Wraps, so any number of projects is colourable.
 pub fn project_colour(index: usize) -> Rgba {
     let swatches = Theme::current().palette.project.swatches;
@@ -977,6 +989,8 @@ const DARK: Palette = Palette {
         ribbon_alpha: rgba_hex(0xf5c518),
         ribbon_beta: rgba_hex(0xf5a04a),
         ribbon_ink: rgba_hex(0x1b1b1b),
+        ribbon_experimental: RIBBON_EXPERIMENTAL,
+        ribbon_experimental_ink: RIBBON_EXPERIMENTAL_INK,
     },
     project: ProjectColors {
         swatches: [
@@ -1046,6 +1060,8 @@ const LIGHT: Palette = Palette {
         ribbon_alpha: rgba_hex(0xf5c518),
         ribbon_beta: rgba_hex(0xf5a04a),
         ribbon_ink: rgba_hex(0x1b1b1b),
+        ribbon_experimental: RIBBON_EXPERIMENTAL,
+        ribbon_experimental_ink: RIBBON_EXPERIMENTAL_INK,
     },
     project: ProjectColors {
         swatches: [
@@ -1077,11 +1093,14 @@ const LIGHT: Palette = Palette {
     },
 };
 
-/// The build-channel ribbon marks the build, not the mood, so every palette carries the same three
-/// values — named once rather than retyped per family.
+/// The build-channel ribbon marks the build, not the mood, so every palette carries the same
+/// values — named once rather than retyped per family. The Git screen's experimental ribbon is
+/// the same kind of mark.
 const RIBBON_ALPHA: Rgba = rgba_hex(0xf5c518);
 const RIBBON_BETA: Rgba = rgba_hex(0xf5a04a);
 const RIBBON_INK: Rgba = rgba_hex(0x1b1b1b);
+const RIBBON_EXPERIMENTAL: Rgba = rgba_hex(0xe23d3d);
+const RIBBON_EXPERIMENTAL_INK: Rgba = rgba_hex(0xffffff);
 
 /// The swatch wheel a high-contrast palette uses: the same sixteen identities, taken to full
 /// strength so each one still separates from the others at maximum ground contrast. `D19` — a
@@ -1170,6 +1189,8 @@ const EMBER_DARK: Palette = Palette {
         ribbon_alpha: RIBBON_ALPHA,
         ribbon_beta: RIBBON_BETA,
         ribbon_ink: RIBBON_INK,
+        ribbon_experimental: RIBBON_EXPERIMENTAL,
+        ribbon_experimental_ink: RIBBON_EXPERIMENTAL_INK,
     },
     project: DARK.project,
     terminal: TerminalColors {
@@ -1219,6 +1240,8 @@ const EMBER_LIGHT: Palette = Palette {
         ribbon_alpha: RIBBON_ALPHA,
         ribbon_beta: RIBBON_BETA,
         ribbon_ink: RIBBON_INK,
+        ribbon_experimental: RIBBON_EXPERIMENTAL,
+        ribbon_experimental_ink: RIBBON_EXPERIMENTAL_INK,
     },
     project: LIGHT.project,
     terminal: TerminalColors {
@@ -1269,6 +1292,8 @@ const CONTRAST_DARK: Palette = Palette {
         ribbon_alpha: RIBBON_ALPHA,
         ribbon_beta: RIBBON_BETA,
         ribbon_ink: RIBBON_INK,
+        ribbon_experimental: RIBBON_EXPERIMENTAL,
+        ribbon_experimental_ink: RIBBON_EXPERIMENTAL_INK,
     },
     project: VIVID_SWATCHES,
     terminal: TerminalColors {
@@ -1318,6 +1343,8 @@ const CONTRAST_LIGHT: Palette = Palette {
         ribbon_alpha: RIBBON_ALPHA,
         ribbon_beta: RIBBON_BETA,
         ribbon_ink: RIBBON_INK,
+        ribbon_experimental: RIBBON_EXPERIMENTAL,
+        ribbon_experimental_ink: RIBBON_EXPERIMENTAL_INK,
     },
     project: VIVID_SWATCHES_LIGHT,
     terminal: TerminalColors {
@@ -1368,6 +1395,8 @@ const NAVY_DARK: Palette = Palette {
         ribbon_alpha: RIBBON_ALPHA,
         ribbon_beta: RIBBON_BETA,
         ribbon_ink: RIBBON_INK,
+        ribbon_experimental: RIBBON_EXPERIMENTAL,
+        ribbon_experimental_ink: RIBBON_EXPERIMENTAL_INK,
     },
     project: DARK.project,
     terminal: TerminalColors {
@@ -1417,6 +1446,8 @@ const NAVY_LIGHT: Palette = Palette {
         ribbon_alpha: RIBBON_ALPHA,
         ribbon_beta: RIBBON_BETA,
         ribbon_ink: RIBBON_INK,
+        ribbon_experimental: RIBBON_EXPERIMENTAL,
+        ribbon_experimental_ink: RIBBON_EXPERIMENTAL_INK,
     },
     project: LIGHT.project,
     terminal: TerminalColors {
@@ -1467,6 +1498,8 @@ const VIOLET_DARK: Palette = Palette {
         ribbon_alpha: RIBBON_ALPHA,
         ribbon_beta: RIBBON_BETA,
         ribbon_ink: RIBBON_INK,
+        ribbon_experimental: RIBBON_EXPERIMENTAL,
+        ribbon_experimental_ink: RIBBON_EXPERIMENTAL_INK,
     },
     project: DARK.project,
     terminal: TerminalColors {
@@ -1516,6 +1549,8 @@ const VIOLET_LIGHT: Palette = Palette {
         ribbon_alpha: RIBBON_ALPHA,
         ribbon_beta: RIBBON_BETA,
         ribbon_ink: RIBBON_INK,
+        ribbon_experimental: RIBBON_EXPERIMENTAL,
+        ribbon_experimental_ink: RIBBON_EXPERIMENTAL_INK,
     },
     project: LIGHT.project,
     terminal: TerminalColors {

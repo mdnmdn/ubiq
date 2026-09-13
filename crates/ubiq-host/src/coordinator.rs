@@ -71,6 +71,10 @@ const SUGGEST_DEADLINE: Duration = Duration::from_secs(60);
 /// over a handful of small files is cheaper than the watcher the alternative would need.
 const LOGIN_SYNC_EVERY: Duration = Duration::from_secs(30);
 
+/// How often a project's `tasks.toml` is re-read so an edit that happened outside this process
+/// reaches a window that already has the board open.
+const TASK_SYNC_EVERY: Duration = Duration::from_secs(2);
+
 /// Gather what a subject needs and compose its prompt. Off the coordinator's thread, so the
 /// repository read here is allowed to be slow.
 fn gather(
@@ -240,6 +244,9 @@ struct Coordinator {
     /// When the logins were last reconciled with the accounts they were seeded from, which is
     /// what paces [`Self::sync_logins_due`] off a run loop that wakes twice a second.
     logins_synced: Instant,
+    /// When the loaded task files were last compared to disk, which is what paces
+    /// [`Self::sync_tasks_due`].
+    tasks_synced: Instant,
     /// Every conversation started since this run began, including the ones that have since ended.
     /// A counter rather than a length, because what it counts is gone. A relaunch of the same
     /// agent counts again, deliberately: it is a second harness process on a second pump thread,
@@ -826,6 +833,7 @@ impl Coordinator {
             logins: HashMap::new(),
             started: Instant::now(),
             logins_synced: Instant::now(),
+            tasks_synced: Instant::now(),
             agents_this_run: 0,
             usage,
             meta,
@@ -896,6 +904,10 @@ impl Coordinator {
                 Some(wait) => Some(wait.min(LOGIN_SYNC_EVERY)),
                 None => Some(LOGIN_SYNC_EVERY),
             };
+            let wait = match wait {
+                Some(wait) => Some(wait.min(TASK_SYNC_EVERY)),
+                None => Some(TASK_SYNC_EVERY),
+            };
             let event = match wait {
                 Some(wait) => match self.host.recv_timeout(wait) {
                     Ok(event) => Some(event),
@@ -915,6 +927,7 @@ impl Coordinator {
                 None => {}
             }
             self.sync_logins_due();
+            self.sync_tasks_due();
             self.remember_sessions();
             self.name_conversations();
             self.reap_conversations();
@@ -1749,6 +1762,9 @@ impl Coordinator {
                         rev,
                     },
                 );
+            }
+            Message::WriteProjectGit { project_id, op } => {
+                self.git_job(client, project_id, git::Request::Write { op });
             }
 
             // ── the work family ─────────────────────────────────────
@@ -3127,6 +3143,18 @@ impl Coordinator {
     /// This makes [`Self::finish_one_shot_turn`]'s own assignment to `pending.resume` redundant: the
     /// poll that reaps a finished one-shot turn runs this first. It is left in place because it
     /// costs nothing and keeps that method readable on its own.
+    /// Every [`TASK_SYNC_EVERY`], re-read each loaded project's `tasks.toml` and tell every
+    /// window when the disk has moved on.
+    fn sync_tasks_due(&mut self) {
+        if self.tasks_synced.elapsed() < TASK_SYNC_EVERY {
+            return;
+        }
+        self.tasks_synced = Instant::now();
+        for reply in self.work.lock().sync_from_disk() {
+            self.host.send(To::Everyone, reply.into_message());
+        }
+    }
+
     /// Every [`LOGIN_SYNC_EVERY`], hand each account's newest credential back to the account and
     /// to every run still holding an older one ([`Agents::sync_logins`]).
     ///

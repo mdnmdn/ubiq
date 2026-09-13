@@ -99,8 +99,8 @@ states the boundary once.
 | [Operations](./tech/operations.md) | Prerequisites, the complete command reference, what a first build costs, the checks a change has to pass before it lands, and the runbook for a tool an agent cannot run. | 2026-09-12 |
 | [Project structure](./tech/project-structure.md) | Every folder in the workspace, what belongs in it, what must never go in it, and the two crates' division of labour. | 2026-09-13 |
 | [Transport contract](./tech/transport-contract.md) | The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, quota, profile, command-line, host browse, connector, repository, assist, notification, web asset and carrier families, the framing rules, and the procedure for adding a variant. | 2026-09-13 |
-| [UI and design](./tech/ui-and-design.md) | The GPUI rendering model, the complete theme token set and the rule that no colour escapes it, how a palette is switched, the shape every surface, modal and dialog is drawn in, the page every primitive is looked at on, and the design assets screens are built against. | 2026-09-12 |
-| [Version control](./tech/version-control.md) | How the host reads a project's repositories — the rule that Ubiq creates a repository or reads one and never writes into one, where a clone runs, upward discovery and scope, the bounded downward walk that finds the repositories inside a project and merges them into one map, the git worker's two queues and its per-project caches, the three shapes it answers with, the commit-graph lane engine, the refresh discipline that narrows the staleness window, and the ceilings and assumptions the model rests on. | 2026-09-12 |
+| [UI and design](./tech/ui-and-design.md) | The GPUI rendering model, the complete theme token set and the rule that no colour escapes it, how a palette is switched, the shape every surface, modal and dialog is drawn in, the page every primitive is looked at on, and the design assets screens are built against. | 2026-09-13 |
+| [Version control](./tech/version-control.md) | How the host reads a project's repositories and how the Git screen writes them — cloning, upward discovery and scope, the bounded downward walk that finds the repositories inside a project and merges them into one map, the git worker's two queues and its per-project caches, the three shapes it answers with, the commit-graph lane engine, the refresh discipline that narrows the staleness window, and the ceilings and assumptions the model rests on. | 2026-09-13 |
 
 ### References
 
@@ -200,7 +200,7 @@ Assembled from each document's `read_when`. Read the path, not the library.
 | Building or restyling a screen, adding a colour or a size | `tech/ui-and-design.md` |
 | Adding a screen area, a panel or a rail mode | `features/workbench.md`, then `tech/ui-and-design.md` |
 | Changing the Git screen — its refs, history, change lists or diff | `features/workbench.md`, then `tech/ui-and-design.md` |
-| Extending version control, or adding the write family | `tech/version-control.md`, then `tech/transport-contract.md` |
+| Extending version control, or adding a write | `tech/version-control.md`, then `tech/transport-contract.md` |
 | Changing the agents screen — its columns, its sidebar or what a tab drag does | `features/workbench.md`, then `tech/ui-and-design.md` |
 | Changing the orchestration screen — its graph, inspector or tasks drawer | `features/workbench.md`, then `tech/ui-and-design.md` |
 | Changing the tasks board — its columns, cards or task panel | `features/workbench.md`, then `tech/ui-and-design.md` |

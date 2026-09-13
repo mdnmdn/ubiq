@@ -1017,6 +1017,12 @@ pub enum Message {
         project_id: ProjectId,
         with_tracking: bool,
     },
+    /// Mutate the project's repository. Answered with a full refresh — [`Message::GitOverview`]
+    /// and [`Message::GitWorkingTree`] — or [`Message::GitError`].
+    WriteProjectGit {
+        project_id: ProjectId,
+        op: git::GitWriteOp,
+    },
 
     // ── Git family: host → UI ───────────────────────────────────────
     /// `overview` absent means the project is not in a repository. That is an ordinary answer.
@@ -1822,6 +1828,7 @@ impl Message {
             | Message::RefreshProjectGit { project_id, .. }
             | Message::ProjectGitLog { project_id, .. }
             | Message::ProjectGitRefs { project_id, .. }
+            | Message::WriteProjectGit { project_id, .. }
             | Message::GitOverview { project_id, .. }
             | Message::GitWorkingTree { project_id, .. }
             | Message::GitError { project_id, .. }
@@ -1888,6 +1895,8 @@ pub enum TaskField {
     /// The whole set, replaced. A label list is short and is edited as a set, so a delta would be
     /// two messages and an ordering rule to save a handful of bytes.
     Labels(Vec<Label>),
+    /// The card's own swatch, or `None` to clear it so the edge reads the pulse again.
+    Colour(Option<usize>),
 }
 
 /// What a start chooses over and above the harness and the folder: the identity, the saved setup,

@@ -521,10 +521,11 @@ task belongs to the project instead: it survives the window that made it and the
 are different things — the second is a board a user emptied, and it stays empty at the next boot.
 Where that is kept and how is `D39`'s, not this document's.
 
-**A column is a stage, and a card only ever changes column or its place in one.** Backlog, ready, in
-progress, in review, done: moving a card changes where the work has got to and nothing else about
-it. Each column carries its own count and a dot in the token that means what the stage means —
-nothing yet, queued, moving, waiting on a person, over.
+**A column is a stage, and a card only ever changes column or its place in one.** Backlog, ready,
+blocked, in progress, in review, done, abandoned: moving a card changes where the work has got to
+and nothing else about it. Each column carries its own count and a dot in the token that means what
+the stage means — nothing yet, queued, stuck, moving, waiting on a person, over, given up. **A
+wheel over a lane moves that lane**, not the board sideways.
 
 **A card is filed, and filed in a place.** Unlike the graph's canvas, the column *is* the drop
 target: a label follows the pointer while the card stays where it is, the column under the pointer
@@ -547,21 +548,23 @@ description, its key, its kind, its labels and its session — because a card th
 something written on it is a card that has been lost. Two prefixes narrow it to one field: `key:`
 matches only the key, so a task is found by the id a human says out loud, and `#` matches only the
 labels. `New task` names the next one after whatever is in that field — so typing to look for a card
-that turns out not to exist is already most of making it. The new task lands in the backlog, in the
-session the pills are on, and the field clears rather than leaving the board filtered down to the one
-card just asked for. `New task` cannot select what it asked for, because the id is the host's to
+that turns out not to exist is already most of making it. The new task lands in the backlog, and
+the field clears rather than leaving the board filtered down to the one card just asked for. `New task` cannot select what it asked for, because the id is the host's to
 mint: the task that arrives is the one selected.
 
 **The labels are pills in the toolbar, and they narrow rather than widen.** One pill per label the
 project actually uses, in that label's own colour; turning two on asks for the cards carrying both.
-They stack with the field and the session pills, and the reset that clears all three appears only
-once something is filtered — the graph toolbar's posture, for the graph toolbar's reason.
+They stack with the field, and the reset that clears both appears only once something is filtered —
+the graph toolbar's posture, for the graph toolbar's reason.
 
-**A card carries the worst thing happening in its task.** Its left edge is the state the user would
-want to be told first: a failed sub-task beats one waiting on a person, which beats one moving. The
-line under it names the agent the task speaks through — the coordinator of a coordinated task,
-whoever is holding it now for any other shape — and clicking that name opens its conversation. A
-task nobody has started says so, and counts its sub-tasks instead.
+**A card carries the worst thing happening in its task, unless it has a colour of its own.** Its
+left edge is the state the user would want to be told first: a failed sub-task beats one waiting on
+a person, which beats one moving. A swatch picked on the panel overrides that and paints the edge
+in that colour instead; clearing it returns the pulse. The line under the title names the agent the
+task speaks through — the coordinator of a coordinated task, whoever is holding it now for any other
+shape — and clicking that name opens its conversation. A task nobody has started says so, and
+counts its sub-tasks instead. A comment count sits at the foot as a balloon and a number, and is
+absent when there are none.
 
 **A card draws what it has and nothing for what it has not.** Its key, its kind and its labels sit
 across the top with the priority; its shape and its session sit at the foot; and every one of them
@@ -589,12 +592,12 @@ set` is a pill in the row beside the three, the way handing a task to no session
 that picker rather than an absence the user has to find the way back to.
 
 **The form edits everything about a task except where it has got to.** Its title, its description,
-its priority, its key, its kind, its link, its labels, its shape and its session, its sub-tasks —
-added at the foot of the list, renamed in place, ticked and removed — and a comment left at the
-foot of that list. Priority, kind and shape are
-rows of pills, which are the report and the control at once because each has a handful of fixed
-values; the session is a picker, because that list is as long as the project has sessions and it
-grows.
+its priority, its key, its kind, its link, its labels, its colour, its shape and its session, its
+sub-tasks — added at the foot of the list, renamed in place, ticked and removed — and a comment
+left at the foot of that list. Priority, kind and shape are rows of pills, which are the report and
+the control at once because each has a handful of fixed values; the colour is a row of swatches
+behind a `none`; the session is a picker, because that list is as long as the project has sessions
+and it grows.
 
 **A label is named once and offered ever after.** Adding one lists every label the project already
 uses before offering to make a new one, because two cards spelled `infra` and `Infra` are two labels
@@ -627,9 +630,9 @@ message set is for acts, and re-asserting a title is not one.
 
 **A status has no control.** The column a card is in is drawn on the panel and not offered there: a
 column is a stage, and a card only ever changes column by being moved, so a picker for it would be a
-second way to do the one thing the drag is for. `BLOCKED` is derived from the sub-tasks, so there is
-nothing to offer there either. This is the one place the panel deliberately stops short of what it
-reports.
+second way to do the one thing the drag is for. A failed sub-task still marks the card `BLOCKED` as
+a derived pulse, separate from the blocked column a card is filed into. This is the one place the
+panel deliberately stops short of what it reports.
 
 **Delete asks first, and a sub-task's × does not.** A task is the one thing on the panel that cannot
 be retyped, so it takes the question the picker's Forget takes: the first click asks, the second
@@ -646,12 +649,13 @@ nothing more — what a card carries is fixed, and a folded card keeps only its 
 is scanned by.
 
 **Every change is a message, and the card says it is waiting.** Nothing on either screen writes to
-the work: a field sends, the host answers, and the panel goes on reporting the task the host last
-confirmed, so a refusal leaves nothing to unwind. A drop asks the same way — the card stays in the
-column it came from, drawn muted and saying so, until the answer comes, so a slow host does not read
-as a drag that failed. The mark comes off on any answer naming that task, the old column included, so
-a refusal cannot leave a card stuck on its way somewhere. Why the interface asks rather than writing
-first is the state ownership rule in [`../tech/architecture.md`](../tech/architecture.md).
+the host's records: a field sends, the host answers, and the panel goes on reporting the task the
+host last confirmed, so a refusal leaves nothing to unwind. A drop asks the same way, and splices
+the card in the projection so a reorder is visible without waiting; the waiting mark stays until
+the answer comes, so a slow host does not read as a drag that failed. The mark comes off on any
+answer naming that task, the old column included, so a refusal cannot leave a card stuck on its way
+somewhere. Why the interface asks rather than writing first is the state ownership rule in
+[`../tech/architecture.md`](../tech/architecture.md).
 
 **A refusal ends whatever asked for it.** What the host would not do is said on the panel, in its
 own sentence rather than the project picker's, because a task that would not move is not a fact
@@ -674,33 +678,32 @@ puts the history in the centre; the bottom pane region stays shut. The titlebar'
 switches, the same ones the IDE uses for the explorer and the chat, put the sides away and bring
 them back. The comparison is a panel of its own and comes forward when a changed path is picked. It is the same facts the explorer's badges and the status bar's branch carry, at
 the size they can be read at: the tree answers "is this file changed" and this screen answers
-"what has this repository been doing".
+"what has this repository been doing". A red `experimental` ribbon sits on the screen's top-left
+corner for as long as the rail is on Git.
 
 **The strip over the panels names the repository and what HEAD is doing.** The repository selector
 picks which of the project's repositories the view is showing — the root, or a submodule, or a
 nested one — and the pill beside it is the branch, the tracking counts and any in-progress
-operation. Fetch, pull, push, branch, stash, undo and the commit button are drawn as the shape
-the screen will have when there is a write family behind them, and none of them takes a click;
-the strip carries a `read-only` chip that says why. A refresh asks the host again. What is typed
-into the commit box is kept with the project, because a message is worth keeping even when nothing
-can send it.
+operation. Fetch all, pull and push write; branch, stash and undo take no click. A refresh asks
+the host again. What is typed into the commit box is kept with the project.
 
 **The uncommitted row is the top row of the history.** What is not committed yet is selected the
 same way a commit is and is what the screen opens on; picking a commit points the panel beside it
 at that commit instead. The panel says what the log said and no more — a commit's own file list
 needs a log the git family does not carry.
 
-**The change lists are the pair, not the projection.** A path whose index differs from HEAD is in
-the staged list and a path whose worktree differs from the index is in the unstaged one, so a path
-that is both is in both — which is exactly what one badge on an explorer row cannot say.
-Conflicted paths are a list of their own, drawn first. A row takes the colour the explorer paints
-the same path in, so the two never disagree.
+**The change lists are modified and untracked.** A tracked path with an index or worktree change
+is in Modified; an untracked path is in Untracked. Conflicted paths are a list of their own, drawn
+first. Each path appears once. `+` on the right of a row stages that path — an untracked file
+becomes tracked — and `-` unstages it — a newly-added file becomes untracked again. A conflicted
+row has neither. A row takes the colour the explorer paints the same path in, so the two never
+disagree.
 
 **Picking a changed path compares it, and the comparison is the host's.** The pane under the
 history draws the hunks `DiffProjectFile` answers with, through the same renderer a diff tab uses.
-An unstaged row is compared against the index and a staged or conflicted row against HEAD, because
-the file family offers those two and no index-against-HEAD. The pane shuts rather than the history
-shrinking, and switches between unified and side by side.
+An untracked row is compared against the index and a modified or conflicted row against HEAD,
+because the file family offers those two and no index-against-HEAD. The pane shuts rather than the
+history shrinking, and switches between unified and side by side.
 
 **A diff's rows are one height, so a long line is scrolled to rather than wrapped.** The body is a
 virtual list over the hunks flattened into one row per header, line or side-by-side pair, which is
@@ -991,9 +994,10 @@ edge makes a row or a column, a divider drags, and a group's zoom control fills 
 whatever it is displaying and gives it back. The window fixes no arrangement — it draws the
 titlebar, the rail, the dock and the status bar, and what is inside the dock is the user's answer.
 
-**The window says which build it is.** A diagonal ribbon lies across the bottom-left corner, over
-everything, reading `beta` when the bundle's version is a released one — a `UBIQ_VERSION` starting
-with `v` — and `alpha` otherwise, a bare `cargo build`'s `dev` included. **Clicking the band swaps
+**The window says which build it is.** A diagonal ribbon — the same `kit::ribbon` Git mode uses
+for `experimental` — lies across the bottom-left corner, over everything, reading `beta` when the
+bundle's version is a released one — a `UBIQ_VERSION` starting with `v` — and `alpha` otherwise, a
+bare `cargo build`'s `dev` included. **Clicking the band swaps
 the dock icon** for the yellow mark, and clicking it again puts the bundle's own icon back — which
 is how two builds running side by side are told apart in the dock. macOS only, since nothing else
 lets a running process change its icon, and the mark is compiled into the binary rather than read
@@ -2201,12 +2205,14 @@ The blob behind what a project remembers grows the arrangement, the open files, 
 expanded folders and the selected row, and the host neither parses nor validates any of it.
 
 **The work crosses the bus as well, and every message names a project.** Going out: `ListWork`,
-`CreateTask`, `UpdateTask`, `MoveTask`, `AssignTask`, `DeleteTask`, `AddStep`, `RenameStep`,
+`CreateTask`, `UpdateTask`, `SetTaskField`, `MoveTask`, `AssignTask`, `DeleteTask`, `AddStep`, `RenameStep`,
 `RemoveStep`, `MoveStep`, `ToggleStep`, `AddComment`, `AssignAgent` and `SendToAgent`. Coming back: `WorkList`,
 `TaskCreated`, `TaskChanged`, `TaskDeleted`, `AgentChanged` and `WorkError`. A project is open in one
-window at a time, so each answer reaches only the window that asked, and the three screens over the
-work draw from the same projection of it. What no message carries is the arrangement over the
-records — which column an agent's conversation is drawn in, and where a card sits. The full family, with its payloads and its rules, is
+window at a time, so each answer reaches only the window that asked, except a `WorkList` the host
+pushes when a loaded `tasks.toml` has changed on disk, which every window hears. The three screens
+over the work draw from the same projection of it. What no message carries is the arrangement over
+the records — which column an agent's conversation is drawn in, and where a card sits. The full
+family, with its payloads and its rules, is
 [`../tech/transport-contract.md`](../tech/transport-contract.md).
 
 **A live conversation is a family of its own, and every message in it names an agent.** Going out:
@@ -2217,9 +2223,10 @@ is a delta rather than a record, so the transcript is a fold the window keeps an
 re-sends; the family's payloads and its ordering rule belong to the transport contract.
 
 The git family above is what the Git screen speaks: `ProjectGit` and `RefreshProjectGit` for the
-overview and the working tree, `ProjectGitRefs` for the sidebar and `ProjectGitLog` for the
-history, page by page. Every chat tab speaks the conversation family above, the same as a column
-does, which is [`chat.md`](./chat.md)'s. The terminals have a family of their own, in
+overview and the working tree, `ProjectGitRefs` for the sidebar, `ProjectGitLog` for the history,
+page by page, and `WriteProjectGit` for stage, unstage, commit, fetch, pull and push. Every chat
+tab speaks the conversation family above, the same as a column does, which is
+[`chat.md`](./chat.md)'s. The terminals have a family of their own, in
 [`panes-and-terminals.md`](./panes-and-terminals.md).
 
 ## The window's areas
@@ -2263,7 +2270,7 @@ saying no file is open, because the files are panels of their own:
 | Orchestration graph | `ui/orchestration/graph.rs` | The orchestration screen, beside the inspector | Grows; scrolls to the extent of its cards | `GraphView` and its `Layout` over the same projection, and `CARD_WIDTH`/`CARD_HEIGHT` in `state/layout.rs` |
 | Inspector | `ui/orchestration/inspector.rs` | The orchestration screen, right | `INSPECTOR_WIDTH`, fixed | `GraphView::selection`, and `agent_input` on `AppState` |
 | Tasks drawer | `ui/orchestration/tasks.rs` | The orchestration screen, under the graph | `TASKS_HEIGHT` open, its header shut | `GraphView::tasks_open` |
-| Tasks board | `ui/board/mod.rs` | The centre panel in Tasks mode | Fills it; its columns scroll sideways | `BoardState` over the project's `WorkProjection`, and `COLUMN_WIDTH`/`COLUMN_SHUT` |
+| Tasks board | `ui/board/mod.rs` | The centre panel in Tasks mode | Fills it; each column scrolls vertically | `BoardState` over the project's `WorkProjection`, and `COLUMN_WIDTH`/`COLUMN_SHUT` |
 | Task panel | `ui/board/detail.rs` | The board, right | `TASK_PANEL_WIDTH`, fixed | `BoardState::selected`, `show_detail` and `editing`, and the window's four form entities |
 | Kitchen sink | `ui/sink/mod.rs` | The centre panel in Sink mode, project or no project | Fills it; its page strip takes the tab strip's own height | `SinkState`, on the window rather than on a project |
 | Sink documents | `ui/sink/docs.rs` | The kitchen sink, on four of its ten pages | Fills it | The fixture in `state/sink.rs` its page names, and the window's buffer for it |
@@ -2391,27 +2398,30 @@ the graph's and the board's: which sidebar sections are shut, which ref and whic
 selected, what is typed in the search and the commit box, which changed path the diff is about and
 what it is compared against. It holds no working-tree records — `group_changes()` takes the
 `GitEntry` pairs the host sent, which `OpenProject::git_entries` keeps whole beside the projection
-the explorer got, and buckets them into `ChangeGroups`' conflicted, staged and unstaged in one pass
-— and `settle()` drops a selection whose path has gone clean. `grouped_refs()` does the same for
-the sidebar's five sections. **What a frame reads, a reply computes:** `set_commits()` and
-`extend_commits()` build each commit's search haystack and the lane count as they land, so
-`visible_commits()` and `lanes()` are reads rather than a scan over the page, and the count of
-staged paths is passed to the commit box rather than derived again there.
+the explorer got, and buckets them into `ChangeGroups`' conflicted, modified and untracked in one
+pass, each path once — and `settle()` drops a selection whose path has gone clean.
+`grouped_refs()` does the same for the sidebar's five sections. **What a frame reads, a reply
+computes:** `set_commits()` and `extend_commits()` build each commit's search haystack and the lane
+count as they land, so `visible_commits()` and `lanes()` are reads rather than a scan over the page,
+and the count of staged paths is passed to the commit box rather than derived again there.
 `Side::base()` is where a list's comparison base is decided, and `RefRow` and `CommitRow` are
 built from the host's answers by `ref_rows()` and `commit_rows()` in `state/git.rs`. Its four
 widths and the graph's lane pitch are constants there, the way the board's and the columns' are
-theirs.
+theirs. `last_error` holds a `GitError::Failed` reason until the next working-tree reply.
 
 `ui/git/` draws it, one file per panel: `refs.rs` the left region's sections and their rows — the
 file list's own row chrome, so a ref reads the way a path does — `history.rs` the search, the lanes
-and the commits, `changes.rs` the right region's three lists and the commit box, `diff.rs` the
-comparison under the history, which hands the hunks to `ui/viewer/diff.rs` rather than drawing them
-again, and `repo_selector.rs` the chrome-strip control that picks a repository when the project has
-more than one. `git::toolbar()` is the strip itself, painted by `ui/shell.rs` above the dock while
-the rail is on Git; it carries the selector, the HEAD pill, the inert write actions, the working-tree
-count and a refresh. `PanelKind::GitRefs` / `GitChanges` / `GitHistory` / `GitDiff` are the four dock
-panels; they are drawn only in Git mode with a project, and `ModeLayout::default_for(Git)` opens
-the left and right regions onto the first two. `AppState::queue_git_furniture()` puts them in
+and the commits, `changes.rs` the right region's three lists, the `+` / `-` on each path and the
+commit box, `diff.rs` the comparison under the history, which hands the hunks to
+`ui/viewer/diff.rs` rather than drawing them again, and `repo_selector.rs` the chrome-strip control
+that picks a repository when the project has more than one. `git::toolbar()` is the strip itself,
+painted by `ui/shell.rs` above the dock while the rail is on Git; it carries the selector, the HEAD
+pill, fetch all / pull / push, the working-tree count and a refresh. `ribbon::experimental()` is
+the red `experimental` band in that column's top-left corner — `kit::ribbon` at `TopLeft`, drawn
+by `ui/shell.rs` while the rail is on Git. Branch, stash and undo stay inert. `AppState::write_git()` sends `WriteProjectGit`; commit, fetch, pull and push also ask for
+refs and a fresh log page. `PanelKind::GitRefs` / `GitChanges` / `GitHistory` / `GitDiff` are the
+four dock panels; they are drawn only in Git mode with a project, and `ModeLayout::default_for(Git)`
+opens the left and right regions onto the first two. `AppState::queue_git_furniture()` puts them in
 their home regions on a first visit, and `toggle_region()` fills an emptied left with the refs and
 an emptied right with the changes. The history and the three change lists are `uniform_list`s over
 their row counts; the sidebar's refs are the one list still built whole (`G220`). `ui/viewer/diff.rs`
