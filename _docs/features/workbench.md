@@ -742,9 +742,16 @@ foot of the list carries a `Load more commits` row that sends the next request t
 rather than a scroll-to-bottom trigger: paging is a thing the reader does. The history's search
 matches a commit's message and SHA, a searchable picker walks one branch instead of HEAD, and
 `my commits` keeps only what the signed-in user wrote; every filter clears together. A commit's
-lane is real: the host allocates it from actual parent ids, and a merge's extra parents claim their
-own lanes for the lines drawn behind it, rather than the one hollow dot a parent count could offer.
-Lane state carries across pages, keyed by the cursor and filters the next one arrives with, so a
+lane is real: the host allocates it from actual parent ids, and the interface derives from the
+same `lane`/`merges`/`parents` the bus already carries which lanes are live above and below each
+row and which converge at it — the joins that turn into elbows and the births that open a new
+column. A merge's extra parents claim their own lanes for the lines drawn behind it rather than
+the one hollow dot a parent count could offer. The graph is painted as one canvas per row: a
+straight line where the host says a lane lives, an elbow where a lane ends at a dot or a merge's
+extra-parent lane is born, and a hollow ring for a merge's dot. The rows read as a table: the
+gutter holds the graph, a Message label takes the flexible column, and Author, When and SHA are
+fixed on the right, each named by a faint header row once the history exists. Lane state carries
+across pages, keyed by the cursor and filters the next one arrives with, so a
 branch does not visually collapse and reopen at a page boundary.
 
 **A project is a colour.** Each project owns one of the theme's swatches, and wears it in four
@@ -2420,17 +2427,20 @@ what it is compared against. It holds no working-tree records — `group_changes
 the explorer got, and buckets them into `ChangeGroups`' conflicted, modified and untracked in one
 pass, each path once — and `settle()` drops a selection whose path has gone clean.
 `grouped_refs()` does the same for the sidebar's five sections. **What a frame reads, a reply
-computes:** `set_commits()` and `extend_commits()` build each commit's search haystack and the lane
-count as they land, so `visible_commits()` and `lanes()` are reads rather than a scan over the page,
-and the count of staged paths is passed to the commit box rather than derived again there.
+ computes:** `set_commits()` and `extend_commits()` build each commit's search haystack, the graph's
+ per-row cells and the lane count as they land, so `history()`, `visible_commits()` and `lanes()`
+ are reads rather than a scan over the page, and the count of staged paths is passed to the commit
+ box rather than derived again there. `history()` pairs the rows a filter leaves with the
+ `GraphCell` the loaded walk gave each — a search hides rows, it does not relayout the graph. The
+ graph's cells are a projection of the host's lane data, not an interface topology.
 `Side::base()` is where a list's comparison base is decided, and `RefRow` and `CommitRow` are
 built from the host's answers by `ref_rows()` and `commit_rows()` in `state/git.rs`. Its four
 widths and the graph's lane pitch are constants there, the way the board's and the columns' are
 theirs. `last_error` holds a `GitError::Failed` reason until the next working-tree reply.
 
 `ui/git/` draws it, one file per panel: `refs.rs` the left region's sections and their rows — the
-file list's own row chrome, so a ref reads the way a path does — `history.rs` the search, the lanes
-and the commits, `changes.rs` the right region's three lists, the `+` / `-` on each path and the
+ file list's own row chrome, so a ref reads the way a path does — `history.rs` the search, the
+ graph's painted lanes, the column header and the commits, `changes.rs` the right region's three lists, the `+` / `-` on each path and the
 commit box, `diff.rs` the comparison under the history, which hands the hunks to
 `ui/viewer/diff.rs` rather than drawing them again, and `repo_selector.rs` the chrome-strip control
 that picks a repository when the project has more than one. `git::toolbar()` is the strip itself,

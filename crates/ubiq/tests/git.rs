@@ -21,8 +21,8 @@ use gpui_component::Root;
 use ubiq::app::{AppState, BusHub};
 use ubiq::state::WindowRegistry;
 use ubiq::state::git::{
-    CommitRow, GitView, RefRow, RefSection, RefTreeKind, Side, commit_rows, conflicted,
-    group_changes, ref_rows, staged, unstaged,
+    CommitRow, GitView, GraphCell, RefRow, RefSection, RefTreeKind, Side, commit_rows, conflicted,
+    graph_cells, group_changes, ref_rows, staged, unstaged,
 };
 use ubiq_proto::bus::{self, FromClient, To};
 use ubiq_proto::files::DiffBase;
@@ -53,6 +53,7 @@ fn view() -> GitView {
             "Marco De Nittis",
             0,
             Vec::new(),
+            vec!["4c8b221".to_string()],
             true,
         ),
         row(
@@ -61,6 +62,7 @@ fn view() -> GitView {
             "Marco De Nittis",
             0,
             vec![1],
+            vec!["1aa5c62".to_string(), "b1c9f30".to_string()],
             true,
         ),
         row(
@@ -69,6 +71,7 @@ fn view() -> GitView {
             "Sara Villa",
             1,
             Vec::new(),
+            Vec::new(),
             false,
         ),
         row(
@@ -76,6 +79,7 @@ fn view() -> GitView {
             "Cut 0.3.0",
             "Marco De Nittis",
             0,
+            Vec::new(),
             Vec::new(),
             true,
         ),
@@ -89,6 +93,7 @@ fn row(
     author: &str,
     lane: usize,
     merges: Vec<usize>,
+    parents: Vec<String>,
     mine: bool,
 ) -> CommitRow {
     CommitRow {
@@ -99,6 +104,7 @@ fn row(
         when: "2 h ago".to_string(),
         lane,
         merges,
+        parents,
         refs: Vec::new(),
         mine,
     }
@@ -188,6 +194,7 @@ fn the_search_matches_summary_author_or_id() {
                 when: "2 h ago".into(),
                 lane: 0,
                 merges: Vec::new(),
+                parents: Vec::new(),
                 refs: Vec::new(),
                 mine: false,
             },
@@ -199,6 +206,7 @@ fn the_search_matches_summary_author_or_id() {
                 when: "5 h ago".into(),
                 lane: 0,
                 merges: Vec::new(),
+                parents: Vec::new(),
                 refs: Vec::new(),
                 mine: true,
             },
@@ -244,6 +252,176 @@ fn the_graph_is_as_wide_as_its_widest_lane() {
     assert_eq!(git.lanes(), widest);
 }
 
+fn cell(above: Vec<usize>, below: Vec<usize>, joins: Vec<usize>) -> GraphCell {
+    GraphCell {
+        above,
+        below,
+        joins,
+    }
+}
+
+/// A straight line: every commit's only lane is the one above and the one below it, and nothing
+/// converges except the commit itself. The tip has nothing above it and the root nothing below.
+#[test]
+fn graph_cells_trace_a_linear_history() {
+    let commits = vec![
+        row("c0", "tip", "a", 0, Vec::new(), vec!["c1".into()], true),
+        row("c1", "middle", "a", 0, Vec::new(), vec!["c2".into()], true),
+        row("c2", "root", "a", 0, Vec::new(), Vec::new(), true),
+    ];
+    let cells = graph_cells(&commits);
+
+    assert_eq!(
+        cells,
+        vec![
+            cell(Vec::new(), vec![0], Vec::new()),
+            cell(vec![0], vec![0], vec![0]),
+            cell(vec![0], Vec::new(), vec![0]),
+        ]
+    );
+}
+
+/// A merge: the first-parent line continues; the merge's extra-parent lane is born at the merge
+/// row and converges at the branch tip. This is the fixture `view()` seeds.
+#[test]
+fn graph_cells_open_a_merge_lane_and_close_it_at_the_branch_tip() {
+    let commits = vec![
+        row(
+            "9f3a10c",
+            "Refit the terminal",
+            "Marco",
+            0,
+            Vec::new(),
+            vec!["4c8b221".into()],
+            true,
+        ),
+        row(
+            "4c8b221",
+            "Merge branch 'feat/session-store'",
+            "Marco",
+            0,
+            vec![1],
+            vec!["1aa5c62".into(), "b1c9f30".into()],
+            true,
+        ),
+        row(
+            "b1c9f30",
+            "Register the migration",
+            "Sara",
+            1,
+            Vec::new(),
+            Vec::new(),
+            false,
+        ),
+        row(
+            "1aa5c62",
+            "Cut 0.3.0",
+            "Marco",
+            0,
+            Vec::new(),
+            Vec::new(),
+            true,
+        ),
+    ];
+    let cells = graph_cells(&commits);
+
+    assert_eq!(
+        cells,
+        vec![
+            cell(Vec::new(), vec![0], Vec::new()),
+            cell(vec![0], vec![0, 1], vec![0]),
+            cell(vec![0, 1], vec![0], vec![1]),
+            cell(vec![0], Vec::new(), vec![0]),
+        ]
+    );
+}
+
+/// Two merges of the same branch, the older one after the newer: the newer merge opened the
+/// branch's lane, so the older merge's extra-parent lane is already alive — the elbow sits on a
+/// lane that passes straight through the row rather than being born there, and the older merge's
+/// own dot is joined by the first-parent line it continues.
+#[test]
+fn graph_cells_reuse_a_merge_lane_that_is_already_alive() {
+    let commits = vec![
+        row(
+            "merge-new",
+            "Merge feature again",
+            "a",
+            0,
+            vec![1],
+            vec!["mid".into(), "branch".into()],
+            true,
+        ),
+        row(
+            "mid",
+            "Mainline",
+            "a",
+            0,
+            Vec::new(),
+            vec!["merge-old".into()],
+            true,
+        ),
+        row(
+            "merge-old",
+            "Merge feature",
+            "a",
+            0,
+            vec![1],
+            vec!["root".into(), "branch".into()],
+            true,
+        ),
+        row(
+            "root",
+            "Mainline root",
+            "a",
+            0,
+            Vec::new(),
+            Vec::new(),
+            true,
+        ),
+        row(
+            "branch",
+            "Feature tip",
+            "b",
+            1,
+            Vec::new(),
+            Vec::new(),
+            true,
+        ),
+    ];
+    let cells = graph_cells(&commits);
+
+    assert_eq!(
+        cells[2],
+        cell(vec![0, 1], vec![0, 1], vec![0]),
+        "the first-parent line converges into the older merge dot; the branch lane is alive too"
+    );
+    assert_eq!(
+        cells[4],
+        cell(vec![1], Vec::new(), vec![1]),
+        "the branch tip closes the one line that was still waiting for it"
+    );
+}
+
+/// `history()` pairs each visible commit with the cell the loaded walk gave it, in the list's own
+/// order — and a search hides rows without relaying the graph out.
+#[test]
+fn history_keeps_the_graph_in_step_with_what_it_shows() {
+    let mut git = view();
+    let rows = git.history();
+    assert_eq!(rows.len(), 4);
+    for (index, row, cell) in &rows {
+        assert_eq!(&git.graph[*index], *cell);
+        assert_eq!(&git.commits[*index], *row);
+    }
+
+    git.search = "Merge".into();
+    let rows = git.history();
+    assert_eq!(rows.len(), 1);
+    let (index, _, _) = rows[0];
+    assert_eq!(git.commits[index].short_id, "4c8b221");
+}
+
 /// A same-length in-place replacement — a rebase that does not change the commit count is the
 /// real-world case — must not serve a stale search haystack or a stale lane count. This is the
 /// bug a cache keyed on `commits.len()` had: `set_commits` must recompute both every time, not
@@ -258,6 +436,7 @@ fn a_same_length_replacement_never_serves_a_stale_haystack_or_lane_count() {
             "Marco",
             0,
             Vec::new(),
+            Vec::new(),
             true,
         )],
     );
@@ -267,6 +446,7 @@ fn a_same_length_replacement_never_serves_a_stale_haystack_or_lane_count() {
         "Register the migration",
         "Sara",
         3,
+        Vec::new(),
         Vec::new(),
         false,
     )]);
@@ -343,12 +523,7 @@ fn each_path_lands_in_exactly_one_working_tree_list() {
         vec!["Cargo.lock".to_string()]
     );
     assert_eq!(
-        groups
-            .modified
-            .iter()
-            .copied()
-            .map(path)
-            .collect::<Vec<_>>(),
+        groups.staged.iter().copied().map(path).collect::<Vec<_>>(),
         vec![
             "src/state/sessions.rs".to_string(),
             "src/panels/terminal.rs".to_string()
@@ -356,19 +531,23 @@ fn each_path_lands_in_exactly_one_working_tree_list() {
     );
     assert_eq!(
         groups
-            .untracked
+            .unstaged
             .iter()
             .copied()
             .map(path)
             .collect::<Vec<_>>(),
-        vec!["docs/architecture.md".to_string()]
+        vec![
+            "src/panels/terminal.rs".to_string(),
+            "docs/architecture.md".to_string()
+        ],
+        "a path staged and modified is in both lists"
     );
 }
 
 #[test]
 fn a_list_says_what_its_rows_are_compared_against() {
-    assert_eq!(Side::Untracked.base(), DiffBase::Index);
-    assert_eq!(Side::Modified.base(), DiffBase::Head);
+    assert_eq!(Side::Unstaged.base(), DiffBase::Index);
+    assert_eq!(Side::Staged.base(), DiffBase::Staged);
     assert_eq!(Side::Conflicted.base(), DiffBase::Head);
 }
 
@@ -376,18 +555,18 @@ fn a_list_says_what_its_rows_are_compared_against() {
 fn picking_a_path_asks_once_and_forgets_the_last_comparison() {
     let mut git = view();
 
-    assert!(git.select_path(Side::Untracked, "docs/architecture.md"));
+    assert!(git.select_path(Side::Unstaged, "docs/architecture.md"));
     assert_eq!(git.path(), Some("docs/architecture.md"));
     assert_eq!(git.base, DiffBase::Index);
 
     assert!(
-        !git.select_path(Side::Untracked, "docs/architecture.md"),
+        !git.select_path(Side::Unstaged, "docs/architecture.md"),
         "the same row again is not a second question"
     );
 
     git.diff = None;
-    assert!(git.select_path(Side::Modified, "src/panels/terminal.rs"));
-    assert_eq!(git.base, DiffBase::Head);
+    assert!(git.select_path(Side::Staged, "src/panels/terminal.rs"));
+    assert_eq!(git.base, DiffBase::Staged);
     assert!(
         git.diff.is_none(),
         "a comparison of the last path is never drawn under a new one"
@@ -398,7 +577,7 @@ fn picking_a_path_asks_once_and_forgets_the_last_comparison() {
 fn a_selection_goes_when_its_path_goes_clean() {
     let mut git = view();
     let entries = working_tree();
-    git.select_path(Side::Untracked, "docs/architecture.md");
+    git.select_path(Side::Unstaged, "docs/architecture.md");
 
     git.settle(&entries);
     assert_eq!(git.path(), Some("docs/architecture.md"), "still changed");

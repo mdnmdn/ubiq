@@ -61,7 +61,7 @@ pub use file_picker::{
 };
 pub use git::{
     ChangeSection, CommitRow, GitAction, GitMenu, GitMenuEntry, GitMenuKind, GitPending, GitView,
-    RefRow, RefSection, Side,
+    GraphCell, RefRow, RefSection, Side,
 };
 pub use image_edit::{EditOp, ImageEdit, ImageTool, ShapeKind};
 pub use layout::Layout;

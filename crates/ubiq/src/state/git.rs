@@ -13,8 +13,11 @@
 //! host's [`ubiq_proto::git::GitRef`]/[`ubiq_proto::git::GitSubmodule`] and
 //! [`ubiq_proto::git::GitCommit`] answers by [`ref_rows`] and [`commit_rows`]. The lane a commit
 //! draws in and the lanes it merges from are the host's own answer, computed there by its lane
-//! allocator over real parent ids — this screen carries them through rather than computing a
-//! topology it was not given. Everything else on the screen is the host's answer too: the
+//! allocator over real parent ids. What the interface adds is [`graph_cells`]: the per-row shape
+//! of those lanes — which are live above and below, and which end at this commit — a projection
+//! of the host's `lane`/`merges`/`parents`, deterministic over the same data, so two windows
+//! still cannot draw the same history differently. Everything else on the screen is the host's
+//! answer too: the
 //! branch, the ahead and behind counts, the in-progress
 //! operation, the working-tree totals, the conflicted / staged / unstaged lists, and the
 //! diff under them.
@@ -308,8 +311,8 @@ pub fn submodule_rows(submodules: &[GitSubmodule]) -> Vec<RefRow> {
 /// One commit in the history.
 ///
 /// `lane` is which column of the graph the commit's dot sits in, and `merges` are the lanes that
-/// join it from the right — enough to draw the connectors without the interface computing a
-/// topology it was not given.
+/// join it from the right — enough to rebuild the connectors without the interface inventing a
+/// topology of its own.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CommitRow {
     pub id: String,
@@ -321,6 +324,10 @@ pub struct CommitRow {
     pub when: String,
     pub lane: usize,
     pub merges: Vec<usize>,
+    /// The commit's parents, crossed the bus as ids — the smallest thing a lane algorithm can
+    /// match a child to its parent's lane with. `graph_cells` uses them to tell where a lane
+    /// begins and ends.
+    pub parents: Vec<String>,
     /// Branch and tag names pointing at this commit, for the decorations.
     pub refs: Vec<String>,
     /// Whether the signed-in user is its author, which is what the history's one filter asks.
@@ -328,8 +335,8 @@ pub struct CommitRow {
 }
 
 /// The history's rows, newest first. `lane` and `merges` are carried straight through from the
-/// host's [`GitCommit`] — the host's lane allocator computed the real topology, so this is a
-/// projection, not a computation.
+/// host's [`GitCommit`], and so are `parents` — the host's lane allocator computed the real
+/// topology, so this is a projection, not a computation.
 pub fn commit_rows(commits: &[GitCommit]) -> Vec<CommitRow> {
     let now = Utc::now();
     commits
@@ -344,10 +351,91 @@ pub fn commit_rows(commits: &[GitCommit]) -> Vec<CommitRow> {
                 .unwrap_or_default(),
             lane: c.lane,
             merges: c.merges.clone(),
+            parents: c.parents.clone(),
             refs: c.refs.clone(),
             mine: c.mine,
         })
         .collect()
+}
+
+/// How far a commit's own column and the lanes it merges from reach — the widest lane the graph's
+/// gutter may have to carry. A merge's extra-parent lanes are claimed or opened by the host and
+/// can sit past every commit's own column, so the gutter is sized to them too.
+fn graph_lanes(commit: &CommitRow) -> usize {
+    let widest_merge = commit.merges.iter().copied().max().unwrap_or(0);
+    commit.lane.max(widest_merge) + 1
+}
+
+/// One row cell of the history graph, rebuilt from the host's lane data the way the lanes fell:
+///
+/// - `above` — the lanes that have a live line entering this row from the one above;
+/// - `below` — the lanes that keep a live line leaving this row toward the one below;
+/// - `joins` — the lanes above whose line **ends** at this row: they were waiting for this
+///   commit's id and converge into its dot. An empty `joins` is a commit no loaded line points
+///   at — a branch tip.
+///
+/// Everything is derived, never invented: the columns are the host's `lane`/`merges`, the
+/// endpoints are the same parents the host matched on, so two windows computing this from the
+/// same log agree with each other and with what the host drew.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct GraphCell {
+    pub above: Vec<usize>,
+    pub below: Vec<usize>,
+    pub joins: Vec<usize>,
+}
+
+/// One `GraphCell` per commit, over the loaded history newest first, in one pass.
+///
+/// The walk mirrors the host's allocator with the finite facts it already sent: a lane waits for
+/// whichever parent id was claimed onto it, and is freed when the commit it waits for is reached;
+/// a commit claims its own `lane` for its first parent, and each merge lane holds the extra
+/// parent that flanked it. The one thing this does not carry is lane continuity across pages —
+/// that stays the host's `lanes_for` cache. Here the oldest loaded commit's open lanes simply
+/// trail off, and `extend_commits` reruns the walk over the whole log once the next page lands.
+pub fn graph_cells(commits: &[CommitRow]) -> Vec<GraphCell> {
+    let mut lanes: Vec<Option<&str>> = Vec::new();
+    let mut cells = Vec::with_capacity(commits.len());
+    for commit in commits {
+        let mut above = Vec::new();
+        let mut joins = Vec::new();
+        for (i, waiting) in lanes.iter().enumerate() {
+            if let Some(id) = waiting {
+                above.push(i);
+                if *id == commit.id {
+                    joins.push(i);
+                }
+            }
+        }
+        for waiting in lanes.iter_mut() {
+            if waiting.is_some_and(|id| id == commit.id) {
+                *waiting = None;
+            }
+        }
+        let dot = commit.lane;
+        while lanes.len() <= dot {
+            lanes.push(None);
+        }
+        lanes[dot] = commit.parents.first().map(String::as_str);
+        for (j, &merge) in commit.merges.iter().enumerate() {
+            if let Some(parent) = commit.parents.get(j + 1) {
+                while lanes.len() <= merge {
+                    lanes.push(None);
+                }
+                lanes[merge] = Some(parent.as_str());
+            }
+        }
+        let below: Vec<usize> = lanes
+            .iter()
+            .enumerate()
+            .filter_map(|(i, waiting)| waiting.is_some().then_some(i))
+            .collect();
+        cells.push(GraphCell {
+            above,
+            below,
+            joins,
+        });
+    }
+    cells
 }
 
 /// One commit's search haystack — its summary, author and short id, lowercased and joined behind
@@ -465,9 +553,16 @@ pub struct GitMenu {
 #[derive(Clone, Debug)]
 pub enum GitMenuKind {
     /// A changed path. `changes.rs` raises this from a file row.
-    Change { path: String, side: Side },
-    Commit { index: usize },
-    Ref { index: usize },
+    Change {
+        path: String,
+        side: Side,
+    },
+    Commit {
+        index: usize,
+    },
+    Ref {
+        index: usize,
+    },
 }
 
 /// One row of a Git context menu, matched by index the way the explorer's is.
@@ -705,13 +800,17 @@ pub struct GitView {
     pub refs: Vec<RefRow>,
     /// The history, oldest page first, newest commit first within it. Only ever replaced or
     /// extended through [`GitView::set_commits`]/[`GitView::extend_commits`], which keep
-    /// `search_haystacks` and `lane_count` beside it — see those for why.
+    /// `search_haystacks`, `graph` and `lane_count` beside it — see those for why.
     pub commits: Vec<CommitRow>,
     /// Each commit's lowercased search haystack (see [`commit_haystack`]), in step with
     /// `commits` — built once when a page lands rather than cached against `commits.len()`,
     /// so a same-length in-place replacement (a rebase that does not change the commit count)
     /// can never serve a stale haystack.
     search_haystacks: Vec<String>,
+    /// One [`GraphCell`] per commit, in step with `commits`. Kept beside them the same way and
+    /// for the same reason as `search_haystacks`: edges are a projection of the host's lane data,
+    /// so they are rebuilt when a page lands, not recomputed every frame.
+    pub graph: Vec<GraphCell>,
     /// How many lanes wide the graph is, kept beside `commits` the same way and for the same
     /// reason as `search_haystacks`.
     lane_count: usize,
@@ -772,6 +871,7 @@ impl GitView {
             refs,
             commits: Vec::new(),
             search_haystacks: Vec::new(),
+            graph: Vec::new(),
             lane_count: 0,
             log_cursor: None,
             log_done: false,
@@ -956,23 +1056,50 @@ impl GitView {
     }
 
     /// Replace the whole history — a `GitLogPage` reply for the first page, or a refresh
-    /// restarting it. Computes the search haystack and the lane count here, once, so a
-    /// same-length in-place replacement (a rebase, say) never serves either stale.
+    /// restarting it. Computes the search haystack, the graph's cells and the lane count here,
+    /// once, so a same-length in-place replacement (a rebase, say) never serves any of them
+    /// stale.
     pub fn set_commits(&mut self, commits: Vec<CommitRow>) {
         self.search_haystacks = commits.iter().map(commit_haystack).collect();
-        self.lane_count = commits.iter().map(|c| c.lane + 1).max().unwrap_or(0);
+        self.graph = graph_cells(&commits);
+        self.lane_count = commits.iter().map(graph_lanes).max().unwrap_or(0);
         self.commits = commits;
     }
 
-    /// Append the next page onto the history, extending the haystack and lane count with it —
-    /// a `GitLogPage` reply whose `cursor` is not the first page's.
+    /// Append the next page onto the history, extending the haystack, the graph's cells and the
+    /// lane count with it — a `GitLogPage` reply whose `cursor` is not the first page's.
+    ///
+    /// The graph is the one thing spliced rather than extended: a lane that trailed off the old
+    /// oldest page may close on the new one, so `graph_cells` reruns over the whole log for the
+    /// cells of every row, not just the appended page's.
     pub fn extend_commits(&mut self, commits: Vec<CommitRow>) {
         self.search_haystacks
             .extend(commits.iter().map(commit_haystack));
+        self.commits.extend(commits);
+        self.graph = graph_cells(&self.commits);
         self.lane_count = self
             .lane_count
-            .max(commits.iter().map(|c| c.lane + 1).max().unwrap_or(0));
-        self.commits.extend(commits);
+            .max(self.commits.iter().map(graph_lanes).max().unwrap_or(0));
+    }
+
+    /// The rows the history is drawing, each with the graph cell that one commit draws, in the
+    /// order the list shows them.
+    ///
+    /// The search matches the summary, the author and the abbreviated id, case-insensitively —
+    /// the three things a user has in hand when they go looking for a commit. The cells are the
+    /// loaded history's, not the filtered list's: a search hides rows, it does not relayout the
+    /// graph, so the lines keep the shape the host's lanes gave them.
+    pub fn history(&self) -> Vec<(usize, &CommitRow, &GraphCell)> {
+        let needle = self.search.trim().to_lowercase();
+        self.commits
+            .iter()
+            .zip(self.search_haystacks.iter())
+            .zip(self.graph.iter())
+            .enumerate()
+            .filter(|(_, ((commit, _), _))| !self.mine_only || commit.mine)
+            .filter(|(_, ((_, haystack), _))| needle.is_empty() || haystack.contains(&needle))
+            .map(|(index, ((commit, _), cell))| (index, commit, cell))
+            .collect()
     }
 
     /// Whether the history is showing everything it has.

@@ -162,14 +162,14 @@ fn working_tree(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> 
                         section,
                         count,
                         open,
-                    } => Some(
-                        list_header(*section, *count, *open, &view, window).into_any_element(),
-                    ),
+                    } => {
+                        Some(list_header(*section, *count, *open, &view, window).into_any_element())
+                    }
                     Flat::Row(side, index) => {
                         let entry = entries.get(*index)?;
-                        let picked = selected.as_ref().is_some_and(|(held, path)| {
-                            *held == *side && path == &entry.rel_path
-                        });
+                        let picked = selected
+                            .as_ref()
+                            .is_some_and(|(held, path)| *held == *side && path == &entry.rel_path);
                         Some(change_row(*side, entry, picked, &view, window))
                     }
                 })

@@ -209,11 +209,15 @@ commit's first parent, and each additional parent claims or opens a lane of its 
 commit's `merges`, the columns the merge lines behind it draw from.
 
 Lane assignment is **host-side**, on the same reasoning as the rollups: two windows must not lay out
-the same history differently. It is also why a commit's parents cross the bus as ids rather than as
-a count — a lane algorithm matches a child to the lane its parent occupies, and a count cannot say
-which lane that is. `lanes_for()` keeps page continuity: a request whose cursor, `rel_path` and
-`first_parent` all match the cached entry resumes its lanes, and anything else starts empty, so a
-branch does not visually collapse and reopen at a page boundary.
+ the same history differently. It is also why a commit's parents cross the bus as ids rather than as
+ a count — a lane algorithm matches a child to the lane its parent occupies, and a count cannot say
+ which lane that is. What the interface adds is a pure projection over the host's `lane`/`merges`/
+ `parents`, `graph_cells()` in `crates/ubiq/src/state/git.rs`: which lanes are live above and below
+ each row, and which end at it. It is deterministic over the same data — a lane the host numbered
+ is drawn as the same line in every window — so host-side layout is not diluted; the pattern is
+ still the rollup's. `lanes_for()` keeps page continuity: a request whose cursor, `rel_path` and
+ `first_parent` all match the cached entry resumes its lanes, and anything else starts empty, so a
+ branch does not visually collapse and reopen at a page boundary.
 
 **Why it is hand-rolled rather than a dependency.** The survey found nothing embeddable. Everything
 crates.io offers for commit-graph layout — `git-graph`, `serie`, `git-igitt`, `gitloom-tui`,

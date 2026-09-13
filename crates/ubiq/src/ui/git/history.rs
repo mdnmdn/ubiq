@@ -5,26 +5,27 @@
 //! first question asked of a history and putting it somewhere else would make it the one thing on
 //! the screen that is not where it belongs. It is the row the screen opens on.
 //!
-//! The graph is drawn from what a row carries — its lane, and the lanes that join it — rather than
-//! computed here: the interface was not given a topology and does not invent one. Lanes are
-//! stacked divs rather than a painted layer, because a lane is a straight line and a straight line
-//! is not worth a canvas.
+//! The graph is drawn from a row's own cell — the lanes alive above and below it, and the lanes
+//! that end at its dot — as a painted layer, because once lines can turn: a merge's extra-parent
+//! lane is born at the merge and an elbow joins two columns at a row, which is no longer a stack
+//! of straight hairlines. The cells themselves come ready-made from `state::git::graph_cells`,
+//! a projection of the host's lane data; the interface draws, it does not relayout.
 //!
 //! The commits are the host's: `state::git::commit_rows` turns a `GitLogPage` reply into what
 //! this module draws.
 
 use gpui::{
     AnyElement, ClickEvent, Context, Entity, Focusable, InteractiveElement, IntoElement,
-    MouseButton, MouseDownEvent, ParentElement, Rgba, StatefulInteractiveElement, Styled, Window,
-    div, point, px, uniform_list,
+    MouseButton, MouseDownEvent, ParentElement, PathBuilder, Pixels, Point, Rgba,
+    StatefulInteractiveElement, Styled, Window, canvas, div, point, px, uniform_list,
 };
 use gpui_component::input::Input;
 
 use crate::app::AppState;
 use crate::state::MenuId;
 use crate::state::git::{
-    AUTHOR_COL, COMMIT_ROW, CommitRow, GitMenuKind, LANE_GUTTER, LANE_PITCH, RefSection, SHA_COL,
-    WHEN_COL,
+    AUTHOR_COL, COMMIT_ROW, CommitRow, GitMenuKind, GraphCell, LANE_GUTTER, LANE_PITCH, RefSection,
+    SHA_COL, WHEN_COL,
 };
 use crate::theme;
 use crate::theme::{Family, Role};
@@ -39,13 +40,13 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
     let Some(git) = app.git_view(cx) else {
         return div().into_any_element();
     };
-    let visible = git.visible_commits();
-    let shown = visible.len();
+    let history = git.history();
+    let shown = history.len();
     let focused = app.git_search.read(cx).focus_handle(cx).is_focused(window);
 
-    // Only the indices cross into the list's own closure, which reads the rows themselves back out
-    // of the view when it builds the handful that are on screen.
-    let rows: Vec<usize> = visible.iter().map(|(index, _)| *index).collect();
+    // Only the commit indices cross into the list's own closure, which reads the rows themselves
+    // back out of the view when it builds the handful that are on screen.
+    let rows: Vec<usize> = history.iter().map(|(index, _, _)| *index).collect();
     let lanes = git.lanes();
     let view = cx.entity();
 
@@ -54,6 +55,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
         .flex_col()
         .flex_1()
         .min_h(px(0.))
+        .children((!git.commits.is_empty()).then(|| header_row(lanes)))
         .child(uncommitted_row(app, lanes, cx))
         .child(
             uniform_list("git-history", shown, move |range, window, cx| {
@@ -64,9 +66,11 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
                     .filter_map(|slot| {
                         let index = *rows.get(slot)?;
                         let commit = git.commits.get(index)?;
+                        let cell = git.graph.get(index)?;
                         Some(commit_row(
                             index,
                             commit,
+                            cell,
                             git.commit_selected(index),
                             lanes,
                             &view,
@@ -126,7 +130,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
                         }))
                         .child(
                             mono(
-                                format!("{} of {} commits", visible.len(), git.commits.len()),
+                                format!("{} of {} commits", history.len(), git.commits.len()),
                                 theme::text_faint(),
                             )
                             .text_size(theme::font(Family::Chrome, Role::Meta)),
@@ -257,20 +261,21 @@ fn uncommitted_row(app: &AppState, lanes: usize, cx: &mut Context<AppState>) -> 
         .into_any_element()
 }
 
-/// One commit: its lanes, whatever points at it, its summary, who wrote it, when, and its
+/// One commit: its lane graph, whatever points at it, its summary, who wrote it, when, and its
 /// abbreviated id. A plain click selects it; cmd/ctrl-click makes it the other end of a two-commit
 /// comparison, drawn under the history once both ends are set. A right-click raises the row's
 /// context menu.
 fn commit_row(
     index: usize,
     commit: &CommitRow,
+    cell: &GraphCell,
     selected: bool,
     lanes: usize,
     view: &Entity<AppState>,
     window: &Window,
 ) -> AnyElement {
     row_base(eid("git-commit", index), selected)
-        .child(lane_gutter(commit, lanes))
+        .child(graph_gutter(commit, cell, lanes))
         .child(
             div()
                 .flex()
@@ -311,13 +316,15 @@ fn commit_row(
                     .text_size(theme::font(Family::Chrome, Role::Meta)),
             ),
         )
-        .on_click(window.listener_for(view, move |this, event: &ClickEvent, _, cx| {
-            if event.modifiers().platform {
-                this.toggle_git_compare(index, cx);
-            } else {
-                this.select_git_commit(Some(index), cx);
-            }
-        }))
+        .on_click(
+            window.listener_for(view, move |this, event: &ClickEvent, _, cx| {
+                if event.modifiers().platform {
+                    this.toggle_git_compare(index, cx);
+                } else {
+                    this.select_git_commit(Some(index), cx);
+                }
+            }),
+        )
         .on_mouse_down(
             MouseButton::Right,
             window.listener_for(view, move |this, event: &MouseDownEvent, _, cx| {
@@ -382,57 +389,151 @@ fn row_base(id: impl Into<gpui::ElementId>, selected: bool) -> gpui::Stateful<gp
     row
 }
 
-/// The graph beside one row: a hairline for every lane the history is that wide, and this commit's
-/// own dot in the middle of its lane.
+/// The graph beside one row, painted as one canvas: a line per lane that is alive above this row,
+/// below it, or turns at it, and this commit's own dot in its lane.
 ///
-/// A lane cell is a column — line, dot, line — rather than a dot drawn inside a one-pixel line,
-/// so the dot is laid out rather than overflowing what it sits in. A commit that something merges
-/// into is drawn hollow, which is the one thing a lane says about a topology it did not compute.
-fn lane_gutter(commit: &CommitRow, lanes: usize) -> AnyElement {
+/// A lane line is drawn where it is real, not for every column of the gutter —
+/// [`GraphCell::above`]`/below/joins` say which lanes exist around this row. A lane that *joins*
+/// (an above-lane the host matched to this commit's id) comes down and elbows into the dot; a
+/// lane this commit's merge *born* elbows out of the dot and continues down; a lane that is alive
+/// on both sides passes straight through. The dot is drawn on top of both, and a merge's dot is a
+/// hollow ring rather than a filled one — a lane does not say a topology only the host saw, but
+/// the hollow dot is what the eye has always used.
+fn graph_gutter(commit: &CommitRow, cell: &GraphCell, lanes: usize) -> AnyElement {
+    let width = gutter_width(lanes);
+    // The constants and the facts a row draws with, captured once — the canvas painter outlives
+    // this call, so they are owned rather than borrowed.
+    let pitch = LANE_PITCH;
+    let cell_h = COMMIT_ROW;
+    let dot = commit.lane;
+    let merge = !commit.merges.is_empty();
+    let merges = commit.merges.clone();
+    let cell = cell.clone();
+    let stroke = 1.5;
+    let radius = 3.0;
+
+    canvas(
+        |_, _, _| {},
+        move |bounds, _, window, _| {
+            let left = f32::from(bounds.origin.x);
+            let top = f32::from(bounds.origin.y);
+            let mid = top + cell_h / 2.0;
+            let dot_x = left + dot as f32 * pitch + pitch / 2.0;
+            let gap = radius + 1.0;
+            let lane_x = |lane: usize| left + lane as f32 * pitch + pitch / 2.0;
+
+            for lane in 0..lanes {
+                let colour = lane_colour(lane);
+                let x = lane_x(lane);
+                let join = cell.joins.contains(&lane);
+                let born = merges.contains(&lane);
+                let has_above = cell.above.contains(&lane);
+                let has_below = cell.below.contains(&lane);
+
+                let mut builder = PathBuilder::stroke(px(stroke));
+                let mut strokes = 0;
+                if join || has_above {
+                    let stop = if lane == dot { mid - gap } else { mid };
+                    builder.move_to(point(px(x), px(top + 1.)));
+                    builder.line_to(point(px(x), px(stop)));
+                    strokes += 1;
+                }
+                if born || has_below {
+                    let start = if lane == dot { mid + gap } else { mid };
+                    builder.move_to(point(px(x), px(start)));
+                    builder.line_to(point(px(x), px(top + cell_h)));
+                    strokes += 1;
+                }
+                if strokes > 0
+                    && let Ok(path) = builder.build()
+                {
+                    window.paint_path(path, colour);
+                }
+                if (join && lane != dot) || born {
+                    let mut elbow = PathBuilder::stroke(px(stroke));
+                    elbow.move_to(point(px(x), px(mid)));
+                    elbow.line_to(point(px(dot_x), px(mid)));
+                    if let Ok(path) = elbow.build() {
+                        window.paint_path(path, colour);
+                    }
+                }
+            }
+
+            let dots: Vec<Point<Pixels>> = (0..20)
+                .map(|step| {
+                    let angle = std::f32::consts::TAU * step as f32 / 20.0;
+                    point(
+                        px(dot_x + radius * angle.cos()),
+                        px(mid + radius * angle.sin()),
+                    )
+                })
+                .collect();
+            let colour = lane_colour(dot);
+            if merge {
+                let mut ring = PathBuilder::stroke(px(stroke));
+                ring.add_polygon(&dots, true);
+                if let Ok(path) = ring.build() {
+                    window.paint_path(path, colour);
+                }
+            } else {
+                let mut fill = PathBuilder::fill();
+                fill.add_polygon(&dots, true);
+                if let Ok(path) = fill.build() {
+                    window.paint_path(path, colour);
+                }
+            }
+        },
+    )
+    .w(px(width))
+    .h_full()
+    .flex_none()
+    .into_any_element()
+}
+
+/// The column labels over the history: the same gutter, message, author, when and id columns the
+/// rows draw with, each at its own fixed width, so the aligned table the rows form has a header
+/// that names what a column is. `Message` takes the flexible rule, exactly as a row's summary
+/// does.
+fn header_row(lanes: usize) -> AnyElement {
     div()
-        .w(px(gutter_width(lanes)))
-        .h_full()
+        .h(px(COMMIT_ROW))
+        .pr_3()
         .flex()
         .flex_none()
         .items_center()
-        .children((0..lanes).map(|lane| {
-            let colour = lane_colour(lane);
-            let mut cell = div()
-                .w(px(LANE_PITCH))
-                .h_full()
-                .flex()
+        .gap_2()
+        .border_l_2()
+        .border_color(theme::transparent())
+        .child(div().w(px(gutter_width(lanes))).flex_none())
+        .child(div().flex_1().min_w(px(0.)).child(header_label("Message")))
+        .child(
+            div()
+                .w(px(AUTHOR_COL))
                 .flex_none()
-                .flex_col()
-                .items_center();
-
-            if lane == commit.lane {
-                cell = cell
-                    .child(div().w(px(1.)).flex_1().bg(colour))
-                    .child(
-                        div()
-                            .size(px(7.))
-                            .flex_none()
-                            .rounded_full()
-                            .bg(if commit.merges.is_empty() {
-                                colour
-                            } else {
-                                theme::pane_bg()
-                            })
-                            .border_1()
-                            .border_color(colour),
-                    )
-                    .child(div().w(px(1.)).flex_1().bg(colour));
-            } else {
-                cell = cell.child(div().w(px(1.)).h_full().bg(colour));
-            }
-            cell
-        }))
+                .child(header_label("Author")),
+        )
+        .child(
+            div()
+                .w(px(WHEN_COL))
+                .flex_none()
+                .child(header_label("When")),
+        )
+        .child(div().w(px(SHA_COL)).flex_none().child(header_label("SHA")))
         .into_any_element()
 }
 
+/// One header label: the smallest chrome type in the footer's faint, matching the column values
+/// it names without competing with the data beneath it.
+fn header_label(text: &'static str) -> gpui::Div {
+    div()
+        .text_size(theme::font(Family::Chrome, Role::Meta))
+        .text_color(theme::text_faint())
+        .child(text)
+}
+
 /// How wide the graph's gutter draws for a given lane count — the minimum a real, multi-lane
-/// history needs, never narrower than one lane's pitch. Shared by every row so the uncommitted
-/// row's own placeholder gutter lines up with the commit rows below it.
+/// history needs, never narrower than one lane's pitch. Shared by every row so the header's and
+/// the uncommitted row's own placeholder gutters line up with the commit rows below them.
 fn gutter_width(lanes: usize) -> f32 {
     LANE_GUTTER.max(lanes as f32 * LANE_PITCH)
 }

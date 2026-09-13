@@ -59,12 +59,20 @@ pub fn apply(
         }
         GitWriteOp::StageAll => {
             let scope = super::observe::scope(root, repo)?;
-            let pathspec = if scope.is_empty() { "." } else { scope.as_str() };
+            let pathspec = if scope.is_empty() {
+                "."
+            } else {
+                scope.as_str()
+            };
             stage_all(repo, pathspec)
         }
         GitWriteOp::UnstageAll => {
             let scope = super::observe::scope(root, repo)?;
-            let pathspec = if scope.is_empty() { "." } else { scope.as_str() };
+            let pathspec = if scope.is_empty() {
+                "."
+            } else {
+                scope.as_str()
+            };
             unstage_all(repo, pathspec)
         }
     }
@@ -171,9 +179,7 @@ fn stage_all(repo: &Repository, pathspec: &str) -> Result<(), GitError> {
     index
         .add_all([pathspec], IndexAddOption::DEFAULT, None)
         .map_err(map_error)?;
-    index
-        .update_all([pathspec], None)
-        .map_err(map_error)?;
+    index.update_all([pathspec], None).map_err(map_error)?;
     index.write().map_err(map_error)?;
     Ok(())
 }

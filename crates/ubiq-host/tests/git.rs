@@ -911,7 +911,9 @@ fn fetch_all_speaks_ssh() {
     match error {
         GitError::Denied => {}
         GitError::Failed(reason) => assert!(
-            !reason.to_ascii_lowercase().contains("unsupported url protocol"),
+            !reason
+                .to_ascii_lowercase()
+                .contains("unsupported url protocol"),
             "ssh remotes must be a supported protocol, got {reason}"
         ),
         other => panic!("expected a transport failure, got {other:?}"),

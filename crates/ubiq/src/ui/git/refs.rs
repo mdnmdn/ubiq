@@ -10,8 +10,8 @@
 //! overview's submodules, into what this module draws.
 
 use gpui::{
-    AnyElement, ClickEvent, Context, InteractiveElement, IntoElement, MouseButton,
-    MouseDownEvent, ParentElement, StatefulInteractiveElement, Styled, div, point, px,
+    AnyElement, ClickEvent, Context, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
+    ParentElement, StatefulInteractiveElement, Styled, div, point, px,
 };
 
 use crate::app::AppState;

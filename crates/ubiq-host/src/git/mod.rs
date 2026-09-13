@@ -55,10 +55,7 @@ pub enum Request {
     /// Mutate the repository, then re-observe it as a full refresh.
     Write { op: GitWriteOp },
     /// Paths that differ between two revs. `from` absent is the empty tree.
-    Changed {
-        from: Option<String>,
-        to: String,
-    },
+    Changed { from: Option<String>, to: String },
 }
 
 /// One request, addressed.

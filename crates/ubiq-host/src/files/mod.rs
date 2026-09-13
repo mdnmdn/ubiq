@@ -598,7 +598,14 @@ fn file_answer(project_id: ProjectId, root: &Path, request: &Request) -> Message
             base,
             old,
             new,
-        } => diff_answer(project_id, root, rel_path, *base, old.as_deref(), new.as_deref()),
+        } => diff_answer(
+            project_id,
+            root,
+            rel_path,
+            *base,
+            old.as_deref(),
+            new.as_deref(),
+        ),
         Request::Edit { rel_path, to, op } => match edit(root, rel_path, to.as_deref(), *op) {
             Ok(()) => Message::ProjectPathEdited {
                 project_id,
