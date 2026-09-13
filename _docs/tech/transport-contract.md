@@ -492,8 +492,9 @@ was refused, which is always `Failed` with a reason.
 `FetchAll`, `Pull` and `Push` name nothing else. A successful write is answered as a full refresh
 — the same `GitOverview` plus `GitWorkingTree` pair `RefreshProjectGit { full: true }` would send
 — so the interface does not ask again for the working tree. Pull is a fast-forward or a `Failed`;
-a diverged branch is not merged. Credentials for fetch, pull and push are git's helper and the
-ssh agent, not a connector (`G145`). The git worker serialises these against its own reads; an
+a diverged branch is not merged. Credentials for fetch, pull and push are git's helper, the
+ssh agent and the default identity files, not a connector (`G145`). An `ssh` remote
+(`git@host:path`) uses libssh2 (`D123`). The git worker serialises these against its own reads; an
 agent committing in the same second is a collision the worker does not see (`D122`).
 
 **The overview is cheap.** It is refs and a handful of files in the git directory: `HEAD` as a

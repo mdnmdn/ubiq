@@ -37,7 +37,7 @@ agent is launched into that same folder.
 
 **Cloning is the write that has no repository to corrupt.** A clone brings a repository into
 existence at a path where none was. `git2` is compiled with `https` for that clone and for fetch,
-pull and push (`D72`). The clone itself belongs to
+pull and push, and with `ssh` so a `git@host:path` remote fetches (`D72`, `D123`). The clone itself belongs to
 [`../features/workbench.md`](../features/workbench.md) and its wire form to
 [`transport-contract.md`](./transport-contract.md).
 
@@ -309,7 +309,8 @@ they change a shape rather than fill a hole.
 5. **What is left of the write family (`G84`).** Stage, unstage, commit, fetch, pull and push
    write. Branch, stash and undo stay inert. Pull is a fast-forward or a refusal — a diverged
    branch is a terminal, not a merge. There is no confirmation surface and no undo of a write.
-   Fetch, pull and push over https use git's credential helper, not a connector (`G145`).
+   Fetch, pull and push over https use git's credential helper, not a connector (`G145`); over ssh
+   they use the ssh agent and the default identity files (`D123`).
 6. **What is left of `G125`.** The working-tree map is done: repositories below the project are
    found, walked and merged (`D99`). What is open is a linked worktree read as if it were the only
    repository, the repository *above* the project whose `.git` sits outside the watched root, and

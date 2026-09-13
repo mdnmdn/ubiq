@@ -127,7 +127,7 @@ at the deepest node in the tree, where a keymap's ties are broken.
 
 | | |
 |---|---|
-| `G149` | https only. An ssh remote parses so the modal can name it unsupported, and the clone refuses it |
+| `G149` | Clone is https only. An ssh remote parses so the modal can name it unsupported. Fetch of an existing ssh remote uses libssh2 (`D123`) |
 | `G150` | A failed clone is not resumed or retried |
 | `G151` | Discovery is the membership listing plus the provider's search; there is no org-wide enumeration |
 | `G152` | Azure DevOps, Atlassian and Google have no listing behind them and answer `Unsupported` |

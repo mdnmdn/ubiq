@@ -10,7 +10,7 @@ use std::process::Command;
 
 use tempfile::TempDir;
 use ubiq_host::git::{nested, observe, write};
-use ubiq_proto::git::{GitHead, GitMark, GitPathChange, GitSubmoduleState, GitWriteOp};
+use ubiq_proto::git::{GitError, GitHead, GitMark, GitPathChange, GitSubmoduleState, GitWriteOp};
 
 /// Run one git command in `dir`, ignoring whatever the machine's own configuration says.
 fn git(dir: &Path, args: &[&str]) {
@@ -809,6 +809,29 @@ fn an_empty_message_is_refused() {
     assert!(
         matches!(error, ubiq_proto::git::GitError::Failed(reason) if reason.contains("message"))
     );
+}
+
+#[test]
+fn fetch_all_speaks_ssh() {
+    let dir = repository();
+    git(
+        dir.path(),
+        &[
+            "remote",
+            "add",
+            "origin",
+            "ssh://127.0.0.1:1/mdnmdn/ubiq.git",
+        ],
+    );
+    let error = write::apply_at(dir.path(), &[], &GitWriteOp::FetchAll).unwrap_err();
+    match error {
+        GitError::Denied => {}
+        GitError::Failed(reason) => assert!(
+            !reason.to_ascii_lowercase().contains("unsupported url protocol"),
+            "ssh remotes must be a supported protocol, got {reason}"
+        ),
+        other => panic!("expected a transport failure, got {other:?}"),
+    }
 }
 
 #[test]

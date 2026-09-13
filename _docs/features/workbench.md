@@ -684,7 +684,7 @@ corner for as long as the rail is on Git.
 **The strip over the panels names the repository and what HEAD is doing.** The repository selector
 picks which of the project's repositories the view is showing — the root, or a submodule, or a
 nested one — and the pill beside it is the branch, the tracking counts and any in-progress
-operation. Fetch all, pull and push write; branch, stash and undo take no click. A refresh asks
+operation. Fetch all, pull and push write, including an `ssh` remote (`git@host:path`); branch, stash and undo take no click. A refresh asks
 the host again. What is typed into the commit box is kept with the project.
 
 **The uncommitted row is the top row of the history.** What is not committed yet is selected the

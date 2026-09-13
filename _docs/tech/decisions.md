@@ -1218,9 +1218,9 @@ like a small convenience and would not be one.
 **Cost:** a larger dependency tree and a TLS stack in the host, plus a standing invitation to reach
 for `push` or `fetch`, since the transport is in the build.
 
-**Half reversed by `D122`.** What reversed is "and nothing else": fetch, pull and push use the same
-https transport. What stands is ssh staying out, and a clone still being the write that creates a
-repository where there was none.
+**Half reversed by `D122`, then by `D123`.** What reversed is "and nothing else": fetch, pull and
+push use the same transports. What stands is a clone still being the write that creates a
+repository where there was none, and still over https (`G149`).
 
 ### D73 — A clone runs on its own thread, never on the git worker
 
@@ -2506,7 +2506,7 @@ words. There is no third author.
 Stage, unstage, commit, fetch, pull and push go through `WriteProjectGit` and run on the git
 worker — the same thread that reads. The per-project `Repository` handle stays un-mutexed: the
 thread is the lock. A successful write re-observes as a full refresh. Pull is a fast-forward or a
-refusal. Credentials are git's credential helper and the ssh agent.
+refusal. Credentials are git's credential helper, the ssh agent, and the default identity files.
 
 The alternative was to keep the screen read-only (`D48`) and leave every mutation to the agents in
 the panes. That made a second writer a correctness problem. An explicit click on the Git screen is
@@ -2519,8 +2519,28 @@ a second thread ever touched those handles; this thread is the only one that doe
 
 **Cost.** The worker serialises Ubiq's own writes, not an agent's `git commit` in the same second.
 Pull refuses anything that is not a fast-forward, so a diverged branch is a terminal and not a
-merge. Fetch, pull and push over https use the credential helper, not a connector (`G145`).
-Branch, stash and undo stay inert (`G84`).
+merge. Fetch, pull and push over https use the credential helper, not a connector (`G145`); over
+ssh they use libssh2 (`D123`). Branch, stash and undo stay inert (`G84`).
+
+### D123 — Fetch, pull and push speak ssh, through libgit2's libssh2 transport
+
+`git2` is compiled with `ssh` as well as `https`. An existing remote whose URL is `git@host:path`
+or `ssh://…` is fetched, pulled and pushed with libssh2. Credentials are the ssh agent, then the
+default identity files under `~/.ssh`, then git's credential helper for https. Cloning stays
+https-only (`G149`).
+
+The alternative was rewriting an ssh remote to https. That would fetch a public GitHub repository
+and fail a private one the user's ssh key can read. Linking the transport the URL names is
+the smaller lie.
+
+**Why.** D72 left ssh out because clone was the only network talk and clone is https. Fetch all on
+a repository the user cloned in a terminal hits the remote they have, and that remote is
+often ssh. Without the transport, libgit2 answers `unsupported URL protocol` before any credential
+callback runs.
+
+**Cost.** libssh2 in the host's tree — another C library, another compile, and ssh that is
+libssh2's rather than OpenSSH's: `~/.ssh/config` Host aliases and `IdentityFile` are not read. The
+agent and the well-known identity files are. Clone still refuses ssh (`G149`).
 
 ## Related docs
 

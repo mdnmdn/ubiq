@@ -27,9 +27,10 @@ tracing = "0.1"
 flume = "0.12"
 # Version control. Reading it — blobs from HEAD and from the index — is what nearly every use here
 # is, and needs no transport at all. `https` is compiled in for cloning and for the Git screen's
-# fetch, pull and push. ssh stays out — those talks go over https, or a local path, or not at all.
+# fetch, pull and push. `ssh` is compiled in so an existing `git@host:path` remote fetches rather
+# than failing with "unsupported URL protocol"; clone itself stays https-only (`G149`, `D123`).
 # Behind `git`.
-git2 = { version = "0.21", default-features = false, features = ["https"], optional = true }
+git2 = { version = "0.21", default-features = false, features = ["https", "ssh"], optional = true }
 # The hunks themselves. A diff library lives here and never in the interface. Behind `git`.
 similar = { version = "2", optional = true }
 # Content search: walk the tree with the project's own ignore rules, match with the ripgrep

@@ -4,7 +4,7 @@
 //! handle stays un-mutexed — the thread is the lock (`D122`). Status walks still leave the
 //! index-stat cache alone; these paths write the index and the refs the user asked to write.
 
-use std::path::{Component, Path};
+use std::path::{Component, Path, PathBuf};
 
 use git2::{
     BranchType, ErrorCode, FetchOptions, PushOptions, RemoteCallbacks, Repository, RepositoryState,
@@ -323,10 +323,8 @@ fn push(repo: &Repository) -> Result<(), GitError> {
 
     let mut remote = repo.find_remote(&remote_name).map_err(map_error)?;
     let refspec = format!("{local_ref}:{dest}");
-    let mut callbacks = RemoteCallbacks::new();
-    callbacks.credentials(credentials);
     let mut opts = PushOptions::new();
-    opts.remote_callbacks(callbacks);
+    opts.remote_callbacks(remote_auth());
     remote
         .push(&[&refspec], Some(&mut opts))
         .map_err(map_error)?;
@@ -335,10 +333,8 @@ fn push(repo: &Repository) -> Result<(), GitError> {
 
 fn fetch_remote(repo: &Repository, name: &str) -> Result<(), GitError> {
     let mut remote = repo.find_remote(name).map_err(map_error)?;
-    let mut callbacks = RemoteCallbacks::new();
-    callbacks.credentials(credentials);
     let mut opts = FetchOptions::new();
-    opts.remote_callbacks(callbacks);
+    opts.remote_callbacks(remote_auth());
     remote
         .fetch(&[] as &[&str], Some(&mut opts), None)
         .map_err(map_error)?;
@@ -361,22 +357,86 @@ fn default_remote(names: &[String]) -> Option<&str> {
         .map(String::as_str)
 }
 
-fn credentials(
-    url: &str,
-    username: Option<&str>,
-    allowed: git2::CredentialType,
-) -> Result<git2::Cred, git2::Error> {
-    if allowed.contains(git2::CredentialType::SSH_KEY) {
+fn remote_auth() -> RemoteCallbacks<'static> {
+    let mut auth = Auth::default();
+    let mut callbacks = RemoteCallbacks::new();
+    callbacks.credentials(move |url, username, allowed| auth.cred(url, username, allowed));
+    callbacks
+}
+
+#[derive(Default)]
+struct Auth {
+    tried_agent: bool,
+    tried_key: usize,
+}
+
+const SSH_KEYS: &[&str] = &["id_ed25519", "id_rsa", "id_ecdsa"];
+
+impl Auth {
+    fn cred(
+        &mut self,
+        url: &str,
+        username: Option<&str>,
+        allowed: git2::CredentialType,
+    ) -> Result<git2::Cred, git2::Error> {
         let user = username.unwrap_or("git");
-        if let Ok(cred) = git2::Cred::ssh_key_from_agent(user) {
+
+        // libgit2 asks for a username before any key when the URL did not carry one.
+        if allowed.contains(git2::CredentialType::USERNAME) {
+            return git2::Cred::username(user);
+        }
+
+        if allowed.contains(git2::CredentialType::SSH_KEY) {
+            if !self.tried_agent {
+                self.tried_agent = true;
+                if let Ok(cred) = git2::Cred::ssh_key_from_agent(user) {
+                    return Ok(cred);
+                }
+            }
+            if let Some(home) = home_dir() {
+                let ssh = home.join(".ssh");
+                while self.tried_key < SSH_KEYS.len() {
+                    let name = SSH_KEYS[self.tried_key];
+                    self.tried_key += 1;
+                    let private = ssh.join(name);
+                    if !private.is_file() {
+                        continue;
+                    }
+                    if let Ok(cred) = git2::Cred::ssh_key(user, None, &private, None) {
+                        return Ok(cred);
+                    }
+                }
+            }
+        }
+
+        if allowed.contains(git2::CredentialType::USER_PASS_PLAINTEXT)
+            && let Ok(config) = git2::Config::open_default()
+            && let Ok(cred) = git2::Cred::credential_helper(&config, url, username)
+        {
             return Ok(cred);
         }
+
+        if allowed.contains(git2::CredentialType::DEFAULT) {
+            return git2::Cred::default();
+        }
+
+        Err(git2::Error::from_str("authentication failed"))
     }
-    if allowed.contains(git2::CredentialType::USER_PASS_PLAINTEXT)
-        && let Ok(config) = git2::Config::open_default()
-        && let Ok(cred) = git2::Cred::credential_helper(&config, url, username)
-    {
-        return Ok(cred);
+}
+
+fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn libgit2_links_ssh() {
+        assert!(
+            git2::Version::get().ssh(),
+            "git@host:path remotes need libgit2's ssh transport"
+        );
     }
-    git2::Cred::default()
 }
