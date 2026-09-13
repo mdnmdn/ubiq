@@ -773,10 +773,26 @@ impl AppState {
                 if showing {
                     self.workbench.rail_mode = view.rail_mode;
                     self.workbench.file_filter = view.file_filter.clone();
-                    self.pending_layout = view
+                    // The mode's own arrangement, or that mode's defaults when it has none — the
+                    // same answer `enter_project` and a mode switch give. A start is the case
+                    // that needs it: the window opened on the IDE's default tree before this
+                    // answer arrived, so a project left in Git would otherwise wear the IDE's
+                    // regions and none of Git's panels. Its refs and changes are put in their
+                    // home regions, and `settle_mode` opens the two edges onto them.
+                    let saved = view
                         .modes
                         .get(&view.rail_mode)
-                        .and_then(|mode| mode.layout.clone());
+                        .cloned()
+                        .unwrap_or_else(|| prefs::ModeLayout::default_for(view.rail_mode));
+                    self.pending_layout = saved.layout.clone();
+                    self.pending_regions = saved.layout.is_none().then_some((
+                        saved.show_left,
+                        saved.show_bottom,
+                        saved.show_right,
+                    ));
+                    if view.rail_mode == RailMode::Git && saved.layout.is_none() {
+                        self.queue_git_furniture();
+                    }
                 }
                 // A project closed and reopened in this session restored from the parked blob
                 // already, and reopening the tabs the user has since closed would be worse than

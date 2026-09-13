@@ -13,15 +13,36 @@
 //! [`Message::QuotaChanged`] into the host's own inbox, and the coordinator — the only thread
 //! that owns [`Quotas`] — decides whether anything changed and tells the windows.
 //!
+//! **Probes are spaced out, never sent in a burst.** The endpoints behind them are unofficial and
+//! rate-limited, and a window arriving at the accounts page asks about every login at once — so
+//! the worker holds each job back until [`SPACING`] has passed since the last probe, and holds the
+//! first one back by [`GRACE`] so a start that opens on a cold cache does not begin with a burst,
+//! and drops an ask about a login already probed within [`REPEAT`].
+//! Delaying costs nothing a caller can see: a reading is filed when it lands, and every surface
+//! that draws one already redraws on `QuotaChanged`.
+//!
 //! Nothing here is credential material. A snapshot is percentages, a plan name and a timestamp.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::thread;
+use std::time::{Duration, Instant};
 
 use ubiq_proto::bus::{Mailbox, Voice};
 use ubiq_proto::messages::Message;
 use ubiq_proto::quota::QuotaSnapshot;
+
+/// The least time between two probes leaving this host.
+const SPACING: Duration = Duration::from_secs(5);
+
+/// How long after the worker starts the first probe waits. A start restores every window's
+/// arrangement and re-asks for everything it draws, all in the same second; the cache is empty,
+/// so every one of those asks is a probe. This is what keeps that from being a burst.
+const GRACE: Duration = Duration::from_secs(10);
+
+/// How soon the same login may be probed again. Anything sooner is a repeat of an ask already
+/// answered — the reading that landed went to every window, not only the one that asked.
+const REPEAT: Duration = Duration::from_secs(60);
 
 /// What each account has left, as the host last heard it.
 ///
@@ -83,6 +104,10 @@ pub struct Job {
 ///
 /// No ticker. Nothing here wakes up on its own: a reading is asked for, or it is pushed by a
 /// running conversation.
+///
+/// **The queue is drained slowly on purpose.** One probe leaves every [`SPACING`], the first no
+/// sooner than [`GRACE`] after the start — see the module note. The wait is this thread's alone,
+/// so nothing that submits a job ever blocks on it.
 pub struct Quota {
     jobs: flume::Sender<Job>,
 }
@@ -99,8 +124,32 @@ impl Quota {
         thread::Builder::new()
             .name("ubiq-quota".to_string())
             .spawn(move || {
+                let mut due = Instant::now() + GRACE;
+                let mut probed: HashMap<(String, String), Instant> = HashMap::new();
                 while let Ok(job) = queue.recv() {
+                    // Two windows on the accounts page, or one arriving twice, ask about the same
+                    // login before either answer has landed — and a cache miss is what put both
+                    // asks here. The second is dropped rather than probed: the first files
+                    // `QuotaChanged`, which every window draws, so nothing is left unanswered.
+                    let key = (job.account.clone(), job.harness.clone());
+                    if probed.get(&key).is_some_and(|at| at.elapsed() < REPEAT) {
+                        job.reply_to.send(Message::QuotaRead {
+                            account: job.account,
+                            harness: job.harness,
+                            snapshot: None,
+                            error: None,
+                        });
+                        continue;
+                    }
+                    // Waited after the job is in hand rather than after the one before it, so a
+                    // host that is asked nothing for an hour still answers its next ask at once.
+                    if let Some(wait) = due.checked_duration_since(Instant::now()) {
+                        thread::sleep(wait);
+                    }
                     answer(&root, job);
+                    let now = Instant::now();
+                    due = now + SPACING;
+                    probed.insert(key, now);
                 }
             })
             .expect("the quota thread");

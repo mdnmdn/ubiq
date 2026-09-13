@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: Editor-like chat tabs — many, movable to any dockable region, each a view onto a host-owned conversation or onto none, drawn by the composer, transcript and tool blocks the whole window shares.
 read_when: you are changing a chat tab, the control that starts or attaches a conversation, or which conversation a tab shows
-updated: 2026-09-12
-verified: 2026-09-12
+updated: 2026-09-13
+verified: 2026-09-13
 code_anchors: [crates/ubiq/src/ui/chat/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/app/projects.rs]
 depends_on: [feat-workbench]
 review_cycle: monthly
@@ -489,7 +489,10 @@ that this tab is where the conversation goes; the tab is attached when
 `crates/ubiq/src/app/panels.rs`'s `sync_chat_panels` is a chat tab's real population — squaring the
 dock's tree with `OpenProject::chats` — called whenever a project is entered, right after
 `OpenProject::new` has seeded that project's first tab, and again at the end of `settle_layout`, so a
-restore that dropped an unfamiliar id is squared with the truth immediately. `toggle_region` mints a
+restore that dropped an unfamiliar id is squared with the truth immediately. `settle_panels` skips the
+`Open` edit `sync_chat_panels` queues for that seeded tab through `AppState::is_idle_chat` — a chat
+panel attached to nothing, bound for a right region that is shut and holds nothing — so IDE mode does
+not start with an empty agent panel open, or the region it would sit in. `toggle_region` mints a
 fresh tab when the user reopens an emptied right region.
 
 Rendering is two modules under `crates/ubiq/src/ui/chat/`: `mod.rs` resolves a tab's own attachment

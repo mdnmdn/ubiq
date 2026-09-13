@@ -1,9 +1,11 @@
 //! Switching rail modes restores that mode's arrangement.
 //!
 //! Each mode keeps its own record of which regions were on screen and its own dock blob. Coming
-//! back to a mode must put the side panels (the IDE's explorer and chat) back where they were,
-//! whatever non-IDE mode the window sat in meanwhile. That is hiding-not-removing: a non-IDE mode
-//! leaves the explorer and the chat in the tree, shut, and returning to IDE opens them again.
+//! back to a mode must put the side panels back where they were, whatever non-IDE mode the window
+//! sat in meanwhile. That is hiding-not-removing: a non-IDE mode leaves the IDE's explorer — and
+//! any chat tab that has claimed the right region — in the tree, shut, and returning to IDE opens
+//! them again. A project with nothing attached has no chat panel to hide: the IDE mints none, so
+//! the explorer is the side panel this fixture has.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -13,15 +15,17 @@ use gpui::{AppContext as _, Entity, TestAppContext};
 use ubiq::app::{AppState, BusHub};
 use ubiq::state::RailMode;
 use ubiq::state::WindowRegistry;
+use ubiq::state::prefs;
 use ubiq_proto::bus;
 use ubiq_proto::ids::ProjectId;
-use ubiq_proto::projects::{ProjectHealth, ProjectRecord, ProjectSnapshot};
+use ubiq_proto::messages::Message;
+use ubiq_proto::projects::{ProjectHealth, ProjectRecord, ProjectSnapshot, Scope};
 
 /// A window on one project, with a bus nobody answers on. Mirrors `panel_reentrancy`'s fixture.
 struct Fixture {
     state: Entity<AppState>,
     project: ProjectId,
-    _host: bus::HostEnd,
+    host: bus::HostEnd,
 }
 
 impl Fixture {
@@ -54,8 +58,14 @@ impl Fixture {
         Self {
             state,
             project,
-            _host: host,
+            host,
         }
+    }
+
+    /// Say something to every window, the way the host does.
+    fn deliver(&self, message: Message, cx: &mut TestAppContext) {
+        self.host.send(bus::To::Everyone, message);
+        cx.run_until_parked();
     }
 
     fn switch_to(&self, mode: RailMode, cx: &mut TestAppContext) {
@@ -130,12 +140,12 @@ fn collect_names(value: &serde_json::Value, into: &mut Vec<String>) {
     }
 }
 
-/// Leaving IDE for another mode hides the explorer and the chat — they stay in the tree, shut —
-/// and coming back restores whatever regions IDE was left with. That is the invariant behind the
-/// restore, and it must hold for any non-IDE mode: a project mode (Tasks) and a non-project one
-/// (Control) both hide, neither removes. `D94` is what the fixture's own regions come back as: no
-/// region is furniture, so a project never arranged before — this fixture holds no persistent
-/// agent — opens on the centre alone.
+/// Leaving IDE for another mode hides its side panels — they stay in the tree, shut — and coming
+/// back restores whatever regions IDE was left with. That is the invariant behind the restore, and
+/// it must hold for any non-IDE mode: a project mode (Tasks) and a non-project one (Control) both
+/// hide, neither removes. `D94` is what the fixture's own regions come back as: no region is
+/// furniture, so a project never arranged before — this fixture holds no persistent agent — opens
+/// on the centre alone, and with no agent to show, on no chat panel either.
 #[gpui::test]
 fn returning_from_any_non_ide_mode_restores_the_side_panels(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
@@ -149,9 +159,12 @@ fn returning_from_any_non_ide_mode_restores_the_side_panels(cx: &mut TestAppCont
         assert_eq!(fixture.mode(cx), mode);
         let in_non_ide = names(&fixture.dump(cx));
         assert!(
-            in_non_ide.contains(&"ubiq.explorer".to_string())
-                && in_non_ide.contains(&"ubiq.chat".to_string()),
+            in_non_ide.contains(&"ubiq.explorer".to_string()),
             "{mode:?} hides the side panels in place, it does not remove them: {in_non_ide:?}"
+        );
+        assert!(
+            !in_non_ide.contains(&"ubiq.chat".to_string()),
+            "an agent panel attached to nothing is never in the tree: {in_non_ide:?}"
         );
 
         // Back to IDE: the arrangement is restored whole, side panels and the three regions.
@@ -217,6 +230,43 @@ fn git_opens_with_its_side_panels(cx: &mut TestAppContext) {
         (false, false, false),
         "coming back to IDE restores the regions it was left with"
     );
+}
+
+/// A project whose stored view says Git opens on Git's own screen, side panels and all.
+///
+/// The window opens on the IDE's default tree and learns which mode the project was left in only
+/// when the host answers with its blob — so the answer has to apply that mode's defaults the way
+/// a switch does, or a start in Git would wear the IDE's regions and none of Git's panels.
+#[gpui::test]
+fn a_project_stored_in_git_starts_with_its_side_panels(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    assert_eq!(fixture.mode(cx), RailMode::Ide);
+
+    let view = prefs::ViewPrefs {
+        rail_mode: RailMode::Git,
+        ..prefs::ViewPrefs::default()
+    };
+    fixture.deliver(
+        Message::Preferences {
+            scope: Scope::Project(fixture.project),
+            value: Some(prefs::encode(&view)),
+        },
+        cx,
+    );
+
+    assert_eq!(fixture.mode(cx), RailMode::Git);
+    assert_eq!(
+        fixture.regions_open(cx),
+        (true, false, true),
+        "Git's refs and changes are on screen, the pane region shut"
+    );
+    let on_screen = names(&fixture.dump(cx));
+    for panel in ["ubiq.git.refs", "ubiq.git.changes", "ubiq.git.history"] {
+        assert!(
+            on_screen.contains(&panel.to_string()),
+            "{panel} is in the tree a start in Git opens on: {on_screen:?}"
+        );
+    }
 }
 
 /// Hiding a mode takes it off the rail; hiding the mode the window is in moves the window on, and

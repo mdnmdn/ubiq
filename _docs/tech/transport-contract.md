@@ -7,7 +7,7 @@ summary: The complete message set the UI and the coordinator exchange — the pa
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
 updated: 2026-09-13
 verified: 2026-09-13
-code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs]
+code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
 ---
@@ -1301,6 +1301,15 @@ usage limits"; and a snapshot whose `as_of` is old is a real reading that is sta
 **`fresh` asks the provider again.** The default answers from the host's cache, because the
 endpoint behind Claude's probe is unofficial and rate-limits; `fresh: true` is what a manual
 refresh sends, and it is the one probe a user explicitly asked for.
+
+**Probes are spaced out, never sent in a burst.** `crates/ubiq-host/src/quota.rs`'s worker holds
+each job back until five seconds have passed since the last probe left, holds the first probe of a
+run back ten seconds so a start that re-asks about every login on a cold cache does not open with a
+burst, and drops an ask about a login already probed within the last sixty seconds rather than
+probing it again — that ask is answered with `QuotaRead { snapshot: None, error: None }`, neither a
+reading nor an error, because the earlier probe's `QuotaChanged` already reached every window and a
+second probe would only repeat it. A window opening the accounts page, which asks about every login
+at once, is exactly the case this holds back.
 
 **`QuotaChanged` is broadcast, on `ProjectFilesChanged`'s precedent.** Every window showing that
 account is looking at the same fact, so a reading a running agent pushed reaches all of them rather

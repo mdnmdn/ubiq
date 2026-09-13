@@ -653,27 +653,26 @@ pub fn default_layout(
     }
 }
 
-/// Default layout for IDE mode: explorer on the left, chat on the right (region shut until a
-/// persistent agent or the user asks), centre in the middle.
+/// Default layout for IDE mode: explorer on the left, centre in the middle, the right region
+/// empty and shut until a persistent agent or the user asks for a chat.
 fn default_ide_layout(
     dock: &Entity<DockArea>,
     panel: &mut impl FnMut(PanelKind, &mut App) -> Option<Entity<WorkbenchPanel>>,
     window: &mut Window,
     cx: &mut App,
 ) {
-    // Only a terminal is ever refused, and none of these is one. The chat tab's id is minted
-    // here, fresh, and is pure scaffolding: `AppState::sync_chat_panels` swaps it for the
-    // project's own tab — from `OpenProject::chats`, the id's actual source of truth — the moment
-    // a project is entered, which for this arrangement is always about to happen.
-    let (Some(explorer), Some(chat), Some(centre)) = (
-        panel(PanelKind::Explorer, cx),
-        panel(PanelKind::Chat(ChatId::generate()), cx),
-        panel(PanelKind::Centre, cx),
-    ) else {
+    // **No chat tab is minted here.** The right region opens empty, the way the bottom does: a
+    // scaffold tab would be an agent panel attached to nothing, in a region nobody asked to see,
+    // and `AppState::sync_chat_panels` would only swap it for the project's own empty tab. What
+    // puts a chat on screen is an attachment or the user — see `AppState::settle_panels`.
+    //
+    // Only a terminal is ever refused, and neither of these is one.
+    let (Some(explorer), Some(centre)) =
+        (panel(PanelKind::Explorer, cx), panel(PanelKind::Centre, cx))
+    else {
         return;
     };
     let explorer = WorkbenchPanel::handle(&explorer);
-    let chat = WorkbenchPanel::handle(&chat);
     let centre = WorkbenchPanel::handle(&centre);
 
     dock.update(cx, |dock, cx| {
@@ -689,7 +688,7 @@ fn default_ide_layout(
         install(
             dock,
             Region::Right,
-            DockLayout::tabs().panel_view(chat, cx),
+            DockLayout::tabs(),
             px(theme::CHAT_WIDTH),
             window,
             cx,
@@ -702,8 +701,9 @@ fn default_ide_layout(
             window,
             cx,
         );
-        // The right region holds the chat and opens only when a persistent agent claims a tab, or
-        // when the user asks. The bottom is empty until a pane lands. Both start put away.
+        // The right region holds the chats and opens only when a persistent agent claims a tab,
+        // or when the user asks. The bottom is empty until a pane lands. Both start put away,
+        // and both start empty.
         for region in [Region::Right, Region::Bottom] {
             if dock.is_dock_open(placement_of(region)) {
                 dock.toggle_dock(placement_of(region), window, cx);
