@@ -324,6 +324,31 @@ impl AppState {
         cx.notify();
     }
 
+    /// Leave a comment on the open task. The host stamps the author as the user.
+    pub fn add_task_comment(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((project_id, task_id, board)) = self.open_task_form(cx) else {
+            return;
+        };
+        let text = board.form.new_comment.trim().to_string();
+        if text.is_empty() {
+            return;
+        }
+        self.bus.send(Message::AddComment {
+            project_id,
+            task_id,
+            text,
+        });
+        if let Some(board) = self.board_mut(cx) {
+            board.form.new_comment.clear();
+        }
+        let input = self.new_comment_input.clone();
+        input.update(cx, |state, cx| {
+            state.set_value("", window, cx);
+            state.focus(window, cx);
+        });
+        cx.notify();
+    }
+
     pub fn commit_step_title(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let Some((project_id, task_id, board)) = self.open_task_form(cx) else {
             return;
@@ -455,6 +480,7 @@ impl AppState {
             board.form.link = link.clone();
             board.form.step_title.clear();
             board.form.new_step.clear();
+            board.form.new_comment.clear();
             board.form.new_label.clear();
         }
         for (input, value) in [
@@ -464,6 +490,7 @@ impl AppState {
             (self.task_label_input.clone(), String::new()),
             (self.step_title_input.clone(), String::new()),
             (self.new_step_input.clone(), String::new()),
+            (self.new_comment_input.clone(), String::new()),
         ] {
             input.update(cx, |state, cx| state.set_value(&value, window, cx));
         }

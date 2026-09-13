@@ -17,7 +17,7 @@ use gpui::{
 };
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
-use ubiq_proto::work::{StepState, TaskRecord};
+use ubiq_proto::work::{CommentAuthor, StepState, TaskRecord};
 
 use crate::app::AppState;
 use crate::state::board::Field;
@@ -290,6 +290,56 @@ fn body(
         }))
         .children(steps)
         .child(form::new_step(app, window, cx))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(section_label("Comments"))
+                .child(div().flex_1().min_w(px(0.)))
+                .children((!task.comments.is_empty()).then(|| {
+                    mono(format!("{}", task.comments.len()), theme::text_faint())
+                        .text_size(theme::font(Family::Chrome, Role::Meta))
+                })),
+        )
+        .children(task.comments.is_empty().then(|| {
+            div()
+                .text_size(theme::font(Family::Chrome, Role::Body))
+                .text_color(theme::text_faint())
+                .child("No comments yet.")
+        }))
+        .children(task.comments.iter().map(|comment| {
+            let author = match comment.author {
+                CommentAuthor::User => "user",
+                CommentAuthor::Agent => "agent",
+            };
+            let when = comment.created_at.format("%Y-%m-%d %H:%M").to_string();
+            div()
+                .flex()
+                .flex_col()
+                .gap_0p5()
+                .py_1()
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_1p5()
+                        .child(mono(author, theme::text_muted()))
+                        .child(mono("\u{b7}", theme::text_faint()))
+                        .child(
+                            mono(when, theme::text_faint())
+                                .text_size(theme::font(Family::Chrome, Role::Meta)),
+                        ),
+                )
+                .child(
+                    div()
+                        .text_size(theme::font(Family::Chrome, Role::Body))
+                        .text_color(theme::text())
+                        .child(SharedString::from(comment.text.clone())),
+                )
+                .into_any_element()
+        }))
+        .child(form::new_comment(app, window, cx))
         // How the work will be done, and who has it — under the work itself, because both are
         // claims about a task that is already described. The note says what the shape means: the
         // word alone says how the agents are arranged only to somebody who already knows, and

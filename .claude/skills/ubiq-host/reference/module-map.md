@@ -135,9 +135,11 @@ so a nullable column would silently stop the accumulating upsert from accumulati
 | Item | Is |
 |---|---|
 | `Work` | Tasks (durable, per project, `tasks.toml`) plus `mocks`, `live` agents and `live_sessions` (invented or ephemeral, never written) |
-| `open` / `forget` / `list` | The work family's entry points |
+| `Handle` | Cloneable `Arc<Mutex<Work>>` the coordinator and the MCP listener share (`D120`) |
+| `open` / `forget` / `list` / `tasks` / `labels` / `create_label` | The work family's entry points, plus the list and tag helpers the MCP server uses |
 | `create`, `update`, `move_task`, `assign`, `delete` | Task edits (`D40` — one infallible `UpdateTask`, with move and assign as their own messages) |
-| `add_step`, `rename_step`, `remove_step`, `move_step`, `toggle_step` | Steps |
+| `add_step`, `rename_step`, `remove_step`, `move_step`, `toggle_step`, `update_step` | Steps |
+| `add_comment` | Comments; the caller stamps `CommentAuthor` (`D121`) |
 | `assign_agent`, `send_to_agent` | Into the mock thread — nothing answers (`G52`) |
 | `add_live_agent`, `remove_live_agent`, `live_agent_names` | The real agents, which sit in the same lists as the mocks (`G94`) |
 | `sealed`, `warned` | A project whose file this build may not write; and telling the user once |
@@ -159,7 +161,7 @@ and agents stay its mocks.
 | `cli_shortcut.rs` | `handle(action)` over `Query` / `Install` / `Remove`; `MARKER = "ubiq-target:"`, `NAME` (`ubiq.cmd` on Windows) | A path parameter — nothing it exposes takes one |
 | `links.rs` | `LinkScanner::new` / `feed`, `TAIL_CAP = 4 KiB`, `SEEN_CAP = 16` | A URL parser or a VT parser |
 | `watch/mod.rs` | `Job { project_id, root, excludes, index, reply_to }`, `Watcher`, `start(job)`, `QUIET = 150ms`, `BOUND = 64` | An absolute path on the wire, or an opinion about what a reader redraws |
-| `mcp_server.rs` | A doc-comment and a TODO. **Nothing is implemented** | — |
+| `mcp/` | One loopback listener (`D102`), the catalogue (`test`, `project-info`, `manage-ubiq-tasks`, `use-task`), the registry, and task tools that share `work::Handle` (`D120`) | A round trip through the coordinator |
 
 `shells::repair_path` is `D62`: a desktop-launched host asks the user's login shell for its `PATH`
 once, with `-lic`, because the environment a Finder launch inherits is exactly the one that cannot

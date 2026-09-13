@@ -1171,6 +1171,13 @@ pub enum Message {
         task_id: TaskId,
         step_id: StepId,
     },
+    /// Leave a comment on a task. The host stamps the author as the user: a comment's author is
+    /// who wrote it, not a field the writer sets (`D121`).
+    AddComment {
+        project_id: ProjectId,
+        task_id: TaskId,
+        text: String,
+    },
     /// Move an agent's card into another task's outline, or out of every one.
     ///
     /// Where a card *sits* is the interface's own fact and never crosses; which task it *serves* is
@@ -1832,6 +1839,7 @@ impl Message {
             | Message::RemoveStep { project_id, .. }
             | Message::MoveStep { project_id, .. }
             | Message::ToggleStep { project_id, .. }
+            | Message::AddComment { project_id, .. }
             | Message::AssignAgent { project_id, .. }
             | Message::SendToAgent { project_id, .. }
             | Message::WorkList { project_id, .. }

@@ -25,6 +25,12 @@ pub const TEST: &str = "test";
 /// The slug of the server that answers "what am I, and where am I working".
 pub const PROJECT_INFO: &str = "project-info";
 
+/// The slug of the server that reads and writes this project's tasks.
+pub const MANAGE_UBIQ_TASKS: &str = "manage-ubiq-tasks";
+
+/// The slug of the thinner server an agent uses to look up a task, move it, and leave a comment.
+pub const USE_TASK: &str = "use-task";
+
 /// One tool, as the catalogue holds it: what the panel shows plus what a harness needs in order
 /// to call it.
 pub struct ToolSpec {
@@ -97,6 +103,285 @@ pub const SERVERS: &[ServerSpec] = &[
                 name: "whoami",
                 description: "This agent's own metadata: harness, account, model, mode and cwd.",
                 schema: r#"{"type": "object", "properties": {}}"#,
+            },
+        ],
+    },
+    ServerSpec {
+        name: MANAGE_UBIQ_TASKS,
+        title: "Manage Ubiq tasks",
+        description: "The current project's task board: overview, search, tags, tasks, todos and comments.",
+        tools: &[
+            ToolSpec {
+                name: "overview",
+                description: "Every status and tag, and for each status the count and the first 10 task summaries. Pass categories to include only those columns.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "categories": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "enum": ["backlog", "ready", "in progress", "in review", "done"]
+                            },
+                            "description": "Board columns to include. Omit, null or empty for all."
+                        }
+                    }
+                }"#,
+            },
+            ToolSpec {
+                name: "search_tasks",
+                description: "Find tasks by optional text (title, description, key, tags, todos, comments), status, tags and priority. Status and tag filters are OR within each list.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "text": {"type": "string", "description": "Case-insensitive substring. Omit or null to skip."},
+                        "statuses": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "enum": ["backlog", "ready", "in progress", "in review", "done"]
+                            },
+                            "description": "Match any of these columns. Omit, null or empty for all."
+                        },
+                        "labels": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Match any of these tag names. Omit, null or empty for all."
+                        },
+                        "priorities": {
+                            "type": "array",
+                            "items": {"type": "string", "enum": ["low", "normal", "high"]},
+                            "description": "Match any of these priorities. Omit, null or empty for all."
+                        },
+                        "maxRows": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "How many tasks to return. Defaults to 10, capped at 100."
+                        }
+                    }
+                }"#,
+            },
+            ToolSpec {
+                name: "list_tags",
+                description: "The tags this project knows: those on its cards, plus any created this session that no card has used yet.",
+                schema: r#"{"type": "object", "properties": {}}"#,
+            },
+            ToolSpec {
+                name: "create_tag",
+                description: "Remember a tag for this project. A name that already exists is returned as it is. Unused tags last until the host restarts; putting one on a task makes it durable.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "The tag's name."},
+                        "colour": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "description": "Swatch index. Defaults to 0."
+                        }
+                    },
+                    "required": ["name"]
+                }"#,
+            },
+            ToolSpec {
+                name: "create_task",
+                description: "Create a task on this project's board. Status defaults to backlog; omitted fields stay unset.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string", "description": "The card's title."},
+                        "description": {"type": "string"},
+                        "status": {
+                            "type": "string",
+                            "enum": ["backlog", "ready", "in progress", "in review", "done"]
+                        },
+                        "priority": {"type": "string", "enum": ["low", "normal", "high"]},
+                        "kind": {"type": "string", "enum": ["bug", "feature", "chore", "docs"]},
+                        "key": {"type": "string", "description": "Human id, e.g. UBQ-123."},
+                        "link": {"type": "string"},
+                        "labels": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Tag names to put on the card."
+                        }
+                    },
+                    "required": ["title"]
+                }"#,
+            },
+            ToolSpec {
+                name: "update_task",
+                description: "Patch a task. Null or omitted fields are left alone. labels replaces the whole set — send every tag the card should have.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "task_id": {"type": "string"},
+                        "title": {"type": "string"},
+                        "description": {"type": "string"},
+                        "status": {
+                            "type": "string",
+                            "enum": ["backlog", "ready", "in progress", "in review", "done"]
+                        },
+                        "priority": {"type": "string", "enum": ["low", "normal", "high"]},
+                        "kind": {"type": "string", "enum": ["bug", "feature", "chore", "docs"]},
+                        "key": {"type": "string"},
+                        "link": {"type": "string"},
+                        "labels": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "The full tag set. Omit or null to leave tags alone; [] clears them."
+                        }
+                    },
+                    "required": ["task_id"]
+                }"#,
+            },
+            ToolSpec {
+                name: "delete_task",
+                description: "Delete a task. Its todos go with it.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "task_id": {"type": "string"}
+                    },
+                    "required": ["task_id"]
+                }"#,
+            },
+            ToolSpec {
+                name: "add_todo",
+                description: "Append a todo (sub-task) to a task.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "task_id": {"type": "string"},
+                        "title": {"type": "string"}
+                    },
+                    "required": ["task_id", "title"]
+                }"#,
+            },
+            ToolSpec {
+                name: "update_todo",
+                description: "Patch a todo. Null or omitted fields are left alone. Set done to true to mark it done, or false to return it to idle.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "task_id": {"type": "string"},
+                        "todo_id": {"type": "string"},
+                        "title": {"type": "string"},
+                        "done": {"type": "boolean"}
+                    },
+                    "required": ["task_id", "todo_id"]
+                }"#,
+            },
+            ToolSpec {
+                name: "delete_todo",
+                description: "Remove a todo from a task.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "task_id": {"type": "string"},
+                        "todo_id": {"type": "string"}
+                    },
+                    "required": ["task_id", "todo_id"]
+                }"#,
+            },
+            ToolSpec {
+                name: "get_task",
+                description: "One task whole: fields, todos and comments.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "task_id": {"type": "string"}
+                    },
+                    "required": ["task_id"]
+                }"#,
+            },
+            ToolSpec {
+                name: "add_comment",
+                description: "Leave a comment on a task. The author is stamped as this agent.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "task_id": {"type": "string"},
+                        "text": {"type": "string"}
+                    },
+                    "required": ["task_id", "text"]
+                }"#,
+            },
+        ],
+    },
+    ServerSpec {
+        name: USE_TASK,
+        title: "Use task",
+        description: "Look up a task, move it along the board, and leave a comment.",
+        tools: &[
+            ToolSpec {
+                name: "search_tasks",
+                description: "Find tasks by optional text, status, tags and priority. Status and tag filters are OR within each list.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "text": {"type": "string", "description": "Case-insensitive substring. Omit or null to skip."},
+                        "statuses": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "enum": ["backlog", "ready", "in progress", "in review", "done"]
+                            },
+                            "description": "Match any of these columns. Omit, null or empty for all."
+                        },
+                        "labels": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Match any of these tag names. Omit, null or empty for all."
+                        },
+                        "priorities": {
+                            "type": "array",
+                            "items": {"type": "string", "enum": ["low", "normal", "high"]},
+                            "description": "Match any of these priorities. Omit, null or empty for all."
+                        },
+                        "maxRows": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "How many tasks to return. Defaults to 10, capped at 100."
+                        }
+                    }
+                }"#,
+            },
+            ToolSpec {
+                name: "get_task",
+                description: "One task whole: fields, todos and comments.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "task_id": {"type": "string"}
+                    },
+                    "required": ["task_id"]
+                }"#,
+            },
+            ToolSpec {
+                name: "change_state",
+                description: "Move a task to another board column.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "task_id": {"type": "string"},
+                        "status": {
+                            "type": "string",
+                            "enum": ["backlog", "ready", "in progress", "in review", "done"]
+                        }
+                    },
+                    "required": ["task_id", "status"]
+                }"#,
+            },
+            ToolSpec {
+                name: "add_comment",
+                description: "Leave a comment on a task. The author is stamped as this agent.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "task_id": {"type": "string"},
+                        "text": {"type": "string"}
+                    },
+                    "required": ["task_id", "text"]
+                }"#,
             },
         ],
     },

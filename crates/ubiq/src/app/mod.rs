@@ -688,6 +688,7 @@ pub struct AppState {
     pub task_label_input: Entity<InputState>,
     pub step_title_input: Entity<InputState>,
     pub new_step_input: Entity<InputState>,
+    pub new_comment_input: Entity<InputState>,
     /// The titlebar's command field: shortcuts and search, in the middle of the window.
     pub command_input: Entity<InputState>,
     /// The project menu's own search field.

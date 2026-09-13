@@ -158,7 +158,7 @@ and `merges` are computed host-side so two windows cannot lay out one history di
 ### 7. Work — tasks, sessions, agents
 
 `ListWork`, `CreateTask`, `UpdateTask`, `MoveTask`, `AssignTask`, `DeleteTask`, `AddStep`,
-`RenameStep`, `RemoveStep`, `MoveStep`, `ToggleStep`, `AssignAgent`, `SendToAgent`; `WorkList`,
+`RenameStep`, `RemoveStep`, `MoveStep`, `ToggleStep`, `AddComment`, `AssignAgent`, `SendToAgent`; `WorkList`,
 `TaskCreated`, `TaskChanged`, `TaskDeleted`, `AgentChanged`, `WorkError`.
 
 Every variant names a project, because the store is per project. Nothing broadcast, nothing
@@ -286,7 +286,7 @@ distinctions worth remembering:
 
 ## The ids — `crates/ubiq-proto/src/ids.rs`
 
-Fourteen kinds, each a `#[serde(transparent)]` newtype over a `Ulid`, all minted by the
+Fifteen kinds, each a `#[serde(transparent)]` newtype over a `Ulid`, all minted by the
 `ulid_id!` macro so none grows its own surface: `generate()`, `created_at()`, `as_ulid()`,
 `Display` (the bare 26 characters), a named `Debug`, `FromStr`. **There is no `new()` and no
 `Default`** — an id that was not minted is a nil id that looks real.
@@ -296,7 +296,7 @@ Fourteen kinds, each a `#[serde(transparent)]` newtype over a `Ulid`, all minted
 | `PaneId` | host | One pane, and the byte stream it is |
 | `SessionId` | interface | Ubiq's session: panes plus a folder |
 | `WorkspaceId` | host | Also `work::AgentId`, an alias — one thing until a workspace outlives its pane |
-| `TaskId`, `StepId` | host | Written down, so they survive a restart |
+| `TaskId`, `StepId`, `CommentId` | host | Written down, so they survive a restart |
 | `ProjectId` | host | Stable across rename, recolour and a move on disk |
 | `SearchId`, `ConnectId`, `CloneId`, `RepoQueryId`, `SuggestId` | interface | Stale-answer discipline: a reply naming an id nobody holds is discarded |
 | `ConnectionId`, `OauthAppId`, `AiProviderId` | host | Exist only once something is written — an abandoned flow leaves no id |

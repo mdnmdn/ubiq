@@ -124,7 +124,8 @@ struct Coordinator {
     /// The catalogue, the view state, and what is running in each project.
     projects: Projects,
     /// Each project's tasks, and the sessions and agents the two screens over the work draw.
-    work: Work,
+    /// Shared with the MCP listener as [`crate::work::Handle`].
+    work: crate::work::Handle,
     /// Application settings: the Ui layer opaque, the Host layer parsed. Shared, because a
     /// connector flow on its own thread writes the same record — [`Settings::update_host`] is what
     /// makes that safe.
@@ -672,17 +673,27 @@ impl Coordinator {
         settings: Settings,
         pending: Vec<Reply>,
     ) -> Self {
+        // Shared with the MCP listener so an agent can read and write the same board a window
+        // does, without asking this thread a question (`D120`).
+        let work = crate::work::Handle::new(work);
         // Ubiq's own MCP servers, on one loopback port for every agent this process will start.
         // Bound *before* the agents are built, because the URL a run is composed with is written
         // into the harness's configuration and never revisited — there is no later moment to tell
         // a run where the port is. A port that will not bind is said once, here, and every run
         // then composes with no injected servers rather than failing (`crate::mcp`).
         let mcp_agents = crate::mcp::Registry::new();
-        let mcp = crate::mcp::start(mcp_agents.clone(), host.voice())
-            .inspect_err(|error| {
-                tracing::warn!("Ubiq's own MCP servers are not available: {error:#}");
-            })
-            .ok();
+        let mcp = crate::mcp::start(
+            mcp_agents.clone(),
+            host.voice(),
+            Some(crate::mcp::WorkAccess {
+                work: work.clone(),
+                everyone: host.mailbox(To::Everyone),
+            }),
+        )
+        .inspect_err(|error| {
+            tracing::warn!("Ubiq's own MCP servers are not available: {error:#}");
+        })
+        .ok();
 
         // A run directory outlives its pane only when Ubiq did not get to close it, and no pane
         // from a previous process is still running, so the sweep happens once here.
@@ -1243,7 +1254,7 @@ impl Coordinator {
                 // The catalogue went first and took the project's directory with it, so the
                 // tasks on disk are already gone. This is the memory that was left, and this
                 // is the only place that knows both services.
-                self.work.forget(project_id);
+                self.work.lock().forget(project_id);
                 self.git_forget(client, project_id);
                 // Dropping a watch stops its `notify` handle and ends its debounce thread — the
                 // catalogue no longer holds this project, so nothing should still be sending
@@ -1741,7 +1752,7 @@ impl Coordinator {
             }
 
             // ── the work family ─────────────────────────────────────
-            // Fourteen arms and one helper. Every one names a project, and none of them touches a
+            // Fifteen arms and one helper. Every one names a project, and none of them touches a
             // user's folder — a task file lives under Ubiq's own config root, which the catalogue
             // and the view state already write from this thread.
             Message::ListWork { project_id } => {
@@ -1846,6 +1857,20 @@ impl Coordinator {
             } => {
                 self.work_job(client, project_id, |work| {
                     work.toggle_step(project_id, task_id, step_id)
+                });
+            }
+            Message::AddComment {
+                project_id,
+                task_id,
+                text,
+            } => {
+                self.work_job(client, project_id, |work| {
+                    work.add_comment(
+                        project_id,
+                        task_id,
+                        ubiq_proto::work::CommentAuthor::User,
+                        text,
+                    )
                 });
             }
             Message::AssignAgent {
@@ -2163,7 +2188,7 @@ impl Coordinator {
             .agents
             .command_of(&agent_type)
             .unwrap_or_else(|| agent_type.clone());
-        let name = unique_name(&base, &self.work.live_agent_names(project_id));
+        let name = unique_name(&base, &self.work.lock().live_agent_names(project_id));
 
         let agent = WorkAgent {
             id: agent_id,
@@ -2204,6 +2229,7 @@ impl Coordinator {
             worktree: false,
         };
         self.work
+            .lock()
             .add_live_agent(project_id, agent.clone(), session.clone());
         self.conversation_owners
             .insert(agent_id, (client, project_id));
@@ -2389,6 +2415,7 @@ impl Coordinator {
         // `retire_agent` in the error arm below — the same call that removes its run directory.
         let (name, harness) = self
             .work
+            .lock()
             .live_agent_mut(pending.project_id, agent_id)
             .map(|agent| (agent.name.clone(), agent.harness.clone()))
             .unwrap_or_else(|| (pending.agent_type.clone(), pending.agent_type.clone()));
@@ -2433,7 +2460,9 @@ impl Coordinator {
                 // A run that would not compose has nothing to resume, so its row goes too —
                 // otherwise the next boot restores a recipe that is known not to launch.
                 conversation_record::forget(&self.sessions(), agent_id);
-                self.work.remove_live_agent(pending.project_id, agent_id);
+                self.work
+                    .lock()
+                    .remove_live_agent(pending.project_id, agent_id);
                 self.conversation_owners.remove(&agent_id);
                 self.pending_conversations.remove(&agent_id);
                 self.refuse_conversation(client, agent_id, format!("{error:#}"));
@@ -2605,10 +2634,14 @@ impl Coordinator {
         let Some((_, project_id)) = self.conversation_owners.get(&agent_id).copied() else {
             return;
         };
-        let changed = self.work.live_agent_mut(project_id, agent_id).map(|agent| {
-            agent.persistent = persistent;
-            Box::new(agent.clone())
-        });
+        let changed = self
+            .work
+            .lock()
+            .live_agent_mut(project_id, agent_id)
+            .map(|agent| {
+                agent.persistent = persistent;
+                Box::new(agent.clone())
+            });
         if let Some(agent) = changed {
             self.host
                 .send(To::Everyone, Message::AgentChanged { project_id, agent });
@@ -2704,10 +2737,14 @@ impl Coordinator {
         let Some((_, project_id)) = self.conversation_owners.get(&agent_id).copied() else {
             return;
         };
-        let changed = self.work.live_agent_mut(project_id, agent_id).map(|agent| {
-            set(agent);
-            Box::new(agent.clone())
-        });
+        let changed = self
+            .work
+            .lock()
+            .live_agent_mut(project_id, agent_id)
+            .map(|agent| {
+                set(agent);
+                Box::new(agent.clone())
+            });
         if let Some(agent) = changed {
             self.host
                 .send(To::Everyone, Message::AgentChanged { project_id, agent });
@@ -3332,7 +3369,7 @@ impl Coordinator {
         // already covers "closed before it ever launched" without a second path.
         self.pending_conversations.remove(&agent_id);
         if let Some((_, project_id)) = self.conversation_owners.remove(&agent_id) {
-            self.work.remove_live_agent(project_id, agent_id);
+            self.work.lock().remove_live_agent(project_id, agent_id);
         }
         // The run directory *is* the harness's session store — Claude's `projects/<slug>/*.jsonl`,
         // Codex's rollouts, opencode's data dir — so keeping it is the whole of what lets this
@@ -3377,7 +3414,7 @@ impl Coordinator {
             );
             return;
         }
-        let replies = change(&mut self.work);
+        let replies = change(&mut self.work.lock());
         self.answer(client, replies);
     }
 
@@ -4850,7 +4887,10 @@ mod tests {
             branch: String::new(),
             worktree: false,
         };
-        coordinator.work.add_live_agent(project_id, agent, session);
+        coordinator
+            .work
+            .lock()
+            .add_live_agent(project_id, agent, session);
         coordinator
             .conversation_owners
             .insert(agent_id, (client.id(), project_id));
@@ -4913,6 +4953,7 @@ mod tests {
         assert!(
             coordinator
                 .work
+                .lock()
                 .live_agent_names(project_id)
                 .contains(&"fake".to_string()),
             "the WorkAgent stays: unload is not delete"
@@ -5110,6 +5151,7 @@ mod tests {
         assert!(
             !coordinator
                 .work
+                .lock()
                 .live_agent_names(project_id)
                 .contains(&"fake".to_string()),
             "a delete takes the WorkAgent with it"

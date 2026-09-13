@@ -21,7 +21,7 @@ pub struct McpToolInfo {
 
 /// One MCP server Ubiq can inject into a harness, as the interface is told about it.
 ///
-/// `name` is the URL slug (`test`, `project-info`) — it is both how the interface asks a running
+/// `name` is the URL slug (`test`, `project-info`, `manage-ubiq-tasks`, `use-task`) — it is both how the interface asks a running
 /// host to start one and the id a [`crate::messages::ProfileInfo::mcps`] entry stores, so it
 /// never changes once a profile has saved it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

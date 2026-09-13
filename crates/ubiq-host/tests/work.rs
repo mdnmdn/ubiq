@@ -22,8 +22,8 @@ use ubiq_host::work::{Work, mock};
 use ubiq_proto::ids::{ProjectId, SessionId, StepId, TaskId};
 use ubiq_proto::messages::{Message, TaskField};
 use ubiq_proto::work::{
-    AgentId, Kind, Label, Priority, Shape, Speaker, Status, Step, StepState, TaskRecord, WorkAgent,
-    WorkSession,
+    AgentId, Comment, CommentAuthor, Kind, Label, Priority, Shape, Speaker, Status, Step,
+    StepState, TaskRecord, WorkAgent, WorkSession,
 };
 
 // ── the store, against a real file ──────────────────────────────────
@@ -69,6 +69,11 @@ fn a_list_of_tasks_survives_the_round_trip_in_the_order_it_was_held() {
     want[3].steps = vec![Step::new("one".to_string()), Step::new("two".to_string())];
     want[3].steps[1].state = StepState::Failed;
     want[3].steps[1].owner = Some(AgentId::generate());
+    want[3].comments = vec![Comment::new(
+        CommentAuthor::User,
+        "leave a note".to_string(),
+        Utc.with_ymd_and_hms(2026, 8, 14, 9, 12, 44).unwrap(),
+    )];
 
     store.save(project, &want).unwrap();
 
@@ -557,6 +562,94 @@ fn unticking_a_step_lands_on_idle_and_ticking_one_lands_on_done() {
 }
 
 #[test]
+fn updating_a_step_sets_done_without_toggling_and_ignores_an_empty_title() {
+    let (store, mut work, project) = unseeded();
+    let task = created(&work.create(project, "one".to_string(), None));
+    let task = changed(&work.add_step(project, task.id, "a step".to_string()));
+    let step = task.steps[0].id;
+
+    let after = changed(&work.update_step(
+        project,
+        task.id,
+        step,
+        Some("  renamed  ".to_string()),
+        Some(true),
+    ));
+    assert_eq!(after.step(step).unwrap().title, "renamed");
+    assert_eq!(after.step(step).unwrap().state, StepState::Done);
+
+    // Already done: setting done again is a no-op, as is an empty title.
+    let writes = store.writes();
+    assert!(
+        work.update_step(project, task.id, step, Some("  ".to_string()), Some(true))
+            .is_empty()
+    );
+    assert_eq!(store.writes(), writes);
+
+    let after = changed(&work.update_step(project, task.id, step, None, Some(false)));
+    assert_eq!(after.step(step).unwrap().state, StepState::Idle);
+    assert_eq!(after.step(step).unwrap().title, "renamed");
+}
+
+#[test]
+fn a_comment_stamps_its_author_and_refuses_empty_text() {
+    let (store, mut work, project) = unseeded();
+    let task = created(&work.create(project, "one".to_string(), None));
+    let writes = store.writes();
+
+    assert_eq!(
+        refusals(&work.add_comment(project, task.id, CommentAuthor::User, "  \t ".to_string()))
+            .len(),
+        1
+    );
+    assert_eq!(store.writes(), writes);
+
+    let after = changed(&work.add_comment(
+        project,
+        task.id,
+        CommentAuthor::Agent,
+        "  from the agent  ".to_string(),
+    ));
+    assert_eq!(after.comments.len(), 1);
+    assert_eq!(after.comments[0].author, CommentAuthor::Agent);
+    assert_eq!(after.comments[0].text, "from the agent");
+
+    let after = changed(&work.add_comment(
+        project,
+        task.id,
+        CommentAuthor::User,
+        "from the panel".to_string(),
+    ));
+    assert_eq!(after.comments.len(), 2);
+    assert_eq!(after.comments[1].author, CommentAuthor::User);
+}
+
+#[test]
+fn a_label_named_this_session_is_listed_even_before_a_card_uses_it() {
+    let (_store, mut work, project) = unseeded();
+    let (replies, label) = work.create_label(project, "  urgent  ".to_string(), 2);
+    assert!(replies.is_empty());
+    let label = label.unwrap();
+    assert_eq!(label.name, "urgent");
+    assert_eq!(label.colour, 2);
+
+    let (_, labels) = work.labels(project);
+    assert_eq!(labels.len(), 1);
+    assert_eq!(labels[0].name, "urgent");
+
+    let (_, again) = work.create_label(project, "urgent".to_string(), 9);
+    assert_eq!(again.unwrap().colour, 2, "first writer wins");
+
+    assert_eq!(
+        work.create_label(project, "  ".to_string(), 0)
+            .1
+            .unwrap_err()
+            .as_str(),
+        "a tag needs a name"
+    );
+}
+
+#[test]
 fn a_step_is_appended_unowned_and_idle_and_needs_a_title() {
     let (store, mut work, project) = unseeded();
     let task = created(&work.create(project, "one".to_string(), None));
@@ -642,6 +735,13 @@ fn every_step_edit_refuses_a_step_that_is_not_there_and_writes_nothing() {
         work.remove_step(project, task.id, stranger),
         work.move_step(project, task.id, stranger, 0),
         work.toggle_step(project, task.id, stranger),
+        work.update_step(
+            project,
+            task.id,
+            stranger,
+            Some("x".to_string()),
+            Some(true),
+        ),
     ] {
         let refusals = refusals(&replies);
         assert_eq!(refusals.len(), 1, "got {replies:?}");
@@ -699,6 +799,7 @@ fn a_created_task_is_a_backlog_card_with_nothing_on_it_yet() {
     assert!(task.labels.is_empty());
     assert_eq!(task.session, None);
     assert!(task.steps.is_empty());
+    assert!(task.comments.is_empty());
     assert!(task.description.is_empty());
     // Its own variant rather than a change: the interface cannot know an id it did not mint, and
     // the board selects the card it just made.
@@ -863,6 +964,13 @@ fn nothing_in_the_work_family_is_broadcast() {
     replies.extend(work.move_step(project, task.id, step, 1));
     replies.extend(work.toggle_step(project, task.id, step));
     replies.extend(work.remove_step(project, task.id, step));
+    replies.extend(work.add_comment(
+        project,
+        task.id,
+        CommentAuthor::User,
+        "from the panel".to_string(),
+    ));
+    replies.extend(work.add_comment(project, task.id, CommentAuthor::Agent, "  ".to_string()));
     replies.extend(work.assign_agent(project, agent, Some(other.id)));
     replies.extend(work.assign_agent(project, agent, Some(TaskId::generate())));
     replies.extend(work.send_to_agent(project, agent, "how is it going?".to_string()));
@@ -1050,6 +1158,12 @@ fn every_field_a_task_carries_survives_being_dropped_and_reopened() {
     ));
     changed(&work.add_step(project, task.id, "step one".to_string()));
     let task = changed(&work.add_step(project, task.id, "step two".to_string()));
+    changed(&work.add_comment(
+        project,
+        task.id,
+        CommentAuthor::Agent,
+        "the agent left this".to_string(),
+    ));
     changed(&work.move_step(project, task.id, task.steps[0].id, 1));
 
     let before_restart = board(&mut work, project).remove(0);

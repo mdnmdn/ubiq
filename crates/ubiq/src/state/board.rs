@@ -55,6 +55,7 @@ pub struct TaskForm {
     pub link: String,
     pub step_title: String,
     pub new_step: String,
+    pub new_comment: String,
     /// What is being typed into the field that names a label, which is a name and not yet a label:
     /// the colour is chosen when it is added, and until then there is nothing to put on the task.
     pub new_label: String,

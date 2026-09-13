@@ -22,7 +22,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::ids::{SessionId, StepId, TaskId, WorkspaceId};
+use crate::ids::{CommentId, SessionId, StepId, TaskId, WorkspaceId};
 
 /// One agent, which is one workspace: a single running harness with one terminal.
 ///
@@ -310,6 +310,46 @@ impl Step {
     }
 }
 
+/// Who wrote a comment on a task. Not a field the writer sets: the host stamps it from the path
+/// the line arrived on (`D121`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CommentAuthor {
+    /// Typed in the task panel.
+    User,
+    /// Posted by a hosted agent through an MCP tool.
+    Agent,
+}
+
+impl CommentAuthor {
+    pub fn label(self) -> &'static str {
+        match self {
+            CommentAuthor::User => "user",
+            CommentAuthor::Agent => "agent",
+        }
+    }
+}
+
+/// One comment on a task. Durable, in the order it was added.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Comment {
+    pub id: CommentId,
+    pub author: CommentAuthor,
+    pub text: String,
+    pub created_at: DateTime<Utc>,
+}
+
+impl Comment {
+    pub fn new(author: CommentAuthor, text: String, now: DateTime<Utc>) -> Self {
+        Self {
+            id: CommentId::generate(),
+            author,
+            text,
+            created_at: now,
+        }
+    }
+}
+
 /// A task as it is written down. Everything here survives a restart.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskRecord {
@@ -351,6 +391,8 @@ pub struct TaskRecord {
     pub description: String,
     #[serde(default, rename = "step", skip_serializing_if = "Vec::is_empty")]
     pub steps: Vec<Step>,
+    #[serde(default, rename = "comment", skip_serializing_if = "Vec::is_empty")]
+    pub comments: Vec<Comment>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -374,6 +416,7 @@ impl TaskRecord {
             title,
             description: String::new(),
             steps: Vec::new(),
+            comments: Vec::new(),
             created_at: now,
             updated_at: now,
         }

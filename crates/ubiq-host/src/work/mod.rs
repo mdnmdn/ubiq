@@ -10,12 +10,14 @@
 pub mod mock;
 
 use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use chrono::Utc;
 use ubiq_proto::ids::{ProjectId, SessionId, StepId, TaskId};
 use ubiq_proto::messages::{Message, TaskField};
 use ubiq_proto::work::{
-    AgentId, Label, Priority, Speaker, Status, Step, TaskRecord, Turn, WorkAgent, WorkSession,
+    AgentId, Comment, CommentAuthor, Label, Priority, Speaker, Status, Step, StepState, TaskRecord,
+    Turn, WorkAgent, WorkSession,
 };
 
 use crate::reply::Reply;
@@ -51,6 +53,33 @@ pub struct Work {
     /// understand. Overwriting it would replace a format that holds more than this one can with a
     /// format that cannot — which is exactly what refusing to parse it was meant to avoid.
     sealed: HashSet<ProjectId>,
+    /// Labels named this session that no task has used yet. Unioned into [`Self::labels`]; a tag
+    /// nobody has put on a card is remembered until the host restarts, because a label has no
+    /// registry of its own (`D113`).
+    extra_labels: HashMap<ProjectId, Vec<Label>>,
+}
+
+/// A cloneable handle to [`Work`] so another thread can take one operation at a time.
+///
+/// The coordinator holds one clone; the MCP listener holds another. The lock covers one method
+/// and is released before anything is sent on the bus, so a tool call does not hold the
+/// coordinator still except at the same instant the coordinator also wants the work — which is
+/// the stall a window's `CreateTask` already is (`G46`).
+#[derive(Clone)]
+pub struct Handle(Arc<Mutex<Work>>);
+
+impl Handle {
+    pub fn new(work: Work) -> Self {
+        Self(Arc::new(Mutex::new(work)))
+    }
+
+    /// The work, for the duration of one call. A poisoned lock is taken back rather than
+    /// propagated: refusing every task tool because one panicked once would be the worse failure.
+    pub fn lock(&self) -> MutexGuard<'_, Work> {
+        self.0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
 }
 
 impl Work {
@@ -70,6 +99,7 @@ impl Work {
             live_sessions: HashMap::new(),
             warned: HashSet::new(),
             sealed: HashSet::new(),
+            extra_labels: HashMap::new(),
         }
     }
 
@@ -82,6 +112,7 @@ impl Work {
         self.mocks.remove(&project);
         self.warned.remove(&project);
         self.sealed.remove(&project);
+        self.extra_labels.remove(&project);
     }
 
     // ── loading, seeding and keeping ─────────────────────────────────
@@ -644,6 +675,24 @@ impl Work {
         })
     }
 
+    /// Append a comment. The author is who wrote it — the caller stamps that, never the text.
+    pub fn add_comment(
+        &mut self,
+        project: ProjectId,
+        task: TaskId,
+        author: CommentAuthor,
+        text: String,
+    ) -> Vec<Reply> {
+        self.with_task(project, task, |record| {
+            let text = text.trim().to_string();
+            if text.is_empty() {
+                return Err("a comment needs some text".to_string());
+            }
+            record.comments.push(Comment::new(author, text, Utc::now()));
+            Ok(true)
+        })
+    }
+
     pub fn rename_step(
         &mut self,
         project: ProjectId,
@@ -709,6 +758,102 @@ impl Work {
             record.toggle();
             Ok(true)
         })
+    }
+
+    /// Patch one step. `None` on a field leaves it; `done: Some(true)` marks it done and
+    /// `Some(false)` returns it to idle, without toggling whatever it already is.
+    pub fn update_step(
+        &mut self,
+        project: ProjectId,
+        task: TaskId,
+        step: StepId,
+        title: Option<String>,
+        done: Option<bool>,
+    ) -> Vec<Reply> {
+        self.with_task(project, task, |record| {
+            let Some(record) = record.step_mut(step) else {
+                return Err("no such sub-task".to_string());
+            };
+            let mut changed = false;
+            if let Some(title) = title.filter(|title| !title.trim().is_empty()) {
+                let title = title.trim().to_string();
+                changed |= record.title != title;
+                record.title = title;
+            }
+            if let Some(done) = done {
+                let state = if done {
+                    StepState::Done
+                } else {
+                    StepState::Idle
+                };
+                changed |= record.state != state;
+                record.state = state;
+            }
+            Ok(changed)
+        })
+    }
+
+    /// This project's tasks, loaded or seeded, without the sessions and agents a `ListWork` carries.
+    pub fn tasks(&mut self, project: ProjectId) -> (Vec<Reply>, Vec<TaskRecord>) {
+        let replies = self.prepare(project);
+        let tasks = self.loaded.get(&project).cloned().unwrap_or_default();
+        (replies, tasks)
+    }
+
+    /// The colour labels this project knows: those on its cards, plus any named this session that
+    /// no card has used yet. Most-used first, then by name — the same order the board suggests.
+    pub fn labels(&mut self, project: ProjectId) -> (Vec<Reply>, Vec<Label>) {
+        let replies = self.prepare(project);
+        let mut found: Vec<(Label, usize)> = Vec::new();
+        if let Some(catalog) = self.extra_labels.get(&project) {
+            for label in catalog {
+                if !found.iter().any(|(held, _)| held.name == label.name) {
+                    found.push((label.clone(), 0));
+                }
+            }
+        }
+        if let Some(tasks) = self.loaded.get(&project) {
+            for label in tasks.iter().flat_map(|task| task.labels.iter()) {
+                match found.iter_mut().find(|(held, _)| held.name == label.name) {
+                    Some((_, uses)) => *uses += 1,
+                    None => found.push((label.clone(), 1)),
+                }
+            }
+        }
+        found.sort_by(|(a, a_uses), (b, b_uses)| {
+            b_uses.cmp(a_uses).then_with(|| a.name.cmp(&b.name))
+        });
+        (replies, found.into_iter().map(|(label, _)| label).collect())
+    }
+
+    /// Remember a colour label for this project. A name that already exists is returned as it is,
+    /// colour included — first writer wins, the same as a labels replace collapsing duplicates.
+    pub fn create_label(
+        &mut self,
+        project: ProjectId,
+        name: String,
+        colour: usize,
+    ) -> (Vec<Reply>, Result<Label, String>) {
+        let replies = self.prepare(project);
+        let name = name.trim().to_string();
+        if name.is_empty() {
+            return (replies, Err("a tag needs a name".to_string()));
+        }
+        if let Some(tasks) = self.loaded.get(&project)
+            && let Some(label) = tasks
+                .iter()
+                .flat_map(|task| task.labels.iter())
+                .find(|label| label.name == name)
+        {
+            return (replies, Ok(label.clone()));
+        }
+        let catalog = self.extra_labels.entry(project).or_default();
+        if let Some(label) = catalog.iter().find(|label| label.name == name) {
+            return (replies, Ok(label.clone()));
+        }
+        let label = Label::new(name, colour);
+        catalog.push(label.clone());
+        (replies, Ok(label))
     }
 
     /// Move an agent's card into another task, or out of every one.

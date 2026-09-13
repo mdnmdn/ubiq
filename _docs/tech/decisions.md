@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-09-12
-verified: 2026-09-12
+updated: 2026-09-13
+verified: 2026-09-13
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -2467,6 +2467,37 @@ would restore them were hidden because they were IDE-only.
 **Cost:** a project that has never been arranged in Git opens onto two extra columns the user
 did not toggle. Closing them is the same titlebar switch as in IDE, and the choice is remembered
 from then on, so the cost is one first visit.
+
+### D120 — Task MCP tools share the work handle, and broadcast what they change
+
+The built-in `manage-ubiq-tasks` server reads and writes the same `Work` a window does. The
+coordinator wraps `Work` in a cloneable `Handle` (`Arc<Mutex<Work>>`) and hands one clone to the
+MCP listener at bind. A tool takes the lock for one method and releases it before posting on the
+bus. Mutations go out as `TaskCreated` / `TaskChanged` / `TaskDeleted` to every window, because
+there is no asking client — `HOST_VOICE` is never in the routing table.
+
+**Why.** `Voice` is fire-and-forget and cannot return a minted `TaskId`. Asking the coordinator a
+question would stall the listener on the run loop. Sharing the service is the same stall class as
+a window's `CreateTask` (`G46`). Broadcasting is what lets a board looking at the project redraw
+when an agent, not a click, made the change.
+
+**Cost.** The coordinator waits if it wants the work at the same instant a tool holds the lock,
+including a `tasks.toml` write. A tag named through `create_tag` that no card uses is remembered
+only for the process: a label has no registry (`D113`).
+
+### D121 — A comment's author is who wrote it, not a field the writer sets
+
+A task carries a list of comments, durable, in the order they were added. Each has an author,
+`user` or `agent`. The UI's `AddComment` carries the text and nothing else; the host stamps
+`User`. An MCP tool that posts a comment stamps `Agent`. Neither half may name the author on the
+wire.
+
+**Why.** A field the writer sets is a field the writer can lie about. The two paths into a
+comment are a person on the task panel and a hosted agent on a tool call, and each path knows
+which it is.
+
+**Cost.** A comment typed in a window is always `user`, even if the person is pasting an agent's
+words. There is no third author.
 
 ## Related docs
 

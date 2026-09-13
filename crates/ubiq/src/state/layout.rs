@@ -841,6 +841,7 @@ mod tests {
             title: "task".to_string(),
             description: String::new(),
             steps: Vec::new(),
+            comments: Vec::new(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
         }

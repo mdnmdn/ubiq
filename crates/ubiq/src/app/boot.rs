@@ -102,6 +102,9 @@ impl AppState {
         let new_step_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("Add a sub-task\u{2026}"));
 
+        let new_comment_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Add a comment\u{2026}"));
+
         let command_input = cx.new(|cx| {
             InputState::new(window, cx).placeholder("Search files, or run a command\u{2026}")
         });
@@ -821,6 +824,21 @@ impl AppState {
         ));
 
         subscriptions.push(cx.subscribe_in(
+            &new_comment_input,
+            window,
+            |this, input, event: &InputEvent, window, cx| match event {
+                InputEvent::Change => {
+                    let text = input.read(cx).value().to_string();
+                    if let Some(board) = this.board_mut(cx) {
+                        board.form.new_comment = text;
+                    }
+                }
+                InputEvent::PressEnter { shift: false, .. } => this.add_task_comment(window, cx),
+                _ => {}
+            },
+        ));
+
+        subscriptions.push(cx.subscribe_in(
             &project_search,
             window,
             |this, input, event: &InputEvent, _window, cx| {
@@ -1094,6 +1112,7 @@ impl AppState {
             task_label_input,
             step_title_input,
             new_step_input,
+            new_comment_input,
             command_input,
             project_search,
             all_projects_search,

@@ -23,17 +23,34 @@
 //! - `registry`: what the host knows about each running agent, keyed by the segment its URL carries
 //! - `server`: the listener, the routing and the JSON-RPC
 //! - `tools`: what the built-in tools actually do
+//! - `tasks`: the `manage-ubiq-tasks` server, talking to [`crate::work::Work`] through a shared
+//!   handle
 //!
-//! The boundary this sits inside is the ordinary one: nothing here draws, and the one thing it
-//! *says* — a notification a tool raised — goes through [`ubiq_proto::bus::Voice`] as
-//! [`ubiq_proto::messages::Message::RaiseNotification`], so the coordinator's own centre answers
-//! it exactly as it answers a window.
+//! The boundary this sits inside is the ordinary one: nothing here draws. A notification a tool
+//! raised goes through [`ubiq_proto::bus::Voice`] as
+//! [`ubiq_proto::messages::Message::RaiseNotification`]; a task a tool created, changed or deleted
+//! is posted to every window as the same work-family message a click would have produced, so the
+//! board redraws without the coordinator answering a question.
 
 pub mod catalogue;
 pub mod registry;
 pub mod server;
+mod tasks;
 mod tools;
+
+use ubiq_proto::bus::Mailbox;
+
+use crate::work;
 
 pub use catalogue::{catalogue, knows};
 pub use registry::{AgentFacts, ProjectFacts, Registry};
 pub use server::{Serving, start};
+
+/// How the task tools reach the board, and how they tell every window what they changed.
+///
+/// Held by the listener for the life of the process. The handle is the same [`work::Handle`] the
+/// coordinator uses, so an agent and a window never disagree about what the file holds.
+pub struct WorkAccess {
+    pub work: work::Handle,
+    pub everyone: Mailbox,
+}

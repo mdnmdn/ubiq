@@ -12,7 +12,8 @@ use chrono::{DateTime, Utc};
 use ubiq_proto::ids::{ProjectId, SessionId, StepId, TaskId, WorkspaceId};
 use ubiq_proto::messages::Message;
 use ubiq_proto::work::{
-    Activity, AgentId, Bucket, Priority, Shape, Speaker, Status, Step, StepState, TaskRecord,
+    Activity, AgentId, Bucket, Comment, CommentAuthor, Kind, Label, Priority, Shape, Speaker,
+    Status, Step, StepState, TaskRecord,
 };
 
 /// A fixed instant, so the record under test is the same one on every run.
@@ -48,7 +49,11 @@ fn a_task_with_everything_on_it_survives_the_wire_unchanged() {
         session: Some(SessionId::generate()),
         status: Status::InProgress,
         priority: Priority::High,
-        shape: Shape::Coordinated,
+        shape: Some(Shape::Coordinated),
+        kind: Some(Kind::Feature),
+        key: Some("UBQ-1".to_string()),
+        link: Some("https://tracker.example/1".to_string()),
+        labels: vec![Label::new("urgent".to_string(), 1)],
         title: "Split the work family off the session family".to_string(),
         // Markdown the host stores and never parses. The newlines and the markers are exactly what
         // a serialiser that decided to be clever would tidy away.
@@ -63,6 +68,11 @@ fn a_task_with_everything_on_it_survives_the_wire_unchanged() {
             ),
             step("draw the graph", StepState::Idle, None),
         ],
+        comments: vec![Comment::new(
+            CommentAuthor::User,
+            "leave a note".to_string(),
+            moment(),
+        )],
         created_at: moment(),
         updated_at: moment(),
     };
@@ -98,8 +108,12 @@ fn what_a_task_does_not_have_is_absent_from_the_encoding_rather_than_null() {
         !json.contains("step"),
         "no steps is no array, not an empty one: {json}"
     );
+    assert!(
+        !json.contains("comment"),
+        "no comments is no array, not an empty one: {json}"
+    );
     // The keys that are always there, so the absences above are absences and not a typo.
-    for key in ["id", "status", "priority", "shape", "title", "created_at"] {
+    for key in ["id", "status", "priority", "title", "created_at"] {
         assert!(json.contains(key), "{key} is always written: {json}");
     }
 
@@ -126,11 +140,26 @@ fn what_a_task_does_not_have_is_absent_from_the_encoding_rather_than_null() {
     // the rename gets `steps = [{...}]` and a document nobody wants to edit.
     let with_steps = TaskRecord {
         steps: vec![owned],
-        ..task
+        ..task.clone()
     };
     let json = serde_json::to_string(&with_steps).unwrap();
     assert!(json.contains("\"step\""), "the array is `step`: {json}");
     assert!(!json.contains("\"steps\""), "and not `steps`: {json}");
+
+    let with_comments = TaskRecord {
+        comments: vec![Comment::new(
+            CommentAuthor::Agent,
+            "from the agent".to_string(),
+            moment(),
+        )],
+        ..task.clone()
+    };
+    let json = serde_json::to_string(&with_comments).unwrap();
+    assert!(
+        json.contains("\"comment\""),
+        "the array is `comment`: {json}"
+    );
+    assert!(!json.contains("\"comments\""), "and not `comments`: {json}");
 }
 
 #[test]
@@ -145,7 +174,6 @@ fn a_work_message_travels_as_its_variant_name_and_a_payload() {
         title: Some("Split the work family".to_string()),
         description: None,
         priority: Some(Priority::High),
-        shape: None,
     })
     .unwrap();
 
@@ -159,7 +187,6 @@ fn a_work_message_travels_as_its_variant_name_and_a_payload() {
     assert_eq!(json["payload"]["project_id"], project_id.to_string());
     // Display only: an update carries the fields it changes and `null` for the ones it does not.
     assert_eq!(json["payload"]["priority"], "High");
-    assert!(json["payload"]["shape"].is_null());
 
     // And a response, from the host, so both directions are the same envelope.
     let task = TaskRecord::new("Name it and leave".to_string(), None, moment());
@@ -243,9 +270,10 @@ fn a_newly_named_task_claims_nothing_it_cannot_know() {
         Priority::Normal,
         "unprioritised, not middling"
     );
-    assert_eq!(task.shape, Shape::Direct);
+    assert_eq!(task.shape, None, "unshaped, not defaulted to Direct");
     assert!(task.session.is_none());
     assert!(task.steps.is_empty());
+    assert!(task.comments.is_empty());
     assert!(task.description.is_empty());
     assert_eq!(
         task.created_at, task.updated_at,

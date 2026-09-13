@@ -1,14 +1,16 @@
 //! What the built-in tools actually do.
 //!
-//! Every one of them is answered on the listener's own thread, from the [`AgentFacts`] the URL
-//! resolved to and nothing else. That is the whole reason the server can be stateless: a tool here
-//! never asks the coordinator a question, it either reports a fact taken at launch or files
-//! something and returns.
+//! Most of them are answered on the listener's own thread, from the [`AgentFacts`] the URL
+//! resolved to and nothing else. Task tools are the exception: they take the shared
+//! [`super::WorkAccess`] and talk to [`crate::work::Work`] under its lock, then post the
+//! resulting work-family messages to every window. They still never ask the coordinator a
+//! question — the handle is the board, not a round trip through the run loop.
 //!
-//! **Filing is fire-and-forget.** `send_notification` says [`Message::RaiseNotification`] through
-//! a [`Voice`] and answers immediately — the notification centre decides the mute rules and the
-//! broadcast on the coordinator's thread, exactly as it does for a window, and a harness waiting
-//! on a round trip through that thread would be a harness a busy coordinator can stall.
+//! **Filing a notification is fire-and-forget.** `send_notification` says
+//! [`Message::RaiseNotification`] through a [`Voice`] and answers immediately — the notification
+//! centre decides the mute rules and the broadcast on the coordinator's thread, exactly as it
+//! does for a window, and a harness waiting on a round trip through that thread would be a
+//! harness a busy coordinator can stall.
 //!
 //! An `Err` here is not a JSON-RPC error: the caller turns it into MCP's in-band `isError`, which
 //! is what a model can read and correct. See [`super::server::dispatch`].
@@ -18,7 +20,8 @@ use ubiq_proto::bus::Voice;
 use ubiq_proto::messages::Message;
 use ubiq_proto::notifications::{Family, Level, NotificationRequest};
 
-use super::catalogue::{PROJECT_INFO, TEST};
+use super::WorkAccess;
+use super::catalogue::{MANAGE_UBIQ_TASKS, PROJECT_INFO, TEST, USE_TASK};
 use super::registry::AgentFacts;
 
 /// Call one tool. `server` and `tool` have already been matched against the catalogue's server;
@@ -29,12 +32,23 @@ pub fn call(
     arguments: &Value,
     facts: &AgentFacts,
     voice: &Voice,
+    work: Option<&WorkAccess>,
 ) -> Result<Value, String> {
     match (server, tool) {
         (TEST, "send_notification") => send_notification(arguments, facts, voice),
         (TEST, "write_log") => write_log(arguments, facts),
         (PROJECT_INFO, "project_info") => Ok(project_info(facts)),
         (PROJECT_INFO, "whoami") => Ok(whoami(facts)),
+        (MANAGE_UBIQ_TASKS, _) => {
+            let access =
+                work.ok_or_else(|| "this host has no task board for agents to use".to_string())?;
+            super::tasks::manage_call(tool, arguments, facts, access)
+        }
+        (USE_TASK, _) => {
+            let access =
+                work.ok_or_else(|| "this host has no task board for agents to use".to_string())?;
+            super::tasks::use_call(tool, arguments, facts, access)
+        }
         _ => Err(format!("unknown tool: {server}/{tool}")),
     }
 }

@@ -30,6 +30,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 use ubiq_proto::bus::Voice;
 
+use super::WorkAccess;
 use super::catalogue::{self, ServerSpec};
 use super::registry::{AgentFacts, Registry};
 
@@ -88,7 +89,11 @@ impl Drop for Serving {
 /// Returns once the port is bound, so the caller can hand the URL to the first run it composes —
 /// which is why this happens before [`crate::agent::Agents`] is built rather than lazily on the
 /// first agent that asks for a server.
-pub fn start(registry: Registry, voice: Voice) -> anyhow::Result<Serving> {
+pub fn start(
+    registry: Registry,
+    voice: Voice,
+    work: Option<WorkAccess>,
+) -> anyhow::Result<Serving> {
     let http = tiny_http::Server::http("127.0.0.1:0")
         .map_err(|error| anyhow::anyhow!("binding the MCP listener: {error}"))?;
     let port = http
@@ -101,7 +106,7 @@ pub fn start(registry: Registry, voice: Voice) -> anyhow::Result<Serving> {
     let stop_thread = Arc::clone(&stop);
     let handle = std::thread::Builder::new()
         .name("ubiq-mcp".to_string())
-        .spawn(move || serve(http, registry, voice, stop_thread))
+        .spawn(move || serve(http, registry, voice, work, stop_thread))
         .expect("the MCP listener thread");
 
     Ok(Serving {
@@ -114,10 +119,16 @@ pub fn start(registry: Registry, voice: Voice) -> anyhow::Result<Serving> {
 /// The serving loop: poll with a bounded timeout so [`Drop`] can stop it, and handle each request
 /// fully before reading the next. One request at a time is enough — a tool call here reads a
 /// snapshot under a read lock and returns.
-fn serve(http: tiny_http::Server, registry: Registry, voice: Voice, stop: Arc<AtomicBool>) {
+fn serve(
+    http: tiny_http::Server,
+    registry: Registry,
+    voice: Voice,
+    work: Option<WorkAccess>,
+    stop: Arc<AtomicBool>,
+) {
     while !stop.load(Ordering::SeqCst) {
         match http.recv_timeout(POLL_INTERVAL) {
-            Ok(Some(request)) => handle(request, &registry, &voice),
+            Ok(Some(request)) => handle(request, &registry, &voice, work.as_ref()),
             Ok(None) => continue,
             Err(_) => break,
         }
@@ -126,7 +137,12 @@ fn serve(http: tiny_http::Server, registry: Registry, voice: Voice, stop: Arc<At
 
 /// Resolve the address, then speak the protocol. Never panics on anything a client sent: the worst
 /// a malformed request gets is a parse error, and the worst a wrong address gets is a 404.
-fn handle(mut request: tiny_http::Request, registry: &Registry, voice: &Voice) {
+fn handle(
+    mut request: tiny_http::Request,
+    registry: &Registry,
+    voice: &Voice,
+    work: Option<&WorkAccess>,
+) {
     let Some((key, server)) = route(request.url()) else {
         let _ = request.respond(not_found());
         return;
@@ -167,7 +183,7 @@ fn handle(mut request: tiny_http::Request, registry: &Registry, voice: &Voice) {
     let method = parsed.get("method").and_then(Value::as_str).unwrap_or("");
     let params = parsed.get("params").cloned().unwrap_or(Value::Null);
 
-    let response = match dispatch(method, params, spec, &facts, voice) {
+    let response = match dispatch(method, params, spec, &facts, voice, work) {
         Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
         Err((code, message)) => {
             json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}})
@@ -204,6 +220,7 @@ fn dispatch(
     spec: &ServerSpec,
     facts: &AgentFacts,
     voice: &Voice,
+    work: Option<&WorkAccess>,
 ) -> Result<Value, (i64, String)> {
     match method {
         "initialize" => Ok(json!({
@@ -218,7 +235,7 @@ fn dispatch(
                 .get("arguments")
                 .cloned()
                 .unwrap_or_else(|| json!({}));
-            match super::tools::call(spec.name, name, &arguments, facts, voice) {
+            match super::tools::call(spec.name, name, &arguments, facts, voice, work) {
                 Ok(value) => {
                     let text = serde_json::to_string(&value).unwrap_or_default();
                     Ok(json!({
@@ -283,7 +300,7 @@ mod tests {
             cwd: "/tmp/project".to_string(),
             session: None,
             project: ProjectFacts {
-                id: "01JBTESTPROJECTID00000000".to_string(),
+                id: "01ARZ3NDEKTSV4RRFFQ69G5FAV".to_string(),
                 name: "Ubiq".to_string(),
                 path: "/tmp/project".to_string(),
                 colour: 3,
@@ -300,7 +317,22 @@ mod tests {
         let (hub, host) = bus::hub();
         let registry = Registry::new();
         registry.register(facts());
-        let serving = start(registry, host.voice()).expect("the listener binds");
+        let serving = start(registry, host.voice(), None).expect("the listener binds");
+        (serving, hub, host)
+    }
+
+    fn running_with_work() -> (Serving, bus::Hub, bus::HostEnd) {
+        let (hub, host) = bus::hub();
+        let registry = Registry::new();
+        registry.register(facts());
+        let work = crate::work::Handle::new(crate::work::Work::open(Box::new(
+            crate::store::memory::MemoryTaskStore::new(),
+        )));
+        let access = crate::mcp::WorkAccess {
+            work,
+            everyone: host.mailbox(ubiq_proto::bus::To::Everyone),
+        };
+        let serving = start(registry, host.voice(), Some(access)).expect("the listener binds");
         (serving, hub, host)
     }
 
@@ -484,6 +516,222 @@ mod tests {
             .expect("the request is answered");
         assert_eq!(notified.status(), 202);
         assert_eq!(notified.into_string().unwrap(), "");
+    }
+
+    #[test]
+    fn the_task_server_lists_creates_searches_and_deletes() {
+        let (serving, _hub, _host) = running_with_work();
+        let url = url(&serving, KEY, "manage-ubiq-tasks");
+
+        let list = post(
+            &url,
+            json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}),
+        );
+        let names: Vec<&str> = list["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|tool| tool["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "overview",
+                "search_tasks",
+                "list_tags",
+                "create_tag",
+                "create_task",
+                "update_task",
+                "delete_task",
+                "add_todo",
+                "update_todo",
+                "delete_todo",
+                "get_task",
+                "add_comment",
+            ]
+        );
+
+        let created = answered(&call(
+            &url,
+            "create_task",
+            json!({
+                "title": "Name the events",
+                "status": "ready",
+                "priority": "high",
+                "labels": ["urgent"],
+            }),
+        ));
+        assert_eq!(created["task"]["title"], "Name the events");
+        assert_eq!(created["task"]["status"], "ready");
+        assert_eq!(created["task"]["priority"], "high");
+        assert_eq!(created["task"]["labels"][0]["name"], "urgent");
+        let task_id = created["task"]["id"].as_str().unwrap().to_string();
+
+        let overview = answered(&call(&url, "overview", json!({})));
+        assert_eq!(overview["columns"].as_array().unwrap().len(), 5);
+        let ready = overview["columns"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|column| column["status"] == "ready")
+            .unwrap();
+        assert_eq!(ready["total"], 1);
+        assert_eq!(ready["tasks"][0]["title"], "Name the events");
+
+        let filtered = answered(&call(
+            &url,
+            "overview",
+            json!({"categories": ["backlog", "done"]}),
+        ));
+        assert_eq!(filtered["columns"].as_array().unwrap().len(), 2);
+        assert_eq!(filtered["columns"][0]["total"], 0);
+
+        let found = answered(&call(
+            &url,
+            "search_tasks",
+            json!({"text": "events", "statuses": ["ready"], "labels": ["urgent"]}),
+        ));
+        assert_eq!(found["total"], 1);
+        assert_eq!(found["tasks"][0]["id"], task_id);
+
+        let tagged = answered(&call(&url, "create_tag", json!({"name": "later"})));
+        assert_eq!(tagged["tag"]["name"], "later");
+        let tags = answered(&call(&url, "list_tags", json!({})));
+        let tag_names: Vec<&str> = tags["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|tag| tag["name"].as_str().unwrap())
+            .collect();
+        assert!(tag_names.contains(&"urgent"));
+        assert!(tag_names.contains(&"later"));
+
+        let patched = answered(&call(
+            &url,
+            "update_task",
+            json!({"task_id": task_id, "title": "Name them", "labels": ["urgent", "later"]}),
+        ));
+        assert_eq!(patched["task"]["title"], "Name them");
+        assert_eq!(patched["task"]["labels"].as_array().unwrap().len(), 2);
+        assert_eq!(patched["changed"], true);
+
+        let ignored = answered(&call(
+            &url,
+            "update_task",
+            json!({"task_id": task_id, "title": null, "priority": null}),
+        ));
+        assert_eq!(ignored["task"]["title"], "Name them");
+        assert_eq!(ignored["changed"], false);
+
+        let todo = answered(&call(
+            &url,
+            "add_todo",
+            json!({"task_id": task_id, "title": "write the list"}),
+        ));
+        assert_eq!(todo["todo"]["title"], "write the list");
+        assert_eq!(todo["todo"]["done"], false);
+        let todo_id = todo["todo"]["id"].as_str().unwrap().to_string();
+
+        let ticked = answered(&call(
+            &url,
+            "update_todo",
+            json!({"task_id": task_id, "todo_id": todo_id, "done": true}),
+        ));
+        assert_eq!(ticked["todo"]["done"], true);
+        assert_eq!(ticked["changed"], true);
+
+        let deleted_todo = answered(&call(
+            &url,
+            "delete_todo",
+            json!({"task_id": task_id, "todo_id": todo_id}),
+        ));
+        assert_eq!(deleted_todo["deleted"], true);
+
+        let noted = answered(&call(
+            &url,
+            "add_comment",
+            json!({"task_id": task_id, "text": "ship it"}),
+        ));
+        assert_eq!(noted["comment"]["text"], "ship it");
+        assert_eq!(noted["comment"]["author"], "agent");
+
+        let got = answered(&call(&url, "get_task", json!({"task_id": task_id})));
+        assert_eq!(got["task"]["comments"].as_array().unwrap().len(), 1);
+        assert_eq!(got["task"]["comments"][0]["author"], "agent");
+
+        let deleted = answered(&call(&url, "delete_task", json!({"task_id": task_id})));
+        assert_eq!(deleted["deleted"], true);
+
+        let empty = answered(&call(&url, "search_tasks", json!({"text": "Name"})));
+        assert_eq!(empty["total"], 0);
+    }
+
+    #[test]
+    fn the_use_task_server_searches_gets_moves_and_comments() {
+        let (serving, _hub, _host) = running_with_work();
+        let manage = url(&serving, KEY, "manage-ubiq-tasks");
+        let url = url(&serving, KEY, "use-task");
+
+        let list = post(
+            &url,
+            json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}),
+        );
+        let names: Vec<&str> = list["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|tool| tool["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            names,
+            ["search_tasks", "get_task", "change_state", "add_comment"]
+        );
+
+        let created = answered(&call(
+            &manage,
+            "create_task",
+            json!({"title": "Ship the board", "status": "backlog"}),
+        ));
+        let task_id = created["task"]["id"].as_str().unwrap().to_string();
+
+        let found = answered(&call(&url, "search_tasks", json!({"text": "board"})));
+        assert_eq!(found["total"], 1);
+
+        let moved = answered(&call(
+            &url,
+            "change_state",
+            json!({"task_id": task_id, "status": "in progress"}),
+        ));
+        assert_eq!(moved["task"]["status"], "in progress");
+        assert_eq!(moved["changed"], true);
+
+        let noted = answered(&call(
+            &url,
+            "add_comment",
+            json!({"task_id": task_id, "text": "picked up"}),
+        ));
+        assert_eq!(noted["comment"]["author"], "agent");
+
+        let got = answered(&call(&url, "get_task", json!({"task_id": task_id})));
+        assert_eq!(got["task"]["status"], "in progress");
+        assert_eq!(got["task"]["comments"][0]["text"], "picked up");
+    }
+
+    #[test]
+    fn a_task_tool_without_a_board_fails_in_band() {
+        let (serving, _hub, _host) = running();
+        let response = call(
+            &url(&serving, KEY, "manage-ubiq-tasks"),
+            "overview",
+            json!({}),
+        );
+        assert_eq!(response["result"]["isError"], true);
+        assert!(
+            response["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("no task board")
+        );
     }
 
     #[test]

@@ -92,6 +92,7 @@ fn task(
                 step
             })
             .collect(),
+        comments: Vec::new(),
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
     }

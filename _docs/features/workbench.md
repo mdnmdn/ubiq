@@ -152,7 +152,7 @@ profile would be writing that profile over itself.
 **The form's footer offers the MCP servers Ubiq itself injects.** `MCPs` opens a checklist of the
 `McpInfo` rows the host answered `ListMcps` with — one tick box per server, its title, what it is
 for and the tools it answers — and what is ticked rides out on `StartConversation::mcps` or is
-written into `ProfileInfo::mcps`. It is a checklist and not a picker because several servers may be
+written into `ProfileInfo::mcps`. This build lists Test, Project info, Manage Ubiq tasks, and Use task. It is a checklist and not a picker because several servers may be
 asked for at once, so the panel is the same `deferred`/`anchored` shape the pickers are built on
 with check-box rows in it, opening upward from the footer and staying down across ticks. The
 catalogue lives on `WorkbenchState::mcps`, one list for the window: what this build can inject is a
@@ -504,7 +504,10 @@ as many words that nothing is listening: a fabricated reply is the one thing a s
 behind it must not draw. Enter sends, Shift-Enter inserts a newline, and the draft is the
 orchestration screen's own rather than the chat's or a column's.
 
-**The board and the graph are two views of one set of tasks.** The graph answers "who is doing
+**The board and the graph are two views of one set of tasks.** An agent started with Manage Ubiq
+tasks or Use task ticked writes that same set: a card it creates, moves or deletes arrives as the
+ordinary `TaskCreated` / `TaskChanged` / `TaskDeleted` the board applies. A comment typed in the
+task panel is authored `user`; one posted through those servers is authored `agent`. The graph answers "who is doing
 what"; the board answers "what is there, and where has it got to" — the same tasks, at the scale of
 the project rather than of one session. Nothing is copied between them, and the one set is the
 host's, held per project: a task ticked on the board is ticked in the drawer under the graph, because
@@ -572,10 +575,12 @@ it matters share the top line, the first written where a column is named and the
 against the other edge, because those are the two questions asked of a card before any other. Under
 them the facts that identify it — its key, its kind, the issue it stands for and its labels — then
 its description, then every sub-task with the agent that has it and where that has got to. Ticking
-one is a change to the task rather than to the view of it; unticking lands on idle, because nothing
-here can know what its owner would go back to doing. **A sub-task nobody has picked up says nothing
-about its state**: idle is the absence of news, and a list that writes it out once per line is a list
-that has to be read to find the one line that is not idle.
+a sub-task is a change to the task rather than to the view of it; unticking lands on idle, because
+nothing here can know what its owner would go back to doing. **A sub-task nobody has picked up says
+nothing about its state**: idle is the absence of news, and a list that writes it out once per line
+is a list that has to be read to find the one line that is not idle. Under the sub-tasks, every
+comment in the order it was left. A comment typed here is authored `user`; one an agent posts
+through a tool is authored `agent`.
 
 **The shape and the session are at the foot, and both may be unset.** They describe how the work will
 be done rather than what it is, which is the last thing looked at and the first thing not yet
@@ -584,8 +589,9 @@ set` is a pill in the row beside the three, the way handing a task to no session
 that picker rather than an absence the user has to find the way back to.
 
 **The form edits everything about a task except where it has got to.** Its title, its description,
-its priority, its key, its kind, its link, its labels, its shape and its session, and its sub-tasks —
-added at the foot of the list, renamed in place, ticked and removed. Priority, kind and shape are
+its priority, its key, its kind, its link, its labels, its shape and its session, its sub-tasks —
+added at the foot of the list, renamed in place, ticked and removed — and a comment left at the
+foot of that list. Priority, kind and shape are
 rows of pills, which are the report and the control at once because each has a handful of fixed
 values; the session is a picker, because that list is as long as the project has sessions and it
 grows.
@@ -2196,7 +2202,7 @@ expanded folders and the selected row, and the host neither parses nor validates
 
 **The work crosses the bus as well, and every message names a project.** Going out: `ListWork`,
 `CreateTask`, `UpdateTask`, `MoveTask`, `AssignTask`, `DeleteTask`, `AddStep`, `RenameStep`,
-`RemoveStep`, `MoveStep`, `ToggleStep`, `AssignAgent` and `SendToAgent`. Coming back: `WorkList`,
+`RemoveStep`, `MoveStep`, `ToggleStep`, `AddComment`, `AssignAgent` and `SendToAgent`. Coming back: `WorkList`,
 `TaskCreated`, `TaskChanged`, `TaskDeleted`, `AgentChanged` and `WorkError`. A project is open in one
 window at a time, so each answer reaches only the window that asked, and the three screens over the
 work draw from the same projection of it. What no message carries is the arrangement over the

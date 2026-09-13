@@ -738,6 +738,33 @@ pub fn new_step(app: &AppState, window: &Window, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
+/// The field at the foot of the comments. Enter posts and keeps the focus.
+pub fn new_comment(app: &AppState, window: &Window, cx: &App) -> AnyElement {
+    let focused = app
+        .new_comment_input
+        .read(cx)
+        .focus_handle(cx)
+        .is_focused(window);
+    field(theme::border(), focused)
+        .h(px(26.))
+        .px_2()
+        .flex_none()
+        .gap_2()
+        .child(
+            Icon::new(IconName::Plus)
+                .with_size(Size::XSmall)
+                .text_color(theme::text_faint()),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w(px(0.))
+                .text_size(theme::font(Family::Chrome, Role::Body))
+                .child(Input::new(&app.new_comment_input).appearance(false)),
+        )
+        .into_any_element()
+}
+
 /// Delete, and the question it asks first.
 pub fn delete(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     let asking = app.board(cx).is_some_and(|board| board.confirm_delete);

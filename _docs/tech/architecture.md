@@ -5,9 +5,9 @@ kind: tech
 status: current
 summary: The two halves — coordinator and UI — the single bus between them, the rules neither may break, and why the split is drawn before it is needed.
 read_when: you are about to add a capability that crosses the UI/coordinator line, or you want to know why the code is shaped this way
-updated: 2026-09-12
-verified: 2026-09-12
-code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq/src/lib.rs, crates/ubiq/src/version.rs, crates/ubiq-app/src/lib.rs, crates/ubiq-app/src/main.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/state/windows.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-proto/src/lib.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/files/mod.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq-host/src/store/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/store/memory.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq-host/src/links.rs, crates/ubiq/src/web_export/mod.rs, crates/ubiq-host/src/mcp/mod.rs]
+updated: 2026-09-13
+verified: 2026-09-13
+code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq/src/lib.rs, crates/ubiq/src/version.rs, crates/ubiq-app/src/lib.rs, crates/ubiq-app/src/main.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/state/windows.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-proto/src/lib.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/files/mod.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq-host/src/store/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/store/memory.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq-host/src/links.rs, crates/ubiq/src/web_export/mod.rs, crates/ubiq-host/src/mcp/mod.rs, crates/ubiq-host/src/mcp/tasks.rs]
 review_cycle: quarterly
 ---
 
@@ -219,7 +219,7 @@ the transport beneath the contract.
 | What a project contains | `crates/ubiq-host/src/index/` | One thread owning one full-text index per project that keeps one, built from the same walk content search runs and refreshed from the watcher's own batches. It hands out a read handle carrying no writer, so a search can never block indexing |
 | Terminal emulation | `vendor/gpui-terminal/` | Vendored third-party component; the UI's, never the coordinator's |
 | Harness definitions | `crates/ubiq-host/src/agent.rs` | Seeded from the embedded library |
-| The MCP surface Ubiq injects | `crates/ubiq-host/src/mcp/` | Tools Ubiq exposes to the agents it hosts, over one loopback listener (`D102`) |
+| The MCP surface Ubiq injects | `crates/ubiq-host/src/mcp/` | Tools Ubiq exposes to the agents it hosts, over one loopback listener (`D102`). The catalogue is `test`, `project-info`, `manage-ubiq-tasks` and `use-task`; the last two share `Work` through a handle and post task mutations to every window (`D120`) |
 | A short line of prose the host writes itself | `crates/ubiq-host/src/assist/` | One `Assist` trait and every prompt string, over three backends: the platform's on-device model behind the `assist-apple` feature, a stub in its place, and one `api.rs` backend in every build that covers OpenAI-compatible, Anthropic and Gemini. `select` reads the setting and the provider records together, because an API choice names a record rather than a kind, and `providers.rs` owns those records, their keychain keys and their cached model lists. The interface names a subject and never a prompt, and the answer arrives in chunks (`D83`, `D86`, `D87`) |
 | Diagnostics from every subsystem | `crates/ubiq-proto/src/log.rs` | The one sink both halves write to, and the console reads |
 
@@ -303,10 +303,11 @@ pseudo-terminals deliberately — without that, every closed window would leave 
 the routing table — so what it says is either a broadcast every window receives, or an answer
 nobody is waiting for. The sender it wraps is a `flume::WeakSender` on purpose: a strong clone kept
 on the host's own side would hold the inbox open against itself, and `Coordinator::run` would never
-see `Disconnected` to break its loop on. `crates/ubiq-host/src/mcp/` is the one caller today: the
-single loopback listener `D102` chooses puts a tool call on its own thread with no window on either
-end of it, and raising a notification from there means saying `Message::RaiseNotification` exactly
-as a window would.
+see `Disconnected` to break its loop on. `crates/ubiq-host/src/mcp/` is the caller: the single
+loopback listener `D102` chooses puts a tool call on its own thread with no window on either end
+of it. Raising a notification from there means saying `Message::RaiseNotification` exactly as a
+window would. Task tools take a shared `work::Handle` rather than asking the coordinator, and post
+`TaskCreated` / `TaskChanged` / `TaskDeleted` to every window through a `Mailbox` (`D120`).
 
 ## Diagnostics
 

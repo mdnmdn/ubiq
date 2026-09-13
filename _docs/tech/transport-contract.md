@@ -569,6 +569,7 @@ sessions and agents are minted per project. A task id alone would not say which 
 | `RemoveStep` | UI → host | `project_id`, `task_id`, `step_id` | `TaskChanged` or `WorkError` |
 | `MoveStep` | UI → host | `project_id`, `task_id`, `step_id`, `to` | `TaskChanged` or `WorkError` |
 | `ToggleStep` | UI → host | `project_id`, `task_id`, `step_id` | `TaskChanged` or `WorkError` |
+| `AddComment` | UI → host | `project_id`, `task_id`, `text` | `TaskChanged` or `WorkError` |
 | `AssignAgent` | UI → host | `project_id`, `agent_id`, `task_id?` | `AgentChanged` or `WorkError` |
 | `SendToAgent` | UI → host | `project_id`, `agent_id`, `text` | `AgentChanged` or `WorkError` |
 | `WorkList` | host → UI | `project_id`, `sessions[]`, `agents[]`, `tasks[]` | — |
@@ -585,6 +586,10 @@ is not a fact about the catalogue.
 
 **`project_id` is echoed on every reply**, and `task_id` on a `TaskDeleted`, because an answer
 arrives after the click that asked for it and the window may have moved on.
+
+**`AddComment` carries the text and nothing else.** The host stamps the author as `user`; an MCP
+tool that posts a comment stamps `agent`. The author is who wrote it, not a field the writer sets
+(`D121`).
 
 **A move and an assignment are their own messages rather than fields on `UpdateTask`**, by the same
 test `D31` applies to the project family. `UpdateTask` is display only: it renames, re-describes and
@@ -1337,7 +1342,8 @@ a form opened on, and every field the user then changed is the user saying other
 
 **The MCP catalogue rides here** because a profile is where a pick is saved. `Mcps` answers with an
 `McpInfo` per server this *build* offers — a slug, a title, a paragraph, and an `McpToolInfo` per
-tool — and `ProfileInfo.mcps` and `StartConversation.mcps` both name one of those slugs. Nothing on
+tool — `test`, `project-info`, `manage-ubiq-tasks` and `use-task` in this build — and `ProfileInfo.mcps` and
+`StartConversation.mcps` both name one of those slugs. Nothing on
 the wire says how a server is reached: the host binds one loopback port and hands each run a URL
 carrying its own agent id, and neither the URL nor the port is a fact the interface is told. A slug
 a build no longer offers is dropped at composition with a warning, which is the same "a stale

@@ -127,6 +127,12 @@ ulid_id! {
 }
 
 ulid_id! {
+    /// One comment on a task. Addressed by this rather than by its place in the list, for the same
+    /// reason a step is: two edits in one frame must not land on the wrong line.
+    CommentId
+}
+
+ulid_id! {
     /// One project in the catalogue. Stable across rename, recolour and a move on disk — the path
     /// is a uniqueness key, never the identity.
     ProjectId

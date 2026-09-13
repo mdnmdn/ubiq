@@ -654,6 +654,7 @@ fn refusal(message: &Message) -> Option<Message> {
         | RemoveStep { project_id, .. }
         | MoveStep { project_id, .. }
         | ToggleStep { project_id, .. }
+        | AddComment { project_id, .. }
         | AssignAgent { project_id, .. }
         | SendToAgent { project_id, .. } => WorkError {
             project_id: *project_id,
