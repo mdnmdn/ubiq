@@ -2435,10 +2435,12 @@ about one repository.
 mirroring the first and last into the project's view through subscriptions, with `sync_git_fields()`
 filling them back on the frame after a project swings in, on the explorer filter's rule. A first
 visit to Git reveals the history panel in the centre, with the left and right regions open and the
-bottom shut. `select_git_ref()` reveals that panel if it was hidden; `jump_to_git_ref()` selects
-the commit the ref points at and scrolls the list to it. `select_git_path()` reveals the diff
-panel. The IDE's right region stays shut on a first visit unless `settle_persistent_chat()` finds
-a persistent agent. `git_view()`, `git_view_mut()` and
+bottom shut — `collapse_empty_regions()` leaves both regions' edges unarmed while
+`queue_git_furniture()`'s refs and changes panels are still in the pending-panel queue, so neither
+is put away before `settle_panels()` drains it. `select_git_ref()` reveals that panel if it was
+hidden; `jump_to_git_ref()` selects the commit the ref points at and scrolls the list to it.
+`select_git_path()` reveals the diff panel. The IDE's right region stays shut on a first visit
+unless `settle_persistent_chat()` finds a persistent agent. `git_view()`, `git_view_mut()` and
 `git_entries()` are the accessors; `select_git_path()` is the one mutator that sends anything, and
 it sends `DiffProjectFile` only when the selection actually moved. `refresh_git()` asks for the
 overview and the working tree together. `ProjectFileDiffed` feeds whichever of the screen and a diff
@@ -2564,10 +2566,18 @@ empty on purpose (the left, above) through `region_had_content`: the flag it tic
 every change, so the auto-hide only fires on the edge from holding something to holding nothing, not
 on an emptiness that was already there. A restore is the one place that edge is armed by hand:
 `settle_layout()` ends in `collapse_empty_regions()`, because the arrangement a project switch
-installed is final and an open region it left empty is one the project on screen has no use for. `layout_blob()` is what the subscription writes. A rail-mode switch is the same queue:
+installed is final and an open region it left empty is one the project on screen has no use for —
+except a region the pending-panel queue is about to fill, which `collapse_empty_regions()` reads
+off `pending_panels` and leaves unarmed, so a region a queued panel opens onto is never closed
+before that panel lands. `layout_blob()` is what the subscription writes. A rail-mode switch is the same queue:
 `set_rail_mode()` writes the outgoing mode's arrangement down through `remember_view()`, then hands
 the incoming mode's saved blob to `pending_layout`, or — for a mode never arranged — queues its
-`ModeLayout::default_for` flags as `pending_regions`, which `settle_mode()` forces on the frame.
+`ModeLayout::default_for` flags as `pending_regions`, which `settle_mode()` forces on the frame. A
+start is the same thing said by the host: the window opens on the IDE's default tree and learns
+which mode the project was left in only when `Preferences` arrives, so `apply_preferences()` hands
+that mode's blob to `pending_layout` and, for a mode never arranged, its `default_for` flags to
+`pending_regions` and Git's own panels to `queue_git_furniture()` — a project left in Git opens on
+Git's screen, side panels and all, rather than wearing the IDE's regions.
 
 **The titlebar's overflow chevron is one more menu on the same `MenuId` device.**
 `WorkbenchState::overflow_menu` holds the point it opened at, exactly as the new-pane and tab menus

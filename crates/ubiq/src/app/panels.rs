@@ -175,9 +175,31 @@ impl AppState {
     /// frame later. A restore is not that: the arrangement it installed is final, so an open region
     /// with nothing in it is one the project on screen has no use for. Arming the edge is the whole
     /// of it: the next pass reads the region as having just been emptied and puts it away.
+    ///
+    /// **A region a queued panel is about to land in is not empty, only a step early.**
+    /// `settle_panels` drains that queue later in the same frame, so the edge is left unarmed for
+    /// those regions — otherwise entering Git, whose refs and changes are queued by
+    /// [`Self::queue_git_furniture`] rather than named by a blob, opens its two side regions and
+    /// then puts them away before their panels arrive.
     pub(super) fn collapse_empty_regions(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.region_had_content = (true, true, true);
+        let incoming = self.incoming_regions();
+        self.region_had_content = (
+            !incoming.contains(&Region::Left),
+            !incoming.contains(&Region::Bottom),
+            !incoming.contains(&Region::Right),
+        );
         self.hide_emptied_regions(window, cx);
+    }
+
+    /// The regions the queued panel edits are about to put something in.
+    fn incoming_regions(&self) -> Vec<Region> {
+        self.pending_panels
+            .iter()
+            .filter_map(|edit| match edit {
+                PanelEdit::Open(kind) | PanelEdit::Reveal(kind) => Some(kind.home()),
+                PanelEdit::Close(_) => None,
+            })
+            .collect()
     }
 
     /// Queue the Git screen's own panels into their home regions.
@@ -289,6 +311,14 @@ impl AppState {
         for edit in std::mem::take(&mut self.pending_panels) {
             match edit {
                 PanelEdit::Open(kind) => {
+                    // An unattached chat tab is not worth a panel in a region nobody has opened:
+                    // a project is seeded with one empty tab (`seeded_chats`), and adding it here
+                    // is what used to leave an empty agent panel in the right region and open the
+                    // region onto it. Only `Open` is filtered — a `Reveal` is the user asking for
+                    // a chat, or a persistent agent claiming one, and both still get their tab.
+                    if self.is_idle_chat(&kind, cx) {
+                        continue;
+                    }
                     let home = kind.home();
                     let panel = self.panel(kind, cx);
                     // A saved arrangement is rebuilt before this queue is drained, so a file panel
@@ -311,6 +341,29 @@ impl AppState {
                 }
             }
         }
+    }
+
+    /// Whether a panel kind is a chat tab attached to nothing, bound for a right region that is
+    /// shut and holds nothing.
+    ///
+    /// That pair is the empty agent panel: a tab with no conversation behind it, in the one region
+    /// the IDE opens closed. A region that is open — the switch having just opened it onto
+    /// nothing, say — is a region asking to be filled, and a tab with an agent behind it is worth
+    /// a panel wherever it lands.
+    fn is_idle_chat(&self, kind: &PanelKind, cx: &App) -> bool {
+        let Some(id) = kind.chat_id() else {
+            return false;
+        };
+        let attached = self
+            .open_project(cx)
+            .and_then(|open| open.chats.iter().find(|tab| tab.id == id))
+            .is_some_and(|tab| tab.attached.is_some());
+        if attached {
+            return false;
+        }
+        let placement = dock::placement_of(Region::Right);
+        let dock = self.dock.read(cx);
+        !dock.is_dock_open(placement) && dock.is_empty(placement, cx)
     }
 
     /// Put a rail mode's regions where that mode wants them, on the frame after the switch.
