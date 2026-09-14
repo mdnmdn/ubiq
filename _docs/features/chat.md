@@ -6,7 +6,7 @@ status: draft
 summary: Editor-like chat tabs — many, movable to any dockable region, each a view onto a host-owned conversation or onto none, drawn by the composer, transcript and tool blocks the whole window shares.
 read_when: you are changing a chat tab, the control that starts or attaches a conversation, or which conversation a tab shows
 updated: 2026-09-13
-verified: 2026-09-13
+verified: 2026-09-14
 code_anchors: [crates/ubiq/src/ui/chat/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/app/projects.rs]
 depends_on: [feat-workbench]
 review_cycle: monthly
@@ -282,35 +282,48 @@ answering with the other. Both are bound in the `Workbench` and the `Input` key 
 composer holding focus does not swallow the answer to a question blocking the very turn it is
 typing into.
 
-**Delegates are a line, and a list only when asked for.** A conversation that spawned subagents
-grows one row at the top of the bottom block — above the footer, above the composer — reading
-`3 active subagents of 10`, and nothing else; the `of 10` is dropped while every delegate is still
-working — `3 active subagents` — and the row falls back to the bare `10 subagents` once none is,
-because a count twice over and a zero are both noise. A conversation that spawned none grows
-nothing. Opening it draws one row per agent *upward*, over the transcript, through the same `anchored` + `deferred` pair
-every menu in the window uses, so the composer never moves under the cursor. Each row says who and
-what it is doing, and clicking one switches the transcript to that agent; the main agent is always
-a row, because it is the way back. A subagent whose spawning call is not in the transcript reads
-`unknown` rather than being claimed to be running. **A delegate says what it is answering with**:
-the reading strip above its transcript carries its model beside its name, its row carries the same
-model faint beside the name — a delegate is chiefly identified by what it answers with, and a
-reading only on hover made the reader hover three rows to compare three — and its row's hover names
-its kind, its model and its thinking level where the harness stated one — the model shortened by
-`short_model_label`, the same shortener the composer's model chip uses, so one conversation never
-spells a model two ways. Both read the one `SubagentTab` field, resolved on `Conversation` beside
-`subagents`. Nothing is borrowed from the parent: a delegate the harness named no model for draws
-nothing, and `thinking` is `None` on every harness today because no stream states a per-delegate
-effort level. The `AGENT` block that spawned an agent is the
-same door: clicking it switches the transcript, and stays inert until that agent has said
-something.
+**Delegates and the todo list are two chips on one activity bar.** The bottom block draws a single
+row flush with its top border, between the transcript and the footer, with a subagent chip on the
+left and a todo chip on the right; neither chip appears when its source is empty, and the bar itself
+draws when at least one chip is present.
 
-**A blocked delegate says so in place of what it was doing.** A row whose delegate is waiting on a
-permission answer reads `need you` in the warning tokens where its status would be — `need you ×N`
-above one request, and the bare words for one, because `need you 1` is a number nobody needed. In
-place of rather than beside: a delegate waiting on a human is not doing anything, so `running` and
-the question together would be one of them wrong, and the question is the more useful of the two
-readings. `Conversation::pending_count` is what counts, resolved onto `SubagentTab::waiting` beside
-the rest of the row, and the main agent's own row is read the same way.
+**The left chip is the subagent count.** A chevron points upward when the panel is closed and
+downward when it is open, beside a label built by `subagent_count_label`: `3 active subagents of 10`
+while seven delegates have finished, `3 active subagents` while all three still run — dropping the
+`of 3` because it repeats the same number — and the bare `10 subagents` once none is active,
+because a count and zero are both noise. A conversation that spawned no subagent draws no chip.
+Clicking opens a panel through the same `popover` pair every menu in the window uses, anchored to
+the chip and drawn upward over the transcript so the composer never moves under the cursor. The
+panel carries one row per agent: the main agent first, always present — it is the way back — then
+each delegate from `subagents`. Each row says who and what it is doing: its name, its model shortened
+by `short_model_label` where the harness stated one, and its status or a blocked message. **A blocked
+delegate says so in place of what it was doing.** A row whose delegate is waiting on a permission
+answer reads `need you` in the warning tokens where its status would be — `need you ×N` above one
+request, and the bare words for one, because `need you 1` is a number nobody needed. In place of
+rather than beside: a delegate waiting on a human is not doing anything, so `running` and the
+question together would be one of them wrong. `Conversation::pending_count` counts, resolved onto
+`SubagentTab::waiting` beside the rest of the row, and the main agent's own row is read the same
+way. A subagent whose spawning call is not in the transcript reads `unknown` rather than being
+claimed to be running. Clicking a row switches the transcript to that agent and closes the panel;
+the main agent's row closes it without switching. **A delegate says what it is answering with**: the
+reading strip above its transcript carries its model beside its name, its row carries the same model
+faint beside the name — a delegate is chiefly identified by what it answers with, and a reading only
+on hover made the reader hover three rows to compare three — and its row's hover names its kind, its
+model and its thinking level where the harness stated one, the model shortened by `short_model_label`,
+so one conversation never spells a model two ways. Both read the one `SubagentTab` field, resolved on
+`Conversation` beside `subagents`. Nothing is borrowed from the parent: a delegate the harness named
+no model for draws nothing, and `thinking` is `None` on every harness today because no stream states
+a per-delegate effort level. The `AGENT` block that spawned an agent is the same door: clicking it
+switches the transcript, and stays inert until that agent has said something.
+
+**The right chip is the todo count.** It reads `{done}/{total} todos` with a chevron, and is hidden
+when the plan is empty — an opencode conversation with no `todowrite` calls sees no chip at all.
+Clicking opens the same kind of popover panel: up to eight entries, each a status mark beside its
+text — `✓` for completed, `▶` for in-progress, `○` for pending — with `… N more` when the list
+exceeds eight. Clicking a row closes the panel; the transcript is not switched, because a todo row
+has no agent to jump to. Exactly one panel is open at a time: clicking the subagent chip while the
+todo panel is open closes it and opens the subagent panel, and vice versa, so two overlapping lists
+for the same question never appear at once.
 
 **Files are attached to the turn being written, as tags rather than as text.** The composer's `+`
 raises the window's own file picker over the project's explorer tree, taking as many files as are

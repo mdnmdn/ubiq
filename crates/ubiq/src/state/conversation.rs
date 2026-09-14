@@ -100,6 +100,17 @@ pub struct SubagentTab {
     pub waiting: usize,
 }
 
+/// Which of the activity panels above the composer is open: the spawned-subagent
+/// list or the agent's own todo list. One at a time — both answer the same
+/// question, "what is the agent doing next", and the bar they hang from is a
+/// single line — so it is one switch, not two.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ActivityPanel {
+    #[default]
+    Subagents,
+    Todos,
+}
+
 /// Fold one report's spend into a running total. Field by field, because a flow is summed and
 /// there is no other way to sum one; saturating, because a counter that wrapped would read as a
 /// conversation that spent nothing.
@@ -278,10 +289,12 @@ pub struct Conversation {
     /// checks this before touching a thought's disclosure, so a reader who reopened a finished one
     /// does not have it closed under them by the next chunk.
     pub touched_thoughts: HashSet<usize>,
-    /// Whether the subagent panel is open. Collapsed by default and per conversation, beside
-    /// [`Self::viewing`] and for its reason: several conversations are on screen at once, and each
-    /// reader opens the ones they are following.
-    pub subagents_open: bool,
+    /// Which activity panel is open: the spawned-subagent list or the todo
+    /// list, one at a time. Collapsed by default and per conversation, beside
+    /// [`Self::viewing`] and for its reason: several conversations are on screen
+    /// at once, and each reader opens the ones they are following. `None` —
+    /// neither — is the resting state.
+    pub panel_open: Option<ActivityPanel>,
     /// Prompts typed while a turn was already running, held until it ends. A stable
     /// per-conversation id per entry, so an edit or a delete names the right one even if others
     /// are added or removed around it.
@@ -373,7 +386,7 @@ impl Conversation {
             viewing: None,
             open_groups: HashSet::new(),
             touched_thoughts: HashSet::new(),
-            subagents_open: false,
+            panel_open: None,
             queued: Vec::new(),
             next_queued_id: 0,
             attached: Vec::new(),
@@ -1628,11 +1641,11 @@ mod tests {
         );
     }
 
-    /// The panel is closed until it is asked for: a conversation's delegates are a fact worth a
-    /// line, not a list that unfolds itself.
+    /// The panels are closed until they are asked for: a conversation's delegates or plans are a
+    /// fact worth a line, not a list that unfolds itself.
     #[test]
-    fn the_subagent_panel_starts_collapsed() {
-        assert!(!conversation().subagents_open);
+    fn the_activity_panels_start_collapsed() {
+        assert_eq!(conversation().panel_open, None);
     }
 
     /// A pending form is not a running harness, and neither is a transcript whose process has

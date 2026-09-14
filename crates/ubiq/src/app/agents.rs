@@ -1,5 +1,6 @@
 use super::*;
 use crate::state::ConvBlock;
+use crate::state::conversation::ActivityPanel;
 
 impl AppState {
     /// Bring an agent to the front: the tab of whatever column holds it, or a column of its own.
@@ -893,15 +894,35 @@ impl AppState {
         cx.notify();
     }
 
-    /// Open or close the subagent panel above the control area. Collapsed is the resting state —
-    /// a conversation's delegates are worth a line, not a permanent list — so this is the one
-    /// thing that opens it, and picking a row from it closes it again.
-    pub fn toggle_conversation_subagents(&mut self, agent_id: AgentId, cx: &mut Context<Self>) {
+    /// Open or close one of the conversation's activity panels — the
+    /// spawned-subagent list, the todo list. Collapsed is the resting state: a
+    /// conversation's delegates or plans are worth a line, not a permanent
+    /// list, so this is the one thing that opens one, picking a row from it
+    /// closes it again, and asking for a second while one is open is a switch,
+    /// not a second panel.
+    pub fn toggle_conversation_panel(
+        &mut self,
+        agent_id: AgentId,
+        panel: ActivityPanel,
+        cx: &mut Context<Self>,
+    ) {
         if let Some(id) = self.project(cx)
             && let Some(open) = self.projects.get_mut(&id)
             && let Some(conversation) = open.conversations.get_mut(&agent_id)
         {
-            conversation.subagents_open = !conversation.subagents_open;
+            conversation.panel_open = (conversation.panel_open != Some(panel)).then_some(panel);
+        }
+        cx.notify();
+    }
+
+    /// Close whichever activity panel is open — a row picked in one, an Escape
+    /// elsewhere. `None` is the resting state, so this is a no-op there.
+    pub fn close_conversation_panel(&mut self, agent_id: AgentId, cx: &mut Context<Self>) {
+        if let Some(id) = self.project(cx)
+            && let Some(open) = self.projects.get_mut(&id)
+            && let Some(conversation) = open.conversations.get_mut(&agent_id)
+        {
+            conversation.panel_open = None;
         }
         cx.notify();
     }

@@ -2736,8 +2736,19 @@ fn attribute(shared: &Shared, params: &Value, update: &Value, mut ev: AgentEvent
                 .as_ref()
                 .and_then(|raw| str_any(raw, &["subagent_type", "subagent", "description"]));
             state.delegate_calls.insert(call.id.clone());
-            state.delegates.push((call.id.clone(), subagent));
-            // The delegate's own call belongs to whoever opened it, not to itself.
+            state.delegates.push((call.id.clone(), subagent.clone()));
+            // An opencode `task` call *is* the whole delegate. Its child session never streams
+            // on the parent bus — the result is embedded in this call's own completion
+            // (`<task id="ses_…">` inside `<task_result>`) — so this block is the only thing
+            // the UI can hang a tag off, and it carries its own, through the same origin a
+            // subagent chunk would. Grok's `spawn_subagent` is excluded on purpose: its child
+            // streams as a separate session and is registered from the completion, and tagging
+            // the call as well would put two tags on one delegate (§"three spawns" of
+            // `_docs/wip/opencode-acp-capture.md`).
+            if call.title.eq_ignore_ascii_case("task") {
+                call.origin.parent_tool_use_id = Some(call.id.clone());
+                call.origin.subagent_type = subagent;
+            }
             return ev;
         }
         AgentEvent::ToolCallUpdate { update: patch } => {
@@ -3306,6 +3317,42 @@ mod tests {
             panic!("expected a chunk");
         };
         assert_eq!(origin, Default::default());
+    }
+
+    /// An opencode `task` call is the whole delegate — its child session never
+    /// streams on the parent bus, its result is embedded in this call's own
+    /// completion — so unlike every other spawn, who "belongs to whoever opened
+    /// it", it carries its own origin: the anchor the transcript hangs the tag off.
+    #[test]
+    fn an_opencode_task_call_carries_its_own_subagent_origin() {
+        let (shared, _written, _events) = test_shared(&temp_root("opencode-task"));
+        let call = parse(
+            r#"{"update":{"sessionUpdate":"tool_call","toolCallId":"call_1","title":"task",
+                "kind":"think","status":"in_progress",
+                "rawInput":{"description":"Pastry Chef: Mix Dry Ingredients",
+                    "prompt":"...","subagent_type":"general"}}}"#,
+        );
+        let Some(AgentEvent::ToolCall { call }) = session_update(&shared, &call) else {
+            panic!("expected a tool call");
+        };
+        assert_eq!(call.kind, ToolKind::Delegate);
+        assert_eq!(call.id, "call_1");
+        assert_eq!(call.origin.parent_tool_use_id.as_deref(), Some("call_1"));
+        assert_eq!(call.origin.subagent_type.as_deref(), Some("general"));
+
+        // A sibling `spawn_subagent` (Grok's spawn) gives the same block no
+        // origin: its child streams as a separate session and is registered from
+        // the completion, and tagging the call as well would be a second tag.
+        let spawn = parse(
+            r#"{"update":{"sessionUpdate":"tool_call","toolCallId":"call_2",
+                "title":"spawn_subagent","kind":"other","status":"in_progress",
+                "rawInput":{"subagent_type":"explore"}}}"#,
+        );
+        let Some(AgentEvent::ToolCall { call }) = session_update(&shared, &spawn) else {
+            panic!("expected a tool call");
+        };
+        assert_eq!(call.kind, ToolKind::Delegate);
+        assert_eq!(call.origin, Default::default());
     }
 
     /// ACP states `cost.amount` cumulatively; the event contracts for a

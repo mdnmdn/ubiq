@@ -22,14 +22,16 @@ use gpui::{
 use gpui_component::Root;
 use ubiq::app::{AppState, BusHub};
 use ubiq::state::agents::{COMPOSER_ROWS_MAX, COMPOSER_ROWS_MIN};
-use ubiq::state::conversation::{Conversation, Pending, Run, TranscriptScroll, short_model_label};
+use ubiq::state::conversation::{
+    ActivityPanel, Conversation, Pending, Run, TranscriptScroll, short_model_label,
+};
 use ubiq::state::{NewAgentSurface, WindowRegistry};
 use ubiq::ui::conversation::{self, ConversationView};
 use ubiq_proto::bus::{self, FromClient, To};
 use ubiq_proto::conversation::{
     ConfigCategory, ConfigChoice, ConfigOption, ConfigValue, ConvContent, ConvUpdate,
-    PermissionKind, PermissionOption, StopReason, Subagent, ToolCallPatch, ToolCallRecord,
-    ToolKind, ToolStatus, UsageRecord,
+    PermissionKind, PermissionOption, PlanEntry, PlanPriority, PlanStatus, StopReason, Subagent,
+    ToolCallPatch, ToolCallRecord, ToolKind, ToolStatus, UsageRecord,
 };
 use ubiq_proto::ids::{ProjectId, SessionId};
 use ubiq_proto::messages::{AgentTypeInfo, Message};
@@ -1724,7 +1726,7 @@ fn the_agent_switcher_appears_only_once_a_subagent_has(cx: &mut TestAppContext) 
         .debug_bounds("composer-field")
         .expect("the composer is drawn");
     fixture.state.update(&mut vcx, |state, cx| {
-        state.toggle_conversation_subagents(id, cx)
+        state.toggle_conversation_panel(id, ActivityPanel::Subagents, cx)
     });
     vcx.run_until_parked();
     assert!(
@@ -1746,7 +1748,7 @@ fn the_agent_switcher_appears_only_once_a_subagent_has(cx: &mut TestAppContext) 
     );
 
     fixture.state.update(&mut vcx, |state, cx| {
-        state.toggle_conversation_subagents(id, cx)
+        state.toggle_conversation_panel(id, ActivityPanel::Subagents, cx)
     });
     vcx.run_until_parked();
     assert!(
@@ -1814,6 +1816,119 @@ fn the_agent_switcher_appears_only_once_a_subagent_has(cx: &mut TestAppContext) 
     assert_eq!(
         visible, 2,
         "only what the subagent itself said, both lines of it"
+    );
+}
+
+/// The todo list keeps the same discipline as the subagent list: a count on the
+/// right end of the same bar, a list asked for and never unfolded, and the two
+/// lists are one switch — a second panel never stacks beside an open one.
+#[gpui::test]
+fn the_todo_panel_shares_the_activity_bar_with_subagents(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let id = AgentId::generate();
+    fixture.started(an_agent(id), cx);
+    fixture.update(
+        id,
+        1,
+        ConvUpdate::Plan(vec![
+            PlanEntry {
+                content: "parse the parser".to_string(),
+                priority: PlanPriority::High,
+                status: PlanStatus::InProgress,
+            },
+            PlanEntry {
+                content: "draft the doc".to_string(),
+                priority: PlanPriority::Medium,
+                status: PlanStatus::Pending,
+            },
+            PlanEntry {
+                content: "ship it".to_string(),
+                priority: PlanPriority::Low,
+                status: PlanStatus::Completed,
+            },
+        ]),
+        cx,
+    );
+
+    let window = cx.add_window(|_, _cx| ConversationHarness {
+        state: fixture.state.clone(),
+        agent: id,
+        header: true,
+        footer: true,
+        composer: true,
+    });
+    cx.run_until_parked();
+    let mut vcx = VisualTestContext::from_window(window.into(), cx);
+
+    assert!(
+        vcx.debug_bounds("todo-switcher").is_some(),
+        "a plan puts its count on the bar"
+    );
+    assert!(
+        vcx.debug_bounds("agent-switcher").is_none(),
+        "no subagent, no left chip"
+    );
+    assert!(
+        vcx.debug_bounds("todo-switcher-panel").is_none(),
+        "the list is asked for, not unfolded"
+    );
+
+    // Open the list: it draws upward over the transcript, like the subagent list.
+    fixture.state.update(&mut vcx, |state, cx| {
+        state.toggle_conversation_panel(id, ActivityPanel::Todos, cx)
+    });
+    vcx.run_until_parked();
+    assert!(
+        vcx.debug_bounds("todo-switcher-panel").is_some(),
+        "clicking the count expands the list"
+    );
+
+    // A subagent arriving puts its own chip on the same line — and asking for it
+    // switches the panel rather than stacking a second one beside the todo list.
+    fixture.update(
+        id,
+        2,
+        ConvUpdate::ToolCall(ToolCallRecord {
+            id: "t88".to_string(),
+            title: "Chef".to_string(),
+            kind: ToolKind::Other,
+            status: ToolStatus::InProgress,
+            content: Vec::new(),
+            locations: Vec::new(),
+            subagent: None,
+        }),
+        cx,
+    );
+    fixture.update(
+        id,
+        3,
+        ConvUpdate::AgentChunk {
+            content: ConvContent::Text("Mise en place.".to_string()),
+            message_id: Some("m88".to_string()),
+            subagent: Some(Subagent {
+                id: "t88".to_string(),
+                kind: Some("general".to_string()),
+                ..Default::default()
+            }),
+        },
+        cx,
+    );
+    vcx.run_until_parked();
+    assert!(
+        vcx.debug_bounds("agent-switcher").is_some(),
+        "a spawned subagent adds the left chip"
+    );
+    fixture.state.update(&mut vcx, |state, cx| {
+        state.toggle_conversation_panel(id, ActivityPanel::Subagents, cx)
+    });
+    vcx.run_until_parked();
+    assert!(
+        vcx.debug_bounds("agent-switcher-panel").is_some(),
+        "asking for the subagents opens their panel"
+    );
+    assert!(
+        vcx.debug_bounds("todo-switcher-panel").is_none(),
+        "and closes the todo one — one panel at a time"
     );
 }
 

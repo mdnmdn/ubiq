@@ -3,9 +3,9 @@ id: wip-opencode-acp-capture
 title: opencode ACP — captured from a live session
 kind: wip
 status: current
-summary: What `opencode acp` (opencode 1.18.28) actually speaks over ACP, captured frame by frame from a real session, and the four gaps it exposed in `io/acp_client.rs` — the turn with no user on the wire, the silent wait, the `task` spawn's shape, and a todo list with no `plan` update — and how the bridge reads them.
-read_when: you are fixing opencode's ACP bridge — the user echo, a spawn, or the todo list
-updated: 2026-09-13
+summary: What `opencode acp` (opencode 1.18.28) actually speaks over ACP, captured frame by frame from a real session, and the five gaps it exposed in `io/acp_client.rs` — the turn with no user on the wire, the silent wait, the `task` spawn's shape, a todo list with no `plan` update, and the `task` call's own missing origin — and how the bridge reads them.
+read_when: you are fixing opencode's ACP bridge — the user echo, a spawn, the todo list, or the subagent tag
+updated: 2026-09-14
 verified: 2026-09-13
 ---
 
@@ -93,13 +93,40 @@ a call's `rawInput` is always `{}`, so the earlier idea of reading the list out 
 
 ## 4. What the bridge does now
 
-The four changes, all in `crates/agent-manager/src/io/acp_client.rs`:
+The five changes, all in `crates/agent-manager/src/io/acp_client.rs`:
 
 1. `write_input`'s `Prompt` arm synthesises the user echo (`io/jsonl.rs`'s pattern, §1).
 2. `todo_update` + `plan_from_todo_update` translate a `todowrite` completion into a `Plan` (§3).
 3. `is_delegate` recognises a spawn by `rawInput.subagent_type` as well as by name and title (§2).
 4. `session_update` runs the todo pass last, after `user_chunk`'s filtering.
+5. `attribute`'s delegate `ToolCall` arm sets the call's own origin when the title is `task` (§5).
 
-The interface side renders the plan above the footer: `plan_strip` in `crates/ubiq/src/ui/conversation/
-mod.rs` draws up to five entries with a status glyph, when the conversation has one. Tests cover the
-echo, the structured read, the text fallback and the no-todos pass-through.
+The interface renders the spawned-agent count and the todo count in one shared bar above the
+footer: `activity_bar` in `crates/ubiq/src/ui/conversation/mod.rs` draws a chip per reading, one
+panel at a time, and is shared by both the agents column and the chat tab through
+`conversation::render`. Tests cover the echo, the structured read, the text fallback, the
+no-todos pass-through, and the subagent panel's layout.
+
+## 5. The task call's own origin
+
+**Claude Code tags the subagent's own speech, not the call that spawned it.** Every chunk carries a
+`parent_tool_use_id` equal to the `Task` call's id, so the transcript's subagent list is built
+from the *chunks*, not from the spawning block — and the spawning block itself carries no origin
+at all (`§"three spawns" of this document`, §2). The subagent-extension path does the same:
+`subagent_spawned` synthesises a `Delegate` call whose origin stays `Default::default()`, because
+its children attribute themselves via the same `parent_tool_use_id`.
+
+**opencode is the reverse: the child session never streams on the parent bus.** Every delegate's
+result is embedded in this call's own completion text — `<task id="ses_…">` inside a
+`<task_result>` — and the call's `rawInput` is the only structured source for a subagent name. The
+original call frame therefore belongs to whoever opened it, not to itself, which left the
+subagent list empty: `map_origin` returned `None`, and the interface never drew a chip.
+
+The `attribute` arm now fixes this for `task` calls: when the title is exactly `"task"`, the call's
+own origin is stamped with `parent_tool_use_id = call.id` and `subagent_type = rawInput.subagent_type`.
+Grok's `spawn_subagent` is excluded on purpose — its child streams as a separate session and is
+registered from its completion, and tagging the call as well would put two tags on the same
+delegate. The opencode `task` call is the *only* thing the interface can hang a tag off, and the
+origin is the same stamp a subagent chunk would carry. A `subagent_id_in` parse for the opencode
+completion's `<task id>` was considered and deferred: it would register the child session under a
+second key, and if opencode someday streamed child chunks they would split into a second tab.

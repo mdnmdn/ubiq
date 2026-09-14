@@ -43,6 +43,7 @@ pub mod icons;
 pub mod menu;
 pub mod overlay;
 pub mod panel;
+pub mod popover;
 mod ribbon;
 pub mod settings;
 
@@ -58,5 +59,6 @@ pub use icons::UbiqIcon;
 pub use menu::{ContextItem, Picker, PickerStyle, context_menu, context_panel};
 pub use overlay::{confirm_modal, modal, modal_note, modal_sized, prompt_modal};
 pub use panel::{Tab, panel, panel_header, tab_strip};
+pub use popover::popover;
 pub use ribbon::{RIBBON_SIZE, Ribbon, RibbonCorner, ribbon};
 pub use settings::{column, heading, hint_row, label_block, label_hint, nav_item, setting_row};

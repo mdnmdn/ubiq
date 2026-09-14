@@ -24,8 +24,8 @@ use gpui::prelude::FluentBuilder;
 use gpui::{
     Animation, AnimationExt, AnyElement, App, ClickEvent, ClipboardItem, Context, Div, ElementId,
     Focusable, InteractiveElement, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent,
-    ParentElement, Pixels, Rgba, SharedString, StatefulInteractiveElement, Styled, Window,
-    anchored, deferred, div, point, pulsating_between, px,
+    ParentElement, Pixels, Rgba, SharedString, StatefulInteractiveElement, Styled, Window, div,
+    point, pulsating_between, px,
 };
 use gpui_component::input::Textarea;
 use gpui_component::text::TextView;
@@ -41,17 +41,17 @@ use ubiq_proto::work::{Activity, AgentId};
 use crate::app::AppState;
 use crate::state::MenuId;
 use crate::state::conversation::{
-    Attachment, ConvBlock, Conversation, Pending, QueuedMessage, Run, SubagentTab,
+    ActivityPanel, Attachment, ConvBlock, Conversation, Pending, QueuedMessage, Run, SubagentTab,
     TranscriptScroll, short_model_label,
 };
 use crate::state::file_picker::{SizeReading, size_label, size_reading};
 use crate::state::settings::{quota_tip, snapshot_from_rate_limit};
 use crate::theme;
-use crate::ui::kit::menu::{MENU_ANCHOR_UP, MENU_LAYER};
+use crate::ui::kit::menu::MENU_ANCHOR_UP;
 use crate::ui::kit::{
     ContextItem, Picker, PickerStyle, UbiqIcon, confirm_modal, context_menu, ghost_button,
-    harness_icon, icon_button, mono, pill, primary_button, progress_ring, progress_ring_in,
-    removable_tag, status_dot,
+    harness_icon, icon_button, mono, pill, popover, primary_button, progress_ring,
+    progress_ring_in, removable_tag, status_dot,
 };
 use crate::ui::{handler, indexed};
 
@@ -176,18 +176,12 @@ pub fn render(
         if view.composer && conversation.accepts_input {
             bottom = bottom.child(composer_grip(&view, cx));
         }
-        // Topmost in the block, above the footer as well as the composer: it opens upward over
-        // the transcript, so nothing under it moves when it does. Only where a subagent exists —
-        // a conversation that spawned none looks exactly as it did before, the same discipline
-        // every pill in this file follows.
-        if !subagents.is_empty() {
-            bottom = bottom.child(agent_switcher(conversation, &subagents, &view, cx));
-        }
-        // The agent's own todo list, when it has one. Only where there is
-        // something planned — a conversation that never set one looks exactly
-        // as it did before, the same discipline every element here follows.
-        if !conversation.plan.is_empty() {
-            bottom = bottom.child(plan_strip(conversation));
+        // Topmost in the block, above the footer as well as the composer: it opens
+        // upward over the transcript, so nothing under it moves when it does. Only where there
+        // is a subagent or a plan — a conversation that has neither looks exactly as it did
+        // before, the same discipline every element here follows.
+        if !subagents.is_empty() || !conversation.plan.is_empty() {
+            bottom = bottom.child(activity_bar(conversation, &subagents, &view, cx));
         }
         if view.footer {
             bottom = bottom.child(footer(
@@ -2408,49 +2402,6 @@ fn spend_tip(conversation: &Conversation) -> String {
 ///   delegate's transcript would be a number about somebody else. So the ring is dropped rather
 ///   than borrowed, on the same rule as the paragraph above it.
 ///
-/// The agent's own todo list, compact, above the footer. It is the one
-/// reading that answers "what is it doing next" while a silent stretch hides
-/// the work — opencode, in particular, has no activity update beyond its todo
-/// list (see the opencode ACP capture). Read-only; the list is a replacement,
-/// so this is always the current set. Up to five entries, then a count of the
-/// rest.
-fn plan_strip(conversation: &Conversation) -> AnyElement {
-    let shown = conversation.plan.len().min(5);
-    let mut column = div()
-        .px_3()
-        .py_1p5()
-        .flex()
-        .flex_col()
-        .items_start()
-        .gap_0p5();
-    for entry in conversation.plan.iter().take(shown) {
-        let (mark, colour) = match entry.status {
-            PlanStatus::Completed => ("\u{2713}", theme::success()),
-            PlanStatus::InProgress => ("\u{25b6}", theme::accent()),
-            PlanStatus::Pending => ("\u{25cb}", theme::text_faint()),
-        };
-        let font = theme::font(theme::Family::Conversation, theme::Role::Label);
-        column = column.child(
-            div()
-                .flex()
-                .items_center()
-                .gap_1p5()
-                .child(mono(mark, colour).text_size(font))
-                .child(mono(entry.content.clone(), colour).text_size(font)),
-        );
-    }
-    if shown < conversation.plan.len() {
-        column = column.child(
-            mono(
-                format!("\u{2026} {} more", conversation.plan.len() - shown),
-                theme::text_faint(),
-            )
-            .text_size(theme::font(theme::Family::Conversation, theme::Role::Label)),
-        );
-    }
-    column.into_any_element()
-}
-
 fn footer(
     conversation: &Conversation,
     subagents: &[SubagentTab],
@@ -3068,22 +3019,29 @@ fn composer(
     }
 }
 
-/// How many delegates there are, and — once asked — who they are.
+/// What the agent is doing, as two chips in one line at the top of the bottom
+/// block.
 ///
-/// Collapsed is the resting state: one row saying `3 subagents`, at the top of the bottom block,
-/// because a conversation's delegates are a fact worth a line and a list worth asking for. Opening
-/// it draws the list *upward*, over the transcript, through the same `anchored` + `deferred` pair
-/// every menu in the window uses — the composer must not move when the panel opens, because a
-/// control that walks away from the cursor is a control you have to chase.
+/// The left chip is the spawned subagents: how many, and — once asked — who
+/// they are. The right chip is the agent's own todo list: what it has checked
+/// off, and — once asked — what it plans to check off next. Collapsed is the
+/// resting state: `3 subagents` on the left, `2/5 todos` on the right, one fact
+/// each because a conversation's delegates or plans are worth a line and a list
+/// worth asking for. Opening either draws its list *upward*, over the
+/// transcript, flush against the line's own top edge, through the kit's
+/// `popover` — the composer must not move when a panel opens, because a control
+/// that walks away from the cursor is a control you have to chase. One panel at
+/// a time: asking for the other is a switch, not a second panel.
 ///
-/// One row per agent: the conversation's own turns first, then every subagent it has spawned. Each
-/// says who on the left and what it is doing on the right, and clicking one switches the transcript
-/// to it. The main agent's row never leaves the list: it is how the reader gets back. Neither half
-/// invents vocabulary — the main agent's word is [`Lifecycle::label`]'s and its colour
-/// [`lifecycle_colour`]'s, a subagent's are [`status_label`]'s and [`status_colour`]'s, read off
-/// the `Task` call that spawned it. A subagent whose spawning call is not in the transcript has no
-/// status to read, and says that rather than being claimed to be running.
-fn agent_switcher(
+/// The subagent panel draws one row per agent, the conversation's own turns
+/// first then every subagent it has spawned, and clicking a row switches the
+/// transcript to it. The main agent's row never leaves the list: it is how the
+/// reader gets back. Neither half invents vocabulary — the main agent's word is
+/// [`Lifecycle::label`]'s and its colour [`lifecycle_colour`]'s, a subagent's
+/// are [`status_label`]'s and [`status_colour`]'s, read off the `Task` call
+/// that spawned it. A subagent whose spawning call is not in the transcript has
+/// no status to read, and says that rather than being claimed to be running.
+fn activity_bar(
     conversation: &Conversation,
     subagents: &[crate::state::conversation::SubagentTab],
     view: &ConversationView,
@@ -3091,129 +3049,204 @@ fn agent_switcher(
 ) -> AnyElement {
     let id = conversation.id;
     let viewing = conversation.viewing_subagent();
-    let open = conversation.subagents_open;
+    let panel_open = conversation.panel_open;
 
-    let state = lifecycle(conversation);
-    let main_waiting = conversation.pending_count(None);
-    let (main_status, main_colour) = if main_waiting > 0 {
-        (needs_you_label(main_waiting), theme::warning())
-    } else {
-        (state.label(), lifecycle_colour(state))
-    };
-    let mut rows: Vec<AnyElement> = vec![agent_row(
-        view.eid("agent-tag-main"),
-        "agent-row-main".to_string(),
-        "Main agent".to_string(),
-        // What the main agent runs as is the footer's chip, right below: saying it twice would be
-        // the same fact drawn twice. A delegate has no chip of its own, which is why its row
-        // carries one.
-        None,
-        main_status,
-        None,
-        main_colour,
-        viewing.is_none(),
-        cx.listener(move |this, _, _, cx| {
-            this.view_conversation_agent(id, None, cx);
-            this.toggle_conversation_subagents(id, cx);
-        }),
-    )];
-
-    rows.extend(subagents.iter().map(|tab| {
-        let target = tab.id.clone();
-        // A delegate waiting on a human says so in place of what it was doing.
-        let (status, colour) = if tab.waiting > 0 {
-            (needs_you_label(tab.waiting), theme::warning())
+    let left = (!subagents.is_empty()).then(|| {
+        let open = panel_open == Some(ActivityPanel::Subagents);
+        let state = lifecycle(conversation);
+        let main_waiting = conversation.pending_count(None);
+        let (main_status, main_colour) = if main_waiting > 0 {
+            (needs_you_label(main_waiting), theme::warning())
         } else {
-            match tab.status {
-                Some(status) => (status_label(status).to_string(), status_colour(status)),
-                None => ("unknown".to_string(), theme::text_faint()),
-            }
+            (state.label(), lifecycle_colour(state))
         };
-        agent_row(
-            view.eid(&format!("agent-tag-{}", tab.id)),
-            format!("agent-row-{}", tab.id),
-            tab.name.clone(),
-            tab.model
-                .as_deref()
-                .map(|model| short_model_label(&conversation.harness, model)),
-            status,
-            Some(subagent_tip(conversation, tab)),
-            colour,
-            viewing == Some(tab.id.as_str()),
+        let mut rows: Vec<AnyElement> = vec![agent_row(
+            view.eid("agent-tag-main"),
+            "agent-row-main".to_string(),
+            "Main agent".to_string(),
+            // What the main agent runs as is the footer's chip, right below: saying it twice would be
+            // the same fact drawn twice. A delegate has no chip of its own, which is why its row
+            // carries one.
+            None,
+            main_status,
+            None,
+            main_colour,
+            viewing.is_none(),
             cx.listener(move |this, _, _, cx| {
-                this.view_conversation_agent(id, Some(target.clone()), cx);
-                this.toggle_conversation_subagents(id, cx);
+                this.view_conversation_agent(id, None, cx);
+                this.close_conversation_panel(id, cx);
             }),
-        )
-    }));
-
-    let count = subagents.len();
-    let active = subagents
-        .iter()
-        .filter(|tab| {
-            matches!(
-                tab.status,
-                Some(ToolStatus::Pending | ToolStatus::InProgress)
-            )
-        })
-        .count();
-    let mut header = div()
-        .id(view.eid("agent-switcher-header"))
-        .relative()
-        .px_2()
-        .py_1()
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap_1p5()
-        .cursor_pointer()
-        .hover(|this| this.bg(theme::hover()))
-        .debug_selector(|| "agent-switcher".into())
-        .child(
-            Icon::new(if open {
-                IconName::ChevronDown
+        )];
+        rows.extend(subagents.iter().map(|tab| {
+            let target = tab.id.clone();
+            // A delegate waiting on a human says so in place of what it was doing.
+            let (status, colour) = if tab.waiting > 0 {
+                (needs_you_label(tab.waiting), theme::warning())
             } else {
-                IconName::ChevronUp
-            })
-            .with_size(Size::XSmall)
-            .text_color(theme::text_faint()),
-        )
-        .child(
-            mono(subagent_count_label(active, count), theme::text_muted())
-                .text_size(theme::font(theme::Family::Conversation, theme::Role::Meta)),
-        )
-        .on_click(cx.listener(move |this, _, _, cx| {
-            this.toggle_conversation_subagents(id, cx);
+                match tab.status {
+                    Some(status) => (status_label(status).to_string(), status_colour(status)),
+                    None => ("unknown".to_string(), theme::text_faint()),
+                }
+            };
+            agent_row(
+                view.eid(&format!("agent-tag-{}", tab.id)),
+                format!("agent-row-{}", tab.id),
+                tab.name.clone(),
+                tab.model
+                    .as_deref()
+                    .map(|model| short_model_label(&conversation.harness, model)),
+                status,
+                Some(subagent_tip(conversation, tab)),
+                colour,
+                viewing == Some(tab.id.as_str()),
+                cx.listener(move |this, _, _, cx| {
+                    this.view_conversation_agent(id, Some(target.clone()), cx);
+                    this.close_conversation_panel(id, cx);
+                }),
+            )
         }));
 
-    if open {
-        header = header.child(
-            deferred(
-                anchored()
-                    .anchor(MENU_ANCHOR_UP)
-                    .snap_to_window_with_margin(px(8.))
-                    .child(
-                        div()
-                            .id(view.eid("agent-switcher-panel"))
-                            .min_w(px(240.))
-                            .p_1()
-                            .flex()
-                            .flex_col()
-                            .flex_none()
-                            .gap_1()
-                            .bg(theme::surface_raised())
-                            .border_l(px(theme::accent_edge()))
-                            .border_color(theme::accent())
-                            .shadow_lg()
-                            .debug_selector(|| "agent-switcher-panel".into())
-                            .children(rows),
-                    ),
+        let count = subagents.len();
+        let active = subagents
+            .iter()
+            .filter(|tab| {
+                matches!(
+                    tab.status,
+                    Some(ToolStatus::Pending | ToolStatus::InProgress)
+                )
+            })
+            .count();
+        let mut chip = div()
+            .id(view.eid("agent-switcher-header"))
+            .relative()
+            .px_2()
+            .py_1()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap_1p5()
+            .cursor_pointer()
+            .hover(|this| this.bg(theme::hover()))
+            .debug_selector(|| "agent-switcher".into())
+            .child(
+                Icon::new(if open {
+                    IconName::ChevronDown
+                } else {
+                    IconName::ChevronUp
+                })
+                .with_size(Size::XSmall)
+                .text_color(theme::text_faint()),
             )
-            .priority(MENU_LAYER),
-        );
-    }
+            .child(
+                mono(subagent_count_label(active, count), theme::text_muted())
+                    .text_size(theme::font(theme::Family::Conversation, theme::Role::Meta)),
+            )
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.toggle_conversation_panel(id, ActivityPanel::Subagents, cx);
+            }));
+        if open {
+            chip = chip.child(popover(
+                view.eid("agent-switcher-panel"),
+                px(240.),
+                Some("agent-switcher-panel"),
+                rows,
+            ));
+        }
+        chip.into_any_element()
+    });
 
-    header.into_any_element()
+    let right = (!conversation.plan.is_empty()).then(|| {
+        let open = panel_open == Some(ActivityPanel::Todos);
+        let total = conversation.plan.len();
+        let done = conversation
+            .plan
+            .iter()
+            .filter(|entry| matches!(entry.status, PlanStatus::Completed))
+            .count();
+        let shown = total.min(8);
+        let mut rows: Vec<AnyElement> = conversation
+            .plan
+            .iter()
+            .take(shown)
+            .map(|entry| {
+                let (mark, colour) = match entry.status {
+                    PlanStatus::Completed => ("\u{2713}", theme::success()),
+                    PlanStatus::InProgress => ("\u{25b6}", theme::accent()),
+                    PlanStatus::Pending => ("\u{25cb}", theme::text_faint()),
+                };
+                let font = theme::font(theme::Family::Conversation, theme::Role::Label);
+                div()
+                    .id(view.eid(&format!("todo-row-{}", entry.content)))
+                    .flex()
+                    .items_center()
+                    .gap_1p5()
+                    .child(mono(mark, colour).text_size(font))
+                    .child(mono(entry.content.clone(), colour).text_size(font))
+                    .into_any_element()
+            })
+            .collect();
+        if shown < total {
+            rows.push(
+                mono(
+                    format!("\u{2026} {} more", total - shown),
+                    theme::text_faint(),
+                )
+                .text_size(theme::font(theme::Family::Conversation, theme::Role::Label))
+                .into_any_element(),
+            );
+        }
+        let mut chip = div()
+            .id(view.eid("todo-switcher-header"))
+            .relative()
+            .px_2()
+            .py_1()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap_1p5()
+            .cursor_pointer()
+            .hover(|this| this.bg(theme::hover()))
+            .debug_selector(|| "todo-switcher".into())
+            .child(
+                mono(format!("{done}/{total} todos"), theme::text_muted())
+                    .text_size(theme::font(theme::Family::Conversation, theme::Role::Meta)),
+            )
+            .child(
+                Icon::new(if open {
+                    IconName::ChevronDown
+                } else {
+                    IconName::ChevronUp
+                })
+                .with_size(Size::XSmall)
+                .text_color(theme::text_faint()),
+            )
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.toggle_conversation_panel(id, ActivityPanel::Todos, cx);
+            }));
+        if open {
+            chip = chip.child(popover(
+                view.eid("todo-switcher-panel"),
+                px(240.),
+                Some("todo-switcher-panel"),
+                rows,
+            ));
+        }
+        chip.into_any_element()
+    });
+
+    let mut bar = div()
+        .id(view.eid("activity-bar"))
+        .flex()
+        .items_center()
+        .justify_between()
+        .debug_selector(|| "activity-bar".into());
+    if let Some(left) = left {
+        bar = bar.child(left);
+    }
+    if let Some(right) = right {
+        bar = bar.child(right);
+    }
+    bar.into_any_element()
 }
 
 /// What the collapsed header says: how many delegates are still working, and — where some have

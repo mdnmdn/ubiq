@@ -114,7 +114,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                         .child(app.dock().clone())
                         .children(
                             (app.workbench.rail_mode == RailMode::Git)
-                                .then(|| ribbon::experimental()),
+                                .then(ribbon::experimental),
                         ),
                 ),
         )
