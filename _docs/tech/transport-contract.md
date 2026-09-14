@@ -734,13 +734,22 @@ that, the harness's own default — in charge. Empty rather than `None` alone be
 sends the form's answer whatever it is, and "the user did not choose" and "the field is not on
 this message" have to read the same.
 
-**`beside` starts a neighbour, not a twin.** Set, the new conversation takes the named one's project
-and folder — `project_id` and `rel_path` are ignored, the way they are on `SpawnWorkspace` — and
-nothing else: the harness, the account and every pick are still this start's own, and so, above all,
-is the configuration directory. Two harnesses writing one run directory corrupt each other's record,
-which is why a second agent in the same place is composed afresh and `ReviveConversation` remains
-the one verb that shares a history. It is refused with a `ConversationError` when the named
-conversation is not running, for the reason `SpawnWorkspace`'s is.
+**`beside` starts a neighbour, not a twin — and a neighbour joins the source's run directory whole,
+configuration directory included.** Set, the new conversation takes the named one's project, folder
+and run directory — `project_id` and `rel_path` are ignored, the way they are on `SpawnWorkspace` —
+while the harness, the account and every pick stay this start's own. Same harness as the source
+makes the new process a clone of it: it finds the configuration and the login already written there
+and shares the harness's own session store, and the host reconciles that shared directory's
+credential against the account home before the second process starts, so the clone never launches on
+a token the first run has since rotated away. A different harness is fine in the same directory —
+each harness pins its own configuration files and its own environment variable inside it, so the two
+do not collide. The one case refused is the same harness under a **different account**: one
+configuration directory holds one identity, and seeding a second account's credential over the first
+would sign the running conversation out mid-conversation. `ReviveConversation` (Fork) is the verb
+that still composes something of its own — it copies the run directory so the two diverge from that
+point on, where a neighbour shares the one directory for as long as both run (`D124`). `beside` is
+refused with a `ConversationError` when the named conversation is not running, for the reason
+`SpawnWorkspace`'s is.
 
 **`ReviveConversation` is one message for two paths, and the run directory is why.** That directory
 *is* the conversation: it holds the harness's own session store, so resuming a session id inside a

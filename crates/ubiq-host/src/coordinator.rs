@@ -335,6 +335,13 @@ struct PendingConversation {
     /// does not act on it yet — injecting the server is later work — so this is only where the
     /// pick is remembered between here and there.
     mcps: Vec<String>,
+    /// The conversation whose run directory this one is provisioned into, from
+    /// [`Message::StartConversation::beside`]. `None` for every ordinary start.
+    ///
+    /// On the recipe rather than consumed at the start, because it is part of what a *relaunch*
+    /// does: an agent started beside another resumes into the directory it has been reading and
+    /// writing all along, not into a fresh one that merely has the same folder.
+    beside: Option<AgentId>,
 }
 
 /// `base`, then `base 2`, `base 3` … — the first that nothing in `taken` is wearing. A counter
@@ -815,6 +822,9 @@ impl Coordinator {
                         // Not part of the persisted row yet: an mcp pick made before a restart
                         // does not survive one, same as `catalogue` above.
                         mcps: Vec::new(),
+                        // A neighbour that survived the restart still resumes into the directory
+                        // it shared, which is why this one *is* persisted.
+                        beside: row.beside,
                     },
                 )
             })
@@ -2199,10 +2209,11 @@ impl Coordinator {
         mcps: Vec<String>,
         beside: Option<AgentId>,
     ) {
-        // Beside a running conversation, the folder and the project are that conversation's and
-        // not this message's — which named where a *first* agent would go. Nothing else is
-        // borrowed: this start composes its own run below, into its own configuration directory,
-        // because two harnesses writing one of those corrupt each other's record.
+        // Beside a running conversation, the folder, the project and the run directory are that
+        // conversation's and not this message's — which named where a *first* agent would go.
+        // The directory is the point: "the same environment" means the same everything the
+        // harness reads, the configuration included, so a neighbour is provisioned into the
+        // source's own `runs/<id>` rather than into one of its own.
         let (project_id, cwd) = match beside {
             Some(source) => {
                 // Two lookups, the same pair a pane beside a conversation takes: the pending row
@@ -2214,9 +2225,44 @@ impl Coordinator {
                     return;
                 };
                 let placed = (pending.project_id, pending.cwd.clone());
+                // Whether the two runs read the same configuration files, which is what makes the
+                // shared directory a question of identity rather than of layout.
+                let same_harness = pending.agent_type == agent_type;
+                let identity_clash = same_harness && pending.account != account;
                 if !self.runs.contains_key(&source) {
                     self.refuse_conversation(client, agent_id, beside_gone(source));
                     return;
+                }
+                // One configuration directory holds one identity. A second run of the *same*
+                // harness under a different account would seed that account's credential over the
+                // first's — into the files the running harness is reading — and sign it out
+                // mid-conversation. An unnamed account is its own answer and counts as different:
+                // whatever the library would fall back to is not this start's to guess, and the
+                // guess is exactly what signs somebody out.
+                //
+                // A *different* harness in that directory is fine and is not refused: each one
+                // pins its own configuration files under its own environment variable, so the two
+                // sit side by side rather than over each other.
+                if identity_clash {
+                    self.refuse_conversation(
+                        client,
+                        agent_id,
+                        format!(
+                            "conversation {source} is already running {agent_type} as another \
+                             account, and one configuration directory holds one identity — \
+                             starting this one here would sign that conversation out. Start it \
+                             on the same account, or start it on its own."
+                        ),
+                    );
+                    return;
+                }
+                // The shared directory's credential, reconciled with the account home before a
+                // second process starts writing to it: a resume re-seeds from that home, and the
+                // copy about to be overwritten may be the newer of the two. Only when the harness
+                // matches — a different harness in this directory seeds its own credential from
+                // its own account home, and has nothing of the source's to reconcile.
+                if same_harness {
+                    self.agents.refresh_login(&source.to_string());
                 }
                 placed
             }
@@ -2371,6 +2417,7 @@ impl Coordinator {
                 // Nothing has run, so there is no harness session to continue.
                 resume: None,
                 mcps,
+                beside,
             },
         );
         self.remember_conversation(agent_id);
@@ -2517,6 +2564,10 @@ impl Coordinator {
             agent_id,
             &pending.agent_type,
             &pending.cwd,
+            // Every launch *and relaunch* composes into the same directory, which for a neighbour
+            // is the source's. A resume that landed in a fresh one would leave the conversation
+            // reading a configuration it has never written to.
+            pending.beside,
             ConverseOptions {
                 account: pending.account.clone(),
                 model: model.clone(),
@@ -3196,6 +3247,9 @@ impl Coordinator {
             accept_all: held.as_ref().is_some_and(|row| row.accept_all),
             debug_dump: held.as_ref().is_some_and(|row| row.debug_dump),
             forked_from: held.and_then(|row| row.forked_from),
+            // The coordinator's own recipe, not carried over from disk: it is what decides which
+            // directory the next launch composes into, so it has to say what this row now says.
+            beside: pending.beside,
             // What the run was composed under, read from the settings rather than from `Agents`.
             // **The two must agree**: `Agents::set_policy` was handed this same field, and is given
             // it again whenever a `SetSettings` changes it, so a row that named the other one would
@@ -5088,6 +5142,7 @@ mod tests {
                 named: false,
                 resume: None,
                 mcps: Vec::new(),
+                beside: None,
             },
         );
         let mailbox = coordinator.host.mailbox(To::Client(client.id()));

@@ -836,8 +836,13 @@ impl Agents {
         // A pane's run takes the same picks a conversation's does — the new-pane menu and a
         // shell row still hand it `ConverseOptions::default()`, but a pane started with an
         // account, profile, model or MCP list resolves exactly what was named.
+        //
+        // The pane's id names both the record and the directory: a pane's run is its own on both
+        // counts, and only a conversation started beside another separates them.
+        let key = pane.to_string();
         self.compose_run(
-            &pane.to_string(),
+            &key,
+            &key,
             agent_type,
             cwd,
             args,
@@ -858,11 +863,19 @@ impl Agents {
     /// rendered into an argv (`sandbox-exec -p <policy> -- <harness>`) which
     /// the bridge spawns with pipes of its own, so nothing about the sandbox
     /// needs to own the descriptors.
+    ///
+    /// `beside` names a conversation this one is provisioned *into*: the second
+    /// agent opened beside a running one runs in that run's own configuration
+    /// directory, so "the same environment" means the same everything — the
+    /// same settings, the same seeded credential, the same harness state. Its
+    /// session record is still its own, under its own id; only the directory is
+    /// shared. `None` is every ordinary start, where the two are one.
     pub fn converse(
         &self,
         agent: AgentId,
         agent_type: &str,
         cwd: &Path,
+        beside: Option<AgentId>,
         options: ConverseOptions,
     ) -> Result<(Composed, Box<dyn IoBridge>)> {
         let harness = harness::resolve(agent_type)
@@ -876,6 +889,7 @@ impl Agents {
         }
         let mut composed = self.compose_run(
             &agent.to_string(),
+            &beside.unwrap_or(agent).to_string(),
             agent_type,
             cwd,
             Vec::new(),
@@ -940,9 +954,28 @@ impl Agents {
         }
     }
 
+    /// Provision one run: resolve what the library says it is made of, write its
+    /// configuration into a directory, and render the policy confining it.
+    ///
+    /// **Two keys, because a run's record and a run's directory are not the same
+    /// question.** `key` is who this run *is* — it names `sessions/<key>`, it is
+    /// what the MCP listener resolves an agent by, and it is what every teardown
+    /// path has in hand. `dir_key` is only where the configuration goes,
+    /// `runs/<dir_key>`. They are the same string for every ordinary run, and a
+    /// conversation started beside another is the one case that separates them:
+    /// it is provisioned into the source's directory, because "the same
+    /// environment" includes the configuration the harness reads. So
+    /// `sessions/<id>` stays one row per conversation while `runs/<id>` is one
+    /// directory per environment — and a neighbour, owning no directory of its
+    /// own name, cannot delete or scrub the one it was let into.
+    // The two keys are the point of this function and neither is a pick, so they stay arguments
+    // rather than being folded into `ConverseOptions` — which is what a *caller* chose, and a
+    // directory is not.
+    #[allow(clippy::too_many_arguments)]
     fn compose_run(
         &self,
         key: &str,
+        dir_key: &str,
         agent_type: &str,
         cwd: &Path,
         args: Vec<String>,
@@ -1045,7 +1078,7 @@ impl Agents {
         // The isolation replaces whatever a profile asked for,
         // because the toggle belongs to Ubiq's own settings and applies to both faces alike.
         let structured = io == IoModes::Structured;
-        spec.config = ConfigStrategy::Fixed(self.run_dir_for(key));
+        spec.config = ConfigStrategy::Fixed(self.run_dir_for(dir_key));
         spec.io = io;
         spec.isolation = if self.isolate {
             Isolation::Sandboxed(String::new())
@@ -1099,6 +1132,13 @@ impl Agents {
         // overwritten. Harvest it first and the seed that lands is the newest
         // credential rather than a revoked one. A first launch has no record
         // here and this is a no-op.
+        //
+        // Keyed by `key` and not by `dir_key` because the record and the
+        // directory have to be one run's for a harvest to mean anything — the
+        // meta says where that run's login came from. A neighbour has no
+        // directory of its own name, so this passes over it; the shared
+        // directory is reconciled under the *source's* key, by the coordinator,
+        // before it starts a second harness writing into it.
         self.refresh_login(key);
 
         let templates = harness::FsTemplateStore::new(self.root.join("harness-templates"));
@@ -1390,6 +1430,14 @@ impl Agents {
     /// again. What must not be kept is the login: it is seeded fresh at every
     /// launch, and a stale copy left here would suppress that seeding (see
     /// [`scrub_login`](Self::scrub_login)).
+    ///
+    /// Everything here keys off `runs/<this agent's own id>`, which is what
+    /// makes it right for a conversation started *beside* another: that one was
+    /// provisioned into the source's directory and owns none of that name, so
+    /// archiving and scrubbing it find nothing and do nothing. Parking a
+    /// neighbour must not delete the login out from under the harness still
+    /// running in the directory it borrowed — see
+    /// [`compose_run`](Self::compose_run) on the two keys.
     pub fn park_agent(&self, agent: AgentId) {
         let key = agent.to_string();
         self.archive(&key);
@@ -1514,6 +1562,13 @@ impl Agents {
     }
 
     /// Remove what an agent's conversation left behind.
+    ///
+    /// By the agent's own id, which is why a conversation started *beside*
+    /// another survives its neighbour being ended: it was provisioned into the
+    /// source's directory, so `runs/<neighbour>` never existed and there is
+    /// nothing here to delete. Reaching for the directory the run actually used
+    /// would take the source's environment away mid-conversation — see
+    /// [`compose_run`](Self::compose_run) on the two keys.
     pub fn retire_agent(&self, agent: AgentId) {
         self.archive(&agent.to_string());
         self.mcp_agents.forget(&agent.to_string());
@@ -1992,6 +2047,7 @@ mod tests {
         let composed = agents
             .compose_run(
                 "agent-1",
+                "agent-1",
                 "claude-code",
                 cwd.path(),
                 Vec::new(),
@@ -2021,6 +2077,7 @@ mod tests {
         let compose = |profile: Option<String>| {
             agents
                 .compose_run(
+                    "agent-1",
                     "agent-1",
                     "claude-code",
                     cwd.path(),

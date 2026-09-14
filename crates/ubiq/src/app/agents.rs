@@ -634,14 +634,32 @@ impl AppState {
     }
 
     /// A second agent beside a running one: the New agent form, opened on what the source
-    /// conversation is running, and marked to start in that conversation's folder.
+    /// conversation is running, and marked to start in that conversation's own environment.
     ///
-    /// **The form is raised rather than a start being sent.** A neighbour is not a copy — it gets
-    /// its own configuration directory, because two harnesses writing one run directory corrupt
-    /// each other's record — so the harness, the identity and the model are only where the form
-    /// *opens*, and every one of them is the user's to change before pressing Start.
-    /// [`Self::fork_conversation`] is the verb that sends without asking, and it is the one that
-    /// shares a history.
+    /// **The form is raised rather than a start being sent.** A neighbour shares the run's
+    /// environment rather than being composed a fresh one — the configuration directory included
+    /// — so this is not a blind send: the harness, the identity and the model are only where the
+    /// form *opens*, and every one of them is the user's to change before pressing Start.
+    /// [`Self::fork_conversation`] is the verb that sends without asking, and the two now diverge
+    /// in exactly the opposite direction — Fork *copies* the run directory so the copy has one of
+    /// its own; a neighbour *shares* it, so starting one here is asking for a second harness in
+    /// the same directory rather than a second directory.
+    ///
+    /// **Sharing the directory is a clone when the harness matches, a coexistence when it does
+    /// not.** Two of the same harness in one directory would be the same configuration files and
+    /// the same login read and written twice, which is what a clone is; two different harnesses
+    /// coexist there instead, because each one pins its own configuration files and its own
+    /// environment variable inside the directory rather than reading the run's. What the host
+    /// still refuses is the one pairing neither story covers: the *same* harness under a
+    /// *different* account, since one configuration directory holds one identity and that would
+    /// ask it to hold two.
+    ///
+    /// **The seed carries the source's account along with its harness for exactly that reason.**
+    /// Picking the source's harness through [`Self::pick_new_agent_target`] below also picks its
+    /// account, so the form opens already aimed at the one pairing the host is certain to accept.
+    /// A user is free to change either afterward — but changing only the account of a harness that
+    /// still matches the source's is the one combination [`Self::start_new_agent`] will send that
+    /// the host turns down.
     ///
     /// The seed is the source's own three answers, read off the work record: its harness (a label,
     /// mapped back to the library's id through the one mapping the window has,

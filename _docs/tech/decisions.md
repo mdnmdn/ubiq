@@ -2542,28 +2542,47 @@ callback runs.
 libssh2's rather than OpenSSH's: `~/.ssh/config` Host aliases and `IdentityFile` are not read. The
 agent and the well-known identity files are. Clone still refuses ssh (`G149`).
 
-### D124 — A second face onto a running agent's environment joins the run, and never composes one of its own
+### D124 — A second face onto a running agent's environment joins the run whole, configuration directory included
 
 `SpawnWorkspace` and `StartConversation` both carry `beside`, naming a running conversation rather
 than a project. Neither composes a fresh run to answer it: the coordinator keeps each live
-conversation's `Composed` in `Coordinator::runs`, and a pane opened beside one reuses it whole
-through `Agents::shell_beside` — the variables, the `$HOME` and, where the run is confined, the
-rendered policy itself, with only the argv swapped for a shell. A second agent started beside one
-takes the same folder and stops there: it is composed afresh into its own configuration directory,
-because two harnesses writing one run directory corrupt each other's record, and joining is the one
-thing a neighbour must not do to the run it stands beside.
+conversation's `Composed` in `Coordinator::runs`, and everything reached beside one reuses it
+whole — a shell pane through `Agents::shell_beside` (the variables, the `$HOME` and, where the run
+is confined, the rendered policy itself, with only the argv swapped), and a second agent through the
+same run directory the first is writing to, configuration directory included.
 
-The alternative was recomposing both — a fresh throwaway directory and a fresh policy for the shell,
-a copy of the source's picks for the second agent. That would have made "beside" a synonym for "like
-this one" rather than "in this one's environment", and a shell recomposed from the same picks is not
-what a reader opening a terminal on a running agent wants: they want what the agent is actually
-running under, not a plausible imitation of it.
+A second agent of the **same harness** as the source is a clone of the running one: it finds the
+configuration and the login written there and shares the harness's own session store, rather than
+starting a second, competing one. The host reconciles that shared directory's credential against the
+account home (`Agents::refresh_login`) before the second process starts, so the clone never launches
+on a token the first run has since rotated away. A **different harness** is fine beside the same
+directory: each harness pins its own configuration files and its own environment variable inside it
+— `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, and the rest — so two harnesses' files do not collide. Only the
+same harness under a **different account** is refused, with a `ConversationError`: one configuration
+directory holds one identity, and seeding a second account's credential over the first would sign
+the running conversation out mid-conversation. `ReviveConversation` (Fork) is the verb that still
+composes something of its own — it copies the run directory before launching the copy, so the two
+diverge from that point on, where a neighbour shares the one directory for as long as both run.
+
+The alternative, and what this decision originally read, was composing a second agent into a fresh,
+private configuration directory, on the reasoning that two harnesses writing one run directory
+corrupt each other's record. That reasoning does not hold for a clone: a harness's session store is
+appended to per invocation and its login files are read rather than raced, which is the same shape a
+resume produces one process at a time, run instead with both processes live together. It does
+hold for two identities in one directory, which is the case refused above instead of the whole
+neighbour verb. This entry amends the original decision rather than superseding it — it was never
+shipped, so there is no released behaviour the old reasoning is left standing for.
 
 **Cost:** a live conversation's `Composed` is kept in memory for the run's whole life rather than
 dropped once `launch` reads it, emptied exactly where `conversations` is so nothing outlives the
-harness it describes. On a host where `isolate::plan` yields no confinement (`G90`), there is no
-policy for a beside pane to share either — it still gets the run's variables and `$HOME`, and that
-is the entire environment there is to join.
+harness it describes. A neighbour owns no directory of its own name, so `retire_agent`, `park_agent`,
+`archive`, `scrub_login` and `sweep` all no-op on it — ending one never deletes, scrubs or harvests
+the shared directory, and its transcripts are recorded only under the source's key (`G260`). Two live
+harnesses of the same type in one configuration directory is also a shape the harnesses were not
+designed for, and what that costs beyond the session store staying append-only is unmeasured
+(`G261`). On a host where `isolate::plan` yields no confinement (`G90`), there is no policy for a
+beside pane to share either — it still gets the run's variables, `$HOME` and directory, and that is
+the entire environment there is to join.
 
 ## Related docs
 

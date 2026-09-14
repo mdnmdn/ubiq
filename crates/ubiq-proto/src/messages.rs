@@ -1324,15 +1324,19 @@ pub enum Message {
         mcps: Vec<String>,
         /// The running conversation this one starts beside, when it starts beside one.
         ///
-        /// Set, the new conversation runs in that one's folder and project, with `project_id`
-        /// and `rel_path` ignored. Everything else is still this start's own: the harness, the
-        /// account, the picks — and, above all, the configuration directory. Two harnesses
-        /// writing one run directory corrupt each other's record, so a second agent beside the
-        /// first is a *neighbour*, not a twin; [`Message::ReviveConversation`] is the verb for
-        /// sharing a history.
+        /// Set, the new conversation runs in that one's folder, in its project and — this is
+        /// what "the same environment" means — inside its run directory, reading the very
+        /// configuration the running harness reads. `project_id` and `rel_path` are ignored.
+        /// The harness, the account and the picks are still this start's own, and so is its
+        /// record: one row per conversation, one directory per environment. It shares no
+        /// history; [`Message::ReviveConversation`] is the verb for that.
         ///
         /// Refused with [`Message::ConversationError`] when that conversation is not running,
-        /// for [`Message::SpawnWorkspace::beside`]'s reason.
+        /// for [`Message::SpawnWorkspace::beside`]'s reason — and refused again when it names
+        /// the *same* harness as the source under a *different* account: one configuration
+        /// directory holds one identity, and seeding a second credential over the first would
+        /// sign the running conversation out mid-conversation. A different harness there is
+        /// allowed, each pinning its own configuration files under its own variable.
         #[serde(default)]
         beside: Option<AgentId>,
     },

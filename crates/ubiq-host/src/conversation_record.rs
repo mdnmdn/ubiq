@@ -99,6 +99,15 @@ pub struct ConversationRecord {
     /// starts mid-thought can say what it came from.
     #[serde(default)]
     pub forked_from: Option<AgentId>,
+    /// The conversation whose run directory this one was provisioned into, when it was started
+    /// beside a running agent.
+    ///
+    /// Recorded because a relaunch has to land back in the same directory. "The same environment"
+    /// includes the configuration the harness reads, so a neighbour composed into a fresh
+    /// directory after a restart would be a different agent wearing the same row — and the one
+    /// thing it would no longer share is the thing it was started for.
+    #[serde(default)]
+    pub beside: Option<AgentId>,
     /// Which `$HOME` the run was composed under.
     ///
     /// Recorded because a resume under a different one is not the same run: an agent that ran with
@@ -240,6 +249,7 @@ mod tests {
             accept_all: false,
             debug_dump: false,
             forked_from: None,
+            beside: None,
             agent_home: AgentHome::Inherit,
         }
     }

@@ -1036,7 +1036,10 @@ fn the_lifecycle_menu_disables_resume_while_launched_and_unload_once_it_is_not()
         terminal.1,
         "there is a live environment for a shell to join, turn or no turn"
     );
-    assert!(neighbour.1, "and a folder for a second agent to start in");
+    assert!(
+        neighbour.1,
+        "and an environment for a second agent to start in"
+    );
     assert_eq!(persist.0, "Make persistent", "not kept yet");
     assert_eq!(accept.0, "Accept all", "not overriding yet");
     assert_eq!(dump.0, "Dump messages", "nothing is being written yet");

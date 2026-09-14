@@ -269,12 +269,17 @@ folder the harness is working in and under the environment it was launched with 
 its `$HOME`, and the policy itself where the run is confined — so the user can look at what the
 agent is looking at instead of at a directory that merely has the same path.
 New agent here (`StartConversation` with the same `beside`) opens the start form seeded from this
-conversation — its harness, its account, its model — and starts the result in that same folder.
-It is a neighbour, not a twin: the second agent is composed afresh into its own configuration
-directory, because two harnesses writing one run directory corrupt each other's record, and Fork
-above is the row that shares a history (`D124`). **Both are enabled only while the harness is running**,
-since an environment is a live process's and there is nothing to join once it has exited —
-`tech/transport-contract.md` holds what `beside` settles on each message.
+conversation — its harness, its account, its model — and starts the result in that same folder, in
+that same run directory. Same harness as the source, it is a clone of the running conversation:
+it finds the configuration and the login already there and shares the harness's own session store.
+A different harness is started there too, fine beside it, since each harness keeps its own
+configuration files and its own environment variable inside the directory. The one thing the form
+refuses is the same harness under a different account, because one configuration directory holds one
+identity and a second account's credential would sign the running conversation out. Fork above is
+still the row that copies rather than shares, diverging into a directory of its own from that point
+on (`D124`). **Both rows are enabled only while the harness is running**, since an environment is a
+live process's and there is nothing to join once it has exited — `tech/transport-contract.md` holds
+what `beside` settles on each message.
 
 **Three toggles sit between the two beside rows and Delete, and they are Ubiq's own rather than the
 harness's.**

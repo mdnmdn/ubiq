@@ -203,6 +203,7 @@ mod tests {
             accept_all: false,
             debug_dump: false,
             forked_from: None,
+            beside: None,
             agent_home: AgentHome::Inherit,
         }
     }

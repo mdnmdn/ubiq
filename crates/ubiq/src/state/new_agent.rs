@@ -106,10 +106,12 @@ pub struct NewAgentForm {
     ///
     /// `None` — every start but the lifecycle menu's `New agent here` — is a start that answers
     /// where it runs from the project and the form. `Some` hands that answer to the run being
-    /// joined instead: the new agent starts in *that* conversation's folder, and every other
-    /// answer on the form is still its own, the configuration directory above all. Carried on the
-    /// form rather than passed to the start, because the form is what sits between the click and
-    /// the message and the user may change everything else in between.
+    /// joined instead: the new agent is provisioned into *that* conversation's own environment —
+    /// the configuration directory included, not just the folder — rather than one composed fresh
+    /// for the project. Whether the two end up a clone or a coexisting pair in that directory
+    /// turns on the one field still the user's to set afterward: the harness. Carried on the form
+    /// rather than passed to the start, because the form is what sits between the click and the
+    /// message and the user may change everything else in between.
     pub beside: Option<AgentId>,
 }
 

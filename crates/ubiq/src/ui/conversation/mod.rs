@@ -318,8 +318,8 @@ const LIFECYCLE_NEW_AGENT_ROW: usize = 6;
 /// applies whatever the state).
 ///
 /// **Open terminal and New agent here apply only while the conversation is launched.** Both ask
-/// for something *beside* a run — a shell under the environment this harness was given, or a
-/// second harness in the folder this one is working in — and an environment is a live process's.
+/// for something *beside* a run — a shell inside the environment this harness was given, or a
+/// second harness composed into that same environment — and an environment is a live process's.
 /// Once the harness has exited there is nothing left to join, so the rows are drawn dead rather
 /// than refused after the click, the way the host refuses them.
 ///
@@ -474,19 +474,20 @@ pub fn lifecycle_menu(
     })
     .collect();
 
-    // What "here" means is the whole of what these two rows do, and it is not the same "here" for
-    // both — one joins the environment, the other only the folder — so each says its own. A label
-    // long enough to carry the distinction would be a paragraph in a menu row; this is what a
-    // tooltip on a row is for, the same standing the dump row's path has below.
+    // What "here" means is the same environment for both rows now — Open terminal drops a raw
+    // shell into it, New agent here composes a second harness into it instead. Not the same
+    // sentence twice: a label long enough to carry what each one puts there would be a paragraph
+    // in a menu row; this is what a tooltip on a row is for, the same standing the dump row's
+    // path has below.
     if let Some(row) = items.get_mut(LIFECYCLE_TERMINAL_ROW) {
         *row = row
             .clone()
             .tooltip("A shell in this conversation's folder, with the environment its harness got");
     }
     if let Some(row) = items.get_mut(LIFECYCLE_NEW_AGENT_ROW) {
-        *row = row
-            .clone()
-            .tooltip("A second agent in the same folder, with its own configuration");
+        *row = row.clone().tooltip(
+            "A second agent in this conversation's environment, sharing its configuration",
+        );
     }
 
     // The dump row's tooltip is the only place the file's path is ever said. The host picks the
