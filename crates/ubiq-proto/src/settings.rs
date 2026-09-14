@@ -346,6 +346,39 @@ pub struct SavedRemoteHost {
     /// accepted without a click.
     #[serde(default)]
     pub trust_insecure: bool,
+    /// What carries the frames to this host: a socket Ubiq dials, or an `ssh` it spawns.
+    ///
+    /// The discriminant rather than a second list, because everything around a saved host —
+    /// the Hosts section, the picker, Disconnect, the live-connection table — is about a host
+    /// and not about how its bytes arrive (`D116`). Defaults to [`RemoteCarrier::Socket`], which
+    /// is what every record written before a drone existed is.
+    #[serde(default)]
+    pub carrier: RemoteCarrier,
+}
+
+/// How a saved remote host's frames are carried.
+///
+/// Both ends speak the same length-prefixed MessagePack; what differs is what the bytes travel
+/// over and what failing to reach the far end looks like.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase", tag = "kind")]
+pub enum RemoteCarrier {
+    /// A TCP socket Ubiq dials, with [`SavedRemoteHost::scheme`] deciding whether TLS wraps it
+    /// and [`SavedRemoteHost::address`] naming where. What a `ubiq --serve` host is.
+    #[default]
+    Socket,
+    /// An `ssh` Ubiq spawns, whose standard input and output are the stream. The address and
+    /// scheme are unused; the profile says where to connect and the root says which folder the
+    /// drone serves.
+    Ssh {
+        /// The [`SshProfile`] to dial with. A record naming a profile the user has since
+        /// deleted cannot connect, and says so rather than falling back to another.
+        profile: SshProfileId,
+        /// The folder on the far machine the drone is launched against, as the user typed it.
+        /// Empty means the drone's own default — the login directory.
+        #[serde(default)]
+        root: String,
+    },
 }
 
 /// Which protocol a saved remote host dials with.
@@ -416,7 +449,11 @@ pub enum RemoteScheme {
 /// rather than `tools`': an older build drops the rows on its next write and **strands their
 /// passphrases in the OS secret store**, filed under ids nothing on disk names any more. The
 /// profiles themselves are re-typable; a secret nothing can reach to delete is not.
-pub const HOST_SETTINGS_SCHEMA: u32 = 16;
+///
+/// Seventeen adds [`SavedRemoteHost::carrier`]. An older build drops it on its next write and
+/// every saved drone silently becomes a socket host pointed at an address it never had — a row
+/// that looks connectable and cannot connect, which is worse than one that is gone.
+pub const HOST_SETTINGS_SCHEMA: u32 = 17;
 
 fn isolate_agents_default() -> bool {
     true

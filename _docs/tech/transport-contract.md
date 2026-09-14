@@ -1495,6 +1495,16 @@ rides `SetSettings` whole. Those three are re-read from disk on every write beca
 in the background can finish while a dialog holds a stale copy of them; nothing adds or forgets a
 saved host except a person on that settings page, so there is no concurrent writer to clobber.
 
+**A saved host says what carries its frames, not what kind of host it is.** `SavedRemoteHost.carrier`
+is `Socket` — an address Ubiq dials, `scheme` deciding whether TLS wraps it — or
+`Ssh { profile, root }`, an `ssh` Ubiq spawns whose standard input and output are the stream. Both
+ends speak the same length-prefixed MessagePack; what differs is what the bytes travel over and what
+failing to reach the far end looks like. It is a discriminant on the existing record rather than a
+second list because a drone attaches as an ordinary host (`D116`), so the Hosts section, the picker
+and Disconnect carry it with no change of their own. `HOST_SETTINGS_SCHEMA` is 17 for the field: an
+older build drops it and every saved drone silently becomes a socket host pointed at an address it
+never had, which is a row that looks connectable and is not — worse than one that is gone.
+
 **`bundled` on `Connections` says which providers this build ships an application for.** It is a
 compile-time fact of the host — every built-in client id is an `option_env!` — and the interface's
 only way to know it, so the connect flow offers a "Default" exactly where one can be honoured. An
