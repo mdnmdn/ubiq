@@ -228,6 +228,91 @@ pub fn expiry_of(bytes: &[u8]) -> Option<i64> {
     max_expiry_ms(&serde_json::from_slice::<serde_json::Value>(bytes).ok()?)
 }
 
+/// A non-secret one-line summary of a credential blob, for the log.
+///
+/// Every token action — a seed, a harvest, a hand-back, a keychain read — logs
+/// one of these instead of the bytes. It carries what an investigation needs
+/// and nothing a log file may not hold: the expiries the blob claims, how long
+/// the access token has left from *now*, and an 8-hex fingerprint of each token
+/// string. The fingerprint is the point: a refresh **rotates** both tokens, so
+/// two digests naming different fingerprints are two different logins, and that
+/// is the only way to see a rotation that was written somewhere and lost.
+///
+/// The hash is `DefaultHasher` — a fingerprint, not a digest anyone should
+/// treat as one-way. It never leaves the log, and the tokens it summarises are
+/// bearer credentials whose bytes must never be logged in any form.
+pub fn login_digest(bytes: &[u8]) -> String {
+    fn now_ms() -> i64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or_default()
+    }
+
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(bytes) else {
+        return format!("bytes={} not-json", bytes.len());
+    };
+
+    let mut tokens: Vec<String> = Vec::new();
+    let mut expiries: Vec<String> = Vec::new();
+    fn walk(v: &serde_json::Value, tokens: &mut Vec<String>, expiries: &mut Vec<String>) {
+        match v {
+            serde_json::Value::Object(map) => {
+                for (k, val) in map {
+                    let lower = k.to_lowercase();
+                    if lower.contains("token")
+                        && let Some(s) = val.as_str()
+                    {
+                        tokens.push(format!("{k}={}", fingerprint_of(s)));
+                    } else if lower.contains("expire")
+                        && let Some(n) = val.as_i64()
+                    {
+                        expiries.push(format!("{k}={n}"));
+                    }
+                    walk(val, tokens, expiries);
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for item in items {
+                    walk(item, tokens, expiries);
+                }
+            }
+            _ => {}
+        }
+    }
+    walk(&value, &mut tokens, &mut expiries);
+
+    let left = expiry_of(bytes)
+        .map(|at| {
+            let secs = (at - now_ms()) / 1000;
+            if secs >= 0 {
+                format!(" valid_for={}h{}m", secs / 3600, (secs % 3600) / 60)
+            } else {
+                format!(" expired_for={}h{}m", -secs / 3600, (-secs % 3600) / 60)
+            }
+        })
+        .unwrap_or_default();
+
+    format!(
+        "bytes={} usable={} {} {}{left}",
+        bytes.len(),
+        login_is_usable(bytes),
+        tokens.join(" "),
+        expiries.join(" "),
+    )
+}
+
+/// The 8-hex fingerprint [`login_digest`] prints for one token string.
+pub(crate) fn fingerprint_of(s: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    if s.is_empty() {
+        return "empty".to_string();
+    }
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    s.hash(&mut hasher);
+    format!("{:08x}", hasher.finish() as u32)
+}
+
 /// Recursively find the maximum numeric [`is_expiry`] value in `v`, normalized
 /// to epoch millis (values below `10^12` are treated as seconds and ×1000).
 fn max_expiry_ms(v: &serde_json::Value) -> Option<i64> {

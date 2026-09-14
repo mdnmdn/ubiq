@@ -139,18 +139,25 @@ fn working_tree() -> Vec<GitEntry> {
 }
 
 #[test]
-fn every_section_starts_open_and_shuts_on_its_own() {
+fn only_local_branches_starts_open_and_every_section_shuts_on_its_own() {
     let mut git = view();
-    for section in RefSection::all() {
-        assert!(git.is_open(section), "{section:?} starts open");
+    assert!(
+        git.is_open(RefSection::Local),
+        "branches are what the sidebar is opened for"
+    );
+    for section in RefSection::all()
+        .into_iter()
+        .filter(|s| *s != RefSection::Local)
+    {
+        assert!(!git.is_open(section), "{section:?} starts shut");
     }
 
     git.toggle_section(RefSection::Tags);
-    assert!(!git.is_open(RefSection::Tags));
+    assert!(git.is_open(RefSection::Tags));
     assert!(git.is_open(RefSection::Local), "the others are untouched");
 
     git.toggle_section(RefSection::Tags);
-    assert!(git.is_open(RefSection::Tags));
+    assert!(!git.is_open(RefSection::Tags));
 }
 
 #[test]
@@ -656,27 +663,46 @@ fn local_branches_nest_on_slash() {
     );
     let tree = git.ref_tree(RefSection::Local);
     let labels: Vec<&str> = tree.iter().map(|row| row.label.as_str()).collect();
+    // `main` is both a trunk and the current branch, so it sits above the folders whatever it
+    // sorts as; everything under the top level stays alphabetical.
     assert_eq!(
         labels,
         vec![
+            "main",
             "feature",
             "other",
             "things",
             "fix",
-            "terminal-refit",
-            "main"
+            "terminal-refit"
         ]
     );
     assert!(matches!(
-        tree[0].kind,
+        tree[1].kind,
         RefTreeKind::Folder {
             open: true,
             leaves: 2,
             ..
         }
     ));
-    assert_eq!(tree[1].depth, 1);
     assert_eq!(tree[2].depth, 1);
+    assert_eq!(tree[3].depth, 1);
+}
+
+#[test]
+fn the_trunks_and_the_current_branch_sit_above_the_rest() {
+    let git = GitView::new(
+        vec![
+            RefRow::new(RefSection::Local, "zebra"),
+            RefRow::new(RefSection::Local, "develop"),
+            RefRow::new(RefSection::Local, "alpha"),
+            RefRow::new(RefSection::Local, "main"),
+            RefRow::new(RefSection::Local, "wip").current(),
+        ],
+        Vec::new(),
+    );
+    let tree = git.ref_tree(RefSection::Local);
+    let labels: Vec<&str> = tree.iter().map(|row| row.label.as_str()).collect();
+    assert_eq!(labels, vec!["wip", "main", "develop", "alpha", "zebra"]);
 }
 
 #[test]

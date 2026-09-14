@@ -10,9 +10,10 @@
 //! overview's submodules, into what this module draws.
 
 use gpui::{
-    AnyElement, ClickEvent, Context, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
-    ParentElement, StatefulInteractiveElement, Styled, div, point, px,
+    AnyElement, ClickEvent, Context, Focusable, InteractiveElement, IntoElement, MouseButton,
+    MouseDownEvent, ParentElement, StatefulInteractiveElement, Styled, Window, div, point, px,
 };
+use gpui_component::input::Input;
 
 use crate::app::AppState;
 use crate::state::git::{GitMenuKind, RefRow, RefSection, RefTreeKind};
@@ -20,16 +21,21 @@ use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::eid;
 use crate::ui::kit::{
-    ContextItem, context_menu, disclosure, elided, elided_with, file_row, mono, panel, row_font,
-    status_dot, twisty,
+    ContextItem, context_menu, disclosure, elided, elided_with, file_row, filter_bar, mono, panel,
+    row_font, status_dot, twisty,
 };
 use crate::ui::{handler, indexed};
 
-pub fn render(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
     let Some(git) = app.git_view(cx) else {
         return div().into_any_element();
     };
     let menu = git.menu.clone();
+    let focused = app
+        .git_ref_query
+        .read(cx)
+        .focus_handle(cx)
+        .is_focused(window);
 
     let mut body = div()
         .id("git-refs")
@@ -42,9 +48,15 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     // Grouped once here rather than filtered once per section below — five passes over `refs`
     // become one.
     let groups = git.grouped_refs();
+    let searching = !git.ref_search.trim().is_empty();
     for section in RefSection::all() {
-        let open = git.is_open(section);
         let rows = &groups[section.slot()];
+        if searching && rows.is_empty() {
+            // A search that leaves a section empty is not worth a heading either — an empty
+            // "0" row would only ask the eye to rule it out.
+            continue;
+        }
+        let open = git.is_open(section);
         body = body.child(disclosure(
             eid("git-section", section_id(section)),
             section.label(),
@@ -76,7 +88,22 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         }
     }
 
-    let mut root = panel().child(body);
+    // The search sits above the scrolling body, not inside it, so it stays put while the
+    // sections it filters scroll underneath — the same split the history panel draws its own
+    // search field with.
+    let search =
+        div()
+            .pt_2()
+            .flex()
+            .flex_none()
+            .items_center()
+            .child(div().flex_1().min_w(px(0.)).child(filter_bar(
+                Input::new(&app.git_ref_query).appearance(false),
+                div(),
+                focused,
+            )));
+
+    let mut root = panel().child(search).child(body);
 
     if let Some(menu) = menu
         && let GitMenuKind::Ref { .. } = menu.kind

@@ -18,7 +18,7 @@ use gpui::{
     MouseDownEvent, ParentElement, Rgba, StatefulInteractiveElement, Styled, Window, div, point,
     px, uniform_list,
 };
-use gpui_component::input::Textarea;
+use gpui_component::input::{Input, Textarea};
 use ubiq_proto::git::{GitChangedPath, GitEntry, GitPathChange};
 
 use crate::app::AppState;
@@ -30,8 +30,8 @@ use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::explorer::git_colour;
 use crate::ui::kit::{
-    ContextItem, badge, check_box, context_menu, elided_with, field, mono, panel, panel_header,
-    primary_button, section_label,
+    ContextItem, badge, check_box, context_menu, elided_with, field, filter_bar, mono, panel,
+    panel_header, primary_button, section_label,
 };
 use crate::ui::{handler, indexed};
 
@@ -122,14 +122,25 @@ fn working_tree(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> 
     let groups = group_changes(entries);
     let staged_count = staged(entries).len();
 
+    // The search narrows every list by path; the grouping stays indices into `entries`, so a
+    // filtered row still stages, unstages and menus the same entry an unfiltered one would.
+    let matches = |index: &usize| {
+        entries
+            .get(*index)
+            .is_some_and(|entry| git.change_matches(&entry.rel_path))
+    };
+    let conflicted: Vec<usize> = groups.conflicted.iter().copied().filter(matches).collect();
+    let staged_visible: Vec<usize> = groups.staged.iter().copied().filter(matches).collect();
+    let unstaged_visible: Vec<usize> = groups.unstaged.iter().copied().filter(matches).collect();
+
     // The three lists become one, so the panel is a single virtual list: only the rows on screen
     // are built, and a heading is a row like any other. Staged and Unstaged stay visible at
     // zero so the split is on screen; Conflicted hides when it has nothing to say.
     let mut rows: Vec<Flat> = Vec::new();
     for (side, group, always) in [
-        (Side::Conflicted, groups.conflicted.as_slice(), false),
-        (Side::Staged, groups.staged.as_slice(), true),
-        (Side::Unstaged, groups.unstaged.as_slice(), true),
+        (Side::Conflicted, conflicted.as_slice(), false),
+        (Side::Staged, staged_visible.as_slice(), true),
+        (Side::Unstaged, unstaged_visible.as_slice(), true),
     ] {
         if !always && group.is_empty() {
             continue;
@@ -197,8 +208,30 @@ fn working_tree(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> 
             mono(format!("{} paths", entries.len()), theme::text_faint())
                 .text_size(theme::font(Family::Chrome, Role::Meta)),
         ))
+        .child(change_search_row(app, window, cx))
         .child(body)
         .child(commit_box(app, window, staged_count, cx))
+        .into_any_element()
+}
+
+/// The search over the panel's changed paths, above the lists so it stays put while they scroll.
+/// The same field the history's search uses, over `AppState::git_change_query`, which writes
+/// `GitView::change_search` as it is typed.
+fn change_search_row(app: &AppState, window: &Window, cx: &Context<AppState>) -> AnyElement {
+    let focused = app
+        .git_change_query
+        .read(cx)
+        .focus_handle(cx)
+        .is_focused(window);
+    div()
+        .pt_2()
+        .flex()
+        .flex_none()
+        .child(filter_bar(
+            Input::new(&app.git_change_query).appearance(false),
+            div(),
+            focused,
+        ))
         .into_any_element()
 }
 
@@ -207,7 +240,12 @@ fn range_files(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> A
     let Some(git) = app.git_view(cx) else {
         return div().into_any_element();
     };
-    let files = git.range_files.clone();
+    let files: Vec<GitChangedPath> = git
+        .range_files
+        .iter()
+        .filter(|file| git.change_matches(&file.rel_path))
+        .cloned()
+        .collect();
     let selected = git.path().map(str::to_string);
     let count = files.len();
     let view = cx.entity();
@@ -218,9 +256,10 @@ fn range_files(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> A
             mono(format!("{count} paths"), theme::text_faint())
                 .text_size(theme::font(Family::Chrome, Role::Meta)),
         ))
+        .child(change_search_row(app, window, cx))
         .child(
             div().flex().flex_col().flex_1().min_h(px(0.)).child(
-                uniform_list("git-range-files", count, move |range, window, cx| {
+                uniform_list("git-range-files", count, move |range, window, _cx| {
                     range
                         .filter_map(|slot| {
                             let file = files.get(slot)?;
@@ -295,6 +334,7 @@ fn list_header(
 ) -> impl IntoElement {
     let mut row = div()
         .id(crate::ui::eid("git-change-header", section.label()))
+        .w_full()
         .h(px(ROW))
         .px_3()
         .flex()

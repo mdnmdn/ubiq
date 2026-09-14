@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: How the host reads a project's repositories and how the Git screen writes them — cloning, upward discovery and scope, the bounded downward walk that finds the repositories inside a project and merges them into one map, the git worker's two queues and its per-project caches, the three shapes it answers with, the commit-graph lane engine, the refresh discipline that narrows the staleness window, and the ceilings and assumptions the model rests on.
 read_when: you are extending version control, adding a write, touching how a clone runs, working on a project that holds more than one repository, or wondering why the commit graph's lane engine is hand-rolled rather than a dependency
-updated: 2026-09-13
-verified: 2026-09-13
+updated: 2026-09-14
+verified: 2026-09-14
 code_anchors: [crates/ubiq-proto/src/git.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/git/write.rs, crates/ubiq-host/src/git/nested.rs, crates/ubiq-host/src/git/history.rs, crates/ubiq-host/src/git/graph.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq-host/src/repos/list.rs]
 depends_on: [tech-architecture, tech-transport, tech-decisions, feat-workbench]
 review_cycle: monthly
@@ -189,8 +189,9 @@ the repository's configured identity. `rel_path` narrows a page to one path's hi
 pathspec — bounded by `PATH_SCAN_CEILING` so a path with no history cannot walk to the root. An
 unborn `HEAD` answers with an empty page, not an error. A log with no `rel_path` walks the whole
 repository rather than the project's prefix (`G124`). The cursor has a caller: the interface asks
-for the next page from the foot of its own history through `AppState::load_more_git_log`
-(`crates/ubiq/src/app/git.rs`), so the walk goes as far as the reader scrolls.
+for the next page through `AppState::load_more_git_log` (`crates/ubiq/src/app/git.rs`) as the
+reader's scroll nears the bottom of what has loaded, so the walk goes as far as the reader scrolls
+without waiting for them to reach the edge and click.
 
 **Refs** are one reply for four sections — local branches, remote-tracking branches, tags and
 stashes — because a sidebar with five sections has no use for five walks when the repository is

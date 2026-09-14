@@ -922,6 +922,7 @@ impl Render for AppState {
         self.settle_visibility(cx);
         self.settle_mode(window, cx);
         self.settle_layout(window, cx);
+        self.enforce_git_sides(window, cx);
         self.settle_panels(window, cx);
         self.take_focus(window, cx);
         self.attach_arrived_files(window, cx);

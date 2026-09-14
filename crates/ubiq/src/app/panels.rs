@@ -80,10 +80,23 @@ impl AppState {
         self.dock.update(cx, |dock, cx| {
             dock.toggle_dock(dock::placement_of(region), window, cx);
         });
+        let placement = dock::placement_of(region);
+        let now_open = self.dock.read(cx).is_dock_open(placement);
+        // The one gesture that counts as "expressly hidden" for `enforce_git_sides`: a side region
+        // the user put away, or brought back, with their own click, while Git is the mode on
+        // screen. Every other path a region's openness moves through — a mode switch, a restored
+        // arrangement — is not this, which is what keeps a stale blob from being read as a choice
+        // the user never made this run.
+        if self.workbench.rail_mode == RailMode::Git {
+            match region {
+                Region::Left => self.git_sides_hidden.0 = !now_open,
+                Region::Right => self.git_sides_hidden.1 = !now_open,
+                _ => {}
+            }
+        }
         let now_empty = {
-            let placement = dock::placement_of(region);
             let dock = self.dock.read(cx);
-            dock.is_dock_open(placement) && dock.is_empty(placement, cx)
+            now_open && dock.is_empty(placement, cx)
         };
         if now_empty {
             match region {
@@ -504,6 +517,49 @@ impl AppState {
         }
         self.collapse_empty_regions(window, cx);
         cx.notify();
+    }
+
+    /// Both of Git's side regions on screen whenever Git is the mode on screen, whatever
+    /// [`Self::settle_mode`] or [`Self::settle_layout`] just left them as — unless the user has
+    /// expressly put one away with their own click since this window started (`git_sides_hidden`).
+    ///
+    /// The refs explorer and the changes panel *are* the Git screen (`D119`), so a restored blob
+    /// that predates them, or one written from an earlier run where they had been hidden, must not
+    /// reopen the window onto a Git screen missing a side a user this run never touched. Runs every
+    /// frame Git is on screen, after the mode and the layout have settled and before
+    /// [`Self::settle_panels`] drains the queue this can add to, and is idempotent: a region already
+    /// where this wants it is left alone.
+    pub(super) fn enforce_git_sides(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.workbench.rail_mode != RailMode::Git {
+            return;
+        }
+        let (hide_left, hide_right) = self.git_sides_hidden;
+        let mut fill = Vec::new();
+        let dock = self.dock.clone();
+        dock.update(cx, |dock, cx| {
+            for (region, hidden, kind) in [
+                (Region::Left, hide_left, PanelKind::GitRefs),
+                (Region::Right, hide_right, PanelKind::GitChanges),
+            ] {
+                if hidden {
+                    continue;
+                }
+                let placement = dock::placement_of(region);
+                if !dock.is_dock_open(placement) {
+                    dock.toggle_dock(placement, window, cx);
+                }
+                // Reopening an edge the blob had closed brings back whatever tree it saved there.
+                // An edge with nothing saved in it — a first visit whose furniture has not landed
+                // yet, or a blob from before Git had one — is queued the panel this side is for, so
+                // it never sits open and blank.
+                if dock.is_dock_open(placement) && dock.is_empty(placement, cx) {
+                    fill.push(kind);
+                }
+            }
+        });
+        for kind in fill {
+            self.pending_panels.push(PanelEdit::Open(kind));
+        }
     }
 
     /// Tell every panel whether it is drawn.

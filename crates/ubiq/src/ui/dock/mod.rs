@@ -568,7 +568,7 @@ fn body(
         PanelKind::Chat(id) => chat::render(app, *id, window, cx).into_any_element(),
         PanelKind::Centre => drop_target(centre(app, window, cx), cx),
         PanelKind::File(key) => drop_target(editor::render_file(app, key, cx), cx),
-        PanelKind::GitRefs => git::refs::render(app, cx).into_any_element(),
+        PanelKind::GitRefs => git::refs::render(app, window, cx).into_any_element(),
         PanelKind::GitChanges => git::changes::render(app, window, cx).into_any_element(),
         PanelKind::GitHistory => git::history::render(app, window, cx).into_any_element(),
         PanelKind::GitDiff => git::diff::render(app, cx).into_any_element(),

@@ -16,6 +16,7 @@ use std::process::{Command, Stdio};
 
 use anyhow::{Context, bail};
 use serde_json::{Value, json};
+use tracing::{debug, info, warn};
 
 use crate::Result;
 use crate::config::{McpServer, McpTransport};
@@ -578,7 +579,14 @@ impl Harness for Claude {
     /// Off macOS, or with no readable Keychain entry, this is the same as no
     /// login: `None`, never an error surfaced to the run.
     fn ambient_login(&self) -> Option<Source> {
-        let (creds, identity) = read_ambient_keychain_login().ok()?;
+        let (creds, identity) = match read_ambient_keychain_login() {
+            Ok(pair) => pair,
+            Err(err) => {
+                warn!(error = %err, "ambient_login: no Keychain credential found");
+                return None;
+            }
+        };
+        info!(digest = %crate::credentials::login_digest(&creds), "ambient_login: found Keychain credential");
         let mut files = vec![(std::path::PathBuf::from(".claude/.credentials.json"), creds)];
         if let Some(bytes) = identity {
             files.push((std::path::PathBuf::from(".claude.json"), bytes));
@@ -594,7 +602,16 @@ impl Harness for Claude {
         if src != Path::new(".claude/.credentials.json") {
             anyhow::bail!("claude-code cannot store {} outside a run", src.display());
         }
-        crate::account::write_claude_keychain_credentials(bytes)
+        info!(
+            digest = %crate::credentials::login_digest(bytes),
+            "adopt_login: writing refreshed login to the macOS Keychain"
+        );
+        let result = crate::account::write_claude_keychain_credentials(bytes);
+        match &result {
+            Ok(()) => info!("adopt_login: Keychain write succeeded"),
+            Err(err) => warn!(error = %err, "adopt_login: Keychain write failed"),
+        }
+        result
     }
 
     /// User-editable preference defaults, merged into the run by
@@ -634,6 +651,7 @@ impl Harness for Claude {
     ///    string. A fresh/ephemeral `CLAUDE_CONFIG_DIR` has no record of
     ///    `spec.cwd`, so every run would otherwise hit that dialog too.
     fn post_seed(&self, spec: &RunSpec, dir: &Path) -> Result<()> {
+        debug!(dir = %dir.display(), "post_seed: fixing up .claude.json");
         let path = dir.join(".claude.json");
         let mut doc: Value = match std::fs::read_to_string(&path) {
             Ok(raw) => {
@@ -674,12 +692,23 @@ impl Harness for Claude {
 /// [`Claude::renew_credentials`] and [`Claude::ambient_login`], which differ
 /// only in how they wrap this pair.
 fn read_ambient_keychain_login() -> Result<(Vec<u8>, Option<Vec<u8>>)> {
-    let creds = crate::account::read_claude_keychain_credentials()?;
+    let creds = match crate::account::read_claude_keychain_credentials() {
+        Ok(creds) => creds,
+        Err(err) => {
+            warn!(error = %err, "read_ambient_keychain_login: security call failed");
+            return Err(err);
+        }
+    };
     let identity = std::env::var_os("HOME")
         .map(std::path::PathBuf::from)
         .map(|home| home.join(".claude.json"))
         .filter(|path| path.is_file())
         .and_then(|path| std::fs::read(&path).ok());
+    info!(
+        digest = %crate::credentials::login_digest(&creds),
+        has_identity = identity.is_some(),
+        "read_ambient_keychain_login: Keychain credential found"
+    );
     Ok((creds, identity))
 }
 

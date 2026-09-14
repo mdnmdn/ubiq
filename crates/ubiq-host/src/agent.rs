@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 use agent_manager::Validity;
 use agent_manager::account::{AccountStore, FsAccountStore, login_validity};
 use agent_manager::config::{McpServer, McpTransport};
+use agent_manager::credentials::login_digest;
 use agent_manager::harness::{self, Launch, ModelInfo};
 use agent_manager::io::IoBridge;
 use agent_manager::isolate::{self, Confined, IsolateOptions};
@@ -850,7 +851,15 @@ impl Agents {
         // A harness with no credential in its run directory reports itself logged out, from
         // inside the transcript, where it reads as the agent talking rather than as a setup
         // problem. Saying it here is what makes that actionable.
-        if !Self::has_login(harness.as_ref(), &composed.dir) {
+        if Self::has_login(harness.as_ref(), &composed.dir) {
+            if let Some(file) = Self::found_login(harness.as_ref(), &composed.dir) {
+                tracing::info!(
+                    harness = %agent_type,
+                    file = %file.display(),
+                    "converse: this run's credential was found"
+                );
+            }
+        } else {
             match composed.account() {
                 // A profile named an account and its login still did not land, so the
                 // account itself is the thing that is not logged in.
@@ -1124,6 +1133,21 @@ impl Agents {
         };
         let _ = session::save(&self.sessions_dir(), &meta);
 
+        // The digest of what this run actually started with — never the bytes — so every
+        // launch records the token it was seeded, for the investigation to compare against
+        // whatever it finds hours later.
+        let digest = std::fs::read(provisioned.dir.join(".credentials.json"))
+            .ok()
+            .map(|bytes| login_digest(&bytes));
+        tracing::info!(
+            run = %key,
+            dir = %provisioned.dir.display(),
+            account = spec.account.as_ref().map(|a| a.id.as_str()).unwrap_or("<none>"),
+            harness = %agent_type,
+            credential = digest.as_deref().unwrap_or("<none>"),
+            "compose_run: provisioned a run"
+        );
+
         Ok(Composed {
             launch: provisioned.launch.clone(),
             confined,
@@ -1244,7 +1268,27 @@ impl Agents {
                 .or_default()
                 .push(entry.path());
         }
+        if groups.is_empty() {
+            tracing::debug!("sync_logins: no live run directories to reconcile");
+            return;
+        }
+        let dir_count: usize = groups.values().map(Vec::len).sum();
+        tracing::info!(
+            accounts = groups.len(),
+            dirs = dir_count,
+            "sync_logins: reconciling accounts against their live run directories"
+        );
         for ((harness_id, home), dirs) in groups {
+            let account = home
+                .as_deref()
+                .and_then(Path::file_name)
+                .map(|name| name.to_string_lossy().into_owned());
+            tracing::info!(
+                harness = %harness_id,
+                account = account.as_deref().unwrap_or("<none>"),
+                dirs = ?dirs,
+                "sync_logins: reconciling account"
+            );
             let Some(harness) = harness::resolve(&harness_id) else {
                 continue;
             };
@@ -1252,7 +1296,14 @@ impl Agents {
                 continue;
             };
             let dirs: Vec<&Path> = dirs.iter().map(PathBuf::as_path).collect();
-            let _ = harness::sync_login(harness.as_ref(), &dirs, &origin);
+            if let Err(error) = harness::sync_login(harness.as_ref(), &dirs, &origin) {
+                tracing::warn!(
+                    harness = %harness_id,
+                    account = account.as_deref().unwrap_or("<none>"),
+                    %error,
+                    "sync_logins: reconciling this account's login failed"
+                );
+            }
         }
     }
 
@@ -1275,7 +1326,36 @@ impl Agents {
         let Some(origin) = login_origin(harness.as_ref(), &meta) else {
             return;
         };
-        let _ = harness::harvest_login(harness.as_ref(), &self.run_dir_for(key), &origin);
+        let dir = self.run_dir_for(key);
+        for (file, digest) in Self::credential_digests(harness.as_ref(), &dir) {
+            tracing::info!(
+                run = %key,
+                harness = %meta.harness,
+                file = %file,
+                digest = %digest,
+                "refresh_login: harvesting this run's credential before re-seeding"
+            );
+        }
+        let _ = harness::harvest_login(harness.as_ref(), &dir, &origin);
+    }
+
+    /// The [`login_digest`] of every credential file `harness` seeds that exists in `dir`,
+    /// named by its destination filename. Never the bytes themselves — see the module doc on
+    /// [`login_digest`] for what the digest carries instead.
+    fn credential_digests(harness: &dyn harness::Harness, dir: &Path) -> Vec<(String, String)> {
+        harness
+            .config_anchor()
+            .login_seed
+            .iter()
+            .filter(|file| file.credential)
+            .filter_map(|file| {
+                let bytes = std::fs::read(dir.join(&file.dst)).ok()?;
+                Some((
+                    file.dst.to_string_lossy().into_owned(),
+                    login_digest(&bytes),
+                ))
+            })
+            .collect()
     }
 
     /// Whether anything that makes a session logged in landed in `dir`.
@@ -1296,6 +1376,21 @@ impl Agents {
             return true;
         }
         creds.any(|file| dir.join(&file.dst).exists())
+    }
+
+    /// Which credential file [`has_login`] found in `dir`, for the log line that says a run
+    /// started with one. `None` both when nothing was found and when the harness declares no
+    /// credential file at all — [`has_login`] tells those two apart.
+    fn found_login(harness: &dyn harness::Harness, dir: &Path) -> Option<PathBuf> {
+        harness
+            .config_anchor()
+            .login_seed
+            .iter()
+            .filter(|file| file.credential)
+            .find_map(|file| {
+                let path = dir.join(&file.dst);
+                path.exists().then_some(path)
+            })
     }
 
     /// Write down the harness's own id for a conversation, while it is still
@@ -1342,7 +1437,15 @@ impl Agents {
         };
         let dir = self.run_dir_for(key);
         for file in harness.config_anchor().login_seed {
-            let _ = std::fs::remove_file(dir.join(&file.dst));
+            let path = dir.join(&file.dst);
+            if std::fs::remove_file(&path).is_ok() {
+                tracing::info!(
+                    run = %key,
+                    harness = %meta.harness,
+                    file = %path.display(),
+                    "scrub_login: removed a seeded login file so the next launch reseeds it fresh"
+                );
+            }
         }
     }
 
@@ -1357,6 +1460,11 @@ impl Agents {
     /// [`scrub_login`](Self::scrub_login)).
     pub fn park_agent(&self, agent: AgentId) {
         let key = agent.to_string();
+        tracing::info!(
+            run = %key,
+            dir = %self.agent_dir(agent).display(),
+            "park_agent: conversation ended; keeping its run directory and scrubbing its login"
+        );
         self.archive(&key);
         self.scrub_login(&key);
         // Its process has gone, so the MCP listener has nobody left to answer for at that
@@ -1432,9 +1540,16 @@ impl Agents {
     /// cannot be deleted is a stale directory, not a reason to fail a close the
     /// user already saw happen.
     pub fn retire(&self, pane: PaneId) {
+        let dir = self.run_dir(pane);
         self.archive(&pane.to_string());
         self.mcp_agents.forget(&pane.to_string());
-        let _ = std::fs::remove_dir_all(self.run_dir(pane));
+        if std::fs::remove_dir_all(&dir).is_ok() {
+            tracing::info!(
+                pane = %pane,
+                dir = %dir.display(),
+                "retire: pane gone; removed its run directory"
+            );
+        }
     }
 
     /// Delete every run directory left by a previous process, except the ones
@@ -1455,6 +1570,8 @@ impl Agents {
         let Ok(entries) = std::fs::read_dir(&runs) else {
             return;
         };
+        let mut removed = 0usize;
+        let mut parked = 0usize;
         for entry in entries.flatten() {
             // A crashed run is where the record matters most, and its meta was
             // written when the run was composed, so this works verbatim here.
@@ -1462,10 +1579,18 @@ impl Agents {
             self.archive(&key);
             if self.is_persistent(&key) {
                 self.scrub_login(&key);
+                parked += 1;
                 continue;
             }
-            let _ = std::fs::remove_dir_all(entry.path());
+            if std::fs::remove_dir_all(entry.path()).is_ok() {
+                removed += 1;
+            }
         }
+        tracing::info!(
+            removed,
+            parked,
+            "sweep: startup sweep of leftover run directories from a previous process"
+        );
     }
 
     /// Where a pane's run is provisioned. One directory per pane, named by it.
@@ -1480,9 +1605,16 @@ impl Agents {
 
     /// Remove what an agent's conversation left behind.
     pub fn retire_agent(&self, agent: AgentId) {
+        let dir = self.agent_dir(agent);
         self.archive(&agent.to_string());
         self.mcp_agents.forget(&agent.to_string());
-        let _ = std::fs::remove_dir_all(self.agent_dir(agent));
+        if std::fs::remove_dir_all(&dir).is_ok() {
+            tracing::info!(
+                agent = %agent,
+                dir = %dir.display(),
+                "retire_agent: conversation ended; removed its run directory"
+            );
+        }
     }
 
     /// One directory per run, named by whatever owns it — a pane or an agent.

@@ -319,6 +319,10 @@ pub struct ConfigAnchor {
 pub(crate) fn seed_login(dir: &Path, login: &Source, seed: &[SeedFile]) -> Result<()> {
     for file in seed {
         let Some(bytes) = login.read(&file.src)? else {
+            tracing::debug!(
+                src = %file.src.display(),
+                "login seed file absent at the origin"
+            );
             continue;
         };
         let dst = dir.join(&file.dst);
@@ -328,6 +332,21 @@ pub(crate) fn seed_login(dir: &Path, login: &Source, seed: &[SeedFile]) -> Resul
         }
         std::fs::write(&dst, &bytes)
             .with_context(|| format!("seeding login to {}", dst.display()))?;
+        #[cfg(unix)]
+        if file.credential {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&dst, std::fs::Permissions::from_mode(0o600))
+                .with_context(|| format!("chmod 600 {}", dst.display()))?;
+        }
+        if file.credential {
+            tracing::info!(
+                dst = %dst.display(),
+                digest = %crate::credentials::login_digest(&bytes),
+                "seeded a login file"
+            );
+        } else {
+            tracing::info!(dst = %dst.display(), "seeded a login file");
+        }
     }
     Ok(())
 }
@@ -363,6 +382,11 @@ pub(crate) fn seed_login(dir: &Path, login: &Source, seed: &[SeedFile]) -> Resul
 /// Never fails the caller: this runs on teardown paths, and a write-back that
 /// could not happen is a warning, not a reason to break a run that is over.
 pub fn harvest_login(harness: &dyn Harness, dir: &Path, origin: &Source) -> Result<()> {
+    tracing::info!(
+        harness = %harness.id(),
+        dir = %dir.display(),
+        "harvesting a login on teardown"
+    );
     sync_login(harness, std::slice::from_ref(&dir), origin)
 }
 
@@ -396,7 +420,33 @@ pub fn sync_login(harness: &dyn Harness, dirs: &[&Path], origin: &Source) -> Res
         .iter()
         .filter(|f| f.credential)
     {
+        let origin_kind = match origin {
+            Source::Dir(path) => format!("dir({})", path.display()),
+            Source::Files(_) => "files".to_string(),
+        };
+        tracing::info!(
+            harness = %harness.id(),
+            file = %file.src.display(),
+            run_dirs = dirs.len(),
+            origin = %origin_kind,
+            "syncing a login across the origin and every run holding it"
+        );
+
         let stored = origin.read(&file.src)?;
+        match &stored {
+            Some(bytes) => tracing::info!(
+                harness = %harness.id(),
+                file = %file.src.display(),
+                digest = %crate::credentials::login_digest(bytes),
+                "origin login"
+            ),
+            None => tracing::info!(
+                harness = %harness.id(),
+                file = %file.src.display(),
+                "origin login absent"
+            ),
+        }
+
         // Every copy that exists, the origin's included, with the origin first
         // so it keeps a tie: a run that has not refreshed holds a byte-identical
         // blob, and nothing should move for it.
@@ -412,23 +462,54 @@ pub fn sync_login(harness: &dyn Harness, dirs: &[&Path], origin: &Source) -> Res
             })
             .collect();
 
+        for held in &held {
+            tracing::info!(
+                harness = %harness.id(),
+                dir = %held.dir.display(),
+                digest = %crate::credentials::login_digest(&held.bytes),
+                written = ?held.written,
+                "held login copy"
+            );
+        }
+
         let Some(best) = newest_login(harness, &file.src, stored.as_deref(), &held) else {
             continue;
         };
+
+        let winner_is_origin = stored.as_deref() == Some(best);
+        tracing::info!(
+            harness = %harness.id(),
+            file = %file.src.display(),
+            winner = if winner_is_origin { "origin" } else { "run" },
+            digest = %crate::credentials::login_digest(best),
+            "picked the login to keep"
+        );
 
         if stored.as_deref() != Some(best) {
             let outcome = match origin {
                 Source::Dir(home) => write_credential(&home.join(&file.src), best),
                 Source::Files(_) => harness.adopt_login(&file.src, best),
             };
-            if let Err(error) = outcome {
-                tracing::warn!(
+            match outcome {
+                Ok(()) => tracing::info!(
+                    harness = %harness.id(),
+                    file = %file.src.display(),
+                    digest = %crate::credentials::login_digest(best),
+                    "wrote a refreshed login back to its origin"
+                ),
+                Err(error) => tracing::warn!(
                     harness = %harness.id(),
                     file = %file.src.display(),
                     "a refreshed login could not be written back, so the original may now be \
                      revoked: {error:#}"
-                );
+                ),
             }
+        } else {
+            tracing::info!(
+                harness = %harness.id(),
+                file = %file.src.display(),
+                "skipped writing back to the origin, already matches the winner"
+            );
         }
 
         for held in &held {
@@ -436,13 +517,19 @@ pub fn sync_login(harness: &dyn Harness, dirs: &[&Path], origin: &Source) -> Res
                 continue;
             }
             let path = held.dir.join(&file.dst);
-            if let Err(error) = write_credential(&path, best) {
-                tracing::warn!(
+            match write_credential(&path, best) {
+                Ok(()) => tracing::info!(
+                    harness = %harness.id(),
+                    dir = %held.dir.display(),
+                    digest = %crate::credentials::login_digest(best),
+                    "handed a refreshed login back into a stale run dir"
+                ),
+                Err(error) => tracing::warn!(
                     harness = %harness.id(),
                     path = %path.display(),
                     "a run is holding a rotated-away login and could not be handed the current \
                      one, so its next refresh will fail: {error:#}"
-                );
+                ),
             }
         }
     }
@@ -483,6 +570,26 @@ fn newest_login<'a>(
     held: &'a [Held<'a>],
 ) -> Option<&'a [u8]> {
     use crate::credentials::{expiry_of, login_is_usable};
+
+    if let Some(bytes) = stored {
+        tracing::debug!(
+            harness = %harness.id(),
+            file = %src.display(),
+            expiry = ?expiry_of(bytes),
+            usable = login_is_usable(bytes),
+            "candidate: origin"
+        );
+    }
+    for held in held {
+        tracing::debug!(
+            harness = %harness.id(),
+            file = %src.display(),
+            dir = %held.dir.display(),
+            expiry = ?expiry_of(&held.bytes),
+            usable = login_is_usable(&held.bytes),
+            "candidate: run"
+        );
+    }
 
     let usable: Vec<&Held<'a>> = held
         .iter()
@@ -547,6 +654,7 @@ fn write_credential(path: &Path, bytes: &[u8]) -> Result<()> {
             .with_context(|| format!("chmod 600 {}", staged.display()))?;
     }
     std::fs::rename(&staged, path).with_context(|| format!("writing {}", path.display()))?;
+    tracing::debug!(path = %path.display(), bytes = bytes.len(), "wrote a credential file");
     Ok(())
 }
 

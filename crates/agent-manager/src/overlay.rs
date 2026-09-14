@@ -15,6 +15,8 @@
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 
+use tracing::{debug, info};
+
 use crate::Result;
 use crate::source::{LinkMode, Source};
 
@@ -59,14 +61,18 @@ pub fn sweep_runs(runs_root: &Path, ttl: Duration) -> Result<usize> {
         if !path.is_dir() {
             continue;
         }
-        let too_old = entry
+        let age = entry
             .metadata()
             .and_then(|m| m.modified())
             .ok()
-            .and_then(|m| now.duration_since(m).ok())
-            .map(|age| age > ttl)
-            .unwrap_or(false);
+            .and_then(|m| now.duration_since(m).ok());
+        let too_old = age.map(|age| age > ttl).unwrap_or(false);
         if too_old && std::fs::remove_dir_all(&path).is_ok() {
+            info!(
+                dir = %path.display(),
+                age_secs = age.map(|a| a.as_secs()).unwrap_or_default(),
+                "sweep removed stale run dir"
+            );
             removed += 1;
         }
     }
@@ -81,6 +87,7 @@ pub fn sweep_old_runs(runs_root: &Path) -> Result<usize> {
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(DEFAULT_TTL_DAYS);
+    debug!(ttl_days, "run-dir sweep TTL in force");
     if ttl_days == 0 {
         return Ok(0);
     }

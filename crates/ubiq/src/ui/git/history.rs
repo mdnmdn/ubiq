@@ -36,6 +36,11 @@ use crate::ui::kit::{
 };
 use crate::ui::{handler, indexed};
 
+/// How close the rendered range has to come to the end of what is loaded before the next page is
+/// asked for — a handful of rows of runway so the page lands before the user's scroll catches up
+/// to it, not a wait for the last row to actually paint.
+const NEAR_END: usize = 20;
+
 pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
     let Some(git) = app.git_view(cx) else {
         return div().into_any_element();
@@ -62,7 +67,15 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
                 let Some(git) = view.read(cx).git_view(cx) else {
                     return Vec::new();
                 };
-                range
+                // Within `NEAR_END` rows of the bottom of what is loaded, with nothing already in
+                // flight and more left to page in, the next page is worth asking for now rather
+                // than waiting for a click the scrollbar's own travel already promised. The
+                // request cannot be sent from here — this runs mid-render, with the view already
+                // read above — so it is deferred, the same turn-later pattern every other
+                // during-render app write in this dock takes.
+                let near_end = range.end + NEAR_END >= rows.len();
+                let should_load = near_end && git.log_inflight.is_none() && !git.log_done;
+                let elements = range
                     .filter_map(|slot| {
                         let index = *rows.get(slot)?;
                         let commit = git.commits.get(index)?;
@@ -77,7 +90,14 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
                             window,
                         ))
                     })
-                    .collect::<Vec<AnyElement>>()
+                    .collect::<Vec<AnyElement>>();
+                if should_load {
+                    let view = view.clone();
+                    cx.defer(move |cx| {
+                        view.update(cx, |this, cx| this.load_more_git_log(cx));
+                    });
+                }
+                elements
             })
             .track_scroll(&app.git_scroll)
             .flex_1()
@@ -338,8 +358,10 @@ fn commit_row(
         .into_any_element()
 }
 
-/// The trigger for the next page, at the bottom of the list — or its own loading state while that
-/// page is in flight. Absent once `GitView::log_done` says there is nothing more.
+/// The footer under the list: a loading word while the next page the scroll already asked for is
+/// in flight, or a manual fallback button for the rare frame nothing has scrolled near the end yet
+/// — a history short enough to show past its own bottom without ever nearing it, say. Absent once
+/// `GitView::log_done` says there is nothing more.
 fn load_more_row(loading: bool, cx: &mut Context<AppState>) -> AnyElement {
     div()
         .h(px(COMMIT_ROW))

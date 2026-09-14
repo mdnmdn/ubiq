@@ -5,7 +5,7 @@ kind: tech
 status: draft
 summary: What the embedded harness-management library owns, what Ubiq owns, how the application consumes it, and the rule that keeps the two from growing into each other.
 read_when: you are about to write code that launches a harness, drives one as a conversation, names a harness config path, or touches accounts, skills or MCP servers
-updated: 2026-09-13
+updated: 2026-09-14
 verified: 2026-09-14
 code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/quota.rs, crates/agent-manager/src/credentials/mod.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/mod.rs, crates/agent-manager/src/io/acp.rs, crates/agent-manager/src/io/acp_client.rs, crates/ubiq-host/src/mcp/mod.rs]
 depends_on: [tech-structure]
@@ -169,6 +169,16 @@ on the run's `SessionMeta::login_home` rather than held in memory, because nothi
 found again through `Harness::ambient_login` and stored through `Harness::adopt_login`. Only the
 files the harness marks `SeedFile::credential` travel back — the identity and onboarding state a
 login also seeds picks up a run's own project history, and must not reach the user's real file.
+
+**Every action on a credential is logged, and never the credential.** A seed, a harvest, a
+hand-back into a stale run, a Keychain read or write, and every removal of a run directory each
+write one line under `Subsystem::Harness`, carrying `credentials::login_digest` — byte length, the
+`login_is_usable` flag, every `*expire*` field, the time the access token has left, and an 8-hex
+fingerprint per token string. The fingerprint is what makes a **rotation** visible: two digests
+naming different fingerprints are two different logins, which is the only way to tell a refresh that
+was written somewhere from one that never happened. No token value is ever logged in any form. The
+seed also writes `0600`, matching every other credential write in the crate rather than the process
+umask. `_docs/wip/claude-auth-problem.md` is what this instrumentation was added for.
 
 **A changed blob is not automatically a better one, and `harvest_login` checks both ways a
 "changed" copy can be worse than what it would replace.** A harness that rewrites its credential

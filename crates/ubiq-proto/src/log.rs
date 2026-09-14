@@ -92,6 +92,7 @@ impl Subsystem {
         if target.starts_with("ubiq_host::pty") {
             Subsystem::Pty
         } else if target.starts_with("ubiq_host::coordinator")
+            || target.starts_with("ubiq_host::conversation")
             || target.starts_with("ubiq_proto::bus")
         {
             Subsystem::Coordinator
@@ -106,6 +107,8 @@ impl Subsystem {
             || target.starts_with("ubiq::ui::web_view")
         {
             Subsystem::Web
+        } else if target.starts_with("ubiq_host::agent") {
+            Subsystem::Harness
         } else if target.starts_with("ubiq") || target.starts_with("gpui_terminal") {
             Subsystem::Ui
         } else if target.starts_with("agent_manager") {
@@ -308,8 +311,10 @@ pub fn logs() -> &'static Logs {
 
 /// Install the collector. Called once, before anything that might log.
 ///
-/// Two layers sit behind one filter: the ring the console reads, and a plain writer on standard
-/// error, so a run from a terminal still says what it is doing. `RUST_LOG` sets the filter;
+/// Two or three layers sit behind one filter: the ring the console reads, a plain writer on
+/// standard error so a run from a terminal still says what it is doing, and — when
+/// `UBIQ_LOG_FILE` names a path — a third writer appending the same formatted lines to that
+/// file, so a diagnostic session survives a restart. `RUST_LOG` sets the filter;
 /// [`DEFAULT_FILTER`] is what it falls back to.
 pub fn install() {
     let filter = EnvFilter::try_from_default_env()
@@ -325,7 +330,32 @@ pub fn install() {
                 .with_writer(std::io::stderr)
                 .with_target(true),
         )
+        .with(file_layer())
         .try_init();
+}
+
+/// The optional file layer `UBIQ_LOG_FILE` asks for, or nothing.
+///
+/// Opened append-only, created if missing. A path that cannot be opened — a bad directory, no
+/// permission — falls back silently to the existing stderr-and-ring behaviour rather than
+/// panicking `install()`: a diagnostic sink must never be the reason the process fails to start.
+/// No rotation: this is a plain, growing file, for a run measured in hours rather than days.
+fn file_layer<S>() -> Option<Box<dyn Layer<S> + Send + Sync + 'static>>
+where
+    S: Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>,
+{
+    let path = std::env::var_os("UBIQ_LOG_FILE")?;
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .ok()?;
+    Some(Box::new(
+        tracing_subscriber::fmt::layer()
+            .with_writer(std::sync::Mutex::new(file))
+            .with_ansi(false)
+            .with_target(true),
+    ))
 }
 
 /// The layer that turns a `tracing` event into a record in the ring.

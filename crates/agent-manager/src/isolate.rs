@@ -40,6 +40,7 @@ use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, anyhow};
+use tracing::{debug, info};
 
 use crate::Result;
 use crate::harness::Launch;
@@ -573,6 +574,14 @@ pub fn plan(
     let spec = isol8::resolve::spec_from_config(&cfg, base, cmd, &ctx)
         .context("resolving the isolation policy for this run")?;
 
+    info!(
+        layers = ?cfg.default_profiles,
+        rw = ?spec.add_dirs_rw,
+        ro = ?spec.add_dirs_ro,
+        home = ?options.home,
+        "resolved sandboxed run policy"
+    );
+
     Ok(Some(Confined { spec, ctx }))
 }
 
@@ -862,6 +871,7 @@ pub fn confined_launch(confined: &Confined) -> Result<Launch> {
 
     if cfg!(target_os = "macos") {
         let policy = isol8::backends::select().render_policy(&effective.profile);
+        debug!(program = %effective.cmd.first().cloned().unwrap_or_default(), via_sandbox_exec = true, "confined launch");
         let mut args = vec!["-p".to_string(), policy];
         args.extend(effective.cmd);
         return Ok(Launch {

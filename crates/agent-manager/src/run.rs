@@ -17,6 +17,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
+use tracing::{info, warn};
 
 use crate::Result;
 use crate::harness::{Harness, Launch};
@@ -194,11 +195,22 @@ fn spawn_resize_watcher(_master: Arc<Mutex<Box<dyn MasterPty + Send>>>) {}
 /// lost if this process is killed. Upgrade path is a watcher on the credential
 /// file, writing back as it changes.
 fn cleanup(harness: &dyn Harness, provisioned: &Provisioned, keep_config: bool) {
+    info!(
+        dir = %provisioned.dir.display(),
+        has_login_origin = provisioned.login_origin.is_some(),
+        "run cleanup starting"
+    );
     if let Some(origin) = &provisioned.login_origin {
-        let _ = crate::harness::harvest_login(harness, &provisioned.dir, origin);
+        match crate::harness::harvest_login(harness, &provisioned.dir, origin) {
+            Ok(()) => info!(dir = %provisioned.dir.display(), "harvested login back to its origin"),
+            Err(err) => warn!(dir = %provisioned.dir.display(), error = %err, "harvest_login failed"),
+        }
     }
     if provisioned.ephemeral && !keep_config {
-        let _ = std::fs::remove_dir_all(&provisioned.dir);
+        info!(dir = %provisioned.dir.display(), "removing the ephemeral run dir");
+        if let Err(err) = std::fs::remove_dir_all(&provisioned.dir) {
+            warn!(dir = %provisioned.dir.display(), error = %err, "removing the ephemeral run dir failed");
+        }
     }
 }
 

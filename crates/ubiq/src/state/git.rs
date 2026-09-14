@@ -166,8 +166,32 @@ pub enum RefTreeKind {
     },
 }
 
+/// The branches that sit above the rest of the tree whatever their name sorts as: the trunks a
+/// user goes to without looking. Ranked in this order, under the current branch.
+pub const TRUNK_BRANCHES: [&str; 4] = ["main", "master", "develop", "dev"];
+
+/// Where a top-level row sorts: the current branch first, then the trunks in
+/// [`TRUNK_BRANCHES`] order, then everything else alphabetically. Only unnested rows are
+/// pinned — a branch inside a folder stays in its folder.
+fn top_rank(rows: &[(usize, &RefRow)], segment: &str) -> usize {
+    let unnested = rows
+        .iter()
+        .find(|(_, row)| row.name == segment)
+        .map(|(_, row)| *row);
+    match unnested {
+        Some(row) if row.current => 0,
+        Some(_) => TRUNK_BRANCHES
+            .iter()
+            .position(|trunk| *trunk == segment)
+            .map_or(usize::MAX, |at| at + 1),
+        None => usize::MAX,
+    }
+}
+
 /// Fold local branches and remotes on `/`, so `feature/things` nests under `feature` and
 /// `origin/feature/things` nests under `origin`, then `feature`.
+///
+/// The top level is ordered by [`top_rank`]; every level under it is alphabetical.
 pub fn ref_tree(rows: &[(usize, &RefRow)], shut: &HashSet<String>) -> Vec<RefTreeRow> {
     #[derive(Default)]
     struct Node {
@@ -201,9 +225,14 @@ pub fn ref_tree(rows: &[(usize, &RefRow)], shut: &HashSet<String>) -> Vec<RefTre
         prefix: &str,
         depth: usize,
         shut: &HashSet<String>,
+        rows: &[(usize, &RefRow)],
         out: &mut Vec<RefTreeRow>,
     ) {
-        for (segment, child) in &node.children {
+        let mut children: Vec<(&String, &Node)> = node.children.iter().collect();
+        if depth == 0 {
+            children.sort_by_key(|(segment, _)| (top_rank(rows, segment), (*segment).clone()));
+        }
+        for (segment, child) in children {
             let path = if prefix.is_empty() {
                 segment.clone()
             } else {
@@ -222,7 +251,7 @@ pub fn ref_tree(rows: &[(usize, &RefRow)], shut: &HashSet<String>) -> Vec<RefTre
                     },
                 });
                 if open {
-                    flatten(child, &path, depth + 1, shut, out);
+                    flatten(child, &path, depth + 1, shut, rows, out);
                 }
             } else if has_children {
                 let open = !shut.contains(&path);
@@ -236,7 +265,7 @@ pub fn ref_tree(rows: &[(usize, &RefRow)], shut: &HashSet<String>) -> Vec<RefTre
                     },
                 });
                 if open {
-                    flatten(child, &path, depth + 1, shut, out);
+                    flatten(child, &path, depth + 1, shut, rows, out);
                 }
             } else if let Some(index) = child.leaf {
                 out.push(RefTreeRow {
@@ -265,7 +294,7 @@ pub fn ref_tree(rows: &[(usize, &RefRow)], shut: &HashSet<String>) -> Vec<RefTre
         insert(&mut root, &parts, *index);
     }
     let mut out = Vec::new();
-    flatten(&root, "", 0, shut, &mut out);
+    flatten(&root, "", 0, shut, rows, &mut out);
     out
 }
 
@@ -752,6 +781,9 @@ pub struct GitView {
     shut_folders: HashSet<(RefSection, String)>,
     /// Which sidebar row is selected, as an index into `refs`.
     pub selected_ref: Option<usize>,
+    /// What was typed into the ref sidebar's search field. Filters every section's rows by name,
+    /// case-insensitively, as it is typed.
+    pub ref_search: String,
 
     /// What was typed into the history's search field.
     pub search: String,
@@ -768,6 +800,9 @@ pub struct GitView {
 
     /// The change-list sections the user has shut. Absent means open, same as `shut`.
     shut_changes: HashSet<ChangeSection>,
+    /// What was typed into the changes panel's search field. Filters every list by path,
+    /// case-insensitively, as it is typed.
+    pub change_search: String,
 
     /// The changed path the diff under the history is about, and which list it was picked from.
     pub selected_path: Option<(Side, String)>,
@@ -846,19 +881,27 @@ pub struct GitView {
 }
 
 impl GitView {
-    /// The screen a project opens on: everything showing, the uncommitted row selected, the diff
-    /// pane open and unified.
+    /// The screen a project opens on: local branches showing and the other four ref sections
+    /// shut, the uncommitted row selected, the diff pane open and unified.
+    ///
+    /// Branches are what the sidebar is opened for; remotes, tags, stashes and submodules are
+    /// long lists that push them off the screen, so they start shut and open on a click.
     pub fn new(refs: Vec<RefRow>, commits: Vec<CommitRow>) -> Self {
         let mut view = Self {
-            shut: HashSet::new(),
+            shut: RefSection::all()
+                .into_iter()
+                .filter(|section| *section != RefSection::Local)
+                .collect(),
             shut_folders: HashSet::new(),
             selected_ref: refs.iter().position(|row| row.current),
+            ref_search: String::new(),
             search: String::new(),
             branch_filter: None,
             mine_only: false,
             selected_commit: None,
             compare_commit: None,
             shut_changes: HashSet::new(),
+            change_search: String::new(),
             selected_path: None,
             base: DiffBase::Head,
             diff: None,
@@ -982,15 +1025,34 @@ impl GitView {
     }
 
     /// The local-branch or remote tree for one section, with shut folders collapsed.
+    ///
+    /// A search opens every folder: a match the user typed for is not worth hiding behind a
+    /// twisty they shut before they went looking.
     pub fn ref_tree(&self, section: RefSection) -> Vec<RefTreeRow> {
         let rows = self.rows(section);
-        let shut: HashSet<String> = self
-            .shut_folders
-            .iter()
-            .filter(|(held, _)| *held == section)
-            .map(|(_, path)| path.clone())
-            .collect();
+        let shut: HashSet<String> = if self.ref_search.trim().is_empty() {
+            self.shut_folders
+                .iter()
+                .filter(|(held, _)| *held == section)
+                .map(|(_, path)| path.clone())
+                .collect()
+        } else {
+            HashSet::new()
+        };
         ref_tree(&rows, &shut)
+    }
+
+    /// Whether a ref's name survives the sidebar's search. Empty search keeps everything.
+    pub fn ref_matches(&self, name: &str) -> bool {
+        let needle = self.ref_search.trim().to_lowercase();
+        needle.is_empty() || name.to_lowercase().contains(&needle)
+    }
+
+    /// Whether a changed path survives the changes panel's search. Empty search keeps
+    /// everything.
+    pub fn change_matches(&self, path: &str) -> bool {
+        let needle = self.change_search.trim().to_lowercase();
+        needle.is_empty() || path.to_lowercase().contains(&needle)
     }
 
     /// The commit in the loaded history this ref points at, if that page has landed.
@@ -1003,12 +1065,13 @@ impl GitView {
         })
     }
 
-    /// The rows in one section, with the index each is selected by.
+    /// The rows in one section the sidebar is drawing, with the index each is selected by —
+    /// the search applied.
     pub fn rows(&self, section: RefSection) -> Vec<(usize, &RefRow)> {
         self.refs
             .iter()
             .enumerate()
-            .filter(|(_, row)| row.section == section)
+            .filter(|(_, row)| row.section == section && self.ref_matches(&row.name))
             .collect()
     }
 
@@ -1027,7 +1090,9 @@ impl GitView {
         let mut groups: [Vec<(usize, &RefRow)>; 5] =
             [Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new()];
         for (index, row) in self.refs.iter().enumerate() {
-            groups[row.section.slot()].push((index, row));
+            if self.ref_matches(&row.name) {
+                groups[row.section.slot()].push((index, row));
+            }
         }
         groups
     }

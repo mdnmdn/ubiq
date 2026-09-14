@@ -61,6 +61,10 @@ impl AppState {
             cx.new(|cx| InputState::new(window, cx).placeholder("Search message or SHA\u{2026}"));
         let git_branch_query =
             cx.new(|cx| InputState::new(window, cx).placeholder("Filter branches\u{2026}"));
+        let git_ref_query =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Search refs\u{2026}"));
+        let git_change_query =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Search changed paths\u{2026}"));
         let git_message = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .placeholder("Commit message \u{2014} subject, blank line, body")
@@ -526,6 +530,34 @@ impl AppState {
                     let message = input.read(cx).value().to_string();
                     if let Some(git) = this.git_view_mut(cx) {
                         git.message = message;
+                    }
+                    cx.notify();
+                }
+            },
+        ));
+
+        subscriptions.push(cx.subscribe_in(
+            &git_ref_query,
+            window,
+            |this, input, event: &InputEvent, _window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    let search = input.read(cx).value().to_string();
+                    if let Some(git) = this.git_view_mut(cx) {
+                        git.ref_search = search;
+                    }
+                    cx.notify();
+                }
+            },
+        ));
+
+        subscriptions.push(cx.subscribe_in(
+            &git_change_query,
+            window,
+            |this, input, event: &InputEvent, _window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    let search = input.read(cx).value().to_string();
+                    if let Some(git) = this.git_view_mut(cx) {
+                        git.change_search = search;
                     }
                     cx.notify();
                 }
@@ -1068,6 +1100,7 @@ impl AppState {
             reset_furniture: false,
             pending_regions: None,
             region_had_content: (false, false, false),
+            git_sides_hidden: (false, false),
             workbench: WorkbenchState::default(),
             pending_chat_attach: None,
             pending_chat_open: false,
@@ -1103,6 +1136,8 @@ impl AppState {
             git_search,
             git_message,
             git_branch_query,
+            git_ref_query,
+            git_change_query,
             picker_filter,
             task_filter,
             task_title_input,

@@ -977,6 +977,13 @@ impl AppState {
                 open.git_entries = entries;
                 open.git_view.settle(&open.git_entries);
                 open.git_view.last_error = None;
+                // A working tree landing while a commit was in flight is that commit's
+                // success: the draft it was written from has been recorded, so the box is
+                // emptied rather than left holding a message that is now history.
+                if open.git_view.pending == Some(GitPending::Commit) {
+                    open.git_view.message.clear();
+                    open.git_view.amend = false;
+                }
                 open.git_view.pending = None;
                 // Kept whole, managed or not, so the settings dialog can draw what the walk found
                 // even for a repository the explorer never shows a mark for.

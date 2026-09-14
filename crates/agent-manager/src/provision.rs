@@ -10,6 +10,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
+use tracing::{debug, info};
 
 use crate::Result;
 use crate::harness::{Harness, Launch, TemplateStore};
@@ -95,6 +96,13 @@ pub fn provision(
 
     std::fs::create_dir_all(&dir)
         .with_context(|| format!("creating config dir {}", dir.display()))?;
+
+    info!(
+        dir = %dir.display(),
+        harness = %harness.id(),
+        strategy = if ephemeral { "ephemeral" } else { "fixed" },
+        "provisioned run dir"
+    );
 
     #[cfg(feature = "inproc-mcp")]
     {
@@ -213,37 +221,61 @@ fn seed_zero_config_login(
         .iter()
         .any(|s| s.credential && dir.join(&s.dst).exists())
     {
+        info!("zero-config login skipped: a credential already landed in the run dir");
         return Ok(None);
     }
     // Env/key/helper accounts manage their own auth; don't seed a stale OAuth login.
     if let Some(acct) = &spec.account
         && (acct.api_key_env.is_some() || acct.auth_token_env.is_some() || acct.helper.is_some())
     {
+        info!("zero-config login skipped: account supplies env/key/helper credentials");
         return Ok(None);
     }
     // Tier 1: a real file under the real HOME wins — it's what the harness
     // itself would read.
     if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
-        let home = Source::Dir(home);
-        crate::harness::seed_login(dir, &home, &anchor.login_seed)?;
+        let home_src = Source::Dir(home.clone());
+        crate::harness::seed_login(dir, &home_src, &anchor.login_seed)?;
         // Again, only the credential settles it. On macOS Claude Code keeps its
         // session in the Keychain, so `~/.claude/.credentials.json` is absent
         // while `~/.claude.json` is not: counting the companion here would
         // return before tier 2 ever reads the Keychain.
-        if anchor
+        if let Some(seed) = anchor
             .login_seed
             .iter()
-            .any(|s| s.credential && dir.join(&s.dst).exists())
+            .find(|s| s.credential && dir.join(&s.dst).exists())
         {
-            return Ok(Some(home));
+            let digest = std::fs::read(dir.join(&seed.dst))
+                .map(|b| crate::credentials::login_digest(&b))
+                .unwrap_or_default();
+            info!(
+                tier = "A",
+                source = %home.display(),
+                digest = %digest,
+                "zero-config login seeded from real HOME"
+            );
+            return Ok(Some(home_src));
         }
     }
     // Tier 2: no credential landed — ask the harness for its own account of the
     // live login (e.g. Claude Code's OS-Keychain session).
     if let Some(ambient) = harness.ambient_login() {
         crate::harness::seed_login(dir, &ambient, &anchor.login_seed)?;
+        let digest = anchor
+            .login_seed
+            .iter()
+            .find(|s| s.credential)
+            .and_then(|seed| std::fs::read(dir.join(&seed.dst)).ok())
+            .map(|b| crate::credentials::login_digest(&b))
+            .unwrap_or_default();
+        info!(
+            tier = "B",
+            digest = %digest,
+            "zero-config login seeded from harness ambient_login (e.g. macOS Keychain)"
+        );
         return Ok(Some(ambient));
     }
+    info!("zero-config login produced no login for this run");
     Ok(None)
 }
 
@@ -265,9 +297,15 @@ fn account_login_origin(harness: &dyn Harness, spec: &RunSpec, dir: &Path) -> Op
     {
         return None;
     }
-    spec.account_login
+    let origin = spec
+        .account_login
         .clone()
-        .or_else(|| Some(Source::Dir(spec.account.as_ref()?.home.clone()?)))
+        .or_else(|| Some(Source::Dir(spec.account.as_ref()?.home.clone()?)));
+    if let Some(origin) = &origin {
+        let account = spec.account.as_ref().map(|a| a.id.as_str()).unwrap_or("");
+        info!(account = %account, origin = ?origin, "account login origin resolved");
+    }
+    origin
 }
 
 /// Generate a fresh `<runs-root>/<run-id>/` path for an ephemeral run.
@@ -298,7 +336,9 @@ fn new_run_dir() -> Result<PathBuf> {
         std::process::id()
     );
 
-    Ok(base.join(run_id))
+    let run_dir = base.join(run_id);
+    debug!(dir = %run_dir.display(), "new ephemeral run dir");
+    Ok(run_dir)
 }
 
 /// A harness stand-in for [`seed_zero_config_login`]'s tier-2 (ambient

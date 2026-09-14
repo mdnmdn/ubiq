@@ -525,14 +525,18 @@ impl AppState {
         cx.notify();
     }
 
-    /// The Git screen's two fields hold the project on screen's text, on the explorer filter's
+    /// The Git screen's four fields hold the project on screen's text, on the explorer filter's
     /// rule: mirrored from the frame after a project swings in, and never while it is being typed
     /// into.
     pub fn sync_git_fields(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some((search, message)) = self
-            .git_view(cx)
-            .map(|git| (git.search.clone(), git.message.clone()))
-        else {
+        let Some((search, message, ref_search, change_search)) = self.git_view(cx).map(|git| {
+            (
+                git.search.clone(),
+                git.message.clone(),
+                git.ref_search.clone(),
+                git.change_search.clone(),
+            )
+        }) else {
             return;
         };
 
@@ -544,10 +548,36 @@ impl AppState {
         }
 
         if !self
-            .git_message
+            .git_ref_query
             .read(cx)
             .focus_handle(cx)
             .is_focused(window)
+            && self.git_ref_query.read(cx).value() != ref_search.as_str()
+        {
+            let field = self.git_ref_query.clone();
+            field.update(cx, |state, cx| state.set_value(ref_search, window, cx));
+        }
+
+        if !self
+            .git_change_query
+            .read(cx)
+            .focus_handle(cx)
+            .is_focused(window)
+            && self.git_change_query.read(cx).value() != change_search.as_str()
+        {
+            let field = self.git_change_query.clone();
+            field.update(cx, |state, cx| state.set_value(change_search, window, cx));
+        }
+
+        // The commit box is the one field that is also mirrored while it is focused, and only
+        // to empty it: a commit clears the draft it was written from, and the caret is
+        // usually still in the box when its reply lands.
+        if (message.is_empty()
+            || !self
+                .git_message
+                .read(cx)
+                .focus_handle(cx)
+                .is_focused(window))
             && self.git_message.read(cx).value() != message.as_str()
         {
             let field = self.git_message.clone();

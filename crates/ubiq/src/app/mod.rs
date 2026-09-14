@@ -519,6 +519,13 @@ pub struct AppState {
     /// empty", so [`Self::toggle_region`] opening a region on purpose is never mistaken for the
     /// auto-hide this drives. See the `DockEvent::LayoutChanged` subscription in [`Self::new`].
     region_had_content: (bool, bool, bool),
+    /// Whether the user has expressly put away the Git screen's left (refs) or right (changes)
+    /// region during this run of the window. Session-only, never written to `ViewPrefs`: Git's
+    /// two side regions open with the mode every time it is entered (`D119`), and this is the one
+    /// thing that is allowed to override that for as long as the window stays up — a hide from a
+    /// previous run does not count, only one made since the process started. See
+    /// [`Self::enforce_git_sides`], which reads it, and [`Self::toggle_region`], which sets it.
+    git_sides_hidden: (bool, bool),
 
     /// Every place this window has drawn, and where in that list it is standing.
     pub nav: History,
@@ -669,6 +676,10 @@ pub struct AppState {
     pub git_message: Entity<TextareaState>,
     /// The history's branch picker's own filter field. Window-scoped because the picker is.
     pub git_branch_query: Entity<InputState>,
+    /// The ref sidebar's and the changes panel's instant-search fields. Same arrangement as
+    /// `git_search`: the entity is the window's, the text is the project's `GitView`'s.
+    pub git_ref_query: Entity<InputState>,
+    pub git_change_query: Entity<InputState>,
     /// The history list's scroll, so a double-click on a ref can bring its commit into view.
     pub git_scroll: UniformListScrollHandle,
     /// The file picker's own field. Separate from the explorer's because the two are up at once

@@ -23,6 +23,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, anyhow, bail};
+use tracing::info;
 
 use crate::Result;
 use crate::credentials::{CredentialBlob, Validity, credential_validity};
@@ -390,9 +391,11 @@ impl AccountStore for FsAccountStore {
 
         let home = self.root.join(id);
         if home.is_dir() {
+            info!(dir = %home.display(), account = %id, "delete_account: removing account home");
             std::fs::remove_dir_all(&home)
                 .with_context(|| format!("removing {}", home.display()))?;
         }
+        info!(file = %record.display(), account = %id, "delete_account: removing account record");
         std::fs::remove_file(&record).with_context(|| format!("removing {}", record.display()))?;
         Ok(())
     }
@@ -405,6 +408,7 @@ impl AccountStore for FsAccountStore {
         for rel in files {
             let path = home.join(rel);
             if path.is_file() {
+                info!(file = %path.display(), account = %id, "sign_out: removing credential file");
                 std::fs::remove_file(&path)
                     .with_context(|| format!("removing {}", path.display()))?;
             }
@@ -447,6 +451,7 @@ fn prune_empty_ancestors(dir: Option<&Path>, home: &Path) -> Result<()> {
         if !is_empty {
             break;
         }
+        info!(dir = %d.display(), "sign_out: pruning now-empty ancestor dir");
         std::fs::remove_dir(d).with_context(|| format!("removing {}", d.display()))?;
         dir = d.parent();
     }
@@ -554,6 +559,11 @@ pub fn read_claude_keychain_credentials() -> Result<Vec<u8>> {
             .context("running `security find-generic-password` (is the security CLI available?)")?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
+            info!(
+                status = %output.status,
+                stderr = %stderr.trim(),
+                "security find-generic-password failed"
+            );
             bail!(
                 "Keychain entry {:?} (account {:?}) not readable ({}): {}",
                 CLAUDE_KEYCHAIN_SERVICE,
@@ -562,7 +572,13 @@ pub fn read_claude_keychain_credentials() -> Result<Vec<u8>> {
                 stderr.trim()
             );
         }
-        normalize_claude_credentials_json(&output.stdout)
+        let creds = normalize_claude_credentials_json(&output.stdout)?;
+        info!(
+            status = %output.status,
+            digest = %crate::credentials::login_digest(&creds),
+            "security find-generic-password succeeded"
+        );
+        Ok(creds)
     }
 }
 
@@ -605,14 +621,26 @@ pub fn write_claude_keychain_credentials(creds: &[u8]) -> Result<()> {
             .output()
             .context("running `security add-generic-password` (is the security CLI available?)")?;
         if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            info!(
+                status = %output.status,
+                stderr = %stderr.trim(),
+                digest = %crate::credentials::login_digest(creds),
+                "security add-generic-password failed"
+            );
             bail!(
                 "Keychain entry {:?} (account {:?}) not writable ({}): {}",
                 CLAUDE_KEYCHAIN_SERVICE,
                 user,
                 output.status,
-                String::from_utf8_lossy(&output.stderr).trim()
+                stderr.trim()
             );
         }
+        info!(
+            status = %output.status,
+            digest = %crate::credentials::login_digest(creds),
+            "security add-generic-password succeeded"
+        );
         Ok(())
     }
 }
