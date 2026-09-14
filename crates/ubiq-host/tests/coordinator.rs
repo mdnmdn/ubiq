@@ -1977,3 +1977,81 @@ fn opening_a_project_starts_its_filesystem_watch() {
         }
     }
 }
+
+/// A passphrase for a profile that authenticates through `ssh-agent` is refused, not filed.
+///
+/// The refusal is about the record and not about the keychain, so it reads the same on a machine
+/// with no secret service: an agent profile will never ask for material, and material it would
+/// never ask for has no user-visible way back out of the store.
+#[test]
+fn an_ssh_secret_is_refused_for_a_profile_that_holds_none() {
+    use ubiq_proto::ids::SshProfileId;
+    use ubiq_proto::messages::Secret;
+    use ubiq_proto::settings::{SshAuth, SshProfile};
+
+    let (_hub, ui) = coordinator();
+    let agent = SshProfileId::generate();
+    let settings = HostSettings {
+        ssh_profiles: vec![SshProfile {
+            id: agent,
+            name: "build box".to_string(),
+            host: "build.example.com".to_string(),
+            port: 22,
+            user: String::new(),
+            auth: SshAuth::Agent,
+        }],
+        ..HostSettings::default()
+    };
+    ui.send(Message::SetSettings {
+        layer: SettingsLayer::Host,
+        value: serde_json::to_string(&settings).unwrap(),
+    });
+
+    ui.send(Message::SetSshSecret {
+        profile_id: agent,
+        secret: Secret::new("a pass phrase"),
+    });
+    assert!(
+        expect_settings_error(&ui).contains("holds no secret"),
+        "an agent profile took a secret"
+    );
+
+    // Clearing one is refused on the same ground, and an id no profile carries on its own.
+    ui.send(Message::ClearSshSecret { profile_id: agent });
+    assert!(expect_settings_error(&ui).contains("holds no secret"));
+
+    ui.send(Message::SetSshSecret {
+        profile_id: SshProfileId::generate(),
+        secret: Secret::new("a pass phrase"),
+    });
+    assert!(expect_settings_error(&ui).contains("no such ssh profile"));
+
+    // The record is untouched: no flag moved, and the profile is still the one that was written.
+    ui.send(Message::GetSettings {
+        layer: SettingsLayer::Host,
+    });
+    let value = loop {
+        match ui.from_host().recv_timeout(PATIENCE) {
+            Ok(Message::Settings { value, .. }) => break value.unwrap(),
+            Ok(_) => continue,
+            other => panic!("expected the settings, got {other:?}"),
+        }
+    };
+    let held: HostSettings = serde_json::from_str(&value).unwrap();
+    assert_eq!(held.ssh_profiles.len(), 1);
+    assert_eq!(held.ssh_profiles[0].auth, SshAuth::Agent);
+}
+
+/// The next `SettingsError` the host says, whatever else is in flight.
+fn expect_settings_error(ui: &Client) -> String {
+    loop {
+        match ui.from_host().recv_timeout(PATIENCE) {
+            Ok(Message::SettingsError { layer, error }) => {
+                assert_eq!(layer, SettingsLayer::Host);
+                return error;
+            }
+            Ok(Message::HostInfo { .. } | Message::Settings { .. }) => continue,
+            other => panic!("expected a settings refusal, got {other:?}"),
+        }
+    }
+}

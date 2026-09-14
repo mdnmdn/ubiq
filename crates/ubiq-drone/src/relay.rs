@@ -727,6 +727,12 @@ fn refusal(message: &Message) -> Option<Message> {
             layer: *layer,
             error: NOT_HERE.to_string(),
         },
+        // An ssh profile's secret belongs to the machine the user is at, and a drone has no
+        // keychain to file one in — it is a guest. Refused on the settings layer it edits.
+        SetSshSecret { .. } | ClearSshSecret { .. } => SettingsError {
+            layer: ubiq_proto::settings::SettingsLayer::Host,
+            error: NOT_HERE.to_string(),
+        },
 
         // Everything left is either something only a host says — an answer arriving at the wrong
         // end of the wire — or a family with no error variant to refuse with. The caller logs it.

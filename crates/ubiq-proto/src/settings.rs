@@ -478,6 +478,7 @@ impl Default for HostSettings {
             trusted_certs: Vec::new(),
             ai_providers: Vec::new(),
             remote_hosts: Vec::new(),
+            ssh_profiles: Vec::new(),
         }
     }
 }

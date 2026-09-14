@@ -6,8 +6,9 @@
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+use ubiq_proto::ids::SshProfileId;
 use ubiq_proto::messages::Message;
-use ubiq_proto::settings::{HOST_SETTINGS_SCHEMA, HostSettings, SettingsLayer};
+use ubiq_proto::settings::{HOST_SETTINGS_SCHEMA, HostSettings, SettingsLayer, SshProfile};
 
 use crate::reply::Reply;
 use crate::store::{SettingsStore, StoreError};
@@ -84,6 +85,12 @@ impl Settings {
                         // list the interface wrote directly could name a key that was never stored,
                         // or drop a record and strand one. Everything else in the blob is the
                         // interface's to write, and is written unchanged.
+                        //
+                        // `ssh_profiles` is deliberately not one of them: a profile is only ever
+                        // written by a person on the settings page, so it rides the blob whole
+                        // like `remote_hosts`. What the host owns there is the *material*, and
+                        // the coordinator reconciles that against this list once it is written —
+                        // see `stale_ssh_secrets`.
                         let held = self.host();
                         settings.connections = held.connections;
                         settings.oauth_apps = held.oauth_apps;
@@ -151,6 +158,29 @@ fn parse_host(value: &str) -> Result<HostSettings, String> {
         .to_string());
     }
     Ok(settings)
+}
+
+/// Which SSH profiles' secrets no longer have anything to unlock, given the list as it was and
+/// the list the interface just wrote.
+///
+/// Two things strand material, and both are ordinary edits rather than mistakes: a profile
+/// removed from the list, and a profile switched to an auth method that reads no secret — an
+/// agent or a config alias keeping a passphrase filed against it is a leak, not a convenience.
+/// Pure, and takes no store, so `settings.rs` stays free of the keychain and the rule stays
+/// testable without one.
+pub fn stale_ssh_secrets(before: &[SshProfile], after: &[SshProfile]) -> Vec<SshProfileId> {
+    let mut stale: Vec<SshProfileId> = before
+        .iter()
+        .map(|profile| profile.id)
+        .filter(|id| !after.iter().any(|profile| profile.id == *id))
+        .collect();
+    stale.extend(
+        after
+            .iter()
+            .filter(|profile| !profile.auth.takes_secret())
+            .map(|profile| profile.id),
+    );
+    stale
 }
 
 /// The folder a clone lands in, unless the request names another.

@@ -12,7 +12,7 @@ use ubiq_host::reply::Reply;
 use ubiq_host::settings::Settings;
 use ubiq_host::store::memory::MemorySettingsStore;
 use ubiq_proto::connectors::{ConnectError, OauthApp, ProviderId};
-use ubiq_proto::ids::OauthAppId;
+use ubiq_proto::ids::{OauthAppId, SshProfileId};
 use ubiq_proto::messages::{LoginStatus, Message};
 use ubiq_proto::settings::HostSettings;
 
@@ -320,4 +320,52 @@ fn a_registration_with_no_name_or_no_client_id_is_refused() {
     assert_eq!(held.len(), 1);
     assert_eq!(held[0].name, "team ci");
     assert_eq!(held[0].origin.as_deref(), Some("https://git.example.com"));
+}
+
+/// An SSH profile's secret is filed in a namespace of its own, under the profile's id alone.
+///
+/// The id and not the address, so renaming a host or moving it to another port keeps the material
+/// it already had; a namespace of its own, so nothing a connection or a registration files can
+/// collide with it.
+#[test]
+fn an_ssh_secret_is_filed_under_the_profile_and_nothing_else() {
+    let one = SshProfileId::generate();
+    let two = SshProfileId::generate();
+
+    assert_eq!(store::ssh_key(one).harness, "ssh");
+    assert_eq!(store::ssh_key(one).name, one.to_string());
+    assert_ne!(store::ssh_key(one), store::ssh_key(two));
+    assert_eq!(store::ssh_key(one), store::ssh_key(one));
+}
+
+/// The material round trips, and a profile that stops naming it loses it.
+///
+/// Skipped where the platform has no secret service to talk to — the store is the real one on
+/// purpose, because what this asserts is that a secret written through it comes back.
+#[test]
+fn an_ssh_secret_round_trips_and_is_pruned_with_its_profile() {
+    let dir = TempDir::new().unwrap();
+    let store = store::Store::open(dir.path());
+    if store.usable().is_err() {
+        eprintln!("no platform secret store here; skipping");
+        return;
+    }
+
+    let profile = SshProfileId::generate();
+    assert!(!store.has_ssh_secret(profile));
+    assert_eq!(store.ssh_secret(profile), None);
+
+    store.set_ssh_secret(profile, "a pass phrase").unwrap();
+    assert!(store.has_ssh_secret(profile));
+    assert_eq!(store.ssh_secret(profile).as_deref(), Some("a pass phrase"));
+
+    // A second profile is a second secret, not an overwrite.
+    let other = SshProfileId::generate();
+    store.set_ssh_secret(other, "another").unwrap();
+    assert_eq!(store.ssh_secret(profile).as_deref(), Some("a pass phrase"));
+
+    store.clear_ssh_secret(profile).unwrap();
+    assert!(!store.has_ssh_secret(profile));
+    assert_eq!(store.ssh_secret(profile), None);
+    assert!(store.has_ssh_secret(other));
 }
