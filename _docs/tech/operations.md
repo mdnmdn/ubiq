@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: Prerequisites, the complete command reference, what a first build costs, the checks a change has to pass before it lands, and the runbook for a tool an agent cannot run.
 read_when: you are setting the project up, running or testing it, adding a command, or an agent reports that it cannot run a tool
-updated: 2026-09-12
-verified: 2026-09-12
+updated: 2026-09-14
+verified: 2026-09-14
 code_anchors: [Justfile, crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/isolate.rs, _tools/docs.py, _tools/icns.py, _tools/webassets.py, _tools/Info.plist, _devops/scripts/bundle-version.sh, crates/ubiq-app/src/lib.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-app/build.rs, crates/ubiq-app/res/ubiq-app.rc, .github/workflows/create-release.yml, .github/workflows/release-macos.yml, .github/workflows/release-windows.yml]
 depends_on: [tech-structure]
 review_cycle: monthly
@@ -96,11 +96,12 @@ everything else only when it complains. What the console does with the records i
 
 | Command | Does |
 |---|---|
+| `just apple` | Prove the on-device model backend is macOS-only: `foundation-models` is in `ubiq-app`'s tree for a Darwin triple and in neither a Linux nor a Windows one. Resolution answers it, so it runs anywhere without either toolchain installed |
 | `just check` | Type-check the workspace, tests and examples included |
 | `just clippy` | Lint, warnings as errors |
 | `just fmt` | Format |
 | `just test` | Test the workspace with stdin closed |
-| `just verify` | `check`, `clippy`, `test`, `host`, `relay`, `ui`, `docs-lint` — what a change has to pass |
+| `just verify` | `check`, `clippy`, `test`, `host`, `relay`, `ui`, `apple`, `docs-lint` — what a change has to pass |
 
 `just test` closes stdin deliberately. The library's passthrough tests spawn real pseudo-terminals,
 and an interactive stdin makes them hang rather than fail, which is the worse of the two outcomes.
