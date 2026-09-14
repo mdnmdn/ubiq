@@ -20,13 +20,13 @@ use ubiq_proto::connectors::{
 use ubiq_proto::ids::PaneId;
 use ubiq_proto::messages::{AccountInfo, CliShortcutAction, LoginStatus, ProfileInfo};
 use ubiq_proto::projects::IndexLevel;
-use ubiq_proto::settings::AgentHome;
+use ubiq_proto::settings::{AgentHome, SshAuth, SshProfile};
 
 use crate::app::{AppState, HostEntry, HostId, HostRef, host_menu_rows, host_row_label};
 use crate::state::settings::{
     AccountDialog, AiProviderForm, AssistInfo, CliShortcut, ConnectApp, ConnectStep,
-    ConnectorDialog, LoginStep, MarkdownOpen, SettingsSection, ToolEditScope, connect_error_note,
-    describe_status, magnitude,
+    ConnectorDialog, LoginStep, MarkdownOpen, SettingsSection, SshMethod, ToolEditScope,
+    connect_error_note, describe_status, magnitude,
 };
 use crate::theme;
 use crate::theme::{Family, Role};
@@ -164,6 +164,7 @@ fn nav_icon(item: SettingsSection) -> Icon {
         SettingsSection::Assist => IconName::Cpu.into(),
         SettingsSection::Connectors => UbiqIcon::FamilyConnectors.into(),
         SettingsSection::Hosts => UbiqIcon::HostRemote.into(),
+        SettingsSection::Ssh => IconName::Network.into(),
         SettingsSection::Tools => IconName::Play.into(),
         SettingsSection::CommandLine => IconName::SquareTerminal.into(),
     }
@@ -180,6 +181,7 @@ fn body(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         SettingsSection::Assist => assist(app, cx),
         SettingsSection::Connectors => connectors(app, cx),
         SettingsSection::Hosts => hosts_section(app, cx),
+        SettingsSection::Ssh => ssh_profiles(app, cx),
         SettingsSection::Tools => crate::ui::tools::panel(app, cx, ToolEditScope::System),
         SettingsSection::CommandLine => command_line(app, cx),
     };
@@ -2772,6 +2774,125 @@ fn host_row(
     )
 }
 
+/// The SSH targets this machine knows how to dial, one row each, with a way to add the next one.
+///
+/// Drawn whether or not there are any, for the reason [`ai_providers`] is: a section that
+/// vanishes when the list is empty is a section with no way to add the first row, which is
+/// exactly the state every user arrives in.
+fn ssh_profiles(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+    let profiles = app.workbench.settings.host.ssh_profiles.clone();
+    let mut rows = vec![
+        heading(
+            "SSH profiles",
+            "Where an SSH connection goes and how it proves who it is. The address, the port and \
+             a key file\u{2019}s path are references and ride the settings file; a passphrase or \
+             a password never does \u{2014} it goes to this machine\u{2019}s own credential \
+             store, under the profile\u{2019}s id, and is never read back.",
+        ),
+        div()
+            .flex()
+            .items_center()
+            .gap_3()
+            .child(primary_button(
+                "app-settings-ssh-add",
+                Some(IconName::Plus),
+                "Add profile\u{2026}",
+                cx.listener(|this, _, window, cx| this.open_ssh_form(None, window, cx)),
+            ))
+            .into_any_element(),
+    ];
+
+    if profiles.is_empty() {
+        rows.push(note(
+            "No profiles. Nothing here is needed for a machine already set up with an \
+             ssh-agent \u{2014} a profile is how Ubiq is told which target to use, and what it \
+             takes to unlock it.",
+            theme::text_faint(),
+        ));
+        return column(rows);
+    }
+
+    rows.extend(profiles.iter().map(|profile| ssh_profile_row(profile, cx)));
+    column(rows)
+}
+
+/// One target: what it is called, where it goes, how it authenticates, whether a secret is filed
+/// for it, and the three things that can be done to it.
+///
+/// The badge says what is true of *this* method rather than a shared word: an agent profile and
+/// a config alias have nothing to file, so they carry no badge at all — an empty one would read
+/// as something missing.
+fn ssh_profile_row(profile: &SshProfile, cx: &mut Context<AppState>) -> AnyElement {
+    let id = profile.id;
+    let (method, address) = match &profile.auth {
+        // The alias is the whole address: every other field on the record is left to the file
+        // it names, so the row does not pretend to know a port or a user.
+        SshAuth::ConfigAlias => (
+            "ssh config alias".to_string(),
+            format!("{} \u{b7} from ~/.ssh/config", profile.host),
+        ),
+        auth => {
+            let user = if profile.user.is_empty() {
+                String::new()
+            } else {
+                format!("{}@", profile.user)
+            };
+            let method = match auth {
+                SshAuth::Agent => "agent".to_string(),
+                SshAuth::KeyFile { path, .. } => format!("key file \u{b7} {path}"),
+                SshAuth::Password { .. } => "password".to_string(),
+                SshAuth::ConfigAlias => unreachable!("handled above"),
+            };
+            (method, format!("{user}{}:{}", profile.host, profile.port))
+        }
+    };
+    // The presence of a secret, in the method's own word. Nothing for the two methods that take
+    // none — see this function's own note.
+    let filed = profile.auth.has_secret();
+    let chip = match &profile.auth {
+        SshAuth::KeyFile { .. } if filed => Some(("passphrase filed", theme::success())),
+        SshAuth::KeyFile { .. } => Some(("no passphrase", theme::text_faint())),
+        SshAuth::Password { .. } if filed => Some(("password filed", theme::success())),
+        // Warning rather than danger: nothing is wrong, something is not finished — a password
+        // profile with no password cannot dial.
+        SshAuth::Password { .. } => Some(("no password", theme::warning())),
+        SshAuth::Agent | SshAuth::ConfigAlias => None,
+    };
+
+    setting_row(
+        &format!("{} \u{b7} {method}", profile.name),
+        &address,
+        div()
+            .flex()
+            .items_center()
+            .gap_2()
+            .children(chip.map(|(text, colour)| badge(text, colour)))
+            // Offered only where there is one to forget: a control that clears nothing is a
+            // control that lies about what is filed.
+            .children(filed.then(|| {
+                ghost_button(
+                    ElementId::Name(format!("app-settings-ssh-{id}-forget").into()),
+                    None,
+                    "Forget secret",
+                    cx.listener(move |this, _, _, cx| this.forget_ssh_secret(id, cx)),
+                )
+            }))
+            .child(ghost_button(
+                ElementId::Name(format!("app-settings-ssh-{id}-edit").into()),
+                None,
+                "Edit",
+                cx.listener(move |this, _, window, cx| this.open_ssh_form(Some(id), window, cx)),
+            ))
+            .child(ghost_button(
+                ElementId::Name(format!("app-settings-ssh-{id}-remove").into()),
+                None,
+                "Remove",
+                cx.listener(move |this, _, _, cx| this.open_remove_ssh_profile(id, cx)),
+            ))
+            .into_any_element(),
+    )
+}
+
 /// How many connections live at an origin — what a "forget this certificate" question has to
 /// say out loud, since a pin is instance-wide rather than per connection.
 fn certificate_uses(app: &AppState, at: &str) -> usize {
@@ -3664,6 +3785,206 @@ pub fn ai_remove(app: &AppState, window: &mut Window, cx: &mut Context<AppState>
         true,
         crate::ui::handler(&view, |this, _, cx| this.confirm_remove_ai_provider(cx)),
         crate::ui::handler(&view, |this, _, cx| this.close_remove_ai_provider(cx)),
+        window,
+    )
+}
+
+/// The SSH-profile form: what to call the target, where it is, and what it takes to unlock it.
+///
+/// A [`modal`] on [`ai_form`]'s shape, because it is the same kind of question and a second
+/// visual language for it would be a second thing to learn.
+///
+/// **The secret is write-only.** The box is always empty when the form opens, because nothing on
+/// this side has ever been sent one. On an edit that is also how a filed secret is kept: blank
+/// means nothing is sent, and only a typed one replaces what is stored — "Forget secret" on the
+/// row is the way to clear one.
+///
+/// **The method decides which boxes exist.** A config alias defers wholly to `~/.ssh/config`, so
+/// the port and the user are not asked for at all — a box whose value the record ignores is a box
+/// that lies. A key file asks for its path; a key file and a password each ask for their secret;
+/// an agent asks for neither.
+pub fn ssh_form(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> AnyElement {
+    let Some(form) = app.workbench.settings.ssh_form else {
+        return div().into_any_element();
+    };
+    let view = cx.entity();
+    let editing = form.id.is_some();
+    let alias = form.method == SshMethod::ConfigAlias;
+    let named = !app.ssh_name_input.read(cx).value().trim().is_empty();
+    let addressed = !app.ssh_host_input.read(cx).value().trim().is_empty();
+    let keyed = !app.ssh_key_path_input.read(cx).value().trim().is_empty();
+    // A name and an address are what make a record dialable at all, and a key file with no path
+    // names nothing. A secret is required by none of them: an encrypted key is one case of a key
+    // file, and an unencrypted one is the other.
+    let ready = named && addressed && (form.method != SshMethod::KeyFile || keyed);
+
+    let focused = |input: &gpui::Entity<gpui_component::input::InputState>| {
+        input.read(cx).focus_handle(cx).is_focused(window)
+    };
+
+    let methods: Vec<AnyElement> = SshMethod::ALL
+        .iter()
+        .map(|method| {
+            let method = *method;
+            choice_pill(
+                ElementId::Name(format!("app-settings-ssh-method-{}", method.code()).into()),
+                method.label(),
+                form.method == method,
+                cx.listener(move |this, _, _, cx| this.pick_ssh_method(method, cx)),
+            )
+            .into_any_element()
+        })
+        .collect();
+
+    let body = div()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .pt_3()
+        .child(modal_note(
+            "Where the connection goes, and what it takes to prove who you are. A passphrase or \
+             a password is filed in this machine\u{2019}s credential store under the \
+             record\u{2019}s own id, and is never read back \u{2014} not by this form, and not \
+             by anything else.",
+        ))
+        .child(form_field(
+            "Name",
+            "What to call it \u{2014} \"build box\", \"jump\". Several targets on one machine \
+             are ordinary, so the name is what tells them apart.",
+            &app.ssh_name_input,
+            focused(&app.ssh_name_input),
+        ))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(label_block(
+                    "Method",
+                    "How the connection authenticates. The agent is what an already-working \
+                     setup usually is; the alias hands the whole question to \
+                     \u{7e}/.ssh/config, for a target Ubiq should not try to re-describe.",
+                ))
+                .child(div().flex().flex_wrap().gap_2().children(methods)),
+        )
+        .child(form_field(
+            if alias { "Alias" } else { "Host" },
+            if alias {
+                "The name of a Host block in \u{7e}/.ssh/config. Everything else about the \
+                 target \u{2014} its address, its port, its user, its identity file \u{2014} \
+                 comes from that file."
+            } else {
+                "The hostname or address to dial."
+            },
+            &app.ssh_host_input,
+            focused(&app.ssh_host_input),
+        ))
+        // Not asked for a config alias: the file the alias names answers both, and a box whose
+        // value the record ignores is a box that lies.
+        .when(!alias, |body| {
+            body.child(form_field(
+                "Port",
+                "Empty means 22.",
+                &app.ssh_port_input,
+                focused(&app.ssh_port_input),
+            ))
+            .child(form_field(
+                "User",
+                "Empty means whatever \u{201c}ssh\u{201d} would pick \u{2014} the local \
+                 username, or what the config file says.",
+                &app.ssh_user_input,
+                focused(&app.ssh_user_input),
+            ))
+        })
+        .when(form.method == SshMethod::KeyFile, |body| {
+            body.child(form_field(
+                "Key file",
+                "The private key on this machine, absolute or \u{7e}-prefixed. The path is a \
+                 reference and rides the settings file; the key itself is never read here.",
+                &app.ssh_key_path_input,
+                focused(&app.ssh_key_path_input),
+            ))
+        })
+        .when(form.method.takes_secret(), |body| {
+            body.child(form_field(
+                form.method.secret_label(),
+                if editing {
+                    "Leave it blank to keep what is already filed. Typing one replaces it; \
+                     \u{201c}Forget secret\u{201d} on the row is what clears it."
+                } else {
+                    "Optional \u{2014} an unencrypted key needs none. It crosses once, on its \
+                     way to this machine\u{2019}s credential store."
+                },
+                &app.ssh_secret_input,
+                focused(&app.ssh_secret_input),
+            ))
+        })
+        .into_any_element();
+
+    let footer = div()
+        .flex()
+        .items_center()
+        .gap_2()
+        .child(ghost_button(
+            "app-settings-ssh-form-cancel",
+            None,
+            "Cancel",
+            cx.listener(|this, _, window, cx| this.close_ssh_form(window, cx)),
+        ))
+        .child(
+            primary_button(
+                "app-settings-ssh-form-save",
+                None,
+                "Save",
+                cx.listener(|this, _, window, cx| this.save_ssh_form(window, cx)),
+            )
+            .when(!ready, |button| button.opacity(0.5)),
+        )
+        .into_any_element();
+
+    modal(
+        "app-settings-ssh-form-modal",
+        theme::accent(),
+        if editing {
+            "Edit SSH profile"
+        } else {
+            "Add SSH profile"
+        },
+        body,
+        footer,
+        crate::ui::handler(&view, |this, window, cx| this.close_ssh_form(window, cx)),
+        window,
+    )
+}
+
+/// The removal question. Danger, because the secret filed under the record's id goes with it:
+/// the host prunes what the incoming list no longer names.
+pub fn ssh_remove(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> AnyElement {
+    let Some(profile_id) = app.workbench.settings.ssh_remove else {
+        return div().into_any_element();
+    };
+    let view = cx.entity();
+    // A profile another window has already removed leaves the question naming nothing, which is
+    // still answerable — the list here no longer holds it either.
+    let name = app
+        .workbench
+        .settings
+        .ssh_profile(profile_id)
+        .map(|profile| profile.name.clone())
+        .unwrap_or_else(|| "this profile".to_string());
+
+    confirm_modal(
+        "app-settings-ssh-remove",
+        "Remove SSH profile",
+        &format!(
+            "Remove {name}? Any passphrase or password filed under it goes from this \
+             machine\u{2019}s credential store with it, so adding it again is a new record and a \
+             re-typed secret. The key file on disk is untouched."
+        ),
+        "Remove",
+        true,
+        crate::ui::handler(&view, |this, _, cx| this.confirm_remove_ssh_profile(cx)),
+        crate::ui::handler(&view, |this, _, cx| this.close_remove_ssh_profile(cx)),
         window,
     )
 }

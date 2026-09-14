@@ -49,7 +49,8 @@ use crate::state::orchestration::{Algo, GraphView, Held, InspectorTab, Selection
 use crate::state::settings::{
     self as ui_settings, AccountDialog, AiProviderForm, AiTest, AppForm, AssistInfo, CertPrompt,
     CliShortcut, ConnectApp, ConnectState, ConnectStep, ConnectorDialog, LoginState, LoginStep,
-    MAX_LOGIN_LINKS, MarkdownOpen, PendingSecret, SettingsSection, ToolEditScope, ToolEditor,
+    MAX_LOGIN_LINKS, MarkdownOpen, PendingSecret, SettingsSection, SshMethod, SshProfileForm,
+    ToolEditScope, ToolEditor,
 };
 use crate::state::sink::{
     ColourField, ProjectNav, SettingsMenu, SettingsNav, SinkDoc, SinkModal, SinkSection, SinkState,
@@ -90,7 +91,7 @@ use ubiq_proto::files::{DiffBase, FileContents, FileError, PathOp};
 use ubiq_proto::git::{GitEntry, GitError as GitFailure, GitNested, GitWriteOp, RepoOverview};
 use ubiq_proto::ids::{
     AiProviderId, ConnectId, ConnectionId, OauthAppId, PaneId, ProjectId, SearchId, SessionId,
-    StepId, SuggestId, TaskId, ToolId,
+    SshProfileId, StepId, SuggestId, TaskId, ToolId,
 };
 use ubiq_proto::messages::{
     AgentPicks, CliShortcutAction, Message, ProfileInfo, Secret, WorkspaceInfo,
@@ -101,7 +102,7 @@ use ubiq_proto::notifications::{
 use ubiq_proto::projects::{ProjectSnapshot, Scope};
 use ubiq_proto::settings::{
     AgentHome, Grant, HOST_SETTINGS_SCHEMA, HostSettings, RemoteScheme, SavedRemoteHost,
-    SettingsLayer,
+    SettingsLayer, SshAuth, SshProfile,
 };
 use ubiq_proto::work::{AgentId, Bucket, Priority, Shape, Status};
 
@@ -799,6 +800,17 @@ pub struct AppState {
     /// drawn at once, and a shared buffer would filter the list the user is not looking at.
     pub ai_fast_search: Entity<InputState>,
     pub ai_smart_search: Entity<InputState>,
+    /// The SSH-profile form's typed fields: what the target is called, the address (or the
+    /// `~/.ssh/config` alias), the port, the remote user and the key file's path. Read at save
+    /// time rather than mirrored per keystroke, for the reason `ai_name_input` is.
+    pub ssh_name_input: Entity<InputState>,
+    pub ssh_host_input: Entity<InputState>,
+    pub ssh_port_input: Entity<InputState>,
+    pub ssh_user_input: Entity<InputState>,
+    pub ssh_key_path_input: Entity<InputState>,
+    // ponytail: this kit has no masked field, so a typed passphrase is on screen until the modal
+    // closes — the same ceiling `ai_key_input` has, and the same fix.
+    pub ssh_secret_input: Entity<InputState>,
     /// The remote-connect modal's two fields: an address (which absorbs a whole pasted connection
     /// string — see `remote_connect::apply_remote_address_input`) and a token. Read at dial time
     /// rather than mirrored, for the same reason `connect_instance_input` is.

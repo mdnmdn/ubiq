@@ -2118,6 +2118,207 @@ impl AppState {
         cx.notify();
     }
 
+    /// Raise the SSH-profile form — empty for one being added, seeded for one being edited.
+    ///
+    /// The secret box is always left empty, because a stored passphrase is never read back: the
+    /// row says whether there is one and nothing shows it. Nothing is asked of the host either —
+    /// the whole list is already here, since this half owns it.
+    pub fn open_ssh_form(
+        &mut self,
+        id: Option<SshProfileId>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let held = id.and_then(|id| self.workbench.settings.ssh_profile(id).cloned());
+        let method = held
+            .as_ref()
+            .map_or(SshMethod::Agent, |profile| SshMethod::of(&profile.auth));
+        self.set_ssh_form_fields(held.as_ref(), window, cx);
+        self.workbench.settings.ssh_form = Some(SshProfileForm { id, method });
+        self.workbench.settings.error = None;
+        cx.notify();
+    }
+
+    /// Pick how a profile authenticates. Nothing follows it but which boxes the form draws: the
+    /// address, the port and the user are the user's whichever method is lit.
+    pub fn pick_ssh_method(&mut self, method: SshMethod, cx: &mut Context<Self>) {
+        if let Some(form) = &mut self.workbench.settings.ssh_form {
+            form.method = method;
+        }
+        cx.notify();
+    }
+
+    /// Write the form into the list and send the list.
+    ///
+    /// The profile itself rides `SetSettings` whole, like every other interface-owned setting;
+    /// only the material goes its own way, and only ever in a `Secret` — `SetSshSecret` after the
+    /// settings write, and only if the user typed into the box. A blank box on an edit means
+    /// "leave what is filed alone", the rule the API key follows, so there is no way for this
+    /// form to clear a secret by accident; "Forget" is what clears one.
+    ///
+    /// The id is minted here for an add, which is unlike a provider's: `ssh_profiles` is this
+    /// half's list, so there is no host round trip to wait for before the secret can name it.
+    pub fn save_ssh_form(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let name = self.ssh_name_input.read(cx).value().trim().to_string();
+        let host = self.ssh_host_input.read(cx).value().trim().to_string();
+        let port = self.ssh_port_input.read(cx).value().trim().to_string();
+        let user = self.ssh_user_input.read(cx).value().trim().to_string();
+        let key_path = self.ssh_key_path_input.read(cx).value().trim().to_string();
+        // Trimmed, because a passphrase pasted with a newline around it is not a different one.
+        let secret = self.ssh_secret_input.read(cx).value().trim().to_string();
+        let Some(form) = self.workbench.settings.ssh_form.take() else {
+            return;
+        };
+        // The two refusals the Save button is dimmed for, enforced here too: a click on a dimmed
+        // button is still a click. A key file with no path is a record that cannot dial.
+        if name.is_empty()
+            || host.is_empty()
+            || (form.method == SshMethod::KeyFile && key_path.is_empty())
+        {
+            self.workbench.settings.ssh_form = Some(form);
+            return;
+        }
+        // An empty port box means 22, which is what the contract's own default says.
+        let port = port.parse::<u16>().unwrap_or(22).max(1);
+        // The host re-derives every `has_*` flag from its secret store on the way in, so what is
+        // sent here only has to keep the row honest until that answer lands: whatever was filed
+        // before, plus whatever is being filed now.
+        let filed = form.id.is_some_and(|id| {
+            self.workbench
+                .settings
+                .ssh_profile(id)
+                .is_some_and(|profile| profile.auth.has_secret())
+        }) || !secret.is_empty();
+        let auth = match form.method {
+            SshMethod::Agent => SshAuth::Agent,
+            SshMethod::KeyFile => SshAuth::KeyFile {
+                path: key_path,
+                has_passphrase: filed,
+            },
+            SshMethod::Password => SshAuth::Password {
+                has_password: filed,
+            },
+            SshMethod::ConfigAlias => SshAuth::ConfigAlias,
+        };
+        // A config alias defers wholly to `~/.ssh/config`, so the two fields it ignores are not
+        // carried into the record either — a stale port on a row that cannot use one is a lie.
+        let alias = form.method == SshMethod::ConfigAlias;
+        let id = form.id.unwrap_or_else(SshProfileId::generate);
+        let profile = SshProfile {
+            id,
+            name,
+            host,
+            port: if alias { 22 } else { port },
+            user: if alias { String::new() } else { user },
+            auth,
+        };
+        let profiles = &mut self.workbench.settings.host.ssh_profiles;
+        match profiles.iter_mut().find(|held| held.id == id) {
+            Some(held) => *held = profile,
+            None => profiles.push(profile),
+        }
+        self.remember_host_settings();
+        // After the settings write, so the record naming this id is already on its way: a secret
+        // filed against a profile the host has never heard of is one it would refuse.
+        if !secret.is_empty() && form.method.takes_secret() {
+            self.bus.send(Message::SetSshSecret {
+                profile_id: id,
+                secret: Secret::new(secret),
+            });
+        }
+        self.set_ssh_form_fields(None, window, cx);
+        cx.notify();
+    }
+
+    pub fn close_ssh_form(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.workbench.settings.ssh_form = None;
+        self.set_ssh_form_fields(None, window, cx);
+        cx.notify();
+    }
+
+    /// Seed the form's typed fields from a record, or empty every one of them for `None`.
+    ///
+    /// The secret box is emptied either way: one is never read back, and one left over from the
+    /// last form would be filed against the wrong profile.
+    fn set_ssh_form_fields(
+        &mut self,
+        held: Option<&SshProfile>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let name = held.map_or(String::new(), |profile| profile.name.clone());
+        let host = held.map_or(String::new(), |profile| profile.host.clone());
+        // A record at the default reads as an empty box, which is what the field's placeholder
+        // already says: 22 means "the default", not "a port somebody chose".
+        let port = held
+            .filter(|profile| profile.port != 22)
+            .map_or(String::new(), |profile| profile.port.to_string());
+        let user = held.map_or(String::new(), |profile| profile.user.clone());
+        let key_path = match held.map(|profile| &profile.auth) {
+            Some(SshAuth::KeyFile { path, .. }) => path.clone(),
+            _ => String::new(),
+        };
+        for (input, value) in [
+            (&self.ssh_name_input, name.as_str()),
+            (&self.ssh_host_input, host.as_str()),
+            (&self.ssh_port_input, port.as_str()),
+            (&self.ssh_user_input, user.as_str()),
+            (&self.ssh_key_path_input, key_path.as_str()),
+            (&self.ssh_secret_input, ""),
+        ] {
+            input.update(cx, |state, cx| state.set_value(value, window, cx));
+        }
+    }
+
+    /// Forget one profile's stored secret, leaving the profile itself alone. What the user
+    /// presses to go back to an unencrypted key, or to re-type a password they got wrong.
+    ///
+    /// The flag is dropped here too rather than waited for: the host answers with the whole
+    /// settings record and will restamp it either way, and a badge that still says "filed" after
+    /// the press reads as a control that did nothing.
+    pub fn forget_ssh_secret(&mut self, profile_id: SshProfileId, cx: &mut Context<Self>) {
+        if let Some(profile) = self
+            .workbench
+            .settings
+            .host
+            .ssh_profiles
+            .iter_mut()
+            .find(|profile| profile.id == profile_id)
+        {
+            profile.auth.set_has_secret(false);
+        }
+        self.bus.send(Message::ClearSshSecret { profile_id });
+        cx.notify();
+    }
+
+    /// Raise the removal question. A danger confirm because the secret filed under the id goes
+    /// with the row — the host prunes what the incoming list no longer names.
+    pub fn open_remove_ssh_profile(&mut self, profile_id: SshProfileId, cx: &mut Context<Self>) {
+        self.workbench.settings.ssh_remove = Some(profile_id);
+        self.workbench.settings.error = None;
+        cx.notify();
+    }
+
+    /// Drop the row and write the list. No message of its own: a profile that leaves the list has
+    /// its secret pruned by the host, which is what keeps a forgotten row from stranding one.
+    pub fn confirm_remove_ssh_profile(&mut self, cx: &mut Context<Self>) {
+        let Some(profile_id) = self.workbench.settings.ssh_remove.take() else {
+            return;
+        };
+        self.workbench
+            .settings
+            .host
+            .ssh_profiles
+            .retain(|profile| profile.id != profile_id);
+        self.remember_host_settings();
+        cx.notify();
+    }
+
+    pub fn close_remove_ssh_profile(&mut self, cx: &mut Context<Self>) {
+        self.workbench.settings.ssh_remove = None;
+        cx.notify();
+    }
+
     /// Raise the test modal over one provider's row. Nothing is sent yet — the run is a button
     /// inside it, because a modal that calls a model as it opens calls one nobody asked for.
     pub fn open_ai_test(&mut self, provider_id: AiProviderId, cx: &mut Context<Self>) {

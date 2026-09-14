@@ -3,11 +3,11 @@ id: wip-drone
 title: The drone, phase by phase
 kind: wip
 status: current
-summary: The running state of the drone's nine phases — one small executable Ubiq places on another machine to serve its terminal, files and machine facts over a single duplex byte stream. Phases 1 to 3 are built and verified; the SSH connection store, the interface, the lifecycle and the deployment are not. This document is the ledger, updated as each phase lands.
+summary: The running state of the drone's nine phases — one small executable Ubiq places on another machine to serve its terminal, files and machine facts over a single duplex byte stream. Phases 1 to 4 are built and verified; the interface that dials one, the lifecycle and the deployment are not. This document is the ledger, updated as each phase lands.
 read_when: you are picking up the drone work and need to know what is built, what is next, and which decisions are already settled
-updated: 2026-09-12
-verified: 2026-09-12
-code_anchors: [crates/ubiq-drone/src/main.rs, crates/ubiq-drone/src/lib.rs, crates/ubiq-drone/src/relay.rs, crates/ubiq-drone/src/carrier.rs, crates/ubiq-drone/tests/session.rs, crates/ubiq-drone/tests/handshake.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-host/Cargo.toml, crates/ubiq-proto/src/carrier.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq/src/app/remote_connect.rs]
+updated: 2026-09-14
+verified: 2026-09-14
+code_anchors: [crates/ubiq-drone/src/main.rs, crates/ubiq-drone/src/lib.rs, crates/ubiq-drone/src/relay.rs, crates/ubiq-drone/src/carrier.rs, crates/ubiq-drone/tests/session.rs, crates/ubiq-drone/tests/handshake.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-host/Cargo.toml, crates/ubiq-proto/src/carrier.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-host/src/connectors/store.rs, crates/ubiq-host/src/settings.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/ui/settings.rs]
 depends_on: [tech-architecture, tech-transport, tech-structure, inbox-drone-runtime]
 ---
 
@@ -40,8 +40,8 @@ This departs from the shelved proposal's §3, which put a `remote: Option<Remote
 | 1 | The lean host build | **Built** |
 | 2 | `crates/ubiq-drone` and the stdio carrier | **Built** |
 | 3 | Handshake, schema version, heartbeat | **Built** |
-| 4 | SSH connection profiles and their secrets | Next |
-| 5 | The interface attaches over SSH | Not started |
+| 4 | SSH connection profiles and their secrets | **Built** |
+| 5 | The interface attaches over SSH | Next |
 | 6 | Detach and linger | Not started |
 | 7 | Managed drones | Not started |
 | 8 | Per-project configuration | Not started |
@@ -176,29 +176,52 @@ Closes `G189`, and opens `G256` and `G257` in its place. This phase was first wr
 row numbers came from the shelved proposal, which *proposed* `G107`–`G111` and never had them
 allocated; the real `G109` is the search filter's missing interface, and nothing here touches it.
 
-### 4 — SSH connection profiles and their secrets *(next)*
+### 4 — SSH connection profiles and their secrets *(built)*
 
 Built before the drone needs it, because three things want it and none of them is the drone alone:
-the drone's carrier, a remote `ubiq-host` reached over an ssh tunnel, and `G149` — "an ssh clone
-needs a credential callback, an agent socket and a key the host has no story for".
+the drone's carrier, a remote `ubiq-host` reached over an ssh tunnel, and `G149`.
 
-`SshProfile { id, name, host, port, user, auth }` in a new `HostSettings.ssh_profiles`, mutated by
-the interface and riding `SetSettings` whole — the ownership class `remote_hosts` is in, not the
-host-owned class `connections` is in, because nothing writes a profile unattended. `auth` is
-`Agent | KeyFile { path, has_passphrase } | Password { has_password } | ConfigAlias`, the last
-deferring wholly to the user's `~/.ssh/config`. A path is a reference and rides the record; a
-passphrase never does, and `has_*` is derived from the secret store rather than stored, as
-`OauthApp.has_secret` is.
+**`SshProfile { id, name, host, port, user, auth }` in `HostSettings.ssh_profiles`**, where `auth`
+is `Agent | KeyFile { path, has_passphrase } | Password { has_password } | ConfigAlias` — the last
+deferring wholly to `~/.ssh/config`, its host field an alias and every other field ignored, which
+the form says by hiding them. A path is a reference and rides the record; a passphrase never does.
+`HOST_SETTINGS_SCHEMA` goes to 16 on `ai_providers`' footing rather than `tools`': an older build
+dropping these rows strands their passphrases under ids nothing on disk names, and a profile is
+re-typable where a stranded secret is not.
 
-The material goes in a fourth namespace of `crates/ubiq-host/src/connectors/store.rs`'s existing
-`Store` — `harness: "ssh"`, `name: <profile id>` — beside `connector:`, `connector-app` and
-`ai-provider`, inheriting its `usable()` probe. It crosses inbound in a `Secret` and only in a
-`Secret` (`D65`).
+**The list is the interface's and the material is the host's** (`D124`). The profiles ride
+`SetSettings` whole, in the ownership class `remote_hosts` is in, because nothing writes one
+unattended. The passphrase or password crosses only in a `Secret` — `SetSshSecret` and
+`ClearSshSecret` (`D65`) — into a fourth namespace of the connector `Store`, `harness: "ssh"` and
+`name: <profile id>`, beside `connector:`, `connector-app` and `ai-provider`, inheriting its
+`usable()` probe. Both answer with the whole host-layer record rather than an acknowledgement,
+because the `has_*` flag moves with the secret and the interface draws that flag.
 
-Delivery is the sharp part: OpenSSH reads passwords from `/dev/tty`, not stdin, so a shelled-out
-`ssh` cannot be fed one. An askpass helper is the answer — `SSH_ASKPASS` pointing at Ubiq's own
-binary with `SSH_ASKPASS_REQUIRE=force` and no controlling terminal — which keeps the material out
-of `argv`, out of any file, and off the bus outbound entirely.
+**The flags are re-stamped, never believed.** Every host-layer write prunes the store to the ids the
+list still names and whose auth still takes a secret, then reads each flag back — closing the hole
+the ownership split opens, a profile deleted or switched to `Agent` leaving its material filed under
+an id nothing names. The rule is a pure `stale_ssh_secrets` in `settings.rs` and the coordinator
+applies it with the `Store` the connector modules already share, so `settings.rs` gains no keychain
+dependency and the rule is testable where there is no secret service. The cost is a keychain read
+per profile per write; the record is rebroadcast only when a flag moved. A refusal names the wrong
+thing — no such profile, or an auth method that holds none — *before* asking whether the keychain
+is usable, so it reads the same on a machine that has none. The drone refuses both on the host
+settings layer rather than joining the seven it can only log and drop: that set exists because
+those have no error variant, and these have one.
+
+The interface grows an **SSH profiles** section, following `ai_providers` function for function — a
+row list, a form modal holding no typed values of its own, and a delete confirm. A row states the
+method and whether a secret is filed, and offers Forget secret only when one is. Saving mints the id
+UI-side, writes the list through the ordinary `SetSettings` path, and sends `SetSshSecret` only if
+the box was typed into; the box is blanked either way and a secret is never sent back to be
+prefilled. The nav entry borrows `IconName::Network` rather than a drawn icon.
+
+**What is designed and not built is the delivery.** OpenSSH reads a password from `/dev/tty`, not
+stdin, so a shelled-out `ssh` cannot be fed one; the answer is an askpass helper — `SSH_ASKPASS`
+pointing at Ubiq's own binary with `SSH_ASKPASS_REQUIRE=force` and no controlling terminal, which
+keeps the material out of `argv`, out of any file, and off the bus outbound. Nothing dials `ssh`
+yet, so there is no process to set those variables on and no test that could exercise it. It lands
+with phase 5, which is what gives it a caller. `G258`.
 
 ### 5 — The interface attaches over SSH *(not started)*
 
@@ -328,6 +351,7 @@ exists to avoid. That is a decision about shape, not a deferral.
 ```
 cargo build -p ubiq-drone      # the drone
 cargo test -p ubiq-drone       # 5 tests: session (2), handshake (3)
+cargo test -p ubiq-host --test settings --test connectors   # the ssh namespace and its reconcile
 just relay                     # the lean host builds and stays lean — part of `just verify`
 just host / just ui            # the crate-boundary guards
 just verify                    # everything a change has to pass, the three above included
@@ -360,6 +384,8 @@ phases that have not landed, and move there as each one does.
   reachable has no rows in the catalogue rather than unreachable ones.
 - **`D117` — the carrier family is the one part of the contract no dispatch ever sees.**
 - **`D118` — the heartbeat pings only silence**, 20 seconds and three misses.
+- **`D124` — an SSH profile is the interface's record and its secret is the host's**, which is what
+  obliges the host to prune and re-stamp on every write.
 - **The carrier is the ssh exec channel's stdio by default** — no forwarded port, which is why the
   shelved proposal's exec-time keypair defends nothing and is not built.
 - **Persistence, when it lands, is a unix socket at mode `0600`**, never `tmux attach`: tmux is a
@@ -387,6 +413,9 @@ phases that have not landed, and move there as each one does.
 - **Nothing in the interface dials a drone yet**, so `ubiq_proto::carrier::welcome` — Ubiq's half of
   the handshake — is called only by tests. Phase 5 is what puts it on a real `ssh` channel, and
   until then the only proven pairing is a drone against a test's far end.
+- **A profile can be written and its secret filed, and neither can be spent.** No askpass helper
+  exists and nothing dials `ssh`, so the whole of phase 4 is storage waiting for phase 5's caller.
+  `G258`.
 - A refusal is a sentence on the wire and a non-zero exit; **no modal shows it**, because there is
   no connect flow for a drone to fail in yet. Also phase 5.
 - `capabilities` is advertised and nothing reads it. The interface has no reason to branch on one
@@ -397,4 +426,4 @@ phases that have not landed, and move there as each one does.
 
 - [`../tech/architecture.md`](../tech/architecture.md) — the lean host, and the rule that the UI never assumes the pseudo-terminal is local
 - [`../tech/transport-contract.md`](../tech/transport-contract.md) — the framing a carrier honours, the file family's seam, and [`../tech/project-structure.md`](../tech/project-structure.md) for the crate's feature split
-- [`../backlog.md`](../backlog.md) — `G108`, `G149`, `G188`, `G189`, `G256`, `G257`; and `D116`–`D118` in [`../tech/decisions.md`](../tech/decisions.md)
+- [`../backlog.md`](../backlog.md) — `G108`, `G149`, `G188`, `G189`, `G256`, `G257`, `G258`; and `D116`–`D118` and `D124` in [`../tech/decisions.md`](../tech/decisions.md)
