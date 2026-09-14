@@ -23,7 +23,7 @@ use crate::git::{
 };
 use crate::ids::{
     AiProviderId, CloneId, ConnectId, ConnectionId, NotificationId, OauthAppId, PaneId, ProjectId,
-    RepoQueryId, SearchId, SessionId, StepId, SuggestId, TaskId, ToolId,
+    RepoQueryId, SearchId, SessionId, SshProfileId, StepId, SuggestId, TaskId, ToolId,
 };
 use crate::mcp::McpInfo;
 use crate::notifications::{
@@ -1600,6 +1600,29 @@ pub enum Message {
         provider_id: AiProviderId,
         draft: AiProviderDraft,
         key: Option<Secret>,
+    },
+    /// File the passphrase or password an SSH profile authenticates with, in the secret store's
+    /// `ssh` namespace under `profile_id`. Answered with the host layer's whole
+    /// [`Message::Settings`] record, because the profile's host-derived `has_*` flag moves with
+    /// the secret and the interface draws that flag — or with [`Message::SettingsError`].
+    ///
+    /// The profile itself rides `SetSettings` whole, like every other interface-owned setting;
+    /// only the material comes this way, and only ever in a [`Secret`] (`D65`). Sending this for
+    /// a profile whose auth takes no secret — agent, or a config alias — is refused rather than
+    /// filed: a passphrase stored against a profile that will never read it is a leak with no
+    /// user-visible way back to it.
+    SetSshSecret {
+        profile_id: SshProfileId,
+        secret: Secret,
+    },
+    /// Forget an SSH profile's stored secret, leaving the profile itself alone. What the user
+    /// presses to go back to an unencrypted key or to re-type a password they got wrong.
+    ///
+    /// A profile *removed* from the list needs no such message: the host prunes the secret of
+    /// every id the incoming list no longer names, which is what keeps a forgotten row from
+    /// stranding its material.
+    ClearSshSecret {
+        profile_id: SshProfileId,
     },
     /// Remove a provider and its key together. If the assist setting named it, the setting falls
     /// back to [`crate::assist::AssistProvider::Off`] — a setting pointing at nothing would report

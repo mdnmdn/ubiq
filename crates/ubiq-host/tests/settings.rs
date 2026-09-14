@@ -3,10 +3,14 @@
 use std::fs;
 
 use tempfile::TempDir;
+use ubiq_host::settings::stale_ssh_secrets;
 use ubiq_host::store::file::FileSettingsStore;
 use ubiq_host::store::memory::MemorySettingsStore;
 use ubiq_host::store::{SettingsStore, StoreError};
-use ubiq_proto::settings::{HOST_SETTINGS_SCHEMA, HostSettings, SettingsLayer};
+use ubiq_proto::ids::SshProfileId;
+use ubiq_proto::settings::{
+    HOST_SETTINGS_SCHEMA, HostSettings, SettingsLayer, SshAuth, SshProfile,
+};
 
 const UI_BLOB: &str = r#"{"schema":1,"explorer_preview":true,"markdown_open":"preview"}"#;
 
@@ -340,4 +344,82 @@ fn clearing_an_override_is_not_the_same_as_saying_nothing() {
         IndexChange::Set(IndexLevel::Full).resolve(),
         Some(IndexLevel::Full)
     );
+}
+
+/// A profile the interface dropped from the list takes its secret with it.
+///
+/// Nothing else would ever reach that material again: the credential is filed under the profile's
+/// id, and the id is gone from the only list that names it.
+#[test]
+fn a_forgotten_ssh_profile_leaves_no_secret_behind() {
+    let kept = key_profile("kept");
+    let dropped = key_profile("dropped");
+
+    let stale = stale_ssh_secrets(
+        &[kept.clone(), dropped.clone()],
+        std::slice::from_ref(&kept),
+    );
+    assert_eq!(stale, vec![dropped.id]);
+
+    // Nothing removed is nothing to prune, whichever order the list is in.
+    assert!(stale_ssh_secrets(&[kept.clone(), dropped.clone()], &[dropped, kept]).is_empty());
+}
+
+/// A profile switched to an auth method that reads no secret has its secret pruned too.
+///
+/// An `ssh-agent` or `~/.ssh/config` profile keeping a passphrase filed against it is a leak with
+/// no user-visible way back to it, so the edit that made it one is what removes the material.
+#[test]
+fn an_ssh_profile_that_stops_taking_a_secret_is_pruned() {
+    let before = key_profile("box");
+    let mut after = before.clone();
+    after.auth = SshAuth::Agent;
+    assert_eq!(
+        stale_ssh_secrets(std::slice::from_ref(&before), &[after]),
+        vec![before.id]
+    );
+
+    let mut alias = before.clone();
+    alias.auth = SshAuth::ConfigAlias;
+    assert_eq!(
+        stale_ssh_secrets(std::slice::from_ref(&before), &[alias]),
+        vec![before.id]
+    );
+
+    // A password profile still takes one, so the switch between the two secret-bearing variants
+    // prunes nothing.
+    let mut password = before.clone();
+    password.auth = SshAuth::Password { has_password: true };
+    assert!(stale_ssh_secrets(&[before], &[password]).is_empty());
+}
+
+/// The flag is the host's word, never the interface's.
+#[test]
+fn an_ssh_profiles_flag_is_stamped_and_not_believed() {
+    let mut profile = key_profile("box");
+    profile.auth.set_has_secret(true);
+    assert!(profile.auth.has_secret());
+    profile.auth.set_has_secret(false);
+    assert!(!profile.auth.has_secret());
+
+    // A variant with nothing to hold cannot be talked into claiming it does.
+    let mut agent = profile.clone();
+    agent.auth = SshAuth::Agent;
+    agent.auth.set_has_secret(true);
+    assert!(!agent.auth.has_secret());
+    assert!(!agent.auth.takes_secret());
+}
+
+fn key_profile(name: &str) -> SshProfile {
+    SshProfile {
+        id: SshProfileId::generate(),
+        name: name.to_string(),
+        host: "build.example.com".to_string(),
+        port: 22,
+        user: String::new(),
+        auth: SshAuth::KeyFile {
+            path: "~/.ssh/id_ed25519".to_string(),
+            has_passphrase: true,
+        },
+    }
 }

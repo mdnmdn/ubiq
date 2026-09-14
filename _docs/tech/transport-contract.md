@@ -5,8 +5,8 @@ kind: tech
 status: draft
 summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, quota, profile, command-line, host browse, connector, repository, assist, notification, web asset and carrier families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
-updated: 2026-09-13
-verified: 2026-09-13
+updated: 2026-09-14
+verified: 2026-09-14
 code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
@@ -133,6 +133,8 @@ recolour and a move on disk.
 | `SetPreferences` | UI → host | `scope`, `value` | — |
 | `GetSettings` | UI → host | `layer` | `Settings` |
 | `SetSettings` | UI → host | `layer`, `value` | — (Ui) or `SettingsError` (Host) |
+| `SetSshSecret` | UI → host | `profile_id`, `secret` | `Settings` or `SettingsError` |
+| `ClearSshSecret` | UI → host | `profile_id` | `Settings` or `SettingsError` |
 | `ProjectList` | host → UI | `projects[]` | — |
 | `ProjectAdded` | host → UI | `project` | — |
 | `ProjectChanged` | host → UI | `project` | — |
@@ -171,6 +173,16 @@ to agent-manager.
 
 A `SettingsLayer` is `Ui` or `Host`. The Host record on the wire is JSON with a `schema` field;
 on disk it is TOML of that same record. The Ui record's schema lives in the interface.
+
+**`SetSshSecret` and `ClearSshSecret` are the seam an SSH profile is split along.** The profile
+itself — name, host, port, user, auth method, key path — rides `SetSettings` whole with every other
+interface-owned setting; only the passphrase or password comes this way, and only in a `Secret`
+(`D65`), because the host is the half with a keychain. What comes back is the whole host-layer
+`Settings` record rather than an acknowledgement, because the profile's `has_passphrase` and
+`has_password` flags move with the secret and the interface draws them. The host re-stamps those
+flags from the secret store on every host-layer write and prunes the store to the ids the list still
+names, so a profile the user deleted cannot strand its material — `D124` argues that split and names
+what it costs.
 
 **`LocateProject` is separate from `UpdateProject`** because the two differ in kind. A rename or a
 recolour is display only: it touches no filesystem and cannot fail. Locate changes truth — it
@@ -1482,6 +1494,16 @@ Unlike `connections`, `oauth_apps` and `trusted_certs`, this field is the interf
 rides `SetSettings` whole. Those three are re-read from disk on every write because a flow running
 in the background can finish while a dialog holds a stale copy of them; nothing adds or forgets a
 saved host except a person on that settings page, so there is no concurrent writer to clobber.
+
+**A saved host says what carries its frames, not what kind of host it is.** `SavedRemoteHost.carrier`
+is `Socket` — an address Ubiq dials, `scheme` deciding whether TLS wraps it — or
+`Ssh { profile, root }`, an `ssh` Ubiq spawns whose standard input and output are the stream. Both
+ends speak the same length-prefixed MessagePack; what differs is what the bytes travel over and what
+failing to reach the far end looks like. It is a discriminant on the existing record rather than a
+second list because a drone attaches as an ordinary host (`D116`), so the Hosts section, the picker
+and Disconnect carry it with no change of their own. `HOST_SETTINGS_SCHEMA` is 17 for the field: an
+older build drops it and every saved drone silently becomes a socket host pointed at an address it
+never had, which is a row that looks connectable and is not — worse than one that is gone.
 
 **`bundled` on `Connections` says which providers this build ships an application for.** It is a
 compile-time fact of the host — every built-in client id is an `option_env!` — and the interface's

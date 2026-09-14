@@ -9,6 +9,7 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use ubiq_proto::ids::SshProfileId;
 use ubiq_proto::settings::RemoteScheme;
 
 /// The port a remote host listens on when nothing else is said. Matches
@@ -51,6 +52,20 @@ pub enum RemoteConnectStep {
     Failed { reason: String },
 }
 
+/// Which kind of host the modal is collecting, and therefore which fields it shows.
+///
+/// The same discriminant `SavedRemoteHost::carrier` carries, minus its payload: the payload here
+/// is the modal's own fields — the picked profile below, and the root in
+/// `AppState::remote_root_input` — because a half-filled form is not a `RemoteCarrier` yet.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ConnectMode {
+    /// Dial a `ubiq --serve` host over TCP: an address and a token.
+    #[default]
+    Socket,
+    /// Spawn an `ssh` to a drone: a saved SSH profile and a folder on the far machine.
+    Ssh,
+}
+
 /// The connect-to-a-remote-host modal, while it is up.
 ///
 /// Composed into `ui/shell.rs` on the same terms as `SettingsState::connect`: an `Option` field,
@@ -75,6 +90,13 @@ pub struct RemoteConnectState {
     /// certificate is not verified, and the saved entry keeps the flag so the manager panel
     /// shows it too.
     pub trust_insecure: bool,
+    /// Which carrier this connect is for. A socket dial reads the address and token fields; an
+    /// SSH one reads [`Self::profile`] and the root field instead.
+    pub mode: ConnectMode,
+    /// The SSH profile picked, in [`ConnectMode::Ssh`]. `None` until one is chosen — and a saved
+    /// entry whose profile has since been deleted lands here as `None` too, so the modal asks
+    /// again rather than dialling something the user did not mean.
+    pub profile: Option<SshProfileId>,
 }
 
 impl Default for RemoteConnectState {
@@ -85,6 +107,8 @@ impl Default for RemoteConnectState {
             save_id: String::new(),
             scheme: RemoteScheme::Http,
             trust_insecure: false,
+            mode: ConnectMode::Socket,
+            profile: None,
         }
     }
 }

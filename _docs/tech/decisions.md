@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-09-13
-verified: 2026-09-13
+updated: 2026-09-14
+verified: 2026-09-14
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -2541,6 +2541,58 @@ callback runs.
 **Cost.** libssh2 in the host's tree — another C library, another compile, and ssh that is
 libssh2's rather than OpenSSH's: `~/.ssh/config` Host aliases and `IdentityFile` are not read. The
 agent and the well-known identity files are. Clone still refuses ssh (`G149`).
+
+### D124 — An SSH profile is the interface's record and its secret is the host's
+
+`HostSettings.ssh_profiles` rides `SetSettings` whole, in the ownership class `remote_hosts` is in
+rather than the host-owned class `connections` and `ai_providers` are in. Nothing writes a profile
+unattended: one is added, renamed or forgotten only by a person on one settings page, so there is
+no background writer for a UI write to clobber and no reason for `Settings::set` to re-overwrite
+the list from disk.
+
+The material is the exception, and splitting it out is what makes the rest safe. A passphrase or
+password reaches the host only in a `Secret`, through `SetSshSecret` and `ClearSshSecret` (`D65`),
+and lives in a fourth namespace of the connector store — `harness: "ssh"`, `name: <profile id>` —
+beside `connector:`, `connector-app` and `ai-provider`. The `has_passphrase` and `has_password`
+flags on the record are **re-stamped by the host from that store on every write**, never believed
+from the blob that arrived, because the interface is never sent the material and so cannot be the
+half that knows whether there is any.
+
+That leaves one hazard the host also owns: a profile the user deleted, or switched to `Agent`, would
+otherwise leave its secret filed under an id nothing on disk names. So every host-layer write prunes
+the store to the ids the incoming list still carries and whose auth still takes a secret. It is the
+same inseparability `AddAiProvider` buys by owning the record; bought here on the write path
+instead, which is what lets the record stay the interface's.
+
+**Cost.** The reconcile runs on every host-layer settings write, not only on the ones that touched a
+profile — a keychain read per profile, for a list that is small by nature. And the split is a seam a
+future writer can get wrong: a code path that writes `ssh_profiles` without going through that
+reconcile would file a flag the store does not back. `SetSettings` is the only such path today.
+
+### D125 — The askpass helper reads the keychain itself, so material never enters the interface
+
+OpenSSH reads a password from `/dev/tty`, not standard input, so a shelled-out `ssh` cannot be fed
+one. `SSH_ASKPASS` points at Ubiq's own binary with `SSH_ASKPASS_REQUIRE=force`, and the child's
+environment carries `UBIQ_ASKPASS_PROFILE` and `UBIQ_ASKPASS_ROOT` — a profile id and a config root,
+both references. The helper mode lives in `ubiq-app`, the one crate that names both halves, so it
+opens the host's secret store under that root and writes the secret on its own standard output,
+which is where OpenSSH reads an askpass answer from.
+
+The material's whole path is keychain to helper stdout to `ssh`. It is never in `argv`, never in a
+file, never on the bus, and never in the interface process.
+
+The alternative was a message — the interface asks the host for the secret, receives it in a
+`Secret`, and hands it to the child it is spawning. That is legal under `D65` and still wrong here.
+It would put credential material in the drawing process for the first time, in order to give it to
+a child that can fetch its own; and it would contradict `D124`, which had just made the material the
+host's half of an SSH profile. A path that exists only to carry a secret through a process that does
+not need it is a path that can leak it.
+
+**Cost.** The helper is a second entry point into `ubiq-app` whose contract is two environment
+variables, and it reaches `ubiq_host`'s store directly rather than over the bus — the one place the
+binary uses its knowledge of both halves for something other than starting them. It is also
+untestable end to end without a real `ssh`: what a test can reach is the argv and the environment
+the child is given, not what OpenSSH does with them.
 
 ## Related docs
 

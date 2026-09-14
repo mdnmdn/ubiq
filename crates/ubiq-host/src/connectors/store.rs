@@ -1,8 +1,9 @@
 //! Where a connection's token lives, and what it says about itself.
 //!
-//! Three kinds of secret are filed here, in three namespaces that cannot collide: a connection's
+//! Four kinds of secret are filed here, in four namespaces that cannot collide: a connection's
 //! token ([`key`]), the client secret of an OAuth registration Ubiq authenticates *as*
-//! ([`app_key`]), and an API provider's key ([`ai_key`]). One store rather than three, because
+//! ([`app_key`]), an API provider's key ([`ai_key`]), and the passphrase or password an SSH
+//! profile authenticates with ([`ssh_key`]). One store rather than four, because
 //! whether the platform's keychain works at all is one fact and [`Store::usable`] answers it once —
 //! and because a second [`OsSecretStore`] over the same directory would be a second answer to it.
 //!
@@ -25,7 +26,7 @@ use agent_manager::credentials::{
 };
 use serde::{Deserialize, Serialize};
 use ubiq_proto::connectors::ProviderId;
-use ubiq_proto::ids::{AiProviderId, ConnectionId, OauthAppId};
+use ubiq_proto::ids::{AiProviderId, ConnectionId, OauthAppId, SshProfileId};
 use ubiq_proto::messages::LoginStatus;
 
 /// The one file a connection's credential is made of.
@@ -164,6 +165,40 @@ impl Store {
             .is_some_and(|blobs| !blobs.is_empty())
     }
 
+    /// File an SSH profile's passphrase or password. One blob like every other secret here; which
+    /// of the two it is, is the profile's `auth` variant and not this store's business.
+    pub fn set_ssh_secret(&self, profile: SshProfileId, secret: &str) -> Result<(), String> {
+        self.inner
+            .set(&ssh_key(profile), &[blob(secret.as_bytes().to_vec())])
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn clear_ssh_secret(&self, profile: SshProfileId) -> Result<(), String> {
+        self.inner
+            .delete(&ssh_key(profile))
+            .map_err(|error| error.to_string())
+    }
+
+    /// The secret itself, for a connection about to be dialled. `None` means there is none filed.
+    pub fn ssh_secret(&self, profile: SshProfileId) -> Option<String> {
+        let blobs = self.inner.get(&ssh_key(profile)).ok().flatten()?;
+        let blob = blobs.first()?;
+        String::from_utf8(blob.bytes.clone()).ok()
+    }
+
+    /// Whether a secret is filed, without reading one. This is what an [`SshAuth`] row's
+    /// host-derived flag is stamped from, so the material never leaves the store for a question
+    /// about its presence.
+    ///
+    /// [`SshAuth`]: ubiq_proto::settings::SshAuth
+    pub fn has_ssh_secret(&self, profile: SshProfileId) -> bool {
+        self.inner
+            .get(&ssh_key(profile))
+            .ok()
+            .flatten()
+            .is_some_and(|blobs| !blobs.is_empty())
+    }
+
     pub fn set_app_secret(&self, app: OauthAppId, secret: &str) -> Result<(), String> {
         self.inner
             .set(&app_key(app), &[blob(secret.as_bytes().to_vec())])
@@ -194,6 +229,19 @@ pub fn ai_key(provider: AiProviderId) -> CredentialId {
     CredentialId {
         harness: "ai-provider".to_string(),
         name: provider.to_string(),
+    }
+}
+
+/// Where an SSH profile's passphrase or password is filed — a fourth namespace, because it
+/// unlocks a machine the user reaches rather than an account at a service.
+///
+/// Keyed by the profile's id alone, which is what lets the address, the user and even the auth
+/// method be edited without the material moving: a profile that stops taking a secret has it
+/// pruned deliberately, never orphaned under an old spelling.
+pub fn ssh_key(profile: SshProfileId) -> CredentialId {
+    CredentialId {
+        harness: "ssh".to_string(),
+        name: profile.to_string(),
     }
 }
 

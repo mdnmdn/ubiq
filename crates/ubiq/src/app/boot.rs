@@ -280,12 +280,35 @@ impl AppState {
         let ai_smart_search =
             cx.new(|cx| InputState::new(window, cx).placeholder("Filter\u{2026}"));
 
+        // The SSH-profile form's typed fields. Seeded whenever the form opens — empty for a
+        // profile being added, the record's own values when one is being edited — and the secret
+        // box is always left empty, because a stored passphrase is never read back. Read at save
+        // time, so no subscription.
+        let ssh_name_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("build box, jump\u{2026}"));
+        let ssh_host_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("10.0.0.4, build.example.com"));
+        let ssh_port_input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("22 \u{2014} empty means the default")
+        });
+        let ssh_user_input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("Optional \u{2014} whatever ssh picks")
+        });
+        let ssh_key_path_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("~/.ssh/id_ed25519"));
+        let ssh_secret_input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("Type it once \u{2014} it is never read back")
+        });
+
         // The remote-connect modal's fields. `remote_address_input` doubles as the paste target
         // for a whole connection string — see the `InputEvent::Change` subscription below.
         let remote_address_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("192.168.1.5:7420"));
         let remote_token_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("Paste the token\u{2026}"));
+        let remote_root_input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("Optional \u{2014} the login directory")
+        });
         let remote_rename_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("A name for this host\u{2026}"));
 
@@ -963,8 +986,15 @@ impl AppState {
             ai_smart_model_input.read(cx).focus_handle(cx),
             ai_fast_search.read(cx).focus_handle(cx),
             ai_smart_search.read(cx).focus_handle(cx),
+            ssh_name_input.read(cx).focus_handle(cx),
+            ssh_host_input.read(cx).focus_handle(cx),
+            ssh_port_input.read(cx).focus_handle(cx),
+            ssh_user_input.read(cx).focus_handle(cx),
+            ssh_key_path_input.read(cx).focus_handle(cx),
+            ssh_secret_input.read(cx).focus_handle(cx),
             remote_address_input.read(cx).focus_handle(cx),
             remote_token_input.read(cx).focus_handle(cx),
+            remote_root_input.read(cx).focus_handle(cx),
             clone_filter_input.read(cx).focus_handle(cx),
             clone_url_input.read(cx).focus_handle(cx),
             clone_name_input.read(cx).focus_handle(cx),
@@ -1154,8 +1184,15 @@ impl AppState {
             ai_smart_model_input,
             ai_fast_search,
             ai_smart_search,
+            ssh_name_input,
+            ssh_host_input,
+            ssh_port_input,
+            ssh_user_input,
+            ssh_key_path_input,
+            ssh_secret_input,
             remote_address_input,
             remote_token_input,
+            remote_root_input,
             remote_rename_input,
             sink_search,
             sink_harness_name,

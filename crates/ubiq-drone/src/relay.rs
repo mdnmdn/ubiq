@@ -14,9 +14,10 @@
 //!
 //! It renders nothing, and terminal bytes stay opaque.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use ubiq_host::files::{self, Files};
 use ubiq_host::host_meta::HostMeta;
@@ -27,11 +28,39 @@ use ubiq_proto::ids::{PaneId, ProjectId};
 use ubiq_proto::messages::{Message, WorkspaceInfo};
 use ubiq_proto::projects::{ProjectRecord, ProjectSnapshot};
 
+use crate::linger::Linger;
+use crate::scrollback::Scrollback;
+
 /// The geometry a pane starts at, before the interface has measured its own bounds. The same
 /// numbers the coordinator uses, for the same reason: the truth arrives a frame later as a
 /// `TerminalResize`.
 const INITIAL_COLS: u16 = 80;
 const INITIAL_ROWS: u16 = 24;
+
+/// How often a **detached** drone wakes to ask whether its linger has run out. The countdown is
+/// started by a client leaving — which is what the heartbeat's three missed pings turn a dead
+/// link into — so this only bounds how late the exit is, never whether it happens.
+const TICK: Duration = Duration::from_millis(250);
+
+/// How long an **attached** drone waits on the bus before looking around. There is nothing for it
+/// to look at: it has no countdown, and the end of its stream arrives as a disconnect.
+const IDLE: Duration = Duration::from_secs(3600);
+
+/// How long a drone that has **never** had a client waits before giving up, whatever its linger
+/// says. `--linger 0` means "go when the last client leaves", and a drone that was started to be
+/// attached to must not exit in the gap before the first one arrives; a drone nobody ever attaches
+/// to must not become a resident process either.
+const STARTUP_GRACE: Duration = Duration::from_secs(30);
+
+/// What a drone that outlives its link is holding.
+struct Holding {
+    /// Shared with the accept loop, because `--linger` is re-asserted on every attach.
+    linger: Arc<Mutex<Linger>>,
+    /// When the last client left; `None` while one is attached.
+    alone_since: Option<Instant>,
+    /// Whether a client has ever been here. Until one has, [`STARTUP_GRACE`] is the rule.
+    ever: bool,
+}
 
 /// One machine, served.
 pub struct Relay {
@@ -52,6 +81,19 @@ pub struct Relay {
     panes: HashMap<PaneId, pty::Pty>,
     owners: HashMap<PaneId, ClientId>,
     focused: HashMap<ClientId, PaneId>,
+    /// Who is attached right now. One client in the ordinary case; the set is what says a
+    /// detached drone's countdown may start, which is a question about the *last* one to leave.
+    here: HashSet<ClientId>,
+    /// What each live pane was announced as, so a client attaching to a drone that already has
+    /// panes can be told about them. A reattach is a new host attach, not a resumed one: nothing
+    /// carries over but the pane's id, its process, and its ring.
+    announced: HashMap<PaneId, WorkspaceInfo>,
+    /// Every pane's output, on its way to whoever is attached, and kept in a bounded ring for
+    /// whoever attaches next.
+    screens: Scrollback,
+    /// Absent when the stream *is* the session — `--stdio`, where a client leaving is the end of
+    /// everything this drone was for.
+    holding: Option<Holding>,
 }
 
 impl Relay {
@@ -61,6 +103,25 @@ impl Relay {
     /// with the health the probe gave it, which is the same thing a local host does for a project
     /// whose folder has gone. Refusing here would leave the user with no row to look at.
     pub fn new(roots: Vec<PathBuf>) -> Self {
+        Self::build(roots, None)
+    }
+
+    /// The same relay, detached: its panes outlive the link that opened them, and `linger` — which
+    /// an attach may re-assert at any time — is what decides how long they outlive the last one.
+    pub fn holding(roots: Vec<PathBuf>, linger: Arc<Mutex<Linger>>) -> Self {
+        Self::build(
+            roots,
+            Some(Holding {
+                linger,
+                // A drone that has never had a client is already alone: a link that never
+                // arrives must not leave a process nobody knows to go and kill.
+                alone_since: Some(Instant::now()),
+                ever: false,
+            }),
+        )
+    }
+
+    fn build(roots: Vec<PathBuf>, holding: Option<Holding>) -> Self {
         let scratch = std::env::temp_dir().join(format!("ubiq-drone-{}", std::process::id()));
         if let Err(error) = std::fs::create_dir_all(&scratch) {
             tracing::warn!("could not reserve {}: {error}", scratch.display());
@@ -77,22 +138,51 @@ impl Relay {
             panes: HashMap::new(),
             owners: HashMap::new(),
             focused: HashMap::new(),
+            here: HashSet::new(),
+            announced: HashMap::new(),
+            // Only a drone that outlives its link has anything to replay.
+            screens: Scrollback::start(holding.is_some()),
+            holding,
         }
     }
 
-    /// Answer the bus until it closes.
+    /// Answer the bus until it closes, or until a detached drone has been alone for too long.
     ///
-    /// It closes when the carrier's stream has ended and the hub behind it has been dropped —
-    /// which is why [`Self::shutdown`] runs on the way out and not on a signal: see `carrier`.
+    /// The bus closes when the carrier's stream has ended and the hub behind it has been dropped,
+    /// which for `--stdio` is the whole of the lifecycle. A detached drone's hub outlives every
+    /// link, so what ends it instead is the linger: [`Self::shutdown`] runs on the way out of
+    /// either, and there is no third path — see `carrier` for why a second one is a mistake.
     pub fn run(mut self, host: HostEnd) {
-        while let Ok(event) = host.recv() {
-            match event {
-                FromClient::Connected(client) => self.client_here(&host, client),
-                FromClient::Said { client, message } => self.dispatch(&host, client, message),
-                FromClient::Gone(client) => self.client_gone(client),
+        let wait = if self.holding.is_some() { TICK } else { IDLE };
+        loop {
+            match host.recv_timeout(wait) {
+                Ok(FromClient::Connected(client)) => self.client_here(&host, client),
+                Ok(FromClient::Said { client, message }) => self.dispatch(&host, client, message),
+                Ok(FromClient::Gone(client)) => self.client_gone(client),
+                Err(flume::RecvTimeoutError::Timeout) => {}
+                Err(flume::RecvTimeoutError::Disconnected) => break,
+            }
+            if self.lingered_out() {
+                tracing::info!("nobody attached within the linger: killing the panes and going");
+                break;
             }
         }
         self.shutdown();
+    }
+
+    /// Whether this drone has waited alone for as long as it was told to.
+    fn lingered_out(&self) -> bool {
+        let Some(holding) = self.holding.as_ref() else {
+            return false;
+        };
+        let Some(since) = holding.alone_since else {
+            return false;
+        };
+        if !holding.ever {
+            return since.elapsed() >= STARTUP_GRACE;
+        }
+        let linger = *holding.linger.lock().expect("the linger");
+        linger.expired(since.elapsed())
     }
 
     /// Kill and reap every pane this drone still holds.
@@ -104,17 +194,25 @@ impl Relay {
     /// ignores the hang-up.
     fn shutdown(&mut self) {
         for (pane_id, mut pane) in self.panes.drain() {
-            tracing::info!("the stream ended: killing pane {pane_id}");
+            tracing::info!("the session is over: killing pane {pane_id}");
             pane.kill();
         }
         self.owners.clear();
         self.focused.clear();
+        self.announced.clear();
     }
 
     /// A client attached. It is told what this machine is, on the same terms a local host tells a
     /// window — the interface cannot read the far machine's disk, so this is the only way it
     /// learns anything about it.
-    fn client_here(&self, host: &HostEnd, client: ClientId) {
+    ///
+    /// A detached drone then says what it is already holding: every live pane is re-announced with
+    /// `WorkspaceSpawned` and its ring replayed as `TerminalOutput`. **This is a new host attach,
+    /// not a resumed one** — `Bus::drop_remote` took the old one's panes with it when the link
+    /// dropped, and nothing here pretends otherwise. What makes it the same pane is the id, which
+    /// the drone minted and never reissues; what makes it the same screen is the ring, without
+    /// which the user would get a live terminal with nothing drawn in it until the next output.
+    fn client_here(&mut self, host: &HostEnd, client: ClientId) {
         tracing::debug!("{client} attached");
         let meta = self.meta.lock().ok().map(|guard| guard.clone());
         host.send(
@@ -133,13 +231,85 @@ impl Relay {
                 shared_workarea: Some(wire_string(&self.scratch)),
             },
         );
+
+        self.here.insert(client);
+        // Every pane's output goes to whoever is attached now, whether or not this drone keeps a
+        // ring: the reader's sink is the scrollback in both builds, so there is one path.
+        let mailbox = host.mailbox(To::Client(client));
+        self.screens.attach(mailbox.clone());
+
+        if let Some(holding) = self.holding.as_mut() {
+            holding.alone_since = None;
+            holding.ever = true;
+        } else {
+            return;
+        }
+
+        // A pane whose process ended while nobody was attached is not re-announced: there was no
+        // client to be told, so this is where it is retired.
+        self.retire_ended();
+
+        let mut waiting: Vec<PaneId> = self.panes.keys().copied().collect();
+        waiting.sort();
+        for pane_id in waiting {
+            self.owners.insert(pane_id, client);
+            if let Some(workspace) = self.announced.get(&pane_id) {
+                mailbox.send(Message::WorkspaceSpawned {
+                    workspace: workspace.clone(),
+                });
+            }
+            let screen = self.screens.replay(pane_id);
+            if !screen.is_empty() {
+                tracing::info!(
+                    "pane {pane_id}: replaying {} bytes to {client}",
+                    screen.len()
+                );
+                mailbox.send(Message::TerminalOutput {
+                    pane_id,
+                    bytes: screen,
+                });
+            }
+        }
+    }
+
+    /// Drop the panes whose process ended while this drone was holding them.
+    fn retire_ended(&mut self) {
+        for pane_id in self.screens.ended() {
+            self.panes.remove(&pane_id);
+            self.owners.remove(&pane_id);
+            self.announced.remove(&pane_id);
+        }
     }
 
     /// A client has gone. Everything it owned goes with it — the same rule the coordinator lives
     /// by, and for the same reason: nothing drops on its own now that the process outlives the
     /// connection.
+    ///
+    /// **Unless this drone is detached**, which is the whole of phase 6: what a dropped link ends
+    /// is the link. The panes stay, their output keeps landing in their rings, and the linger
+    /// countdown starts. `D22` is untouched — closing a *pane* still kills its harness.
     fn client_gone(&mut self, client: ClientId) {
+        self.here.remove(&client);
         self.focused.remove(&client);
+        if self.holding.is_some() {
+            if self.here.is_empty() {
+                self.screens.detach();
+                if let Some(holding) = self.holding.as_mut() {
+                    holding.alone_since = Some(Instant::now());
+                }
+                let linger = self
+                    .holding
+                    .as_ref()
+                    .map(|holding| *holding.linger.lock().expect("the linger"));
+                tracing::info!(
+                    "the last client detached, holding {} panes with linger {}",
+                    self.panes.len(),
+                    linger.map(|linger| linger.to_string()).unwrap_or_default()
+                );
+            }
+            return;
+        }
+
         let owned: Vec<PaneId> = self
             .owners
             .iter()
@@ -148,6 +318,8 @@ impl Relay {
             .collect();
         for pane_id in owned {
             self.owners.remove(&pane_id);
+            self.announced.remove(&pane_id);
+            self.screens.forget(pane_id);
             if let Some(mut pane) = self.panes.remove(&pane_id) {
                 tracing::info!("{client} has gone: killing pane {pane_id}");
                 pane.kill();
@@ -201,8 +373,12 @@ impl Relay {
                 // routing table has never heard of.
                 self.owners.insert(pane_id, client);
                 let mailbox = host.mailbox(To::Client(client));
+                // The pane's own output goes to the scrollback, never straight to the client: a
+                // sink addressed to a client stops the moment that client goes, which is right
+                // for a window that closed and wrong for a link that dropped. See `scrollback`.
+                let screen = self.screens.sink();
                 // No link scan: that is a harness login's business, and a drone hosts no logins.
-                if let Err(error) = pane.forward_output(pane_id, mailbox.clone(), false) {
+                if let Err(error) = pane.forward_output(pane_id, screen.clone(), false) {
                     self.owners.remove(&pane_id);
                     // The reader never started, so nothing else will ever wait on this child.
                     pane.kill();
@@ -213,23 +389,25 @@ impl Relay {
                     });
                     return;
                 }
-                pty::reap(pane_id, child, mailbox.clone());
+                pty::reap(pane_id, child, screen);
                 self.panes.insert(pane_id, pane);
                 tracing::info!("pane {pane_id}: started {program} for {client}");
 
-                mailbox.send(Message::WorkspaceSpawned {
-                    workspace: WorkspaceInfo {
-                        id: pane_id,
-                        session_id,
-                        agent_type: program,
-                        project_id,
-                        rel_path,
-                        cols: INITIAL_COLS,
-                        rows: INITIAL_ROWS,
-                        running: true,
-                        wait_on_exit: false,
-                    },
-                });
+                let workspace = WorkspaceInfo {
+                    id: pane_id,
+                    session_id,
+                    agent_type: program,
+                    project_id,
+                    rel_path,
+                    cols: INITIAL_COLS,
+                    rows: INITIAL_ROWS,
+                    running: true,
+                    wait_on_exit: false,
+                };
+                // Kept so a client attaching later can be told about this pane in the same words
+                // the client that spawned it heard.
+                self.announced.insert(pane_id, workspace.clone());
+                mailbox.send(Message::WorkspaceSpawned { workspace });
             }
 
             Message::TerminalInput { pane_id, bytes } => {
@@ -260,6 +438,12 @@ impl Relay {
                 if !self.owns(client, pane_id) {
                     return;
                 }
+                // Remembered as well as applied: a client attaching later is told the geometry
+                // the pseudo-terminal actually has, not the one it started at.
+                if let Some(workspace) = self.announced.get_mut(&pane_id) {
+                    workspace.cols = cols;
+                    workspace.rows = rows;
+                }
                 if let Some(pane) = self.panes.get(&pane_id)
                     && let Err(error) = pane.resize(cols, rows)
                 {
@@ -284,6 +468,8 @@ impl Relay {
                     return;
                 }
                 self.owners.remove(&pane_id);
+                self.announced.remove(&pane_id);
+                self.screens.forget(pane_id);
                 if let Some(mut pane) = self.panes.remove(&pane_id) {
                     tracing::info!("closing pane {pane_id}, killing what is in it");
                     pane.kill();
@@ -725,6 +911,12 @@ fn refusal(message: &Message) -> Option<Message> {
         },
         GetSettings { layer } | SetSettings { layer, .. } => SettingsError {
             layer: *layer,
+            error: NOT_HERE.to_string(),
+        },
+        // An ssh profile's secret belongs to the machine the user is at, and a drone has no
+        // keychain to file one in — it is a guest. Refused on the settings layer it edits.
+        SetSshSecret { .. } | ClearSshSecret { .. } => SettingsError {
+            layer: ubiq_proto::settings::SettingsLayer::Host,
             error: NOT_HERE.to_string(),
         },
 

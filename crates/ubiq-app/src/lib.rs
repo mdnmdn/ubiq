@@ -32,6 +32,72 @@ pub mod handoff;
 
 actions!(ubiq, [Quit]);
 
+/// The environment variable that puts this binary into askpass mode, naming which SSH profile's
+/// secret is wanted. Set by `ubiq::app::ssh_connect` on the `ssh` it spawns; the same constant on
+/// both ends, restated here because that crate is not a dependency of this one in that direction.
+const ASKPASS_PROFILE_VAR: &str = "UBIQ_ASKPASS_PROFILE";
+
+/// Which config root the askpass helper opens the secret store under. Absent, it resolves its own
+/// the way any other launch does.
+const ASKPASS_ROOT_VAR: &str = "UBIQ_ASKPASS_ROOT";
+
+/// The askpass helper: OpenSSH asks this binary for a password, and it answers from the host's
+/// secret store.
+///
+/// **Why this mode exists at all.** OpenSSH reads a password from `/dev/tty`, never from standard
+/// input, so a shelled-out `ssh` cannot be fed one. `SSH_ASKPASS` plus `SSH_ASKPASS_REQUIRE=force`
+/// is the documented way in, and it names a *program*: the program is this one, run again in this
+/// mode.
+///
+/// **Why the material never crosses anything.** The interface cannot read the host's keychain —
+/// that is `D124`'s split, and phase 4 deliberately never sends an SSH secret back to it. The
+/// alternative was a new message handing the secret to the interface in a `Secret`, which `D65`
+/// would allow and which would still be the wrong shape: it would put material in the drawing
+/// process for the first time, to hand it to a child that could fetch its own. So this helper —
+/// which is a child of the interface's process but runs *host* code, because `ubiq-app` is the one
+/// crate that names both halves — opens the store itself and writes the answer on its standard
+/// output, which is where OpenSSH reads an askpass answer from. The whole path is keychain →
+/// this process's stdout → `ssh`. Nothing reaches `argv`, no file is written, and no message is
+/// added to the contract; what rides in the environment is the profile *id*, which is a reference
+/// and is already on the settings record in plain text.
+///
+/// Answers `Some(code)` when this launch was the helper and has now finished, `None` when it was
+/// not the helper at all.
+fn askpass() -> Option<i32> {
+    let profile = std::env::var(ASKPASS_PROFILE_VAR)
+        .ok()
+        .filter(|id| !id.is_empty())?;
+    let Ok(profile) = profile.parse::<ubiq_proto::ids::SshProfileId>() else {
+        eprintln!("ubiq: {ASKPASS_PROFILE_VAR} is not a profile id");
+        return Some(2);
+    };
+    let root = match std::env::var(ASKPASS_ROOT_VAR) {
+        Ok(root) if !root.is_empty() => PathBuf::from(root),
+        _ => match resolve_root() {
+            Ok(root) => root.path,
+            Err(error) => {
+                eprintln!("ubiq: {error:#}");
+                return Some(2);
+            }
+        },
+    };
+    let store = ubiq_host::connectors::store::Store::open(&root);
+    match store.ssh_secret(profile) {
+        // The newline is the protocol: OpenSSH reads one line from the helper's standard output.
+        Some(secret) => {
+            println!("{secret}");
+            Some(0)
+        }
+        // A non-zero exit is how a helper says "no answer", and `ssh` then fails the way it would
+        // have with no helper at all — which is the honest outcome for a profile whose secret was
+        // forgotten between the settings page and the dial.
+        None => {
+            eprintln!("ubiq: no secret is filed for that SSH profile");
+            Some(1)
+        }
+    }
+}
+
 /// Everything GPUI can be asked to load: Ubiq's own icons first, then what `gpui-component` ships.
 ///
 /// GPUI takes exactly one asset source, and both halves of the icon set are addressed as
@@ -113,6 +179,12 @@ pub fn run(boot: Boot) {
     // interface. Parsing takes no other effect — a bad flag exits while still attached — so
     // doing it here rather than below changes nothing else. On Windows the interface leaves the
     // console behind (see `detach_console`); a served run never does.
+    // Before everything, including the log: a helper run writes one line and exits, and anything
+    // this boot would otherwise say on standard output would be read by `ssh` as the password.
+    if let Some(code) = askpass() {
+        std::process::exit(code);
+    }
+
     let args: Vec<String> = std::env::args().skip(1).collect();
     let serve = serve_bind(args.iter().cloned());
     #[cfg(windows)]

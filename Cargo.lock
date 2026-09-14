@@ -10552,6 +10552,7 @@ name = "ubiq-drone"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "flume 0.12.0",
  "tempfile",
  "tracing",
  "ubiq-host",

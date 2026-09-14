@@ -910,6 +910,7 @@ mod tests {
             address: address.to_string(),
             scheme: RemoteScheme::Http,
             trust_insecure: false,
+            carrier: ubiq_proto::settings::RemoteCarrier::Socket,
         }
     }
 
