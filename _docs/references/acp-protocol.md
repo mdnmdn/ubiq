@@ -4,8 +4,8 @@ title: Agent Client Protocol (ACP)
 kind: reference
 status: current
 summary: The JSON-RPC wire reference for the Agent Client Protocol — initialisation, session setup and loading, the streaming update vocabulary, tool-call reporting, permission prompts, the client-side filesystem and terminal callbacks, and the Rust SDK Ubiq reads.
-read_when: you are wiring a harness that speaks ACP, adding a session update variant, or checking what the protocol says before assuming it
-updated: 2026-09-09
+read_when: you are wiring a harness that speaks ACP, adding a session update variant, asking what a client may send while a turn is running, or checking what the protocol says before assuming it
+updated: 2026-09-14
 verified: 2026-09-03
 ---
 
@@ -230,6 +230,30 @@ notifications inside that window.
   it was "a common point of confusion for implementers" and that many agents behaved as if it were
   forbidden. Do not rely on out-of-turn updates from a v1 agent.
 
+### Steering a turn in flight is not in v1
+
+There is **no method that carries a message into a turn already running**. The client→agent list in
+§3a is exhaustive, stable and unstable alike, and nothing in it queues, steers or injects: while a
+turn is outstanding the client's only writes are `session/cancel`, `$/cancel_request`, the
+permission response the agent is blocking on, and the setters. So a v1 client has two moves —
+**hold the message until the response arrives, or cancel and re-prompt.**
+
+Harnesses that advertise "live steering" or queue/steer/interrupt modes are therefore doing it **as
+an extension**, under §12's `_`-prefixed method names or inside `_meta`, not as ACP. Two
+consequences for a client:
+
+- **It is not discoverable.** `AgentCapabilities` (§4) has no field for an extension method, so
+  nothing in `initialize` tells you an injection exists. A client that wants one has to know the
+  harness by name — which is the opposite of what speaking ACP buys.
+- **A second `session/prompt` is not the fallback.** The response is matched to the outstanding
+  request; a second prompt on the same session in v1 is undescribed, and a client that sends one
+  has to be able to say which response belongs to which turn.
+
+Ubiq's client takes the first move and refuses the second: the ACP bridge holds one turn id per
+session and errors on a `Prompt` arriving while it is occupied, and the prompt is held in the
+interface instead. [`../inbox/message-queue-and-steering.md`](../inbox/message-queue-and-steering.md)
+is where that sits and what changing it would cost.
+
 ### What v2 relaxes
 
 *Source: `docs/announcements/acp-v2-draft.mdx`*
@@ -244,7 +268,8 @@ v2 explicitly decouples work from the turn:
 
 This enables queueing, steering mid-turn, background work reporting, and **multiple clients
 observing one session**. If Ubiq ever wants two panes viewing the same agent conversation, that is a
-v2 affordance, not a v1 one.
+v2 affordance, not a v1 one — and so is steering without a per-harness extension: v2 is the
+protocol's own answer to the subsection above.
 
 ---
 
@@ -741,7 +766,8 @@ Result — `PromptResponse`:
 4. Agent → `session/prompt` response with a `stopReason`.
 
 After the turn completes the client may send another `session/prompt` on the same session, building
-on the accumulated context.
+on the accumulated context. **Before it completes, there is nothing to send** — no step of this
+lifecycle carries a further user message, which is §2's "Steering a turn in flight is not in v1".
 
 ### `ContentBlock`
 

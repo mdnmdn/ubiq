@@ -13,11 +13,12 @@ use ubiq_proto::assist::{
 use ubiq_proto::connectors::{AuthKind, CertInfo, ConnectError, OauthApp, ProviderId};
 use ubiq_proto::conversation::RateLimitRecord;
 use ubiq_proto::ids::{
-    AiProviderId, ConnectId, ConnectionId, OauthAppId, PaneId, ProjectId, SuggestId, ToolId,
+    AiProviderId, ConnectId, ConnectionId, OauthAppId, PaneId, ProjectId, SshProfileId, SuggestId,
+    ToolId,
 };
 use ubiq_proto::messages::{AccountInfo, CliDir, LoginStatus, ProfileInfo};
 use ubiq_proto::quota::{QuotaGauge, QuotaReading, QuotaSnapshot};
-use ubiq_proto::settings::HostSettings;
+use ubiq_proto::settings::{HostSettings, SshAuth, SshProfile};
 
 use crate::state::editor::ViewLayout;
 
@@ -42,6 +43,7 @@ pub enum SettingsSection {
     Assist,
     Connectors,
     Hosts,
+    Ssh,
     Tools,
     CommandLine,
 }
@@ -58,6 +60,7 @@ impl SettingsSection {
             SettingsSection::Assist,
             SettingsSection::Connectors,
             SettingsSection::Hosts,
+            SettingsSection::Ssh,
             SettingsSection::Tools,
             SettingsSection::CommandLine,
         ]
@@ -74,6 +77,7 @@ impl SettingsSection {
             SettingsSection::Assist => "Assistance",
             SettingsSection::Connectors => "Connectors",
             SettingsSection::Hosts => "Hosts",
+            SettingsSection::Ssh => "SSH profiles",
             SettingsSection::Tools => "Tools",
             SettingsSection::CommandLine => "Command line",
         }
@@ -432,6 +436,90 @@ pub struct AiProviderForm {
     pub open: Option<ModelRole>,
 }
 
+/// How an SSH profile authenticates, as a closed choice with nothing hanging off it.
+///
+/// [`SshAuth`] carries the key's path and the host-derived `has_*` flag; a form must not, because
+/// the path is a box the user types in and the flag is the host's answer. So the form holds only
+/// which of the four was picked, and [`crate::app::AppState::save_ssh_form`] rebuilds the wire
+/// variant from that plus the boxes beside it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum SshMethod {
+    #[default]
+    Agent,
+    KeyFile,
+    Password,
+    ConfigAlias,
+}
+
+impl SshMethod {
+    pub const ALL: [SshMethod; 4] = [
+        SshMethod::Agent,
+        SshMethod::KeyFile,
+        SshMethod::Password,
+        SshMethod::ConfigAlias,
+    ];
+
+    /// What the pill says. Named for what the user has to supply, not for the protocol's word.
+    pub fn label(self) -> &'static str {
+        match self {
+            SshMethod::Agent => "Agent",
+            SshMethod::KeyFile => "Key file",
+            SshMethod::Password => "Password",
+            SshMethod::ConfigAlias => "ssh config alias",
+        }
+    }
+
+    /// A stable slug for an element id. Never shown.
+    pub fn code(self) -> &'static str {
+        match self {
+            SshMethod::Agent => "agent",
+            SshMethod::KeyFile => "key-file",
+            SshMethod::Password => "password",
+            SshMethod::ConfigAlias => "config-alias",
+        }
+    }
+
+    /// Whether this method can have a passphrase or a password filed against it at all — the
+    /// same question [`SshAuth::takes_secret`] answers on the wire variant.
+    pub fn takes_secret(self) -> bool {
+        matches!(self, SshMethod::KeyFile | SshMethod::Password)
+    }
+
+    /// What the secret box is called, where there is one.
+    pub fn secret_label(self) -> &'static str {
+        match self {
+            SshMethod::KeyFile => "Passphrase",
+            _ => "Password",
+        }
+    }
+
+    /// Which method a stored record uses.
+    pub fn of(auth: &SshAuth) -> Self {
+        match auth {
+            SshAuth::Agent => SshMethod::Agent,
+            SshAuth::KeyFile { .. } => SshMethod::KeyFile,
+            SshAuth::Password { .. } => SshMethod::Password,
+            SshAuth::ConfigAlias => SshMethod::ConfigAlias,
+        }
+    }
+}
+
+/// The SSH-profile form, while one is up.
+///
+/// It carries only what is *chosen* — which record is being rewritten and which of the four
+/// methods is lit — the same discipline [`AiProviderForm`] keeps. The name, the address, the
+/// port, the user, the key path and the secret are read out of their boxes at save time, and
+/// **no secret is ever held here**: the field is the only place one exists, and it is emptied
+/// when the form closes and again when it saves.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct SshProfileForm {
+    /// The profile being rewritten, or `None` for one being added. Unlike a provider's, the id
+    /// for an add is minted here rather than by the host — see [`SshProfileId`] — but not until
+    /// the form is saved, so an abandoned form still leaves nothing behind.
+    pub id: Option<SshProfileId>,
+    pub method: SshMethod,
+}
+
 /// The provider test, while its modal is up: which provider is being checked, and what the host
 /// has said so far.
 ///
@@ -532,6 +620,11 @@ pub struct SettingsState {
     /// [`ConnectorDialog`], because that dialog belongs to the connectors section and this
     /// question is raised from the assistance one.
     pub ai_remove: Option<AiProviderId>,
+    /// The add-or-edit SSH profile form, while one is up. The records themselves ride
+    /// `host.ssh_profiles`, which this half owns and writes back whole.
+    pub ssh_form: Option<SshProfileForm>,
+    /// The profile a removal is being confirmed for.
+    pub ssh_remove: Option<SshProfileId>,
     /// Whether the Hosts section's dropdown list is down.
     pub host_picker_open: bool,
     /// Addresses a reconnect started from the Hosts section most recently failed to reach —
@@ -617,6 +710,12 @@ impl SettingsState {
     pub fn ai_provider(&self, id: AiProviderId) -> Option<&AiProviderInfo> {
         self.ai_providers.iter().find(|info| info.provider.id == id)
     }
+
+    /// One SSH profile by id, for a form or a removal that holds only the id. Absent for a
+    /// profile another window has since removed — the same guard [`Self::ai_provider`] gives.
+    pub fn ssh_profile(&self, id: SshProfileId) -> Option<&SshProfile> {
+        self.host.ssh_profiles.iter().find(|p| p.id == id)
+    }
 }
 
 impl Default for SettingsState {
@@ -646,6 +745,8 @@ impl Default for SettingsState {
             ai_form: None,
             ai_test: None,
             ai_remove: None,
+            ssh_form: None,
+            ssh_remove: None,
             host_picker_open: false,
             failed_hosts: HashSet::new(),
             reconnects: HashMap::new(),

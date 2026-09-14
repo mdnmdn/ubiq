@@ -10,6 +10,10 @@
 //! - `relay`: the run loop that answers the bus — what stands in for `Coordinator` at a fraction
 //!   of its surface, because a drone answers a fraction of the message set
 //! - `carrier`: standard input and standard output wired into [`ubiq_host::carrier::pump`]
+//! - `socket`: the unix socket a **detached** drone is found again through, and the byte relay
+//!   that attaches to one
+//! - `linger`: how long a drone with no client waits before it kills its panes and goes
+//! - `scrollback`: where a pane's output goes while nobody is attached to see it
 //!
 //! **Everything it links is the lean host** — `ubiq-host` with no default features. `just relay`
 //! is the mechanical check that no gated crate reached this tree.
@@ -18,7 +22,10 @@
 //! ID on it, exactly as it would from a local host.
 
 pub mod carrier;
+pub mod linger;
 pub mod relay;
+pub mod scrollback;
+pub mod socket;
 
 /// What a **relay** drone advertises in its [`ubiq_proto::messages::Message::DroneHello`].
 ///

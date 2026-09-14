@@ -144,6 +144,10 @@ full = ["git", "index", "harness", "listener", "desktop"]
 # assistance unavailable — a complete build, and the only one possible on a machine without a
 # Swift toolchain and the macOS 26 SDK. Not a default here: `ubiq-app` turns it on, so switching it
 # off there is enough to switch it off everywhere.
+#
+# Naming `dep:foundation-models` is safe on every platform: the dependency is declared only for
+# macOS, so off it this feature activates nothing and the module it guards is `cfg`-ed out beside
+# it. `just apple` proves that by resolving `ubiq-app` for a macOS, a Linux and a Windows triple.
 assist-apple = ["dep:foundation-models"]
 
 # An integration test that names a gated module is a target of that feature, not of the crate.

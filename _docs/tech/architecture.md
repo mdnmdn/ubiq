@@ -5,9 +5,9 @@ kind: tech
 status: current
 summary: The two halves — coordinator and UI — the single bus between them, the rules neither may break, and why the split is drawn before it is needed.
 read_when: you are about to add a capability that crosses the UI/coordinator line, or you want to know why the code is shaped this way
-updated: 2026-09-13
-verified: 2026-09-13
-code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq/src/lib.rs, crates/ubiq/src/version.rs, crates/ubiq-app/src/lib.rs, crates/ubiq-app/src/main.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/state/windows.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-proto/src/lib.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/files/mod.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq-host/src/store/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/store/memory.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq-host/src/links.rs, crates/ubiq/src/web_export/mod.rs, crates/ubiq-host/src/mcp/mod.rs, crates/ubiq-host/src/mcp/tasks.rs]
+updated: 2026-09-14
+verified: 2026-09-14
+code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq/src/lib.rs, crates/ubiq/src/version.rs, crates/ubiq-app/src/lib.rs, crates/ubiq-app/src/main.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/state/windows.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-proto/src/lib.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/files/mod.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq-host/src/store/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/store/memory.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq-host/src/links.rs, crates/ubiq/src/web_export/mod.rs, crates/ubiq-host/src/mcp/mod.rs, crates/ubiq-host/src/mcp/tasks.rs]
 review_cycle: quarterly
 ---
 
@@ -100,6 +100,16 @@ byte stream terminates — the pseudo-terminal must never be assumed local — a
 no pane; it is the client half of the wire transport the interface itself owns, the same handshake
 `ubiq-host/src/remote.rs` answers from the listening side (`D79`, `D80`). Holding the transport is
 not reaching around it.
+
+A fifth is the same reasoning over a different transport: `crates/ubiq/src/app/ssh_connect.rs`
+spawns the system `ssh` with piped stdio and holds the `Child` and its three pipes while it runs
+`ubiq_proto::carrier::welcome` on the bare pair and drains standard error. What crosses that
+module's boundary is a `Client` and a `ConnectFailure`, exactly as a socket dial hands
+`remote_connect.rs`'s pump the same two things — no state type or drawing module downstream ever
+sees the `Child`, a pipe or a path. `spawn_pump` in `remote_connect.rs` is generic over any
+`Read`/`Write` pair for exactly this reason: a pipe pair is not one read-and-write handle the way a
+`TcpStream` is, and its closer is a `Box<dyn FnOnce() + Send>` so an SSH session can kill the child
+where a socket session only drops the stream.
 
 **3. The coordinator renders nothing.** It has no opinion about layout, colour, or what the bytes it
 forwards mean. Terminal *emulation* — parsing those bytes into a screen — belongs to the UI's
@@ -267,9 +277,13 @@ index's failure is not the interface's: a thread that has gone means searches wa
 they did before an index existed.
 
 **The boot is a library, and the binary is three lines.** `crates/ubiq-app/src/lib.rs` holds the
-whole start sequence in one function, `run(boot)`: install logging, resolve the config root, open the
-stores, start the one host, install the GPUI component library, set the palette, bind the quit action
-and the interface's own, and ask for the first window. `crates/ubiq-app/src/main.rs` is
+whole start sequence in one function, `run(boot)`. Before any of it, `run` checks whether this launch
+is the SSH askpass helper — `UBIQ_ASKPASS_PROFILE` set in the environment — and if so reads the named
+profile's secret from the host's own store and writes it to standard output, then exits; nothing else
+in the sequence runs, and nothing else may print to standard output ahead of that check, because
+`ssh` reads whatever is there as the password. Otherwise `run` proceeds: install logging, resolve the
+config root, open the stores, start the one host, install the GPUI component library, set the
+palette, bind the quit action and the interface's own, and ask for the first window. `crates/ubiq-app/src/main.rs` is
 `run(Boot::default())` and nothing else. `Boot` carries what a binary composes — today the four boxed
 store traits, gathered as `Stores`, as a `FnOnce(&Path)` because the config root is resolved inside
 `run` from this process's own arguments — and `Boot::default()` is the base itself, not a reduced

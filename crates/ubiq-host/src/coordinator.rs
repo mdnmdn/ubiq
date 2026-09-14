@@ -18,9 +18,10 @@ use ubiq_proto::conversation::{
     ConfigCategory, ConfigChoice, ConfigOption, ConfigValue, ConvUpdate, StopReason,
 };
 use ubiq_proto::files::FileError;
-use ubiq_proto::ids::{PaneId, ProjectId, SearchId, SessionId, SuggestId, ToolId};
-use ubiq_proto::messages::{AgentPicks, CatalogueModel, Message, WorkspaceInfo};
+use ubiq_proto::ids::{PaneId, ProjectId, SearchId, SessionId, SshProfileId, SuggestId, ToolId};
+use ubiq_proto::messages::{AgentPicks, CatalogueModel, Message, Secret, WorkspaceInfo};
 use ubiq_proto::projects::{IndexLevel, ProjectHealth, Scope};
+use ubiq_proto::settings::{SettingsLayer, SshProfile};
 use ubiq_proto::stats::{HostStats, UsageRow};
 use ubiq_proto::tools::{ListedTool, ToolDef};
 use ubiq_proto::work::{Activity, AgentId, WorkAgent, WorkSession};
@@ -342,6 +343,23 @@ fn unique_name(base: &str, taken: &[String]) -> String {
         }
         n += 1;
     }
+}
+
+/// A refusal in the host settings layer, which is the layer the ssh profiles live in.
+fn settings_error(error: String) -> Reply {
+    Reply::Asker(Message::SettingsError {
+        layer: SettingsLayer::Host,
+        error,
+    })
+}
+
+/// The host layer's whole record, to every window: settings are drawn wherever one is open, and a
+/// flag that moved here moved for all of them.
+fn host_settings(host: &ubiq_proto::settings::HostSettings) -> Reply {
+    Reply::Everyone(Message::Settings {
+        layer: SettingsLayer::Host,
+        value: serde_json::to_string(host).ok(),
+    })
 }
 
 /// Now, in epoch milliseconds — the unit a stored credential's own expiry is in.
@@ -1608,6 +1626,18 @@ impl Coordinator {
                 // record that is gone.
                 self.resettle_assist();
             }
+            // ── an ssh profile's material ───────────────────────────
+            // The profile itself rides `SetSettings`; only the secret comes this way, and it
+            // never goes back — what the interface is told is the flag.
+            Message::SetSshSecret { profile_id, secret } => {
+                let replies = self.set_ssh_secret(profile_id, secret);
+                self.answer(client, replies);
+            }
+            Message::ClearSshSecret { profile_id } => {
+                let replies = self.clear_ssh_secret(profile_id);
+                self.answer(client, replies);
+            }
+
             Message::ListAiModels {
                 provider_id,
                 refresh,
@@ -1622,8 +1652,16 @@ impl Coordinator {
                 self.answer(client, vec![reply]);
             }
             Message::SetSettings { layer, value } => {
-                let was = self.settings.host().assist;
-                let replies = self.settings.set(layer, value);
+                let before = self.settings.host();
+                let was = before.assist;
+                let mut replies = self.settings.set(layer, value);
+                // The ssh profiles rode the blob whole, flags and all, and the interface is not
+                // the half that knows what is filed. A write that landed is reconciled against
+                // the secret store: stale material pruned, every flag re-stamped from what is
+                // actually there.
+                if layer == SettingsLayer::Host && replies.is_empty() {
+                    replies.extend(self.reconcile_ssh_secrets(&before.ssh_profiles));
+                }
                 // How an agent is confined is acted on at the next spawn, so the settings are
                 // re-read here rather than kept in a copy that could go stale.
                 let host = self.settings.host();
@@ -3746,6 +3784,120 @@ impl Coordinator {
             home: self.projects.index_dir(project_id),
             excludes,
         });
+    }
+
+    /// File an SSH profile's passphrase or password, and stamp the flag that says there is one.
+    ///
+    /// Refused rather than filed for a profile that is not there or whose auth method reads no
+    /// secret: material stored against a profile that will never ask for it is a leak with no
+    /// user-visible way back to it. The flag and the secret move together, so a row on screen
+    /// never claims a secret the store does not hold.
+    fn set_ssh_secret(&self, profile_id: SshProfileId, secret: Secret) -> Vec<Reply> {
+        // What the record says is checked before whether the keychain works, so the refusal names
+        // the specific thing that is wrong: a profile that holds no secret is refused the same way
+        // on a machine with no secret service as on one with.
+        if let Err(reason) = self.ssh_profile_takes_secret(profile_id) {
+            return vec![settings_error(reason)];
+        }
+        if secret.expose().trim().is_empty() {
+            return vec![settings_error("that secret is blank".to_string())];
+        }
+        let store = self.connectors.store();
+        if let Err(reason) = store.usable() {
+            return vec![settings_error(reason)];
+        }
+        if let Err(reason) = store.set_ssh_secret(profile_id, secret.expose()) {
+            return vec![settings_error(reason)];
+        }
+        self.stamp_ssh_flag(profile_id, true)
+    }
+
+    /// Forget an SSH profile's stored secret, leaving the profile itself alone.
+    fn clear_ssh_secret(&self, profile_id: SshProfileId) -> Vec<Reply> {
+        if let Err(reason) = self.ssh_profile_takes_secret(profile_id) {
+            return vec![settings_error(reason)];
+        }
+        let store = self.connectors.store();
+        if let Err(reason) = store.usable() {
+            return vec![settings_error(reason)];
+        }
+        if let Err(reason) = store.clear_ssh_secret(profile_id) {
+            return vec![settings_error(reason)];
+        }
+        self.stamp_ssh_flag(profile_id, false)
+    }
+
+    /// That the profile exists and can hold a secret at all.
+    fn ssh_profile_takes_secret(&self, profile_id: SshProfileId) -> Result<(), String> {
+        match self
+            .settings
+            .host()
+            .ssh_profiles
+            .iter()
+            .find(|profile| profile.id == profile_id)
+        {
+            None => Err("no such ssh profile".to_string()),
+            Some(profile) if !profile.auth.takes_secret() => {
+                Err("that profile's auth method holds no secret".to_string())
+            }
+            Some(_) => Ok(()),
+        }
+    }
+
+    /// Write one profile's host-derived flag, and answer with the whole record — the interface
+    /// draws the flag and is never sent the material it stands for.
+    fn stamp_ssh_flag(&self, profile_id: SshProfileId, filed: bool) -> Vec<Reply> {
+        match self.settings.update_host(|host| {
+            if let Some(profile) = host
+                .ssh_profiles
+                .iter_mut()
+                .find(|profile| profile.id == profile_id)
+            {
+                profile.auth.set_has_secret(filed);
+            }
+        }) {
+            Err(reason) => vec![settings_error(reason)],
+            Ok(host) => vec![host_settings(&host)],
+        }
+    }
+
+    /// Reconcile the ssh profiles the interface just wrote against what the secret store holds.
+    ///
+    /// Two directions, and the interface is authoritative for neither: material nothing names any
+    /// more is deleted, and every remaining flag is re-stamped from the store rather than believed
+    /// from the blob. Answers nothing when nothing moved — the common case is a settings write
+    /// that never touched a profile.
+    fn reconcile_ssh_secrets(&self, before: &[SshProfile]) -> Vec<Reply> {
+        let store = self.connectors.store();
+        let host = self.settings.host();
+        for profile_id in crate::settings::stale_ssh_secrets(before, &host.ssh_profiles) {
+            if store.has_ssh_secret(profile_id)
+                && let Err(reason) = store.clear_ssh_secret(profile_id)
+            {
+                tracing::warn!("an ssh profile's secret was not deleted: {reason}");
+            }
+        }
+        let restamp: Vec<(SshProfileId, bool)> = host
+            .ssh_profiles
+            .iter()
+            .filter_map(|profile| {
+                let filed = store.has_ssh_secret(profile.id);
+                (profile.auth.has_secret() != filed).then_some((profile.id, filed))
+            })
+            .collect();
+        if restamp.is_empty() {
+            return Vec::new();
+        }
+        match self.settings.update_host(|host| {
+            for profile in &mut host.ssh_profiles {
+                if let Some((_, filed)) = restamp.iter().find(|(id, _)| *id == profile.id) {
+                    profile.auth.set_has_secret(*filed);
+                }
+            }
+        }) {
+            Err(reason) => vec![settings_error(reason)],
+            Ok(host) => vec![host_settings(&host)],
+        }
     }
 
     /// Rebuild the held backend from what is now on disk.

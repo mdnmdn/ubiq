@@ -34,8 +34,11 @@ use ubiq_proto::carrier::{Beat, Heartbeat};
 use ubiq_proto::settings::RemoteScheme;
 use ubiq_proto::wire;
 
-use crate::state::remote::{AttemptId, RemoteConnectState, RemoteConnectStep, with_default_port};
+use crate::state::remote::{
+    AttemptId, ConnectMode, RemoteConnectState, RemoteConnectStep, with_default_port,
+};
 
+use super::ssh_connect;
 use super::*;
 
 // ── Transport ───────────────────────────────────────────────────────────────
@@ -229,7 +232,15 @@ fn dial(address: &str, token: &str) -> Result<Client, ConnectFailure> {
 fn dial_with(params: &DialParams) -> Result<Client, ConnectFailure> {
     let session = dial_raw(params)?;
     let (client, detached) = bus::detached();
-    spawn_pump(session.reader, session.writer, session.closer, detached);
+    let closer = session.closer;
+    spawn_pump(
+        session.reader,
+        session.writer,
+        Box::new(move || {
+            let _ = closer.shutdown(Shutdown::Both);
+        }),
+        detached,
+    );
     Ok(client)
 }
 
@@ -545,12 +556,20 @@ impl rustls::client::danger::ServerCertVerifier for TrustAny {
 /// notices a dead reader without a blocking `recv` masking it, drop the halves from whichever
 /// side notices first — is identical for the same reason: a session, once the handshake behind
 /// it is done, does not care which end opened the connection.
-fn spawn_pump(
-    reader_stream: Box<dyn Socket>,
-    writer_stream: Box<dyn Socket>,
-    closer: TcpStream,
+///
+/// **The `closer` is a closure, not a socket.** What must happen on the way out is "make a
+/// blocked read on the other half return", and each carrier spells that differently: a TCP dial
+/// shuts the kernel socket down, and `app::ssh_connect` kills its child. Naming the *obligation*
+/// rather than one carrier's way of meeting it is what lets both pumps be this one.
+pub(super) fn spawn_pump<R, W>(
+    reader_stream: R,
+    writer_stream: W,
+    closer: Box<dyn FnOnce() + Send>,
     detached: bus::Detached,
-) {
+) where
+    R: Read + Send + 'static,
+    W: Write + Send + 'static,
+{
     // Flume's `Sender`/`Receiver` clone by sharing the same queue, so the two threads below can
     // each own a handle with no `Arc` and no need to keep `detached` itself alive.
     let said = detached.said().clone();
@@ -611,10 +630,10 @@ fn spawn_pump(
                     }
                 }
             }
-            // Shutdown the kernel socket while a handle still exists. Dropping a TLS
-            // `SharedTls` or one TCP clone does not send EOF while the reader holds the
-            // other half, so the host would never see `Gone` and would not reap panes.
-            let _ = closer.shutdown(Shutdown::Both);
+            // Close the far end while a handle still exists. Dropping a TLS `SharedTls` or one
+            // TCP clone does not send EOF while the reader holds the other half, so the host
+            // would never see `Gone` and would not reap panes.
+            closer();
             drop(writer_stream);
         })
         .expect("the remote client's writer thread");
@@ -666,33 +685,71 @@ impl AppState {
     /// Reuses [`Self::open_remote_connect`]'s modal and [`Self::try_connect_remote`]'s dial
     /// rather than a second path: a saved host is just this same flow with most fields already
     /// known.
-    #[allow(clippy::too_many_arguments)]
     pub fn reconnect_saved_host(
         &mut self,
-        save_id: String,
-        name: String,
-        address: String,
-        scheme: RemoteScheme,
-        trust_insecure: bool,
+        saved: SavedRemoteHost,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         self.clear_remote_connect_inputs(window, cx);
-        self.remote_address_input.update(cx, |state, cx| {
-            state.set_value(&address, window, cx);
-        });
-        if let Some(token) = host_secrets::load_token(&host_secrets::key_for(&save_id, &address)) {
-            self.remote_token_input.update(cx, |state, cx| {
-                state.set_value(&token, window, cx);
+        let (mode, profile) = match &saved.carrier {
+            RemoteCarrier::Socket => (ConnectMode::Socket, None),
+            RemoteCarrier::Ssh { profile, root } => {
+                self.remote_root_input.update(cx, |state, cx| {
+                    state.set_value(root, window, cx);
+                });
+                // A profile the user has since deleted comes back as `None`, so the modal asks
+                // for one rather than dialling whatever happens to be first in the list.
+                let still_there = self
+                    .workbench
+                    .settings
+                    .host
+                    .ssh_profiles
+                    .iter()
+                    .any(|known| known.id == *profile)
+                    .then_some(*profile);
+                (ConnectMode::Ssh, still_there)
+            }
+        };
+        if matches!(mode, ConnectMode::Socket) {
+            self.remote_address_input.update(cx, |state, cx| {
+                state.set_value(&saved.address, window, cx);
             });
+            if let Some(token) =
+                host_secrets::load_token(&host_secrets::key_for(&saved.id, &saved.address))
+            {
+                self.remote_token_input.update(cx, |state, cx| {
+                    state.set_value(&token, window, cx);
+                });
+            }
         }
         self.workbench.remote_connect = Some(RemoteConnectState {
             step: RemoteConnectStep::Editing,
-            saved_name: Some(name),
-            save_id,
-            scheme,
-            trust_insecure,
+            saved_name: Some(saved.name),
+            save_id: saved.id,
+            scheme: saved.scheme,
+            trust_insecure: saved.trust_insecure,
+            mode,
+            profile,
         });
+        cx.notify();
+    }
+
+    /// Flip the connect modal between a socket dial and an `ssh` to a drone. The fields of the
+    /// mode being left keep whatever they say — switching back is a click, not a retype.
+    pub fn set_remote_mode(&mut self, mode: ConnectMode, cx: &mut Context<Self>) {
+        if let Some(state) = &mut self.workbench.remote_connect {
+            state.mode = mode;
+        }
+        cx.notify();
+    }
+
+    /// Pick which SSH profile the drone is reached with. Only meaningful in
+    /// [`ConnectMode::Ssh`]; kept on the state regardless, like the trust flag above.
+    pub fn set_remote_profile(&mut self, profile: SshProfileId, cx: &mut Context<Self>) {
+        if let Some(state) = &mut self.workbench.remote_connect {
+            state.profile = Some(profile);
+        }
         cx.notify();
     }
 
@@ -733,7 +790,11 @@ impl AppState {
     }
 
     fn clear_remote_connect_inputs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        for input in [&self.remote_address_input, &self.remote_token_input] {
+        for input in [
+            &self.remote_address_input,
+            &self.remote_token_input,
+            &self.remote_root_input,
+        ] {
             input.update(cx, |state, cx| state.set_value("", window, cx));
         }
     }
@@ -776,6 +837,15 @@ impl AppState {
     /// this call returns immediately — the modal redraws itself in the `Connecting` step while the
     /// socket work happens elsewhere.
     pub fn try_connect_remote(&mut self, cx: &mut Context<Self>) {
+        if self
+            .workbench
+            .remote_connect
+            .as_ref()
+            .is_some_and(|state| state.mode == ConnectMode::Ssh)
+        {
+            self.try_connect_drone(cx);
+            return;
+        }
         let address = self
             .remote_address_input
             .read(cx)
@@ -864,6 +934,7 @@ impl AppState {
                     address.clone(),
                     modal.scheme,
                     modal.trust_insecure,
+                    RemoteCarrier::Socket,
                     cx,
                 );
                 let token = self.remote_token_input.read(cx).value().trim().to_string();
@@ -898,14 +969,150 @@ impl AppState {
         cx.notify();
     }
 
+    // ── Drones over ssh ─────────────────────────────────────────────────────
+
+    /// Start an `ssh` to a drone. The SSH half of [`Self::try_connect_remote`], on the same
+    /// terms: the [`AttemptId`] is minted here, the work runs on the background executor, and
+    /// the answer is discarded on arrival if the modal has moved on.
+    ///
+    /// Everything about the child process — its argv, its pipes, its handle — stays inside
+    /// `app::ssh_connect`. What crosses back here is a `Client` or a [`ConnectFailure`].
+    fn try_connect_drone(&mut self, cx: &mut Context<Self>) {
+        let modal = self.workbench.remote_connect.clone().unwrap_or_default();
+        let Some(picked) = modal.profile else {
+            return;
+        };
+        let Some(profile) = self
+            .workbench
+            .settings
+            .host
+            .ssh_profiles
+            .iter()
+            .find(|profile| profile.id == picked)
+            .cloned()
+        else {
+            // The list changed under the modal — a settings page in this same window can do
+            // that. Said rather than dialled: there is nothing left to dial.
+            if let Some(state) = &mut self.workbench.remote_connect {
+                state.step = RemoteConnectStep::Failed {
+                    reason: "that SSH profile is gone — pick another".to_string(),
+                };
+            }
+            cx.notify();
+            return;
+        };
+        let root = self.remote_root_input.read(cx).value().trim().to_string();
+        let params = ssh_connect::SshDialParams {
+            profile: profile.clone(),
+            root: root.clone(),
+            config_root: self.workbench.config_root.clone(),
+        };
+        let save_id = modal.save_id.clone();
+        let label = modal
+            .saved_name
+            .clone()
+            .unwrap_or_else(|| profile.name.clone());
+
+        let attempt = AttemptId::generate();
+        if let Some(state) = &mut self.workbench.remote_connect {
+            state.step = RemoteConnectStep::Connecting { attempt };
+        }
+        cx.notify();
+
+        let outcome = cx.background_spawn(async move { ssh_connect::dial_ssh(&params) });
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            let outcome = outcome.await;
+            let _ = this.update(cx, |this, cx| {
+                this.land_drone_connect(attempt, outcome, save_id, label, picked, root, cx)
+            });
+        })
+        .detach();
+    }
+
+    /// An `ssh` dial's answer, landing back on the GPUI thread. The stale-attempt discipline is
+    /// [`Self::land_remote_connect`]'s, unchanged — see its comment for why.
+    #[allow(clippy::too_many_arguments)]
+    fn land_drone_connect(
+        &mut self,
+        attempt: AttemptId,
+        outcome: Result<(Client, ubiq_proto::carrier::DroneIdentity), ConnectFailure>,
+        save_id: String,
+        label: String,
+        profile: SshProfileId,
+        root: String,
+        cx: &mut Context<Self>,
+    ) {
+        let showing = matches!(
+            &self.workbench.remote_connect,
+            Some(RemoteConnectState {
+                step: RemoteConnectStep::Connecting { attempt: current },
+                ..
+            }) if *current == attempt
+        );
+        if !showing {
+            return;
+        }
+        match outcome {
+            Ok((client, identity)) => {
+                tracing::info!(
+                    "attached ubiq-drone {} ({}) over ssh",
+                    identity.drone_version,
+                    identity.triplet
+                );
+                // The address a drone is remembered at is what `ssh` was pointed at, so the
+                // Hosts section and the manager panel have a place string to show. Nothing
+                // dials it — `RemoteCarrier::Ssh` is what says how to reach this one.
+                let address = self
+                    .workbench
+                    .settings
+                    .host
+                    .ssh_profiles
+                    .iter()
+                    .find(|known| known.id == profile)
+                    .map(|known| known.host.clone())
+                    .unwrap_or_default();
+                let saved = self.save_remote_host(
+                    save_id,
+                    label.clone(),
+                    address.clone(),
+                    RemoteScheme::Http,
+                    false,
+                    RemoteCarrier::Ssh { profile, root },
+                    cx,
+                );
+                self.attach_remote(
+                    client,
+                    label.clone(),
+                    saved,
+                    address.clone(),
+                    RemoteScheme::Http,
+                    cx,
+                );
+                self.workbench.settings.failed_hosts.remove(&address);
+                if let Some(state) = &mut self.workbench.remote_connect {
+                    state.step = RemoteConnectStep::Connected { label };
+                }
+            }
+            Err(failure) => {
+                if let Some(state) = &mut self.workbench.remote_connect {
+                    state.step = RemoteConnectStep::Failed {
+                        reason: failure.to_string(),
+                    };
+                }
+            }
+        }
+        cx.notify();
+    }
+
     /// Register a dialled connection on the bus and start draining it.
     ///
     /// Reuses [`Self::route_host`] rather than duplicating `boot.rs`'s router loop — a message
     /// arriving over this connection has to reach `receive` tagged with its `HostRef` exactly as a
     /// local one does, and that tagging is all a router task is.
     ///
-    /// `label` is the saved host's own name for a reconnect, or the bare address for a fresh
-    /// dial — see [`Self::land_remote_connect`], the only caller.
+    /// `label` is the saved host's own name for a reconnect, the bare address for a fresh dial,
+    /// and the profile's name for a drone — see [`Self::land_remote_connect`] and
+    /// [`Self::land_drone_connect`], the two callers.
     fn attach_remote(
         &mut self,
         client: Client,
@@ -978,6 +1185,16 @@ impl AppState {
             return;
         }
         self.workbench.settings.failed_hosts.insert(address.clone());
+        // A drone is reached by spawning an `ssh`, not by dialling an address, so the loop below
+        // — which is a socket dial and a keychain token — cannot reconnect one. Reattaching is
+        // a fresh launch, and phase 6 is what makes that resume anything; until then it is the
+        // user's click, which the Hosts section already offers.
+        if self
+            .saved_entry(&key)
+            .is_some_and(|host| matches!(host.carrier, RemoteCarrier::Ssh { .. }))
+        {
+            return;
+        }
         // TrustAny accepts any certificate. Auto-reconnect would re-apply that without a
         // prompt, so a later MITM on this address would succeed. A click on Connect still
         // can, because that is the user saying so again.

@@ -523,6 +523,12 @@ impl AppState {
             self.close_clone(cx);
         } else if self.workbench.all_projects.is_some() {
             self.close_all_projects(cx);
+        } else if settings.ssh_remove.is_some() {
+            // The two SSH layers, in reverse paint order — `ui::shell` draws them last of the
+            // settings page's modals, so Escape takes them first.
+            self.close_remove_ssh_profile(cx);
+        } else if settings.ssh_form.is_some() {
+            self.close_ssh_form(window, cx);
         } else if settings.ai_remove.is_some() {
             // The three provider layers, in reverse paint order — `ui::shell` draws the form,
             // then the test, then the removal question, so Escape takes them the other way up.

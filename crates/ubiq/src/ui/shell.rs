@@ -236,6 +236,23 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .as_ref()
                 .map(|_| settings::ai_remove(app, window, cx)),
         )
+        // The SSH-profile form, raised from the SSH profiles section — painted here on the same
+        // terms as the provider form above it.
+        .children(
+            app.workbench
+                .settings
+                .ssh_form
+                .as_ref()
+                .map(|_| settings::ssh_form(app, window, cx)),
+        )
+        // Its removal question, over whatever raised it.
+        .children(
+            app.workbench
+                .settings
+                .ssh_remove
+                .as_ref()
+                .map(|_| settings::ssh_remove(app, window, cx)),
+        )
         // The clone modal, over the picker that raised it and over the settings page, since the
         // omni search can raise it from anywhere.
         .children(

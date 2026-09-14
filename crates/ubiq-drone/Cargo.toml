@@ -15,6 +15,9 @@ ubiq-proto = { path = "../ubiq-proto" }
 # its files and its facts, which is exactly what a drone serves.
 ubiq-host = { path = "../ubiq-host", default-features = false }
 tracing = "0.1"
+# Naming the bus's own timeout error, so a detached drone can tell a tick it should look at its
+# linger from a hub that has actually gone. Already in the graph through `ubiq-proto`.
+flume = "0.12"
 # Stamping a seeded project record's `created_at`, which is a `chrono` type in the protocol. Named
 # here only to build that one value; already in the workspace graph through `ubiq-proto`.
 chrono = "0.4"

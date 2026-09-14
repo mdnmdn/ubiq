@@ -378,7 +378,7 @@ fn keychain_denied(harness: &str) -> bool {
 /// Being a replacement, the grants below are a **copy** of the built-in's:
 /// an isol8 release that changes `integrations/keychain` has to be mirrored
 /// here, or a denied run silently keeps the old ones. That is the standing
-/// cost of the approach, recorded in `D124`.
+/// cost of the approach, recorded in `D126`.
 fn write_keychain_override(options: &IsolateOptions) -> Result<PathBuf> {
     let root = options.state_dir.join("profiles-no-keychain");
     // A layer's name *is* its path under the profile root, so deriving both

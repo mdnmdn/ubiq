@@ -82,6 +82,21 @@ ui:
 
 # ── checks ─────────────────────────────────────────────────────────
 
+# The on-device model is Apple's: `foundation-models` may reach a macOS tree and no other. It
+# needs a Swift toolchain and the macOS 26 SDK to build, so a Linux or Windows build that pulled
+# it in would fail at its build script — a broken port, reported as a compiler error in a crate
+# nobody on that platform asked for. Resolution alone answers this, so neither toolchain has to
+# be installed to run it.
+apple:
+    @cargo tree -p ubiq-app -e normal,build --target aarch64-apple-darwin --prefix none \
+        | grep -q '^foundation-models' \
+        || { echo "the on-device backend is gone: foundation-models is not in the macOS tree"; exit 1; }
+    @for triple in x86_64-unknown-linux-gnu x86_64-pc-windows-msvc; do \
+        ! cargo tree -p ubiq-app -e normal,build --target $triple --prefix none \
+            | grep -q '^foundation-models' \
+            || { echo "foundation-models reached the $triple tree: the backend is not macOS-only"; exit 1; }; \
+    done
+
 # Type-check everything, tests and examples included
 check:
     cargo check --workspace --all-targets
@@ -103,7 +118,7 @@ test:
     cargo test --workspace < /dev/null
 
 # check + clippy + test + the crate boundary + docs-lint
-verify: check clippy test host relay ui docs-lint
+verify: check clippy test host relay ui apple docs-lint
 
 # Can a confined agent build? Run unconfined for a baseline, then under
 # `am run <harness> --isolate -- bash _tools/toolchain-smoke.sh` and diff.

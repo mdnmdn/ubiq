@@ -86,14 +86,6 @@ impl AppState {
         };
         let key = host_secrets::key_for(&saved.id, &saved.address);
         self.workbench.settings.reconnects.remove(&key);
-        self.reconnect_saved_host(
-            saved.id,
-            saved.name,
-            saved.address,
-            saved.scheme,
-            saved.trust_insecure,
-            window,
-            cx,
-        );
+        self.reconnect_saved_host(saved, window, cx);
     }
 }

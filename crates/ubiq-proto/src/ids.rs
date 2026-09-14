@@ -238,3 +238,12 @@ ulid_id! {
     /// a run names.
     ToolId
 }
+
+ulid_id! {
+    /// One SSH connection profile. Minted UI-side when the row is added, on [`HostSaveId`]'s
+    /// discipline and for the same reason: a profile rides `SetSettings` whole, so the half that
+    /// writes the record is the half that names it. Stable across a rename and across an edit of
+    /// the address — this is what the secret store's `ssh` namespace and a drone's carrier
+    /// reference.
+    SshProfileId
+}
