@@ -997,8 +997,9 @@ fn a_thought_level_missing_from_the_new_options_is_forgotten(cx: &mut TestAppCon
 
 /// The three-dots menu's own rule, pulled out where it can be checked without rendering it: Stop
 /// only while a turn runs, Abort and Unload only while launched, Resume only while it is not, Fork
-/// only while nothing is in flight, the accept-all and dump toggles always (they ask nothing of
-/// the harness), Delete always — and Delete last, whatever else is added.
+/// only while nothing is in flight, Open terminal and New agent here only while there is a running
+/// environment to join, the accept-all and dump toggles always (they ask nothing of the harness),
+/// Delete always — and Delete last, whatever else is added.
 #[test]
 fn the_lifecycle_menu_disables_resume_while_launched_and_unload_once_it_is_not() {
     use ubiq::ui::conversation::lifecycle_menu_rows;
@@ -1019,6 +1020,8 @@ fn the_lifecycle_menu_disables_resume_while_launched_and_unload_once_it_is_not()
         unload,
         resume,
         fork,
+        terminal,
+        neighbour,
         persist,
         accept,
         dump,
@@ -1029,6 +1032,11 @@ fn the_lifecycle_menu_disables_resume_while_launched_and_unload_once_it_is_not()
     assert!(unload.1, "the harness is up");
     assert!(!resume.1, "already launched");
     assert!(!fork.1, "a turn is in flight");
+    assert!(
+        terminal.1,
+        "there is a live environment for a shell to join, turn or no turn"
+    );
+    assert!(neighbour.1, "and a folder for a second agent to start in");
     assert_eq!(persist.0, "Make persistent", "not kept yet");
     assert_eq!(accept.0, "Accept all", "not overriding yet");
     assert_eq!(dump.0, "Dump messages", "nothing is being written yet");
@@ -1044,6 +1052,8 @@ fn the_lifecycle_menu_disables_resume_while_launched_and_unload_once_it_is_not()
         unload,
         resume,
         fork,
+        terminal,
+        neighbour,
         persist,
         accept,
         dump,
@@ -1054,6 +1064,11 @@ fn the_lifecycle_menu_disables_resume_while_launched_and_unload_once_it_is_not()
     assert!(!unload.1, "there is no harness to unload");
     assert!(resume.1, "not launched");
     assert!(fork.1, "nothing is in flight to tear");
+    assert!(
+        !terminal.1,
+        "an environment is a live process's, and there is none to join"
+    );
+    assert!(!neighbour.1, "and nothing to start a second agent beside");
     assert_eq!(
         persist.0, "Stop persisting",
         "the label says which way it goes"
@@ -1068,7 +1083,7 @@ fn the_lifecycle_menu_disables_resume_while_launched_and_unload_once_it_is_not()
     // A harness that keeps its sessions outside the run directory — grok — can be neither kept
     // nor forked, because Ubiq would be keeping and copying a directory that holds none of it.
     // The other two toggles are Ubiq's own and answer to no harness, so they stay live.
-    let [_, _, _, _, fork, persist, accept, dump, delete] =
+    let [_, _, _, _, fork, _, _, persist, accept, dump, delete] =
         lifecycle_menu_rows(&conversation, false, false, false, false);
     assert!(!fork.1, "a copy would share one store rather than diverge");
     assert!(!persist.1, "keeping the directory would preserve nothing");

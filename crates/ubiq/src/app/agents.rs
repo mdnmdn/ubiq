@@ -1,6 +1,7 @@
 use super::*;
 use crate::state::ConvBlock;
 use crate::state::conversation::ActivityPanel;
+use crate::state::new_agent::Target;
 
 impl AppState {
     /// Bring an agent to the front: the tab of whatever column holds it, or a column of its own.
@@ -564,15 +565,22 @@ impl AppState {
     }
 
     /// Pick a row of the lifecycle menu, in the order it draws them: 0 Stop, 1 Abort, 2 Unload,
-    /// 3 Resume, 4 Fork, 5 the persistence toggle, 6 the accept-all toggle, 7 the dump toggle,
-    /// 8 Delete. The order is [`crate::ui::conversation::lifecycle_menu_rows`]'s and nothing
-    /// else's — the rows are dispatched by position, so the two are read together or not at all.
-    /// Delete does not act here — it raises a confirm instead, being the one destructive,
-    /// irreversible verb of the nine.
+    /// 3 Resume, 4 Fork, 5 Open terminal, 6 New agent here, 7 the persistence toggle, 8 the
+    /// accept-all toggle, 9 the dump toggle, 10 Delete. The order is
+    /// [`crate::ui::conversation::lifecycle_menu_rows`]'s and nothing else's — the rows are
+    /// dispatched by position, so the two are read together or not at all. Delete does not act
+    /// here — it raises a confirm instead, being the one destructive, irreversible verb of the
+    /// eleven.
+    ///
+    /// **The window comes in.** Row 6 raises the New agent form, and a form is raised with a
+    /// keyboard: [`Self::open_new_agent`] seeds the opening-prompt field and focuses it, which is
+    /// what puts the modal on the focus path and lets ⌘⏎ confirm it from inside. The menu's click
+    /// handler is handed a window already, so nothing here goes looking for one.
     pub fn pick_conversation_menu(
         &mut self,
         agent_id: AgentId,
         index: usize,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         self.dismiss_conversation_menu(cx);
@@ -582,15 +590,106 @@ impl AppState {
             2 => self.unload_agent(agent_id, cx),
             3 => self.resume_agent(agent_id, cx),
             4 => self.fork_conversation(agent_id, cx),
-            5 => self.toggle_conversation_persistent(agent_id, cx),
-            6 => self.toggle_conversation_accept_all(agent_id, cx),
-            7 => self.toggle_conversation_debug_dump(agent_id, cx),
-            8 => {
+            5 => self.open_terminal_beside(agent_id, cx),
+            6 => self.start_agent_beside(agent_id, window, cx),
+            7 => self.toggle_conversation_persistent(agent_id, cx),
+            8 => self.toggle_conversation_accept_all(agent_id, cx),
+            9 => self.toggle_conversation_debug_dump(agent_id, cx),
+            10 => {
                 self.workbench.confirm_end_conversation = Some(agent_id);
                 cx.notify();
             }
             _ => {}
         }
+    }
+
+    /// A shell beside a running conversation: a pane in that conversation's folder, under the
+    /// environment its harness was given — the variables the run was composed with, the `$HOME` it
+    /// got and, for a confined run, the policy itself. What a reader opens to see what the agent
+    /// sees.
+    ///
+    /// **This does not go through [`Self::spawn_pane`].** That builds an ordinary spawn out of the
+    /// window's own answers — this project, this folder, this harness — and `beside` makes every
+    /// one of them moot: the run being joined has already answered where it is and what it runs
+    /// under, and the host ignores them. They are still sent, because the message has no shape
+    /// without them, so they are filled with the emptiest thing each can be and the pane's program
+    /// is the machine's shell.
+    ///
+    /// A window with no project asks for nothing, `spawn_pane`'s standing rule: `project_id` is not
+    /// optional on the wire even where it is about to be ignored.
+    pub fn open_terminal_beside(&mut self, agent_id: AgentId, cx: &mut Context<Self>) {
+        let Some(project_id) = self.project(cx) else {
+            return;
+        };
+        self.bus.send(Message::SpawnWorkspace {
+            session_id: self.session,
+            project_id,
+            rel_path: None,
+            agent_type: None,
+            args: Vec::new(),
+            picks: AgentPicks::default(),
+            beside: Some(agent_id),
+        });
+        cx.notify();
+    }
+
+    /// A second agent beside a running one: the New agent form, opened on what the source
+    /// conversation is running, and marked to start in that conversation's folder.
+    ///
+    /// **The form is raised rather than a start being sent.** A neighbour is not a copy — it gets
+    /// its own configuration directory, because two harnesses writing one run directory corrupt
+    /// each other's record — so the harness, the identity and the model are only where the form
+    /// *opens*, and every one of them is the user's to change before pressing Start.
+    /// [`Self::fork_conversation`] is the verb that sends without asking, and it is the one that
+    /// shares a history.
+    ///
+    /// The seed is the source's own three answers, read off the work record: its harness (a label,
+    /// mapped back to the library's id through the one mapping the window has,
+    /// [`crate::ui::conversation::harness_of`]), its account, and its model. A source whose harness
+    /// this build no longer offers seeds nothing and opens the form on its usual last start — an
+    /// aim at a harness that is not here would be a form that cannot start.
+    ///
+    /// Where the conversation lands once it starts is [`Self::open_new_agent_direct`]'s answer, the
+    /// same one the titlebar's shortcut gets — a neighbour is shown where any other new agent is.
+    pub fn start_agent_beside(
+        &mut self,
+        agent_id: AgentId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let seed = self.conversation(agent_id, cx).and_then(|conversation| {
+            let harness = crate::ui::conversation::harness_of(self, conversation)?
+                .id
+                .clone();
+            let agent = self.work(cx).and_then(|work| work.agent(agent_id))?;
+            // The record reports empty for "resolved none"; the form reads `None` for it, and an
+            // empty string here would be an identity nothing is signed in as.
+            let account = (!agent.account.is_empty()).then(|| agent.account.clone());
+            let model = (!agent.model.is_empty()).then(|| agent.model.clone());
+            Some((harness, account, model))
+        });
+        self.open_new_agent_direct(window, cx);
+        if let Some((agent_type, account, model)) = seed {
+            // Through the target picker rather than by writing the fields: picking a pair is what
+            // asks the host for that harness's catalogue and falls the mode to its own "ask
+            // nothing", and a form whose fields were set behind its back would open on a model
+            // list belonging to whatever started last.
+            self.pick_new_agent_target(
+                Target::Harness {
+                    agent_type,
+                    account,
+                },
+                window,
+                cx,
+            );
+            if let Some(form) = self.new_agent_form_mut() {
+                form.model = model;
+            }
+        }
+        if let Some(form) = self.new_agent_form_mut() {
+            form.beside = Some(agent_id);
+        }
+        cx.notify();
     }
 
     /// Mark a conversation as one to keep, or stop keeping it. Nothing is drawn optimistically:

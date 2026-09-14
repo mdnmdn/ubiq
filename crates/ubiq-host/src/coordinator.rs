@@ -219,6 +219,16 @@ struct Coordinator {
     /// The agents being talked to, keyed by the id that multiplexes them onto the bus. One entry
     /// is one harness on one pump thread.
     conversations: HashMap<AgentId, Conversation>,
+    /// The composed run behind each *live* conversation, kept past the launch so a second face
+    /// can be opened onto the same environment — a terminal beside the agent
+    /// ([`Message::SpawnWorkspace::beside`]), which runs in the folder the harness runs in, with
+    /// the variables it was composed with and under the policy confining it. Nothing else needs a
+    /// [`Composed`](crate::agent::Composed) once the harness is spawned, which is why `launch`
+    /// used to drop it on the floor.
+    ///
+    /// Keyed and emptied exactly like [`Self::conversations`]: an environment is a live process's,
+    /// so a row that outlived its harness would hand out a sandbox with nothing in it.
+    runs: HashMap<AgentId, crate::agent::Composed>,
     /// Which project and window each conversation belongs to — the same routing table the panes
     /// have, for the same two reasons: a reply goes to the window that asked, and a project's
     /// count changes when one ends.
@@ -342,6 +352,19 @@ fn unique_name(base: &str, taken: &[String]) -> String {
         }
         n += 1;
     }
+}
+
+/// Why nothing can be started beside `agent_id`.
+///
+/// An environment is a live process's — its folder, its variables, the policy confining it — so
+/// there is nothing to join once the harness holding it has gone, and the answer is the same
+/// whether it is the run or the whole conversation that is missing. Said once here because both
+/// [`Message::SpawnWorkspace::beside`] and [`Message::StartConversation::beside`] refuse for it.
+fn beside_gone(agent_id: AgentId) -> String {
+    format!(
+        "conversation {agent_id} is not running, so there is no environment to start beside — \
+         start it, or pick another agent"
+    )
 }
 
 /// Now, in epoch milliseconds — the unit a stored credential's own expiry is in.
@@ -828,6 +851,7 @@ impl Coordinator {
             owners: HashMap::new(),
             focused: HashMap::new(),
             conversations: HashMap::new(),
+            runs: HashMap::new(),
             conversation_owners: HashMap::new(),
             pending_conversations,
             logins: HashMap::new(),
@@ -1118,8 +1142,9 @@ impl Coordinator {
                 agent_type,
                 args,
                 picks,
+                beside,
             } => self.spawn_workspace(
-                client, session_id, project_id, rel_path, agent_type, args, picks,
+                client, session_id, project_id, rel_path, agent_type, args, picks, beside,
             ),
 
             Message::TerminalInput { pane_id, bytes } => {
@@ -1931,10 +1956,11 @@ impl Coordinator {
                 thinking,
                 mode,
                 mcps,
+                beside,
             } => {
                 self.start_conversation(
                     client, agent_id, project_id, session_id, rel_path, agent_type, account,
-                    profile, model, thinking, mode, mcps,
+                    profile, model, thinking, mode, mcps, beside,
                 );
             }
             Message::PromptAgent { agent_id, text } => {
@@ -2171,9 +2197,35 @@ impl Coordinator {
         thinking: Option<String>,
         mode: Option<String>,
         mcps: Vec<String>,
+        beside: Option<AgentId>,
     ) {
-        let Some(cwd) = self.resolve_cwd(client, project_id, rel_path.as_deref()) else {
-            return;
+        // Beside a running conversation, the folder and the project are that conversation's and
+        // not this message's — which named where a *first* agent would go. Nothing else is
+        // borrowed: this start composes its own run below, into its own configuration directory,
+        // because two harnesses writing one of those corrupt each other's record.
+        let (project_id, cwd) = match beside {
+            Some(source) => {
+                // Two lookups, the same pair a pane beside a conversation takes: the pending row
+                // says where it runs, and `runs` says whether it still is. A row survives an
+                // unload, so the pending one alone would place a neighbour beside a folder whose
+                // harness has gone — which is not an environment, only a path.
+                let Some(pending) = self.pending_conversations.get(&source) else {
+                    self.refuse_conversation(client, agent_id, beside_gone(source));
+                    return;
+                };
+                let placed = (pending.project_id, pending.cwd.clone());
+                if !self.runs.contains_key(&source) {
+                    self.refuse_conversation(client, agent_id, beside_gone(source));
+                    return;
+                }
+                placed
+            }
+            None => {
+                let Some(cwd) = self.resolve_cwd(client, project_id, rel_path.as_deref()) else {
+                    return;
+                };
+                (project_id, cwd)
+            }
         };
 
         if !self.agents.is_agent_type(&agent_type) {
@@ -2502,6 +2554,10 @@ impl Coordinator {
             dir = %composed.dir.display(),
             "conversation started"
         );
+        // Kept rather than dropped here: this is the only description of the environment the
+        // harness is now running in, and a terminal opened beside it has nowhere else to read it
+        // from. It goes out again wherever the `Conversation` does.
+        self.runs.insert(agent_id, composed);
 
         // What actually reached the harness, not what the picker merely showed — a pick the user
         // opened and then abandoned never got here, so it never overwrites what launched.
@@ -2960,6 +3016,9 @@ impl Coordinator {
             thinking,
             mode,
             Vec::new(),
+            // A revive already knows its folder — it is the one the stored row was written in,
+            // recovered as `rel_path` above — so there is no conversation for it to stand beside.
+            None,
         );
         // `start_conversation` refuses on its own terms — an unknown harness, an unreadable folder
         // — and says so; there is nothing here to add if it did.
@@ -3005,6 +3064,7 @@ impl Coordinator {
         let Some(conversation) = self.conversations.remove(&agent_id) else {
             return;
         };
+        self.runs.remove(&agent_id);
         // `quiet`: the pump skips its own `ConversationEnded` so `ConversationUnloaded`, sent
         // below, is the only lifecycle message this produces.
         let last_seq = conversation.stop(true);
@@ -3034,6 +3094,7 @@ impl Coordinator {
         let Some(conversation) = self.conversations.remove(&agent_id) else {
             return;
         };
+        self.runs.remove(&agent_id);
         // Always quiet, for the reason an unload is: `ConversationUnloaded` below is the one
         // lifecycle message an abort produces.
         let last_seq = conversation.abort();
@@ -3356,6 +3417,7 @@ impl Coordinator {
         let Some(conversation) = self.conversations.remove(&agent_id) else {
             return;
         };
+        self.runs.remove(&agent_id);
         let session_id = conversation.session_id();
         // `true` matches what the pump was already started with; a `Conversation::stop` that
         // cleared it would let a pump still on its way out speak after all.
@@ -3404,6 +3466,7 @@ impl Coordinator {
             tracing::info!("agent {agent_id} ending: {reason:?}");
             conversation.stop(false);
         }
+        self.runs.remove(&agent_id);
         // A pending agent has no `Conversation` and no run directory yet — closed here, this
         // already covers "closed before it ever launched" without a second path.
         self.pending_conversations.remove(&agent_id);
@@ -3942,16 +4005,68 @@ impl Coordinator {
         agent_type: Option<String>,
         args: Vec<String>,
         picks: AgentPicks,
+        beside: Option<AgentId>,
     ) {
-        // A pane runs in a project's folder, so everything about that folder is settled before a
-        // pseudo-terminal exists. A spawn that fails here leaves nothing on screen to close.
-        let cwd = match self.resolve_cwd(client, project_id, rel_path.as_deref()) {
-            Some(cwd) => cwd,
-            None => return,
+        // Minted before anything can fail, because every refusal below is a `PaneError` about
+        // this pane rather than a `ProjectError` about the folder — a pane that never starts is
+        // still a pane the window asked for.
+        let pane_id = PaneId::generate();
+
+        // Where the pane runs, in which project, and — beside a conversation — what to run.
+        //
+        // Beside one, all three come from that conversation rather than from this message, which
+        // named a folder and a harness for some other pane: the run being joined has already
+        // answered every one of them, and the answer is its own folder and its own environment.
+        // `resolve_cwd` is not consulted at all, since the folder is not a path under the project
+        // root the window happened to send.
+        let (project_id, rel_path, cwd, beside_launch) = match beside {
+            Some(source) => {
+                // Two lookups, because a conversation is only joinable while it is *running*: the
+                // pending row says where it runs, and `runs` holds the environment it got — and
+                // that one is gone the moment its harness is.
+                let Some(pending) = self.pending_conversations.get(&source) else {
+                    self.refuse_pane(client, pane_id, beside_gone(source));
+                    return;
+                };
+                let (project_id, cwd) = (pending.project_id, pending.cwd.clone());
+                let Some(composed) = self.runs.get(&source) else {
+                    self.refuse_pane(client, pane_id, beside_gone(source));
+                    return;
+                };
+                let launch = match self.agents.shell_beside(composed) {
+                    Ok(launch) => launch,
+                    Err(error) => {
+                        tracing::error!(
+                            "pane {pane_id}: a terminal beside {source} would not start: {error:#}"
+                        );
+                        self.refuse_pane(client, pane_id, format!("{error:#}"));
+                        return;
+                    }
+                };
+                // The folder is the conversation's own, so there is no path under the project
+                // root to report: `rel_path` is what the window would draw as a subfolder, and
+                // this pane is not in one it named.
+                (project_id, None, cwd, Some(launch))
+            }
+            None => {
+                // A pane runs in a project's folder, so everything about that folder is settled
+                // before a pseudo-terminal exists. A spawn that fails here leaves nothing on
+                // screen to close.
+                let cwd = match self.resolve_cwd(client, project_id, rel_path.as_deref()) {
+                    Some(cwd) => cwd,
+                    None => return,
+                };
+                (project_id, rel_path, cwd, None)
+            }
         };
 
-        let pane_id = PaneId::generate();
-        let agent_type = agent_type.unwrap_or_else(shells::default_program);
+        // A pane beside a conversation runs this machine's shell and says so, exactly as an
+        // ordinary shell pane does — what it sits beside is the conversation's harness, not its
+        // own, and naming that harness here would put a tab on screen claiming to be one.
+        let agent_type = match &beside_launch {
+            Some(_) => shells::default_program(),
+            None => agent_type.unwrap_or_else(shells::default_program),
+        };
 
         // Kept past the move below, for the MCP row registered once compose succeeds — that
         // wants the picked model and mode too, and `options` does not outlive the `compose` call.
@@ -3973,7 +4088,13 @@ impl Coordinator {
         // An agent type the library knows is composed — its skills, its throwaway configuration
         // and the policy it runs under all come from there. Anything else is a program name,
         // which is what a shell is.
-        let composed = if self.agents.is_agent_type(&agent_type) {
+        //
+        // A pane beside a conversation is never composed: composing would provision it a second
+        // configuration directory and a policy of its own, which is the opposite of joining one.
+        // It gets no MCP row either — a shell is not going to ask Ubiq what it is.
+        let composed = if beside_launch.is_some() {
+            None
+        } else if self.agents.is_agent_type(&agent_type) {
             match self
                 .agents
                 .compose(pane_id, &agent_type, &cwd, args.clone(), options)
@@ -4009,23 +4130,35 @@ impl Coordinator {
             });
         }
 
-        let program = match &composed {
-            Some(composed) => match composed.exec() {
-                Ok(launch) => pty::Program {
-                    program: launch.program,
-                    args: launch.args,
-                    env: launch.env,
-                    env_remove: launch.env_remove,
-                    env_clear: launch.env_clear,
-                },
-                Err(error) => {
-                    tracing::error!("pane {pane_id}: confining {agent_type} failed: {error:#}");
-                    self.agents.retire(pane_id);
-                    self.refuse_pane(client, pane_id, format!("{error:#}"));
-                    return;
-                }
+        let program = match beside_launch {
+            // Already rendered, when the conversation being joined launched. Nothing is resolved
+            // here the way a composed run's policy is by `exec` below: this *is* that run's
+            // environment, and recomputing any of it would make it a different one.
+            Some(launch) => pty::Program {
+                program: launch.program,
+                args: launch.args,
+                env: launch.env,
+                env_remove: launch.env_remove,
+                env_clear: launch.env_clear,
             },
-            None => pty::Program::plain(&agent_type, args),
+            None => match &composed {
+                Some(composed) => match composed.exec() {
+                    Ok(launch) => pty::Program {
+                        program: launch.program,
+                        args: launch.args,
+                        env: launch.env,
+                        env_remove: launch.env_remove,
+                        env_clear: launch.env_clear,
+                    },
+                    Err(error) => {
+                        tracing::error!("pane {pane_id}: confining {agent_type} failed: {error:#}");
+                        self.agents.retire(pane_id);
+                        self.refuse_pane(client, pane_id, format!("{error:#}"));
+                        return;
+                    }
+                },
+                None => pty::Program::plain(&agent_type, args),
+            },
         };
 
         let spawned = pty::spawn(&program, Some(cwd.as_path()), INITIAL_COLS, INITIAL_ROWS);
@@ -4044,9 +4177,14 @@ impl Coordinator {
                 return;
             }
         };
+        // A pane beside a conversation is confined exactly when that conversation is — it is
+        // running under the very policy the harness got — so the source run answers this for it.
         let confined = composed
             .as_ref()
-            .is_some_and(|composed| composed.is_confined());
+            .is_some_and(|composed| composed.is_confined())
+            || beside
+                .and_then(|source| self.runs.get(&source))
+                .is_some_and(|run| run.is_confined());
         tracing::info!(
             "pane {pane_id}: started {agent_type}{} in session {session_id} for {client}",
             if confined { " (confined)" } else { "" }

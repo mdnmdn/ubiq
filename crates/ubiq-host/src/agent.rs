@@ -726,8 +726,14 @@ impl Agents {
         })
     }
 
-    /// Replace a confined login's argv with an interactive shell, keeping everything about the
+    /// Replace a confined launch's argv with an interactive shell, keeping everything about the
     /// policy it runs under untouched.
+    ///
+    /// Two callers, both wanting the same thing — a human at a prompt inside somebody else's
+    /// sandbox: [`Self::begin_login`]'s probe, which inspects the policy a login would run
+    /// under, and [`Self::shell_beside`], which opens a terminal into a *running* agent's
+    /// environment. Neither may re-render the policy, because a policy computed for a shell is
+    /// not the policy being inspected or joined.
     ///
     /// `isolate::confined_launch` renders macOS's `Launch` as `sandbox-exec -p <policy>
     /// <harness argv...>` — the policy text is the second argument, after the `-p` flag — so
@@ -744,6 +750,35 @@ impl Agents {
         launch.args.push(crate::shells::default_program());
         launch.args.push("-i".to_string());
         launch
+    }
+
+    /// An interactive shell in the environment `composed` already runs in — the terminal a user
+    /// opens *beside* an agent, seeing what that agent sees.
+    ///
+    /// The environment is the run's own, never a fresh one: the variables it was composed with,
+    /// the `$HOME` it was given, and — when the run is confined — the policy itself. Composing a
+    /// second run for the shell would give it a second configuration directory and a policy of
+    /// its own, which is precisely what "beside" is not.
+    ///
+    /// A confined run's shell goes through [`Self::shell_probe_launch`], which swaps the harness
+    /// argv for this machine's shell and leaves everything about the policy alone. It carries
+    /// `-i` because `sandbox-exec` execs the shell with an ordinary argv0 and a non-interactive
+    /// shell there would read nothing and exit.
+    pub fn shell_beside(&self, composed: &Composed) -> Result<Launch> {
+        if composed.is_confined() {
+            return Ok(Self::shell_probe_launch(composed.exec()?));
+        }
+        Ok(Launch {
+            program: crate::shells::default_program(),
+            // Empty on purpose. `pty::command_for` turns an argless shell into a *login* shell —
+            // argv0 prefixed with `-` — which is what a user opening a terminal expects, and what
+            // makes it read the profile the rest of their panes were started with. Passing `-i`
+            // here would be an ordinary interactive shell instead, bypassing all of that.
+            args: Vec::new(),
+            env: composed.launch.env.clone(),
+            env_remove: composed.launch.env_remove.clone(),
+            env_clear: composed.launch.env_clear,
+        })
     }
 
     /// Record a finished login, or say why it captured nothing.

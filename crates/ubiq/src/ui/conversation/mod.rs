@@ -35,6 +35,7 @@ use gpui_component::{Icon, IconName, Sizable as _, Size};
 use ubiq_proto::conversation::{
     ConfigChoice, ConfigValue, PlanStatus, ToolContent, ToolKind, ToolStatus,
 };
+use ubiq_proto::messages::AgentTypeInfo;
 use ubiq_proto::quota::QuotaSnapshot;
 use ubiq_proto::work::{Activity, AgentId};
 
@@ -300,16 +301,27 @@ pub fn lifecycle(conversation: &Conversation) -> Lifecycle {
 }
 
 /// Which row of [`lifecycle_menu_rows`] the dump toggle is. Named because [`lifecycle_menu`] has
-/// to reach back into the built list to hang the file's path on that one row, and a bare `7` there
+/// to reach back into the built list to hang the file's path on that one row, and a bare `9` there
 /// is the position-matching skew the list itself exists to prevent.
-pub const LIFECYCLE_DUMP_ROW: usize = 7;
+pub const LIFECYCLE_DUMP_ROW: usize = 9;
 
-/// The rows the lifecycle menu draws, in order — Stop, Abort, Unload, Resume, Fork, the
-/// persistence toggle, the accept-all toggle, the dump toggle, Delete — each with whether it
-/// applies. A pure reading of the conversation's own state, pulled out of [`lifecycle_header`] so
-/// the enable/disable rule is testable on its own: Stop only while a turn is running, Abort and
-/// Unload only while launched, Resume only while not, Delete always (ending applies whatever the
-/// state).
+/// Which rows the two "beside this one" verbs are, named for [`LIFECYCLE_DUMP_ROW`]'s reason:
+/// [`lifecycle_menu`] reaches back into the built list to hang each one's tooltip on it.
+const LIFECYCLE_TERMINAL_ROW: usize = 5;
+const LIFECYCLE_NEW_AGENT_ROW: usize = 6;
+
+/// The rows the lifecycle menu draws, in order — Stop, Abort, Unload, Resume, Fork, Open terminal,
+/// New agent here, the persistence toggle, the accept-all toggle, the dump toggle, Delete — each
+/// with whether it applies. A pure reading of the conversation's own state, pulled out of
+/// [`lifecycle_header`] so the enable/disable rule is testable on its own: Stop only while a turn
+/// is running, Abort and Unload only while launched, Resume only while not, Delete always (ending
+/// applies whatever the state).
+///
+/// **Open terminal and New agent here apply only while the conversation is launched.** Both ask
+/// for something *beside* a run — a shell under the environment this harness was given, or a
+/// second harness in the folder this one is working in — and an environment is a live process's.
+/// Once the harness has exited there is nothing left to join, so the rows are drawn dead rather
+/// than refused after the click, the way the host refuses them.
 ///
 /// **Stop and Abort are different verbs.** Stop interrupts the *turn* and leaves the harness to
 /// take the next one; Abort kills the *process*, which is what is left when a harness has stopped
@@ -341,7 +353,7 @@ pub fn lifecycle_menu_rows(
     accept_all: bool,
     dumping: bool,
     keeps_sessions: bool,
-) -> [(String, bool); 9] {
+) -> [(String, bool); 11] {
     [
         ("Stop".to_string(), conversation.run != Run::Idle),
         ("Abort".to_string(), conversation.launched),
@@ -355,6 +367,11 @@ pub fn lifecycle_menu_rows(
             "Fork".to_string(),
             keeps_sessions && conversation.run == Run::Idle,
         ),
+        // Both join a run rather than describing one, so both want a run to join. Nothing about
+        // the turn state matters here — a shell beside a harness that is thinking is exactly what
+        // a reader opens one for.
+        ("Open terminal".to_string(), conversation.launched),
+        ("New agent here".to_string(), conversation.launched),
         (
             if persistent {
                 "Stop persisting".to_string()
@@ -457,6 +474,21 @@ pub fn lifecycle_menu(
     })
     .collect();
 
+    // What "here" means is the whole of what these two rows do, and it is not the same "here" for
+    // both — one joins the environment, the other only the folder — so each says its own. A label
+    // long enough to carry the distinction would be a paragraph in a menu row; this is what a
+    // tooltip on a row is for, the same standing the dump row's path has below.
+    if let Some(row) = items.get_mut(LIFECYCLE_TERMINAL_ROW) {
+        *row = row
+            .clone()
+            .tooltip("A shell in this conversation's folder, with the environment its harness got");
+    }
+    if let Some(row) = items.get_mut(LIFECYCLE_NEW_AGENT_ROW) {
+        *row = row
+            .clone()
+            .tooltip("A second agent in the same folder, with its own configuration");
+    }
+
     // The dump row's tooltip is the only place the file's path is ever said. The host picks the
     // file and reports it back on the record, so `Stop dumping` on its own would tell the user
     // that something is being written and nothing about where to read it; a path is far too long
@@ -498,8 +530,8 @@ pub fn lifecycle_menu(
             view.eid("lifecycle-menu"),
             point(px(at.0), px(at.1)),
             items,
-            indexed(&entity, move |this, index, _window, cx| {
-                this.pick_conversation_menu(id, index, cx);
+            indexed(&entity, move |this, index, window, cx| {
+                this.pick_conversation_menu(id, index, window, cx);
             }),
             handler(&entity, |this, _, cx| this.dismiss_conversation_menu(cx)),
         ));
@@ -588,21 +620,28 @@ fn dump_path(app: &AppState, id: AgentId, cx: &App) -> Option<String> {
         .and_then(|agent| agent.debug_dump.clone())
 }
 
-/// Whether this conversation's harness keeps its own session store where Ubiq can keep or copy it.
+/// The harness a conversation is running, found from the one thing the window holds about it: the
+/// display label.
 ///
-/// Matched on the display label, because that is what a `WorkAgent` carries — the host puts
-/// `AgentTypeInfo::label` there rather than the harness id, so the id is not in the window's hands
-/// at this point.
+/// A `Conversation` — and the `WorkAgent` behind it — carries `AgentTypeInfo::label`, never the
+/// library's harness id, so every question the window asks about a live conversation's harness
+/// starts by matching on the label. **One mapping, not one per question.** A second match written
+/// somewhere else is a second reading of the same list that can disagree with this one, and the id
+/// this hands back is what a start built from a running conversation has to name.
+pub fn harness_of<'a>(app: &'a AppState, conversation: &Conversation) -> Option<&'a AgentTypeInfo> {
+    app.workbench
+        .agent_types
+        .iter()
+        .find(|info| info.label == conversation.harness)
+}
+
+/// Whether this conversation's harness keeps its own session store where Ubiq can keep or copy it.
 ///
 /// **True when the harness is not found.** A lookup that misses is not evidence the harness keeps
 /// its sessions elsewhere, and drawing a control dead on a failed match would refuse something that
 /// works. The host refuses the ones that genuinely cannot; this only saves the user the click.
 fn keeps_sessions(app: &AppState, conversation: &Conversation, _cx: &App) -> bool {
-    app.workbench
-        .agent_types
-        .iter()
-        .find(|info| info.label == conversation.harness)
-        .is_none_or(|info| info.keeps_sessions)
+    harness_of(app, conversation).is_none_or(|info| info.keeps_sessions)
 }
 
 /// The mark that says this conversation outlives the window, drawn **beside** the lifecycle glyph

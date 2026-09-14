@@ -44,11 +44,20 @@ impl AppState {
     /// `picks` is what a terminal harness resolves the identity, the model and the rest against —
     /// the pseudo-terminal has no composer to fold a start's answers into, so they travel with the
     /// spawn instead. A shell ignores them: it has no account, no profile and no modes to be picked.
+    ///
+    /// `beside` names a running conversation whose environment the pane joins, and is `None` for
+    /// every ordinary spawn. Set, it outranks everything above it — the run being joined has
+    /// already answered the folder, the program and the picks — which is why the one caller that
+    /// sets it, [`Self::open_terminal_beside`], builds the message itself rather than coming
+    /// through here: a spawn that names a harness *and* a conversation to join is two answers to
+    /// one question. It is carried here only for the New agent form's terminal start, where the
+    /// same form may have been raised beside a conversation.
     pub fn spawn_pane(
         &mut self,
         agent_type: Option<String>,
         args: Vec<String>,
         picks: AgentPicks,
+        beside: Option<AgentId>,
         cx: &mut Context<Self>,
     ) {
         let Some(project_id) = self.project(cx) else {
@@ -61,6 +70,7 @@ impl AppState {
             agent_type,
             args,
             picks,
+            beside,
         });
     }
 

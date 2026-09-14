@@ -168,6 +168,9 @@ impl Relay {
                 // ignored rather than refused: a shell row sends the default and means nothing by
                 // it, and refusing that would refuse every ordinary spawn.
                 picks: _,
+                // Same, and for a stronger reason: a drone holds no conversations, so there is no
+                // running agent here whose environment a pane could be opened beside.
+                beside: _,
             } => {
                 let Some(cwd) = self.resolve_cwd(host, client, project_id, rel_path.as_deref())
                 else {

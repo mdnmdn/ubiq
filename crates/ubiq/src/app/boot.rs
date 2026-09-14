@@ -353,7 +353,7 @@ impl AppState {
                 Rc::new(move |_window, cx| {
                     if let Some(this) = app.upgrade() {
                         this.update(cx, |this, cx| {
-                            this.spawn_pane(None, Vec::new(), AgentPicks::default(), cx)
+                            this.spawn_pane(None, Vec::new(), AgentPicks::default(), None, cx)
                         });
                     }
                 })

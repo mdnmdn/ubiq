@@ -5,8 +5,8 @@ kind: tech
 status: draft
 summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, quota, profile, command-line, host browse, connector, repository, assist, notification, web asset and carrier families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
-updated: 2026-09-13
-verified: 2026-09-13
+updated: 2026-09-14
+verified: 2026-09-14
 code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
@@ -72,7 +72,7 @@ The control path. Lower volume, request-and-response.
 | `CreateSession` | UI → coordinator | `name`, `agent_type`, `home_folder?` | `SessionCreated` |
 | `AttachToSession` | UI → coordinator | `session_id` | `SessionAttached` |
 | `DetachFromSession` | UI → coordinator | `session_id` | — |
-| `SpawnWorkspace` | UI → coordinator | `session_id`, `project_id`, `rel_path?`, `agent_type?`, `args`, `picks` | `WorkspaceSpawned` or `ProjectError` |
+| `SpawnWorkspace` | UI → coordinator | `session_id`, `project_id`, `rel_path?`, `agent_type?`, `args`, `picks`, `beside?` | `WorkspaceSpawned` or `ProjectError` |
 | `CloseWorkspace` | UI → coordinator | `pane_id` | — |
 | `RunTool` | UI → coordinator | `session_id`, `project_id`, `scope`, `id` | `WorkspaceSpawned` or `ToolError` |
 | `ToolError` | coordinator → UI | `project_id?`, `error` | — |
@@ -108,6 +108,17 @@ the interface never holds the path. A spawn into a project whose folder is missi
 directory or cannot be read is refused with a `ProjectError` **before a pseudo-terminal exists**, and
 the fresh snapshot is broadcast so every picker marks the row from the probe that just happened. A
 `rel_path` that escapes the root is refused the same way.
+
+**`beside` names a running conversation, and joining one answers every other field.** A pane spawned
+`beside` an agent runs in that agent's folder and under the environment its harness got — the
+variables the run was composed with, the `$HOME` it was given and, where the run is confined, the
+policy itself — so the shell sees what the harness sees rather than merely standing in the same
+directory. `project_id`, `rel_path`, `agent_type`, `args` and `picks` are all ignored when it is
+set: the run being joined settled each of them at its own launch, and the pane's program is this
+machine's shell. It is refused with a `PaneError` when that conversation is not running, because an
+environment is a live process's and there is nothing to join once it has exited. The interface still
+holds no path: it names an agent, and the host answers with a folder and an environment it already
+had — which is the same division `project_id` keeps.
 
 `CloseWorkspace` names a pane rather than a workspace ID because the two are the same ID, and the
 pane is what the user closed. It kills and reaps the harness; it is the only variant that ends one.
@@ -688,7 +699,7 @@ is what multiplexes several of them down one channel.
 
 | Message | Direction | Payload | Responds with |
 |---|---|---|---|
-| `StartConversation` | UI → host | `agent_id`, `project_id`, `session_id`, `rel_path?`, `agent_type`, `account?`, `profile?`, `model?`, `thinking?`, `mode?`, `mcps` | `ConversationStarted` or `ConversationError` |
+| `StartConversation` | UI → host | `agent_id`, `project_id`, `session_id`, `rel_path?`, `agent_type`, `account?`, `profile?`, `model?`, `thinking?`, `mode?`, `mcps`, `beside?` | `ConversationStarted` or `ConversationError` |
 | `PromptAgent` | UI → host | `agent_id`, `text` | — |
 | `CancelTurn` | UI → host | `agent_id` | — |
 | `AnswerPermission` | UI → host | `agent_id`, `request_id`, `option_id` | — |
@@ -722,6 +733,14 @@ second. An absent or empty field says nothing, which is what leaves the profile 
 that, the harness's own default — in charge. Empty rather than `None` alone because the interface
 sends the form's answer whatever it is, and "the user did not choose" and "the field is not on
 this message" have to read the same.
+
+**`beside` starts a neighbour, not a twin.** Set, the new conversation takes the named one's project
+and folder — `project_id` and `rel_path` are ignored, the way they are on `SpawnWorkspace` — and
+nothing else: the harness, the account and every pick are still this start's own, and so, above all,
+is the configuration directory. Two harnesses writing one run directory corrupt each other's record,
+which is why a second agent in the same place is composed afresh and `ReviveConversation` remains
+the one verb that shares a history. It is refused with a `ConversationError` when the named
+conversation is not running, for the reason `SpawnWorkspace`'s is.
 
 **`ReviveConversation` is one message for two paths, and the run directory is why.** That directory
 *is* the conversation: it holds the harness's own session store, so resuming a session id inside a

@@ -7,6 +7,7 @@
 
 use ubiq_proto::conversation::ConfigChoice;
 use ubiq_proto::messages::{AgentTypeInfo, CatalogueModel, ProfileInfo};
+use ubiq_proto::work::AgentId;
 
 /// What the form is for. The same fields answer both questions, so the same form asks them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -101,6 +102,15 @@ pub struct NewAgentForm {
     /// Whether a catalogue has been asked for and not yet answered. The model row says so rather
     /// than drawing an empty list, which would read as a harness with no models.
     pub probing: bool,
+    /// The running conversation this start is a neighbour of, where it was raised from one.
+    ///
+    /// `None` — every start but the lifecycle menu's `New agent here` — is a start that answers
+    /// where it runs from the project and the form. `Some` hands that answer to the run being
+    /// joined instead: the new agent starts in *that* conversation's folder, and every other
+    /// answer on the form is still its own, the configuration directory above all. Carried on the
+    /// form rather than passed to the start, because the form is what sits between the click and
+    /// the message and the user may change everything else in between.
+    pub beside: Option<AgentId>,
 }
 
 impl NewAgentForm {
@@ -121,6 +131,7 @@ impl NewAgentForm {
             naming: false,
             models: Vec::new(),
             probing: false,
+            beside: None,
         }
     }
 

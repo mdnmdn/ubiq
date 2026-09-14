@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: What a pane shows, how exactly one of them holds focus, how a resize reaches the harness, and how a pane is moved around the window's dock.
 read_when: you are changing where a pane sits, pane focus, resize, pane chrome, or how terminal bytes reach the screen
-updated: 2026-09-10
-verified: 2026-09-13
+updated: 2026-09-14
+verified: 2026-09-14
 code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/editor.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/new_pane_menu.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/tools.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/pty/mod.rs, crates/ubiq-host/src/shells.rs, vendor/gpui-terminal/src/view.rs, vendor/gpui-terminal/src/render.rs, vendor/gpui-terminal/src/input.rs, vendor/gpui-terminal/src/mouse.rs, vendor/gpui-terminal/src/clipboard.rs, vendor/gpui-terminal/src/event.rs, vendor/gpui-terminal/src/terminal.rs]
 depends_on: [tech-transport]
 review_cycle: monthly
@@ -99,6 +99,16 @@ the project's own, so a tool added in the settings is offered without a restart.
 configuration it was provisioned into — without them the harness reads the user's real
 configuration instead — and a confined one replaces the environment entirely, because its policy
 computed the whole of it and inheriting Ubiq's would put back what the sandbox took out.
+
+**A pane can join a running conversation's environment instead of a project's.** `SpawnWorkspace`'s
+`beside` names an agent rather than a project, and the pane that comes back runs in that
+conversation's folder under the environment its harness was composed with — its variables, its
+`$HOME`, and its policy where the run is confined. This is neither of the other two ways a pane
+gets an environment: not a project-folder spawn, since the folder and the project are read off the
+running conversation rather than the message, and not a composed harness, since nothing is
+provisioned for it — no configuration directory, no MCP row. The lifecycle menu's Open terminal row
+is the only caller; [`../tech/transport-contract.md`](../tech/transport-contract.md) has `beside`
+itself.
 
 **A project's panes stay alive while another project is on screen.** A window can hold several
 projects, and switching between them swaps which project's panes are drawn; the ones behind keep

@@ -130,7 +130,6 @@ crates/ubiq-host/src/
 │   └── os.rs
 ├── host_path.rs
 ├── environment.rs
-├── .DS_Store
 ├── conversation_record.rs
 ├── host_meta.rs
 ├── mcp/
@@ -358,8 +357,7 @@ crates/ubiq/src/
 │   ├── host_secrets.rs
 │   ├── remote_hosts.rs
 │   └── web_panel.rs
-├── version.rs
-└── .DS_Store
+└── version.rs
 
 crates/ubiq-app/src/
 ├── main.rs            three lines: `run(Boot::default())`

@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: Every open question, known gap and deferred item across the project, in one register.
 read_when: you are planning the next piece of work, or you hit something unresolved and need somewhere to put it
-updated: 2026-09-13
-verified: 2026-09-13
+updated: 2026-09-14
+verified: 2026-09-14
 review_cycle: monthly
 ---
 
@@ -219,6 +219,7 @@ change what Ubiq does (here), or where a document lives (there)?
 | G244 | The draw.io mirror is curated, not complete. `_tools/webassets.py`'s `keep_drawio_path` drops `stencils/`, `templates/`, `img/`, `math4/`, `plugins/` and `WEB-INF/` outright, and `js/diagramly/**`, `js/grapheditor/**`, `shapes/**` and `mxgraph/` outside its `images/` and `css/` — each one is bundled into `js/app.min.js` or `js/shapes-14-6-5.min.js`, or loaded only under `?dev=1`. What is missing is the template gallery and MathJax typesetting, not the shape palettes, which the bundled scripts still carry. Widening the allowlist is what closes either gap | [`wip/web-panel-phase45.md`](./wip/web-panel-phase45.md) |
 | G245 | The embedded draw.io was never seen to boot, and its `Preview { svg }` frame is verified only at the bridge and the route. No session was opened by hand, no diagram was drawn or saved, and no export was read back from the disk tier `state/diagrams.rs` files it in. Closing this needs a real run, the same shape `G241` names for Excalidraw | [`wip/web-panel-phase6.md`](./wip/web-panel-phase6.md) |
 | G246 | A vendor bundle fetch killed part way is never resumed: `web_assets` writes one compressed `.bundle` file behind a `.part` sibling, and a `.part` left by a killed process is overwritten rather than read back, so an interrupted 25 MiB fetch restarts from its first file rather than its last. Trading resume for one file instead of hundreds was deliberate; reintroducing it would mean per-entry offsets recorded outside the archive itself | [`wip/web-panel-phase3.md`](./wip/web-panel-phase3.md) |
+| G259 | `New agent here` seeds three of a `Profile`'s answers and drops the rest. `AppState::start_agent_beside` reads the source conversation's harness, account and model off its `WorkAgent` record and opens the form on them, because that record carries no more — the permission mode, the thinking level and the MCP servers a profile can pin never reach it, so a neighbour started beside a conversation running under a named profile opens on the form's own defaults for all three rather than that profile's. Closing this needs `WorkAgent` to carry what `NewAgentForm` would seed, not a change to the seeding itself | [`features/workbench.md`](./features/workbench.md) |
 
 ## Open questions — a decision nobody has made
 

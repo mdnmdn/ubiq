@@ -157,11 +157,17 @@ impl AppState {
             return;
         };
         let purpose = form.purpose;
+        // What the form is a *neighbour of* survives being answered differently, the way the
+        // catalogue does: the target says which harness to start, and `beside` says where — a user
+        // picking a different harness in a form raised from a running conversation is still asking
+        // for it beside that conversation.
+        let beside = form.beside;
         match (&target, profile) {
             (_, Some(profile)) => {
                 let models = std::mem::take(&mut form.models);
                 *form = NewAgentForm {
                     models,
+                    beside,
                     ..NewAgentForm::from_profile(&profile, purpose)
                 };
             }
@@ -177,6 +183,7 @@ impl AppState {
                     target: Some(target.clone()),
                     agent_type,
                     account,
+                    beside,
                     ..NewAgentForm::new(purpose)
                 };
             }
@@ -413,6 +420,7 @@ impl AppState {
             thinking: Some(form.thinking.clone().unwrap_or_default()),
             mode: Some(form.mode.clone().unwrap_or_default()),
             mcps: form.mcps.clone(),
+            beside: form.beside,
         });
         // **No turn goes out here.** The ceiling and the opening prompt are held, and the
         // composer's send path folds them into the first thing the user actually says — a
@@ -453,7 +461,13 @@ impl AppState {
             mode: Some(form.mode.clone().unwrap_or_default()),
             mcps: form.mcps.clone(),
         };
-        self.spawn_pane(Some(form.agent_type.clone()), Vec::new(), picks, cx);
+        self.spawn_pane(
+            Some(form.agent_type.clone()),
+            Vec::new(),
+            picks,
+            form.beside,
+            cx,
+        );
         // **Release the aim.** A form raised from a chat header or the sink wrote down where the
         // conversation it was about to produce should land, and the only place that claim is spent
         // is the `ConversationStarted` arm in `wire`. This start produces a pane instead, so

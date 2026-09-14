@@ -159,6 +159,7 @@ fn a_session_serves_a_terminal_and_the_files_beside_it() {
         agent_type: Some(shell()),
         args: Vec::new(),
         picks: Default::default(),
+        beside: None,
     });
     let pane_id = session.wait_for("WorkspaceSpawned", |message| match message {
         Message::WorkspaceSpawned { workspace } => Some(workspace.id),
@@ -257,6 +258,7 @@ fn the_end_of_the_stream_kills_every_pane() {
         agent_type: Some(shell()),
         args: Vec::new(),
         picks: Default::default(),
+        beside: None,
     });
     let pane_id = session.wait_for("WorkspaceSpawned", |message| match message {
         Message::WorkspaceSpawned { workspace } => Some(workspace.id),

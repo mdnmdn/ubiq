@@ -127,6 +127,7 @@ fn spawn_in(
         agent_type: Some(program.to_string()),
         args: args.iter().map(|a| a.to_string()).collect(),
         picks: AgentPicks::default(),
+        beside: None,
     });
 
     // A window is told what the host is as it attaches, and a pane opening changes the project's
@@ -381,6 +382,7 @@ fn spawning_in_a_missing_project_is_refused_before_a_pane_exists() {
         agent_type: Some("/bin/cat".to_string()),
         args: Vec::new(),
         picks: AgentPicks::default(),
+        beside: None,
     });
 
     // The refusal names the project, because there is no pane to name — and a pane that was never
@@ -421,6 +423,7 @@ fn spawning_with_a_rel_path_that_escapes_is_refused() {
         agent_type: Some("/bin/cat".to_string()),
         args: Vec::new(),
         picks: AgentPicks::default(),
+        beside: None,
     });
 
     loop {
@@ -1541,6 +1544,7 @@ fn start_conversation(
         thinking: None,
         mode: None,
         mcps: Vec::new(),
+        beside: None,
     });
     agent_id
 }

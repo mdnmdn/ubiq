@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-09-13
-verified: 2026-09-13
+updated: 2026-09-14
+verified: 2026-09-14
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -2541,6 +2541,29 @@ callback runs.
 **Cost.** libssh2 in the host's tree — another C library, another compile, and ssh that is
 libssh2's rather than OpenSSH's: `~/.ssh/config` Host aliases and `IdentityFile` are not read. The
 agent and the well-known identity files are. Clone still refuses ssh (`G149`).
+
+### D124 — A second face onto a running agent's environment joins the run, and never composes one of its own
+
+`SpawnWorkspace` and `StartConversation` both carry `beside`, naming a running conversation rather
+than a project. Neither composes a fresh run to answer it: the coordinator keeps each live
+conversation's `Composed` in `Coordinator::runs`, and a pane opened beside one reuses it whole
+through `Agents::shell_beside` — the variables, the `$HOME` and, where the run is confined, the
+rendered policy itself, with only the argv swapped for a shell. A second agent started beside one
+takes the same folder and stops there: it is composed afresh into its own configuration directory,
+because two harnesses writing one run directory corrupt each other's record, and joining is the one
+thing a neighbour must not do to the run it stands beside.
+
+The alternative was recomposing both — a fresh throwaway directory and a fresh policy for the shell,
+a copy of the source's picks for the second agent. That would have made "beside" a synonym for "like
+this one" rather than "in this one's environment", and a shell recomposed from the same picks is not
+what a reader opening a terminal on a running agent wants: they want what the agent is actually
+running under, not a plausible imitation of it.
+
+**Cost:** a live conversation's `Composed` is kept in memory for the run's whole life rather than
+dropped once `launch` reads it, emptied exactly where `conversations` is so nothing outlives the
+harness it describes. On a host where `isolate::plan` yields no confinement (`G90`), there is no
+policy for a beside pane to share either — it still gets the run's variables and `$HOME`, and that
+is the entire environment there is to join.
 
 ## Related docs
 

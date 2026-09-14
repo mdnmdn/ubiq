@@ -656,6 +656,7 @@ impl AppState {
                     Some(agent.id.clone()),
                     Vec::new(),
                     AgentPicks::default(),
+                    None,
                     cx,
                 );
             }
@@ -668,7 +669,7 @@ impl AppState {
                 else {
                     return;
                 };
-                self.spawn_pane(Some(program), Vec::new(), AgentPicks::default(), cx);
+                self.spawn_pane(Some(program), Vec::new(), AgentPicks::default(), None, cx);
             }
             Some(NewPaneRow::Tool(tool)) => {
                 let Some(listed) = self.workbench.tools.get(*tool) else {

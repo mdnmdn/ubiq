@@ -110,6 +110,19 @@ pub enum Message {
         /// everything — which is what the new-pane menu and every shell row send.
         #[serde(default)]
         picks: AgentPicks,
+        /// The running conversation whose environment this pane joins, when it joins one.
+        ///
+        /// Set, the pane runs in *that* conversation's folder and under the environment its
+        /// harness got — the variables the run was composed with, the `$HOME` it was given and,
+        /// when the run is confined, the policy itself — so a shell opened here sees what the
+        /// harness sees. `project_id`, `rel_path`, `agent_type`, `args` and `picks` are all
+        /// ignored: the run being joined has already answered every one of them, and the pane's
+        /// program is this machine's shell.
+        ///
+        /// Refused with [`Message::PaneError`] when that conversation is not running — an
+        /// environment is a live process's, and there is nothing to join once it has exited.
+        #[serde(default)]
+        beside: Option<AgentId>,
     },
     /// The answer to [`Message::SpawnWorkspace`], carrying the pane the UI now draws.
     WorkspaceSpawned {
@@ -1309,6 +1322,19 @@ pub enum Message {
         /// its own rather than a diff against [`ProfileInfo::mcps`].
         #[serde(default)]
         mcps: Vec<String>,
+        /// The running conversation this one starts beside, when it starts beside one.
+        ///
+        /// Set, the new conversation runs in that one's folder and project, with `project_id`
+        /// and `rel_path` ignored. Everything else is still this start's own: the harness, the
+        /// account, the picks — and, above all, the configuration directory. Two harnesses
+        /// writing one run directory corrupt each other's record, so a second agent beside the
+        /// first is a *neighbour*, not a twin; [`Message::ReviveConversation`] is the verb for
+        /// sharing a history.
+        ///
+        /// Refused with [`Message::ConversationError`] when that conversation is not running,
+        /// for [`Message::SpawnWorkspace::beside`]'s reason.
+        #[serde(default)]
+        beside: Option<AgentId>,
     },
     /// A turn. Nothing is appended by the sender: the line is drawn when it comes back as a
     /// [`ConvUpdate::UserChunk`], which is what the harness actually received.

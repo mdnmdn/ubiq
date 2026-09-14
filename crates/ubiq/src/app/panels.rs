@@ -87,7 +87,9 @@ impl AppState {
         };
         if now_empty {
             match region {
-                Region::Bottom => self.spawn_pane(None, Vec::new(), AgentPicks::default(), cx),
+                Region::Bottom => {
+                    self.spawn_pane(None, Vec::new(), AgentPicks::default(), None, cx)
+                }
                 Region::Right if self.workbench.rail_mode == RailMode::Git => {
                     self.pending_panels
                         .push(PanelEdit::Open(PanelKind::GitChanges));
@@ -128,7 +130,7 @@ impl AppState {
             self.toggle_region(Region::Bottom, window, cx);
         }
         if was_open || !was_empty {
-            self.spawn_pane(None, Vec::new(), AgentPicks::default(), cx);
+            self.spawn_pane(None, Vec::new(), AgentPicks::default(), None, cx);
         }
     }
 
