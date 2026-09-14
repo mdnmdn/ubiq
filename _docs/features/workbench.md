@@ -345,10 +345,16 @@ same way a send clears it. `AppState::send_or_enqueue` is the one function behin
 button's click and the Enter key both call it — and it is what a queued row's turn ending drains:
 `Message::ConversationUpdate`'s handler pops the front of the queue and sends it as a plain
 `PromptAgent` the instant `apply` leaves the conversation `Idle`. A queued prompt is drawn as its own
-small row above the field, oldest first, each with an edit (loads it back into the composer) and a
-delete (drops it); the block draws nothing when the queue is empty. Files attached to the turn are a
-second such block, drawn above the queue as one tag apiece; the chat panel's own document owns that,
-including why an attachment lives on the conversation and how it reaches the wire.
+row at the top of the bottom block — above the activity bar, the footer and the composer, because
+what is queued is not part of the turn being written — oldest first, each with a send-now (Send
+ASAP), an edit and a delete. Send ASAP is the one way out of waiting for that flush: `AppState::
+send_queued_message_now` takes the entry back out of the queue and calls `send_prompt` directly, the
+same wire call a live turn's own send uses, instead of holding it for `Run::Idle`; nothing about the
+turn already in flight is touched, and the harness picks the prompt up at its next step. Edit loads
+the row back into the composer and delete drops it outright; the block draws nothing when the queue
+is empty. Files attached to the turn are a second such block, drawn directly above the field instead
+— it belongs to the turn being written, not to what is waiting — and the chat panel's own document
+owns that, including why an attachment lives on the conversation and how it reaches the wire.
 
 **The ceiling is on columns, not on tabs.** Eight columns fit the row. Grouping into a column that
 is open always works, however many tabs it holds; a split that would need a ninth is refused and
@@ -377,16 +383,17 @@ drew its own half of a conversation would be inventing the other half too.
 **The run pill, the activity badge and the context ring are read off the stream** the window holds
 rather than asked for, because asking would be a round trip per token.
 
-**A column's footer reports the harness, and a ring only where there is one.** The harness, the
-model, what the turn has cost, the context used out of the size the harness reported, and — where
-Claude Code's `rate_limit_event` has arrived — how full the rolling five-hour window is. **No ring
-is drawn when no context window was reported** — a ratio over an invented denominator reads as a fact
-and is not one, and `G96` names who reports none; the rate-limit pill is guarded the same way. A
-mock's footer draws no mode chip, because `WorkAgent` carries none — `G80`.
+**A column's footer reports what the turn has spent, and a ring only where there is one.** What the
+turn has cost, the context used out of the size the harness reported, and — where Claude Code's
+`rate_limit_event` has arrived — how full the rolling five-hour window is; the harness itself is the
+composer's identity chip's business, not the footer's. **No ring is drawn when no context window was
+reported** — a ratio over an invented denominator reads as a fact and is not one, and `G96` names who
+reports none; the rate-limit pill is guarded the same way. A mock's composer draws no mode chip,
+because `WorkAgent` carries none — `G80`.
 
 **Wherever a harness is named in passing, it is one glyph, not its label.** `kit::HARNESS_GLYPH` —
 a single placeholder standing in for every harness alike, since none has a real icon yet — replaces
-the harness text in the column footer's pill, the sidebar's secondary line and the chat panel's row.
+the harness text in the composer's identity chip, the sidebar's secondary line and the chat panel's row.
 Only the *choosing* surfaces still spell the label out in full: the new-agent menu's rows and the
 settings page's harness list, where the full name is what a reader needs to make the pick. The
 conversation's own name — derived host-side from the harness's command, not set by the UI — is
@@ -3334,7 +3341,7 @@ field's, instead of landing in the middle of the centred row and covering the te
 | The composer sends with a session selected, or with nothing | Nothing is sent, and Send reads as disabled while the draft is empty |
 | A message is sent to a mock agent | The host puts it in that agent's thread and answers with the agent carrying it. Nothing replies, and the thread says so rather than inventing one |
 | A conversation's update does not follow the last one | The window reports the gap and applies the update anyway, because half a transcript is worth more than none |
-| A harness reports no context window | No ring is drawn, and the footer reports the harness and the model without one |
+| A harness reports no context window | No ring is drawn, and the footer reports what the turn has spent without one |
 | A conversation's harness exits | The transcript stays and the agent takes no further turn. Closing the tab is what takes it off screen |
 | The composer is used while a turn is already running | An empty draft offers Stop; a non-empty one is held on `Conversation.queued` instead of being written into the harness mid-turn, and sent automatically the moment the turn ends |
 | A screen over the work is opened with no project | The centre draws nothing. All three are views of one project's work and there is none; the rail, titlebar and status bar stay |

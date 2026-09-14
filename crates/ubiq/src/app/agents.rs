@@ -474,6 +474,33 @@ impl AppState {
         cx.notify();
     }
 
+    /// Send a queued prompt down the wire right now — a queue row's Send ASAP control.
+    ///
+    /// The queue's normal flush waits for [`Run::Idle`], the turn to end. This is the row's way
+    /// of not waiting: the entry comes back out and goes straight to [`Self::send_prompt`], the
+    /// same wire call a live turn uses. Nothing is cancelled — the turn in flight keeps running,
+    /// and the harness picks the prompt up at its next step.
+    pub fn send_queued_message_now(
+        &mut self,
+        agent_id: AgentId,
+        queued_id: u64,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(id) = self.project(cx) else {
+            return;
+        };
+        let Some(text) = self
+            .projects
+            .get_mut(&id)
+            .and_then(|open| open.conversations.get_mut(&agent_id))
+            .and_then(|conversation| conversation.remove_queued(queued_id))
+        else {
+            return;
+        };
+        self.send_prompt(agent_id, text);
+        cx.notify();
+    }
+
     /// Interrupt the turn in flight.
     ///
     /// Every prompt still up goes with it: the host answers each outstanding request as cancelled

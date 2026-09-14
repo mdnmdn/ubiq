@@ -144,6 +144,26 @@ impl Harness for Claude {
     /// and `.claude.json` included (verified against Claude Code 2.1.206) — so
     /// a captured login is the two files below, seeded into the ephemeral dir
     /// while the real `HOME` stays intact. See `_docs/profiles.md` §5.
+    ///
+    /// **`.credentials.json` is only the credential of record while the login
+    /// keychain is out of reach.** Claude Code carries two backends and picks
+    /// at launch, with no setting to force either:
+    ///
+    /// - keychain reachable — the login lives in a generic password named
+    ///   `Claude Code-credentials-<sha256($CLAUDE_CONFIG_DIR)[:8]>`. A seeded
+    ///   `.credentials.json` is migrated into it and **deleted**, and every
+    ///   refresh thereafter writes the keychain item only;
+    /// - keychain unreachable — `$CONFIG_DIR/.credentials.json` is read *and
+    ///   rewritten on refresh*, which is the contract
+    ///   [`SeedFile::credential`] and [`crate::harness::sync_login`] assume.
+    ///
+    /// So the seed below is a one-way door unless the policy withholds the
+    /// keychain, which is why `claude-code` is in `isolate::KEYCHAIN_DENIED`.
+    /// Removing it there does not merely widen the sandbox: it silently moves
+    /// the credential somewhere nothing in this crate reads, and a run's
+    /// keychain key is per-run because the config dir is a fresh ULID.
+    /// Measured against 2.1.270; `_docs/wip/claude-auth-problem.md` holds the
+    /// evidence and the discarded hypotheses.
     fn config_anchor(&self) -> ConfigAnchor {
         ConfigAnchor {
             levers: vec![("CLAUDE_CONFIG_DIR".to_string(), Relocate::All)],

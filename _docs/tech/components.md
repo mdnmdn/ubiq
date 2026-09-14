@@ -30,17 +30,23 @@ a third list invented its own poorer copy. An element drawn once, for one screen
 
 ## The activity bar
 
-**What it is.** The single line at the top of a conversation's bottom block that answers "what is
-the agent doing next": the spawned subagents on the left, the agent's own todo list on the right.
-Each side is a chip — a chevron and a count — and asking for either opens its panel, the list
-drawing *upward* over the transcript, flush against the line's own top edge, so the composer never
-moves under the cursor.
+**What it is.** The single line in a conversation's bottom block that answers "what is the agent
+doing next": the spawned subagents on the left, the agent's own todo list on the right, spanning the
+block's full width with a flexible spacer between the two chips so a lone one still reaches its own
+edge rather than hugging the other's. Each side is a chip — a chevron and a count — and asking for
+either opens its panel, the list drawing *upward* over the transcript, flush against the line's own
+top edge, so the composer never moves under the cursor.
 
+- Both chips are drawn from one `activity_chip` helper, taking `chevron_first` to put the chevron
+  before the label on the left and after it on the right, so both land on the row's outer edges and
+  neither can disagree with the other about which side its own chevron faces for a given `open`.
 - The left chip carries the switch's chevron before the count, `3 active subagents of 10`; the
   right chip carries the count before its chevron, `2/5 todos`, mirrored because it ends the line
   rather than opening it.
 - Either chip exists only when its list is non-empty, and the whole bar only when either is — a
-  conversation that never spawned and never planned looks exactly as it did before that line.
+  conversation that never spawned and never planned looks exactly as it did before that line. The
+  bar itself sits above the footer and below anything queued, which is drawn higher still in the
+  block when there is one.
 - The todo panel shows up to eight entries, the same mark per status the old inline strip drew,
   then `… n more`; it is read-only, a replacement list the harness re-sends whole.
 

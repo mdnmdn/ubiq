@@ -485,6 +485,27 @@ pub const DEFAULT_ACCOUNT_ID: &str = "default";
 
 /// macOS Keychain *service* name Claude Code uses for the OAuth blob
 /// (verified against Claude Code docs / field reports).
+///
+/// **This is the default-config-dir name only.** When `$CLAUDE_CONFIG_DIR` is
+/// set, Claude Code (2.1.270, and at least some versions before it) namespaces
+/// the item per config dir:
+///
+/// ```text
+/// Claude Code-credentials-<sha256($CLAUDE_CONFIG_DIR)[:8]>
+/// ```
+///
+/// So this constant reads the *ambient* login and never a relocated run's.
+/// That is the intent — an ambient login is what an import captures — but it
+/// means a stale, blanked item under this name says nothing about whether a
+/// usable login exists elsewhere on the machine.
+///
+/// Nothing here writes the namespaced form, and nothing should: a run that
+/// stores its credential there is a run this crate cannot reconcile, which is
+/// why `isolate::KEYCHAIN_DENIED` keeps a Claude run on the file backend
+/// instead. One consequence is worth knowing when reading a machine's
+/// keychain: every run that reached the keychain before that fix left an item
+/// behind, keyed to a run directory that no longer exists and cleaned up by
+/// nothing. See `_docs/wip/claude-auth-problem.md`.
 pub const CLAUDE_KEYCHAIN_SERVICE: &str = "Claude Code-credentials";
 
 /// Normalize and validate a Claude credentials JSON blob (as stored in

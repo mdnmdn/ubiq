@@ -5,7 +5,7 @@ kind: wip
 status: draft
 summary: The protocol, the library work and the order of packages behind a real conversation with a composed harness — what has landed, and the honest inventory of what today's library cannot yet deliver.
 read_when: you are picking up the next agent-integration package, or judging whether a proposed conversation message belongs on the wire
-updated: 2026-09-12
+updated: 2026-09-14
 verified: 2026-09-14
 code_anchors: [crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/coordinator.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/harness/claude.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/model.rs, crates/agent-manager/src/io/jsonl.rs, crates/ubiq-proto/src/work.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/state/conversation.rs, crates/agent-manager/src/profile.rs]
 depends_on: [tech-agent-manager, feat-workbench, feat-chat]
@@ -410,8 +410,8 @@ the mode picker opens on so the interface never guesses which id means "ask noth
 showing which harnesses it can start; `+ Add harness` signs a new one in. Starting a conversation
 offers one row per harness *and identity* — `HarnessChoice`, a flat list because the kit has no
 submenu and a pick is an index, read wherever a target is offered so one question has one answer.
-The identity is chosen once and read-only in the footer after, because a turn already taken was
-taken as somebody.
+The identity is chosen once and read-only after, in the composer's own identity chip, because a
+turn already taken was taken as somebody.
 
 **The definition half.** A `Profile` carries a `mode` beside its `isolate`, because a permission
 mode is a policy axis rather than a composition input — it lands in `spec.policy.permission_mode`,

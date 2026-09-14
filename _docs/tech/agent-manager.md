@@ -194,6 +194,12 @@ newer token with a stale one. `harvest_login` instead reads the expiry each blob
 silently signed out of reads as `Validity::Empty` rather than as a session with weeks left on it —
 the failure mode being guarded against is the same one, read at two different times.
 
+**A confined Claude Code run is denied the login keychain, so it never picks that backend.**
+`isolate::plan` overrides the `integrations/keychain` layer for a harness in `KEYCHAIN_DENIED`
+(Claude Code, Claude Code ACP, macOS only), keeping every mach-lookup TLS needs but denying
+`~/Library/Keychains`, so the harness stays on the `.credentials.json` file backend `sync_login`
+and `harvest_login` read instead of a per-run keychain item nothing cleans up. See `D124`.
+
 **Writing the refreshed token back is not enough, and teardown is the wrong time to do it.** A
 refresh **rotates** the refresh token: the provider revokes the one the run was seeded from the
 instant a run uses it. Every other run holds its own copy of that revoked token and will fail its

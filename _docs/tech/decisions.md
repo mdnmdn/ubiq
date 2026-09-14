@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-09-13
-verified: 2026-09-13
+updated: 2026-09-14
+verified: 2026-09-14
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -2541,6 +2541,36 @@ callback runs.
 **Cost.** libssh2 in the host's tree — another C library, another compile, and ssh that is
 libssh2's rather than OpenSSH's: `~/.ssh/config` Host aliases and `IdentityFile` are not read. The
 agent and the well-known identity files are. Clone still refuses ssh (`G149`).
+
+### D124 — A confined Claude Code run is denied the login keychain, so its credential stays on the file backend
+
+Claude Code on macOS picks between two credential backends at launch: the login keychain when
+`~/Library/Keychains` is reachable, or `.credentials.json` in `$CLAUDE_CONFIG_DIR` when it is not,
+migrating and deleting the file the first time it reaches the keychain. Only the file backend is one
+`agent-manager` can see — `harvest_login`, `sync_login` and `newest_login` all read it — and a run's
+config dir is a fresh ULID each time, so a keychain item is per-run: a refresh lands in an item keyed
+to a directory teardown deletes, is never cleaned up, and the next run is seeded a stale copy.
+`isolate::plan` overrides the `integrations/keychain` layer for a harness in `KEYCHAIN_DENIED`
+(`claude-code`, `claude-code-acp`), on macOS only, keeping every mach-lookup TLS needs and denying
+only `~/Library/Keychains`, so the harness has no reachable keychain and stays on the file backend.
+
+The alternative was dropping `integrations/keychain` from the harness's layer set by name. That
+fails silently: `agents/claude-code` drags the layer back in through its own `requires`, and
+auto-matched layers resolve after named ones, so a later-named deny loses. A profile path replaces
+a same-named built-in wherever it is pulled in, which is the one form nothing can outrank.
+
+**Why.** The symptom — a pane that works for hours and then cannot refresh, `.credentials.json` gone
+from the run dir — is a token rotated into a keychain item this crate has no way to read back or
+retire. Denying the keychain keeps the harness on the one backend `agent-manager` harvests and
+rotates correctly.
+
+**Cost.** A generated override directory (`<state_dir>/profiles-no-keychain/`) per machine, and a
+copy of the built-in layer's other grants inside it — the mach-lookups and system trust paths TLS
+needs. That copy is the real cost: an isol8 release that changes `integrations/keychain` must be
+mirrored there, or a denied run keeps the old grants. The layer path is named once
+(`KEYCHAIN_LAYER`) so the override cannot stop shadowing the built-in, which is a different failure
+and the one worth ruling out. Confined only: an unconfined Claude Code run still picks its own
+backend.
 
 ## Related docs
 

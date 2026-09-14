@@ -5,7 +5,7 @@ kind: feature
 status: draft
 summary: Editor-like chat tabs — many, movable to any dockable region, each a view onto a host-owned conversation or onto none, drawn by the composer, transcript and tool blocks the whole window shares.
 read_when: you are changing a chat tab, the control that starts or attaches a conversation, or which conversation a tab shows
-updated: 2026-09-13
+updated: 2026-09-14
 verified: 2026-09-14
 code_anchors: [crates/ubiq/src/ui/chat/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/app/projects.rs]
 depends_on: [feat-workbench]
@@ -283,9 +283,10 @@ composer holding focus does not swallow the answer to a question blocking the ve
 typing into.
 
 **Delegates and the todo list are two chips on one activity bar.** The bottom block draws a single
-row flush with its top border, between the transcript and the footer, with a subagent chip on the
-left and a todo chip on the right; neither chip appears when its source is empty, and the bar itself
-draws when at least one chip is present.
+row spanning its full width, above the footer and below anything queued, with a subagent chip on
+the left, a todo chip on the right and a flexible spacer between them so a lone chip still reaches
+its own edge of the block rather than hugging the other's; neither chip appears when its source is
+empty, and the bar itself draws when at least one chip is present.
 
 **The left chip is the subagent count.** A chevron points upward when the panel is closed and
 downward when it is open, beside a label built by `subagent_count_label`: `3 active subagents of 10`
@@ -328,8 +329,10 @@ for the same question never appear at once.
 **Files are attached to the turn being written, as tags rather than as text.** The composer's `+`
 raises the window's own file picker over the project's explorer tree, taking as many files as are
 wanted, and what comes back is one tag per file in a wrapping row directly under the token and
-context readout and above anything queued — the turn's own furniture, immediately over the field it
-belongs to. Clicking a tag opens that file in the editor; its `×` takes it off. A tag says the file
+context readout, immediately over the field it belongs to — the turn's own furniture. The queue sits
+elsewhere: it is not this row's neighbour any more, but the topmost thing in the whole bottom block,
+above the activity bar and the footer as well as the composer. Clicking a tag opens that file in the
+editor; its `×` takes it off. A tag says the file
 name, and its tooltip says the whole path from the project root with the size in figures, because a
 tag has room for a name and nothing else.
 
@@ -354,8 +357,8 @@ are.
 context window is *now* — a number that falls when the conversation is compacted — and `tot` is
 every token the conversation has ever billed, subagents included, which only grows. That is why one
 is a ring and the other a number, and every readout in the row says which it is on hover: the
-identity chip, the ring, `ctx`, `tot` with its per-way and per-subagent breakdown, and the
-composer's model, thinking and mode chips.
+ring, `ctx`, `tot` with its per-way and per-subagent breakdown, and the composer's own identity,
+model, thinking and mode chips.
 
 **A second ring beside `tot` says how much of that total was read back out of the cache.** It sits
 at `cached_tokens` over `total_tokens`, in the `info` tokens rather than the accent ones — a second

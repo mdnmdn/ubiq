@@ -203,7 +203,9 @@ fn cleanup(harness: &dyn Harness, provisioned: &Provisioned, keep_config: bool) 
     if let Some(origin) = &provisioned.login_origin {
         match crate::harness::harvest_login(harness, &provisioned.dir, origin) {
             Ok(()) => info!(dir = %provisioned.dir.display(), "harvested login back to its origin"),
-            Err(err) => warn!(dir = %provisioned.dir.display(), error = %err, "harvest_login failed"),
+            Err(err) => {
+                warn!(dir = %provisioned.dir.display(), error = %err, "harvest_login failed")
+            }
         }
     }
     if provisioned.ephemeral && !keep_config {

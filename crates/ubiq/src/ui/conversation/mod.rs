@@ -176,10 +176,16 @@ pub fn render(
         if view.composer && conversation.accepts_input {
             bottom = bottom.child(composer_grip(&view, cx));
         }
-        // Topmost in the block, above the footer as well as the composer: it opens
-        // upward over the transcript, so nothing under it moves when it does. Only where there
-        // is a subagent or a plan — a conversation that has neither looks exactly as it did
-        // before, the same discipline every element here follows.
+        // Above the activity bar, the footer and the composer: what is queued is not part of the
+        // turn being written, so it sits at the top of the block rather than against the field it
+        // used to hang off. Only where there is something waiting.
+        if !conversation.queued.is_empty() {
+            bottom = bottom.child(queue_list(id, view.slot, &view, &conversation.queued, cx));
+        }
+        // Above the footer as well as the composer: it opens upward over the transcript, so
+        // nothing under it moves when it does. Only where there is a subagent or a plan — a
+        // conversation that has neither looks exactly as it did before, the same discipline every
+        // element here follows.
         if !subagents.is_empty() || !conversation.plan.is_empty() {
             bottom = bottom.child(activity_bar(conversation, &subagents, &view, cx));
         }
@@ -2409,38 +2415,6 @@ fn footer(
     quota: Option<&QuotaSnapshot>,
     view: &ConversationView,
 ) -> AnyElement {
-    // Which harness, and which identity answered — one chip, because they are one answer: this
-    // conversation is *that* harness signed in as *that* person. Read-only by design: it is chosen
-    // once, in the New agent menu, because a turn already taken was taken as somebody.
-    let mark = harness_icon(&conversation.harness);
-    let mut identity_tip = if conversation.account.is_empty() {
-        format!(
-            "{} \u{2014} no account, running as you",
-            conversation.harness
-        )
-    } else {
-        format!(
-            "{} \u{b7} signed in as {} \u{2014} chosen once, when the agent was started",
-            conversation.harness, conversation.account
-        )
-    };
-    // Whether this identity may spend past its plan is a fact about the account, so it hangs off
-    // the account chip rather than off a banner of its own: the `5h N%` readout was removed
-    // deliberately and this does not bring it back. Said only when the answer is no — an account
-    // that can still spill over has nothing to warn about.
-    if let Some(rate) = &conversation.rate_limit
-        && rate
-            .overage_status
-            .as_deref()
-            .is_some_and(|status| status != "allowed")
-    {
-        identity_tip.push_str(" \u{b7} overage ");
-        identity_tip.push_str(rate.overage_status.as_deref().unwrap_or_default());
-        if let Some(reason) = &rate.overage_reason {
-            identity_tip.push_str(&format!(" ({reason})"));
-        }
-    }
-
     let mut row = div()
         .px_3()
         .py_1p5()
@@ -2448,26 +2422,6 @@ fn footer(
         .flex_none()
         .items_center()
         .gap_1p5()
-        .child(
-            pill(theme::accent())
-                .h(px(22.))
-                .px_2()
-                .id(view.eid("identity"))
-                .child(
-                    Icon::new(mark)
-                        .with_size(Size::XSmall)
-                        .text_color(theme::text()),
-                )
-                .when(!conversation.account.is_empty(), |this| {
-                    this.child(
-                        mono(conversation.account.clone(), theme::text())
-                            .text_size(theme::font(theme::Family::Conversation, theme::Role::Meta)),
-                    )
-                })
-                .tooltip(move |window, cx| {
-                    gpui_component::tooltip::Tooltip::new(identity_tip.clone()).build(window, cx)
-                }),
-        )
         .child(div().flex_1().min_w(px(0.)));
 
     // Whose numbers the rest of the row is about. A delegate's transcript reports the delegate;
@@ -2739,6 +2693,76 @@ fn stop_button(
         .into_any_element()
 }
 
+/// Which harness, and which identity answered — one chip, because they are one answer: this
+/// conversation is *that* harness signed in as *that* person. Read-only by design: it is chosen
+/// once, in the New agent menu, because a turn already taken was taken as somebody. It sits among
+/// the config chips because what a turn runs *as* belongs beside what it runs *with*.
+fn identity_chip(conversation: &Conversation, view: &ConversationView) -> AnyElement {
+    let mark = harness_icon(&conversation.harness);
+    let mut identity_tip = if conversation.account.is_empty() {
+        format!(
+            "{} \u{2014} no account, running as you",
+            conversation.harness
+        )
+    } else {
+        format!(
+            "{} \u{b7} signed in as {} \u{2014} chosen once, when the agent was started",
+            conversation.harness, conversation.account
+        )
+    };
+    // Whether this identity may spend past its plan is a fact about the account, so it hangs off
+    // the account chip rather than off a banner of its own: the `5h N%` readout was removed
+    // deliberately and this does not bring it back. Said only when the answer is no — an account
+    // that can still spill over has nothing to warn about.
+    if let Some(rate) = &conversation.rate_limit
+        && rate
+            .overage_status
+            .as_deref()
+            .is_some_and(|status| status != "allowed")
+    {
+        identity_tip.push_str(" \u{b7} overage ");
+        identity_tip.push_str(rate.overage_status.as_deref().unwrap_or_default());
+        if let Some(reason) = &rate.overage_reason {
+            identity_tip.push_str(&format!(" ({reason})"));
+        }
+    }
+
+    // Only the first two characters of the account, uppercased — the model chip wears one letter,
+    // this wears two, and either is a mark to recognise rather than a name to read.
+    let mark_text: String = conversation
+        .account
+        .chars()
+        .take(2)
+        .collect::<String>()
+        .to_uppercase();
+
+    div()
+        .h(px(26.))
+        .px_2()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap_2()
+        .border_l(px(theme::accent_edge()))
+        .border_color(theme::border())
+        .id(view.eid("identity"))
+        .child(
+            Icon::new(mark)
+                .with_size(Size::XSmall)
+                .text_color(theme::text()),
+        )
+        .when(!mark_text.is_empty(), |this| {
+            this.child(
+                mono(mark_text, theme::text())
+                    .text_size(theme::font(theme::Family::Conversation, theme::Role::Meta)),
+            )
+        })
+        .tooltip(move |window, cx| {
+            gpui_component::tooltip::Tooltip::new(identity_tip.clone()).build(window, cx)
+        })
+        .into_any_element()
+}
+
 /// The field that steers this agent, and the Stop that interrupts it.
 fn composer(
     app: &AppState,
@@ -2885,7 +2909,6 @@ fn composer(
                 .flex()
                 .flex_none()
                 .items_center()
-                .gap_1p5()
                 .children(pickers)
                 .into_any_element()
         }
@@ -2894,13 +2917,13 @@ fn composer(
     // No keyboard hint. Enter, cmd/ctrl+Enter and shift+Enter are what every text field on the
     // machine already does, and a permanent line of shortcut text under every composer is furniture
     // the user reads once. The row carries what changes instead: what this turn will run as.
+    //
+    // Chrome is flush: the row takes its full height with no padding, its controls sit edge to
+    // edge, and each is its own 26px chip rather than a gap-separated item.
     let controls = div()
-        .px_1p5()
-        .pb_1()
-        .pt_0p5()
         .flex()
         .items_center()
-        .gap_1p5()
+        .child(identity_chip(conversation, view))
         .child(config_row)
         // Files for this turn. The picker is the window's own, raised over the explorer's tree and
         // taking as many files as are wanted; what comes back is a tag apiece above the field, and
@@ -2997,13 +3020,11 @@ fn composer(
         .child(controls.children(actions));
 
     let mut extras: Vec<AnyElement> = Vec::new();
-    // Attachments first, so they sit directly under the token and context row and above anything
-    // waiting to be sent: they belong to the turn being written, which is the field below them.
+    // Attachments sit directly under the token and context row: they belong to the turn being
+    // written, which is the field right below them. The queue moved to the top of the bottom
+    // block — it is what is waiting, not what is being written.
     if !conversation.attached.is_empty() {
         extras.push(attachment_tags(id, view, &conversation.attached, cx));
-    }
-    if !conversation.queued.is_empty() {
-        extras.push(queue_list(id, slot, view, &conversation.queued, cx));
     }
 
     if extras.is_empty() {
@@ -3021,6 +3042,13 @@ fn composer(
 
 /// What the agent is doing, as two chips in one line at the top of the bottom
 /// block.
+///
+/// The row spans the block's full width, and the two chips sit at its two
+/// edges — subagents flush left, todos flush right, whichever of them exist —
+/// with a flexible spacer between rather than `justify_between`, so a lone
+/// chip still reaches its border instead of hugging the left one. Both are
+/// built by the single [`activity_chip`] helper, so their chevrons cannot
+/// disagree with which panel `conversation.panel_open` says is open.
 ///
 /// The left chip is the spawned subagents: how many, and — once asked — who
 /// they are. The right chip is the agent's own todo list: what it has checked
@@ -3116,43 +3144,19 @@ fn activity_bar(
                 )
             })
             .count();
-        let mut chip = div()
-            .id(view.eid("agent-switcher-header"))
-            .relative()
-            .px_2()
-            .py_1()
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap_1p5()
-            .cursor_pointer()
-            .hover(|this| this.bg(theme::hover()))
-            .debug_selector(|| "agent-switcher".into())
-            .child(
-                Icon::new(if open {
-                    IconName::ChevronDown
-                } else {
-                    IconName::ChevronUp
-                })
-                .with_size(Size::XSmall)
-                .text_color(theme::text_faint()),
-            )
-            .child(
-                mono(subagent_count_label(active, count), theme::text_muted())
-                    .text_size(theme::font(theme::Family::Conversation, theme::Role::Meta)),
-            )
-            .on_click(cx.listener(move |this, _, _, cx| {
+        activity_chip(
+            view.eid("agent-switcher-header"),
+            "agent-switcher",
+            view.eid("agent-switcher-panel"),
+            "agent-switcher-panel",
+            subagent_count_label(active, count),
+            open,
+            true,
+            rows,
+            cx.listener(move |this, _, _, cx| {
                 this.toggle_conversation_panel(id, ActivityPanel::Subagents, cx);
-            }));
-        if open {
-            chip = chip.child(popover(
-                view.eid("agent-switcher-panel"),
-                px(240.),
-                Some("agent-switcher-panel"),
-                rows,
-            ));
-        }
-        chip.into_any_element()
+            }),
+        )
     });
 
     let right = (!conversation.plan.is_empty()).then(|| {
@@ -3195,58 +3199,87 @@ fn activity_bar(
                 .into_any_element(),
             );
         }
-        let mut chip = div()
-            .id(view.eid("todo-switcher-header"))
-            .relative()
-            .px_2()
-            .py_1()
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap_1p5()
-            .cursor_pointer()
-            .hover(|this| this.bg(theme::hover()))
-            .debug_selector(|| "todo-switcher".into())
-            .child(
-                mono(format!("{done}/{total} todos"), theme::text_muted())
-                    .text_size(theme::font(theme::Family::Conversation, theme::Role::Meta)),
-            )
-            .child(
-                Icon::new(if open {
-                    IconName::ChevronDown
-                } else {
-                    IconName::ChevronUp
-                })
-                .with_size(Size::XSmall)
-                .text_color(theme::text_faint()),
-            )
-            .on_click(cx.listener(move |this, _, _, cx| {
+        activity_chip(
+            view.eid("todo-switcher-header"),
+            "todo-switcher",
+            view.eid("todo-switcher-panel"),
+            "todo-switcher-panel",
+            format!("{done}/{total} todos"),
+            open,
+            false,
+            rows,
+            cx.listener(move |this, _, _, cx| {
                 this.toggle_conversation_panel(id, ActivityPanel::Todos, cx);
-            }));
-        if open {
-            chip = chip.child(popover(
-                view.eid("todo-switcher-panel"),
-                px(240.),
-                Some("todo-switcher-panel"),
-                rows,
-            ));
-        }
-        chip.into_any_element()
+            }),
+        )
     });
 
     let mut bar = div()
         .id(view.eid("activity-bar"))
         .flex()
         .items_center()
-        .justify_between()
+        .w_full()
         .debug_selector(|| "activity-bar".into());
     if let Some(left) = left {
         bar = bar.child(left);
     }
+    bar = bar.child(div().flex_1().min_w(px(0.)));
     if let Some(right) = right {
         bar = bar.child(right);
     }
     bar.into_any_element()
+}
+
+/// The one shell both activity chips are drawn from, so their metrics, hover and chevron can never
+/// drift apart. `chevron_first` puts the chevron before the label on the left chip and after it on
+/// the right, so both chevrons land on the row's outer edges; either way it is [`IconName::ChevronUp`]
+/// closed and [`IconName::ChevronDown`] open, read off the single `open` flag the caller passes in —
+/// there is no second place a chip could get that backwards. `rows` are the panel's own content,
+/// drawn only while `open`, through the same [`popover`] both chips share.
+#[allow(clippy::too_many_arguments)]
+fn activity_chip(
+    id: ElementId,
+    debug: &'static str,
+    panel_id: ElementId,
+    panel_debug: &'static str,
+    label: String,
+    open: bool,
+    chevron_first: bool,
+    rows: Vec<AnyElement>,
+    on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+) -> AnyElement {
+    let chevron = Icon::new(if open {
+        IconName::ChevronDown
+    } else {
+        IconName::ChevronUp
+    })
+    .with_size(Size::XSmall)
+    .text_color(theme::text_faint());
+    let text = mono(label, theme::text_muted())
+        .text_size(theme::font(theme::Family::Conversation, theme::Role::Meta));
+
+    let mut chip = div()
+        .id(id)
+        .relative()
+        .px_2()
+        .py_1()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap_1p5()
+        .cursor_pointer()
+        .hover(|this| this.bg(theme::hover()))
+        .debug_selector(move || debug.into());
+    chip = if chevron_first {
+        chip.child(chevron).child(text)
+    } else {
+        chip.child(text).child(chevron)
+    };
+    chip = chip.on_click(on_click);
+    if open {
+        chip = chip.child(popover(panel_id, px(240.), Some(panel_debug), rows));
+    }
+    chip.into_any_element()
 }
 
 /// What the collapsed header says: how many delegates are still working, and — where some have
@@ -3461,9 +3494,12 @@ fn attachment_tags(
         .into_any_element()
 }
 
-/// Prompts typed while a turn was running, oldest first — each with an edit that loads it back
-/// into the field and a delete that drops it outright. Drawn only when there is one: an empty
-/// queue draws nothing, the same discipline every pill in this file follows.
+/// Prompts typed while a turn was running, oldest first — each with a send-now that puts it on
+/// the wire immediately, an edit that loads it back into the field, and a delete that drops it
+/// outright. Sits at the top of the bottom block, above the activity bar, the footer and the
+/// composer: what is waiting to go out is not part of the message being written, so it does not
+/// hang off the field the way an attachment does. Drawn only when there is one: an empty queue
+/// draws nothing, the same discipline every pill in this file follows.
 fn queue_list(
     agent_id: AgentId,
     slot: usize,
@@ -3499,6 +3535,15 @@ fn queue_list(
                         .min_w(px(0.))
                         .text_size(theme::font(theme::Family::Conversation, theme::Role::Label)),
                 )
+                .child(ghost_button(
+                    view.eid(&format!("queued-send-now-{queued_id}")),
+                    Some(IconName::ArrowUp),
+                    "Send ASAP \u{2014} it goes down now and the harness takes it at its next \
+                     step; the turn in flight is not stopped",
+                    cx.listener(move |this, _, _, cx| {
+                        this.send_queued_message_now(agent_id, queued_id, cx);
+                    }),
+                ))
                 .child(ghost_button(
                     view.eid(&format!("queued-edit-{queued_id}")),
                     Some(IconName::Replace),
