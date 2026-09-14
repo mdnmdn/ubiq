@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::assist::{AiProvider, AssistProvider};
 use crate::connectors::{Connection, OauthApp, TrustedCert};
+use crate::ids::SshProfileId;
 use crate::projects::IndexLevel;
 use crate::tools::ToolDef;
 
@@ -177,6 +178,115 @@ pub struct HostSettings {
     /// `search_excludes` or `projects_root` above it.
     #[serde(default)]
     pub remote_hosts: Vec<SavedRemoteHost>,
+
+    /// The SSH targets the interface knows how to dial, by address and auth method alone.
+    ///
+    /// Three things want this and none of them is the drone alone: a drone's carrier, a remote
+    /// `ubiq-host` reached over a tunnel, and an ssh clone's credential callback. It is a list of
+    /// *references* — a key's path rides the record, a passphrase never does, and the `has_*`
+    /// flags on [`SshAuth`] are re-derived from the secret store on every write rather than
+    /// believed from the blob that arrives.
+    ///
+    /// **UI-mutated, like [`Self::remote_hosts`] above and unlike [`Self::ai_providers`].**
+    /// Nothing writes a profile unattended: a profile is added, edited or forgotten only by a
+    /// person on this exact settings page, so there is no concurrent writer for a UI write to
+    /// clobber and this rides `SetSettings` whole. What the host still owns is the *material* —
+    /// it arrives only in a [`crate::messages::Secret`], and a profile that leaves this list has
+    /// its secret pruned with it, so no key is ever stranded under an id nothing names.
+    #[serde(default)]
+    pub ssh_profiles: Vec<SshProfile>,
+}
+
+/// One SSH target: enough to dial it, never enough to unlock it.
+///
+/// The passphrase or password lives in the OS secret store under the profile's `id`, never in
+/// this file — the rule `AGENTS.md` states as "accounts carry credential references, never
+/// credential material", and this is a plaintext file on disk.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SshProfile {
+    /// Stable id, minted UI-side when the row is added. The name and the address are the user's
+    /// and change; this is what the secret store references.
+    pub id: SshProfileId,
+    /// What the user called it. Freely renamable, and shown instead of the address wherever
+    /// there is room for only one string.
+    pub name: String,
+    /// The hostname or address to dial. For [`SshAuth::ConfigAlias`] this is the alias in the
+    /// user's `~/.ssh/config`, and the three fields below are left to that file.
+    pub host: String,
+    /// The port, `22` unless the user said otherwise. Ignored for [`SshAuth::ConfigAlias`].
+    #[serde(default = "ssh_port_default")]
+    pub port: u16,
+    /// The remote user. Empty means "whatever `ssh` would pick" — the local username, or what
+    /// the config file says.
+    #[serde(default)]
+    pub user: String,
+    /// How the connection authenticates.
+    #[serde(default)]
+    pub auth: SshAuth,
+}
+
+/// How an [`SshProfile`] authenticates.
+///
+/// Each variant's `has_*` flag is written by the host from the secret store, not by the
+/// interface: the interface is never sent the material, so it cannot be the half that says
+/// whether there is any.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SshAuth {
+    /// The running `ssh-agent`, which is what an already-working setup usually is. Nothing to
+    /// store and nothing to ask for.
+    #[default]
+    Agent,
+    /// A private key on this machine. The path is a reference and rides the record; the
+    /// passphrase, if the key has one, goes to the secret store.
+    KeyFile {
+        /// The key file, absolute or `~`-prefixed as the user typed it.
+        path: String,
+        /// Whether a passphrase is filed for it. Host-derived.
+        #[serde(default)]
+        has_passphrase: bool,
+    },
+    /// A password. Never on this record, and never in `argv` — OpenSSH reads one from
+    /// `/dev/tty`, so it reaches `ssh` through an askpass helper or not at all.
+    Password {
+        /// Whether a password is filed. Host-derived.
+        #[serde(default)]
+        has_password: bool,
+    },
+    /// Defer wholly to the user's `~/.ssh/config`: `host` is an alias there and every other
+    /// field on the record is ignored. The escape hatch for a setup Ubiq should not try to
+    /// re-describe — jump hosts, certificates, per-host identity files.
+    ConfigAlias,
+}
+
+impl SshAuth {
+    /// Whether this variant has a secret filed for it, whichever one it is.
+    pub fn has_secret(&self) -> bool {
+        match self {
+            Self::KeyFile { has_passphrase, .. } => *has_passphrase,
+            Self::Password { has_password } => *has_password,
+            Self::Agent | Self::ConfigAlias => false,
+        }
+    }
+
+    /// Whether this variant can have a secret at all. An [`Self::Agent`] profile with a
+    /// passphrase filed against it is a leak, not a feature, so the host prunes one.
+    pub fn takes_secret(&self) -> bool {
+        matches!(self, Self::KeyFile { .. } | Self::Password { .. })
+    }
+
+    /// Restamp the host-derived flag from what the secret store actually holds.
+    pub fn set_has_secret(&mut self, filed: bool) {
+        match self {
+            Self::KeyFile { has_passphrase, .. } => *has_passphrase = filed,
+            Self::Password { has_password } => *has_password = filed,
+            Self::Agent | Self::ConfigAlias => {}
+        }
+    }
+}
+
+fn ssh_port_default() -> u16 {
+    22
 }
 
 /// Which `$HOME` a confined agent runs with.
@@ -301,7 +411,12 @@ pub enum RemoteScheme {
 ///
 /// Fifteen adds [`HostSettings::tools`]. An older build drops the rows on its next write, and
 /// the new-pane menu goes back to offering shells and harnesses only until they are set again.
-pub const HOST_SETTINGS_SCHEMA: u32 = 15;
+///
+/// Sixteen adds [`HostSettings::ssh_profiles`], and earns the bump on `ai_providers`' footing
+/// rather than `tools`': an older build drops the rows on its next write and **strands their
+/// passphrases in the OS secret store**, filed under ids nothing on disk names any more. The
+/// profiles themselves are re-typable; a secret nothing can reach to delete is not.
+pub const HOST_SETTINGS_SCHEMA: u32 = 16;
 
 fn isolate_agents_default() -> bool {
     true

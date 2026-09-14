@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-09-13
-verified: 2026-09-13
+updated: 2026-09-14
+verified: 2026-09-14
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -2541,6 +2541,33 @@ callback runs.
 **Cost.** libssh2 in the host's tree — another C library, another compile, and ssh that is
 libssh2's rather than OpenSSH's: `~/.ssh/config` Host aliases and `IdentityFile` are not read. The
 agent and the well-known identity files are. Clone still refuses ssh (`G149`).
+
+### D124 — An SSH profile is the interface's record and its secret is the host's
+
+`HostSettings.ssh_profiles` rides `SetSettings` whole, in the ownership class `remote_hosts` is in
+rather than the host-owned class `connections` and `ai_providers` are in. Nothing writes a profile
+unattended: one is added, renamed or forgotten only by a person on one settings page, so there is
+no background writer for a UI write to clobber and no reason for `Settings::set` to re-overwrite
+the list from disk.
+
+The material is the exception, and splitting it out is what makes the rest safe. A passphrase or
+password reaches the host only in a `Secret`, through `SetSshSecret` and `ClearSshSecret` (`D65`),
+and lives in a fourth namespace of the connector store — `harness: "ssh"`, `name: <profile id>` —
+beside `connector:`, `connector-app` and `ai-provider`. The `has_passphrase` and `has_password`
+flags on the record are **re-stamped by the host from that store on every write**, never believed
+from the blob that arrived, because the interface is never sent the material and so cannot be the
+half that knows whether there is any.
+
+That leaves one hazard the host also owns: a profile the user deleted, or switched to `Agent`, would
+otherwise leave its secret filed under an id nothing on disk names. So every host-layer write prunes
+the store to the ids the incoming list still carries and whose auth still takes a secret. It is the
+same inseparability `AddAiProvider` buys by owning the record; bought here on the write path
+instead, which is what lets the record stay the interface's.
+
+**Cost.** The reconcile runs on every host-layer settings write, not only on the ones that touched a
+profile — a keychain read per profile, for a list that is small by nature. And the split is a seam a
+future writer can get wrong: a code path that writes `ssh_profiles` without going through that
+reconcile would file a flag the store does not back. `SetSettings` is the only such path today.
 
 ## Related docs
 
