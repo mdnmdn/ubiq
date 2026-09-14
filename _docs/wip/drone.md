@@ -3,11 +3,11 @@ id: wip-drone
 title: The drone, phase by phase
 kind: wip
 status: current
-summary: The running state of the drone's nine phases — one small executable Ubiq places on another machine to serve its terminal, files and machine facts over a single duplex byte stream. Phases 1 to 4 are built and verified; the interface that dials one, the lifecycle and the deployment are not. This document is the ledger, updated as each phase lands.
+summary: The running state of the drone's nine phases — one small executable Ubiq places on another machine to serve its terminal, files and machine facts over a single duplex byte stream. Phases 1 to 6 are built; the interface dials one over ssh and its panes survive a dropped link, though nothing is yet proven against a real ssh. Adoption, per-project configuration and deployment are not built. This document is the ledger, updated as each phase lands.
 read_when: you are picking up the drone work and need to know what is built, what is next, and which decisions are already settled
 updated: 2026-09-14
 verified: 2026-09-14
-code_anchors: [crates/ubiq-drone/src/main.rs, crates/ubiq-drone/src/lib.rs, crates/ubiq-drone/src/relay.rs, crates/ubiq-drone/src/carrier.rs, crates/ubiq-drone/tests/session.rs, crates/ubiq-drone/tests/handshake.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-host/Cargo.toml, crates/ubiq-proto/src/carrier.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-host/src/connectors/store.rs, crates/ubiq-host/src/settings.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/ui/settings.rs]
+code_anchors: [crates/ubiq-drone/src/main.rs, crates/ubiq-drone/src/lib.rs, crates/ubiq-drone/src/relay.rs, crates/ubiq-drone/src/carrier.rs, crates/ubiq-drone/tests/session.rs, crates/ubiq-drone/tests/handshake.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-host/Cargo.toml, crates/ubiq-proto/src/carrier.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-host/src/connectors/store.rs, crates/ubiq-host/src/settings.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/state/remote.rs, crates/ubiq-app/src/lib.rs, crates/ubiq-drone/src/linger.rs, crates/ubiq-drone/src/scrollback.rs, crates/ubiq-drone/src/socket.rs, crates/ubiq-drone/tests/detach.rs]
 depends_on: [tech-architecture, tech-transport, tech-structure, inbox-drone-runtime]
 ---
 
@@ -41,13 +41,14 @@ This departs from the shelved proposal's §3, which put a `remote: Option<Remote
 | 2 | `crates/ubiq-drone` and the stdio carrier | **Built** |
 | 3 | Handshake, schema version, heartbeat | **Built** |
 | 4 | SSH connection profiles and their secrets | **Built** |
-| 5 | The interface attaches over SSH | Next |
-| 6 | Detach and linger | Not started |
-| 7 | Managed drones | Not started |
+| 5 | The interface attaches over SSH | **Built** |
+| 6 | Detach and linger | **Built** |
+| 7 | Managed drones | Next |
 | 8 | Per-project configuration | Not started |
 | 9 | Provenance, then git and search | Not started |
 
 Phase 5 is the first a user can reach; everything before it is drivable only by hand and by test.
+Nothing is proven against a real `ssh` yet — see the gaps.
 
 ### 1 — The lean host build *(built)*
 
@@ -223,64 +224,96 @@ keeps the material out of `argv`, out of any file, and off the bus outbound. Not
 yet, so there is no process to set those variables on and no test that could exercise it. It lands
 with phase 5, which is what gives it a caller. `G258`.
 
-### 5 — The interface attaches over SSH *(not started)*
+### 5 — The interface attaches over SSH *(built)*
 
-The first phase a user can reach. Depends on phase 4 for the profile it dials with.
+The first phase a user can reach.
 
-A new `ssh_connect` module under `crates/ubiq/src/app/` spawns `ssh` with piped stdio and hands the child's
-standard input and output to `bus::detached()` behind the shape `spawn_pump` in
-`crates/ubiq/src/app/remote_connect.rs` already uses. It calls `ubiq_proto::carrier::welcome` —
-Ubiq's half of the handshake, which until this phase only tests call — before the pump starts, and
-maps a non-zero exit plus the child's standard error onto the existing `ConnectFailure` vocabulary
-so the modal needs no new failure kinds. Ubiq shells to the system `ssh` and never parses its output
-for structure: what comes back is an exit code and bytes, which is what separates this from `D43`.
+**`crates/ubiq/src/app/ssh_connect.rs`** spawns the system `ssh` with piped stdio, runs
+`ubiq_proto::carrier::welcome` on the bare pipes — Ubiq's half of the handshake, which until now
+only tests called — and hands the two halves to `spawn_pump`. That pump became generic over
+`R: Read`/`W: Write` with its closer a `Box<dyn FnOnce() + Send>` instead of a `TcpStream`: a pipe
+pair is not one handle that both reads and writes, and each carrier spells "unblock the reader"
+differently. Ubiq shells to `ssh` and never parses its output for structure — what comes back is an
+exit code and bytes, which is what separates this from `D43`. The child, its pipes, its stderr drain
+and a 45-second watchdog live in that module and nothing below it sees a descriptor.
 
-The connect modal grows an SSH mode: `editing_body` in `crates/ubiq/src/ui/remote_connect.rs`, with
-the state on `RemoteConnectState` in `crates/ubiq/src/state/remote.rs` and setters following
-`set_remote_scheme` / `set_remote_trust` in `crates/ubiq/src/app/remote_connect.rs`. It collects a
-profile and a remote root instead of an address and a token. `SavedRemoteHost` in
-`crates/ubiq-proto/src/settings.rs` grows a carrier discriminant beside `RemoteScheme`, which is a
-`HOST_SETTINGS_SCHEMA` bump on the protocol that file documents.
+The argv is built from the profile: `-T`, a connect timeout, `-p` and `-l` when they are the user's,
+and for `ConfigAlias` none of them — the point of that variant is that `~/.ssh/config` governs.
+`BatchMode=yes` only when the profile has no secret filed, because batch mode would refuse the
+askpass helper. The remote command is `ubiq-drone --stdio`, a bare name resolved by the remote
+`PATH`, plus `--root` when the saved root is not empty. There is no path setting yet: phase 9 is
+what deploys a drone and caches where it put it, so there is nothing for one to point at.
 
-`HostEntry` and `host_menu_rows` in `crates/ubiq/src/app/hosts.rs` need nothing: a drone is a host
-(`D116`), so the Hosts section, the picker and Disconnect carry it already. Architecture rule 2
-holds — the child process handle lives in `ssh_connect.rs` beside the `TcpStream` that
-`architecture.md` names as the sanctioned exception, and no descriptor reaches a drawing module.
+**Failures reuse the existing vocabulary**, so the modal needed no new kinds. A handshake refusal is
+`Refused` carrying the drone's sentence verbatim — which names both schema numbers — and is the
+first time a refusal is shown to anyone rather than logged and exited. Exit 255 or no status is
+`Unreachable` with the tail of stderr, ssh's own class; any other non-zero is `Refused`, which is
+where `ubiq-drone: not found` lands.
 
-Verify by attaching to a drone over `ssh localhost`, opening a pane in it, and confirming the Hosts
-section lists it and Disconnect tears it down.
+**The secret reaches `ssh` without passing through the interface** (`D125`). `SSH_ASKPASS` points at
+Ubiq's own binary with `SSH_ASKPASS_REQUIRE=force`, and the child's environment carries a profile id
+and a config root — references, not material. The helper mode is in `ubiq-app`, the one crate that
+names both halves, so it opens the host's store itself and writes the secret on its own standard
+output, where OpenSSH reads an askpass answer from. The material's whole path is keychain to helper
+stdout to `ssh`: never `argv`, never a file, never the bus, never the drawing process. That closes
+the question phase 4 left open, and it closes it better than the message that was the alternative.
 
-### 6 — Detach and linger *(not started)*
+The connect modal grows a mode pill: a socket body as before, or a profile chosen from
+`ssh_profiles` and a folder. `SavedRemoteHost` grew `carrier` for it, at `HOST_SETTINGS_SCHEMA` 17.
 
-`--listen <sock>` binds a unix socket at mode `0600` under `$XDG_RUNTIME_DIR`, falling back to the
-cache directory, and detaches; `--attach <sock>` is a pure byte relay between its own stdio and that
-socket, so reattaching is a fresh `ssh <target> <drone> --attach <sock>`. Filesystem permissions are
-the whole of the access control — no port is forwarded, which is why the shelved proposal's
-exec-time keypair defends nothing. The socket path is derived from a hash of the root so two windows
-cannot start rival drones for one project.
+`HostEntry` and `host_menu_rows` needed nothing, as the design said — but the *pick* path did.
+`reconnect_saved_host` filled an address and started a socket dial unconditionally, and
+`remote_socket_lost` would have started a TCP reconnect loop for a dropped drone. Both are now
+carrier-aware. A drone is a host (`D116`); what was not carrier-agnostic was the dialling, not the
+listing.
 
-**Not `tmux attach`:** tmux is a terminal emulator and would mangle binary frames. A multiplexer is
-used only to hold the detached process where a user can read its log — `tmux new -d -s ubiq-drone
-'<drone> --listen <sock>'` when tmux or screen is present, `setsid` otherwise. The persistence is the
-socket, never the multiplexer.
+### 6 — Detach and linger *(built)*
+
+`--listen [<sock>]` binds a unix socket at mode `0600` and detaches; `--attach [<sock>]` is a pure
+byte relay between its own stdio and that socket, so reattaching is a fresh
+`ssh <target> <drone> --attach <sock>`. Filesystem permissions are the whole of the access control —
+no port is forwarded, which is why the shelved proposal's exec-time keypair defends nothing. The
+path is derived from a hash of the canonicalised roots under `$XDG_RUNTIME_DIR`, falling back to the
+cache directory, so two windows cannot start rival drones for one project. **The containing
+directory is forced to `0700` first**, because that is what closes the window between `bind` and the
+socket's own chmod. A path that still accepts a connection is refused; a dead one is removed.
+
+**Not `tmux attach`:** tmux is a terminal emulator and would mangle binary frames. A multiplexer only
+holds the detached process where a user can read its log — `tmux new -d`, else `screen -dmS`, else
+`setsid`, else a bare spawn that says it will die with the login. The persistence is the socket,
+never the multiplexer. `--listen` is the launcher and `--foreground` is what the held process runs.
 
 `--linger` is the single knob: `0` exits when the last client detaches, `N` (default 10 minutes)
-survives a dropped link, `never` is a managed drone. It is the *drone's* timer, not Ubiq's, because
-the whole point is that Ubiq may be gone; it is passed at launch and re-asserted on each attach, so
-changing it needs no restart. On expiry the drone kills its panes and exits, which is destructive
-and must be visible in the connect UI and on the host row.
+survives a dropped link, `never` is a managed drone. It is the *drone's* timer, because the whole
+point is that Ubiq may be gone, and it is **re-asserted on each attach** — over one ASCII line the
+attaching process writes before the handshake, which is the drone's own two halves talking over a
+socket only they can open, and so not a protocol change. A **30-second startup grace** covers the
+case the knob alone gets wrong: `--linger 0` would otherwise exit in the gap before the first client
+arrives. After the first client the linger rules exactly. On expiry the drone kills its panes and
+exits, which is destructive and has to be visible in the connect UI and on the host row — it is not
+yet.
 
 This phase is why `D118` exists: without the heartbeat a detached drone never observes its client
 leaving, never starts its countdown, and lives forever by accident.
 
-A detached drone holds live pseudo-terminals, their ids, the owners map, and a bounded per-pane
-scrollback ring (256 KiB, oldest first) — and nothing else: no catalogue on disk, no index, no
-credentials. **Reattach is a new host attach, not a resumed one.** `Bus::drop_remote` keeps today's
-behaviour of taking a lost host's panes with it, and on the new connection the drone re-announces
-each live pane with `WorkspaceSpawned` and replays its ring as `TerminalOutput`. Pane ids are minted
-by the drone and stay stable, so it is the same pane; without the ring the user would get a
-live-but-blank terminal until the next output. `D22` still holds: closing a *pane* kills its
-harness, and what a dropped link ends is the link.
+A detached drone holds live pseudo-terminals, their ids, the owners map and a **bounded per-pane
+scrollback ring** (256 KiB, oldest first) — and nothing else: no catalogue on disk, no index, no
+credentials. The ring needed a sink that outlives a link: `Pty::forward_output` stops when its sink
+reports the client gone, which is right for a closed window and wrong for a dropped one, so a
+private hub with one client held for the life of the process sits between them. Rings are kept only
+when the drone is detached.
+
+**Reattach is a new host attach, not a resumed one.** `Bus::drop_remote` keeps today's behaviour of
+taking a lost host's panes with it, and on the new connection the drone re-announces each live pane
+with `WorkspaceSpawned` and replays its ring as `TerminalOutput`. Pane ids are minted by the drone
+and stay stable, so it is the same pane; without the ring the user would get a live-but-blank
+terminal until the next output. `D22` still holds: closing a *pane* kills its harness, and what a
+dropped link ends is the link.
+
+Four tests in `crates/ubiq-drone/tests/detach.rs` drive the real binary over the real socket: a
+detached drone holds its panes across a dropped link and the reattached pane is proven live by
+writing a file; the ring is bounded and keeps the newest; `--linger 0` takes the process and its
+socket with the last client; an attach's re-asserted linger overrides a `never` the launch set.
 
 ### 7 — Managed drones *(not started)*
 
@@ -350,7 +383,7 @@ exists to avoid. That is a decision about shape, not a deferral.
 
 ```
 cargo build -p ubiq-drone      # the drone
-cargo test -p ubiq-drone       # 5 tests: session (2), handshake (3)
+cargo test -p ubiq-drone       # 14: unit (5), detach (4), handshake (3), session (2)
 cargo test -p ubiq-host --test settings --test connectors   # the ssh namespace and its reconcile
 just relay                     # the lean host builds and stays lean — part of `just verify`
 just host / just ui            # the crate-boundary guards
@@ -386,6 +419,8 @@ phases that have not landed, and move there as each one does.
 - **`D118` — the heartbeat pings only silence**, 20 seconds and three misses.
 - **`D124` — an SSH profile is the interface's record and its secret is the host's**, which is what
   obliges the host to prune and re-stamp on every write.
+- **`D125` — the askpass helper reads the keychain itself**, so a password reaches `ssh` without
+  ever entering the drawing process.
 - **The carrier is the ssh exec channel's stdio by default** — no forwarded port, which is why the
   shelved proposal's exec-time keypair defends nothing and is not built.
 - **Persistence, when it lands, is a unix socket at mode `0600`**, never `tmux attach`: tmux is a
@@ -410,12 +445,18 @@ phases that have not landed, and move there as each one does.
   where before it would have run. The handshake closes this for a drone and closes nothing for
   `ubiq --serve`, which states no version at all — and `wire.rs` says a remote host and UI may be
   different builds, which this is the first change to make untrue. `G257`.
-- **Nothing in the interface dials a drone yet**, so `ubiq_proto::carrier::welcome` — Ubiq's half of
-  the handshake — is called only by tests. Phase 5 is what puts it on a real `ssh` channel, and
-  until then the only proven pairing is a drone against a test's far end.
-- **A profile can be written and its secret filed, and neither can be spent.** No askpass helper
-  exists and nothing dials `ssh`, so the whole of phase 4 is storage waiting for phase 5's caller.
-  `G258`.
+- **Nothing has been run against a real `ssh`.** There is no ssh client and no `sshd` in the
+  sandbox this was built in, so the ssh path — the argv, the askpass handshake, the drone found on
+  the far `PATH` — is verified by unit tests over its *inputs* and by nothing over its behaviour.
+  That is the single largest untested surface in the drone, and phases 4, 5 and 6 all rest on it.
+  `G258` is the fixture that would close the askpass half.
+- **A drone that lingers out is invisible.** Expiry kills its panes and exits, which is destructive
+  and must show in the connect UI and on the host row; nothing draws it. A user whose laptop slept
+  past the linger finds the panes gone with no account of why.
+- **`ubiq-drone` is a bare name on the remote `PATH`.** Nothing deploys one and nothing says where
+  it is, so phase 5 works only where a drone has been installed by hand. Phase 9 is the deployer;
+  until then `ubiq-drone: not found` is the common first failure, and it is reported as a refusal
+  with ssh's own words.
 - A refusal is a sentence on the wire and a non-zero exit; **no modal shows it**, because there is
   no connect flow for a drone to fail in yet. Also phase 5.
 - `capabilities` is advertised and nothing reads it. The interface has no reason to branch on one

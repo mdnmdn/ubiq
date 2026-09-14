@@ -306,6 +306,9 @@ impl AppState {
             cx.new(|cx| InputState::new(window, cx).placeholder("192.168.1.5:7420"));
         let remote_token_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("Paste the token\u{2026}"));
+        let remote_root_input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("Optional \u{2014} the login directory")
+        });
         let remote_rename_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("A name for this host\u{2026}"));
 
@@ -991,6 +994,7 @@ impl AppState {
             ssh_secret_input.read(cx).focus_handle(cx),
             remote_address_input.read(cx).focus_handle(cx),
             remote_token_input.read(cx).focus_handle(cx),
+            remote_root_input.read(cx).focus_handle(cx),
             clone_filter_input.read(cx).focus_handle(cx),
             clone_url_input.read(cx).focus_handle(cx),
             clone_name_input.read(cx).focus_handle(cx),
@@ -1188,6 +1192,7 @@ impl AppState {
             ssh_secret_input,
             remote_address_input,
             remote_token_input,
+            remote_root_input,
             remote_rename_input,
             sink_search,
             sink_harness_name,

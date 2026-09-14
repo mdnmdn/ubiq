@@ -101,8 +101,8 @@ use ubiq_proto::notifications::{
 };
 use ubiq_proto::projects::{ProjectSnapshot, Scope};
 use ubiq_proto::settings::{
-    AgentHome, Grant, HOST_SETTINGS_SCHEMA, HostSettings, RemoteScheme, SavedRemoteHost,
-    SettingsLayer, SshAuth, SshProfile,
+    AgentHome, Grant, HOST_SETTINGS_SCHEMA, HostSettings, RemoteCarrier, RemoteScheme,
+    SavedRemoteHost, SettingsLayer, SshAuth, SshProfile,
 };
 use ubiq_proto::work::{AgentId, Bucket, Priority, Shape, Status};
 
@@ -816,6 +816,10 @@ pub struct AppState {
     /// rather than mirrored, for the same reason `connect_instance_input` is.
     pub remote_address_input: Entity<InputState>,
     pub remote_token_input: Entity<InputState>,
+    /// The same modal's SSH half: the folder on the far machine the drone is launched against.
+    /// The profile it dials with is a pick, not a typed value, so it lives on
+    /// `RemoteConnectState` instead.
+    pub remote_root_input: Entity<InputState>,
     /// The remote-hosts manager's rename prompt. Read at confirm time, like the connect modal's
     /// fields, rather than mirrored into state.
     pub remote_rename_input: Entity<InputState>,
@@ -922,6 +926,7 @@ mod remote_hosts;
 mod settings;
 mod shell;
 mod sink;
+mod ssh_connect;
 mod stats;
 mod vim;
 mod web_panel;

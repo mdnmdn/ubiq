@@ -60,7 +60,7 @@ impl AppState {
         });
     }
 
-    /// Save or update one remote host's name, address, scheme and trust flag, keyed by its
+    /// Save or update one remote host's name, address, carrier, scheme and trust flag, keyed by its
     /// stable id — minted here when the dial that proved it reachable was the entry's first.
     /// Called the moment a dial succeeds, so a host is durable the first time it is ever reached,
     /// with no separate "save" step for the user to remember. Answers with the id, which is what
@@ -68,6 +68,7 @@ impl AppState {
     /// [`ubiq_proto::settings::HostSettings::remote_hosts`] for why this never carries the token,
     /// and why this rides `SetSettings` whole rather than a dedicated message the way
     /// `oauth_apps` does.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn save_remote_host(
         &mut self,
         save_id: String,
@@ -75,6 +76,7 @@ impl AppState {
         address: String,
         scheme: RemoteScheme,
         trust_insecure: bool,
+        carrier: RemoteCarrier,
         cx: &mut Context<Self>,
     ) -> String {
         let hosts = &mut self.workbench.settings.host.remote_hosts;
@@ -85,6 +87,7 @@ impl AppState {
                 existing.name = name;
                 existing.scheme = scheme;
                 existing.trust_insecure = trust_insecure;
+                existing.carrier = carrier;
                 if existing.id.is_empty() {
                     existing.id = ubiq_proto::ids::HostSaveId::generate().to_string();
                 }
@@ -97,6 +100,7 @@ impl AppState {
                     address,
                     scheme,
                     trust_insecure,
+                    carrier,
                 });
                 id
             }
@@ -105,6 +109,7 @@ impl AppState {
             existing.address = address;
             existing.scheme = scheme;
             existing.trust_insecure = trust_insecure;
+            existing.carrier = carrier;
             existing.id.clone()
         } else {
             hosts.push(SavedRemoteHost {
@@ -113,6 +118,7 @@ impl AppState {
                 address,
                 scheme,
                 trust_insecure,
+                carrier,
             });
             save_id
         };
@@ -199,15 +205,7 @@ impl AppState {
                     .find(|host| host.id == id)
                     .cloned();
                 if let Some(saved) = saved {
-                    self.reconnect_saved_host(
-                        saved.id,
-                        saved.name,
-                        saved.address,
-                        saved.scheme,
-                        saved.trust_insecure,
-                        window,
-                        cx,
-                    );
+                    self.reconnect_saved_host(saved, window, cx);
                 }
                 return;
             }

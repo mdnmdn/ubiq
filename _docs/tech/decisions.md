@@ -2569,6 +2569,31 @@ profile — a keychain read per profile, for a list that is small by nature. And
 future writer can get wrong: a code path that writes `ssh_profiles` without going through that
 reconcile would file a flag the store does not back. `SetSettings` is the only such path today.
 
+### D125 — The askpass helper reads the keychain itself, so material never enters the interface
+
+OpenSSH reads a password from `/dev/tty`, not standard input, so a shelled-out `ssh` cannot be fed
+one. `SSH_ASKPASS` points at Ubiq's own binary with `SSH_ASKPASS_REQUIRE=force`, and the child's
+environment carries `UBIQ_ASKPASS_PROFILE` and `UBIQ_ASKPASS_ROOT` — a profile id and a config root,
+both references. The helper mode lives in `ubiq-app`, the one crate that names both halves, so it
+opens the host's secret store under that root and writes the secret on its own standard output,
+which is where OpenSSH reads an askpass answer from.
+
+The material's whole path is keychain to helper stdout to `ssh`. It is never in `argv`, never in a
+file, never on the bus, and never in the interface process.
+
+The alternative was a message — the interface asks the host for the secret, receives it in a
+`Secret`, and hands it to the child it is spawning. That is legal under `D65` and still wrong here.
+It would put credential material in the drawing process for the first time, in order to give it to
+a child that can fetch its own; and it would contradict `D124`, which had just made the material the
+host's half of an SSH profile. A path that exists only to carry a secret through a process that does
+not need it is a path that can leak it.
+
+**Cost.** The helper is a second entry point into `ubiq-app` whose contract is two environment
+variables, and it reaches `ubiq_host`'s store directly rather than over the bus — the one place the
+binary uses its knowledge of both halves for something other than starting them. It is also
+untestable end to end without a real `ssh`: what a test can reach is the argv and the environment
+the child is given, not what OpenSSH does with them.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce

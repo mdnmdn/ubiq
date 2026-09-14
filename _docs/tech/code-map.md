@@ -130,7 +130,6 @@ crates/ubiq-host/src/
 │   └── os.rs
 ├── host_path.rs
 ├── environment.rs
-├── .DS_Store
 ├── conversation_record.rs
 ├── host_meta.rs
 ├── mcp/
@@ -357,9 +356,9 @@ crates/ubiq/src/
 │   ├── new_agent.rs
 │   ├── host_secrets.rs
 │   ├── remote_hosts.rs
-│   └── web_panel.rs
-├── version.rs
-└── .DS_Store
+│   ├── web_panel.rs
+│   └── ssh_connect.rs
+└── version.rs
 
 crates/ubiq-app/src/
 ├── main.rs            three lines: `run(Boot::default())`
@@ -410,12 +409,16 @@ the documents in its row.
 | `crates/ubiq-app/Cargo.toml` | [`project-structure.md`](./project-structure.md), [`wip/web-panel-phase6.md`](../wip/web-panel-phase6.md) |
 | `crates/ubiq-app/build.rs` | [`operations.md`](./operations.md) |
 | `crates/ubiq-app/res/ubiq-app.rc` | [`operations.md`](./operations.md) |
-| `crates/ubiq-app/src/lib.rs` | [`features/logs.md`](../features/logs.md), [`architecture.md`](./architecture.md), [`operations.md`](./operations.md) |
+| `crates/ubiq-app/src/lib.rs` | [`features/logs.md`](../features/logs.md), [`architecture.md`](./architecture.md), [`operations.md`](./operations.md), [`wip/drone.md`](../wip/drone.md) |
 | `crates/ubiq-app/src/main.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq-drone/src/carrier.rs` | [`wip/drone.md`](../wip/drone.md) |
 | `crates/ubiq-drone/src/lib.rs` | [`wip/drone.md`](../wip/drone.md) |
+| `crates/ubiq-drone/src/linger.rs` | [`wip/drone.md`](../wip/drone.md) |
 | `crates/ubiq-drone/src/main.rs` | [`wip/drone.md`](../wip/drone.md) |
 | `crates/ubiq-drone/src/relay.rs` | [`wip/drone.md`](../wip/drone.md) |
+| `crates/ubiq-drone/src/scrollback.rs` | [`wip/drone.md`](../wip/drone.md) |
+| `crates/ubiq-drone/src/socket.rs` | [`wip/drone.md`](../wip/drone.md) |
+| `crates/ubiq-drone/tests/detach.rs` | [`wip/drone.md`](../wip/drone.md) |
 | `crates/ubiq-drone/tests/handshake.rs` | [`wip/drone.md`](../wip/drone.md) |
 | `crates/ubiq-drone/tests/session.rs` | [`wip/drone.md`](../wip/drone.md) |
 | `crates/ubiq-host/Cargo.toml` | [`agent-manager.md`](./agent-manager.md), [`architecture.md`](./architecture.md), [`operations.md`](./operations.md), [`project-structure.md`](./project-structure.md), [`wip/drone.md`](../wip/drone.md) |
@@ -431,7 +434,7 @@ the documents in its row.
 | `crates/ubiq-host/src/connectors/flow.rs` | [`features/connectors.md`](../features/connectors.md) |
 | `crates/ubiq-host/src/connectors/mod.rs` | [`features/connectors.md`](../features/connectors.md) |
 | `crates/ubiq-host/src/connectors/providers.rs` | [`features/connectors.md`](../features/connectors.md) |
-| `crates/ubiq-host/src/connectors/store.rs` | [`features/connectors.md`](../features/connectors.md) |
+| `crates/ubiq-host/src/connectors/store.rs` | [`features/connectors.md`](../features/connectors.md), [`wip/drone.md`](../wip/drone.md) |
 | `crates/ubiq-host/src/connectors/tls.rs` | [`features/connectors.md`](../features/connectors.md) |
 | `crates/ubiq-host/src/conversation.rs` | [`features/sessions-and-workspaces.md`](../features/sessions-and-workspaces.md), [`agent-manager.md`](./agent-manager.md), [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-host/src/conversation_record.rs` | [`features/sessions-and-workspaces.md`](../features/sessions-and-workspaces.md), [`transport-contract.md`](./transport-contract.md) |
@@ -463,7 +466,7 @@ the documents in its row.
 | `crates/ubiq-host/src/repos/mod.rs` | [`features/workbench.md`](../features/workbench.md), [`architecture.md`](./architecture.md), [`version-control.md`](./version-control.md), [`wip/clone-a-project.md`](../wip/clone-a-project.md) |
 | `crates/ubiq-host/src/search/hits.rs` | [`wip/indexing.md`](../wip/indexing.md) |
 | `crates/ubiq-host/src/search/worker.rs` | [`wip/indexing.md`](../wip/indexing.md) |
-| `crates/ubiq-host/src/settings.rs` | [`features/connectors.md`](../features/connectors.md), [`architecture.md`](./architecture.md) |
+| `crates/ubiq-host/src/settings.rs` | [`features/connectors.md`](../features/connectors.md), [`architecture.md`](./architecture.md), [`wip/drone.md`](../wip/drone.md) |
 | `crates/ubiq-host/src/shells.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`wip/agent-vocabulary.md`](../wip/agent-vocabulary.md) |
 | `crates/ubiq-host/src/store/file.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq-host/src/store/harness.rs` | [`wip/agent-vocabulary.md`](../wip/agent-vocabulary.md) |
@@ -493,7 +496,7 @@ the documents in its row.
 | `crates/ubiq-proto/src/projects.rs` | [`transport-contract.md`](./transport-contract.md), [`wip/clone-a-project.md`](../wip/clone-a-project.md), [`wip/indexing.md`](../wip/indexing.md) |
 | `crates/ubiq-proto/src/quota.rs` | [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-proto/src/repos.rs` | [`features/workbench.md`](../features/workbench.md), [`transport-contract.md`](./transport-contract.md), [`wip/clone-a-project.md`](../wip/clone-a-project.md) |
-| `crates/ubiq-proto/src/settings.rs` | [`features/connectors.md`](../features/connectors.md), [`transport-contract.md`](./transport-contract.md), [`wip/indexing.md`](../wip/indexing.md) |
+| `crates/ubiq-proto/src/settings.rs` | [`features/connectors.md`](../features/connectors.md), [`transport-contract.md`](./transport-contract.md), [`wip/drone.md`](../wip/drone.md), [`wip/indexing.md`](../wip/indexing.md) |
 | `crates/ubiq-proto/src/stats.rs` | [`features/stats.md`](../features/stats.md), [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-proto/src/tools.rs` | [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-proto/src/wire.rs` | [`architecture.md`](./architecture.md), [`transport-contract.md`](./transport-contract.md), [`wip/drone.md`](../wip/drone.md) |
@@ -526,9 +529,10 @@ the documents in its row.
 | `crates/ubiq/src/app/picker.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/app/projects.rs` | [`features/chat.md`](../features/chat.md), [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/app/remote_connect.rs` | [`features/workbench.md`](../features/workbench.md), [`architecture.md`](./architecture.md), [`transport-contract.md`](./transport-contract.md), [`wip/drone.md`](../wip/drone.md) |
-| `crates/ubiq/src/app/settings.rs` | [`features/connectors.md`](../features/connectors.md), [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/app/settings.rs` | [`features/connectors.md`](../features/connectors.md), [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/workbench.md`](../features/workbench.md), [`wip/drone.md`](../wip/drone.md) |
 | `crates/ubiq/src/app/shell.rs` | [`features/stats.md`](../features/stats.md), [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md), [`wip/web-panel-phase6.md`](../wip/web-panel-phase6.md) |
 | `crates/ubiq/src/app/sink.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/app/ssh_connect.rs` | [`features/workbench.md`](../features/workbench.md), [`architecture.md`](./architecture.md), [`wip/drone.md`](../wip/drone.md) |
 | `crates/ubiq/src/app/stats.rs` | [`features/stats.md`](../features/stats.md), [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/app/vim.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/app/web_panel.rs` | [`features/workbench.md`](../features/workbench.md), [`wip/web-panel-phase45.md`](../wip/web-panel-phase45.md), [`wip/web-panel-phase6.md`](../wip/web-panel-phase6.md) |
@@ -567,7 +571,7 @@ the documents in its row.
 | `crates/ubiq/src/state/notifications.rs` | [`features/notifications.md`](../features/notifications.md) |
 | `crates/ubiq/src/state/orchestration.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/prefs.rs` | [`features/chat.md`](../features/chat.md), [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
-| `crates/ubiq/src/state/remote.rs` | [`features/workbench.md`](../features/workbench.md), [`architecture.md`](./architecture.md) |
+| `crates/ubiq/src/state/remote.rs` | [`features/workbench.md`](../features/workbench.md), [`architecture.md`](./architecture.md), [`wip/drone.md`](../wip/drone.md) |
 | `crates/ubiq/src/state/scene.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/settings.rs` | [`features/connectors.md`](../features/connectors.md), [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/sink.rs` | [`features/workbench.md`](../features/workbench.md) |
@@ -635,9 +639,9 @@ the documents in its row.
 | `crates/ubiq/src/ui/overflow_menu.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/project_menu.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/rail.rs` | [`features/workbench.md`](../features/workbench.md) |
-| `crates/ubiq/src/ui/remote_connect.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/ui/remote_connect.rs` | [`features/workbench.md`](../features/workbench.md), [`wip/drone.md`](../wip/drone.md) |
 | `crates/ubiq/src/ui/ribbon.rs` | [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
-| `crates/ubiq/src/ui/settings.rs` | [`features/connectors.md`](../features/connectors.md), [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md), [`wip/indexing.md`](../wip/indexing.md) |
+| `crates/ubiq/src/ui/settings.rs` | [`features/connectors.md`](../features/connectors.md), [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md), [`wip/drone.md`](../wip/drone.md), [`wip/indexing.md`](../wip/indexing.md) |
 | `crates/ubiq/src/ui/shell.rs` | [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md), [`wip/web-panel-phase6.md`](../wip/web-panel-phase6.md) |
 | `crates/ubiq/src/ui/sink/a2ui.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/sink/docs.rs` | [`features/workbench.md`](../features/workbench.md) |
