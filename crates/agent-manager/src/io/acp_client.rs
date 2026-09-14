@@ -195,7 +195,8 @@ use serde_json::{Value, json};
 use super::{
     AgentEvent, AgentInput, AgentInputSink, ConfigCategory, ConfigChoice, ConfigOption,
     ConfigSetting, ConfigValue, Content, IoBridge, Origin, PermissionKind, PermissionOption,
-    PermissionOutcome, Spend, StopReason, ToolCall, ToolCallUpdate, ToolKind, ToolStatus,
+    PermissionOutcome, PlanEntry, Spend, StopReason, ToolCall, ToolCallUpdate, ToolContent,
+    ToolKind, ToolStatus,
 };
 
 /// How long the handshake waits for `initialize` / `session/new` /
@@ -1209,6 +1210,28 @@ fn write_input(shared: &Shared, input: AgentInput) -> crate::Result<()> {
                     *slot = None;
                 }
                 return Err(err);
+            }
+            // ACP's live turns never echo the prompt back: opencode sends
+            // `user_message_chunk` only while *replaying* a loaded or forked
+            // session, and a resumed conversation's replay is that history,
+            // not the turn that just went out (§"a turn with no user on the
+            // wire" of `_docs/wip/opencode-acp-capture.md`). So the interface's
+            // user block is synthesised here, the moment the prompt line
+            // actually reaches the agent — the same call `super::jsonl` makes
+            // for Claude Code, which verified the same silence live. Without
+            // it, a turn would open with nothing and the whole session would
+            // read as the agent muttering to itself.
+            for text in content.iter().filter_map(Content::as_text) {
+                if !emit(
+                    &shared.tx,
+                    AgentEvent::UserMessageChunk {
+                        content: Content::text(text),
+                        message_id: None,
+                    },
+                    None,
+                ) {
+                    break;
+                }
             }
             Ok(())
         }
@@ -2387,7 +2410,9 @@ fn take_notification(shared: &Shared, method: &str, value: &Value, raw: &Arc<str
 /// either, so the outer one is folded into the update — the update's own keys
 /// win — before mapping. Then [`attribute`] applies what only the reader
 /// knows: whose delegate a chunk belongs to, and what a cumulative cost
-/// figure means as a delta.
+/// figure means as a delta. Finally [`user_chunk`] drops the prompts that do
+/// not belong on the interface, and [`todo_update`] republishes an agent's
+/// todo list beside the tool call it came in on.
 fn session_update(shared: &Shared, params: &Value) -> Option<AgentEvent> {
     let mut update = params.get("update").unwrap_or(params).clone();
     if let Some(Value::Object(outer)) = params.get("_meta")
@@ -2403,7 +2428,8 @@ fn session_update(shared: &Shared, params: &Value) -> Option<AgentEvent> {
     }
     let ev = super::from_acp(&update)?;
     let ev = attribute(shared, params, &update, ev);
-    user_chunk(shared, params, ev)
+    let ev = user_chunk(shared, params, ev)?;
+    todo_update(shared, ev)
 }
 
 /// The one event that cannot be attributed, and therefore sometimes cannot be
@@ -2441,6 +2467,66 @@ fn user_chunk(shared: &Shared, params: &Value, ev: AgentEvent) -> Option<AgentEv
         content: Content::Text { text: stripped },
         message_id,
     })
+}
+
+/// An opencode `todowrite` completion as a [`AgentEvent::Plan`], beside the
+/// tool block it still is.
+///
+/// opencode never sends ACP's `plan` update — the schema arm exists in its
+/// server and nothing emits it — and its whole todo list travels instead as a
+/// `todowrite` tool call whose completion result carries the list
+/// (`rawOutput.metadata.todos`, §"a todo list with no plan update" of
+/// `_docs/wip/opencode-acp-capture.md`). Translating that into a `Plan` makes
+/// the todo list visible where the wire otherwise hides it. The tool block
+/// still goes out unchanged: the plan is the same data as a reading.
+fn todo_update(shared: &Shared, ev: AgentEvent) -> Option<AgentEvent> {
+    let AgentEvent::ToolCallUpdate { update } = &ev else {
+        return Some(ev);
+    };
+    if let Some(entries) = plan_from_todo_update(update) {
+        emit(&shared.tx, AgentEvent::Plan { entries }, None);
+    }
+    Some(ev)
+}
+
+/// The todo list of a `todowrite` completion, as [`PlanEntry`]s. The list is
+/// written twice into the tool result — the structured `rawOutput.metadata.todos`
+/// array and, mirroring it, the result's own text content holding the same
+/// JSON alone — so both are read. An update with neither, or with no step in
+/// it, is a plain tool call and `None` keeps it one.
+fn plan_from_todo_update(update: &ToolCallUpdate) -> Option<Vec<PlanEntry>> {
+    let todos = update
+        .raw_output
+        .as_ref()
+        .and_then(|raw| raw.get("metadata")?.get("todos"))
+        .and_then(Value::as_array)
+        .cloned()
+        .or_else(|| parse_todos_from_content(update))?;
+    let entries: Vec<PlanEntry> = todos.iter().map(super::acp::from_plan_entry).collect();
+    if entries.iter().all(|entry| entry.content.is_empty()) {
+        return None;
+    }
+    Some(entries)
+}
+
+/// The `todos` array out of an update's text content, where the metadata copy
+/// is missing: the same list is serialised into the result's text blocks and
+/// is reparsed there.
+fn parse_todos_from_content(update: &ToolCallUpdate) -> Option<Vec<Value>> {
+    let mut text = String::new();
+    for block in update.content.as_ref()? {
+        if let ToolContent::Content {
+            content: Content::Text { text: part },
+        } = block
+        {
+            if !text.is_empty() {
+                text.push('\n');
+            }
+            text.push_str(part);
+        }
+    }
+    let list: Option<Vec<Value>> = serde_json::from_str(text.trim()).ok();
+    list.filter(|list| !list.is_empty())
 }
 
 /// Whether this notification's envelope names a session other than the
@@ -2729,6 +2815,18 @@ fn is_delegate(update: &Value, title: &str) -> bool {
         || super::acp::meta_string(update, &["toolName"]).is_some_and(|name| named(&name))
         || named(title)
         || str_any(update, &["name"]).is_some_and(|name| named(&name))
+        // opencode's `task` spawn is sent as a `think`-kind call that must not block
+        // on a permission prompt; its own call frame is titled `task` (caught
+        // above) and the follow-up patch carries the human description as its
+        // title and the discriminator in `rawInput.subagent_type` (§"three
+        // spawns" of `_docs/wip/opencode-acp-capture.md`). A value there
+        // always means a delegate — whichever frame or re-embedded
+        // permission ask it arrives on.
+        || update
+            .get("rawInput")
+            .and_then(|raw| raw.get("subagent_type"))
+            .and_then(Value::as_str)
+            .is_some()
 }
 
 /// The child session a spawn's own result names — Grok writes
@@ -2772,7 +2870,7 @@ fn emit(tx: &mpsc::Sender<Option<Framed>>, ev: AgentEvent, raw: Option<Arc<str>>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::io::{Content, ToolStatus};
+    use crate::io::{Content, PlanStatus, ToolCall, ToolCallUpdate, ToolContent, ToolStatus};
 
     fn parse(json: &str) -> Value {
         serde_json::from_str(json).unwrap()
@@ -4485,6 +4583,129 @@ mod tests {
 
         assert!(matches!(events.recv(), Ok(None)));
         assert!(events.try_recv().is_err(), "the sentinel is sent once");
+
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// The live-turn echo (the opencode ACP capture's "no user on the wire").
+    /// ACP's live prompts never come back as `user_message_chunk` — opencode
+    /// sends one only while replaying a loaded or forked session — so the
+    /// prompt that went out is the transcript's user block, one chunk per text
+    /// part, the same call `io/jsonl` makes for Claude Code. The interface
+    /// draws nothing on send, so without this the whole conversation reads as
+    /// the agent muttering to itself.
+    #[test]
+    fn a_prompt_write_echoes_the_prompt_as_a_user_chunk() {
+        let root = temp_root("echo");
+        let (shared, written, events) = test_shared(&root);
+
+        write_input(
+            &shared,
+            AgentInput::Prompt {
+                content: vec![Content::text("first line"), Content::text("second line")],
+            },
+        )
+        .unwrap();
+
+        let mut chunks = Vec::new();
+        while let Ok(Some((ev, _))) = events.try_recv() {
+            if let AgentEvent::UserMessageChunk {
+                content: Content::Text { text },
+                ..
+            } = ev
+            {
+                chunks.push(text);
+            }
+        }
+        assert_eq!(
+            chunks,
+            vec!["first line".to_string(), "second line".to_string()]
+        );
+
+        drop(written);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// opencode's only todo-list transport (the capture's "a todo list with no
+    /// plan update"): a `todowrite` tool result is translated into a `Plan`
+    /// beside the tool block it still is, read from the structured
+    /// `rawOutput.metadata.todos` copy and with priority and status in the
+    /// exact spellings its progress enum sends.
+    #[test]
+    fn a_todowrite_result_republishes_as_a_plan() {
+        let root = temp_root("todos");
+        let (shared, _written, events) = test_shared(&root);
+
+        let mut update = ToolCallUpdate::finished("1", ToolStatus::Completed);
+        let raw = Some(parse(
+            r#"{"metadata": {"todos": [
+                {"content": "first", "status": "in_progress", "priority": "high"},
+                {"content": "second", "status": "completed", "priority": "low"}
+            ]}}"#,
+        ));
+        update.raw_output = raw.clone();
+        let out = todo_update(&shared, AgentEvent::ToolCallUpdate { update });
+        let Some(AgentEvent::ToolCallUpdate { update }) = out else {
+            panic!("the tool block itself still goes out");
+        };
+        assert_eq!(update.id, "1");
+        assert_eq!(update.raw_output, raw, "the raw result survives");
+        match events.recv() {
+            Ok(Some((AgentEvent::Plan { entries }, None))) => {
+                assert_eq!(entries.len(), 2);
+                assert_eq!(entries[0].content, "first");
+                assert_eq!(entries[0].status, PlanStatus::InProgress);
+                assert_eq!(entries[0].priority, crate::io::PlanPriority::High);
+                assert_eq!(entries[1].content, "second");
+                assert_eq!(entries[1].status, PlanStatus::Completed);
+            }
+            other => panic!("expected a Plan event, got {other:?}"),
+        }
+
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// The same list again, from the mirror copy: when the metadata block is
+    /// missing, the result's own text content holds the JSON alone and is
+    /// reparsed from there.
+    #[test]
+    fn a_todowrite_result_reads_the_list_from_its_text() {
+        let root = temp_root("todos-text");
+        let (shared, _written, events) = test_shared(&root);
+
+        let mut update = ToolCallUpdate::finished("1", ToolStatus::Completed);
+        update.content = Some(vec![ToolContent::Content {
+            content: Content::text(
+                r#"[{"content": "only step", "status": "pending", "priority": "medium"}]"#,
+            ),
+        }]);
+        todo_update(&shared, AgentEvent::ToolCallUpdate { update });
+        match events.recv() {
+            Ok(Some((AgentEvent::Plan { entries }, None))) => {
+                assert_eq!(entries.len(), 1);
+                assert_eq!(entries[0].content, "only step");
+                assert_eq!(entries[0].status, PlanStatus::Pending);
+            }
+            other => panic!("expected a Plan event, got {other:?}"),
+        }
+
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// A tool update whose result carries no `todos` — a plain tool result,
+    /// like an `edit`'s — must pass through untouched.
+    #[test]
+    fn a_tool_update_without_todos_is_no_plan() {
+        let root = temp_root("notodos");
+        let (shared, _written, events) = test_shared(&root);
+
+        let mut update = ToolCallUpdate::finished("1", ToolStatus::Completed);
+        update.raw_output = Some(parse(r#"{"output": "ok"}"#));
+        todo_update(&shared, AgentEvent::ToolCallUpdate { update });
+        assert!(
+            events.try_recv().is_err(),
+            "no plan for a tool result without todos"
+        );
 
         std::fs::remove_dir_all(&root).unwrap();
     }

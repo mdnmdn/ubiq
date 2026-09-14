@@ -726,7 +726,7 @@ fn from_tool_call_update(value: &Value) -> ToolCallUpdate {
     }
 }
 
-fn from_plan_entry(value: &Value) -> PlanEntry {
+pub(crate) fn from_plan_entry(value: &Value) -> PlanEntry {
     PlanEntry {
         content: str_field(value, "content").unwrap_or_default(),
         priority: value

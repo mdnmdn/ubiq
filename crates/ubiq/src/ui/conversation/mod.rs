@@ -32,7 +32,9 @@ use gpui_component::text::TextView;
 use gpui_component::v_virtual_list;
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
-use ubiq_proto::conversation::{ConfigChoice, ConfigValue, ToolContent, ToolKind, ToolStatus};
+use ubiq_proto::conversation::{
+    ConfigChoice, ConfigValue, PlanStatus, ToolContent, ToolKind, ToolStatus,
+};
 use ubiq_proto::quota::QuotaSnapshot;
 use ubiq_proto::work::{Activity, AgentId};
 
@@ -180,6 +182,12 @@ pub fn render(
         // every pill in this file follows.
         if !subagents.is_empty() {
             bottom = bottom.child(agent_switcher(conversation, &subagents, &view, cx));
+        }
+        // The agent's own todo list, when it has one. Only where there is
+        // something planned — a conversation that never set one looks exactly
+        // as it did before, the same discipline every element here follows.
+        if !conversation.plan.is_empty() {
+            bottom = bottom.child(plan_strip(conversation));
         }
         if view.footer {
             bottom = bottom.child(footer(
@@ -2399,6 +2407,50 @@ fn spend_tip(conversation: &Conversation) -> String {
 ///   occupancy, so there is no per-delegate window to draw — and the parent's ring beside a
 ///   delegate's transcript would be a number about somebody else. So the ring is dropped rather
 ///   than borrowed, on the same rule as the paragraph above it.
+///
+/// The agent's own todo list, compact, above the footer. It is the one
+/// reading that answers "what is it doing next" while a silent stretch hides
+/// the work — opencode, in particular, has no activity update beyond its todo
+/// list (see the opencode ACP capture). Read-only; the list is a replacement,
+/// so this is always the current set. Up to five entries, then a count of the
+/// rest.
+fn plan_strip(conversation: &Conversation) -> AnyElement {
+    let shown = conversation.plan.len().min(5);
+    let mut column = div()
+        .px_3()
+        .py_1p5()
+        .flex()
+        .flex_col()
+        .items_start()
+        .gap_0p5();
+    for entry in conversation.plan.iter().take(shown) {
+        let (mark, colour) = match entry.status {
+            PlanStatus::Completed => ("\u{2713}", theme::success()),
+            PlanStatus::InProgress => ("\u{25b6}", theme::accent()),
+            PlanStatus::Pending => ("\u{25cb}", theme::text_faint()),
+        };
+        let font = theme::font(theme::Family::Conversation, theme::Role::Label);
+        column = column.child(
+            div()
+                .flex()
+                .items_center()
+                .gap_1p5()
+                .child(mono(mark, colour).text_size(font))
+                .child(mono(entry.content.clone(), colour).text_size(font)),
+        );
+    }
+    if shown < conversation.plan.len() {
+        column = column.child(
+            mono(
+                format!("\u{2026} {} more", conversation.plan.len() - shown),
+                theme::text_faint(),
+            )
+            .text_size(theme::font(theme::Family::Conversation, theme::Role::Label)),
+        );
+    }
+    column.into_any_element()
+}
+
 fn footer(
     conversation: &Conversation,
     subagents: &[SubagentTab],

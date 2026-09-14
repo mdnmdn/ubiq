@@ -228,7 +228,8 @@ crates/ubiq/src/
 │   │   ├── overlay.rs
 │   │   ├── files.rs
 │   │   ├── settings.rs
-│   │   └── icons.rs
+│   │   ├── icons.rs
+│   │   └── ribbon.rs
 │   ├── editor.rs
 │   ├── empty.rs
 │   ├── explorer.rs
@@ -454,6 +455,7 @@ the documents in its row.
 | `crates/ubiq-host/src/notifications/os.rs` | [`features/notifications.md`](../features/notifications.md) |
 | `crates/ubiq-host/src/projects.rs` | [`features/stats.md`](../features/stats.md), [`features/workbench.md`](../features/workbench.md), [`architecture.md`](./architecture.md), [`wip/clone-a-project.md`](../wip/clone-a-project.md), [`wip/web-panel-phase3.md`](../wip/web-panel-phase3.md) |
 | `crates/ubiq-host/src/pty/mod.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md) |
+| `crates/ubiq-host/src/quota.rs` | [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-host/src/remote.rs` | [`architecture.md`](./architecture.md), [`operations.md`](./operations.md) |
 | `crates/ubiq-host/src/repos/clone.rs` | [`features/workbench.md`](../features/workbench.md), [`version-control.md`](./version-control.md), [`wip/clone-a-project.md`](../wip/clone-a-project.md) |
 | `crates/ubiq-host/src/repos/list.rs` | [`features/workbench.md`](../features/workbench.md), [`version-control.md`](./version-control.md), [`wip/clone-a-project.md`](../wip/clone-a-project.md) |
@@ -615,6 +617,7 @@ the documents in its row.
 | `crates/ubiq/src/ui/kit/menu.rs` | [`ui-and-design.md`](./ui-and-design.md), [`wip/clone-a-project.md`](../wip/clone-a-project.md) |
 | `crates/ubiq/src/ui/kit/mod.rs` | [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/ui/kit/overlay.rs` | [`ui-and-design.md`](./ui-and-design.md) |
+| `crates/ubiq/src/ui/kit/ribbon.rs` | [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/ui/kit/settings.rs` | [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/ui/logs.rs` | [`features/logs.md`](../features/logs.md), [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/mod.rs` | [`ui-and-design.md`](./ui-and-design.md) |
@@ -718,7 +721,6 @@ No document's `code_anchors` names these. Restricted to Ubiq's own crates.
 | `crates/ubiq-host/src/mcp/registry.rs` |
 | `crates/ubiq-host/src/mcp/server.rs` |
 | `crates/ubiq-host/src/mcp/tools.rs` |
-| `crates/ubiq-host/src/quota.rs` |
 | `crates/ubiq-host/src/reply.rs` |
 | `crates/ubiq-host/src/search/ceiling.rs` |
 | `crates/ubiq-host/src/search/fallback.rs` |
