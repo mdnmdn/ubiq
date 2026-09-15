@@ -602,6 +602,518 @@ impl AppState {
         cx.notify();
     }
 
+    /// Choose which dialect the script page runs: JavaScript as written, or TypeScript compiled
+    /// to JavaScript first. A run and a validate both read this.
+    ///
+    /// The previous run and report are from the other dialect, so they are cleared with the
+    /// panel: a page showing a JavaScript outcome beside a TypeScript toggle would be showing the
+    /// mode it was not in.
+    pub fn set_sink_script_dialect(
+        &mut self,
+        dialect: crate::state::script::Dialect,
+        cx: &mut Context<Self>,
+    ) {
+        self.sink.script.dialect = dialect;
+        self.forget_sink_script_answer();
+        cx.notify();
+    }
+
+    /// Disclose the oxc settings panel, or fold it away.
+    pub fn toggle_sink_script_settings(&mut self, cx: &mut Context<Self>) {
+        self.sink.script.settings_open = !self.sink.script.settings_open;
+        cx.notify();
+    }
+
+    /// Which of the two things the right-hand panel shows: the reference, or the script's panel.
+    pub fn set_sink_script_pane(
+        &mut self,
+        pane: crate::state::sink::ScriptPane,
+        cx: &mut Context<Self>,
+    ) {
+        self.sink.script.pane = pane;
+        cx.notify();
+    }
+
+    /// Which ECMAScript level the transformer lowers to.
+    pub fn set_sink_script_target(
+        &mut self,
+        target: crate::state::script::EsTarget,
+        cx: &mut Context<Self>,
+    ) {
+        self.sink.script.options.target = target;
+        self.forget_sink_script_answer();
+        cx.notify();
+    }
+
+    /// One of the settings panel's four switches. A closure rather than four near-identical
+    /// methods: the panel names the field, and every one of them invalidates the same answer.
+    pub fn toggle_sink_script_option(
+        &mut self,
+        pick: fn(&mut crate::state::script::OxcOptions) -> &mut bool,
+        cx: &mut Context<Self>,
+    ) {
+        let flag = pick(&mut self.sink.script.options);
+        *flag = !*flag;
+        self.forget_sink_script_answer();
+        cx.notify();
+    }
+
+    /// How many problems one report names. Stepped rather than typed, because the only values
+    /// worth having are "a handful" and "all of them".
+    pub fn step_sink_script_max_errors(&mut self, by: i32, cx: &mut Context<Self>) {
+        let current = self.sink.script.options.max_errors as i32;
+        self.sink.script.options.max_errors = (current + by).clamp(1, 200) as usize;
+        cx.notify();
+    }
+
+    /// Put the settings back where they started.
+    pub fn reset_sink_script_options(&mut self, cx: &mut Context<Self>) {
+        self.sink.script.options = crate::state::script::OxcOptions::default();
+        self.forget_sink_script_answer();
+        cx.notify();
+    }
+
+    /// The script page's example picker. Choosing one seeds both buffers, so the example is the
+    /// program — a picker that only moved a selector would have nothing to run.
+    pub fn pick_sink_script_example(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(example) = crate::state::sink::SCRIPT_EXAMPLES.get(index) else {
+            return;
+        };
+        self.sink.script.example = index;
+        self.sink.script.dialect = example.dialect;
+        self.forget_sink_script_answer();
+        self.workbench.open_menu = None;
+        self.script_prelude
+            .update(cx, |state, cx| state.set_value(example.prelude, window, cx));
+        self.script_buffer
+            .update(cx, |state, cx| state.set_value(example.source, window, cx));
+        cx.notify();
+    }
+
+    /// Drop everything the last run and the last validation left behind.
+    ///
+    /// One place rather than five, because they always go together: an outcome, a report and a
+    /// drawn panel all describe the same program in the same mode, and keeping any one of them
+    /// past a change to that program or that mode is how a page starts lying about what it ran.
+    fn forget_sink_script_answer(&mut self) {
+        self.sink.script.report = None;
+        self.sink.script.outcome = None;
+        self.sink.script.ui = None;
+        self.sink.script.a2ui = crate::state::a2ui::live::Live::default();
+    }
+
+    /// Everything the interface knows that a script may read, serialised here, on this thread,
+    /// before the interpreter exists.
+    ///
+    /// A snapshot rather than a handle is the whole of the capability model: the interpreter runs
+    /// on a thread of its own and cannot be given anything that would let it re-enter the
+    /// interface, so what it reads is JSON that stopped changing the moment Run was pressed.
+    /// Nothing here is a projection the interface does not already draw somewhere.
+    fn script_facts(&self, cx: &Context<Self>) -> crate::state::script::HostFacts {
+        use serde_json::json;
+
+        let project = self
+            .project_snapshot(cx)
+            .map(|snapshot| {
+                json!({
+                    "id": snapshot.record.id.to_string(),
+                    "name": snapshot.record.name,
+                    "root": snapshot.record.path,
+                    "open": true,
+                    "panes": snapshot.open_panes,
+                })
+            })
+            .unwrap_or(serde_json::Value::Null);
+
+        let projects = serde_json::Value::from_iter(
+            crate::state::WindowRegistry::read(cx)
+                .all()
+                .map(|snapshot| {
+                    json!({
+                        "id": snapshot.record.id.to_string(),
+                        "name": snapshot.record.name,
+                        "root": snapshot.record.path,
+                    })
+                })
+                .collect::<Vec<_>>(),
+        );
+
+        let tasks = serde_json::Value::from_iter(
+            self.work(cx)
+                .into_iter()
+                .flat_map(|work| work.tasks.iter())
+                .map(|task| {
+                    json!({
+                        "id": task.id.to_string(),
+                        "title": task.title,
+                        "status": format!("{:?}", task.status).to_lowercase(),
+                        "priority": format!("{:?}", task.priority).to_lowercase(),
+                        "labels": task.labels.iter().map(|label| label.name.clone())
+                            .collect::<Vec<_>>(),
+                        "steps": task.steps.len(),
+                        "updatedAt": task.updated_at.to_rfc3339(),
+                    })
+                })
+                .collect::<Vec<_>>(),
+        );
+
+        // Every model of every configured provider, flattened: a script asking what it can reach
+        // wants the list, not the provider tree the settings screen draws.
+        let settings = &self.workbench.settings;
+        let models = serde_json::Value::from_iter(
+            settings
+                .ai_providers
+                .iter()
+                .flat_map(|info| {
+                    let list = settings.ai_models.get(&info.provider.id);
+                    list.into_iter()
+                        .flat_map(|list| list.models.iter())
+                        .map(move |model| {
+                            json!({
+                                "id": model.id,
+                                "name": model.label,
+                                "provider": info.provider.name,
+                                "contextTokens": model.context_tokens,
+                                // A local endpoint is an OpenAI-compatible one pointed at this
+                                // machine; there is no other way to tell, and the distinction is
+                                // what a script asking about local inference means.
+                                "local": info.provider.base_url.as_deref().is_some_and(|url| {
+                                    url.contains("localhost") || url.contains("127.0.0.1")
+                                }),
+                            })
+                        })
+                })
+                .collect::<Vec<_>>(),
+        );
+
+        let search = json!({
+            "query": self.search.query.read(cx).value().to_string(),
+            "kind": if self.search.regex { "regex" } else { "literal" },
+            "caseSensitive": self.search.case_sensitive,
+            "finished": self.search.finished,
+            "truncated": self.search.truncated,
+            "totalHits": self.search.total_hits,
+            "results": self.search.results.iter().map(|file| json!({
+                "path": file.rel_path,
+                "hits": file.hits.iter().map(|hit| json!({
+                    "line": hit.line,
+                    "text": hit.text.trim(),
+                })).collect::<Vec<_>>(),
+            })).collect::<Vec<_>>(),
+        });
+
+        crate::state::script::HostFacts {
+            project,
+            projects,
+            tasks,
+            models,
+            search,
+        }
+    }
+
+    /// Evaluate the script page's two buffers and keep what the interpreter said.
+    ///
+    /// The prelude goes first and the program second, in one context, which is the whole of what
+    /// the page claims: whatever the prelude defines is what the program may call. Both are read
+    /// here rather than mirrored into state, because the buffer is the program — a copy kept
+    /// beside it could only ever be a stale one.
+    ///
+    /// **The UI thread never waits on the interpreter.** The evaluation runs on a thread of its
+    /// own, bounded by the total budget in the module, and the answer lands through a spawned
+    /// task. A run that declared a panel has it drawn; an outcome that lands after a newer Run is
+    /// discarded — that is what [`crate::state::ScriptDemo::seq`] is for.
+    pub fn run_sink_script(&mut self, cx: &mut Context<Self>) {
+        self.start_sink_script(None, cx);
+    }
+
+    /// A click on the declared panel, as a fresh run.
+    ///
+    /// Nothing survives a run, so there is no closure left to call: the script is evaluated again
+    /// from the top with the event in hand, and the handler its second declaration registers is
+    /// called then. The console is not cleared for a replay — the point of the panel is to watch
+    /// the lines accumulate press by press, which is what makes the replay visible at all.
+    pub fn replay_sink_script(
+        &mut self,
+        event: crate::state::script::ScriptEvent,
+        cx: &mut Context<Self>,
+    ) {
+        self.start_sink_script(Some(event), cx);
+    }
+
+    /// The run machinery both buttons and every panel click end in.
+    fn start_sink_script(
+        &mut self,
+        event: Option<crate::state::script::ScriptEvent>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.sink.script.running {
+            return;
+        }
+        let run = crate::state::script::Run {
+            prelude: self.script_prelude.read(cx).value().to_string(),
+            source: self.script_buffer.read(cx).value().to_string(),
+            dialect: self.sink.script.dialect,
+            options: self.sink.script.options,
+            facts: self.script_facts(cx),
+            event,
+        };
+
+        self.sink.script.report = None;
+        self.sink.script.seq += 1;
+        let seq = self.sink.script.seq;
+        self.sink.script.running = true;
+        cx.notify();
+
+        let task = cx.background_spawn(async move { crate::state::script::eval(run) });
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let outcome = task.await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                if this.sink.script.seq != seq {
+                    return;
+                }
+                this.sink.script.running = false;
+                match outcome.ui.clone() {
+                    Some(ui) => {
+                        let payload = ui.payload.clone();
+                        this.sink.script.ui = Some(ui);
+                        this.land_sink_script_panel(payload, window, cx);
+                    }
+                    // A run that withdrew its panel — or never declared one — leaves nothing to
+                    // draw, and the pane says so rather than showing the last run's surface.
+                    None => {
+                        this.sink.script.ui = None;
+                        this.sink.script.a2ui = crate::state::a2ui::live::Live::default();
+                    }
+                }
+                this.sink.script.outcome = Some(outcome);
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// Rebuild the script page's panel from the payload the last run declared.
+    ///
+    /// The mirror of [`Self::reload_a2ui`], written against `sink.script.a2ui` rather than the
+    /// A2UI page's `Live` so the two stay independent: the script page's surface comes from
+    /// `ubiq.sink.ui`, and nothing the A2UI page rebuilt from its own payload editor may touch it.
+    /// A payload that does not parse leaves the previous surface alone and sets the error.
+    pub fn land_sink_script_panel(
+        &mut self,
+        payload: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let parsed = match crate::state::a2ui::parse(&payload) {
+            Ok(parsed) => parsed,
+            Err(reason) => {
+                self.sink.script.a2ui.error = Some(reason);
+                cx.notify();
+                return;
+            }
+        };
+
+        {
+            let live = &mut self.sink.script.a2ui;
+            live.error = None;
+            live.tabs.clear();
+            live.modal = None;
+            live.invalid.clear();
+            // Clearing the map is the whole teardown: a `Subscription` unsubscribes when it drops,
+            // so a field from the payload being replaced cannot still be writing into the model.
+            live.fields.clear();
+            live.surface = Some(parsed.surface.clone());
+            live.surface_id = parsed.surface_id.clone();
+            live.send_data_model = parsed.send_data_model;
+            live.model = parsed.model.clone();
+        }
+
+        // One buffer per text input, allocated here rather than while drawing: a render that
+        // allocated an entity would allocate a fresh one every frame.
+        for slot in crate::state::a2ui::live::input_slots(&parsed) {
+            let input = cx.new(|cx| {
+                gpui_component::input::InputState::new(window, cx).default_value(&slot.seed)
+            });
+            let path = slot.path.clone();
+            let subscription = cx.subscribe_in(
+                &input,
+                window,
+                move |this, input, event: &gpui_component::input::InputEvent, _window, cx| {
+                    if matches!(event, gpui_component::input::InputEvent::Change) {
+                        let typed = input.read(cx).value().to_string();
+                        this.sink
+                            .script
+                            .a2ui
+                            .set(&path, serde_json::Value::String(typed));
+                        cx.notify();
+                    }
+                },
+            );
+            self.sink.script.a2ui.fields.insert(
+                slot.key,
+                crate::state::a2ui::live::Field::new(input, slot.path, subscription),
+            );
+        }
+
+        cx.notify();
+    }
+
+    /// Forget the last run. The buffers are untouched — this clears the console, not the program.
+    pub fn clear_sink_script(&mut self, cx: &mut Context<Self>) {
+        self.forget_sink_script_answer();
+        cx.notify();
+    }
+
+    /// Syntax-check both buffers without running either, and say so in the console.
+    ///
+    /// **The console is cleared first.** A report drawn under the previous run's output would read
+    /// as part of it, and the verdict this button exists to give — *nothing is wrong* — is a line
+    /// nobody would find at the bottom of a log. So the console holds exactly one thing after
+    /// Validate: what oxc said about the program as it stands, whether that is a list of problems
+    /// or the one line saying there are none.
+    ///
+    /// Synchronous on purpose: oxc is a parse and a transform, fast enough that a button click can
+    /// wait for it, and a report that landed asynchronously could land against an edited buffer.
+    pub fn validate_sink_script(&mut self, cx: &mut Context<Self>) {
+        let prelude = self.script_prelude.read(cx).value().to_string();
+        let source = self.script_buffer.read(cx).value().to_string();
+        self.sink.script.outcome = None;
+        self.sink.script.report = Some(crate::state::script::validate(
+            &prelude,
+            &source,
+            self.sink.script.dialect,
+            &self.sink.script.options,
+        ));
+        cx.notify();
+    }
+
+    /// Write one value into the preview surface's data model, at a pointer the renderer resolved.
+    /// Everything a control in the preview does ends here, exactly as [`Self::set_a2ui_value`]
+    /// ends every control on the A2UI page.
+    pub fn set_script_a2ui_value(
+        &mut self,
+        pointer: String,
+        value: serde_json::Value,
+        cx: &mut Context<Self>,
+    ) {
+        self.sink.script.a2ui.set(&pointer, value);
+        cx.notify();
+    }
+
+    /// Bring one tab of a drawn `Tabs` forward in the script preview. Navigation inside the
+    /// surface, not a value: it writes nothing into the data model.
+    pub fn select_script_a2ui_tab(&mut self, id: String, index: usize, cx: &mut Context<Self>) {
+        self.sink.script.a2ui.tabs.insert(id, index);
+        cx.notify();
+    }
+
+    /// Disclose a drawn `Modal`'s content in the script preview, or fold the open one away.
+    pub fn toggle_script_a2ui_modal(&mut self, id: String, cx: &mut Context<Self>) {
+        let live = &mut self.sink.script.a2ui;
+        live.modal = if live.modal.as_deref() == Some(id.as_str()) {
+            None
+        } else {
+            Some(id)
+        };
+        cx.notify();
+    }
+
+    /// A button on the script's panel was clicked: send what it says, or refuse to — and then
+    /// hand the event back to the script that declared the panel.
+    ///
+    /// The mirror of [`Self::fire_a2ui_action`], with the same rules — a failing check blocks, and
+    /// a function call is reported and never performed (`D115`) — plus the one thing this panel
+    /// has that the A2UI page's has not: an author. A declaration made with a handler re-runs the
+    /// script with the event in hand, because nothing survives a run and there is no closure left
+    /// to call. A declaration made without one does not, and the log says why.
+    pub fn fire_script_a2ui_action(&mut self, key: String, cx: &mut Context<Self>) {
+        use crate::state::a2ui::{Action, action, live, scoped};
+
+        let Some(parsed) = self.sink.script.a2ui.parsed() else {
+            return;
+        };
+        let (component_id, item, index) = live::Live::scope_of(&key);
+        let scope = live::scope(item.as_ref(), index);
+
+        let Some(component) = parsed.surface.get(&component_id) else {
+            return;
+        };
+        let Some(what) = component.kind.button_action() else {
+            return;
+        };
+
+        let failures = action::blocking_checks(&parsed);
+        if !failures.is_empty() {
+            let count = failures.len();
+            self.sink.script.a2ui.invalid = failures.into_iter().collect();
+            self.sink.script.a2ui.record(format!(
+                "blocked: {count} check{} failed, nothing was sent",
+                if count == 1 { "" } else { "s" }
+            ));
+            cx.notify();
+            return;
+        }
+        self.sink.script.a2ui.invalid.clear();
+
+        let mut replay = None;
+        let entry = match what {
+            Action::Event(event) => {
+                let envelope = action::envelope(
+                    &parsed.surface_id,
+                    &component_id,
+                    event,
+                    &parsed.model,
+                    scope,
+                    &chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                    parsed.send_data_model,
+                );
+                replay = Some(crate::state::script::ScriptEvent {
+                    name: event.name.clone(),
+                    surface_id: parsed.surface_id.clone(),
+                    component_id: component_id.clone(),
+                });
+                serde_json::to_string_pretty(&envelope).unwrap_or_default()
+            }
+            // Reported, never performed. The one place that rule could be broken is the one place
+            // it is kept.
+            Action::Call(call) => format!(
+                "local call: {}({}) — reported, not performed",
+                call.call,
+                call.args.keys().cloned().collect::<Vec<_>>().join(", ")
+            ),
+            Action::Unknown(value) => format!(
+                "action in a shape this build does not know: {}",
+                serde_json::to_string(value).unwrap_or_default()
+            ),
+        };
+        let _ = scoped(&component_id, scope);
+        self.sink.script.a2ui.record(entry);
+
+        let handled = self
+            .sink
+            .script
+            .ui
+            .as_ref()
+            .map(|ui| ui.handler)
+            .unwrap_or(false);
+        match (replay, handled) {
+            (Some(event), true) => self.replay_sink_script(event, cx),
+            (Some(event), false) => {
+                self.sink.script.a2ui.record(format!(
+                    "{}: the declaration carried no handler, so nothing was replayed",
+                    event.name
+                ));
+                cx.notify();
+            }
+            _ => cx.notify(),
+        }
+    }
+
     pub fn set_sink_pick_kind(&mut self, kind: PickKind, cx: &mut Context<Self>) {
         self.sink.picker.kind = kind;
         cx.notify();

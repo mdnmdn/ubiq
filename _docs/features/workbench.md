@@ -5,9 +5,9 @@ kind: feature
 status: draft
 summary: The window's shell — the activity rail and its modes, the dock of movable panels the user arranges around the centre, the file explorer and editor a project owns, the Git screen of refs, history and uncommitted changes, the agents screen of parallel columns, the orchestration graph and the tasks board the rail's other built modes hold, the kitchen sink the application tests itself against, the file picker any screen raises to choose a path, the empty state a window with no project shows, and the status bar that reports on all of it.
 read_when: you are changing the window layout, a rail mode, where a panel may sit or when it is drawn, the explorer, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, capturing the window or annotating a capture, saving a file, the Git screen's refs, history, change lists or diff, the agents screen's columns, what a tab drag means or what the bench is, the orchestration screen's graph, how it arranges itself, its inspector or its tasks, the tasks board's columns, cards or task panel, the kitchen sink's pages or fixtures, the file picker a screen raises to choose a path, cloning a project, application settings, vim mode, or the status bar
-updated: 2026-09-14
-verified: 2026-09-14
-code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/tests/image_gestures.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/app/sink.rs, crates/ubiq/src/state/a2ui.rs, crates/ubiq/src/state/a2ui/value.rs, crates/ubiq/src/state/a2ui/eval.rs, crates/ubiq/src/state/a2ui/action.rs, crates/ubiq/src/state/a2ui/live.rs, crates/ubiq/src/state/a2ui/svg.rs, crates/ubiq/src/state/a2ui/path.rs, crates/ubiq/src/state/a2ui/ubiq-catalog.json, crates/ubiq/src/ui/a2ui.rs, crates/ubiq/src/ui/a2ui/registry.rs, crates/ubiq/src/ui/a2ui/svg.rs, crates/ubiq/src/ui/a2ui/path.rs, crates/ubiq/src/ui/sink/a2ui.rs, crates/ubiq/tests/a2ui.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/stats.rs, crates/ubiq/src/ui/stats.rs, crates/ubiq/src/app/stats.rs, crates/ubiq/tests/stats.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/src/ui/git/repo_selector.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/app/new_agent.rs, crates/ubiq/src/ui/new_agent.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/app/graph.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/ui/web_view.rs, crates/ubiq/src/ui/viewer/web.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/state/web_panel.rs, crates/ubiq/src/app/explorer.rs, crates/ubiq/src/state/explorer/menu.rs, crates/ubiq/src/ui/file_dialog.rs]
+updated: 2026-09-15
+verified: 2026-09-15
+code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/tests/image_gestures.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/app/sink.rs, crates/ubiq/src/state/a2ui.rs, crates/ubiq/src/state/a2ui/value.rs, crates/ubiq/src/state/a2ui/eval.rs, crates/ubiq/src/state/a2ui/action.rs, crates/ubiq/src/state/a2ui/live.rs, crates/ubiq/src/state/a2ui/svg.rs, crates/ubiq/src/state/a2ui/path.rs, crates/ubiq/src/state/a2ui/ubiq-catalog.json, crates/ubiq/src/ui/a2ui.rs, crates/ubiq/src/ui/a2ui/registry.rs, crates/ubiq/src/ui/a2ui/svg.rs, crates/ubiq/src/ui/a2ui/path.rs, crates/ubiq/src/ui/sink/a2ui.rs, crates/ubiq/tests/a2ui.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/sink/script.rs, crates/ubiq/src/state/script.rs, crates/ubiq/tests/script.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/stats.rs, crates/ubiq/src/ui/stats.rs, crates/ubiq/src/app/stats.rs, crates/ubiq/tests/stats.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/src/ui/git/repo_selector.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/app/new_agent.rs, crates/ubiq/src/ui/new_agent.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/app/graph.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/ui/web_view.rs, crates/ubiq/src/ui/viewer/web.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/state/web_panel.rs, crates/ubiq/src/app/explorer.rs, crates/ubiq/src/state/explorer/menu.rs, crates/ubiq/src/ui/file_dialog.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
 ---
@@ -2083,10 +2083,10 @@ belong to the UI and design document, linked below.
 
 **The kitchen sink is the application's own test bench, and the one screen with nothing behind it.**
 It is under `APP` because it is about Ubiq rather than about a folder: it opens on a first run with an
-empty catalogue, it asks the host for nothing, and it looks the same in every window. Ten pages,
+empty catalogue, it asks the host for nothing, and it looks the same in every window. Eleven pages,
 selected by a strip along the top — the plain buffer, one per special viewer, the style reference,
 the file picker, the two settings layouts composed from the kit, one live conversation beside the
-bus traffic behind it, and the A2UI surface.
+bus traffic behind it, the A2UI surface, and the script scratchpad.
 
 **Its documents are fixtures, drawn by the viewer their name implies, and a fixture is not a file.**
 A page's document is a name and a constant, and the name carries an extension, so the viewer and the
@@ -2181,6 +2181,81 @@ clear them, so what a click would have sent is read on the page rather than infe
 components still draw a placeholder rather than themselves: GPUI has no video or audio element, so
 `Video` and `AudioPlayer` report their URL, and `Image` does the same, because a drawn surface
 fetches nothing.
+
+**The script page runs JavaScript through the interpreter compiled into the interface, and holds
+nothing between runs.** Two editors sit over a console: the program, and a shorter **prelude** of
+custom instructions that runs first in the same context, so a helper a reader leans on is written
+once rather than re-typed into every experiment. Nothing runs on a keystroke — Run is the only
+trigger, because a scratchpad evaluated while it is typed evaluates half-typed programs — and what
+comes back is the console lines in the order the script wrote them, coloured by level, then every
+intent the script recorded (in the warning colour), then the completion value or the exception,
+then a footer with the milliseconds the run took and whether a panel was declared. Clear empties
+the console. `console.log`, `.info`, `.warn` and `.error` are captured; a `ubiq` global carries five
+core instructions — `version()`, `platform()`, `now()`, `log(...args)` and `echo(value)` — plus five
+namespaces documented in `script::API_DOC`, rendered as Markdown under the console: `ubiq.project`
+(`info`/`root`/`list`), `ubiq.tasks` (`list`/`get`/`create`/`cancel`), `ubiq.ai`
+(`available`/`models`/`ask`), `ubiq.search` (`last`/`files`/`text`), and `ubiq.sink`
+(`ui`/`event`/`clear`).
+
+**A read answers from a snapshot; a write is an intent, recorded and never performed.**
+`AppState::script_facts` serialises everything a script may read — the front project, the project
+catalogue, the tasks in flight, the reachable models, the last search — as JSON, on the window's own
+thread, before the interpreter exists. `ubiq.project`, `ubiq.tasks.list`/`get`, `ubiq.ai.models`/
+`available` and `ubiq.search.last`/`files` answer from that snapshot and nothing else; the
+interpreter cannot re-enter the interface and the interface cannot be blocked by a script.
+`ubiq.tasks.create`, `ubiq.tasks.cancel`, `ubiq.ai.ask` and `ubiq.search.text` are **intents**: the
+call is recorded, with its arguments, and nothing it names is carried out — the same rule `D115`
+puts on an A2UI local call. The console draws every intent in the warning colour, as an account of
+what was asked for and refused.
+
+**`ubiq.sink.ui(payload, handler)` declares a panel, and a click on it replays the script from the
+top.** The payload is exactly what the A2UI page's own editor takes, and the page draws it in its
+right half when the switch there is set to *Panel* rather than *Docs* — a Panel pill carries a dot
+whenever the last run declared one. Because nothing survives a run, there is no closure left to call
+on a click: `fire_script_a2ui_action` does the A2UI page's own envelope-and-blocking-check work and
+then re-runs the whole script with a `ScriptEvent` in hand, and the handler the second declaration
+registers is called once the script has finished evaluating. `ubiq.sink.event()` answers that event,
+or `null` on a plain Run, which is what lets a script branch on whether it is being replayed and stay
+idempotent. A declaration made with no handler leaves a note in the panel's log instead of
+replaying.
+
+**TypeScript is accepted whole, compiled to JavaScript, and never type-checked.** A source in the
+TypeScript dialect is parsed and lowered by `oxc` before the interpreter sees a character of it, so
+an enum, a namespace and a generic call argument are turned into the JavaScript they mean and they
+run — the page refuses no construct the language has. A syntax error comes back as the compiler's
+own message with the line and column it sits on, and names which of the two buffers it is in. What
+no part of this does is check a type: `const x: string = 1` compiles and runs, because the page
+erases types rather than judging them. `D128` is why the front end is a compiler, and what that
+costs.
+
+**An inline settings panel, disclosed under the chrome, points oxc at both buffers.** `OxcOptions`
+carries whether JSX is allowed, which of five ECMAScript levels (`es2015` through `esnext`; oxc
+refuses `es5` outright) the transformer lowers to, whether JavaScript goes through the transformer
+too (TypeScript always does), whether the prelude is checked as well as the program, and how many
+problems one report names. There is deliberately no "parse as a module" switch — oxc's parser
+accepts `import`/`export` in either mode, so the pill would have had nothing behind it. Run and
+Validate read the same options, so what Validate accepts is what Run compiles; lowering far below
+the interpreter's own level can emit helper calls (`_classPrivateFieldInitSpec`) nothing here
+defines, which is a property of the transformer and not a bug.
+
+**Validate owns the console.** It clears the last run first and leaves exactly one thing: a verdict
+line — green when both buffers parsed and compiled clean, naming the dialect, the lines checked and
+the milliseconds it took; red naming how many problems there were — followed by one row per
+`Diagnostic`, each naming which buffer it is in (`prelude` or `script`), so a line number never
+points at the wrong editor.
+
+**Every run is a fresh runtime on a worker thread, bounded, and nothing it does can panic the
+window.** The page never waits on the interpreter — Run starts an evaluation that answers off the
+window, its console lines and completion value landing when they land — and three ceilings bound a
+runaway: a 5 second per-step interrupt that stops a single step of execution that ran past it (an
+endless loop hits it, and the console says it was stopped), a 15 second ceiling on the whole run
+past which the page stops waiting and abandons it, and a 16 MiB allocation cap past which the
+interpreter throws out of memory. Every interpreter failure — a parse error, a throw, a stop —
+arrives as the run's error rather than as an unwind. The page is drawn in every build: without the
+`quickjs` feature there is no interpreter behind it and the page says so, which is what keeps a
+feature-off build one page's contents short rather than one page short. `D127` is why the
+interpreter is there at all, and what it costs; `D129` is the capability model — facts, intents and
+a declared panel replayed rather than resumed.
 
 **The settings pages are layouts, not a settings screen.** Application settings is a left nav of
 kit rows — Appearance, Harnesses, Agent defaults, and the three quieter destinations — and a body
@@ -2341,12 +2416,13 @@ saying no file is open, because the files are panels of their own:
 | Tasks board | `ui/board/mod.rs` | The centre panel in Tasks mode | Fills it; each column scrolls vertically | `BoardState` over the project's `WorkProjection`, and `COLUMN_WIDTH`/`COLUMN_SHUT` |
 | Task panel | `ui/board/detail.rs` | The board, right | `TASK_PANEL_WIDTH`, fixed | `BoardState::selected`, `show_detail` and `editing`, and the window's four form entities |
 | Kitchen sink | `ui/sink/mod.rs` | The centre panel in Sink mode, project or no project | Fills it; its page strip takes the tab strip's own height | `SinkState`, on the window rather than on a project |
-| Sink documents | `ui/sink/docs.rs` | The kitchen sink, on four of its ten pages | Fills it | The fixture in `state/sink.rs` its page names, and the window's buffer for it |
-| A2UI surface | `ui/sink/a2ui.rs`, drawn by `ui/a2ui/` | The kitchen sink, on its last page | Fills it; the preview half scrolls, and the model-and-actions pane sits under the editor | The live surface in `state/a2ui/live.rs` — its data model, its per-field entities and its action log — reached through `SinkState::a2ui`, over the window's `a2ui_buffer` |
+| Sink documents | `ui/sink/docs.rs` | The kitchen sink, on four of its eleven pages | Fills it | The fixture in `state/sink.rs` its page names, and the window's buffer for it |
+| A2UI surface | `ui/sink/a2ui.rs`, drawn by `ui/a2ui/` | The kitchen sink, on its tenth page | Fills it; the preview half scrolls, and the model-and-actions pane sits under the editor | The live surface in `state/a2ui/live.rs` — its data model, its per-field entities and its action log — reached through `SinkState::a2ui`, over the window's `a2ui_buffer` |
 | Style reference | `ui/sink/style.rs` | The kitchen sink, on its fifth page | Fills it; scrolls | `SinkState`, and the theme itself |
 | Picker page | `ui/sink/files.rs` | The kitchen sink, on its sixth page | Fills it; scrolls | `SinkState::picker`, and the fixture tree in `state/sink.rs` |
 | Settings | `ui/sink/settings.rs` | The kitchen sink, on its seventh page | Fills it; nav plus a scrolling body | `SinkState::settings`, and the window's settings fields |
 | Project settings | `ui/sink/project.rs` | The kitchen sink, on its eighth page | A dialog-shaped panel in the page | `SinkState::project`, and the window's project-name fields |
+| Script page | `ui/sink/script.rs` | The kitchen sink, on its last page | Fills it; the settings panel discloses under the chrome, the console scrolls under the two editors, and the right half switches between the reference and the declared panel | `script_buffer` and `script_prelude` on `AppState`, and `SinkState::script` — the last `ScriptOutcome`, the `OxcOptions`, and the `Live` a declared panel draws into |
 | New agent form | `ui/new_agent.rs` | A modal over the whole window, above the settings overlay | `MODAL_WIDTH`; its body scrolls inside it | `WorkbenchState::new_agent`, or the settings page's `profile_form` — one `NewAgentForm` either way |
 | File picker | `ui/file_picker.rs` | Over the whole window, wherever it was raised | `DEFAULT_WIDTH` by `DEFAULT_HEIGHT`, resized from its corner grip and floored at `MIN_WIDTH`/`MIN_HEIGHT` | `AppState::file_picker`, and the window's `picker_filter` |
 | Stats screen | `ui/stats.rs` | The centre panel in Control mode, project or no project | Fills it; its page strip takes the tab strip's own height, and its table scrolls both ways | `StatsState`, on the window rather than on a project |
@@ -3044,23 +3120,44 @@ one place a constant still stands in for what the host would send — deliberate
 with a project behind it would be testing the project rather than the bench. It holds four
 documents as `&'static str`, each under the name that picks its viewer,
 `SinkSection` for the page strip, `SinkState` for the layouts and the style reference's controls,
-`SinkModal` for which of the three shapes is up, `SettingsDemo` for the application settings page
-and `ProjectDemo` for the project settings dialog — its swatch, its custom `0xRRGGBB`, and the
-HSV the picker is holding. Nothing in it draws and nothing in it holds a
+`SinkModal` for which of the three shapes is up, `SettingsDemo` for the application settings page,
+`ProjectDemo` for the project settings dialog — its swatch, its custom `0xRRGGBB`, and the
+HSV the picker is holding — and `ScriptDemo`, which carries the dialect, the picked
+`SCRIPT_EXAMPLES` index, the `OxcOptions` the settings panel writes, the last `ScriptOutcome` and
+`SyntaxReport`, which of the two `ScriptPane`s is forward, and the `Live` a declared panel is drawn
+into. Nothing in it draws and nothing in it holds a
 buffer, which is what lets `crates/ubiq/tests/sink.rs` hand every fixture to the parser or the
 renderer that will draw it with no frame — so a fixture that stopped parsing fails the build instead
 of drawing an error nobody looks at.
 
 The buffers are the window's: `AppState` builds one `EditorState` per fixture in its constructor,
 where there is a window to build one with, keyed by the document's key, plus `sink_input`,
-`sink_textarea` and `sink_modal_input`, and the settings pages' own fields (`sink_search`, the
+`sink_textarea`, `sink_modal_input`, the script page's `script_buffer` and `script_prelude`
+(seeded from whichever `SCRIPT_EXAMPLES` entry is picked, with no change subscription on either,
+because the page reads them when Run or Validate is pressed and at no other moment), and the settings pages' own fields (`sink_search`, the
 harness name, executable, prompt and env, the project name, description and colour hex). A fixture is a
 constant, so that is the whole of their lifecycle — nothing arrives late, nothing is saved, and no
 change subscription is needed because there is no baseline to compare against. `ui/sink/` is the
 screen: `mod.rs` draws the page strip through `kit::tab_strip` and dispatches on the page,
 `docs.rs` draws one fixture through `ui/viewer/` — every viewer reached rather than copied, which
 is the whole point of the page — `style.rs` is the reference, `files.rs` is the picker page,
-`settings.rs` is the application settings layout and `project.rs` is the project settings dialog.
+`settings.rs` is the application settings layout, `project.rs` is the project settings dialog and
+`script.rs` is the scratchpad. The interpreter sits behind one facade,
+`crates/ubiq/src/state/script.rs` — `available()`, `engine_name()`, and `eval(run: Run)` /
+`eval_timed(run, block_ms, total_ms)` returning a `ScriptOutcome`, where `Run` carries the prelude,
+the source, the `Dialect`, the `OxcOptions`, the `HostFacts` snapshot and the `ScriptEvent` being
+replayed, if any — plus `validate(prelude, source, dialect, &OxcOptions)` returning a `SyntaxReport`
+that checks both buffers, and `transpile(source, dialect, &OxcOptions)` returning the JavaScript a
+program means, both `oxc` calls that need no interpreter and exist in every build. `AppState`
+reaches it through `script_facts` (builds the `HostFacts` from the project snapshot, the
+`WindowRegistry`, the project's `WorkProjection` tasks, the settings' `ai_providers`/`ai_models` and
+the window's `search`), `run_sink_script` and `replay_sink_script` (both funnel into
+`start_sink_script`, which spawns the evaluation off the window and lands the answer through
+`ScriptDemo::seq`), `land_sink_script_panel` (parses a declared payload into `ScriptDemo::a2ui`),
+`validate_sink_script`, `fire_script_a2ui_action` (the panel's own envelope-and-blocking-check work,
+then a replay), and the option setters in `app/sink.rs` — and nothing else reaches it.
+`crates/ubiq/tests/script.rs` drives that facade directly and is a target of the `quickjs` feature,
+so a build without the interpreter compiles no test that needs one.
 The modal is raised from `mod.rs` rather than from `style.rs`, because exactly one may be up and
 where it is asked for is not where it is painted; the primitive is `kit::modal`, whose shape and
 dismissal rules are the UI-and-design document's. The project settings page is not that modal: it

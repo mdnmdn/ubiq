@@ -145,7 +145,8 @@ crates/ubiq-host/src/
 │   ├── archive.rs
 │   └── manifest_drawio.rs
 ├── quota.rs
-└── carrier.rs
+├── carrier.rs
+└── .DS_Store
 
 crates/ubiq/src/
 ├── state/
@@ -212,7 +213,8 @@ crates/ubiq/src/
 │   │   └── value.rs
 │   ├── a2ui.rs
 │   ├── remote_hosts.rs
-│   └── web_panel.rs
+│   ├── web_panel.rs
+│   └── script.rs
 ├── ui/
 │   ├── mod.rs
 │   ├── chat/
@@ -269,7 +271,8 @@ crates/ubiq/src/
 │   │   ├── project.rs
 │   │   ├── settings.rs
 │   │   ├── messages.rs
-│   │   └── a2ui.rs
+│   │   ├── a2ui.rs
+│   │   └── script.rs
 │   ├── file_picker.rs
 │   ├── orchestration/
 │   │   ├── graph.rs
@@ -358,7 +361,8 @@ crates/ubiq/src/
 │   ├── remote_hosts.rs
 │   ├── web_panel.rs
 │   └── ssh_connect.rs
-└── version.rs
+├── version.rs
+└── .DS_Store
 
 crates/ubiq-app/src/
 ├── main.rs            three lines: `run(Boot::default())`
@@ -573,6 +577,7 @@ the documents in its row.
 | `crates/ubiq/src/state/prefs.rs` | [`features/chat.md`](../features/chat.md), [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/state/remote.rs` | [`features/workbench.md`](../features/workbench.md), [`architecture.md`](./architecture.md), [`wip/drone.md`](../wip/drone.md) |
 | `crates/ubiq/src/state/scene.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/state/script.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/settings.rs` | [`features/connectors.md`](../features/connectors.md), [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/sink.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/stats.rs` | [`features/stats.md`](../features/stats.md), [`features/workbench.md`](../features/workbench.md) |
@@ -648,6 +653,7 @@ the documents in its row.
 | `crates/ubiq/src/ui/sink/files.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/sink/mod.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/sink/project.rs` | [`features/workbench.md`](../features/workbench.md), [`wip/indexing.md`](../wip/indexing.md) |
+| `crates/ubiq/src/ui/sink/script.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/sink/settings.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/sink/style.rs` | [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/ui/stats.rs` | [`features/stats.md`](../features/stats.md), [`features/workbench.md`](../features/workbench.md) |
@@ -692,6 +698,7 @@ the documents in its row.
 | `crates/ubiq/tests/navigator.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/tests/orchestration.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/tests/scene.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/tests/script.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/tests/settings.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/tests/sink.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/tests/stats.rs` | [`features/stats.md`](../features/stats.md), [`features/workbench.md`](../features/workbench.md) |

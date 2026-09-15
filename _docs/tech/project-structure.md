@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: Every folder in the workspace, what belongs in it, what must never go in it, and the two crates' division of labour.
 read_when: you are adding a file and are not certain where it goes, or you are new to the repository
-updated: 2026-09-13
-verified: 2026-09-13
+updated: 2026-09-15
+verified: 2026-09-15
 code_anchors: [Cargo.toml, crates/ubiq-host/src/store/usage.rs, crates/ubiq-host/src/lib.rs, crates/ubiq/Cargo.toml, crates/ubiq-proto/Cargo.toml, crates/ubiq-host/Cargo.toml, crates/ubiq-app/Cargo.toml, vendor/gpui-terminal/Cargo.toml, _tools/icns.py]
 depends_on: [tech-architecture]
 review_cycle: quarterly
@@ -154,6 +154,18 @@ and a `Trash` path operation without `desktop` each answer `FileError::Failed` n
 lacks, rather than going unanswered. `just relay` builds this lean configuration and checks that
 none of the five features' crates reached its tree — [`operations.md`](./operations.md) owns the
 recipe.
+
+`crates/ubiq` carries one feature of its own, `quickjs`, which pulls in `rquickjs` — the embedded
+interpreter behind the kitchen sink's script page — and a `[[test]]` target that requires it, so a
+build without the feature compiles no test that needs an interpreter. It is **not** in that crate's
+`default`: `crates/ubiq-app` turns it on, exactly as it turns on `assist-apple`, so the one manifest
+that names both halves is the one place either is switched off. `--no-default-features` on the
+binary therefore builds a complete Ubiq with no C interpreter in the process, and the script page
+reads correctly against that — it says the build carries none. The facade's `validate` and
+`transpile` go through `oxc`, an ungated dependency of the same crate — pure Rust, no C, and a parse
+rather than an evaluation — so a build with no interpreter still syntax-checks a buffer and still
+compiles TypeScript to JavaScript. `D127` is the interpreter and its cost, `D128` the front end in
+front of it.
 
 ## Inside Ubiq's four crates
 

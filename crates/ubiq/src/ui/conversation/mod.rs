@@ -3538,8 +3538,7 @@ fn queue_list(
                 .child(ghost_button(
                     view.eid(&format!("queued-send-now-{queued_id}")),
                     Some(IconName::ArrowUp),
-                    "Send ASAP \u{2014} it goes down now and the harness takes it at its next \
-                     step; the turn in flight is not stopped",
+                    "Send now",
                     cx.listener(move |this, _, _, cx| {
                         this.send_queued_message_now(agent_id, queued_id, cx);
                     }),

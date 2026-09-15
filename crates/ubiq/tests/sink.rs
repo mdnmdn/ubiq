@@ -57,13 +57,14 @@ fn every_page_holds_a_document_or_is_one_of_the_drawn_pages() {
             | SinkSection::Settings
             | SinkSection::Project
             | SinkSection::Messages
-            | SinkSection::A2ui => {
+            | SinkSection::A2ui
+            | SinkSection::Script => {
                 assert!(section.doc().is_none(), "{section:?} holds a document")
             }
             _ => assert!(section.doc().is_some(), "{section:?} holds nothing"),
         }
     }
-    assert_eq!(SinkSection::all().len(), 10);
+    assert_eq!(SinkSection::all().len(), 11);
 }
 
 /// The page and its viewer cannot disagree, because neither is written down twice: the document's
@@ -536,5 +537,139 @@ fn every_page_draws_in_a_window_with_no_project(cx: &mut gpui::TestAppContext) {
         assert!(state.file_picker.is_none(), "the dialog stayed up");
         assert!(!state.sink.picker.dismissed);
         assert_eq!(state.sink.picker.result.as_deref(), Some(ticked.as_slice()));
+    });
+}
+
+// ── the script page ─────────────────────────────────────────────────
+
+/// The console starts empty. Nothing has been run, and a page that showed a result before Run was
+/// pressed would be showing one it invented.
+#[test]
+fn the_script_page_starts_with_nothing_run() {
+    let sink = SinkState::default();
+    assert!(sink.script.outcome.is_none());
+    assert!(sink.script.report.is_none());
+    assert!(!sink.script.running);
+}
+
+/// Run evaluates the two buffers and leaves an answer behind. Only meaningful where there is an
+/// interpreter to answer — without the feature the page draws, but nothing evaluates.
+#[cfg(feature = "quickjs")]
+#[gpui::test]
+fn running_the_script_page_leaves_an_outcome_behind(cx: &mut gpui::TestAppContext) {
+    use gpui::AppContext as _;
+    use ubiq::app::{AppState, BusHub};
+    use ubiq::state::{RailMode, WindowRegistry};
+
+    let (hub, _host) = ubiq_proto::bus::hub();
+    cx.update(|cx| {
+        gpui_component::init(cx);
+        ubiq::theme::set_mode(ubiq::app::boot_theme(), cx);
+        BusHub::install(hub, cx);
+        WindowRegistry::install(cx);
+    });
+
+    let held: std::rc::Rc<std::cell::RefCell<Option<gpui::Entity<AppState>>>> = Default::default();
+    let taken = held.clone();
+    let handle = cx.add_window(move |window, cx| {
+        let state = cx.new(|cx| AppState::for_project(None, 'A', window, cx));
+        *taken.borrow_mut() = Some(state.clone());
+        gpui_component::Root::new(state, window, cx)
+    });
+    cx.run_until_parked();
+
+    let state = held
+        .borrow_mut()
+        .take()
+        .expect("the window built its state");
+
+    state.update(cx, |state, cx| {
+        state.set_rail_mode(RailMode::Sink, cx);
+        state.set_sink_section(SinkSection::Script, cx);
+    });
+    cx.run_until_parked();
+
+    state.update(cx, |state, cx| state.run_sink_script(cx));
+
+    state.read_with(cx, |state, _| {
+        assert!(state.sink.script.running, "running is true immediately");
+    });
+
+    cx.run_until_parked();
+
+    state.read_with(cx, |state, _| {
+        let outcome = state
+            .sink
+            .script
+            .outcome
+            .as_ref()
+            .expect("the run left an outcome");
+        assert!(outcome.error.is_none(), "{:?}", outcome.error);
+        assert!(!state.sink.script.running);
+    });
+
+    // Clear forgets the answer without touching the program.
+    state.update(cx, |state, cx| state.clear_sink_script(cx));
+    state.read_with(cx, |state, _| {
+        assert!(state.sink.script.outcome.is_none());
+    });
+
+    // Selecting an example sets the dialect and fills the buffers.
+    use ubiq::state::script::Dialect;
+    use ubiq::state::sink::SCRIPT_EXAMPLES;
+
+    let ts_index = SCRIPT_EXAMPLES
+        .iter()
+        .position(|e| e.dialect == Dialect::Ts)
+        .expect("the TypeScript example exists");
+    handle
+        .update(cx, |_, window, cx| {
+            state.update(cx, |state, cx| {
+                state.pick_sink_script_example(ts_index, window, cx);
+            });
+        })
+        .expect("the window is open");
+    state.read_with(cx, |state, cx| {
+        assert_eq!(state.sink.script.dialect, Dialect::Ts);
+        let source = state.script_buffer.read(cx).value().to_string();
+        assert!(
+            source.contains("compiled"),
+            "the buffer holds the example's source"
+        );
+    });
+
+    let js_index = SCRIPT_EXAMPLES
+        .iter()
+        .position(|e| e.dialect == Dialect::Js && !e.source.is_empty())
+        .expect("the broken JS example exists");
+    handle
+        .update(cx, |_, window, cx| {
+            state.update(cx, |state, cx| {
+                state.pick_sink_script_example(js_index, window, cx);
+            });
+        })
+        .expect("the window is open");
+    state.read_with(cx, |state, _| {
+        assert_eq!(state.sink.script.dialect, Dialect::Js);
+    });
+
+    // The dialect toggle changes the dialect directly.
+    state.update(cx, |state, cx| {
+        state.set_sink_script_dialect(Dialect::Ts, cx);
+    });
+    state.read_with(cx, |state, _| {
+        assert_eq!(state.sink.script.dialect, Dialect::Ts);
+    });
+
+    // Validate fills the report without running.
+    state.update(cx, |state, cx| state.validate_sink_script(cx));
+    state.read_with(cx, |state, _| {
+        let report = state
+            .sink
+            .script
+            .report
+            .as_ref()
+            .expect("validate filled the report");
+        assert!(!report.ok(), "the broken source has at least one error");
     });
 }

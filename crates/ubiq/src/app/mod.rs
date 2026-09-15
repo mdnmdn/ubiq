@@ -755,6 +755,13 @@ pub struct AppState {
     /// point of the page. It is also the surface's only source: nothing caches the parse, so the
     /// preview cannot disagree with the text it came from.
     pub a2ui_buffer: Entity<EditorState>,
+    /// The script page's program. Seeded from `state::script::STARTER` and never written back to —
+    /// what the reader types is what Run evaluates, and nothing reloads it.
+    pub script_buffer: Entity<EditorState>,
+    /// The script page's prelude: the custom instructions evaluated before the program, in the same
+    /// context. A second buffer rather than a header in the first, because it is the part the
+    /// reader keeps across programs.
+    pub script_prelude: Entity<EditorState>,
     /// The style reference's two fields, and the one its form modal carries. Three rather than one,
     /// because the modal can be raised while the fields page is on screen and one state drawn twice
     /// is one field in two places.

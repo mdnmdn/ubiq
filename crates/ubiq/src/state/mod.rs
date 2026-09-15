@@ -32,6 +32,7 @@ pub mod prefs;
 pub mod remote;
 pub mod remote_hosts;
 pub mod scene;
+pub mod script;
 pub mod search;
 pub mod settings;
 pub mod sink;
@@ -73,7 +74,10 @@ pub use remote::{AttemptId, RemoteConnectState, RemoteConnectStep};
 pub use remote_hosts::{RemoteManagerState, TestOutcome};
 pub use scene::{Element, ElementKind, Rgba8, Scene, SceneError};
 pub use search::{ActiveSearch, SearchState};
-pub use sink::{SinkDoc, SinkModal, SinkSection, SinkState};
+pub use sink::{
+    SCRIPT_EXAMPLES, ScriptDemo, ScriptExample, ScriptPane, SinkDoc, SinkModal, SinkSection,
+    SinkState,
+};
 pub use windows::{ProjectGroups, WindowRegistry, WindowSlot};
 pub use work::WorkProjection;
 pub use workbench::{

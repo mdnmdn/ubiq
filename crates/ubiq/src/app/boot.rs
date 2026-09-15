@@ -210,6 +210,48 @@ impl AppState {
                 )
         });
 
+        // The script page's two buffers, seeded with the first example so the page opens on a
+        // program that demonstrates the page. No change subscription on either: this page runs on
+        // the button, not on every keystroke, so a half-typed program is never evaluated.
+        let script_buffer = cx.new(|cx| {
+            EditorState::new(window, cx)
+                .language(ui::editor::highlighter_language(
+                    crate::state::editor::FileLanguage::JavaScript,
+                ))
+                .line_number(true)
+                .folding(true)
+                .show_whitespaces(false)
+                .tab_size(TabSize {
+                    tab_size: 2,
+                    ..Default::default()
+                })
+                .default_value(
+                    crate::state::sink::SCRIPT_EXAMPLES
+                        .first()
+                        .map(|example| example.source)
+                        .unwrap_or_default(),
+                )
+        });
+
+        let script_prelude = cx.new(|cx| {
+            EditorState::new(window, cx)
+                .language(ui::editor::highlighter_language(
+                    crate::state::editor::FileLanguage::JavaScript,
+                ))
+                .line_number(false)
+                .show_whitespaces(false)
+                .tab_size(TabSize {
+                    tab_size: 2,
+                    ..Default::default()
+                })
+                .default_value(
+                    crate::state::sink::SCRIPT_EXAMPLES
+                        .first()
+                        .map(|example| example.prelude)
+                        .unwrap_or_default(),
+                )
+        });
+
         let sink_input = cx.new(|cx| {
             InputState::new(window, cx)
                 .placeholder("a field, with nothing behind it")
@@ -1198,6 +1240,8 @@ impl AppState {
             project_path_input,
             sink_buffers,
             a2ui_buffer,
+            script_buffer,
+            script_prelude,
             sink_input,
             sink_textarea,
             sink_modal_input,
@@ -1288,6 +1332,13 @@ impl AppState {
         // The A2UI page's first surface, read out of the payload the buffer was seeded with. The
         // subscription above only fires on a change, and the first payload is not one.
         this.reload_a2ui(window, cx);
+
+        // The script page opens on the buffers it was seeded with, so its state has to agree that
+        // the first example is the one showing. Picking another example keeps the two in step.
+        if let Some(first) = crate::state::sink::SCRIPT_EXAMPLES.first() {
+            this.sink.script.example = 0;
+            this.sink.script.dialect = first.dialect;
+        }
 
         // Whatever the registry says this window holds, it now holds — including the pane a
         // project gets when it is first entered. A window opening on nothing spawns nothing.

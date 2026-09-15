@@ -182,6 +182,8 @@ pub enum MenuId {
     SinkPicker,
     /// The A2UI page's example picker: which surface the preview draws.
     SinkA2ui,
+    /// The script page's example picker: which starter the buffers are seeded from.
+    SinkScript,
     /// A dropdown on the settings page. Which one is `SinkState::settings.menu`.
     SinkSettings,
     /// The explorer's right-click menu. Which row (or the empty panel) is on `ExplorerState::menu`.

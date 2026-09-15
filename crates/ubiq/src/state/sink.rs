@@ -42,10 +42,11 @@ pub enum SinkSection {
     Project,
     Messages,
     A2ui,
+    Script,
 }
 
 impl SinkSection {
-    /// The ten, in the order the strip draws them.
+    /// The eleven, in the order the strip draws them.
     pub fn all() -> &'static [SinkSection] {
         &[
             SinkSection::Editor,
@@ -58,6 +59,7 @@ impl SinkSection {
             SinkSection::Project,
             SinkSection::Messages,
             SinkSection::A2ui,
+            SinkSection::Script,
         ]
     }
 
@@ -78,7 +80,7 @@ impl SinkSection {
 }
 
 /// The tab and the line under the title, one row per [`SinkSection`], in variant order.
-const SECTION_COPY: [(&str, &str); 10] = [
+const SECTION_COPY: [(&str, &str); 11] = [
     (
         "Editor",
         "The plain buffer: highlighting, line numbers, folding.",
@@ -115,6 +117,10 @@ const SECTION_COPY: [(&str, &str); 10] = [
     (
         "A2UI",
         "A surface an agent could send, drawn from the JSON beside it.",
+    ),
+    (
+        "Script",
+        "A JavaScript scratchpad, run by the embedded interpreter.",
     ),
 ];
 
@@ -857,6 +863,393 @@ pub struct A2uiDemo {
     pub live: crate::state::a2ui::live::Live,
 }
 
+/// The script page: what the last run said, and how it runs.
+///
+/// The two buffers are the window's, like every other editor state, so what is kept here is only
+/// the answer — and nothing at all until the reader presses Run. A page that evaluated on every
+/// keystroke would run half-typed programs, which is why this one runs on the button.
+///
+/// A run is asynchronous: the interpreter answers on a thread of its own, so [`Self::running`] says
+/// one is in flight, [`Self::seq`] is bumped on each Run so the answer of an older run is discarded
+/// against a newer one, and the panel the script declared through `ubiq.sink.ui` is drawn into a
+/// [`crate::state::a2ui::live::Live`] under [`Self::a2ui`].
+#[derive(Default)]
+pub struct ScriptDemo {
+    /// What the last evaluation printed, returned, and how long it took. `None` until Run.
+    pub outcome: Option<crate::state::script::ScriptOutcome>,
+    /// Whether a run is in flight. Set on Run, cleared when its answer lands.
+    pub running: bool,
+    /// Bumped on every Run. The answer of an older run is discarded when it lands behind a newer
+    /// one, so pressing Run twice does not let the first result overwrite the second.
+    pub seq: u64,
+    /// Which dialect the Run and Validate buttons use.
+    pub dialect: crate::state::script::Dialect,
+    /// Which [`SCRIPT_EXAMPLES`] the picker last chose.
+    pub example: usize,
+    /// The last Validate answer. `None` until Validate is pressed.
+    pub report: Option<crate::state::script::SyntaxReport>,
+    /// How oxc is pointed at both buffers: what the settings panel writes.
+    pub options: crate::state::script::OxcOptions,
+    /// Whether that settings panel is disclosed.
+    pub settings_open: bool,
+    /// Which of the two things the right-hand panel shows: the reference, or the script's panel.
+    pub pane: ScriptPane,
+    /// The panel the last run declared, kept so a click on it can be replayed against the same
+    /// declaration the reader is looking at.
+    pub ui: Option<crate::state::script::ScriptUi>,
+    /// That panel, live: its data model, the buffer behind each of its text fields, and what it
+    /// has sent.
+    pub a2ui: crate::state::a2ui::live::Live,
+}
+
+/// What the script page's right-hand panel shows.
+///
+/// The reference and the script's own panel occupy the same half because they are alternatives,
+/// not neighbours: a reader is either learning the surface or driving the thing they built with
+/// it, and splitting the half again would leave neither enough room to read.
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
+pub enum ScriptPane {
+    /// `script::API_DOC`, rendered as Markdown.
+    #[default]
+    Docs,
+    /// The A2UI surface the script declared through `ubiq.sink.ui`.
+    Panel,
+}
+
+impl ScriptPane {
+    pub fn label(self) -> &'static str {
+        match self {
+            ScriptPane::Docs => "Docs",
+            ScriptPane::Panel => "Panel",
+        }
+    }
+
+    pub fn all() -> &'static [ScriptPane] {
+        &[ScriptPane::Docs, ScriptPane::Panel]
+    }
+}
+
+/// One script starter: what the picker calls it, which dialect it runs as, and the two buffers it
+/// seeds.
+///
+/// The provenance is on the page because it is load-bearing: each example exists to demonstrate a
+/// different mode of the page — compiled TypeScript, a non-parsing program, a returned payload —
+/// and a reader deciding which one a starter is for needs to know which is which.
+pub struct ScriptExample {
+    pub name: &'static str,
+    pub dialect: crate::state::script::Dialect,
+    pub origin: &'static str,
+    pub prelude: &'static str,
+    pub source: &'static str,
+}
+
+/// The starters the picker offers, in the order it lists them: the JavaScript ones first, then the
+/// TypeScript ones, each group from the plainest to the one that exercises the most.
+///
+/// Between them they cover every mode the page has that a button alone would not demonstrate —
+/// both dialects, each host namespace, a declared panel and its replayed click, a program Validate
+/// refuses in each dialect, and the two limits that stop a run.
+pub const SCRIPT_EXAMPLES: &[ScriptExample] = &[
+    ScriptExample {
+        name: "JS — hello",
+        dialect: crate::state::script::Dialect::Js,
+        origin: "the console, the completion value, and the prelude in front of both",
+        prelude: SCRIPT_JS_PRELUDE,
+        source: SCRIPT_JS_SOURCE,
+    },
+    ScriptExample {
+        name: "JS — project & tasks",
+        dialect: crate::state::script::Dialect::Js,
+        origin: "ubiq.project and ubiq.tasks: a snapshot to read, an intent to record",
+        prelude: "",
+        source: SCRIPT_FACTS_SOURCE,
+    },
+    ScriptExample {
+        name: "JS — ai & search",
+        dialect: crate::state::script::Dialect::Js,
+        origin: "ubiq.ai and ubiq.search: every call that would act is recorded, not performed",
+        prelude: "",
+        source: SCRIPT_EFFECTS_SOURCE,
+    },
+    ScriptExample {
+        name: "JS — a panel with a handler",
+        dialect: crate::state::script::Dialect::Js,
+        origin: "ubiq.sink.ui: switch the right pane to Panel, press the button, watch the replay",
+        prelude: "",
+        source: SCRIPT_A2UI_SOURCE,
+    },
+    ScriptExample {
+        name: "JS — caught by Validate",
+        dialect: crate::state::script::Dialect::Js,
+        origin: "a syntax error: Validate names the buffer, the line and the column",
+        prelude: "",
+        source: SCRIPT_BROKEN_SOURCE,
+    },
+    ScriptExample {
+        name: "JS — stopped by the limit",
+        dialect: crate::state::script::Dialect::Js,
+        origin: "an endless loop: the interrupt handler stops it and the page keeps drawing",
+        prelude: "",
+        source: SCRIPT_RUNAWAY_SOURCE,
+    },
+    ScriptExample {
+        name: "TS — compiled, enums and all",
+        dialect: crate::state::script::Dialect::Ts,
+        origin: "TypeScript compiled to JavaScript before the run, enums lowered rather than erased",
+        prelude: SCRIPT_TS_PRELUDE,
+        source: SCRIPT_TS_SOURCE,
+    },
+    ScriptExample {
+        name: "TS — generics & narrowing",
+        dialect: crate::state::script::Dialect::Ts,
+        origin: "type-only syntax that has to disappear: generics, unions, satisfies, as const",
+        prelude: SCRIPT_TS_GENERIC_PRELUDE,
+        source: SCRIPT_TS_GENERIC_SOURCE,
+    },
+    ScriptExample {
+        name: "TS — a typed panel",
+        dialect: crate::state::script::Dialect::Ts,
+        origin: "ubiq.sink.ui from TypeScript: the payload typed, the handler typed",
+        prelude: SCRIPT_TS_A2UI_PRELUDE,
+        source: SCRIPT_TS_A2UI_SOURCE,
+    },
+    ScriptExample {
+        name: "TS — caught by Validate",
+        dialect: crate::state::script::Dialect::Ts,
+        origin: "TypeScript that does not parse: the same report, in the other dialect",
+        prelude: "",
+        source: SCRIPT_TS_BROKEN_SOURCE,
+    },
+];
+
+/// The plainest starter's prelude: one function the program below leans on.
+const SCRIPT_JS_PRELUDE: &str = r#"// The prelude runs before the script, in the same context.
+function greet(who) {
+  return `hello, ${who}`;
+}
+"#;
+
+/// The plainest starter: the four console levels, a value, and the completion value.
+const SCRIPT_JS_SOURCE: &str = r#"console.log(greet("Ubiq"), "on", ubiq.platform(), "at", ubiq.now());
+console.info("version:", ubiq.version());
+console.warn("a warning reads like this");
+console.error("and an error like this");
+
+const rows = [1, 2, 3].map((n) => ({ n, square: n * n }));
+console.log(rows);
+
+rows.length;
+"#;
+
+/// The read-only namespaces: what the interface serialised before the run started.
+const SCRIPT_FACTS_SOURCE: &str = r#"const project = ubiq.project.info();
+console.log(project ? `${project.name} at ${project.root}` : "no project open");
+console.log("catalogue:", ubiq.project.list().map((p) => p.name));
+
+const tasks = ubiq.tasks.list();
+console.log(`${tasks.length} task(s) in flight`);
+for (const task of tasks.slice(0, 5)) {
+  console.info(`  ${task.status}  ${task.title}`);
+}
+
+// An intent: recorded and drawn in the console, performed by nobody.
+ubiq.tasks.create({ title: "tidy the docs", project: project?.id });
+
+tasks.length;
+"#;
+
+/// The two namespaces whose every useful call is an intent.
+const SCRIPT_EFFECTS_SOURCE: &str = r#"console.log("inference reachable:", ubiq.ai.available());
+console.log("models:", ubiq.ai.models().map((m) => m.id));
+
+// Recorded, never run — the interpreter performs no effect.
+ubiq.ai.ask("summarise the working tree", { model: "local/qwen", maxTokens: 256 });
+
+const last = ubiq.search.last();
+console.log("last query:", last?.query ?? "(none)");
+console.log("rust hits:", ubiq.search.files(".rs").length);
+
+ubiq.search.text("TODO", { caseSensitive: false });
+
+"see the intents under the console";
+"#;
+
+/// The Validate starter: parses at a glance but does not parse. The unbalanced paren is the point.
+const SCRIPT_BROKEN_SOURCE: &str = r#"function twice(n) {
+  return n * 2
+}
+
+twice(2
+"#;
+
+/// The limit starter. The interrupt handler stops it, and the page draws the reason.
+const SCRIPT_RUNAWAY_SOURCE: &str = r#"// The interrupt handler stops this after the block limit, and the page says so.
+// The interface keeps drawing throughout: the interpreter is on a thread of its own.
+let n = 0;
+while (true) {
+  n += 1;
+}
+"#;
+
+/// The TypeScript starter's prelude: types the script below leans on, compiled before the run.
+const SCRIPT_TS_PRELUDE: &str = r#"interface Greeting { who: string }
+function greet(g: Greeting): string {
+  return `hello, ${g.who}`;
+}
+"#;
+
+/// The TypeScript starter: type syntax in the program as well as the prelude, and an enum — a
+/// runtime construct oxc lowers rather than erases.
+const SCRIPT_TS_SOURCE: &str = r#"console.log(greet({ who: "Ubiq" }));
+
+let n: number = 41;
+n += 1;
+
+enum Colour { Red, Green }
+console.log(Colour[Colour.Green]);
+console.log(`compiled: ${n}`);
+
+n;
+"#;
+
+/// The generics starter's prelude: a generic function and a discriminated union, both of which
+/// have to leave no trace in the JavaScript QuickJS runs.
+const SCRIPT_TS_GENERIC_PRELUDE: &str = r#"type Shape =
+  | { kind: "circle"; r: number }
+  | { kind: "square"; side: number };
+
+function area(shape: Shape): number {
+  switch (shape.kind) {
+    case "circle": return Math.PI * shape.r ** 2;
+    case "square": return shape.side ** 2;
+  }
+}
+
+function first<T>(items: readonly T[]): T | undefined {
+  return items[0];
+}
+"#;
+
+/// The generics starter: `satisfies`, `as const`, a non-null assertion and a parameter property —
+/// four things a stripper gets wrong and a transformer does not.
+const SCRIPT_TS_GENERIC_SOURCE: &str = r#"const shapes = [
+  { kind: "circle", r: 2 },
+  { kind: "square", side: 3 },
+] as const satisfies readonly Shape[];
+
+class Point {
+  constructor(public readonly x: number, public readonly y: number) {}
+  get length(): number { return Math.hypot(this.x, this.y); }
+}
+
+console.log(shapes.map((s) => area(s).toFixed(2)));
+console.log("first:", first(shapes)!.kind);
+console.log("length:", new Point(3, 4).length);
+
+shapes.length;
+"#;
+
+/// The typed-panel starter's prelude: the shapes the declaration below is written against.
+const SCRIPT_TS_A2UI_PRELUDE: &str = r#"interface SinkEvent {
+  name: string;
+  surfaceId: string;
+  componentId: string;
+}
+
+function stamp(): string {
+  return ubiq.now().slice(11, 19);
+}
+"#;
+
+/// The typed-panel starter: the same declaration as the JavaScript one, written in TypeScript.
+const SCRIPT_TS_A2UI_SOURCE: &str = r#"const event: SinkEvent | null = ubiq.sink.event();
+const clicks: number = event ? 1 : 0;
+
+ubiq.sink.ui(
+  {
+    createSurface: {
+      surfaceId: "typed-panel",
+      components: [
+        { id: "root", component: "Card", child: "col" },
+        { id: "col", component: "Column", children: ["msg", "field", "go"] },
+        { id: "msg", component: "Text", text: { path: "/msg" } },
+        {
+          id: "field",
+          component: "TextField",
+          label: "your name",
+          value: { path: "/name" }
+        },
+        { id: "label", component: "Text", text: "say hello" },
+        {
+          id: "go",
+          component: "Button",
+          child: "label",
+          variant: "primary",
+          action: { event: { name: "hello" } }
+        }
+      ],
+      dataModel: {
+        msg: event ? `${event.name} at ${stamp()}` : "press the button",
+        name: "Ubiq"
+      },
+      sendDataModel: true
+    }
+  },
+  (e: SinkEvent) => console.info("handler saw", e.name, "from", e.componentId)
+);
+
+clicks;
+"#;
+
+/// The TypeScript Validate starter: a type annotation with nothing after it.
+const SCRIPT_TS_BROKEN_SOURCE: &str = r#"interface Row {
+  n: number;
+  label: string
+}
+
+const rows: Row[] = [{ n: 1, label: }];
+"#;
+
+/// The panel starter: the script declares a surface and a handler, and a click on it re-runs the
+/// script with the event in hand. The counter proves the replay — it is read out of the surface
+/// the last run left behind, because nothing else survives one.
+const SCRIPT_A2UI_SOURCE: &str = r#"const event = ubiq.sink.event();
+
+ubiq.sink.ui({
+  createSurface: {
+    surfaceId: "script-panel",
+    components: [
+      { id: "root", component: "Card", child: "body" },
+      { id: "body", component: "Column", children: ["status", "greeting_field", "save_button"] },
+      { id: "status", component: "Text", text: { path: "/status" } },
+      {
+        id: "greeting_field",
+        component: "TextField",
+        label: "greeting",
+        value: { path: "/greeting" }
+      },
+      { id: "save_label", component: "Text", text: "log it" },
+      {
+        id: "save_button",
+        component: "Button",
+        child: "save_label",
+        variant: "primary",
+        action: { event: { name: "logGreeting" } }
+      }
+    ],
+    dataModel: {
+      status: event
+        ? `${event.name} fired on ${event.componentId}`
+        : "nothing pressed yet — switch the pane to Panel",
+      greeting: "bound from the script"
+    },
+    sendDataModel: true
+  }
+}, (e) => console.info("handler saw", e.name, "from", e.componentId));
+
+event ? `replayed for ${event.name}` : "declared";
+"#;
+
 /// What the A2UI page shows under its payload: the values, or the messages.
 #[derive(Default, Clone, Copy, PartialEq, Eq)]
 pub enum A2uiPane {
@@ -898,6 +1291,8 @@ pub struct SinkState {
     /// The A2UI page: which example the picker last chose, and the live surface drawn from it —
     /// its data model, the buffer behind each of its text fields, and what it has sent.
     pub a2ui: A2uiDemo,
+    /// The script page: what the last run of the embedded interpreter said.
+    pub script: ScriptDemo,
 }
 
 impl Default for SinkState {
@@ -917,6 +1312,7 @@ impl Default for SinkState {
             project: ProjectDemo::default(),
             messages: MessagesDemo::default(),
             a2ui: A2uiDemo::default(),
+            script: ScriptDemo::default(),
         }
     }
 }

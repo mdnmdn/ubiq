@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: Every open question, known gap and deferred item across the project, in one register.
 read_when: you are planning the next piece of work, or you hit something unresolved and need somewhere to put it
-updated: 2026-09-14
-verified: 2026-09-14
+updated: 2026-09-15
+verified: 2026-09-15
 review_cycle: monthly
 ---
 
@@ -280,6 +280,7 @@ change what Ubiq does (here), or where a document lives (there)?
 | G256 | Nothing enforces a `MESSAGE_SCHEMA` bump. `crates/ubiq-proto/src/wire.rs` names the number and the families that oblige one, and a drone's handshake refuses a mismatch before a pane exists — but the bump itself is a discipline: no test compares the message set against a recorded shape, so a change nobody bumps for is found as a decode failure mid-session, which is the failure the number exists to replace. A snapshot test over the variant names and field sets a drone speaks is the shape | [`tech/transport-contract.md`](./tech/transport-contract.md), [`wip/drone.md`](./wip/drone.md) |
 | G257 | The heartbeat breaks a peer built before it. `Ping` is an ordinary variant on a `#[serde(tag = "type")]` enum, so a build that predates it cannot decode the frame at all: its `read_frame` fails and the session ends, where before it would have run. `MESSAGE_SCHEMA` closes this for a drone, which handshakes before anything else crosses, and closes nothing for `ubiq --serve` — that path authenticates a token and upgrades, and never states a version. `crates/ubiq-proto/src/wire.rs` says a remote host and UI may be different builds, and this is the first change that makes that untrue. A version in the attach request, or the carrier handshake extended to cover the TCP path, is the shape | [`tech/architecture.md`](./tech/architecture.md), [`tech/transport-contract.md`](./tech/transport-contract.md), [`wip/drone.md`](./wip/drone.md) |
 | G258 | The askpass helper is built and nothing proves the far end of it. `D125` routes a profile's secret keychain to helper stdout to `ssh`, and there is no test that drives a real `ssh`: what is verified is the argv and the environment the child is given, not what OpenSSH does with them. So a mistake in `SSH_ASKPASS_REQUIRE`, in the `DISPLAY` fallback older clients need, or in the no-controlling-terminal setup is found by a user failing to connect. A fixture `ssh` on `PATH` that records its environment and answers a canned prompt is the shape | [`wip/drone.md`](./wip/drone.md), [`tech/decisions.md`](./tech/decisions.md) |
+| G260 | The sink's script page is the only caller of the interpreter, and there is nothing for a second one to use. No script is stored, no trigger fires one, and nothing binds a declared panel to anything outside the run that declared it — a click replays the whole script rather than reaching a stored binding, per `D129`. `ubiq.tasks.create`, `ubiq.tasks.cancel`, `ubiq.ai.ask` and `ubiq.search.text` are recorded as intents and carried out by nobody, so `D127`'s cost is bounded by the fact that the only code evaluated is code the person at the keyboard typed and nothing it asks for actually happens. What `inbox/plugin-system-proposal.md` describes on top of it — a plugin as a bus client, a grant filtering its message set, a credential broker, declarative UI contributions — is none of it built, and its `D97`, `D99` and `D100` are proposals with no landed counterpart. A stored script, a binding that survives past one run, or an intent that is actually carried out is the point at which the grant model stops being optional, and that is a decision to take before the first one is added, not after | [`features/workbench.md`](./features/workbench.md), [`tech/decisions.md`](./tech/decisions.md) |
 
 ## Related docs
 

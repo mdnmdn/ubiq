@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-09-14
-verified: 2026-09-14
+updated: 2026-09-15
+verified: 2026-09-15
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -2623,6 +2623,124 @@ mirrored there, or a denied run keeps the old grants. The layer path is named on
 (`KEYCHAIN_LAYER`) so the override cannot stop shadowing the built-in, which is a different failure
 and the one worth ruling out. Confined only: an unconfined Claude Code run still picks its own
 backend.
+
+### D127 — QuickJS is compiled into the interface behind a feature the binary defaults on
+
+The kitchen sink's script page evaluates JavaScript through `rquickjs`, declared optional in
+`crates/ubiq/Cargo.toml` and turned on by `crates/ubiq-app`'s `default` — the same shape
+`assist-apple` takes, and for the same reason: the one manifest that names both halves is the one
+place a build is made smaller. `crates/ubiq/src/state/script.rs` is the whole of the surface —
+`available()`, `engine_name()`, and `eval(run: Run)` / `eval_timed(run, block_ms, total_ms)`
+returning a `ScriptOutcome`, plus the `validate` and `transpile` that `D128` puts in front of them —
+and the page is drawn whether or not anything is behind it. `D129` is the capability model a `Run`
+gives the interpreter to work with — a fact snapshot, an intent log, a panel declared and replayed —
+which sits on top of this decision rather than inside it.
+
+The alternatives were the ones `inbox/plugin-system-proposal.md` weighs under its proposed `D98`:
+Wasm components, an out-of-process Node, and Lua. Wasm buys isolation and costs a component model
+and a toolchain for anyone writing three lines; Node buys a real ecosystem and costs a process, a
+runtime to find on the machine and a wire to talk over it; Lua is small and is not the language the
+people who write agent glue write. QuickJS is a C library that compiles into the binary, speaks the
+language those people write, and needs nothing on the machine. The proposal's numbers are proposals;
+this is the one that landed, and it is the interpreter alone — no grant model, no broker, no bus
+client, and no plugin.
+
+**Why.** An interpreter in the process is what makes a script a feature of the interface rather than
+a program the user has to install something to run, and the sink is where a capability with no
+caller yet is exercised in the open.
+
+**Cost.** A C dependency inside the interface's address space with no wall behind it: no process
+boundary, no OS sandbox, and no seccomp or `isol8` confinement of the kind a harness run gets. A
+run goes to a worker thread, so the window never blocks on the interpreter — but the worker is the
+interface's own, and what bounds a runaway is the three ceilings in `state/script.rs`: a 5 s
+per-step interrupt, a 15 s ceiling past which a run is abandoned, and a 16 MiB allocation cap, none
+of them a security claim. What keeps the trade small is that nothing but the sink calls it and no
+script is stored, so the only code the interpreter sees is code the person at the keyboard typed.
+That stops being true the moment a stored script or a bus-reaching binding is added, and either is
+a new decision rather than an extension of this one — `G260`.
+
+### D128 — oxc is the script page's front end, in front of the interpreter
+
+Everything the script page does to a source before QuickJS sees it goes through `oxc`, declared in
+`crates/ubiq/Cargo.toml` with `codegen`, `semantic` and `transformer` and no default features. Two
+jobs sit on it, both in `crates/ubiq/src/state/script.rs`. `validate(prelude, source, dialect,
+&OxcOptions)` parses both of the page's buffers and turns each diagnostic into a `Diagnostic` — which
+buffer it is in, the message, and the byte span resolved to a one-based line and column the editor
+can point at — plus how many lines were checked and how long it took, in a `SyntaxReport` whose
+`verdict()` is the one line the console prints. `transpile(source, dialect, &OxcOptions)` builds a
+`SemanticBuilder` scoping over the parsed program, runs the `Transformer` and prints the result with
+`Codegen`, which is the whole of the TypeScript-to-JavaScript path `eval` takes for a `Ts` run — and
+that a `Run` can ask for on JavaScript too, through the settings panel's "lower JS too" switch. A
+program is parsed in **script** mode (`SourceType::default().with_module(false)`), because the page
+evaluates one string through `ctx.eval` and nothing imports — there is deliberately no "parse as a
+module" switch in `OxcOptions`, since oxc's parser accepts `import`/`export` in either mode and the
+control would have had nothing behind it — and `SemanticBuilder::with_enum_eval(true)` is not
+optional, because the transformer panics on an enum without it. `OxcOptions` is what the page's
+inline settings panel writes: JSX, which of five `EsTarget`s (`es2015` through `esnext`; oxc refuses
+`es5`) the transformer lowers to, whether JavaScript is transformed as well as TypeScript, whether
+the prelude is checked alongside the program, and how many diagnostics one report names. Run and
+Validate read the same `OxcOptions`, so what Validate accepts is what Run compiles.
+
+The alternative, and what this replaced, was a tree-sitter grammar walk doing both jobs: a parse for
+syntax errors, and a hand-written erasure that deleted the annotations it recognised and refused
+every TypeScript construct that is not erasable. That refusal is the reason to change. A grammar
+knows a program's shape and nothing about its meaning, so an enum, a namespace or a generic call
+argument had to be rejected rather than lowered, and the list of what the page would not accept was
+written by hand and drifted from the language. oxc lowers all three to the JavaScript they mean, and
+they run. Its errors are a compiler's rather than a grammar's — what oxc refused, in the wording a
+reader would see from any other JavaScript toolchain.
+
+oxc is **not** behind the `quickjs` feature, which is the second half of the choice. It is pure Rust
+with no C in it, and validation is a parse, so a build with no interpreter still syntax-checks a
+buffer and still compiles TypeScript to JavaScript it has nothing to run. `D127`'s feature stays
+exactly as narrow as it was: the interpreter is optional, the front end is not.
+
+**Why.** A real parser reports what a compiler reports and lowers the whole language, and a
+scratchpad that refuses a construct the reader's editor accepts teaches the reader the wrong thing
+about their own code.
+
+**Cost.** A large dependency and the compile time it takes, for a page nothing else calls — and a
+front end whose API is younger than the grammars it replaces, so a version bump is a real change
+rather than a number. The sharper cost is what it does not do: oxc carries **no type checker**, and
+nothing else here does either. `const x: string = 1` compiles and runs. The page validates syntax
+and compiles types away; it never says the types are wrong, and a reader who reads a green Validate
+as a type check is reading it wrong.
+
+### D129 — A script reads a fact snapshot and writes an intent; a declared panel is replayed, never resumed
+
+The interpreter `D127` puts in the process performs no effect of its own. What a script may reach
+beyond the language itself is entirely in what its `Run` carries: a `HostFacts` snapshot the
+interface serialises on its own thread before the run starts, and an `Intent` log the run writes
+into and the caller reads back out. `ubiq.project`, `ubiq.tasks.list`/`get`, `ubiq.ai.models`/
+`available` and `ubiq.search.last`/`files` answer straight out of that snapshot; `ubiq.tasks.create`,
+`ubiq.tasks.cancel`, `ubiq.ai.ask` and `ubiq.search.text` each build an `Intent` — namespace, call,
+arguments — append it to the run's log and answer `null`, exactly the rule `D115` puts on an A2UI
+local call. `ubiq.sink.ui(payload, handler)` is the fifth namespace and the odd one out: it declares
+a panel rather than reading or refusing anything, and the page draws it.
+
+Nothing survives a run, so a click on that panel has no closure to call. `AppState::
+fire_script_a2ui_action` does the A2UI page's own envelope-and-blocking-check work over the
+declared surface, then calls `replay_sink_script`, which evaluates the whole script again from the
+top with a `ScriptEvent` in hand; `ubiq.sink.event()` answers it, and the handler the second
+declaration registers is called once the script has finished. A script that wants a click to mean
+something has to be idempotent — the same discipline "nothing survives between runs" imposes on
+everything else the script does.
+
+The alternative was drawing the run's *completion value* as a surface, which is what an earlier
+shape of this page did. That conflates two different things a script produces — an answer, and a UI
+— and gives a script no way to react to what a reader does with the surface it drew, short of
+storing state somewhere none of this allows. A declaration-and-replay model keeps the "no state
+survives a run" rule intact while still letting a panel do something when it is pressed.
+
+**Why.** A snapshot and an intent log are what let a script reach real project state without a
+capability to re-enter the interface, block it, or race its own next frame; a replay is what lets a
+declared panel answer a click without inventing a second kind of persistence for scripts alone.
+
+**Cost.** A script never sees the interface change mid-run — a task started elsewhere while a script
+runs is invisible to it until the next Run — and a panel's apparent interactivity is an illusion of
+continuity bought by re-running the whole script on every press, which is wasted work for a script
+whose setup is expensive and a correctness trap for one that is not idempotent. Widening the fact
+surface or letting an intent actually run is `G260`'s territory, not this one's.
 
 ## Related docs
 

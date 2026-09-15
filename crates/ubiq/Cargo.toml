@@ -6,9 +6,36 @@ license-file = "../../LICENSE"
 description = "Ubiq: GPUI-based agent harness multiplexer"
 publish = false
 
+[features]
+# Not a default here: `ubiq-app` turns it on, so switching it off there is enough to switch it off
+# everywhere. See the dependency's own note below for what it costs and what a build without it does.
+quickjs = ["dep:rquickjs"]
+
 [dependencies]
 # The contract, the bus and the log sink. The interface names this and never the host.
 ubiq-proto = { path = "../ubiq-proto" }
+
+# QuickJS, the interpreter behind the sink's script page (`state/script.rs`). A small C engine
+# compiled into the process — no runtime, no window, no subprocess, and no network — which is what
+# lets a script be run synchronously on a background thread of the interface's own. Optional
+# because it is the one C compile in this crate's tree: off it, the facade answers "unavailable"
+# and the page says so, which is a complete Ubiq minus one page's contents. Default features only
+# (`std`): the plain `Runtime`/`Context`/`Function`/`Value` surface, with no module loader and no
+# `bindgen` — the page evaluates one string and imports nothing.
+rquickjs = { version = "0.13", optional = true }
+
+# The front end in front of that interpreter (`state/script.rs`): oxc parses both dialects and
+# transpiles TypeScript to the JavaScript QuickJS actually runs. A real parser, not a grammar —
+# it reports the errors a compiler reports, at the span it found them, and its transformer erases
+# the whole TypeScript surface rather than the subset a syntax tree can be edited down to. Not
+# behind the `quickjs` feature: validation is a parse, and the page syntax-checks in a build with
+# no interpreter in it. `default-features = false` drops the regular-expression parser, which only
+# matters to a linter walking the inside of a literal.
+oxc = { version = "0.150", default-features = false, features = [
+    "codegen",
+    "semantic",
+    "transformer",
+] }
 
 # GPUI core
 gpui = { git = "https://github.com/zed-industries/zed", features = ["screen-capture"] }
@@ -156,6 +183,13 @@ zed-scap = { git = "https://github.com/zed-industries/scap", rev = "4afea48c3b00
 # Named here only to constrain the resolver — no code uses it directly.
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-capture = "=1.4.4"
+
+# An integration test that drives the interpreter is a target of the feature that compiles it in,
+# not of the crate: without this, `cargo test` on a build with `quickjs` off would try to run a
+# script through a facade that has nothing to run it with.
+[[test]]
+name = "script"
+required-features = ["quickjs"]
 
 [build-dependencies]
 flate2 = "1"
