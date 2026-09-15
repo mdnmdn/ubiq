@@ -17,7 +17,7 @@ use ubiq::state::WindowRegistry;
 use ubiq::state::editor::{OpenFile, ViewLayout, ViewerKind};
 use ubiq::state::nav::{Destination, Locus, View};
 use ubiq::state::prefs;
-use ubiq::state::settings::{self, MarkdownOpen, UiSettings};
+use ubiq::state::settings::{self, MarkdownOpen, TabClose, UiSettings};
 use ubiq_proto::assist::{
     AiProvider, AiProviderInfo, AiProviderKind, AssistProvider, ModelRole, SuggestSubject,
 };
@@ -36,6 +36,9 @@ fn a_blob_survives_the_round_trip() {
         capture_enabled: false,
         rail_projects: false,
         markdown_open: MarkdownOpen::Source,
+        terminal_close: TabClose::Hide,
+        agent_terminal_close: TabClose::Hide,
+        agent_chat_close: TabClose::Close,
         vim_mode: true,
         show_cache_ring: true,
         last_connection: Some("01J0".to_string()),
@@ -54,6 +57,11 @@ fn missing_fields_open_on_defaults() {
     assert!(back.capture_enabled);
     assert!(back.rail_projects);
     assert_eq!(back.markdown_open, MarkdownOpen::Preview);
+    // A blob written before the × had a setting opens on the defaults: a terminal's × ends the
+    // pane, a chat tab's only puts the view away.
+    assert_eq!(back.terminal_close, TabClose::Close);
+    assert_eq!(back.agent_terminal_close, TabClose::Close);
+    assert_eq!(back.agent_chat_close, TabClose::Hide);
     // A blob written before vim mode existed opens with it off, rather than being discarded.
     assert!(!back.vim_mode);
     assert!(!back.show_cache_ring);

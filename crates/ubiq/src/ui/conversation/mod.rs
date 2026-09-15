@@ -14,6 +14,8 @@
 //! harness echoes it back — an interface that draws its own half of a conversation is inventing
 //! the other half too.
 
+pub mod info;
+
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::time::Duration;
@@ -49,9 +51,9 @@ use crate::state::settings::{quota_tip, snapshot_from_rate_limit};
 use crate::theme;
 use crate::ui::kit::menu::MENU_ANCHOR_UP;
 use crate::ui::kit::{
-    ContextItem, Picker, PickerStyle, UbiqIcon, confirm_modal, context_menu, ghost_button,
-    harness_icon, icon_button, mono, pill, popover, primary_button, progress_ring,
-    progress_ring_in, removable_tag, status_dot,
+    ContextItem, Picker, PickerStyle, UbiqIcon, context_menu, ghost_button, harness_icon,
+    icon_button, mono, pill, popover, primary_button, progress_ring, progress_ring_in,
+    removable_tag, status_dot,
 };
 use crate::ui::{handler, indexed};
 
@@ -206,26 +208,17 @@ pub fn render(
         root = root.child(bottom);
     }
 
-    // Delete is destructive and irreversible — the run directory and its seeded credentials go
-    // with it — so it is confirmed rather than fired on the click.
-    if app.workbench.confirm_end_conversation == Some(id) {
-        let entity = cx.entity();
-        root = root.child(confirm_modal(
-            "conversation-delete-confirm",
-            "Delete conversation",
-            "Delete this conversation? Its transcript and run directory \u{2014} seeded \
-             credentials included \u{2014} go with it. This cannot be undone.",
-            "Delete",
-            true,
-            handler(&entity, move |this, _, cx| {
-                this.confirm_end_conversation(cx)
-            }),
-            handler(&entity, move |this, _, cx| {
-                this.dismiss_end_conversation_confirm(cx)
-            }),
-            window,
-        ));
-    }
+    // **The Close confirm is not drawn here.** It hung off this panel once, which works while the
+    // panel is up but not for the tab's own ×, whose whole job is to take the panel down first —
+    // the question was drawn by nothing and the conversation quietly survived. It needs only the
+    // agent's id, so it is painted at the window root instead (`ui::shell`).
+    //
+    // The Info panel does stay, because it is the opposite case: it reads the live `Conversation`
+    // — the transcript's spend, the usage, the model — which only a surface holding one has. It
+    // is raised from the three-dots menu, which every such surface draws, and
+    // `app.conversation_info` keys it to one agent, so the surfaces not showing that agent add
+    // nothing.
+    root = root.child(info::render(app, conversation, window, cx));
 
     root.into_any_element()
 }
@@ -306,25 +299,47 @@ pub fn lifecycle(conversation: &Conversation) -> Lifecycle {
 }
 
 /// Which row of [`lifecycle_menu_rows`] the dump toggle is. Named because [`lifecycle_menu`] has
-/// to reach back into the built list to hang the file's path on that one row, and a bare `7` there
-/// is the position-matching skew the list itself exists to prevent.
-pub const LIFECYCLE_DUMP_ROW: usize = 7;
+/// to reach back into the built list to hang the file's path on that one row, and a bare `9` there
+/// is the position-matching skew the list itself exists to prevent. It moves whenever a row or a
+/// separator is added above it, which is the other half of why it is not a literal.
+pub const LIFECYCLE_DUMP_ROW: usize = 9;
 
-/// The rows the lifecycle menu draws, in order — Stop, Abort, Unload, Resume, Fork, the
-/// persistence toggle, the accept-all toggle, the dump toggle, Delete — each with whether it
-/// applies. A pure reading of the conversation's own state, pulled out of [`lifecycle_header`] so
-/// the enable/disable rule is testable on its own: Stop only while a turn is running, Abort and
-/// Unload only while launched, Resume only while not, Delete always (ending applies whatever the
-/// state).
+/// The rows the lifecycle menu draws, in order, each with whether it applies — a pure reading of
+/// the conversation's own state, pulled out of [`lifecycle_header`] so the enable/disable rule is
+/// testable on its own: Stop only while a turn is running, Abort and Unload only while launched,
+/// Resume only while not, Close always (ending applies whatever the state).
+///
+/// **Three sections, and the two hairlines between them are rows.** What the harness is *doing*
+/// (Stop, Abort, Unload, Resume), what the reader can *reach for* (Info, Fork, and the three
+/// toggles), and what puts the conversation *away* (Hide, Close):
+///
+/// ```text
+/// 0 Stop   1 Abort   2 Unload   3 Resume
+/// 4 ─────
+/// 5 Info   6 Fork   7 persistence   8 accept-all   9 dump
+/// 10 ─────
+/// 11 Hide   12 Close
+/// ```
+///
+/// A separator is `("", false)` here and becomes [`ContextItem::separator`] in [`lifecycle_menu`],
+/// because it **occupies an index**: dispatch is positional, so a hairline that did not take a
+/// place in this list would slide every row below it one off its action.
 ///
 /// **Stop and Abort are different verbs.** Stop interrupts the *turn* and leaves the harness to
 /// take the next one; Abort kills the *process*, which is what is left when a harness has stopped
 /// answering and Stop has nothing to interrupt it with. Abort keeps the conversation, so Resume
-/// brings it back — it is Delete that is irreversible, and only Delete is confirmed.
+/// brings it back — it is Close that is irreversible, and only Close is confirmed.
 ///
-/// **The last three toggles are grouped and Delete stays last** — none of the toggles is
-/// destructive, and a menu whose irreversible verb is somewhere in the middle is a menu clicked by
-/// muscle memory into the wrong row. So a toggle added later goes above Delete, never below it.
+/// **Hide and Close are the two ends of the last section, and only one of them ends anything.**
+/// Hide puts the reader's view away — the chat tab goes, the conversation is the host's and keeps
+/// running — while Close takes the transcript and the run directory with it. They sit together
+/// because they are what a reader reaches for when they are finished looking, and the destructive
+/// one stays last: a menu whose irreversible verb is somewhere in the middle is a menu clicked by
+/// muscle memory into the wrong row. A row added later goes above Close, never below it.
+///
+/// **A `Vec`, not a fixed array.** The length is now a property of the sectioning rather than a
+/// number worth naming — every separator added moves it — and an array would have to be resized
+/// at the signature, at the one call site's type, and in the doc, for a count nothing reads.
 ///
 /// **Accept-all and the dump are always enabled, unlike persistence.** Both are Ubiq's own
 /// overrides — the host answers every permission request itself, and the host writes the traffic to
@@ -337,22 +352,27 @@ pub const LIFECYCLE_DUMP_ROW: usize = 7;
 /// labels are the reason the labels can no longer be a `const`, and a dynamic label is exactly what
 /// would have made that skew easy, so the two are built together here.
 ///
-/// **Three plain `bool` parameters rather than one options struct.** They are read once, at the one
-/// call site, and each is a single flip of a single row's wording; a struct would name the same
-/// three facts twice and give a caller somewhere to leave one of them at its default without
-/// noticing.
+/// **Plain `bool` parameters rather than one options struct.** They are read once, at the one
+/// call site, and each is a single flip of a single row's wording or enablement; a struct would
+/// name the same facts twice and give a caller somewhere to leave one of them at its default
+/// without noticing.
 pub fn lifecycle_menu_rows(
     conversation: &Conversation,
     persistent: bool,
     accept_all: bool,
     dumping: bool,
     keeps_sessions: bool,
-) -> [(String, bool); 9] {
-    [
+    attached: bool,
+) -> Vec<(String, bool)> {
+    vec![
         ("Stop".to_string(), conversation.run != Run::Idle),
         ("Abort".to_string(), conversation.launched),
         ("Unload".to_string(), conversation.launched),
         ("Resume".to_string(), !conversation.launched),
+        (String::new(), false),
+        // Always enabled: what it draws is the record the host already sent, so there is nothing
+        // to be waiting for and nothing a conversation can be in the wrong state to answer.
+        ("Info".to_string(), true),
         // Two conditions, and they refuse for different reasons. `keeps_sessions` is about the
         // harness: one that writes its sessions outside the run directory would be copied into a
         // fork that shares its store rather than diverging. The turn state is about the moment:
@@ -391,7 +411,12 @@ pub fn lifecycle_menu_rows(
             },
             true,
         ),
-        ("Delete".to_string(), true),
+        (String::new(), false),
+        // Only where there is a view to put away. Nothing else on this menu reads the window's own
+        // arrangement, and this row is the exception because it is the one verb that acts on the
+        // arrangement rather than on the conversation.
+        ("Hide".to_string(), attached),
+        ("Close".to_string(), true),
     ]
 }
 
@@ -455,9 +480,15 @@ pub fn lifecycle_menu(
         accepts_all(app, id, cx),
         dump.is_some(),
         keeps_sessions(app, conversation, cx),
+        has_chat_tab(app, id, cx),
     )
     .into_iter()
     .map(|(label, enabled)| {
+        // The empty label is the sectioning, spelled the one way a `(String, bool)` can spell it
+        // — see [`lifecycle_menu_rows`], where the hairline is a row so that it keeps an index.
+        if label.is_empty() {
+            return ContextItem::separator();
+        }
         let item = ContextItem::new(label);
         if enabled { item } else { item.disabled() }
     })
@@ -592,6 +623,17 @@ fn dump_path(app: &AppState, id: AgentId, cx: &App) -> Option<String> {
     app.work(cx)
         .and_then(|work| work.agent(id))
         .and_then(|agent| agent.debug_dump.clone())
+}
+
+/// Whether a chat tab in the project on screen is attached to this conversation — that is, whether
+/// there is a view of it to put away.
+///
+/// **The one thing on this menu read off the window rather than off the host.** Hide acts on the
+/// arrangement, so the arrangement is what says whether it applies; every other row asks the work
+/// snapshot, because every other row acts on the conversation itself.
+fn has_chat_tab(app: &AppState, id: AgentId, cx: &App) -> bool {
+    app.open_project(cx)
+        .is_some_and(|open| open.chats.iter().any(|tab| tab.attached == Some(id)))
 }
 
 /// Whether this conversation's harness keeps its own session store where Ubiq can keep or copy it.

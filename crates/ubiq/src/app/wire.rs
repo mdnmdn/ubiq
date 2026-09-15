@@ -223,6 +223,49 @@ impl AppState {
         cx.notify();
     }
 
+    /// Whether a pane is running an **agent harness** rather than a plain shell.
+    ///
+    /// The test is the harness catalogue: a pane's `harness` is the `agent_type` the coordinator
+    /// resolved, and `WorkbenchState::agent_types` is the list of ids that name a harness the
+    /// library knows how to drive. A plain shell's resolves to a program instead — `zsh`, `pwsh`,
+    /// whatever `shells::default_program` answered — which is in no catalogue entry. This is the
+    /// same match `ui::new_pane_menu` already makes to label a detached pane, and it fails safe:
+    /// before the host has answered `ListAgentTypes` the catalogue is empty and every pane reads
+    /// as a shell, which is the milder of the two settings this decides between.
+    pub fn pane_is_agent(&self, pane_id: PaneId) -> bool {
+        let Some(pane) = self.pane(pane_id) else {
+            return false;
+        };
+        self.workbench
+            .agent_types
+            .iter()
+            .any(|agent| agent.id == pane.harness)
+    }
+
+    /// Ask before ending a pane: the harness is killed and the screen it has been writing to goes
+    /// with it, so the destructive close is confirmed rather than fired on the click.
+    ///
+    /// The tab is left up while the question is on screen. Taking it away first would answer half
+    /// of the question before it was asked, and a cancelled confirm has to leave the user exactly
+    /// where they were.
+    pub fn ask_close_pane(&mut self, pane_id: PaneId, cx: &mut Context<Self>) {
+        self.workbench.confirm_close_pane = Some(pane_id);
+        cx.notify();
+    }
+
+    /// The close confirm answered yes.
+    pub fn confirm_close_pane(&mut self, cx: &mut Context<Self>) {
+        if let Some(pane_id) = self.workbench.confirm_close_pane.take() {
+            self.close_pane(pane_id, cx);
+        }
+        cx.notify();
+    }
+
+    pub fn dismiss_close_pane_confirm(&mut self, cx: &mut Context<Self>) {
+        self.workbench.confirm_close_pane = None;
+        cx.notify();
+    }
+
     /// A harness renamed itself over its own stream (`ESC ] 0 ; title BEL`). The dedup number
     /// `pane_title` gave the tab is not the harness's to spend, so it survives the rename.
     fn pane_title_reported(&mut self, pane_id: PaneId, title: String, cx: &mut Context<Self>) {

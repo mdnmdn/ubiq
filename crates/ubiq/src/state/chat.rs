@@ -47,6 +47,13 @@ pub struct AttachChoices {
 
 /// Build one panel's attach choices out of the project's agents.
 ///
+/// **Only a conversation this window actually holds may be offered.** `live` is
+/// [`AgentsView::live`](super::agents::AgentsView::live) — `agents` is wider, because it is the
+/// host's projection concatenated with the fixtures the mock work thread seeds into every project,
+/// which have a name and an activity and nothing behind them. A row that named one would be a
+/// conversation with no harness at the other end, the same reason the agents screen already
+/// refuses to draw a column on one.
+///
 /// **Exclusivity is per surface, not per conversation.** `shown` is what the *other* panels of the
 /// asking surface are looking at — the other chat tabs for the IDE, the other columns for the
 /// agents screen — and those rows are disabled. The two surfaces may show the same conversation at
@@ -56,6 +63,7 @@ pub struct AttachChoices {
 /// and the agents screen alike, so what "already taken" means is answered once.
 pub fn attach_choices(
     agents: &[WorkAgent],
+    live: &[AgentId],
     shown: &[AgentId],
     mine: Option<AgentId>,
     query: &str,
@@ -63,6 +71,7 @@ pub fn attach_choices(
     let query = query.trim().to_lowercase();
     let items: Vec<(AgentId, String)> = agents
         .iter()
+        .filter(|agent| live.contains(&agent.id))
         .filter(|agent| query.is_empty() || agent.name.to_lowercase().contains(&query))
         .map(|agent| (agent.id, agent.name.clone()))
         .collect();
@@ -153,7 +162,7 @@ mod tests {
     /// Every list starts with the one thing a tab can do without an agent to move to.
     #[test]
     fn the_first_row_is_always_a_new_agent() {
-        let picks = chat_picks(&attach_choices(&[], &[], None, ""));
+        let picks = chat_picks(&attach_choices(&[], &[], &[], None, ""));
 
         assert_eq!(picks.rows, vec![ChatPick::New]);
         assert_eq!(picks.labels, vec!["New agent"]);
@@ -167,7 +176,8 @@ mod tests {
         let mine = AgentId::generate();
         let theirs = AgentId::generate();
         let agents = vec![agent(mine, "mine"), agent(theirs, "theirs")];
-        let attach = attach_choices(&agents, &[mine, theirs], Some(mine), "");
+        let live = [mine, theirs];
+        let attach = attach_choices(&agents, &live, &[mine, theirs], Some(mine), "");
         let picks = chat_picks(&attach);
 
         assert_eq!(
@@ -188,16 +198,37 @@ mod tests {
     #[test]
     fn typing_narrows_the_list_and_the_hairline_goes_with_it() {
         let one = AgentId::generate();
-        let agents = vec![agent(one, "codex-run"), agent(AgentId::generate(), "other")];
+        let other = AgentId::generate();
+        let agents = vec![agent(one, "codex-run"), agent(other, "other")];
+        let live = [one, other];
 
-        let picks = chat_picks(&attach_choices(&agents, &[], None, "codex"));
+        let picks = chat_picks(&attach_choices(&agents, &live, &[], None, "codex"));
         assert_eq!(
             picks.rows,
             vec![ChatPick::New, ChatPick::Inert, ChatPick::Attach(one)]
         );
 
-        let picks = chat_picks(&attach_choices(&agents, &[], None, "nothing"));
+        let picks = chat_picks(&attach_choices(&agents, &live, &[], None, "nothing"));
         assert_eq!(picks.rows, vec![ChatPick::New]);
+    }
+
+    /// An agent the host projects but this window holds no conversation for — a mock fixture, or
+    /// any other entry the projection widens beyond the live set — is never a row, whatever was
+    /// typed: it is a name with no harness behind it, so it cannot be attached to.
+    #[test]
+    fn an_agent_outside_the_live_set_is_not_a_row() {
+        let live_agent = AgentId::generate();
+        let fixture = AgentId::generate();
+        let agents = vec![agent(live_agent, "real"), agent(fixture, "Orchestrator")];
+
+        let attach = attach_choices(&agents, &[live_agent], &[], None, "");
+        assert_eq!(attach.items, vec![(live_agent, "real".to_string())]);
+
+        let picks = chat_picks(&attach);
+        assert_eq!(
+            picks.rows,
+            vec![ChatPick::New, ChatPick::Inert, ChatPick::Attach(live_agent)]
+        );
     }
 
     fn agent(id: AgentId, name: &str) -> WorkAgent {
@@ -220,6 +251,8 @@ mod tests {
             persistent: false,
             accept_all: false,
             debug_dump: None,
+            run_dir: None,
+            config_dir: None,
             thread: Vec::new(),
         }
     }

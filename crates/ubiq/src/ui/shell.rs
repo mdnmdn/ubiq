@@ -14,7 +14,8 @@ use crate::state::RailMode;
 use crate::theme;
 use crate::ui::sink::project as project_settings;
 use crate::ui::{
-    git, new_agent, rail, remote_connect, remote_hosts, ribbon, settings, status_bar, titlebar,
+    git, handler, kit, new_agent, rail, remote_connect, remote_hosts, ribbon, settings, status_bar,
+    titlebar,
 };
 
 pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> impl IntoElement {
@@ -117,7 +118,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                         ),
                 ),
         )
-        .child(status_bar::render(app, cx))
+        .child(status_bar::render(app, window, cx))
         // Project settings is a form with a nav, not the kit's one-question modal, so it is
         // painted here — over the window — rather than from the picker that asked for it.
         .children(
@@ -277,6 +278,25 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .as_ref()
                 .map(|_| crate::ui::file_dialog::render(app, window, cx)),
         )
+        // The terminal tab's Close, asked before it is done. Painted at the window root rather
+        // than from the pane it names, because the answer is what takes that pane off the screen
+        // — a question drawn inside the thing it is about to destroy has nowhere to be.
+        .children(
+            app.workbench
+                .confirm_close_pane
+                .map(|_| close_pane_confirm(app, window, cx)),
+        )
+        // The chat tab's Close, asked before it is done — and painted here for exactly the reason
+        // the pane's is. It used to hang off the conversation panel, which works for the
+        // three-dots menu (the panel is still up) but not for the tab's own ×: that path takes
+        // the panel down *first*, so the question was drawn by nothing and the conversation was
+        // quietly not closed. The confirm needs only the agent's id, so the window root is where
+        // it can always be answered.
+        .children(
+            app.workbench
+                .confirm_end_conversation
+                .map(|_| end_conversation_confirm(app, window, cx)),
+        )
         // The file picker, raised by a composer's `+`, by an explorer gesture or by a remote
         // project's Open — painted here for the reason every dialog above it is: one may be up at
         // a time, and where it is asked for is not where it is drawn. A picker raised from inside
@@ -344,6 +364,74 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         .child(crate::ui::web_view::sweeper(overlaid(app)))
 }
 
+/// The question a terminal tab's Close asks before it ends the harness.
+///
+/// Named after what is lost rather than after the gesture: killing the harness is the part that
+/// cannot be undone, and the screen it has been writing to goes with it. The message also says
+/// what the user probably wanted instead — Hide, one row up in the same menu — because the two
+/// rows read alike and only one of them is irreversible.
+fn close_pane_confirm(
+    app: &AppState,
+    window: &mut Window,
+    cx: &mut Context<AppState>,
+) -> gpui::AnyElement {
+    let entity = cx.entity();
+    kit::confirm_modal(
+        "close-pane-confirm",
+        "Close terminal",
+        &format!(
+            "Close {}? Its harness is killed and the screen it has been writing to goes with it. \
+             This cannot be undone \u{2014} use Hide to put the tab away and leave the harness \
+             running.",
+            app.workbench
+                .confirm_close_pane
+                .and_then(|pane_id| app.pane(pane_id))
+                .map(|pane| pane.title.clone())
+                .unwrap_or_else(|| "this terminal".to_string()),
+        ),
+        "Close",
+        true,
+        handler(&entity, |this, _, cx| this.confirm_close_pane(cx)),
+        handler(&entity, |this, _, cx| this.dismiss_close_pane_confirm(cx)),
+        window,
+    )
+}
+
+/// The conversation's Close, asked before it is done.
+///
+/// Destructive and irreversible — the transcript and the run directory, seeded credentials
+/// included, go with it — so it is confirmed rather than fired on the click. The wording names
+/// Hide, the row above it in both menus that offer this, because the two read alike and only one
+/// of them cannot be taken back.
+fn end_conversation_confirm(
+    app: &AppState,
+    window: &mut Window,
+    cx: &mut Context<AppState>,
+) -> gpui::AnyElement {
+    let entity = cx.entity();
+    kit::confirm_modal(
+        "conversation-delete-confirm",
+        "Close conversation",
+        &format!(
+            "Close {}? Its transcript and run directory \u{2014} seeded credentials included \
+             \u{2014} go with it. This cannot be undone \u{2014} use Hide to put the view away and \
+             leave the conversation running.",
+            app.workbench
+                .confirm_end_conversation
+                .and_then(|agent_id| app.work(cx)?.agent(agent_id).map(|a| a.name.clone()))
+                .filter(|name| !name.is_empty())
+                .unwrap_or_else(|| "this conversation".to_string()),
+        ),
+        "Close",
+        true,
+        handler(&entity, |this, _, cx| this.confirm_end_conversation(cx)),
+        handler(&entity, |this, _, cx| {
+            this.dismiss_end_conversation_confirm(cx)
+        }),
+        window,
+    )
+}
+
 /// Whether anything is painted over the dock this frame.
 ///
 /// A child webview is a native view the platform stacks over the whole window, so it cannot be
@@ -357,6 +445,8 @@ fn overlaid(app: &AppState) -> bool {
         || workbench.clone_project.is_some()
         || workbench.all_projects.is_some()
         || workbench.file_dialog.is_some()
+        || workbench.confirm_close_pane.is_some()
+        || workbench.confirm_end_conversation.is_some()
         || workbench.remote_manager.open
         || workbench.remote_connect.is_some()
         || workbench.new_agent_menu.is_some()

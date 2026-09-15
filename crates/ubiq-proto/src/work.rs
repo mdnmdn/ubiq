@@ -546,6 +546,26 @@ pub struct WorkAgent {
     /// writes to rather than nothing at all.
     #[serde(default)]
     pub debug_dump: Option<String>,
+    /// Where this conversation's run lives on the host's disk — the directory Ubiq provisioned
+    /// for it, and the one ending the conversation removes with everything in it.
+    ///
+    /// Settled when the conversation is registered, because the directory is named after the
+    /// agent's own id and so is known before any harness has run. `None` is a record from a host
+    /// that does not report one, a mock among them.
+    #[serde(default)]
+    pub run_dir: Option<String>,
+    /// The configuration directory the harness was actually launched against, as
+    /// `agent-manager` resolved it for this run.
+    ///
+    /// **Reported, never requested.** Ubiq still names no harness configuration path: the rule is
+    /// about who *decides* one, and this is the host repeating the library's answer so a window
+    /// can offer to open the folder without knowing what is in it or what it is called.
+    ///
+    /// `None` until a harness has been composed — a conversation registered and never prompted has
+    /// nothing to report — and `None` for a harness whose configuration could not be resolved at
+    /// all, which a window draws as a dead control rather than an empty one.
+    #[serde(default)]
+    pub config_dir: Option<String>,
     /// What has been said to and by this agent. Nothing answers it, which is what the thread says
     /// in as many words: a fabricated reply is the one thing a screen with no live agent must not
     /// draw.

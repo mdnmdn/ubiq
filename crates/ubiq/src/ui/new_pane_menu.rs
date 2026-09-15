@@ -1,20 +1,18 @@
-//! The new-pane control's chevron menu: which agent harness or shell a pane runs, and the console.
+//! The new-pane control's chevron menu: which shell or tool a pane runs, and the console.
 //!
 //! The "+" itself opens the platform's default shell and needs no menu. This is what else can be
-//! started here — every agent harness and shell the host found on the machine, the default shell
-//! marked — painted over the window for the reason [`super::tab_menu`] is: the dock's skin
-//! does not name `AppState`, so it says a menu was wanted and the window draws it.
+//! started here — every shell the host found on the machine, the default marked — painted over the
+//! window for the reason [`super::tab_menu`] is: the dock's skin does not name `AppState`, so it
+//! says a menu was wanted and the window draws it.
 //!
 //! The rows are, first, any pane still running with no panel drawing it — under its own heading
-//! and a separator, omitted whole when there is none — then the agent harnesses in the order the
-//! host listed them, then a separator, then the shells, then a separator, then the applicable
-//! runnable tools, then a separator, then the console. The index a row is picked at is its index
-//! in that list — the separators and the heading included, because each is a row — which is what
-//! `AppState::pick_new_pane_menu` matches on: keep the two in step.
+//! and a separator, omitted whole when there is none — then the shells, then a separator, then the
+//! applicable runnable tools, then a separator, then the console. The index a row is picked at is
+//! its index in that list — the separators and the heading included, because each is a row — which
+//! is what `AppState::pick_new_pane_menu` matches on: keep the two in step.
 //!
-//! A harness the host could not find on disk is still listed — the interface says so rather than
-//! leaving a gap — but its row is disabled: it reads muted and takes no click, the same affordance
-//! [`kit::ContextItem::disabled`] gives any action with nothing behind it yet.
+//! **No harness is a row here.** Starting an agent is the New agent form's job, which asks the
+//! identity, the model, the level and the mode; this menu is the terminals that are not agents.
 
 use gpui::{Context, IntoElement, SharedString, Window, div, point, px};
 
@@ -60,15 +58,6 @@ pub fn overlay(
                     "{harness} \u{00b7} {}",
                     pane.title
                 )))
-            }
-            NewPaneRow::Agent(agent) => {
-                let agent = &app.workbench.agent_types[agent];
-                let item = kit::ContextItem::new(SharedString::from(agent.label.clone()));
-                if agent.available {
-                    item
-                } else {
-                    item.disabled()
-                }
             }
             NewPaneRow::Shell(shell) => {
                 let shell = &app.workbench.shells[shell];

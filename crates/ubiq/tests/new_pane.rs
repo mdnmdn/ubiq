@@ -183,9 +183,10 @@ fn a_project() -> ProjectSnapshot {
     }
 }
 
-/// `new_pane_rows` is pure state — no window needed to check the order it puts rows in.
+/// `new_pane_rows` is pure state — no window needed to check the order it puts rows in, and no
+/// harness is one of them however many the host listed.
 #[test]
-fn agent_rows_come_before_shells_with_a_separator_between() {
+fn shells_lead_and_no_harness_is_offered() {
     let workbench = WorkbenchState {
         agent_types: vec![
             an_agent("claude-code", "Claude Code", true),
@@ -199,14 +200,11 @@ fn agent_rows_come_before_shells_with_a_separator_between() {
     assert_eq!(
         rows,
         vec![
-            NewPaneRow::Agent(0),
-            NewPaneRow::Agent(1),
-            NewPaneRow::Separator,
             NewPaneRow::Shell(0),
             NewPaneRow::Separator,
             NewPaneRow::Console,
         ],
-        "agents lead, then a separator, then the shells, then the console"
+        "the shells lead, then the console — a harness is the New agent form's job"
     );
 }
 
@@ -226,9 +224,9 @@ fn no_rows_are_offered_without_a_project() {
     );
 }
 
-/// A machine with no agent harnesses installed sees exactly the menu it saw before agents existed.
+/// A machine with no shells and no tools is offered the console alone.
 #[test]
-fn an_empty_agent_list_degrades_to_todays_menu() {
+fn an_empty_shell_list_degrades_to_the_console() {
     let workbench = WorkbenchState {
         shells: vec![a_shell("zsh", "/bin/zsh", true)],
         ..Default::default()
@@ -241,16 +239,16 @@ fn an_empty_agent_list_degrades_to_todays_menu() {
             NewPaneRow::Separator,
             NewPaneRow::Console
         ],
-        "an empty agent list left a stray separator or row ahead of the shells"
+        "the shell group left a stray separator or row"
     );
 }
 
 /// A detached pane's group leads the menu, its own heading and separator with it, and vanishes
-/// whole when there is nothing detached — same rule the agent and shell groups already follow.
+/// whole when there is nothing detached — same rule the shell group already follows.
 #[test]
 fn detached_panes_lead_with_their_own_heading_and_separator() {
     let workbench = WorkbenchState {
-        agent_types: vec![an_agent("claude-code", "Claude Code", true)],
+        shells: vec![a_shell("zsh", "/bin/zsh", true)],
         ..Default::default()
     };
 
@@ -261,17 +259,17 @@ fn detached_panes_lead_with_their_own_heading_and_separator() {
             NewPaneRow::Detached(0),
             NewPaneRow::Detached(1),
             NewPaneRow::Separator,
-            NewPaneRow::Agent(0),
+            NewPaneRow::Shell(0),
             NewPaneRow::Separator,
             NewPaneRow::Console,
         ],
-        "detached panes lead, then a separator, then the agents, then the console"
+        "detached panes lead, then a separator, then the shells, then the console"
     );
 
     assert_eq!(
         workbench.new_pane_rows(true, 0),
         vec![
-            NewPaneRow::Agent(0),
+            NewPaneRow::Shell(0),
             NewPaneRow::Separator,
             NewPaneRow::Console
         ],
@@ -367,8 +365,10 @@ fn picking_a_shell_starts_a_pane_running_it(cx: &mut TestAppContext) {
     );
 }
 
+/// The harnesses the host listed are not rows, so a window that knows about two of them and no
+/// shell has the console alone to pick — and picking it starts nothing.
 #[gpui::test]
-fn picking_an_agent_starts_a_pane_running_it(cx: &mut TestAppContext) {
+fn no_pick_starts_a_harness(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
     fixture.answer_agent_types(
         vec![
@@ -379,50 +379,16 @@ fn picking_an_agent_starts_a_pane_running_it(cx: &mut TestAppContext) {
     );
     let _ = fixture.said();
 
-    fixture.pick(1, cx);
-
-    let spawned = fixture
-        .said()
-        .into_iter()
-        .find_map(|message| match message {
-            Message::SpawnWorkspace {
-                agent_type, args, ..
-            } => Some((agent_type, args)),
-            _ => None,
-        })
-        .expect("picking an agent asks for a pane");
-    assert_eq!(
-        spawned.0,
-        Some("codex".to_string()),
-        "the harness's id is what a spawn asks for, never its label"
-    );
-    assert!(
-        spawned.1.is_empty(),
-        "an agent is started with no arguments"
-    );
-    assert_eq!(
-        fixture
-            .state
-            .read_with(cx, |state, _| state.workbench.open_menu),
-        None,
-        "a pick closes the menu"
-    );
-}
-
-#[gpui::test]
-fn picking_an_unavailable_agent_does_nothing(cx: &mut TestAppContext) {
-    let fixture = Fixture::open(cx);
-    fixture.answer_agent_types(vec![an_agent("codex", "Codex", false)], cx);
-    let _ = fixture.said();
-
-    fixture.pick(0, cx);
+    for index in 0..3 {
+        fixture.pick(index, cx);
+    }
 
     assert!(
         !fixture
             .said()
             .iter()
             .any(|message| matches!(message, Message::SpawnWorkspace { .. })),
-        "an unavailable harness was started anyway"
+        "a harness was started from the new-pane menu"
     );
 }
 

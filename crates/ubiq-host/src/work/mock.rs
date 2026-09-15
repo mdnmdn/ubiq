@@ -299,6 +299,8 @@ fn card(
         persistent: false,
         accept_all: false,
         debug_dump: None,
+        run_dir: None,
+        config_dir: None,
         // One line each: the last thing the agent said, which is also what its card prints.
         thread: vec![Turn {
             from: Speaker::Agent,

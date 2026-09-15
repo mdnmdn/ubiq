@@ -1978,10 +1978,15 @@ refused the call.
 
 ### D103 — Closing a terminal panel detaches its harness; only an explicit kill ends one
 
+**Superseded in part by `D130`**, which turns the tab's × from an unconditional detach into a
+per-pane-kind `Hide`/`Close` setting and gives the explicit end its own confirm; the reasoning below
+— one gesture, one meaning, and a detached pane costing nothing to keep — still stands for what
+Hide does and for why detaching remains free.
+
 The question was whether closing a terminal panel ends the harness behind it, as one action, or only
 takes the panel off screen. **Closing the panel detaches**: the harness keeps running under the
 host, its emulator and its screen stay live in the window, and reopening a panel for that `PaneId`
-reattaches to the stream. `Kill harness` on the tab's menu is what sends
+reattaches to the stream. Killing one is what sends
 `Message::CloseWorkspace`, and an exited harness closes its own pane.
 
 **A detached pane is computed, not stored.** It is a pane the project still holds that no panel
@@ -2742,6 +2747,39 @@ continuity bought by re-running the whole script on every press, which is wasted
 whose setup is expensive and a correctness trap for one that is not idempotent. Widening the fact
 surface or letting an intent actually run is `G260`'s territory, not this one's.
 
+### D130 — A tab's × is a standing choice per pane kind, not a fixed meaning; Close always confirms
+
+`D103` made the tab's × mean one thing, unconditionally: detach, never kill. That held while a
+detached pane was free and a killed one was rare enough to deserve its own menu row. It stopped
+holding once the same × sat on both a disposable shell and an agent chat tab — a shell hidden by
+accident is a shell the user has to go find in the new-pane menu's Detached group, while a chat
+tab's conversation is the host's and outlives every view of it, so the two want opposite defaults
+rather than one.
+
+`UiSettings` gets three `TabClose` fields — `terminal_close`, `agent_terminal_close`,
+`agent_chat_close` — each `Hide` or `Close`, read by `BasePanel::on_removed` and told apart by
+`AppState::pane_is_agent` matching a pane's `agent_type` against the harness catalogue. The two
+terminal settings default to `Close`; `agent_chat_close` defaults to `Hide`. Whatever the setting
+says, the tab's right-click menu still offers both endings by name — Hide, then Close — so either
+is one click away regardless of the standing choice.
+
+**Close always confirms, on the menu and through the ×.** A terminal's Close kills the harness and
+drops its screen; `AppState::ask_close_pane` raises `WorkbenchState::confirm_close_pane`, and only
+answering it calls `close_pane`. A chat tab's Close raises the conversation's own Delete confirm —
+the same one its lifecycle menu raises — or, attached to nothing, just hides: there is no
+conversation there to ask about.
+
+**Why.** A single fixed meaning could not serve a shell and a conversation at once without making
+one of them the wrong default for someone. A setting that still offers the other ending by name,
+rather than one that changes what a menu row does, is what keeps the row's label trustworthy: Close
+never means "maybe hide."
+
+**Cost.** Three more fields in a settings blob users hold on disk — carrying serde defaults rather
+than a schema bump, so an old blob still parses and nobody's settings reset over an additive
+change. A user who never opens the settings page gets `Close` on both terminal kinds, which is a
+behaviour change from `D103`'s unconditional detach; the confirm modal is what keeps that change
+from being a silent one.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce
@@ -2749,4 +2787,6 @@ surface or letting an intent actually run is `G260`'s territory, not this one's.
 - [`transport-contract.md`](./transport-contract.md) — the conversation family D53 shapes, the
   naming rules D58 and D90 state, and the connector family D65 to D71 produce
 - [`../features/notifications.md`](../features/notifications.md) — the bell D88 shapes
+- [`../features/panes-and-terminals.md`](../features/panes-and-terminals.md) — what D103 and D130
+  decide between
 - [`../backlog.md`](../backlog.md) — the choices still open

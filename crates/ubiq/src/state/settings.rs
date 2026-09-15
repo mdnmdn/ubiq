@@ -150,6 +150,47 @@ impl MarkdownOpen {
     }
 }
 
+/// What a tab's × does to the thing the tab was looking at.
+///
+/// A terminal tab and a chat tab are both *views* onto something the host keeps running, so the ×
+/// has two honest readings and the user picks which one they meant once, here, instead of being
+/// asked every time. The same two words name the two rows of the tab's context menu, which is
+/// where either ending is always available whatever this says.
+///
+/// Interface-owned: which gesture ends a harness is a question about this window's habits, not
+/// about the host — the host is told to kill a pane or it is not.
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TabClose {
+    /// The panel leaves and nothing else changes: the harness keeps running, the conversation
+    /// keeps running, and the tab is reattachable from the new-pane menu's Detached group or by
+    /// pointing a chat tab at the conversation again.
+    #[default]
+    Hide,
+    /// The real end. A terminal's harness is killed and its screen dropped; a chat tab's
+    /// conversation is deleted. Both ask first — nothing irreversible happens on the click.
+    Close,
+}
+
+impl TabClose {
+    pub fn all() -> [TabClose; 2] {
+        [TabClose::Hide, TabClose::Close]
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            TabClose::Hide => "Hide",
+            TabClose::Close => "Close",
+        }
+    }
+}
+
+/// The default for the two × settings that end what they close: a plain shell pane and an agent
+/// pane both go, because a terminal put away by accident is a terminal the user cannot find.
+fn default_tab_close() -> TabClose {
+    TabClose::Close
+}
+
 /// What the interface remembers about how it behaves, as opposed to where it was left.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct UiSettings {
@@ -172,6 +213,20 @@ pub struct UiSettings {
     /// The layout a new markdown tab opens in.
     #[serde(default)]
     pub markdown_open: MarkdownOpen,
+    /// What the × does on a terminal tab running a plain shell. `Close` by default: a shell is
+    /// cheap to start again, and a pane hidden by accident is a pane the user has to go looking
+    /// for in the new-pane menu.
+    #[serde(default = "default_tab_close")]
+    pub terminal_close: TabClose,
+    /// What the × does on a terminal tab running an agent harness. `Close` by default, for the
+    /// reason above — and the close asks first, so nothing a harness was doing is lost silently.
+    #[serde(default = "default_tab_close")]
+    pub agent_terminal_close: TabClose,
+    /// What the × does on an agent chat tab. `Hide` by default, and this is the one that differs:
+    /// the conversation behind a chat tab is the host's, it outlives every view of it, and
+    /// deleting a transcript is not what a click on a × should be able to mean.
+    #[serde(default)]
+    pub agent_chat_close: TabClose,
     /// Modal editing in the code editor and every multi-line box. Off is the default, and off
     /// means the interceptor in `app/vim.rs` returns before it looks at anything.
     #[serde(default)]
@@ -201,6 +256,9 @@ impl Default for UiSettings {
             capture_enabled: true,
             rail_projects: true,
             markdown_open: MarkdownOpen::Preview,
+            terminal_close: TabClose::Close,
+            agent_terminal_close: TabClose::Close,
+            agent_chat_close: TabClose::Hide,
             vim_mode: false,
             show_cache_ring: false,
             last_connection: None,

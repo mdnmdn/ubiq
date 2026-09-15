@@ -25,7 +25,7 @@ use ubiq_proto::settings::{AgentHome, SshAuth, SshProfile};
 use crate::app::{AppState, HostEntry, HostId, HostRef, host_menu_rows, host_row_label};
 use crate::state::settings::{
     AccountDialog, AiProviderForm, AssistInfo, CliShortcut, ConnectApp, ConnectStep,
-    ConnectorDialog, LoginStep, MarkdownOpen, SettingsSection, SshMethod, ToolEditScope,
+    ConnectorDialog, LoginStep, MarkdownOpen, SettingsSection, SshMethod, TabClose, ToolEditScope,
     connect_error_note, describe_status, magnitude,
 };
 use crate::theme;
@@ -613,7 +613,79 @@ fn editor(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
             )
             .into_any_element(),
         ),
+        heading(
+            "Closing a tab",
+            "What the \u{d7} does on a tab that is a view onto something the host keeps running. \
+             Both endings are always on the tab's right-click menu whatever these say.",
+        ),
+        setting_row(
+            "Terminal tab",
+            "A pane running a plain shell. Hide leaves it running and reattachable from the \
+             new-pane menu's Detached group; Close kills it, and asks first.",
+            tab_close_choice(
+                "terminal",
+                app.workbench.settings.ui.terminal_close,
+                cx,
+                |this, choice, cx| this.set_terminal_close(choice, cx),
+            ),
+        ),
+        setting_row(
+            "Agent terminal tab",
+            "A pane running an agent harness. Hide leaves the harness working in the background; \
+             Close kills it, and the screen it has been writing to goes with it.",
+            tab_close_choice(
+                "agent-terminal",
+                app.workbench.settings.ui.agent_terminal_close,
+                cx,
+                |this, choice, cx| this.set_agent_terminal_close(choice, cx),
+            ),
+        ),
+        setting_row(
+            "Agent chat tab",
+            "A view onto a conversation the host owns. Hide takes the view away and leaves the \
+             conversation running; Close deletes it, and asks first.",
+            tab_close_choice(
+                "agent-chat",
+                app.workbench.settings.ui.agent_chat_close,
+                cx,
+                |this, choice, cx| this.set_agent_chat_close(choice, cx),
+            ),
+        ),
     ])
+}
+
+/// The two endings a tab's × can have, one lit — the shape `index_level_choice` uses, for the
+/// three rows that each pick between the same pair.
+///
+/// The mutator is passed in rather than the setting being named here: the three differ only in
+/// which field they write, and a control that knew which one it was would be three controls.
+fn tab_close_choice(
+    slug: &'static str,
+    current: TabClose,
+    cx: &mut Context<AppState>,
+    set: impl Fn(&mut AppState, TabClose, &mut Context<AppState>) + Clone + 'static,
+) -> AnyElement {
+    let pills: Vec<AnyElement> = TabClose::all()
+        .into_iter()
+        .map(|choice| {
+            let set = set.clone();
+            choice_pill(
+                ElementId::Name(format!("app-settings-{slug}-close-{}", choice.label()).into()),
+                choice.label(),
+                choice == current,
+                cx.listener(move |this, _, _, cx| set(this, choice, cx)),
+            )
+            .into_any_element()
+        })
+        .collect();
+
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap_1()
+        .children(pills)
+        .into_any_element()
 }
 
 /// What every project search does: how much is indexed, what is skipped, and what it falls back

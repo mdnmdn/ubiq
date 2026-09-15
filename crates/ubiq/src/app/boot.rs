@@ -1202,6 +1202,8 @@ impl AppState {
             transcript_scrolls: (0..COMPOSER_SLOTS).map(|_| Default::default()).collect(),
             composer_rows: vec![None; COMPOSER_SLOTS],
             composer_drag: None,
+            conversation_info: None,
+            dump_copy_pending: None,
             file_filter,
             file_name,
             image_stroke,

@@ -16,6 +16,7 @@ use ubiq::state::sink::ColourField;
 use ubiq::state::sink::{ProjectNav, SinkModal};
 use ubiq::state::workbench::{FileDialog, ProjectSettings, ProjectSettingsMode};
 use ubiq::state::{MenuId, WindowRegistry};
+use ubiq_proto::ids::PaneId;
 use ubiq_proto::work::AgentId;
 
 #[gpui::test]
@@ -58,11 +59,13 @@ fn escape_peels_one_layer_at_a_time(cx: &mut gpui::TestAppContext) {
         });
         state.workbench.settings.open = true;
         state.workbench.confirm_end_conversation = Some(AgentId::generate());
+        state.conversation_info = Some(AgentId::generate());
         state.workbench.file_dialog = Some(FileDialog::New {
             parent: String::new(),
             dir: false,
             ext: None,
         });
+        state.workbench.confirm_close_pane = Some(PaneId::generate());
         state.open_menu(MenuId::SinkPicker, cx);
     });
     cx.run_until_parked();
@@ -84,8 +87,30 @@ fn escape_peels_one_layer_at_a_time(cx: &mut gpui::TestAppContext) {
     state.read_with(cx, |state, _| {
         assert!(state.workbench.open_menu.is_none(), "the menu stayed down");
         assert!(
+            state.workbench.confirm_end_conversation.is_some(),
+            "the menu took the confirm under it"
+        );
+    });
+
+    // The two destructive closes, both painted at the window root just over the file question and
+    // in reverse paint order: the conversation's is drawn after the pane's, so Escape peels it
+    // first. They sit this high because Escape is the answer a destructive confirm should be
+    // easiest of all to give.
+    escape(&state, cx);
+    state.read_with(cx, |state, _| {
+        assert!(state.workbench.confirm_end_conversation.is_none());
+        assert!(
+            state.workbench.confirm_close_pane.is_some(),
+            "the conversation's confirm took the pane's under it"
+        );
+    });
+
+    escape(&state, cx);
+    state.read_with(cx, |state, _| {
+        assert!(state.workbench.confirm_close_pane.is_none());
+        assert!(
             state.workbench.file_dialog.is_some(),
-            "the menu took the dialog under it"
+            "the confirm took the dialog under it"
         );
     });
 
@@ -139,17 +164,18 @@ fn escape_peels_one_layer_at_a_time(cx: &mut gpui::TestAppContext) {
     escape(&state, cx);
     state.read_with(cx, |state, _| {
         assert!(state.workbench.project_settings.is_none());
-        assert!(state.workbench.confirm_end_conversation.is_some());
+        assert!(state.conversation_info.is_some());
     });
 
-    // The two that had no Escape at all before one handler owned the key: the destructive
-    // conversation confirm, and the sink's fixture modal under it.
+    // The conversation's Info panel: still raised from a dock panel rather than the window root,
+    // because it reads the live conversation — so it sits under everything above, next to the
+    // sink's fixture modal that had no Escape at all before one handler owned the key.
     escape(&state, cx);
     state.read_with(cx, |state, _| {
-        assert!(state.workbench.confirm_end_conversation.is_none());
+        assert!(state.conversation_info.is_none());
         assert!(
             state.sink.modal.is_some(),
-            "the confirm took the modal under it"
+            "the info panel took the modal under it"
         );
     });
 

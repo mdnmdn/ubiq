@@ -786,7 +786,19 @@ unbounded channel, because a slow disk must never sit between a harness and the 
 named for the agent, so a conversation unloaded and resumed appends to the one it was writing.
 **The answer is a path, not a boolean**: `WorkAgent.debug_dump` carries where the capture is going
 while one is open and `None` otherwise, because a capture the user cannot find is a capture that did
-not happen.
+not happen. The window puts that path on the clipboard at both edges of the toggle: on stop it has
+it in hand, and on start it waits for this field to arrive and copies it then.
+
+**`WorkAgent.run_dir` and `WorkAgent.config_dir` are the same shape of answer.** The run directory
+is settled when the conversation is registered — it is named after the agent's own id, so no
+composition is needed to know it. The configuration directory is what `agent-manager` resolved for
+the run, reported once `Agents::converse` has composed one and `None` before that. Ubiq pins the
+second to the first (`Agents::compose_run` overrides `spec.config`), so the two paths agree today;
+they are separate fields because it is the library that decides the second, and a day when it
+decides differently must not be a day the window starts opening the wrong folder. **Reported, never
+requested**: the standing rule is about who *names* a harness configuration path, and this is the
+host repeating the library's answer so the conversation's Info panel can offer to open the folder
+without knowing what is in it.
 
 **There is deliberately no `max_subagents` here.** No harness has a flag for it, so there is
 nothing for the host to pass; the interface says it to the agent instead, as a directive folded in
@@ -1011,7 +1023,7 @@ Forty-seven records travel inside payloads.
 | `Comment` | `id`, `author`, `text`, `created_at` |
 | `TaskField` | one of `Shape?`, `Kind?`, `Key?`, `Link?`, `Labels[]`, `Colour?` |
 | `WorkSession` | `id`, `name`, `branch`, `worktree` |
-| `WorkAgent` | `id`, `session`, `task?`, `parent?`, `name`, `summary?`, `role`, `activity`, `note`, `branch`, `tokens`, `harness`, `model`, `context_pct`, `persistent`, `accept_all`, `debug_dump?`, `thread[]` |
+| `WorkAgent` | `id`, `session`, `task?`, `parent?`, `name`, `summary?`, `role`, `activity`, `note`, `branch`, `tokens`, `harness`, `model`, `context_pct`, `persistent`, `accept_all`, `debug_dump?`, `run_dir?`, `config_dir?`, `thread[]` |
 | `Turn` | `from`, `text` |
 
 | `ConvUpdate` | one of: `Started`, `UserChunk`, `AgentChunk`, `ThoughtChunk`, `ToolCall`, `ToolCallUpdate`, `Plan`, `ConfigOptions`, `ModeChanged`, `Title`, `Usage`, `RateLimit`, `PermissionRequest`, `TurnEnded`, `Compacted` |

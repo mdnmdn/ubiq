@@ -58,6 +58,8 @@ fn agent(
         persistent: false,
         accept_all: false,
         debug_dump: None,
+        run_dir: None,
+        config_dir: None,
         thread: Vec::new(),
     }
 }

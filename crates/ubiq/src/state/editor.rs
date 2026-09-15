@@ -124,6 +124,33 @@ pub enum ViewerKind {
 }
 
 impl ViewerKind {
+    /// What a picker calls it. The two web tenants are named the way their own projects spell
+    /// themselves — `ui/viewer/web.rs` already says "draw.io" — because the user is choosing a
+    /// tool they know by name, not a variant of ours.
+    pub fn label(self) -> &'static str {
+        match self {
+            ViewerKind::Editor => "Text editor",
+            ViewerKind::Markdown => "Markdown",
+            ViewerKind::Mermaid => "Mermaid",
+            ViewerKind::Excalidraw => "Excalidraw",
+            ViewerKind::Drawio => "draw.io",
+            ViewerKind::Image => "Image",
+        }
+    }
+
+    /// Every variant, in the order a picker offers them — the editor first, because it is the one
+    /// that can draw anything and so the one worth falling back to.
+    pub fn all() -> [ViewerKind; 6] {
+        [
+            ViewerKind::Editor,
+            ViewerKind::Markdown,
+            ViewerKind::Mermaid,
+            ViewerKind::Excalidraw,
+            ViewerKind::Drawio,
+            ViewerKind::Image,
+        ]
+    }
+
     /// The viewer a path's extension names.
     pub fn of(path: &str) -> Self {
         match extension(path).as_str() {

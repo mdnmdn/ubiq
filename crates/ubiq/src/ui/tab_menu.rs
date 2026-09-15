@@ -8,20 +8,29 @@
 //! [`rows`] is what a file, a terminal or a chat tab offers, read by both the frame that draws the
 //! menu and `AppState::pick_tab_menu` — the pick is matched by position, so the two have to read
 //! the same list. A file's is unchanged from before the menu widened to every kind of tab, plus
-//! Pin/Unpin at the end; a terminal and a chat tab offer a rename, a close and the same pin — a
-//! terminal tab offers one row more, see below.
+//! Pin/Unpin at the end; a terminal and a chat tab offer a rename, the two closes below, and the
+//! same pin.
 //!
-//! **Close is never offered on a pinned tab.** Suppressing the row rather than drawing a no-op is
-//! what keeps the pick a plain dispatch — nothing downstream has to remember that pinned changes
-//! what index 0 means.
+//! **Hide and Close are two different endings, and both are offered.** A terminal or a chat tab is
+//! a *view* onto something that lives past it — a harness the host is running, a conversation the
+//! host owns — so taking the tab away and ending the thing behind it are separate decisions, and
+//! the menu makes the user say which one they mean:
 //!
-//! **Close no longer ends the harness — it only takes the panel down**, leaving the harness
-//! running for `AppState::reattach_pane` to find later. So a terminal tab alone gets a second,
-//! separate action: `Kill harness`, which is the real end (`AppState::close_pane`). It is offered
-//! on a pinned tab too — pinning is about the tab's place in the arrangement, not about the
-//! harness's right to keep running underneath it, and killing is still the user's call to make
-//! regardless. A chat tab gets no such row: it is a view onto a host-owned conversation, which has
-//! its own lifecycle menu (`MenuId::ConversationLifecycle`) for stopping it.
+//! - **Hide** takes the panel down and leaves everything else alone: the harness keeps running
+//!   (`AppState::detach_pane`, reopened by `AppState::reattach_pane`), the conversation keeps
+//!   running (`AppState::close_chat_tab`, reopened by attaching a chat tab to it again).
+//! - **Close** is the real end: a terminal's kills the harness and drops its screen
+//!   (`AppState::close_pane`, behind a confirm, because it is irreversible); a chat tab's deletes
+//!   the conversation it is attached to, through the same confirm the conversation's own lifecycle
+//!   menu raises. A chat tab attached to nothing has nothing to delete, so its Close only hides.
+//!
+//! **Hide is never offered on a pinned tab**, exactly as the single Close it replaced was not.
+//! Suppressing the row rather than drawing a no-op is what keeps the pick a plain dispatch —
+//! nothing downstream has to remember that pinned changes what index 0 means.
+//!
+//! **Close is offered on a pinned tab too.** Pinning is about the tab's place in the arrangement,
+//! not about the harness's or the conversation's right to keep running underneath it, and ending
+//! one is still the user's call to make regardless.
 
 use gpui::{Context, IntoElement, SharedString, Window, div, point, px};
 
@@ -52,20 +61,12 @@ pub fn rows(kind: &PanelKind, pinned: bool) -> Vec<&'static str> {
             rows.push(pin_row);
             rows
         }
-        PanelKind::Terminal(_) => {
+        PanelKind::Terminal(_) | PanelKind::Chat(_) => {
             let mut rows = vec!["Rename…"];
             if !pinned {
-                rows.push("Close");
+                rows.push("Hide");
             }
-            rows.push("Kill harness");
-            rows.push(pin_row);
-            rows
-        }
-        PanelKind::Chat(_) => {
-            let mut rows = vec!["Rename…"];
-            if !pinned {
-                rows.push("Close");
-            }
+            rows.push("Close");
             rows.push(pin_row);
             rows
         }

@@ -101,8 +101,10 @@ document; file it instead.
   is the classic corruption bug.
 - **Exactly one pane holds focus** and receives keystrokes. Unfocused panes keep drawing.
 - **An exited harness closes its pane.** Typing `exit` or sending EOF (Ctrl+D) takes the tab with
-  it. **Closing the tab only detaches**: the harness keeps running, its screen stays live, and
-  reopening a panel for that pane reattaches to it. `Kill harness` is what ends one (`D103`).
+  it. **A tab's × does what its `TabClose` setting says**, `Hide` or `Close`, per pane kind
+  (`D103`, `D130`): `Hide` only detaches — the harness keeps running, its screen stays live, and
+  reopening a panel for that pane reattaches to it — `Close` kills the harness behind a confirm.
+  The tab's right-click menu always offers both, `Hide` then `Close`.
 - **The coordinator's reader is never blocked by a slow UI** — that stalls the harness itself.
 - **Accounts carry credential references, never credential material.**
 - **The word "session" means two things.** Ubiq's session is a named grouping of panes with a

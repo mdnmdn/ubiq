@@ -307,14 +307,16 @@ impl AppState {
     ///
     /// Drained in `render`, which is the same device the pending focus and the arrived files use,
     /// and for the same reason: both halves of a panel's life need a window.
+    ///
+    /// **Nothing is added here on the strength of a state flag.** This used to put the search panel
+    /// back whenever `search.active` was set, which made an unfinished search — one the window
+    /// switched project or mode away from — re-add the panel on the next frame IDE was on screen,
+    /// over whatever arrangement the user had left. A search's *only* way into the dock is
+    /// [`Self::reveal_search`], which the titlebar's icon, the ⌘F binding and
+    /// [`Self::search_for`] all go through and which adds the panel if the tree does not hold it —
+    /// so the guarantee the flag was standing in for is already the gesture's, and the panel's
+    /// presence is the arrangement's business alone.
     pub(super) fn settle_panels(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        // When a search is active, ensure the search panel is in the dock.
-        if self.search.active.is_some() {
-            let panel = self.panel(PanelKind::Search, cx);
-            if !dock::holds(&self.dock.clone(), &panel, cx) {
-                self.pending_panels.push(PanelEdit::Open(PanelKind::Search));
-            }
-        }
         // The outline follows the tab on screen, and a tab switch does not pass through here on a
         // message — it is noticed in the frame that draws the new one.
         self.settle_outline(cx);
@@ -327,8 +329,10 @@ impl AppState {
                     // An unattached chat tab is not worth a panel in a region nobody has opened:
                     // a project is seeded with one empty tab (`seeded_chats`), and adding it here
                     // is what used to leave an empty agent panel in the right region and open the
-                    // region onto it. Only `Open` is filtered — a `Reveal` is the user asking for
-                    // a chat, or a persistent agent claiming one, and both still get their tab.
+                    // region onto it. A tab with an agent behind it is not idle and passes — which
+                    // is how a persistent agent's claim gets its panel without a `Reveal` and
+                    // without the region moving (`AppState::settle_persistent_chat`). Only `Open`
+                    // is filtered at all: a `Reveal` is the user asking for a chat by name.
                     if self.is_idle_chat(&kind, cx) {
                         continue;
                     }

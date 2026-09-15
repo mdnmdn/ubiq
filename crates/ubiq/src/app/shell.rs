@@ -514,6 +514,14 @@ impl AppState {
             self.cancel_rename_remote_host(cx);
         } else if self.workbench.remote_manager.open {
             self.close_remote_manager(cx);
+        } else if self.workbench.confirm_end_conversation.is_some() {
+            // The two destructive closes, in reverse paint order: `ui::shell` draws the pane's
+            // question and then the conversation's, so Escape peels the conversation's first.
+            // Escape is the answer a destructive confirm should be easiest of all to give, which
+            // is why both sit this high.
+            self.dismiss_end_conversation_confirm(cx);
+        } else if self.workbench.confirm_close_pane.is_some() {
+            self.dismiss_close_pane_confirm(cx);
         } else if matches!(self.workbench.file_dialog, Some(FileDialog::PasteImage)) {
             // Escape takes the text file: the keystroke's own meaning.
             self.decline_paste_image(cx);
@@ -561,10 +569,10 @@ impl AppState {
             self.close_settings(cx);
         } else if self.workbench.project_settings.is_some() {
             self.close_project_settings(cx);
-        } else if self.workbench.confirm_end_conversation.is_some() {
-            // Raised from a dock panel rather than the window root, so it is under everything
-            // above — and the destructive one that had no Escape at all.
-            self.dismiss_end_conversation_confirm(cx);
+        } else if self.conversation_info.is_some() {
+            // Still raised from a dock panel rather than the window root — it reads the live
+            // conversation — so it stays under everything above it.
+            self.dismiss_conversation_info(cx);
         } else if self.sink.modal.is_some() {
             self.close_sink_modal(cx);
         } else {

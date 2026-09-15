@@ -172,8 +172,8 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                         }),
                     )
                     // The chevron beside it: the same new-pane menu the terminal `+` opens,
-                    // with its shells, harnesses and runnable tools. The button runs the
-                    // default shell; this says what else this machine can run here.
+                    // with its shells and runnable tools. The button runs the default shell;
+                    // this says what else this machine can run here.
                     .child(
                         icon_button(
                             "new-terminal-menu",

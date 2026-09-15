@@ -430,6 +430,28 @@ impl AppState {
         cx.notify();
     }
 
+    /// What a plain shell pane's × does. Interface-owned, so this writes the Ui layer.
+    pub fn set_terminal_close(&mut self, choice: TabClose, cx: &mut Context<Self>) {
+        self.workbench.settings.ui.terminal_close = choice;
+        self.remember_settings();
+        cx.notify();
+    }
+
+    /// What an agent harness pane's × does. Separate from the shell's above because the two panes
+    /// look alike in the tab strip and cost very different things to end.
+    pub fn set_agent_terminal_close(&mut self, choice: TabClose, cx: &mut Context<Self>) {
+        self.workbench.settings.ui.agent_terminal_close = choice;
+        self.remember_settings();
+        cx.notify();
+    }
+
+    /// What an agent chat tab's × does.
+    pub fn set_agent_chat_close(&mut self, choice: TabClose, cx: &mut Context<Self>) {
+        self.workbench.settings.ui.agent_chat_close = choice;
+        self.remember_settings();
+        cx.notify();
+    }
+
     /// Flip the deny-by-default policy an agent spawns under. Host-owned, so this writes the
     /// Host layer rather than the Ui one.
     pub fn toggle_isolate_agents(&mut self, cx: &mut Context<Self>) {

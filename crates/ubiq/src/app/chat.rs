@@ -145,12 +145,30 @@ impl AppState {
             .work(cx)
             .map(|work| work.agents.as_slice())
             .unwrap_or(&[]);
+        let live = self
+            .agents(cx)
+            .map(|view| view.live.as_slice())
+            .unwrap_or(&[]);
         let mine = chats
             .iter()
             .find(|tab| tab.id == id)
             .and_then(|tab| tab.attached);
         let shown: Vec<AgentId> = chats.iter().filter_map(|tab| tab.attached).collect();
-        chat_picks(&attach_choices(agents, &shown, mine, &query))
+        chat_picks(&attach_choices(agents, live, &shown, mine, &query))
+    }
+
+    /// Which agent a chat tab is looking at, if any.
+    ///
+    /// A tab is a *view*, and a view can be pointed at nothing: a fresh tab is unattached until
+    /// the user picks a conversation for it. So this is the question anything that wants to act on
+    /// the conversation behind a tab — its Close, its name in the strip — has to ask first, rather
+    /// than assuming a tab implies a conversation.
+    pub fn chat_tab_agent(&self, id: ChatId, cx: &App) -> Option<AgentId> {
+        self.open_project(cx)?
+            .chats
+            .iter()
+            .find(|tab| tab.id == id)?
+            .attached
     }
 
     /// Close a chat tab, panel and all — the gesture, as opposed to
@@ -228,11 +246,19 @@ impl AppState {
         cx.notify();
     }
 
-    /// Show a project's persistent agent the moment its work arrives, if nothing has claimed a
-    /// chat tab yet — the one exception to a project opening with the right region closed
-    /// (`prefs::ModeLayout::default_for`). Runs at most once per project this window holds:
-    /// settling twice would reopen a tab the user has since closed on purpose, the same reason
-    /// `OpenProject::new` seeds its one default tab only the first time.
+    /// Attach a project's persistent agent to a free chat tab the moment its work arrives, so the
+    /// right region is already showing the right thing whenever the user opens it. Runs at most
+    /// once per project this window holds: settling twice would reattach a tab the user has since
+    /// closed on purpose, the same reason `OpenProject::new` seeds its one default tab only the
+    /// first time.
+    ///
+    /// **This never brings the region on screen.** A project opens with the right region where
+    /// `prefs::ModeLayout::default_for` — or the user's own saved arrangement — left it, and a
+    /// persistent agent arriving is not a gesture. So the tab is queued as `PanelEdit::Open`,
+    /// which joins the group in the right region without touching whether that region is put
+    /// away; `PanelEdit::Reveal` is the one that would reopen it, and it is what used to. Opening
+    /// the region later finds the tab already there rather than minting a fresh empty one
+    /// (`AppState::toggle_region`).
     ///
     /// Called both from `enter_project`, which runs before the work has necessarily arrived, and
     /// from the `WorkList` answer, which is when it has — whichever finds the work populated and
@@ -268,7 +294,7 @@ impl AppState {
         };
         self.attach_chat(tab, Some(agent), cx);
         self.pending_panels
-            .push(PanelEdit::Reveal(PanelKind::Chat(tab)));
+            .push(PanelEdit::Open(PanelKind::Chat(tab)));
         cx.notify();
     }
 }

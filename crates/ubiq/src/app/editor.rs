@@ -36,6 +36,57 @@ impl AppState {
         cx.notify();
     }
 
+    /// Draw one open tab with a different viewer than its extension asked for.
+    ///
+    /// The new kind may offer none of the layouts the old one did, so the layout is re-settled
+    /// here rather than left to fail silently: a layout the new kind does not offer is replaced by
+    /// the first one it does, and a kind with no toggle at all keeps whatever is there, which is
+    /// what `has_preview` already makes harmless. The settled value goes to the panel by the same
+    /// path [`Self::set_view_layout`] uses, and for the same reason.
+    ///
+    /// **Nothing here is written down** — not into `ViewPrefs`, not into the dock's payload. A
+    /// viewer the user forced on for one sitting is a way of looking at the file now, not a fact
+    /// about the file, so a tab closed and reopened starts from `ViewerKind::of` again. For the
+    /// same reason `OpenFile::retarget` re-derives the viewer on a rename or a save-as: the tab
+    /// is then pointed at a different path, and the new path's own extension is the better answer.
+    pub fn set_viewer_kind(&mut self, key: &str, viewer: ViewerKind, cx: &mut Context<Self>) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        let Some(open) = self.projects.get_mut(&project) else {
+            return;
+        };
+        let Some(file) = open.editor.find_key_mut(key) else {
+            return;
+        };
+        file.viewer = viewer;
+        if !viewer.offers(file.layout)
+            && let Some(first) = viewer.layouts().first().copied()
+        {
+            file.layout = first;
+        }
+        let settled = file.layout;
+
+        let panel = self.panels.get(&PanelKind::File(key.to_string())).cloned();
+        if let Some(panel) = panel {
+            panel.update(cx, |panel, _| panel.set_layout(settled));
+        }
+        cx.notify();
+    }
+
+    /// Open the status bar's viewer picker, with its filter empty.
+    ///
+    /// Every searchable picker shares one buffer, so it is cleared on the way in — otherwise this
+    /// menu opens holding whatever was typed into the last one.
+    pub fn open_viewer_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let picker_search = self.picker_search.clone();
+        picker_search.update(cx, |state, cx| {
+            state.set_value("", window, cx);
+            state.focus(window, cx);
+        });
+        self.open_menu(MenuId::ViewerKind, cx);
+    }
+
     /// Toggle whether the YAML frontmatter disclosure is open for the given tab.
     pub fn toggle_frontmatter(&mut self, key: &str, cx: &mut Context<Self>) {
         let Some(project) = self.project(cx) else {
@@ -475,20 +526,35 @@ impl AppState {
                     _ => {}
                 }
             }
-            // Terminal and chat tabs share most of the menu: name it, close it the way its own ×
-            // does (which only detaches the panel now), or pin it against that close. A terminal
-            // tab alone offers the real end — see `ui::tab_menu`'s note on why `Kill harness`
-            // exists at all and why pinning does not suppress it.
+            // Terminal and chat tabs share the whole menu: name it, put it away, end it, or pin
+            // it against the putting away. See `ui::tab_menu` for why Hide and Close are two rows
+            // rather than one, and why pinning suppresses only the first.
+            //
+            // **Neither close goes through `ui::dock::close_panel`.** This runs inside an
+            // `AppState` update, and that function takes a second lease on the same entity to
+            // reach the dock — a circular lease, which panics rather than closing anything. The
+            // state path queues a `PanelEdit` instead, which is what every other close in the
+            // window already does.
             PanelKind::Terminal(pane_id) => match row {
                 "Rename…" => self.open_rename_tab(kind, window, cx),
-                "Close" => self.close_tab_panel(&kind, window, cx),
-                "Kill harness" => self.close_pane(*pane_id, cx),
+                "Hide" => self.detach_pane(*pane_id, cx),
+                "Close" => self.ask_close_pane(*pane_id, cx),
                 "Pin" | "Unpin" => self.toggle_tab_pin(kind, cx),
                 _ => {}
             },
-            PanelKind::Chat(_) => match row {
+            PanelKind::Chat(id) => match row {
                 "Rename…" => self.open_rename_tab(kind, window, cx),
-                "Close" => self.close_tab_panel(&kind, window, cx),
+                "Hide" => self.close_chat_tab(*id, cx),
+                // The conversation's own Delete, raised from the tab that is looking at it. The
+                // tab stays up: the confirm is painted *inside* the conversation panel, so hiding
+                // first would ask a question nothing draws. A tab attached to nothing has no
+                // conversation to end, and its Close is the hide.
+                "Close" => match self.chat_tab_agent(*id, cx) {
+                    Some(agent_id) => {
+                        self.workbench.confirm_end_conversation = Some(agent_id);
+                    }
+                    None => self.close_chat_tab(*id, cx),
+                },
                 "Pin" | "Unpin" => self.toggle_tab_pin(kind, cx),
                 _ => {}
             },
@@ -533,13 +599,6 @@ impl AppState {
                     .unwrap_or_else(|| "New chat".to_string())
             }
             _ => String::new(),
-        }
-    }
-
-    /// Close a terminal or a chat tab from the rename menu, the same action its own × takes.
-    fn close_tab_panel(&mut self, kind: &PanelKind, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(panel) = self.panels.get(kind).cloned() {
-            dock::close_panel(&panel, window, cx);
         }
     }
 
@@ -618,12 +677,10 @@ impl AppState {
     /// Act on one row of the open new-pane menu, by the row's index.
     ///
     /// A detached row brings a still-running pane's panel back, the same list
-    /// `ui::new_pane_menu::overlay` read to draw it. An agent row starts a pane running that
-    /// harness, and a shell row starts one running that shell — the same call the "+" makes, with
-    /// a program on it. A harness the host could not find is drawn disabled and takes no click, so
-    /// picking it here does nothing rather than asking for a spawn that would fail. Past the last
-    /// shell is the separator, which is a row and does nothing, and then the console, which is
-    /// revealed rather than started.
+    /// `ui::new_pane_menu::overlay` read to draw it. A shell row starts a pane running that shell
+    /// — the same call the "+" makes, with a program on it — and a tool row runs that tool. Past
+    /// the last one is the separator, which is a row and does nothing, and then the console, which
+    /// is revealed rather than started.
     pub fn pick_new_pane_menu(
         &mut self,
         index: usize,
@@ -645,20 +702,6 @@ impl AppState {
                 }
             }
             Some(NewPaneRow::DetachedHeading) => {}
-            Some(NewPaneRow::Agent(agent)) => {
-                let Some(agent) = self.workbench.agent_types.get(*agent) else {
-                    return;
-                };
-                if !agent.available {
-                    return;
-                }
-                self.spawn_pane(
-                    Some(agent.id.clone()),
-                    Vec::new(),
-                    AgentPicks::default(),
-                    cx,
-                );
-            }
             Some(NewPaneRow::Shell(shell)) => {
                 let Some(program) = self
                     .workbench

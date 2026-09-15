@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: Editor-like chat tabs — many, movable to any dockable region, each a view onto a host-owned conversation or onto none, drawn by the composer, transcript and tool blocks the whole window shares.
 read_when: you are changing a chat tab, the control that starts or attaches a conversation, or which conversation a tab shows
-updated: 2026-09-14
-verified: 2026-09-14
+updated: 2026-09-15
+verified: 2026-09-15
 code_anchors: [crates/ubiq/src/ui/chat/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/app/projects.rs]
 depends_on: [feat-workbench]
 review_cycle: monthly
@@ -58,10 +58,17 @@ IDE mode the way this row does, the `+` menu's first stage skipped either way.
 would once have left the first with no view; the conversation it leaves is on this very list, one
 click from coming back.
 
-**Everything under it is a conversation to move to.** The rows are every conversation the project
-has — the same registry the agents sidebar lists — under a hairline, drawn only when there is
-something below it: a divider over nothing reads as a group that failed to load. Typing filters
-them, and the hairline goes with the list when a query empties it.
+**Everything under it is a conversation to move to.** The rows are the conversations this window
+actually holds — `AgentsView::live`, the same set the agents columns may open on — under a
+hairline, drawn only when there is something below it: a divider over nothing reads as a group that
+failed to load. Typing filters them, and the hairline goes with the list when a query empties it.
+
+**The host's projection is wider than that, and the difference is not offered.** It also carries the
+fixtures the mock work thread seeds into every project, which have a name and an activity and
+nothing behind them; a tab attached to one would be a transcript with no harness at the other end.
+`state::chat::attach_choices` takes the live set and narrows to it before the query narrows
+anything, so every surface that offers to attach — this chevron and the `+` menu's second stage —
+answers the question the same way.
 
 A conversation already attached to a *different* chat tab draws disabled and cannot be picked; it is
 never dropped from the list, because a row that vanishes reads as a conversation that ended rather
@@ -105,9 +112,10 @@ chat tab is no exception: closing the only open one leaves nothing behind but a 
 nothing in it, which the region then puts itself away rather than sit empty. Opening the right
 region again — the titlebar's switch, or the `+` past the last group's tab strip — mints a fresh
 tab, attached to nothing, because that is the one place the window has to decide *which* instance an
-empty region opens onto. A *pinned* tab is the one exception: pinning is protection from close and
-nothing else, so the shared tab menu's Pin (or Rename) still work but its Close row is gone, the
-same as any other tab — `AppState::tab_names` and `AppState::pinned_tabs`, in memory only, because a
+empty region opens onto. A *pinned* tab is the one exception: pinning withholds the × and, on the
+shared tab menu, Hide — Rename, Close and Pin (or Unpin) still work, the same as any other tab,
+because ending the conversation behind a pinned tab is still the user's call — `AppState::tab_names`
+and `AppState::pinned_tabs`, in memory only, because a
 `ChatId` is reminted every run. **A persistent attachment is what survives one**: `ViewPrefs.chats`
 remembers which agent each *persistently* attached tab held — a tab whose conversation the host was
 not asked to keep is written down as nothing, exactly as an unattached tab is, because the boot
@@ -479,10 +487,12 @@ that same list, `toggle_chat_picker` and `dismiss_chat_picker` own the control's
 `closed_chat_tab` is what a tab leaving the dock for good runs — dropping the `ChatTab`, clearing its
 slot's draft, and touching nothing about the conversation it was looking at.
 
-`settle_persistent_chat`, also in `app/chat.rs`, is the one exception to a project opening with its
-right panel closed (workbench.md's `ModeLayout::default_for`): a project with a persistent agent attaches
-its seed chat tab to that agent and reveals the panel, the moment the work naming the agent is in
-hand. `OpenProject::persistent_settled` guards it to once per project, so a later `WorkList` cannot
+`settle_persistent_chat`, also in `app/chat.rs`, attaches a project's seed chat tab to its persistent
+agent the moment the work naming that agent is in hand — and **does not bring the right panel on
+screen**. A project opens with its right region where `ModeLayout::default_for` or the user's own
+saved arrangement left it (workbench.md), so the tab is queued as `PanelEdit::Open`, which joins the
+group in the right region without reopening it; `PanelEdit::Reveal` is the edit that would, and it is
+what the user's own gestures use. `OpenProject::persistent_settled` guards it to once per project, so a later `WorkList` cannot
 reopen a tab the user has since closed on purpose; it is called from `enter_project`, which may run
 before the work has arrived, and from the `WorkList` answer, which is when it has.
 

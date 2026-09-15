@@ -2,6 +2,13 @@ use super::*;
 use crate::state::ConvBlock;
 use crate::state::conversation::ActivityPanel;
 
+/// How often [`AppState::watch_for_dump_path`] looks to see whether the host has named the file,
+/// and how many times before it stops looking. Four seconds all told: long enough for a round trip
+/// to a host on the other end of a socket, short enough that nothing is still waiting by the time
+/// the user has forgotten they clicked.
+const DUMP_PATH_POLL: std::time::Duration = std::time::Duration::from_millis(100);
+const DUMP_PATH_TRIES: usize = 40;
+
 impl AppState {
     /// Bring an agent to the front: the tab of whatever column holds it, or a column of its own.
     /// The one thing a click in the sidebar does.
@@ -590,12 +597,23 @@ impl AppState {
         cx.notify();
     }
 
-    /// Pick a row of the lifecycle menu, in the order it draws them: 0 Stop, 1 Abort, 2 Unload,
-    /// 3 Resume, 4 Fork, 5 the persistence toggle, 6 the accept-all toggle, 7 the dump toggle,
-    /// 8 Delete. The order is [`crate::ui::conversation::lifecycle_menu_rows`]'s and nothing
-    /// else's — the rows are dispatched by position, so the two are read together or not at all.
-    /// Delete does not act here — it raises a confirm instead, being the one destructive,
-    /// irreversible verb of the nine.
+    /// Pick a row of the lifecycle menu, in the order it draws them:
+    ///
+    /// ```text
+    /// 0 Stop   1 Abort   2 Unload   3 Resume
+    /// 4 ─────
+    /// 5 Info   6 Fork   7 persistence   8 accept-all   9 dump
+    /// 10 ─────
+    /// 11 Hide   12 Close
+    /// ```
+    ///
+    /// The order is [`crate::ui::conversation::lifecycle_menu_rows`]'s and nothing else's — the
+    /// rows are dispatched by position, so the two are read together or not at all. **The two
+    /// separators are dead indices here**, and deliberately so: a hairline occupies a row in the
+    /// list it is drawn from, so it has to occupy one in the match that answers it.
+    ///
+    /// Close does not act here — it raises a confirm instead, being the one destructive,
+    /// irreversible verb on the menu. Hide, beside it, ends nothing.
     pub fn pick_conversation_menu(
         &mut self,
         agent_id: AgentId,
@@ -608,16 +626,70 @@ impl AppState {
             1 => self.abort_agent(agent_id, cx),
             2 => self.unload_agent(agent_id, cx),
             3 => self.resume_agent(agent_id, cx),
-            4 => self.fork_conversation(agent_id, cx),
-            5 => self.toggle_conversation_persistent(agent_id, cx),
-            6 => self.toggle_conversation_accept_all(agent_id, cx),
-            7 => self.toggle_conversation_debug_dump(agent_id, cx),
-            8 => {
+            // 4 is the hairline above the tools.
+            5 => self.open_conversation_info(agent_id, cx),
+            6 => self.fork_conversation(agent_id, cx),
+            7 => self.toggle_conversation_persistent(agent_id, cx),
+            8 => self.toggle_conversation_accept_all(agent_id, cx),
+            9 => self.toggle_conversation_debug_dump(agent_id, cx),
+            // 10 is the hairline above the closing pair.
+            11 => self.hide_conversation_view(agent_id, cx),
+            12 => {
                 self.workbench.confirm_end_conversation = Some(agent_id);
                 cx.notify();
             }
             _ => {}
         }
+    }
+
+    /// Put this conversation's view away. **Nothing ends.** The chat tab attached to the agent is
+    /// closed and the conversation goes on being the host's — it keeps its harness, keeps taking
+    /// turns, and the sidebar goes on listing it, one click from being looked at again.
+    ///
+    /// This is the window acting on its own arrangement, so it is the arrangement that is read:
+    /// the tab is found by what it is attached to, and a conversation no tab is showing has
+    /// nothing to hide, which is why the menu draws the row dead in that case.
+    pub fn hide_conversation_view(&mut self, agent_id: AgentId, cx: &mut Context<Self>) {
+        let tab = self.open_project(cx).and_then(|open| {
+            open.chats
+                .iter()
+                .find(|tab| tab.attached == Some(agent_id))
+                .map(|tab| tab.id)
+        });
+        if let Some(tab) = tab {
+            self.close_chat_tab(tab, cx);
+        }
+    }
+
+    // ── the conversation's Info panel ────────────────────────────────
+
+    /// Raise the Info panel over one conversation: what it is running as, what it has spent, and
+    /// the three directories it lives in.
+    ///
+    /// Reads nothing and asks nothing. Everything it draws is already in the window — the work
+    /// record the host broadcasts and the conversation's own state — so opening it is a flag, and
+    /// a conversation that has not launched yet simply has fewer answers to give.
+    pub fn open_conversation_info(&mut self, agent_id: AgentId, cx: &mut Context<Self>) {
+        self.conversation_info = Some(agent_id);
+        cx.notify();
+    }
+
+    pub fn dismiss_conversation_info(&mut self, cx: &mut Context<Self>) {
+        self.conversation_info = None;
+        cx.notify();
+    }
+
+    /// Show one of a conversation's directories in the desktop's own file manager.
+    ///
+    /// The window is handed the path by the host and hands it straight to the platform: it does
+    /// not read it, list it, or learn anything about what a harness keeps in it. A path that will
+    /// not open is left to the log — there is nothing the reader could do about it here that
+    /// opening their own file manager would not do better.
+    pub fn reveal_conversation_dir(&mut self, path: String, cx: &mut Context<Self>) {
+        if let Err(error) = open_in_system(&path) {
+            tracing::warn!(%path, "revealing a conversation directory failed: {error}");
+        }
+        cx.notify();
     }
 
     /// Mark a conversation as one to keep, or stop keeping it. Nothing is drawn optimistically:
@@ -663,16 +735,82 @@ impl AppState {
     /// So the message carries a `bool` and the record carries a path, and nothing is drawn
     /// optimistically — for [`Self::toggle_conversation_persistent`]'s reason, and because there
     /// is no path to draw until the host has picked one.
+    ///
+    /// **Both edges put the path on the clipboard**, because both are the moment the user is
+    /// thinking about the file. They reach it from opposite directions. Stopping has the path in
+    /// hand: it is on the record now and will not be in a moment, so it is copied here. Starting
+    /// has nothing yet — the file is the host's to name — so [`Self::dump_copy_pending`] records
+    /// who asked and [`Self::watch_for_dump_path`] copies the answer when it lands.
+    ///
+    /// No toast follows it. The window's notification list is the host's — every row in it is a
+    /// broadcast from the other half — and raising a purely local one would mean either a message
+    /// for something no other window cares about or a second, window-only list beside the one that
+    /// is there. The menu row's tooltip already says the path, which is the same fact in the place
+    /// the click just happened.
     pub fn toggle_conversation_debug_dump(&mut self, agent_id: AgentId, cx: &mut Context<Self>) {
         let dumping = self
             .work(cx)
             .and_then(|work| work.agent(agent_id))
-            .is_some_and(|agent| agent.debug_dump.is_some());
+            .and_then(|agent| agent.debug_dump.clone());
         self.bus.send(Message::SetConversationDebugDump {
             agent_id,
-            debug_dump: !dumping,
+            debug_dump: dumping.is_none(),
         });
+        match dumping {
+            Some(path) => {
+                // A capture being turned off is no longer one anybody is waiting on a name for.
+                self.dump_copy_pending = None;
+                cx.write_to_clipboard(gpui::ClipboardItem::new_string(path));
+            }
+            None => {
+                self.dump_copy_pending = Some(agent_id);
+                self.watch_for_dump_path(agent_id, cx);
+            }
+        }
         cx.notify();
+    }
+
+    /// Wait for the host to name the file it just started writing, and put it on the clipboard.
+    ///
+    /// **A poll rather than a hook on the arriving record.** The answer reaches the window as an
+    /// ordinary work update folded in with every other, and there is one place that does the
+    /// folding for every screen; hanging a clipboard write off it would make one surface's menu a
+    /// concern of the wire's. Whoever asked waits here instead, reading the record they already
+    /// have, which is also what makes the wait give up on its own: a host that never answers
+    /// leaves nothing behind but a cleared field.
+    fn watch_for_dump_path(&mut self, agent_id: AgentId, cx: &mut Context<Self>) {
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            for _ in 0..DUMP_PATH_TRIES {
+                cx.background_executor().timer(DUMP_PATH_POLL).await;
+                let settled = this.update(cx, |this, cx| {
+                    // Somebody else's answer, or the same user turning the capture off again
+                    // before it was named: either way this wait is over and copies nothing.
+                    if this.dump_copy_pending != Some(agent_id) {
+                        return true;
+                    }
+                    let Some(path) = this
+                        .work(cx)
+                        .and_then(|work| work.agent(agent_id))
+                        .and_then(|agent| agent.debug_dump.clone())
+                    else {
+                        return false;
+                    };
+                    this.dump_copy_pending = None;
+                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(path));
+                    cx.notify();
+                    true
+                });
+                if !matches!(settled, Ok(false)) {
+                    return;
+                }
+            }
+            let _ = this.update(cx, |this, _| {
+                if this.dump_copy_pending == Some(agent_id) {
+                    this.dump_copy_pending = None;
+                }
+            });
+        })
+        .detach();
     }
 
     /// Fork a conversation: a second agent, launched from a copy of this one's run directory, so
@@ -1120,6 +1258,10 @@ impl AppState {
             .work(cx)
             .map(|work| work.agents.as_slice())
             .unwrap_or(&[]);
+        let live = self
+            .agents(cx)
+            .map(|view| view.live.as_slice())
+            .unwrap_or(&[]);
         let (shown, mine): (Vec<AgentId>, Option<AgentId>) = match surface {
             NewAgentSurface::Agents => (
                 self.agents(cx)
@@ -1140,7 +1282,7 @@ impl AppState {
             ),
             NewAgentSurface::Sink => (Vec::new(), self.sink_agent()),
         };
-        attach_choices(agents, &shown, mine, &query)
+        attach_choices(agents, live, &shown, mine, &query)
     }
 
     /// One row of the `+` menu, clicked.

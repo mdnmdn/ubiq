@@ -31,7 +31,7 @@ use crate::state::chat::{
 use crate::state::conversation::{Conversation, Run, TranscriptScroll};
 use crate::state::diagrams::{self, DiagramAnswer, DiagramImage, DiagramPalette};
 use crate::state::dock::Visibility;
-use crate::state::editor::{Subject, ViewLayout, from_tab_key, tab_key};
+use crate::state::editor::{Subject, ViewLayout, ViewerKind, from_tab_key, tab_key};
 use crate::state::file_picker::{
     Commit, FilePickerState, PickKind, PickerCount, PickerKey, PickerOwner, PickerView, Pressed,
 };
@@ -50,7 +50,7 @@ use crate::state::settings::{
     self as ui_settings, AccountDialog, AiProviderForm, AiTest, AppForm, AssistInfo, CertPrompt,
     CliShortcut, ConnectApp, ConnectState, ConnectStep, ConnectorDialog, LoginState, LoginStep,
     MAX_LOGIN_LINKS, MarkdownOpen, PendingSecret, SettingsSection, SshMethod, SshProfileForm,
-    ToolEditScope, ToolEditor,
+    TabClose, ToolEditScope, ToolEditor,
 };
 use crate::state::sink::{
     ColourField, ProjectNav, SettingsMenu, SettingsNav, SinkDoc, SinkModal, SinkSection, SinkState,
@@ -664,6 +664,23 @@ pub struct AppState {
     /// at then. Measured from where it started rather than from the last frame, so a drag that
     /// outruns the pointer does not drift.
     pub composer_drag: Option<(usize, f32, usize)>,
+    /// Which conversation's Info panel is up, if one is. One `Option`, because one is up at a time
+    /// — the same arrangement every other overlay in the window uses, and the reason the panel can
+    /// be raised from a menu drawn on any of the surfaces that host a conversation.
+    ///
+    /// Window state rather than project state: it is a reading of a record, opened and closed, and
+    /// a project switch that left one standing over a different project's agents would be showing
+    /// a conversation nothing on screen holds.
+    pub conversation_info: Option<AgentId>,
+    /// The conversation whose dump was just asked for and whose file has not been named yet.
+    ///
+    /// The window asks for a capture with a `bool` and the host answers with a path, so the path a
+    /// user wants on their clipboard does not exist at the moment they click for it. This holds
+    /// who asked, so the answer can be copied when it lands — see
+    /// [`AppState::toggle_conversation_debug_dump`]. Cleared as soon as it is spent, and by a
+    /// second click that turns the capture off again: a stale id here would copy the path of a
+    /// dump nobody is waiting on.
+    pub dump_copy_pending: Option<AgentId>,
     pub file_filter: Entity<InputState>,
     /// What a file dialog is typing into: a new path's name, a rename, or where an untitled buffer
     /// is to be saved. One field, because one dialog is up at a time.

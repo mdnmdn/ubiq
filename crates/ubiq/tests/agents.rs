@@ -47,6 +47,8 @@ fn agent(id: AgentId, session: SessionId, name: &str, activity: Activity) -> Wor
         persistent: false,
         accept_all: false,
         debug_dump: None,
+        run_dir: None,
+        config_dir: None,
         thread: Vec::new(),
     }
 }

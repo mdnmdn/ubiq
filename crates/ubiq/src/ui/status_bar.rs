@@ -9,19 +9,21 @@
 //! that is not one prints nothing git-related.
 
 use gpui::{
-    Anchor, App, Context, InteractiveElement, IntoElement, ParentElement,
-    StatefulInteractiveElement, Styled, div, px,
+    Anchor, App, Context, Focusable, InteractiveElement, IntoElement, ParentElement,
+    StatefulInteractiveElement, Styled, Window, div, px,
 };
 
 use ubiq_proto::git::{AHEAD_BEHIND_CAP, GitCounts, GitOperation};
 use ubiq_proto::work::Bucket;
 
 use crate::app::AppState;
+use crate::state::editor::ViewerKind;
+use crate::state::navigator::subsequence;
 use crate::state::vim::VimMode;
 use crate::state::{MenuId, RailMode};
 use crate::theme;
 use crate::ui::board::status_colour;
-use crate::ui::kit::{Picker, mono};
+use crate::ui::kit::{Picker, PickerStyle, mono};
 use crate::ui::work::bucket_colour;
 use crate::ui::{handler, indexed};
 use crate::version;
@@ -95,7 +97,7 @@ fn vim_chip(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         })
 }
 
-pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
+pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl IntoElement {
     let strip = div()
         .h(px(theme::status_bar_height()))
         .px_3()
@@ -246,12 +248,73 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
 
     strip
         .child(mono(where_it_is, theme::text_muted()))
+        .children(viewer_picker(app, window, cx))
         .child(div().flex_1().min_w(px(0.)))
         .children(git_readout(app, cx))
         .child(vim_chip(app, cx))
         .child(font_size_dropdown(app, cx))
         .child(version_label())
         .child(made_with_love())
+}
+
+/// The file-kind chip, just after the file name: what the open tab is, and the way to draw it as
+/// something else.
+///
+/// It reads as the *language* — Rust, Markdown, TypeScript — because that is the fact the strip is
+/// reporting, and its list offers *viewers*, because that is the only part of it the user can
+/// change. There is nothing to report with no file open, so the chip is absent rather than empty,
+/// the way every other value in this strip is.
+///
+/// Whatever is picked lasts as long as the tab does; `AppState::set_viewer_kind` says why nothing
+/// is written down.
+fn viewer_picker(
+    app: &AppState,
+    window: &Window,
+    cx: &mut Context<AppState>,
+) -> Option<impl IntoElement> {
+    let file = app.editor(cx)?.active_file()?;
+    let key = file.key();
+    let current = file.viewer;
+    let label = file.language.label();
+
+    let open = app.workbench.open_menu == Some(MenuId::ViewerKind);
+    let needle = app.picker_search.read(cx).value().trim().to_lowercase();
+    let shown: Vec<ViewerKind> = if open && !needle.is_empty() {
+        ViewerKind::all()
+            .into_iter()
+            .filter(|kind| subsequence(&needle, kind.label()))
+            .collect()
+    } else {
+        ViewerKind::all().to_vec()
+    };
+
+    let view = cx.entity();
+    let focused = app
+        .picker_search
+        .read(cx)
+        .focus_handle(cx)
+        .is_focused(window);
+    let picked = shown.clone();
+
+    let mut picker = Picker::new("file-kind", label)
+        .items(shown.iter().map(|kind| kind.label()))
+        .open(open)
+        .anchor(Anchor::BottomLeft)
+        .style(PickerStyle::Chip)
+        .search(&app.picker_search, focused)
+        .on_toggle(handler(&view, |this, window, cx| {
+            this.open_viewer_menu(window, cx)
+        }))
+        .on_pick(indexed(&view, move |this, index, _, cx| {
+            if let Some(kind) = picked.get(index).copied() {
+                this.set_viewer_kind(&key, kind, cx);
+            }
+        }))
+        .on_dismiss(handler(&view, |this, _, cx| this.close_menu(cx)));
+    if let Some(selected) = shown.iter().position(|kind| *kind == current) {
+        picker = picker.selected(selected);
+    }
+    Some(picker.into_any_element())
 }
 
 /// Every text size the status bar's dropdown offers, in points. A hand-picked ladder rather than

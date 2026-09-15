@@ -2279,6 +2279,12 @@ impl Coordinator {
             persistent: false,
             accept_all: false,
             debug_dump: None,
+            // Known already, and without composing anything: a run's directory is named after the
+            // agent's own id, which was minted before this message was sent. The configuration
+            // directory is the library's answer and there is no run yet to ask — `launch_pending`
+            // reports it once one has been composed.
+            run_dir: Some(self.agents.agent_dir(agent_id).display().to_string()),
+            config_dir: None,
             thread: Vec::new(),
         };
         // The window's own session, named after the project it is open on: the work's sessions are
@@ -2540,6 +2546,16 @@ impl Coordinator {
             dir = %composed.dir.display(),
             "conversation started"
         );
+
+        // The one directory the library actually provisioned this run's configuration into, said
+        // back to the window now that there is a run to say it about. Ubiq pins that directory to
+        // the run's own (`Agents::compose_run`), so the two paths agree today — they are reported
+        // separately because it is the library that decides the second one, and a day when it
+        // decides differently must not be a day the window starts opening the wrong folder.
+        let config_dir = composed.dir.display().to_string();
+        self.publish_conversation_flags(agent_id, |agent| {
+            agent.config_dir = Some(config_dir);
+        });
 
         // What actually reached the harness, not what the picker merely showed — a pick the user
         // opened and then abandoned never got here, so it never overwrites what launched.
@@ -5070,6 +5086,8 @@ mod tests {
             persistent: false,
             accept_all: false,
             debug_dump: None,
+            run_dir: None,
+            config_dir: None,
             thread: Vec::new(),
         };
         let session = WorkSession {

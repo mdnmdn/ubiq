@@ -5,9 +5,9 @@ kind: feature
 status: draft
 summary: What a pane shows, how exactly one of them holds focus, how a resize reaches the harness, and how a pane is moved around the window's dock.
 read_when: you are changing where a pane sits, pane focus, resize, pane chrome, or how terminal bytes reach the screen
-updated: 2026-09-10
-verified: 2026-09-13
-code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/editor.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/new_pane_menu.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/tools.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/pty/mod.rs, crates/ubiq-host/src/shells.rs, vendor/gpui-terminal/src/view.rs, vendor/gpui-terminal/src/render.rs, vendor/gpui-terminal/src/input.rs, vendor/gpui-terminal/src/mouse.rs, vendor/gpui-terminal/src/clipboard.rs, vendor/gpui-terminal/src/event.rs, vendor/gpui-terminal/src/terminal.rs]
+updated: 2026-09-15
+verified: 2026-09-15
+code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/editor.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/new_pane_menu.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/tools.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/pty/mod.rs, crates/ubiq-host/src/shells.rs, vendor/gpui-terminal/src/view.rs, vendor/gpui-terminal/src/render.rs, vendor/gpui-terminal/src/input.rs, vendor/gpui-terminal/src/mouse.rs, vendor/gpui-terminal/src/clipboard.rs, vendor/gpui-terminal/src/event.rs, vendor/gpui-terminal/src/terminal.rs]
 depends_on: [tech-transport]
 review_cycle: monthly
 ---
@@ -111,28 +111,34 @@ other window can adopt an emulator.
 its emulator are drawn on the answer. A harness that fails to start produces an error against a pane
 that was never drawn, so nothing empty is left on screen for the user to close.
 
-**Closing a pane's panel detaches it; `Kill harness` is what kills it** (`D103`). Closing the tab
-takes the panel off screen and nothing else: the harness keeps running under the host, its emulator
-and its screen stay live in the window, and reopening a panel for that pane picks the same screen
-back up mid-sentence. An agent left alone keeps working whether or not anyone is looking at its
-pane, and the tab says the same. **This is the rule a tab on the agents screen obeys** — its close
-benches the agent and the harness keeps running — so the two tabs mean one thing rather than two.
+**A pane's tab offers two endings, Hide and Close, and a setting decides what its × means**
+(`D103`, `D130`). Hide takes the panel off screen and nothing else: the harness keeps running under
+the host, its emulator and its screen stay live in the window, and reopening a panel for that pane
+picks the same screen back up mid-sentence. An agent left alone keeps working whether or not anyone
+is looking at its pane, and the tab says the same. **This is the rule a tab on the agents screen
+obeys** — its close benches the agent and the harness keeps running — so the two tabs mean one
+thing rather than two. The right-click menu always offers Hide (suppressed on a pinned tab) and
+Close (offered regardless of pinning); the × runs whichever `UiSettings::terminal_close` or
+`agent_terminal_close` names, told apart by `AppState::pane_is_agent`.
 
-**Killing is the explicit action.** `Kill harness` on the tab's menu signals and reaps the child,
-and the panel and its emulator go with it. So does an exited harness, on its own. A panel displaced
-by a whole arrangement being installed over it has not been closed at all and its harness is
-untouched.
+**Closing is the explicit end, and it asks first.** Close — from the menu, or from the × when its
+setting says `Close` — raises a confirm naming the harness that is killed and the screen that is
+dropped; answering it signals and reaps the child, and the panel and its emulator go with it. So
+does an exited harness, on its own, with no confirm needed. A panel displaced by a whole
+arrangement being installed over it has not been closed at all and its harness is untouched.
 
 **A detached pane is computed, not stored** — a pane the project still holds that no panel draws.
 Nothing is written down when one detaches, which is what stops a flag disagreeing with the screen.
 The `+` menu lists them in a group of their own, above the harnesses, because a running agent
 nothing is drawing is the one thing on that menu the user did not just ask for.
 
-**A pinned pane cannot be closed, and that is the whole of what pinning changes.** Its tab's × is
-withheld and its Close row is left off the right-click menu rather than drawn and refused; Rename
-and Unpin still work from the same menu. Unpinning is the only way back to a closable pane — nothing
-else about the pane is different, and the harness ending on its own still closes it exactly as it
-would an unpinned one.
+**Pinning withholds the ×; it does not withhold ending the harness.** A pinned tab's × is
+suppressed, and so is Hide on its right-click menu, rather than either drawn and refused; Rename,
+Close and Unpin still work from the same menu — pinning is about the tab's place in the
+arrangement, not about the harness's right to keep running underneath it, so Close stays the
+user's call regardless. Unpinning is the only way back to a × that hides or closes the tab —
+nothing else about the pane is different, and the harness ending on its own still closes it exactly
+as it would an unpinned one.
 
 **The keyboard belongs to the focused panel.** Exactly one panel in the dock holds it. When that
 panel is a terminal, keystrokes go to that pane's emulator — a terminal panel's focus handle *is*
@@ -200,8 +206,8 @@ resized as soon as the first measurement exists. A harness that starts at the wr
 immediately resized draws correctly; one that never learns its size does not.
 
 **An exited harness closes its pane.** Typing `exit` or sending EOF (Ctrl+D) ends the child, the
-coordinator reports `PaneExited`, and the tab goes with it — a path of its own, since the tab's ×
-detaches instead (`D103`). A tool run with wait on
+coordinator reports `PaneExited`, and the tab goes with it — a path of its own, with no confirm and
+no dependence on what the × is set to. A tool run with wait on
 exit stays readable instead: the process ends, the dot reports the stop, and the tab stays with
 its output until it is closed.
 
@@ -261,10 +267,11 @@ panel itself. Three of its answers are this document's: its focus handle is the 
 giving the panel the keyboard puts keystrokes on the harness with nothing in between; `set_active()`
 calls `focus_pane()` when the displayed tab is a terminal and `blur_panes()` when it is not, which
 is what makes "no pane holds the keyboard unless a terminal is focused" true by construction; and
-`on_removed()` waits a turn before it calls `close_pane()`, guarded by `on_added_to()`, because the
-library reports a closed tab and a displaced panel the same way and only one of them kills a
-harness. Which regions a terminal may sit in, and the tab, its dot and its close, belong to the
-workbench document.
+`on_removed()` waits a turn, guarded by `on_added_to()`, because the library reports a closed tab
+and a displaced panel the same way and only one of them is a real close; once it knows the tab was
+really removed it reads `UiSettings::terminal_close` or `agent_terminal_close` — told apart by
+`AppState::pane_is_agent` — and calls `close_pane()` or `detach_pane()` accordingly. Which regions a
+terminal may sit in, and the tab, its dot, its Hide and its Close, belong to the workbench document.
 
 **The panel's body is the emulator.** `crates/ubiq/src/ui/terminal.rs` draws it: `pane()` takes a
 pane ID and draws that pane's `TerminalView`, or the line a panel whose emulator has gone shows, and
@@ -370,7 +377,7 @@ The paths through the two halves, in call order:
 | Resizes | the emulator measures its own bounds and its resize callback sends `TerminalResize`; `Pty::resize` sets the size and the kernel signals the harness |
 | Brings a pane's tab forward | the dock displays the panel and gives it the keyboard, which for a terminal is its emulator's own handle; `set_active()` calls `focus_pane()`, which sends `Focus` on the transition and no other |
 | Drags a pane somewhere else | the dock re-parents the panel by id, leaving the emulator, its stream and the pane ID alone; the panel is laid out in its new rectangle, the emulator measures it, and the resize callback sends `TerminalResize` — the move and the resize are one path |
-| Closes a pane | the tab's × takes the panel out of the dock; `on_removed()` defers a turn so a displaced panel is not mistaken for a closed one, then `close_pane()` sends `CloseWorkspace` and drops the emulator; the coordinator kills the child, and the thread `pty::reap` left waiting on it collects the exit |
+| Closes a pane | the tab's × takes the panel out of the dock; `on_removed()` defers a turn so a displaced panel is not mistaken for a closed one, then reads the pane's `TabClose` setting — `close_pane()` sends `CloseWorkspace` and drops the emulator on `Close`, `detach_pane()` leaves both alone on `Hide`; the tab menu's own Close asks first, through `ask_close_pane()`'s confirm; the coordinator kills the child, and the thread `pty::reap` left waiting on it collects the exit |
 | The harness exits | `PaneExited` reaches `close_pane()`, which queues the same panel close and sends `CloseWorkspace` so the host drops the pseudo-terminal |
 
 `crates/ubiq-host/src/coordinator.rs` holds one `Pty` per pane ID and nothing about layout or colour;

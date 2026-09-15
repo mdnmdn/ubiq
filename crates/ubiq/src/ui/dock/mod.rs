@@ -48,6 +48,7 @@ use crate::state::RailMode;
 use crate::state::dock::{ChatId, PanelKind, Region};
 use crate::state::editor::ViewLayout;
 use crate::state::git::{CHANGES_WIDTH, SIDEBAR_WIDTH};
+use crate::state::settings::TabClose;
 use crate::theme;
 use crate::ui::{
     agents, board, chat, editor, empty, explorer, git, logs, orchestration, outline, rail, search,
@@ -447,8 +448,22 @@ impl BasePanel for WorkbenchPanel {
         self.attached = true;
     }
 
-    /// **Closing a terminal panel detaches its pane, closing a file panel closes its tab, and
-    /// being displaced does neither.**
+    /// **Closing a terminal or chat panel does what the settings say the × means, closing a file
+    /// panel closes its tab, and being displaced does neither.**
+    ///
+    /// The × has two honest readings — take the tab away, or end what it was looking at — and
+    /// `UiSettings::terminal_close`, `agent_terminal_close` and `agent_chat_close` are where the
+    /// user says which. `Hide` is what this always did.
+    ///
+    /// `Close` is the destructive one, and the two kinds do not treat it alike. A terminal's takes
+    /// effect: the pane is the harness, ending it is what the setting says, and it is a gesture
+    /// the user asked to mean that. A chat tab's asks first, through the conversation's own Delete
+    /// confirm — **a transcript is never deleted unasked**, because the conversation is the host's
+    /// and outlives every view of it, this one included.
+    ///
+    /// The three settings are told apart by `AppState::pane_is_agent`, which matches the pane's
+    /// resolved `agent_type` against the harness catalogue the host sent — a plain shell's is a
+    /// program name and matches nothing.
     ///
     /// The library reports both the same way: a panel is told it left the dock whether the user
     /// closed its tab or a whole arrangement was installed over it. The two have to be told apart,
@@ -473,10 +488,37 @@ impl BasePanel for WorkbenchPanel {
             {
                 return;
             }
+            // Every arm calls `AppState` directly. This already runs inside `app.update`, so
+            // reaching for `close_panel` here — which takes a second lease to get at the dock —
+            // would be a circular lease and a panic, not a close.
             _ = app.update(cx, |app, cx| match &kind {
-                PanelKind::Terminal(pane_id) => app.detach_pane(*pane_id, cx),
+                PanelKind::Terminal(pane_id) => {
+                    let ui = &app.workbench.settings.ui;
+                    let setting = if app.pane_is_agent(*pane_id) {
+                        ui.agent_terminal_close
+                    } else {
+                        ui.terminal_close
+                    };
+                    match setting {
+                        // `close_pane` queues the `PanelEdit::Close` itself, so it is not preceded
+                        // by a `detach_pane` that would queue a second one for the same panel.
+                        TabClose::Close => app.close_pane(*pane_id, cx),
+                        TabClose::Hide => app.detach_pane(*pane_id, cx),
+                    }
+                }
                 PanelKind::File(key) => app.closed_file_panel(key, cx),
-                PanelKind::Chat(id) => app.closed_chat_tab(*id, cx),
+                PanelKind::Chat(id) => {
+                    // The agent has to be read before the tab goes: `closed_chat_tab` takes the
+                    // tab out of the project, and the attachment goes with it.
+                    let agent = (app.workbench.settings.ui.agent_chat_close == TabClose::Close)
+                        .then(|| app.chat_tab_agent(*id, cx))
+                        .flatten();
+                    app.closed_chat_tab(*id, cx);
+                    if let Some(agent) = agent {
+                        app.workbench.confirm_end_conversation = Some(agent);
+                        cx.notify();
+                    }
+                }
                 _ => {}
             });
         });

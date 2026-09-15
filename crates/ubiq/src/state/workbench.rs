@@ -13,7 +13,7 @@
 //! working-tree totals were invented, and a fact nobody can answer for is not drawn at all.
 
 use gpui::SharedString;
-use ubiq_proto::ids::ProjectId;
+use ubiq_proto::ids::{PaneId, ProjectId};
 use ubiq_proto::mcp::McpInfo;
 use ubiq_proto::messages::{AccountInfo, AgentTypeInfo, ProfileInfo, ShellInfo};
 use ubiq_proto::tools::ListedTool;
@@ -221,6 +221,9 @@ pub enum MenuId {
     /// A right-click on a Git screen row — a changed path, a commit or a ref. Which row, and where,
     /// is `GitView::menu`.
     Git,
+    /// The status bar's file-kind readout: which viewer draws the open tab. It hangs off its own
+    /// trigger and carries no position, and the override it picks lasts only as long as the tab.
+    ViewerKind,
 }
 
 /// One row of the new-pane control's menu, in the order it is drawn.
@@ -235,11 +238,9 @@ pub enum NewPaneRow {
     /// because the pick that follows it is an index into this very list.
     DetachedHeading,
     /// A pane no panel currently draws, by its index into the detached list the caller passed
-    /// `new_pane_rows` — that list lives on `AppState`, not here, so unlike `Agent` this index
+    /// `new_pane_rows` — that list lives on `AppState`, not here, so unlike `Shell` this index
     /// resolves against the caller's own copy rather than a field of `WorkbenchState`.
     Detached(usize),
-    /// An agent harness, by its index in [`WorkbenchState::agent_types`].
-    Agent(usize),
     /// A shell, by its index in [`WorkbenchState::shells`].
     Shell(usize),
     /// A runnable tool, by its index in [`WorkbenchState::tools`].
@@ -439,6 +440,12 @@ pub struct WorkbenchState {
     /// The conversation Delete asked to confirm — destructive and irreversible, so it is not fired
     /// on the click. `None` when no confirm is up.
     pub confirm_end_conversation: Option<AgentId>,
+    /// The pane a tab's Close asked to end — the harness is killed and its screen goes with it,
+    /// which is irreversible, so it is not fired on the click. `None` when no confirm is up.
+    ///
+    /// Only the *destructive* close asks. Hide takes the tab away and leaves the harness running,
+    /// so there is nothing to warn about and nothing to confirm.
+    pub confirm_close_pane: Option<PaneId>,
     /// The shells the host says this machine has, in the order the menu offers them. Empty until
     /// the host answers — a window asks as it attaches and again every time the menu opens, so a
     /// shell installed since is offered without a restart.
@@ -526,6 +533,7 @@ impl Default for WorkbenchState {
             new_agent_menu: None,
             conversation_menu: None,
             confirm_end_conversation: None,
+            confirm_close_pane: None,
             shells: Vec::new(),
             agent_types: Vec::new(),
             mcps: Vec::new(),
@@ -540,14 +548,15 @@ impl WorkbenchState {
     ///
     /// A window with no project can start no pane — there is no folder to run one in — so it is
     /// offered the console alone rather than anything that would do nothing. Detached panes come
-    /// first, above the agents group: reattaching one is picking up work already running, which
-    /// reads before starting something new. Agent harnesses are offered above the shells, because
-    /// starting a harness is the common case and a bare shell is the fallback; runnable tools come
-    /// below the shells, because they are the specific case. Only applicable tools are rows — a
-    /// macOS-only row on Windows is not offered. Each separator is a row like any other, and there
-    /// is none when there is nothing above it to separate — an empty agent list degrades to
-    /// exactly the menu a window with no harnesses installed showed before agents existed, and no
-    /// detached pane degrades to exactly the menu before detaching existed.
+    /// first: reattaching one is picking up work already running, which reads before starting
+    /// something new. Then the shells, and below them the runnable tools, because they are the
+    /// specific case. Only applicable tools are rows — a macOS-only row on Windows is not offered.
+    /// Each separator is a row like any other, and there is none when there is nothing above it to
+    /// separate — no detached pane degrades to exactly the menu before detaching existed.
+    ///
+    /// **A harness is not a row.** Starting one is what the New agent form is for, and it asks the
+    /// identity, the model, the level and the mode in the same breath; this menu offers the ways
+    /// of opening a terminal that are not an agent.
     ///
     /// `detached_count` is the length of the caller's own detached-pane list — that list lives on
     /// `AppState`, which `state/` holds no reference to, so it is threaded in the same way
@@ -560,10 +569,6 @@ impl WorkbenchState {
             rows.push(NewPaneRow::Separator);
         }
         if has_project {
-            rows.extend((0..self.agent_types.len()).map(NewPaneRow::Agent));
-            if !self.agent_types.is_empty() {
-                rows.push(NewPaneRow::Separator);
-            }
             rows.extend((0..self.shells.len()).map(NewPaneRow::Shell));
             if !self.shells.is_empty() {
                 rows.push(NewPaneRow::Separator);
@@ -618,9 +623,8 @@ impl WorkbenchState {
     /// **A harness that cannot converse is omitted entirely**, unavailable ones notwithstanding:
     /// the two absences say different things. "Not installed" is worth drawing disabled, because
     /// installing it is the fix; "has no structured bridge" is not something the reader can act
-    /// on, and the harness is not missing — it still runs perfectly well in a pane, which is where
-    /// [`Self::new_pane_rows`] keeps offering it. Indices stay indices into `agent_types`, so the
-    /// two menus read one list.
+    /// on, and the harness is not missing — it still runs perfectly well in a pane. Indices stay
+    /// indices into `agent_types`, gap and all.
     pub fn harness_choices(
         &self,
         accounts: &[AccountInfo],
@@ -853,15 +857,6 @@ mod tests {
                 },
             ],
             "the indices are still positions in `agent_types`, gap and all"
-        );
-        assert_eq!(
-            state
-                .new_pane_rows(true, 0)
-                .iter()
-                .filter(|row| matches!(row, NewPaneRow::Agent(_)))
-                .count(),
-            3,
-            "a pane can still run it"
         );
     }
 

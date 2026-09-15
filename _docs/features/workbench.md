@@ -130,8 +130,9 @@ as it is filled in has to be re-read after every answer.
 menu reads, plus the accounts signed in and the profiles saved, but not the same rows from it: it
 keeps only the harnesses whose `AgentTypeInfo::chat` is true, because a harness with no structured
 bridge (Grok) can draw a pane's screen but has nothing to turn into a `ConvUpdate` — offering it
-here would start a conversation that never speaks. The new-pane menu keeps every harness
-regardless, `chat` or not, since a pane asks nothing of the bridge. What survives that filter is
+here would start a conversation that never speaks. **No harness is a new-pane row at all** —
+that menu offers the terminals that are not agents, and starting one is this form's job. What
+survives that filter is
 grouped into a `Configured` heading with one row per `(harness, account)` pair and a `Defined`
 heading with one row per saved profile, `HarnessChoice::Profile(usize)` indexing the list settings
 holds; a group with nothing in it is omitted whole, heading and separator together, rather than
@@ -256,14 +257,41 @@ transcript and its run directory, so Resume brings it back — it is what is lef
 stopped answering and Stop has nothing to interrupt it with, the one verb that does not ask.
 Unload (`UnloadConversation`) asks the harness to shut down and keeps the same three things — the
 pickers return, exactly as a conversation that has not launched yet reads.
-Resume (`ResumeConversation`) starts the harness again under the same agent, with no prompt. Delete
+Resume (`ResumeConversation`) starts the harness again under the same agent, with no prompt. Close
 (`EndConversation`) ends the conversation outright, taking the run directory and the transcript with
 it, and is the one item confirmed before it fires rather than acted on the click — it is the only
-irreversible one of the nine.
+irreversible one on the menu.
 Fork (`ReviveConversation` with a fresh `agent_id`) copies the run directory and launches a second
 agent in the copy from this point on, leaving the source untouched.
 
-**Three toggles sit between Fork and Delete, and they are Ubiq's own rather than the harness's.**
+**The menu is in three sections, and the two hairlines between them are rows.** What the harness is
+doing (Stop, Abort, Unload, Resume), what the reader can reach for (Info, Fork and the three
+toggles), and what puts the conversation away (Hide, Close). A separator occupies an index in
+`lifecycle_menu_rows` and a dead arm in `pick_conversation_menu`, because the rows are dispatched by
+position: a hairline that did not take a place in the list would slide every row below it onto the
+wrong verb.
+
+**Hide and Close are the two ends of the last section, and only one of them ends anything.** Hide
+closes the chat tab attached to this agent and nothing else — the conversation is the host's, keeps
+its harness and goes on taking turns, and the sidebar still lists it. It is the one row on the menu
+read off the window's own arrangement rather than off the work record, and it is drawn dead when no
+chat tab is attached. Close is the delete this menu used to call Delete, renamed for the pair: the
+confirm it raises says *Close conversation* and warns that the transcript and the run directory,
+seeded credentials included, go with it and that it cannot be undone.
+
+**Info opens the panel the tools section leads with** — `ui/conversation/info.rs`, a modal over the
+window. It draws only what the window already holds: the harness label, the model and the permission
+mode; the account, where an account that resolved to nothing reads as *the user's own home* rather
+than as a blank; the token spend, broken down and split by subagent where the harness reported one,
+falling back to `WorkAgent::tokens`; the context percentage and the last usage report; and the
+session id with a copy button, because that is the handle every log line elsewhere is keyed by.
+Three buttons at the foot reveal a folder in the desktop's own file manager — the run directory
+(`WorkAgent::run_dir`), the configuration directory the library resolved (`WorkAgent::config_dir`),
+and the folder holding the capture, which is there only while there is a capture. A folder the host
+has reported no path for is drawn dead rather than dropped.
+
+**Three toggles sit between Fork and the closing pair, and they are Ubiq's own rather than the
+harness's.**
 The persistence row (`SetConversationPersistent`) marks the conversation as one that outlives the
 window, reading *Make persistent* or *Stop persisting* by which way it goes. The accept-all row
 (`SetConversationAcceptAll`) reads *Accept all* or *Stop accepting all*, and while it is on the host
@@ -271,22 +299,29 @@ answers every permission the harness asks for and the window is never shown the 
 document holds what that does to the transcript. The dump row
 (`SetConversationDebugDump`) reads *Dump messages* or *Stop dumping* and writes that one
 conversation's traffic to a file; the host answers where, and the row carries the path as its
-tooltip, because a capture the user cannot find is a capture that did not happen. All three sit
-before Delete, because none is destructive and the irreversible verb stays last — which is where a
-toggle added later goes too. **Only the persistence row reads the harness**: it is drawn dead for a
+tooltip, because a capture the user cannot find is a capture that did not happen. **Both edges of
+the dump row put that path on the clipboard.** Stopping has it in hand — it is on the record now and
+will not be in a moment. Starting has nothing yet, so `AppState::dump_copy_pending` records who
+asked and `watch_for_dump_path` copies the host's answer when it lands, giving up on its own if none
+does. No toast follows it: the notification list is the host's, every row in it a broadcast, and the
+row's own tooltip already says the path in the place the click happened. All three toggles sit
+before the closing pair, because none is destructive and the irreversible verb stays last — which is
+where a toggle added later goes too. **Only the persistence row reads the harness**: it is drawn dead for a
 harness that keeps its sessions outside the run directory (`keeps_sessions`), since keeping that
 directory would preserve nothing, while the other two are always enabled because Ubiq answers and
 Ubiq writes, and no harness has to support either.
 
 **Each item disables rather than disappears when it does not apply** — Stop only while a turn runs, Abort and Unload only
 while launched, Resume only while it is not, Fork only while nothing is in flight (copying a session
-store mid-append tears the last record), Delete always — so the menu's shape never changes under
-the cursor. The nine labels and their enablement are one list of pairs,
+store mid-append tears the last record), Hide only while a chat tab is attached, Info and Close
+always — so the menu's shape never changes under
+the cursor. The labels and their enablement are one list of pairs,
 `ui::conversation::lifecycle_menu_rows`, because `AppState::pick_conversation_menu` dispatches by
 position and a row in one copy of the list and not another is a menu whose rows do the wrong thing.
 `ui::conversation::LIFECYCLE_DUMP_ROW` names the one row the menu reaches back into to hang the
-capture's path on, for the same reason. See [`sessions-and-workspaces.md`](./sessions-and-workspaces.md) for what unload keeps that
-delete does not.
+capture's path on, for the same reason — and it moves whenever a row or a separator is added above
+it, which is the other half of why it is not a literal. See [`sessions-and-workspaces.md`](./sessions-and-workspaces.md) for what unload keeps that
+closing does not.
 
 **The bench is computed, not stored.** It is every agent the host reports that no column is showing,
 so an agent the host stops reporting stops being listed with nothing to clean up.
@@ -1435,6 +1470,18 @@ status by colour and not by wording alone, the same as everywhere else. On Windo
 the missing ConPTY seam. A row that promised
 protection it could not deliver would be worse than the plain run it silently became.
 
+**The Editor section's "Closing a tab" heading holds three settings, one per pane kind, each a
+`Hide`/`Close` choice for what that kind's × means.** `terminal_close` (a plain shell pane) and
+`agent_terminal_close` (a pane running an agent harness) both default to `Close` — a terminal is
+cheap to start again, and a pane hidden by accident is one the user has to go looking for in the
+new-pane menu's Detached group. `agent_chat_close` defaults to `Hide` — the conversation behind a
+chat tab is the host's and outlives every view of it, so its × does not delete a transcript
+unasked. The two kinds of terminal pane are told apart the same way `pane_is_agent()` tells them
+apart everywhere else: a pane's resolved `agent_type` matched against the harness catalogue the
+host sent, so a plain shell — whose type is a program name — always reads as the plain-shell
+setting. Whatever a row says, the tab's right-click menu still offers both Hide and Close, so
+either ending is reachable regardless of the standing setting.
+
 **Vim mode is one switch over every text surface a document is written in.** Off by default, and
 turned on either from the Editor section of settings or by clicking the status bar's mode chip. On,
 the file editor and every multi-line box — the chat composer, an agent's input, a task description,
@@ -1771,7 +1818,10 @@ extension when the tab opens, and nothing about it looks at a path again: `.md` 
 view, `.mmd` and `.mermaid` the diagram, `.excalidraw` the scene, the image extensions the picture
 itself, and everything else the highlighted buffer — which is the general case rather than a
 fallback. A comparison against version control is not a viewer kind: it is what the tab is *looking
-at*, so a diff opens beside the file rather than inside it.
+at*, so a diff opens beside the file rather than inside it. The extension's answer is a default and
+not a verdict: the status bar's file-kind chip overrides it for as long as the tab is open, and
+`AppState::set_viewer_kind` re-settles the layout when the new kind does not offer the one the tab
+was in.
 
 **A viewer with more than one thing to draw has a layout toggle, and it persists.** A strip above the
 body offers the positions that viewer's kind names — `ViewerKind::layouts()` — and only those: the
@@ -1937,14 +1987,22 @@ in Finder, Save, Word Wrap and Pin (or Unpin) — the two *closes* and the surro
 on the tab that was clicked, Copy Full Path copying the file's project path to the clipboard, Open
 in Finder revealing it (or its folder) in the system's file manager, Save writing the file behind
 one tab rather than only the active one, and a dirty tab in a bulk close still asked for rather than
-silently closed. A terminal's or a chat's is shorter: Rename…, Close and Pin (or Unpin) — Rename
-raises the same single-field prompt every other rename in the window uses, seeded with the tab's
-current label, and the typed name is never written down: a pane's id dies with its process and a
-chat's is reminted every run, so a saved name would only ever point at nothing.
+silently closed. A terminal's or a chat's is Rename…, Hide, Close and Pin (or Unpin) — Rename raises
+the same single-field prompt every other rename in the window uses, seeded with the tab's current
+label, and the typed name is never written down: a pane's id dies with its process and a chat's is
+reminted every run, so a saved name would only ever point at nothing. **Hide and Close are two
+different endings.** Hide takes the tab down and leaves the thing behind it running — a terminal's
+harness, a chat's conversation — reattachable from the new-pane menu's Detached group or by
+pointing a chat tab at the conversation again. Close is the real end: a terminal's kills its harness
+behind a confirm — "Panes and terminals" is where that lives — and a chat's raises the same Delete
+confirm its own lifecycle menu does, or simply hides when the tab is attached to nothing — there is
+no conversation there to delete.
 
-**Pin means protected from close, and nothing else.** A pinned tab's × is withheld and its Close row
-is left off the menu — file, terminal or chat alike — rather than drawn and disabled, and every bulk
-close a file's menu offers skips a pinned file outright. A pinned tab draws a small pin glyph before
+**Pin means protected from the ×, and nothing else.** A pinned tab's × is withheld, and every bulk
+close a file's menu offers skips a pinned file outright. On the menu itself a pinned file's Close
+row is left off rather than drawn and disabled; a pinned terminal or chat keeps its Close row —
+ending the harness or the conversation underneath is still the user's call regardless of pinning —
+and loses only Hide, for the same reason a file loses Close. A pinned tab draws a small pin glyph before
 its label, in the accent colour, and pinning changes nothing about what the tab does: it still
 resizes, still loses focus, still updates. A pinned file is written down — the one tab identity that
 survives a restart is a file's own tab key — and a pinned terminal or chat is not, for the same
@@ -1981,7 +2039,12 @@ totals when those exist, the vim chip, the caret's real one-based line and colum
 language, encoding and line ending, the harness and mode the composer is set to, and the active
 file's text size. The vim chip is the one thing in the strip that is not only a readout: it reads
 `VIM` faint when modal editing is off and the mode — or the command being half-typed over it, or
-the open `/` line — when it is on, and a click toggles the same setting the checkbox does. A project that is not a repository
+the open `/` line — when it is on, and a click toggles the same setting the checkbox does. **The
+language is the second**: it is a chip, and clicking it opens a searchable picker of the viewers a
+file can be drawn with — `ViewerKind::all()`, filtered by what is typed — so a file the extension
+sent to the wrong viewer can be redirected without renaming it. What is picked lasts as long as the
+tab does and is written nowhere: a viewer forced on for one sitting is a way of looking at the file
+now, not a fact about the file, so a tab closed and reopened starts from `ViewerKind::of` again. A project that is not a repository
 prints nothing git-related, and a branch with no upstream draws no `0/0`. The caret and the language
 go with the file, so a window with no file open reports neither rather than a position in nothing.
 With no project open it says so and stops. On the two screens over the agents there is no file and
@@ -2030,6 +2093,13 @@ project's own arrangement installs, rather than carrying one project's results o
 into a screen that has never seen either. A saved arrangement that names them puts them straight
 back — that is the difference between *remembered* and *inherited*. When the incoming project has no
 saved arrangement at all, the region they just vacated is collapsed rather than left as an empty bar.
+
+**Neither is ever put back by a state flag.** The search panel reaches the dock through
+`reveal_search()` and the console through `reveal_console()` — the titlebar's icon, the ⌘⇧F binding,
+`search_for()` and the new-pane menu's *Console* row — and through a saved arrangement that already
+named it. A search still in flight is not a reason to add the panel: entering the IDE with an
+unfinished search behind it used to re-add the search panel over whatever arrangement the user had
+left, which is the whole reason the presence of these two is the arrangement's business alone.
 
 **Layout persists; harnesses do not.** The arrangement carries a version of its own, and one written
 for another version is discarded whole for the default arrangement rather than half-applied. A saved
@@ -2597,8 +2667,8 @@ from a run where the user had hidden it — unless `git_sides_hidden` says this 
 already put it away by hand; `toggle_region()` is what sets that pair, one bit per side, and only
 while Git is the mode on screen. `select_git_ref()` reveals that panel if it was
 hidden; `jump_to_git_ref()` selects the commit the ref points at and scrolls the list to it.
-`select_git_path()` reveals the diff panel. The IDE's right region stays shut on a first visit
-unless `settle_persistent_chat()` finds a persistent agent. `git_view()`, `git_view_mut()` and
+`select_git_path()` reveals the diff panel. The IDE's right region stays shut on a first visit,
+whatever `settle_persistent_chat()` attaches behind it. `git_view()`, `git_view_mut()` and
 `git_entries()` are the accessors; `select_git_path()` is the one mutator that sends anything, and
 it sends `DiffProjectFile` only when the selection actually moved. `refresh_git()` asks for the
 overview and the working tree together. `ProjectFileDiffed` feeds whichever of the screen and a diff
@@ -2634,10 +2704,12 @@ under the older name keeps its zoom), whether its editors wrap (`editor_wrap`) a
 its explorer's filter (`file_filter`) — each new field `#[serde(default)]`, so a field costs the
 schema nothing, `scratch` and `pinned_files` included. `ModeLayout::default_for` is what a mode with
 no entry opens on: every region flag `false`, in every mode, because no region is furniture — `D94`.
-**A persistent agent is the one exception.** `AppState::settle_persistent_chat` (see the chat
-document) runs after a project's layout settles and, if that project holds a persistent
-agent, attaches its seed chat tab to that agent and reveals the right region — so the default stays
-closed and a persistent agent's tab is what reopens it, at most once per project.
+**Nothing overrides that.** A right region the user left closed stays closed until the user's own
+click reopens it. `AppState::settle_persistent_chat` (see the chat document) runs after a project's
+layout settles and, if that project holds a persistent agent, attaches its seed chat tab to that
+agent — but it queues the panel as `PanelEdit::Open`, which joins the group in the right region
+without touching whether that region is on screen, so the tab is waiting there whenever the user
+does open it rather than opening it for them.
 The number is `3`, because one value in the blob carries a meaning that moves with the build: a
 `rail_mode` of `Agents` names the column screen, and an older blob wrote it for the graph. That is
 the one case a default cannot rescue — nothing is missing, and the value means something else — so
@@ -2705,7 +2777,7 @@ switches in IDE and in Git (`WorkbenchState::has_side_panels`). `new_terminal()`
 own New terminal shortcut: it calls `toggle_region()` when the bottom is shut, and spawns a pane
 itself only when the region was already open or was reopened onto panes still in it, so opening
 onto true emptiness is never given two panes by two different callers. A chevron beside it opens
-the same new-pane menu the terminal `+` offers, with its shells, harnesses and runnable tools. `open_new_agent_direct()` is
+the same new-pane menu the terminal `+` offers, with its shells and runnable tools. `open_new_agent_direct()` is
 the titlebar's New agent shortcut, making the same `aim_start()` call `pick_new_agent_menu()` makes
 for the `+` menu's first row, with that menu's own first stage skipped. A panel reaches the dock
 through a `Window` and a message does not come with one, so both halves of a panel's life queue and
@@ -2886,7 +2958,7 @@ the component's undo stack is not reachable, so those two go back out as its own
 State types live under `crates/ubiq/src/state/`: `workbench.rs` for the rail mode, the open menu, the
 project settings dialog, the application settings overlay, what was typed into the picker's and the
 explorer's filters, and the menus that came later — `MenuId::FontSize` for the status bar's
-text-size dropdown, `MenuId::Tab` with the tab's `PanelKind` and anchor in
+text-size dropdown, `MenuId::ViewerKind` for the file-kind chip beside it, `MenuId::Tab` with the tab's `PanelKind` and anchor in
 `WorkbenchState::tab_menu` for a tab's right-click, `MenuId::NewPane` with its anchor
 in `WorkbenchState::new_pane_menu` and its rows in `WorkbenchState::shells` for the new-pane
 control's chevron, and `MenuId::Overflow` with its anchor in `WorkbenchState::overflow_menu` and its
@@ -3056,10 +3128,12 @@ explorer's. `reveal_agent()`, `group_agent_into()`, `bench_agent()`, `select_col
 `settle_tab_drag()` are the drag, the last putting down a tab whose drag ended where no drop handler
 sees it. `steer_column()` is the one thing this screen sends through the Enter key, and appends
 nothing itself; `close_all_conversations()` is `bench_agent()` for every tab in every column, not
-`end_conversation()`. The lifecycle menu's nine rows resolve by position through
+`end_conversation()`. The lifecycle menu's rows resolve by position through
 `pick_conversation_menu()` onto `cancel_turn()`, `abort_agent()`, `unload_agent()`,
-`resume_agent()`, `fork_conversation()`, `toggle_conversation_persistent()`,
-`toggle_conversation_accept_all()`, `toggle_conversation_debug_dump()` and the confirm
+`resume_agent()`, a dead index for the hairline, `open_conversation_info()`, `fork_conversation()`,
+`toggle_conversation_persistent()`, `toggle_conversation_accept_all()`,
+`toggle_conversation_debug_dump()`, a second dead index, `hide_conversation_view()` — which finds
+the chat tab attached to this agent and closes it, ending nothing — and the confirm
 `end_conversation()` fires from. `fill_columns()` gives each composer its placeholder and its draft, drained in
 `render` for the reason `fill_task_form()` is: `set_placeholder` and `set_value` both need a window,
 and an arriving message, a project switch and a jump from another screen have none. `MenuId::AgentBench`

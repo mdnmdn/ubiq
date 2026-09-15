@@ -204,6 +204,8 @@ fn an_agent(id: AgentId, name: &str) -> WorkAgent {
         persistent: false,
         accept_all: false,
         debug_dump: None,
+        run_dir: None,
+        config_dir: None,
         thread: Vec::new(),
     }
 }
@@ -390,15 +392,16 @@ fn a_conversation_disables_in_another_tab_s_picker_but_not_its_own() {
     ];
     let agents = vec![an_agent(agent, "Claude Code")];
 
+    let live = [agent];
     let shown: Vec<_> = chats.iter().filter_map(|tab| tab.attached).collect();
-    let from_a = attach_choices(&agents, &shown, Some(agent), "");
+    let from_a = attach_choices(&agents, &live, &shown, Some(agent), "");
     assert_eq!(from_a.selected, Some(0), "A's own attachment stays picked");
     assert!(
         from_a.disabled.is_empty(),
         "a tab's own row is never the one it disables"
     );
 
-    let from_b = attach_choices(&agents, &shown, None, "");
+    let from_b = attach_choices(&agents, &live, &shown, None, "");
     assert_eq!(from_b.selected, None);
     assert_eq!(
         from_b.disabled,
@@ -418,8 +421,8 @@ fn a_conversation_disables_in_another_tab_s_picker_but_not_its_own() {
 #[gpui::test]
 fn a_freshly_attached_chat_tab_reopens_a_closed_right_region(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
-    // A fresh project with nothing persistent opens with the right region put away — see
-    // `a_persistent_agent_opens_its_chat_on_entry` for the one exception.
+    // A fresh project opens with the right region put away, and nothing but a gesture reopens it —
+    // see `a_persistent_agent_claims_a_chat_tab_without_opening_the_region`.
     assert!(
         !fixture.regions_open(cx).2,
         "the right region starts closed"
@@ -437,10 +440,13 @@ fn a_freshly_attached_chat_tab_reopens_a_closed_right_region(cx: &mut TestAppCon
     assert!(!fixture.chat_leaves(cx).is_empty(), "the tab is on screen");
 }
 
-/// A project with a persistent agent opens showing its chat — the one exception to a fresh
-/// project opening with the right region closed.
+/// A project with a persistent agent claims a chat tab for it, and **leaves the right region
+/// exactly as it found it**. A closed right region stays closed until the user's own click opens
+/// it; the agent's work arriving is not a gesture. The tab is still attached and still in the
+/// tree, so opening the region later lands on the persistent conversation rather than a fresh
+/// empty tab.
 #[gpui::test]
-fn a_persistent_agent_opens_its_chat_on_entry(cx: &mut TestAppContext) {
+fn a_persistent_agent_claims_a_chat_tab_without_opening_the_region(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
     assert!(
         !fixture.regions_open(cx).2,
@@ -453,8 +459,12 @@ fn a_persistent_agent_opens_its_chat_on_entry(cx: &mut TestAppContext) {
     fixture.work_list(vec![agent], cx);
 
     assert!(
-        fixture.regions_open(cx).2,
-        "a persistent agent's tab is the one thing that opens the region on its own"
+        !fixture.regions_open(cx).2,
+        "a persistent agent must not open a region the user left closed"
+    );
+    assert!(
+        !fixture.chat_leaves(cx).is_empty(),
+        "the tab is in the tree all the same, waiting for the region to be opened"
     );
     let attached = fixture.state.read_with(cx, |state, cx| {
         state
