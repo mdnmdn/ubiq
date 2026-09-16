@@ -227,6 +227,7 @@ fn columns(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         .min_h(px(0.))
         .p_3()
         .gap_2()
+        .overflow_x_scroll()
         .children(
             Status::all()
                 .into_iter()

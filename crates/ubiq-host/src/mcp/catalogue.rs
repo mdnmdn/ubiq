@@ -51,6 +51,47 @@ pub struct ServerSpec {
     pub tools: &'static [ToolSpec],
 }
 
+/// The todo (sub-task) tools: written once and shared between `manage-ubiq-tasks` and `use-task`,
+/// which both route them to the same handlers in `tasks.rs`.
+const ADD_TODO: ToolSpec = ToolSpec {
+    name: "add_todo",
+    description: "Append a todo (sub-task) to a task.",
+    schema: r#"{
+        "type": "object",
+        "properties": {
+            "task_id": {"type": "string"},
+            "title": {"type": "string"}
+        },
+        "required": ["task_id", "title"]
+    }"#,
+};
+const UPDATE_TODO: ToolSpec = ToolSpec {
+    name: "update_todo",
+    description: "Patch a todo. Null or omitted fields are left alone. Set done to true to mark it done, or false to return it to idle.",
+    schema: r#"{
+        "type": "object",
+        "properties": {
+            "task_id": {"type": "string"},
+            "todo_id": {"type": "string"},
+            "title": {"type": "string"},
+            "done": {"type": "boolean"}
+        },
+        "required": ["task_id", "todo_id"]
+    }"#,
+};
+const DELETE_TODO: ToolSpec = ToolSpec {
+    name: "delete_todo",
+    description: "Remove a todo from a task.",
+    schema: r#"{
+        "type": "object",
+        "properties": {
+            "task_id": {"type": "string"},
+            "todo_id": {"type": "string"}
+        },
+        "required": ["task_id", "todo_id"]
+    }"#,
+};
+
 /// Every server this build can inject, in the order a panel lists them.
 pub const SERVERS: &[ServerSpec] = &[
     ServerSpec {
@@ -247,44 +288,9 @@ pub const SERVERS: &[ServerSpec] = &[
                     "required": ["task_id"]
                 }"#,
             },
-            ToolSpec {
-                name: "add_todo",
-                description: "Append a todo (sub-task) to a task.",
-                schema: r#"{
-                    "type": "object",
-                    "properties": {
-                        "task_id": {"type": "string"},
-                        "title": {"type": "string"}
-                    },
-                    "required": ["task_id", "title"]
-                }"#,
-            },
-            ToolSpec {
-                name: "update_todo",
-                description: "Patch a todo. Null or omitted fields are left alone. Set done to true to mark it done, or false to return it to idle.",
-                schema: r#"{
-                    "type": "object",
-                    "properties": {
-                        "task_id": {"type": "string"},
-                        "todo_id": {"type": "string"},
-                        "title": {"type": "string"},
-                        "done": {"type": "boolean"}
-                    },
-                    "required": ["task_id", "todo_id"]
-                }"#,
-            },
-            ToolSpec {
-                name: "delete_todo",
-                description: "Remove a todo from a task.",
-                schema: r#"{
-                    "type": "object",
-                    "properties": {
-                        "task_id": {"type": "string"},
-                        "todo_id": {"type": "string"}
-                    },
-                    "required": ["task_id", "todo_id"]
-                }"#,
-            },
+            ADD_TODO,
+            UPDATE_TODO,
+            DELETE_TODO,
             ToolSpec {
                 name: "get_task",
                 description: "One task whole: fields, todos and comments.",
@@ -386,6 +392,9 @@ pub const SERVERS: &[ServerSpec] = &[
                     "required": ["task_id", "text"]
                 }"#,
             },
+            ADD_TODO,
+            UPDATE_TODO,
+            DELETE_TODO,
         ],
     },
     ServerSpec {

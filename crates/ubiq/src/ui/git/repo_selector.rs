@@ -2,21 +2,25 @@
 //! the list of the project's other repositories (submodules or nested ones) to switch to.
 
 use gpui::{
-    AnyElement, App, Context, ElementId, InteractiveElement, IntoElement, ParentElement,
-    StatefulInteractiveElement, Styled, Window, anchored, deferred, div, prelude::FluentBuilder,
-    px,
+    AnyElement, App, Context, ElementId, InteractiveElement, IntoElement, MouseButton,
+    ParentElement, StatefulInteractiveElement, Styled, Window, anchored, deferred, div, point,
+    prelude::FluentBuilder, px,
 };
-use gpui_component::{Icon, IconName, Sizable as _, Size, scroll::ScrollableElement};
+use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use crate::app::AppState;
 use crate::state::MenuId;
 use crate::theme;
 use crate::theme::{Family, Role};
+use crate::ui::kit::menu::MENU_LAYER;
 use crate::ui::kit::{UbiqIcon, mono, section_label};
 use ubiq_proto::git::GitHead;
 
 /// How wide the repo selector panel is.
 const PANEL_WIDTH: f32 = 360.0;
+
+/// How tall the list of repositories grows before it scrolls.
+const LIST_MAX_HEIGHT: f32 = 320.0;
 
 pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl IntoElement {
     let open = app.workbench.open_menu == Some(MenuId::GitRepo);
@@ -111,46 +115,59 @@ fn panel(app: &AppState, _window: &Window, cx: &mut Context<AppState>) -> AnyEle
     }
 
     deferred(
-        anchored().snap_to_window_with_margin(px(8.)).child(
-            div()
-                .id("git-repo-panel")
-                .w(px(PANEL_WIDTH))
-                .flex()
-                .flex_col()
-                .bg(theme::surface_raised())
-                .border_l(px(theme::accent_edge()))
-                .border_color(theme::accent())
-                .shadow_lg()
-                .on_mouse_down_out(cx.listener(|this, _, _, cx| this.close_menu(cx)))
-                .child(
-                    div()
-                        .h(px(32.))
-                        .px_3()
-                        .flex()
-                        .flex_none()
-                        .items_center()
-                        .gap_2()
-                        .border_b_1()
-                        .border_color(theme::border())
-                        .child(section_label("Repositories"))
-                        .child(div().flex_1().min_w(px(0.)))
-                        .child(
-                            mono(format!("{} repositories", rows.len()), theme::text_faint())
-                                .text_size(theme::font(Family::Chrome, Role::Meta)),
-                        ),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .flex_1()
-                        .min_h(px(0.))
-                        .overflow_y_scrollbar()
-                        .children(rows.iter().map(|row| repo_row(row, project_id, cx))),
-                ),
-        ),
+        anchored()
+            // The panel hangs from the trigger's own origin, which is the top of the chrome
+            // strip — dropped by the strip's height it opens under the row instead of over the
+            // buttons beside it.
+            .offset(point(px(0.), px(theme::titlebar_height())))
+            .snap_to_window_with_margin(px(8.))
+            .child(
+                div()
+                    .id("git-repo-panel")
+                    .w(px(PANEL_WIDTH))
+                    .flex()
+                    .flex_col()
+                    .flex_none()
+                    .occlude()
+                    .bg(theme::surface_raised())
+                    .border_l(px(theme::accent_edge()))
+                    .border_color(theme::accent())
+                    .shadow_lg()
+                    // Painted over the strip's buttons, so a click on a row would otherwise also
+                    // land on the button underneath it — the same stop the kit's dropdown makes.
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_mouse_down_out(cx.listener(|this, _, _, cx| this.close_menu(cx)))
+                    .child(
+                        div()
+                            .h(px(32.))
+                            .px_3()
+                            .flex()
+                            .flex_none()
+                            .items_center()
+                            .gap_2()
+                            .border_b_1()
+                            .border_color(theme::border())
+                            .child(section_label("Repositories"))
+                            .child(div().flex_1().min_w(px(0.)))
+                            .child(
+                                mono(format!("{} repositories", rows.len()), theme::text_faint())
+                                    .text_size(theme::font(Family::Chrome, Role::Meta)),
+                            ),
+                    )
+                    .child(
+                        // A bounded scroller rather than `flex_1`: the panel is sized by its
+                        // content, so a filling child resolves against nothing and draws no rows.
+                        div()
+                            .id("git-repo-list")
+                            .max_h(px(LIST_MAX_HEIGHT))
+                            .flex()
+                            .flex_col()
+                            .overflow_y_scroll()
+                            .children(rows.iter().map(|row| repo_row(row, project_id, cx))),
+                    ),
+            ),
     )
-    .priority(1)
+    .priority(MENU_LAYER)
     .into_any_element()
 }
 
@@ -167,7 +184,9 @@ fn repo_row(
     cx: &mut Context<AppState>,
 ) -> AnyElement {
     div()
-        .id(ElementId::from(format!("repo-{}", row.name)))
+        // Keyed by path, not by head: two repositories on a branch of the same name would
+        // otherwise share one id, and one row's hover and click would answer for both.
+        .id(ElementId::from(format!("repo-{}", row.scoped_to)))
         .h(px(32.))
         .px_3()
         .flex()

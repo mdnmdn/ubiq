@@ -466,10 +466,16 @@ impl Work {
             replies.push(Reply::Asker(work_error(project, None, refusal)));
             return replies;
         }
-        let task = TaskRecord::new(title, session, Utc::now());
+        let mut task = TaskRecord::new(title, session, Utc::now());
         let Some(list) = self.loaded.get_mut(&project) else {
             return replies;
         };
+        // Nobody names a task on the way in, most of the time, and it still needs one a human can
+        // say out loud the moment it shows up in a tracker's link or an MCP client's reply — so a
+        // task with no key of its own is given `T-<n>`, one past the highest already in use.
+        if task.key.is_none() {
+            task.key = Some(next_task_key(list));
+        }
         list.push(task.clone());
 
         // Its own variant rather than a change, because the interface cannot know an id it did not
@@ -1004,6 +1010,18 @@ fn link(agents: &mut [WorkAgent], tasks: &[TaskRecord]) {
             })
             .map(|t| t.id);
     }
+}
+
+/// The next `T-<n>` for a project's tasks: one past the highest progressive already in use, which
+/// is free by construction — a user's own `T-3`, imported from somewhere else, raises the floor
+/// exactly as one Ubiq minted itself does, and a key in any other shape does not count.
+fn next_task_key(existing: &[TaskRecord]) -> String {
+    let next = existing
+        .iter()
+        .filter_map(|task| task.key.as_deref()?.strip_prefix("T-")?.parse::<u64>().ok())
+        .max()
+        .map_or(1, |max| max + 1);
+    format!("T-{next}")
 }
 
 fn work_error(project: ProjectId, task: Option<TaskId>, error: impl Into<String>) -> Message {

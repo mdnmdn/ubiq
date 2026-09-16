@@ -794,7 +794,7 @@ fn a_created_task_is_a_backlog_card_with_nothing_on_it_yet() {
     assert_eq!(task.priority, Priority::Normal);
     assert_eq!(task.shape, None, "unshaped, not defaulted to Direct");
     assert_eq!(task.kind, None);
-    assert_eq!(task.key, None);
+    assert_eq!(task.key, Some("T-1".to_string()), "nobody named it, so Ubiq did");
     assert_eq!(task.link, None);
     assert!(task.labels.is_empty());
     assert_eq!(task.session, None);
@@ -810,6 +810,47 @@ fn a_created_task_is_a_backlog_card_with_nothing_on_it_yet() {
         "a new task is created, never changed"
     );
     assert_eq!(board(&mut work, project).last().unwrap().id, task.id);
+}
+
+#[test]
+fn a_tasks_key_is_the_next_free_t_progressive() {
+    let (_store, mut work, project) = unseeded();
+
+    let first = created(&work.create(project, "one".to_string(), None));
+    assert_eq!(first.key, Some("T-1".to_string()));
+    let second = created(&work.create(project, "two".to_string(), None));
+    assert_eq!(second.key, Some("T-2".to_string()));
+
+    // A task named `T-4` by hand, or by some other tracker, is skipped over rather than reused —
+    // the progressive climbs past the highest already claimed, whoever claimed it.
+    work.set_field(project, second.id, TaskField::Key(Some("T-4".to_string())));
+    let third = created(&work.create(project, "three".to_string(), None));
+    assert_eq!(third.key, Some("T-5".to_string()));
+
+    // And even a `T-5` left behind by hand does not collide: the search steps past it too.
+    work.set_field(project, first.id, TaskField::Key(Some("T-6".to_string())));
+    let fourth = created(&work.create(project, "four".to_string(), None));
+    assert_eq!(fourth.key, Some("T-7".to_string()));
+
+    // Every task still has its own key.
+    let keys: HashSet<_> = board(&mut work, project)
+        .iter()
+        .filter_map(|task| task.key.clone())
+        .collect();
+    assert_eq!(keys.len(), 4, "no two tasks share a key");
+}
+
+#[test]
+fn a_foreign_key_does_not_feed_the_progressive() {
+    let (_store, mut work, project) = unseeded();
+
+    let task = created(&work.create(project, "one".to_string(), None));
+    // A tracker's own id — `UBQ-42`, set the way the MCP tool's `key` argument does — is not a
+    // `T-<n>` and so is never read as one.
+    work.set_field(project, task.id, TaskField::Key(Some("UBQ-42".to_string())));
+
+    let next = created(&work.create(project, "two".to_string(), None));
+    assert_eq!(next.key, Some("T-1".to_string()));
 }
 
 #[test]

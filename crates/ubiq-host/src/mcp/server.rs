@@ -573,7 +573,12 @@ mod tests {
         let task_id = created["task"]["id"].as_str().unwrap().to_string();
 
         let overview = answered(&call(&url, "overview", json!({})));
-        assert_eq!(overview["columns"].as_array().unwrap().len(), 5);
+        // One column per status, counted off `Status::all()` rather than written out here, so a
+        // status added to the board does not fail a test about the overview.
+        assert_eq!(
+            overview["columns"].as_array().unwrap().len(),
+            ubiq_proto::work::Status::all().len()
+        );
         let ready = overview["columns"]
             .as_array()
             .unwrap()
@@ -689,7 +694,15 @@ mod tests {
             .collect();
         assert_eq!(
             names,
-            ["search_tasks", "get_task", "change_state", "add_comment"]
+            [
+                "search_tasks",
+                "get_task",
+                "change_state",
+                "add_comment",
+                "add_todo",
+                "update_todo",
+                "delete_todo",
+            ]
         );
 
         let created = answered(&call(
@@ -720,6 +733,28 @@ mod tests {
         let got = answered(&call(&url, "get_task", json!({"task_id": task_id})));
         assert_eq!(got["task"]["status"], "in progress");
         assert_eq!(got["task"]["comments"][0]["text"], "picked up");
+
+        let todo = answered(&call(
+            &url,
+            "add_todo",
+            json!({"task_id": task_id, "title": "write the list"}),
+        ));
+        assert_eq!(todo["todo"]["title"], "write the list");
+        let todo_id = todo["todo"]["id"].as_str().unwrap().to_string();
+
+        let ticked = answered(&call(
+            &url,
+            "update_todo",
+            json!({"task_id": task_id, "todo_id": todo_id, "done": true}),
+        ));
+        assert_eq!(ticked["todo"]["done"], true);
+
+        let deleted_todo = answered(&call(
+            &url,
+            "delete_todo",
+            json!({"task_id": task_id, "todo_id": todo_id}),
+        ));
+        assert_eq!(deleted_todo["deleted"], true);
     }
 
     #[test]

@@ -691,7 +691,9 @@ writing down long before Ubiq could do anything with it.
 
 **A task's key is the one a human says out loud.** Every task already has an id; nobody can read it.
 The key is the user's own — `UBQ-123`, `#4711`, whatever their tracker calls it — and `key:` in the
-filter finds a card by it.
+filter finds a card by it. A task created with none gets `T-<n>` instead, one past the highest
+`T-<n>` already in the project, so a card is never without one to say out loud; clearing the field
+in the form is still how a task goes back to having none.
 
 **One field is open at a time.** The panel is a report first, and a panel where every field is a
 text box has stopped reporting. A field opens on a click and closes on a commit.
@@ -763,9 +765,11 @@ the size they can be read at: the tree answers "is this file changed" and this s
 corner for as long as the rail is on Git.
 
 **The strip over the panels names the repository and what HEAD is doing.** The repository selector
-picks which of the project's repositories the view is showing — the root, or a submodule, or a
-nested one — and the pill beside it is the branch, the tracking counts and any in-progress
-operation. Fetch all, pull and push write, including an `ssh` remote (`git@host:path`); branch, stash and undo take no click. A refresh asks
+lists the project's repositories — the root, and a submodule or a nested one where the project has
+one — and the pill beside it is the branch, the tracking counts and any in-progress operation. Every
+git message is keyed by the project alone, so picking a row in the popover only closes it; the
+screen still shows the root repository (`G270`). Fetch all, pull and push write,
+including an `ssh` remote (`git@host:path`); branch, stash and undo take no click. A refresh asks
 the host again. What is typed into the commit box is kept with the project, until the commit it
 was written for succeeds: the working-tree reply that follows empties the box and drops the amend
 flag, rather than leaving a message on screen that is now history.
@@ -2558,7 +2562,7 @@ saying no file is open, because the files are panels of their own:
 | Orchestration graph | `ui/orchestration/graph.rs` | The orchestration screen, beside the inspector | Grows; scrolls to the extent of its cards | `GraphView` and its `Layout` over the same projection, and `CARD_WIDTH`/`CARD_HEIGHT` in `state/layout.rs` |
 | Inspector | `ui/orchestration/inspector.rs` | The orchestration screen, right | `INSPECTOR_WIDTH`, fixed | `GraphView::selection`, and `agent_input` on `AppState` |
 | Tasks drawer | `ui/orchestration/tasks.rs` | The orchestration screen, under the graph | `TASKS_HEIGHT` open, its header shut | `GraphView::tasks_open` |
-| Tasks board | `ui/board/mod.rs` | The centre panel in Tasks mode | Fills it; each column scrolls vertically | `BoardState` over the project's `WorkProjection`, and `COLUMN_WIDTH`/`COLUMN_SHUT` |
+| Tasks board | `ui/board/mod.rs` | The centre panel in Tasks mode | Fills it; the row of columns scrolls sideways and each column scrolls vertically | `BoardState` over the project's `WorkProjection`, and `COLUMN_WIDTH`/`COLUMN_SHUT` |
 | Task panel | `ui/board/detail.rs` | The board, right | `TASK_PANEL_WIDTH`, fixed | `BoardState::selected`, `show_detail` and `editing`, and the window's four form entities |
 | Kitchen sink | `ui/sink/mod.rs` | The centre panel in Sink mode, project or no project | Fills it; its page strip takes the tab strip's own height | `SinkState`, on the window rather than on a project |
 | Sink documents | `ui/sink/docs.rs` | The kitchen sink, on four of its eleven pages | Fills it | The fixture in `state/sink.rs` its page names, and the window's buffer for it |
@@ -2708,7 +2712,8 @@ theirs. `last_error` holds a `GitError::Failed` reason until the next working-tr
  graph's painted lanes, the column header and the commits, `changes.rs` the right region's three lists, the `+` / `-` on each path and the
 commit box, `diff.rs` the comparison under the history, which hands the hunks to
 `ui/viewer/diff.rs` rather than drawing them again, and `repo_selector.rs` the chrome-strip control
-that picks a repository when the project has more than one. `git::toolbar()` is the strip itself,
+that lists a project's repositories when it has more than one, though selecting a row only closes
+the popover (`G270`). `git::toolbar()` is the strip itself,
 painted by `ui/shell.rs` above the dock while the rail is on Git; it carries the selector, the HEAD
 pill, fetch all / pull / push, the working-tree count and a refresh. `ribbon::experimental()` is
 the red `experimental` band in that column's top-left corner — `kit::ribbon` at `TopLeft`, drawn

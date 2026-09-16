@@ -727,6 +727,9 @@ pub(crate) fn action(
                 .with_size(Size::XSmall)
                 .text_color(theme::text_faint()),
         )
+        // The row beneath carries its own `on_click` — locating, taking, closing or forgetting
+        // must not also fire it, so the click stops here rather than bubbling.
+        .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_click(on_click)
 }
 

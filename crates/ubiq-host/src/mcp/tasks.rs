@@ -57,6 +57,9 @@ pub fn use_call(
         "get_task" => get_task(arguments, project, access),
         "change_state" => change_state(arguments, project, access),
         "add_comment" => add_comment(arguments, project, access),
+        "add_todo" => add_todo(arguments, project, access),
+        "update_todo" => update_todo(arguments, project, access),
+        "delete_todo" => delete_todo(arguments, project, access),
         _ => Err(format!("unknown tool: use-task/{tool}")),
     }
 }
