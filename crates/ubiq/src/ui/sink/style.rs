@@ -33,8 +33,8 @@ use crate::ui::kit::{
     ContextItem, Picker, PickerStyle, RIBBON_SIZE, RibbonCorner, Tab, badge, card, check_box,
     choice_pill, context_panel, disclosure, file_row, filter_bar, ghost_button, hint_row,
     icon_button, kind_icon, label_hint, meter, mono, panel_header, pill, primary_button,
-    progress_ring, removable_tag, ribbon, row_font, section_label, slab, state_chip, status_dot,
-    stepper, tab_strip, toggle_pill, view_switch,
+    progress_ring, progress_ring_pair, removable_tag, ribbon, row_font, section_label, slab,
+    state_chip, status_dot, stepper, tab_strip, toggle_pill, view_switch,
 };
 use crate::ui::{handler, indexed};
 
@@ -616,6 +616,15 @@ fn controls(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         labelled(
             "progress_ring",
             progress_ring(sink.level, 28.0).into_any_element(),
+        ),
+        labelled(
+            "progress_ring_pair",
+            progress_ring_pair(
+                (sink.level, theme::usage_tone(sink.level)),
+                (100_u8.saturating_sub(sink.level), theme::info()),
+                28.0,
+            )
+            .into_any_element(),
         ),
     ]);
 

@@ -523,7 +523,8 @@ impl Work {
     /// there, and a value that already matches costs no write — the same posture as [`Self::update`]
     /// and every other display-only edit.
     ///
-    /// `Key` and `Link` trim what they are given and treat a trimmed-empty string as the clear:
+    /// `Key`, `Link` and `AssignedTo` trim what they are given and treat a trimmed-empty string as
+    /// the clear:
     /// the user rubbed the field out, which is a thing to mean, the same as an emptied description.
     /// `Labels` replaces the whole set, trimmed, with empty names dropped and duplicate names
     /// collapsed to the first — a label list is short and edited as a set, so there is no delta
@@ -539,6 +540,19 @@ impl Work {
                 TaskField::Kind(kind) => {
                     let changed = record.kind != kind;
                     record.kind = kind;
+                    changed
+                }
+                TaskField::Complexity(complexity) => {
+                    let changed = record.complexity != complexity;
+                    record.complexity = complexity;
+                    changed
+                }
+                TaskField::AssignedTo(assigned_to) => {
+                    let assigned_to = assigned_to
+                        .map(|who| who.trim().to_string())
+                        .filter(|who| !who.is_empty());
+                    let changed = record.assigned_to != assigned_to;
+                    record.assigned_to = assigned_to;
                     changed
                 }
                 TaskField::Key(key) => {

@@ -189,7 +189,8 @@ profile would be writing that profile over itself.
 **The form's footer offers the MCP servers Ubiq itself injects.** `MCPs` opens a checklist of the
 `McpInfo` rows the host answered `ListMcps` with — one tick box per server, its title, what it is
 for and the tools it answers — and what is ticked rides out on `StartConversation::mcps` or is
-written into `ProfileInfo::mcps`. This build lists Test, Project info, Manage Ubiq tasks, and Use task. It is a checklist and not a picker because several servers may be
+written into `ProfileInfo::mcps`. This build lists Test, Project info, Manage Ubiq tasks, and Use
+ubiq tasks. It is a checklist and not a picker because several servers may be
 asked for at once, so the panel is the same `deferred`/`anchored` shape the pickers are built on
 with check-box rows in it, opening upward from the footer and staying down across ticks. The
 catalogue lives on `WorkbenchState::mcps`, one list for the window: what this build can inject is a
@@ -583,7 +584,7 @@ behind it must not draw. Enter sends, Shift-Enter inserts a newline, and the dra
 orchestration screen's own rather than the chat's or a column's.
 
 **The board and the graph are two views of one set of tasks.** An agent started with Manage Ubiq
-tasks or Use task ticked writes that same set: a card it creates, moves or deletes arrives as the
+tasks or Use ubiq tasks ticked writes that same set: a card it creates, moves or deletes arrives as the
 ordinary `TaskCreated` / `TaskChanged` / `TaskDeleted` the board applies. A comment typed in the
 task panel is authored `user`; one posted through those servers is authored `agent`. The graph answers "who is doing
 what"; the board answers "what is there, and where has it got to" — the same tasks, at the scale of
@@ -654,7 +655,8 @@ recites what it does not know says nothing.
 **The task panel reports one task whole, and edits it in place.** Where it has got to and how much
 it matters share the top line, the first written where a column is named and the second right up
 against the other edge, because those are the two questions asked of a card before any other. Under
-them the facts that identify it — its key, its kind, the issue it stands for and its labels — then
+them the facts that identify it — its key, its kind, its complexity, who it is assigned to, the
+issue it stands for and its labels — then
 its description, then every sub-task with the agent that has it and where that has got to. Ticking
 a sub-task is a change to the task rather than to the view of it; unticking lands on idle, because
 nothing here can know what its owner would go back to doing. **A sub-task nobody has picked up says
@@ -670,12 +672,13 @@ set` is a pill in the row beside the three, the way handing a task to no session
 that picker rather than an absence the user has to find the way back to.
 
 **The form edits everything about a task except where it has got to.** Its title, its description,
-its priority, its key, its kind, its link, its labels, its colour, its shape and its session, its
-sub-tasks — added at the foot of the list, renamed in place, ticked and removed — and a comment
-left at the foot of that list. Priority, kind and shape are rows of pills, which are the report and
-the control at once because each has a handful of fixed values; the colour is a row of swatches
-behind a `none`; the session is a picker, because that list is as long as the project has sessions
-and it grows.
+its priority, its key, its kind, its complexity, who it is assigned to, its link, its labels, its
+colour, its shape and its session, its sub-tasks — added at the foot of the list, renamed in place,
+ticked and removed — and a comment left at the foot of that list. Priority, kind, complexity and
+shape are rows of pills, which are the report and the control at once because each has a handful of
+fixed values; who it is assigned to is free text, like a key or a link — there is no roster to pick
+from; the colour is a row of swatches behind a `none`; the session is a picker, because that list is
+as long as the project has sessions and it grows.
 
 **A label is named once and offered ever after.** Adding one lists every label the project already
 uses before offering to make a new one, because two cards spelled `infra` and `Infra` are two labels
@@ -3248,8 +3251,9 @@ in `crates/ubiq/tests/board.rs`.
 a handler that sends and waits: `begin_task_edit()` opens a field and gives it the keyboard,
 `cancel_task_edit()` puts it away and refills it from the record, `commit_task_title()` and
 `commit_step_title()` refuse an empty title and send nothing when the value has not changed,
-`commit_task_description()` allows an empty one, `set_task_priority()`, `set_task_shape()` and
-`set_task_session()` send on the click, `add_task_step()` keeps its field so several can be typed in
+`commit_task_description()` allows an empty one, `commit_task_assigned()` follows the key and link
+fields' own rule for an empty value, `set_task_priority()`, `set_task_shape()`,
+`set_task_complexity()` and `set_task_session()` send on the click, `add_task_step()` keeps its field so several can be typed in
 a row, `remove_task_step()` goes straight through, `delete_task()` asks the first time and sends the
 second, `withdraw_task_delete()` takes the question back, and `toggle_description_preview()` swaps
 the markdown for the source. `new_task()` is where the filter field becomes a title and the task is

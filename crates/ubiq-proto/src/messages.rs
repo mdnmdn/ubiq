@@ -38,7 +38,7 @@ use crate::settings::SettingsLayer;
 use crate::stats::HostStats;
 use crate::tools::{ListedTool, ToolDef};
 use crate::work::{
-    AgentId, Kind, Label, Priority, Shape, Status, TaskRecord, WorkAgent, WorkSession,
+    AgentId, Complexity, Kind, Label, Priority, Shape, Status, TaskRecord, WorkAgent, WorkSession,
 };
 
 /// Everything either half may say. The variant name travels in `type`, the body in `payload`.
@@ -2097,6 +2097,9 @@ impl Message {
 pub enum TaskField {
     Shape(Option<Shape>),
     Kind(Option<Kind>),
+    Complexity(Option<Complexity>),
+    /// Who has the task, as free text. A trimmed empty string is the clear, as on [`Self::Key`].
+    AssignedTo(Option<String>),
     Key(Option<String>),
     Link(Option<String>),
     /// The whole set, replaced. A label list is short and is edited as a set, so a delta would be

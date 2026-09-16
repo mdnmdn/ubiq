@@ -94,6 +94,9 @@ impl AppState {
         let task_link_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("https://\u{2026}"));
 
+        let task_assigned_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("name\u{2026}"));
+
         // The name of a label that does not exist yet. It is not committed by Enter: a name with no
         // colour is not a label, so the swatch beside it is the act.
         let task_label_input =
@@ -686,7 +689,7 @@ impl AppState {
             },
         ));
 
-        // The panel's four fields mirror into the project's own form and commit on Enter or on the
+        // The panel's five fields mirror into the project's own form and commit on Enter or on the
         // control beside them — never on losing focus, which is the project picker's rename rule
         // and for its reason: a blur fires before the click that caused it, so a field that
         // committed on blur could not be cancelled by the button next to it. A commit is an act
@@ -734,6 +737,21 @@ impl AppState {
                     }
                 }
                 InputEvent::PressEnter { shift: false, .. } => this.commit_task_link(cx),
+                _ => {}
+            },
+        ));
+
+        subscriptions.push(cx.subscribe_in(
+            &task_assigned_input,
+            window,
+            |this, input, event: &InputEvent, _window, cx| match event {
+                InputEvent::Change => {
+                    let text = input.read(cx).value().to_string();
+                    if let Some(board) = this.board_mut(cx) {
+                        board.form.assigned_to = text;
+                    }
+                }
+                InputEvent::PressEnter { shift: false, .. } => this.commit_task_assigned(cx),
                 _ => {}
             },
         ));
@@ -1255,6 +1273,7 @@ impl AppState {
             task_description_input,
             task_key_input,
             task_link_input,
+            task_assigned_input,
             task_label_input,
             step_title_input,
             new_step_input,

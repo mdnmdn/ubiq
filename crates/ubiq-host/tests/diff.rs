@@ -465,7 +465,7 @@ fn a_commit_diff_without_both_ids_fails() {
     let dir = repository();
     let error = diff_sides(dir.path(), "file.txt", DiffBase::Commits, None, None).unwrap_err();
     assert!(
-        matches!(error, FileError::Failed(reason) if reason.contains("commit")),
+        matches!(&error, FileError::Failed(reason) if reason.contains("commit")),
         "answered {error:?}"
     );
 }

@@ -53,7 +53,7 @@ use crate::ui::kit::menu::MENU_ANCHOR_UP;
 use crate::ui::kit::{
     ContextItem, Picker, PickerStyle, UbiqIcon, context_menu, ghost_button, harness_icon,
     icon_button, mono, pill, popover, primary_button, progress_ring, progress_ring_in,
-    removable_tag, status_dot,
+    progress_ring_pair, removable_tag, status_dot,
 };
 use crate::ui::{handler, indexed};
 
@@ -2571,23 +2571,49 @@ fn footer(
         .and_then(|record| {
             snapshot_from_rate_limit(&conversation.account, &conversation.harness, record, 0)
         });
+    //
+    // Both rolling windows are drawn, as concentric bands: the short one outside — it is the one
+    // that stops the next turn — and the long one inside it, each in its own severity tone. A
+    // provider that stated one window keeps the single band, and the tooltip names every window it
+    // drew, because which band is which is not readable off the glyph.
     if let Some(snapshot) = quota
         .or(pushed.as_ref())
         .filter(|_| !conversation.account.is_empty() && delegate.is_none())
-        && let Some(pct) = snapshot.worst_pct()
     {
-        let tip = quota_tip(snapshot, chrono::Utc::now().timestamp_millis());
-        row = row.child(
-            div()
-                .id(view.eid("quota-ring"))
-                .flex()
-                .flex_none()
-                .items_center()
-                .child(progress_ring_in(pct, 12., theme::usage_tone(pct)))
-                .tooltip(move |window, cx| {
-                    gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx)
-                }),
-        );
+        let bands: Vec<u8> = snapshot
+            .windows()
+            .iter()
+            .filter_map(|gauge| gauge.reading.used_pct())
+            .take(2)
+            .collect();
+        let mark = match bands.as_slice() {
+            [outer, inner] => Some(
+                progress_ring_pair(
+                    (*outer, theme::usage_tone(*outer)),
+                    (*inner, theme::usage_tone(*inner)),
+                    12.,
+                )
+                .into_any_element(),
+            ),
+            [only] => {
+                Some(progress_ring_in(*only, 12., theme::usage_tone(*only)).into_any_element())
+            }
+            _ => None,
+        };
+        if let Some(mark) = mark {
+            let tip = quota_tip(snapshot, chrono::Utc::now().timestamp_millis());
+            row = row.child(
+                div()
+                    .id(view.eid("quota-ring"))
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .child(mark)
+                    .tooltip(move |window, cx| {
+                        gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx)
+                    }),
+            );
+        }
     }
 
     row.into_any_element()

@@ -1,7 +1,7 @@
 use super::*;
 
 use ubiq_proto::messages::TaskField;
-use ubiq_proto::work::{Kind, Label};
+use ubiq_proto::work::{Complexity, Kind, Label};
 
 impl AppState {
     /// Open one of the panel's fields.
@@ -48,6 +48,10 @@ impl AppState {
             }
             Field::Link => {
                 let input = self.task_link_input.clone();
+                input.update(cx, |state, cx| state.focus(window, cx));
+            }
+            Field::AssignedTo => {
+                let input = self.task_assigned_input.clone();
                 input.update(cx, |state, cx| state.focus(window, cx));
             }
         }
@@ -216,6 +220,27 @@ impl AppState {
         self.set_task_field(TaskField::Link(link), cx);
     }
 
+    /// Who the task is assigned to, emptied the same way as a key or a link.
+    pub fn commit_task_assigned(&mut self, cx: &mut Context<Self>) {
+        let Some((_, task_id, board)) = self.open_task_form(cx) else {
+            return;
+        };
+        let typed = board.form.assigned_to.trim().to_string();
+        let unchanged = self
+            .work(cx)
+            .and_then(|work| work.task(task_id))
+            .is_some_and(|task| task.assigned_to.as_deref().unwrap_or_default() == typed);
+        if unchanged {
+            if let Some(board) = self.board_mut(cx) {
+                board.stop_editing();
+            }
+            cx.notify();
+            return;
+        }
+        let assigned_to = (!typed.is_empty()).then_some(typed);
+        self.set_task_field(TaskField::AssignedTo(assigned_to), cx);
+    }
+
     pub fn set_task_priority(&mut self, priority: Priority, cx: &mut Context<Self>) {
         self.update_task(None, None, Some(priority), cx);
     }
@@ -229,6 +254,11 @@ impl AppState {
     /// What kind of work it is, or nobody has said.
     pub fn set_task_kind(&mut self, kind: Option<Kind>, cx: &mut Context<Self>) {
         self.set_task_field(TaskField::Kind(kind), cx);
+    }
+
+    /// How complex the task is, or nobody has said.
+    pub fn set_task_complexity(&mut self, complexity: Option<Complexity>, cx: &mut Context<Self>) {
+        self.set_task_field(TaskField::Complexity(complexity), cx);
     }
 
     /// The card's own swatch, or none so the edge reads the pulse again.
@@ -465,7 +495,7 @@ impl AppState {
             return;
         }
         let selected = board.selected;
-        let (title, description, key, link) = selected
+        let (title, description, key, link, assigned_to) = selected
             .and_then(|id| self.work(cx).and_then(|work| work.task(id)))
             .map(|task| {
                 (
@@ -473,6 +503,7 @@ impl AppState {
                     task.description.clone(),
                     task.key.clone().unwrap_or_default(),
                     task.link.clone().unwrap_or_default(),
+                    task.assigned_to.clone().unwrap_or_default(),
                 )
             })
             .unwrap_or_default();
@@ -483,6 +514,7 @@ impl AppState {
             board.form.description = description.clone();
             board.form.key = key.clone();
             board.form.link = link.clone();
+            board.form.assigned_to = assigned_to.clone();
             board.form.step_title.clear();
             board.form.new_step.clear();
             board.form.new_comment.clear();
@@ -492,6 +524,7 @@ impl AppState {
             (self.task_title_input.clone(), title),
             (self.task_key_input.clone(), key),
             (self.task_link_input.clone(), link),
+            (self.task_assigned_input.clone(), assigned_to),
             (self.task_label_input.clone(), String::new()),
             (self.step_title_input.clone(), String::new()),
             (self.new_step_input.clone(), String::new()),

@@ -253,6 +253,11 @@ fn body(
                 .child(fact("Key", form::key(app, task, window, cx)))
                 .child(fact("Link", form::link(app, task, window, cx)))
                 .child(fact("Kind", form::kind_pills(task, cx)))
+                .child(fact("Complexity", form::complexity_pills(task, cx)))
+                .child(fact(
+                    "Assigned to",
+                    form::assigned_to(app, task, window, cx),
+                ))
                 .child(fact("Labels", form::labels(app, task, cx)))
                 .child(fact("Colour", form::colour(task, cx)))
                 .child(fact("Now", now)),

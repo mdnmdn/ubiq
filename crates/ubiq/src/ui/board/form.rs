@@ -26,7 +26,7 @@ use gpui_component::input::{Input, InputState, Textarea};
 use gpui_component::text::TextView;
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
-use ubiq_proto::work::{Kind, Priority, Shape, TaskRecord};
+use ubiq_proto::work::{Complexity, Kind, Priority, Shape, TaskRecord};
 
 use crate::app::AppState;
 use crate::state::MenuId;
@@ -192,6 +192,36 @@ pub fn kind_pills(task: &TaskRecord, cx: &mut Context<AppState>) -> AnyElement {
         .into_any_element()
 }
 
+/// How complex the task is: three fixed values behind the same `not set`, for the same reason.
+pub fn complexity_pills(task: &TaskRecord, cx: &mut Context<AppState>) -> AnyElement {
+    let complexities: Vec<AnyElement> = Complexity::all()
+        .into_iter()
+        .map(|complexity| {
+            choice_pill(
+                eid("board-complexity", complexity.label()),
+                complexity.label(),
+                task.complexity == Some(complexity),
+                cx.listener(move |this, _, _, cx| this.set_task_complexity(Some(complexity), cx)),
+            )
+            .into_any_element()
+        })
+        .collect();
+
+    div()
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .gap_1p5()
+        .child(choice_pill(
+            "board-complexity-none",
+            "not set",
+            task.complexity.is_none(),
+            cx.listener(|this, _, _, cx| this.set_task_complexity(None, cx)),
+        ))
+        .children(complexities)
+        .into_any_element()
+}
+
 /// The user's own id for the task — what their tracker calls it, not the ULID.
 pub fn key(
     app: &AppState,
@@ -228,6 +258,27 @@ pub fn link(
         task.link.as_deref(),
         "no link",
         AppState::commit_task_link,
+        window,
+        cx,
+    )
+}
+
+/// Who the task is assigned to, by whatever name they go by. Free text, like a key or a link: there
+/// is no roster to pick from.
+pub fn assigned_to(
+    app: &AppState,
+    task: &TaskRecord,
+    window: &Window,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    typed_fact(
+        app,
+        Field::AssignedTo,
+        "board-assigned",
+        app.task_assigned_input.clone(),
+        task.assigned_to.as_deref(),
+        "unassigned",
+        AppState::commit_task_assigned,
         window,
         cx,
     )

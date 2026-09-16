@@ -80,8 +80,10 @@ fn task(
         // no claim about its shape, its kind or what tracker it came from.
         shape: None,
         kind: None,
+        complexity: None,
         key: None,
         link: None,
+        assigned_to: None,
         labels: Vec::new(),
         colour: None,
         title: title.to_string(),

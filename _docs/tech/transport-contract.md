@@ -712,12 +712,12 @@ also spares the wire an `Option<Option<SessionId>>` inside an update, which is a
 have to read.
 
 **`SetTaskField` is one variant carrying a field, not a field per fact on `UpdateTask`.** It is the
-`AssignTask` reasoning generalised: a shape, a kind, a key, a link, a label set and a colour are all
-facts a task can perfectly well *not* have, so each of them needs to tell "leave it alone" from
-"clear it" — and six `Option<Option<T>>` fields inside an update would be six copies of the type
-nobody should have to read. `UpdateTask` keeps the three that can never be absent. A trimmed-empty
-`Key` or `Link` is the clear, the way an emptied description is: the user rubbed the field out,
-which is a thing to mean. `Labels` replaces the whole set, because a label list is short and is
+`AssignTask` reasoning generalised: a shape, a kind, a complexity, an assignee, a key, a link, a
+label set and a colour are all facts a task can perfectly well *not* have, so each of them needs to
+tell "leave it alone" from "clear it" — and eight `Option<Option<T>>` fields inside an update would
+be eight copies of the type nobody should have to read. `UpdateTask` keeps the three that can never
+be absent. A trimmed-empty `Key`, `Link` or `AssignedTo` is the clear, the way an emptied description
+is: the user rubbed the field out, which is a thing to mean. `Labels` replaces the whole set, because a label list is short and is
 edited as a set, so a delta would be two messages and an ordering rule to save a handful of bytes.
 `Colour` is a swatch index, or `None` to clear it.
 
@@ -1101,11 +1101,11 @@ Forty-seven records travel inside payloads.
 | `DiffRow` | `kind`, `old_line?`, `new_line?`, `text` |
 | `DiffHunk` | `old_start`, `old_lines`, `new_start`, `new_lines`, `rows[]` |
 | `FileDiff` | `base`, `hunks[]`, `binary`, `truncated` |
-| `TaskRecord` | `id`, `session?`, `status`, `priority`, `shape?`, `kind?`, `key?`, `link?`, `labels[]`, `colour?`, `title`, `description`, `steps[]`, `comments[]`, `created_at`, `updated_at` |
+| `TaskRecord` | `id`, `session?`, `status`, `priority`, `shape?`, `kind?`, `complexity?`, `assigned_to?`, `key?`, `link?`, `labels[]`, `colour?`, `title`, `description`, `steps[]`, `comments[]`, `created_at`, `updated_at` |
 | `Step` | `id`, `title`, `state`, `owner?` |
 | `Label` | `name`, `colour` |
 | `Comment` | `id`, `author`, `text`, `created_at` |
-| `TaskField` | one of `Shape?`, `Kind?`, `Key?`, `Link?`, `Labels[]`, `Colour?` |
+| `TaskField` | one of `Shape?`, `Kind?`, `Complexity?`, `AssignedTo?`, `Key?`, `Link?`, `Labels[]`, `Colour?` |
 | `WorkSession` | `id`, `name`, `branch`, `worktree` |
 | `WorkAgent` | `id`, `session`, `task?`, `parent?`, `name`, `summary?`, `role`, `activity`, `note`, `branch`, `tokens`, `harness`, `model`, `context_pct`, `persistent`, `accept_all`, `debug_dump?`, `run_dir?`, `config_dir?`, `thread[]` |
 | `Turn` | `from`, `text` |

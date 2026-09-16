@@ -222,13 +222,23 @@ impl AppState {
     /// Start a browse session against `host` and ask it for a first listing, without raising the
     /// dialog — the caller raises whichever picker the session is for.
     ///
+    /// `start` seeds the first listing with an absolute path already known to belong to `host` —
+    /// the knowledge base folder picker's own caller passes the project's root, so the dialog opens
+    /// there instead of wherever the host's own default (typically the home directory) would be.
+    /// `None` falls back to that default, on [`Message::BrowseHostDir`]'s own contract.
+    ///
     /// The one way a session is created besides [`Self::open_remote_project_picker`], which is the
     /// same two steps with the project picker's own request wired onto the end. Replacing the
     /// session wholesale is the staleness guard the module doc describes, and it is what this does.
-    pub(super) fn begin_host_browse(&mut self, host: HostRef, label: String) {
+    pub(super) fn begin_host_browse(
+        &mut self,
+        host: HostRef,
+        label: String,
+        start: Option<String>,
+    ) {
         self.host_browse = Some(HostBrowseState::new(host, label));
         self.bus
-            .send_to(host, Message::BrowseHostDir { path: None });
+            .send_to(host, Message::BrowseHostDir { path: start });
     }
 
     /// Flip whether a folder picked from a remote host joins its catalogue durably. The

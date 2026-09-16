@@ -8,7 +8,9 @@
 use serde_json::{Value, json};
 use ubiq_proto::ids::{ProjectId, StepId, TaskId};
 use ubiq_proto::messages::{Message, TaskField};
-use ubiq_proto::work::{Comment, CommentAuthor, Kind, Label, Priority, Status, Step, TaskRecord};
+use ubiq_proto::work::{
+    Comment, CommentAuthor, Complexity, Kind, Label, Priority, Status, Step, TaskRecord,
+};
 
 use super::WorkAccess;
 use super::registry::AgentFacts;
@@ -204,6 +206,10 @@ fn create_task(
         .map(parse_priority)
         .transpose()?;
     let kind = opt_str(arguments, "kind")?.map(parse_kind).transpose()?;
+    let complexity = opt_str(arguments, "complexity")?
+        .map(parse_complexity)
+        .transpose()?;
+    let assigned_to = opt_str(arguments, "assigned_to")?.map(str::to_string);
     let key = opt_str(arguments, "key")?.map(str::to_string);
     let link = opt_str(arguments, "link")?.map(str::to_string);
     let labels = opt_str_list(arguments, "labels")?;
@@ -218,6 +224,12 @@ fn create_task(
         }
         if let Some(kind) = kind {
             replies.extend(work.set_field(project, id, TaskField::Kind(Some(kind))));
+        }
+        if let Some(complexity) = complexity {
+            replies.extend(work.set_field(project, id, TaskField::Complexity(Some(complexity))));
+        }
+        if let Some(assigned_to) = assigned_to.clone() {
+            replies.extend(work.set_field(project, id, TaskField::AssignedTo(Some(assigned_to))));
         }
         if let Some(key) = key.clone() {
             replies.extend(work.set_field(project, id, TaskField::Key(Some(key))));
@@ -252,6 +264,10 @@ fn update_task(
         .map(parse_priority)
         .transpose()?;
     let kind = opt_str(arguments, "kind")?.map(parse_kind).transpose()?;
+    let complexity = opt_str(arguments, "complexity")?
+        .map(parse_complexity)
+        .transpose()?;
+    let assigned_to = opt_str(arguments, "assigned_to")?.map(str::to_string);
     let key = opt_str(arguments, "key")?.map(str::to_string);
     let link = opt_str(arguments, "link")?.map(str::to_string);
     let labels = opt_str_list(arguments, "labels")?;
@@ -263,6 +279,12 @@ fn update_task(
         }
         if let Some(kind) = kind {
             replies.extend(work.set_field(project, id, TaskField::Kind(Some(kind))));
+        }
+        if let Some(complexity) = complexity {
+            replies.extend(work.set_field(project, id, TaskField::Complexity(Some(complexity))));
+        }
+        if let Some(assigned_to) = assigned_to.clone() {
+            replies.extend(work.set_field(project, id, TaskField::AssignedTo(Some(assigned_to))));
         }
         if let Some(key) = key.clone() {
             replies.extend(work.set_field(project, id, TaskField::Key(Some(key))));
@@ -552,6 +574,8 @@ fn task_json(task: &TaskRecord) -> Value {
         "status": task.status.label(),
         "priority": priority_name(task.priority),
         "kind": task.kind.map(|kind| kind.label()),
+        "complexity": task.complexity.map(|complexity| complexity.label()),
+        "assigned_to": task.assigned_to,
         "key": task.key,
         "link": task.link,
         "labels": task.labels.iter().map(label_json).collect::<Vec<_>>(),
@@ -569,6 +593,8 @@ fn task_summary(task: &TaskRecord) -> Value {
         "title": task.title,
         "status": task.status.label(),
         "priority": priority_name(task.priority),
+        "complexity": task.complexity.map(|complexity| complexity.label()),
+        "assigned_to": task.assigned_to,
         "labels": task.labels.iter().map(|label| &label.name).collect::<Vec<_>>(),
         "todos_done": task.done(),
         "todos_total": task.steps.len(),
@@ -609,6 +635,10 @@ fn task_matches_text(task: &TaskRecord, text: &str) -> bool {
         .as_deref()
         .is_some_and(|key| key.to_lowercase().contains(text));
     let in_kind = task.kind.is_some_and(|kind| kind.label().contains(text));
+    let in_assigned = task
+        .assigned_to
+        .as_deref()
+        .is_some_and(|who| who.to_lowercase().contains(text));
     let in_labels = task
         .labels
         .iter()
@@ -621,7 +651,14 @@ fn task_matches_text(task: &TaskRecord, text: &str) -> bool {
         .comments
         .iter()
         .any(|comment| comment.text.to_lowercase().contains(text));
-    in_title || in_description || in_key || in_kind || in_labels || in_todos || in_comments
+    in_title
+        || in_description
+        || in_key
+        || in_kind
+        || in_assigned
+        || in_labels
+        || in_todos
+        || in_comments
 }
 
 // ── arguments ───────────────────────────────────────────────────────
@@ -718,6 +755,17 @@ fn parse_priority(value: &str) -> Result<Priority, String> {
         "high" => Ok(Priority::High),
         _ => Err(format!(
             "unknown priority '{value}': use low, normal, or high"
+        )),
+    }
+}
+
+fn parse_complexity(value: &str) -> Result<Complexity, String> {
+    match value.trim().to_lowercase().as_str() {
+        "low" | "l" => Ok(Complexity::Low),
+        "medium" | "m" => Ok(Complexity::Medium),
+        "high" | "h" => Ok(Complexity::High),
+        _ => Err(format!(
+            "unknown complexity '{value}': use low, medium, or high"
         )),
     }
 }

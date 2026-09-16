@@ -116,9 +116,11 @@ rename and drops only what a filter edit invalidates.
 **A source's folder is chosen on the host, through Ubiq's own picker.** `browse_kb_source_folder`
 opens a `PickKind::Folders` file picker owned by `PickerOwner::KbFolder` over a `host_browse` session
 begun against `Bus::host_of_project` — the same two steps `open_remote_project_picker` takes, with a
-different owner on the end — so the path the form holds is one the *host* resolved. The platform
-dialog `cx.prompt_for_paths` is gone from this family; `G32` still names it for a project's Add and
-Locate, which have not moved.
+different owner on the end — so the path the form holds is one the *host* resolved. The session
+starts at the project's own root, passed as `begin_host_browse`'s `start`, rather than the host's
+default: a source is almost always found inside or beside the project it is being added to. The
+platform dialog `cx.prompt_for_paths` is gone from this family; `G32` still names it for a project's
+Add and Locate, which have not moved.
 
 `crates/ubiq/src/ui/kb/mod.rs` draws two things: the left panel, a multi-source explorer that
 borrows `ui::kit::files`'s row, twisty and kind-icon exactly as `ui/explorer.rs` does, with a

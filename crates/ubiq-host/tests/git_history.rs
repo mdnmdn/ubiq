@@ -8,6 +8,7 @@ use std::path::Path;
 use std::process::Command;
 
 use tempfile::TempDir;
+use ubiq_host::git::history::LogFrom;
 use ubiq_host::git::{graph, history, observe};
 use ubiq_proto::git::GitRefKind;
 
@@ -84,12 +85,21 @@ fn a_log_page_returns_a_cursor_and_the_next_page_continues() {
     let repo = open(dir.path());
 
     let mut lanes = lanes();
-    let (page1, cursor) = history::log(&repo, "", None, 3, None, false, &mut lanes).unwrap();
+    let (page1, cursor) =
+        history::log(&repo, "", LogFrom::Head, 3, None, false, &mut lanes).unwrap();
     assert_eq!(page1.len(), 3);
     let cursor = cursor.expect("three commits remain");
 
-    let (page2, cursor2) =
-        history::log(&repo, "", Some(&cursor), 10, None, false, &mut lanes).unwrap();
+    let (page2, cursor2) = history::log(
+        &repo,
+        "",
+        LogFrom::Cursor(&cursor),
+        10,
+        None,
+        false,
+        &mut lanes,
+    )
+    .unwrap();
     assert_eq!(page2.len(), 3);
     assert!(cursor2.is_none(), "the walk should have run out");
 
@@ -110,8 +120,16 @@ fn a_path_filtered_log_returns_only_commits_touching_the_path() {
     git(dir.path(), &["commit", "-q", "-am", "change file"]);
 
     let repo = open(dir.path());
-    let (page, _) =
-        history::log(&repo, "", None, 10, Some("file.txt"), false, &mut lanes()).unwrap();
+    let (page, _) = history::log(
+        &repo,
+        "",
+        LogFrom::Head,
+        10,
+        Some("file.txt"),
+        false,
+        &mut lanes(),
+    )
+    .unwrap();
     let summaries: Vec<&str> = page.iter().map(|c| c.summary.as_str()).collect();
     assert!(
         summaries.contains(&"first") && summaries.contains(&"change file"),
@@ -137,7 +155,7 @@ fn first_parent_skips_the_merged_side() {
     );
 
     let repo = open(dir.path());
-    let (page, _) = history::log(&repo, "", None, 10, None, true, &mut lanes()).unwrap();
+    let (page, _) = history::log(&repo, "", LogFrom::Head, 10, None, true, &mut lanes()).unwrap();
     let summaries: Vec<&str> = page.iter().map(|c| c.summary.as_str()).collect();
     assert!(
         summaries.contains(&"merge feature"),
@@ -154,7 +172,8 @@ fn an_unborn_head_returns_an_empty_page_not_an_error() {
     let dir = TempDir::new().unwrap();
     git(dir.path(), &["init", "-q", "-b", "main"]);
     let repo = open(dir.path());
-    let (page, cursor) = history::log(&repo, "", None, 10, None, false, &mut lanes()).unwrap();
+    let (page, cursor) =
+        history::log(&repo, "", LogFrom::Head, 10, None, false, &mut lanes()).unwrap();
     assert!(page.is_empty());
     assert!(cursor.is_none());
 }
@@ -167,7 +186,7 @@ fn a_linear_history_is_all_lane_zero() {
         git(dir.path(), &["commit", "-q", "-am", &format!("commit {i}")]);
     }
     let repo = open(dir.path());
-    let (page, _) = history::log(&repo, "", None, 10, None, false, &mut lanes()).unwrap();
+    let (page, _) = history::log(&repo, "", LogFrom::Head, 10, None, false, &mut lanes()).unwrap();
     assert_eq!(page.len(), 4, "first plus three more");
     assert!(
         page.iter().all(|c| c.lane == 0),
@@ -189,7 +208,7 @@ fn a_merge_puts_its_second_parent_on_a_distinct_lane() {
     );
 
     let repo = open(dir.path());
-    let (page, _) = history::log(&repo, "", None, 10, None, false, &mut lanes()).unwrap();
+    let (page, _) = history::log(&repo, "", LogFrom::Head, 10, None, false, &mut lanes()).unwrap();
 
     let merge = page
         .iter()
@@ -246,7 +265,7 @@ fn a_lane_is_freed_and_reused_after_a_branch_ends() {
     );
 
     let repo = open(dir.path());
-    let (page, _) = history::log(&repo, "", None, 20, None, false, &mut lanes()).unwrap();
+    let (page, _) = history::log(&repo, "", LogFrom::Head, 20, None, false, &mut lanes()).unwrap();
 
     let by_summary = |s: &str| page.iter().find(|c| c.summary == s).unwrap();
     let f2_commit = by_summary("f2 commit");
@@ -282,7 +301,8 @@ fn page_two_lanes_continue_page_ones_rather_than_restarting() {
     let repo = open(dir.path());
 
     let mut lanes = lanes();
-    let (page1, cursor) = history::log(&repo, "", None, 4, None, false, &mut lanes).unwrap();
+    let (page1, cursor) =
+        history::log(&repo, "", LogFrom::Head, 4, None, false, &mut lanes).unwrap();
     let cursor = cursor.expect("two commits remain");
     let merge = page1
         .iter()
@@ -291,7 +311,16 @@ fn page_two_lanes_continue_page_ones_rather_than_restarting() {
     assert_eq!(merge.merges.len(), 1);
     let expected_lane = merge.merges[0];
 
-    let (page2, _) = history::log(&repo, "", Some(&cursor), 10, None, false, &mut lanes).unwrap();
+    let (page2, _) = history::log(
+        &repo,
+        "",
+        LogFrom::Cursor(&cursor),
+        10,
+        None,
+        false,
+        &mut lanes,
+    )
+    .unwrap();
     let feature = page2
         .iter()
         .find(|c| c.summary == "feature commit")

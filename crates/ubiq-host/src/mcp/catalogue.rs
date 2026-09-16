@@ -240,6 +240,15 @@ pub const SERVERS: &[ServerSpec] = &[
                         },
                         "priority": {"type": "string", "enum": ["low", "normal", "high"]},
                         "kind": {"type": "string", "enum": ["bug", "feature", "chore", "docs"]},
+                        "complexity": {
+                            "type": "string",
+                            "enum": ["low", "medium", "high"],
+                            "description": "How hard the task is judged to be. Omit to leave it unsized."
+                        },
+                        "assigned_to": {
+                            "type": "string",
+                            "description": "Who has the task: a person's or an agent's name. Free text."
+                        },
                         "key": {"type": "string", "description": "Human id, e.g. UBQ-123."},
                         "link": {"type": "string"},
                         "labels": {
@@ -266,6 +275,15 @@ pub const SERVERS: &[ServerSpec] = &[
                         },
                         "priority": {"type": "string", "enum": ["low", "normal", "high"]},
                         "kind": {"type": "string", "enum": ["bug", "feature", "chore", "docs"]},
+                        "complexity": {
+                            "type": "string",
+                            "enum": ["low", "medium", "high"],
+                            "description": "How hard the task is judged to be."
+                        },
+                        "assigned_to": {
+                            "type": "string",
+                            "description": "Who has the task: a person's or an agent's name. Free text."
+                        },
                         "key": {"type": "string"},
                         "link": {"type": "string"},
                         "labels": {
@@ -318,7 +336,9 @@ pub const SERVERS: &[ServerSpec] = &[
     },
     ServerSpec {
         name: USE_TASK,
-        title: "Use task",
+        // The title is what a person reads in the settings checklist; `USE_TASK` is the slug the
+        // URL and the dispatch agree on, and agents are connected to it, so only the words change.
+        title: "Use ubiq tasks",
         description: "Look up a task, move it along the board, and leave a comment.",
         tools: &[
             ToolSpec {

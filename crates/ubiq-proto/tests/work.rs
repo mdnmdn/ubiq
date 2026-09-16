@@ -12,8 +12,8 @@ use chrono::{DateTime, Utc};
 use ubiq_proto::ids::{ProjectId, SessionId, StepId, TaskId, WorkspaceId};
 use ubiq_proto::messages::Message;
 use ubiq_proto::work::{
-    Activity, AgentId, Bucket, Comment, CommentAuthor, Kind, Label, Priority, Shape, Speaker,
-    Status, Step, StepState, TaskRecord,
+    Activity, AgentId, Bucket, Comment, CommentAuthor, Complexity, Kind, Label, Priority, Shape,
+    Speaker, Status, Step, StepState, TaskRecord,
 };
 
 /// A fixed instant, so the record under test is the same one on every run.
@@ -51,6 +51,8 @@ fn a_task_with_everything_on_it_survives_the_wire_unchanged() {
         priority: Priority::High,
         shape: Some(Shape::Coordinated),
         kind: Some(Kind::Feature),
+        complexity: Some(Complexity::Medium),
+        assigned_to: Some("ada".to_string()),
         key: Some("UBQ-1".to_string()),
         link: Some("https://tracker.example/1".to_string()),
         labels: vec![Label::new("urgent".to_string(), 1)],
@@ -116,6 +118,14 @@ fn what_a_task_does_not_have_is_absent_from_the_encoding_rather_than_null() {
     assert!(
         !json.contains("colour"),
         "a card with no colour of its own names none: {json}"
+    );
+    assert!(
+        !json.contains("complexity"),
+        "a task nobody has sized names no complexity: {json}"
+    );
+    assert!(
+        !json.contains("assigned_to"),
+        "a task nobody has claimed names nobody: {json}"
     );
     // The keys that are always there, so the absences above are absences and not a typo.
     for key in ["id", "status", "priority", "title", "created_at"] {
@@ -276,6 +286,8 @@ fn a_newly_named_task_claims_nothing_it_cannot_know() {
         "unprioritised, not middling"
     );
     assert_eq!(task.shape, None, "unshaped, not defaulted to Direct");
+    assert_eq!(task.complexity, None, "unsized, not defaulted to Medium");
+    assert_eq!(task.assigned_to, None, "unclaimed, not defaulted to anyone");
     assert!(task.session.is_none());
     assert!(task.steps.is_empty());
     assert!(task.comments.is_empty());

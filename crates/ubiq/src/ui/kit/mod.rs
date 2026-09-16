@@ -49,8 +49,9 @@ pub mod settings;
 
 pub use controls::{
     badge, card, check_box, choice_pill, disclosure, elided, elided_with, field, ghost_button,
-    icon_button, meter, mono, pill, primary_button, progress_ring, progress_ring_in, removable_tag,
-    section_label, slab, state_chip, status_dot, stepper, toggle_pill,
+    icon_button, meter, mono, pill, primary_button, progress_ring, progress_ring_in,
+    progress_ring_pair, removable_tag, section_label, slab, state_chip, status_dot, stepper,
+    toggle_pill,
 };
 pub use files::{
     file_row, filter_bar, kind_icon, row_font, row_height, row_indent, twisty, view_switch,

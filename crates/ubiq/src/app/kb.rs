@@ -386,6 +386,10 @@ impl AppState {
     /// which the window's own chooser cannot see past. `open_remote_project_picker` is the same
     /// two steps — begin a browse session, raise a `PickKind::Folders` picker over it — with a
     /// different owner on the end.
+    ///
+    /// Opens on the project's own root rather than the host's default starting place: a source is
+    /// almost always found inside or beside the project it is being added to, not wherever the
+    /// host's browse defaults to.
     pub fn browse_kb_source_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(project) = self.editing_project() else {
             return;
@@ -400,7 +404,10 @@ impl AppState {
                 .map(|(_, label)| label)
                 .unwrap_or_else(|| "the host".to_string()),
         };
-        self.begin_host_browse(host, label.clone());
+        let start = WindowRegistry::read(cx)
+            .project(project)
+            .map(|snap| snap.record.path.clone());
+        self.begin_host_browse(host, label.clone(), start);
         let request =
             PickerRequest::new(PickerOwner::KbFolder, format!("Choose a folder on {label}"))
                 .kind(PickKind::Folders)

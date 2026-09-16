@@ -22,8 +22,8 @@ use ubiq_host::work::{Work, mock};
 use ubiq_proto::ids::{ProjectId, SessionId, StepId, TaskId};
 use ubiq_proto::messages::{Message, TaskField};
 use ubiq_proto::work::{
-    AgentId, Comment, CommentAuthor, Kind, Label, Priority, Shape, Speaker, Status, Step,
-    StepState, TaskRecord, WorkAgent, WorkSession,
+    AgentId, Comment, CommentAuthor, Complexity, Kind, Label, Priority, Shape, Speaker, Status,
+    Step, StepState, TaskRecord, WorkAgent, WorkSession,
 };
 
 // ── the store, against a real file ──────────────────────────────────
@@ -61,6 +61,8 @@ fn a_list_of_tasks_survives_the_round_trip_in_the_order_it_was_held() {
     want[0].priority = Priority::High;
     want[0].shape = Some(Shape::Coordinated);
     want[0].kind = Some(Kind::Bug);
+    want[0].complexity = Some(Complexity::High);
+    want[0].assigned_to = Some("ada".to_string());
     want[0].key = Some("UBQ-1".to_string());
     want[0].link = Some("https://tracker.example/1".to_string());
     want[0].labels = vec![Label::new("urgent".to_string(), 1)];
@@ -119,6 +121,35 @@ fn an_absent_file_and_a_file_with_no_tasks_are_different_things() {
 
     store.save(project, &[]).unwrap();
     assert_eq!(store.load(project).unwrap(), Some(Vec::new()));
+}
+
+/// A file written before a field existed still loads, and the field reads as unset.
+///
+/// The optional half of a task grows, and every growth is a `tasks.toml` on somebody's disk that
+/// names none of it. `complexity` and `assigned_to` are the newest two, so they are what this
+/// asserts on.
+#[test]
+fn a_task_file_written_before_a_field_existed_still_loads() {
+    let dir = TempDir::new().unwrap();
+    let store = file_store(&dir);
+    let project = ProjectId::generate();
+    let path = store.path(project);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let body = format!(
+        "version = {TASKS_VERSION}\n\n[[task]]\n\
+         id = \"01J0000000000000000000000A\"\n\
+         status = \"Ready\"\n\
+         priority = \"High\"\n\
+         title = \"named before either field existed\"\n\
+         created_at = \"2026-08-14T09:12:44Z\"\n\
+         updated_at = \"2026-08-14T09:12:44Z\"\n"
+    );
+    fs::write(&path, body).unwrap();
+
+    let tasks = store.load(project).unwrap().expect("the file is there");
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0].complexity, None);
+    assert_eq!(tasks[0].assigned_to, None);
 }
 
 #[test]
@@ -794,7 +825,11 @@ fn a_created_task_is_a_backlog_card_with_nothing_on_it_yet() {
     assert_eq!(task.priority, Priority::Normal);
     assert_eq!(task.shape, None, "unshaped, not defaulted to Direct");
     assert_eq!(task.kind, None);
-    assert_eq!(task.key, Some("T-1".to_string()), "nobody named it, so Ubiq did");
+    assert_eq!(
+        task.key,
+        Some("T-1".to_string()),
+        "nobody named it, so Ubiq did"
+    );
     assert_eq!(task.link, None);
     assert!(task.labels.is_empty());
     assert_eq!(task.session, None);
@@ -1191,6 +1226,18 @@ fn every_field_a_task_carries_survives_being_dropped_and_reopened() {
         TaskField::Link(Some("https://tracker.example/1".to_string())),
     ));
     changed(&work.set_field(project, task.id, TaskField::Kind(Some(Kind::Feature))));
+    changed(&work.set_field(
+        project,
+        task.id,
+        TaskField::Complexity(Some(Complexity::Medium)),
+    ));
+    // Trimmed on the way in, the way a key is.
+    let assigned = changed(&work.set_field(
+        project,
+        task.id,
+        TaskField::AssignedTo(Some("  ada  ".to_string())),
+    ));
+    assert_eq!(assigned.assigned_to.as_deref(), Some("ada"));
     changed(&work.set_field(project, task.id, TaskField::Shape(Some(Shape::Coordinated))));
     changed(&work.set_field(
         project,

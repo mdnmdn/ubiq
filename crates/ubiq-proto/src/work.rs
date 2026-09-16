@@ -157,6 +157,30 @@ impl Kind {
     }
 }
 
+/// How hard a task is judged to be. Optional, like [`Kind`] and for the same reason: an estimate
+/// nobody has made is not `Medium`, it is nothing, and a board where every card carries a guess
+/// says no more than one where none does.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub enum Complexity {
+    Low,
+    Medium,
+    High,
+}
+
+impl Complexity {
+    pub fn label(self) -> &'static str {
+        match self {
+            Complexity::Low => "low",
+            Complexity::Medium => "medium",
+            Complexity::High => "high",
+        }
+    }
+
+    pub fn all() -> [Complexity; 3] {
+        [Complexity::Low, Complexity::Medium, Complexity::High]
+    }
+}
+
 /// One colour label on a task, named by the user.
 ///
 /// The colour is an index into the interface's own swatches, exactly as
@@ -374,6 +398,13 @@ pub struct TaskRecord {
     /// What kind of work it is, where anybody has said.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kind: Option<Kind>,
+    /// How hard it is judged to be, where anybody has said. `None` is a task nobody has sized.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub complexity: Option<Complexity>,
+    /// Who has it — a name an agent writes down and reads back, not a reference into any registry.
+    /// Free text because the people and agents working a board are not a set Ubiq knows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assigned_to: Option<String>,
     /// The user's own id for this task — `UBQ-123`, `#4711`, whatever their tracker calls it. Held
     /// beside [`Self::id`] rather than instead of it: the ULID is Ubiq's and is never shown, and
     /// this is the one a human says out loud.
@@ -421,6 +452,8 @@ impl TaskRecord {
             priority: Priority::Normal,
             shape: None,
             kind: None,
+            complexity: None,
+            assigned_to: None,
             key: None,
             link: None,
             labels: Vec::new(),

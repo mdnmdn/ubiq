@@ -563,12 +563,16 @@ mod tests {
                 "title": "Name the events",
                 "status": "ready",
                 "priority": "high",
+                "complexity": "medium",
+                "assigned_to": "ada",
                 "labels": ["urgent"],
             }),
         ));
         assert_eq!(created["task"]["title"], "Name the events");
         assert_eq!(created["task"]["status"], "ready");
         assert_eq!(created["task"]["priority"], "high");
+        assert_eq!(created["task"]["complexity"], "medium");
+        assert_eq!(created["task"]["assigned_to"], "ada");
         assert_eq!(created["task"]["labels"][0]["name"], "urgent");
         let task_id = created["task"]["id"].as_str().unwrap().to_string();
 
@@ -619,9 +623,18 @@ mod tests {
         let patched = answered(&call(
             &url,
             "update_task",
-            json!({"task_id": task_id, "title": "Name them", "labels": ["urgent", "later"]}),
+            json!({
+                "task_id": task_id,
+                "title": "Name them",
+                "complexity": "high",
+                "assigned_to": "  grace  ",
+                "labels": ["urgent", "later"],
+            }),
         ));
         assert_eq!(patched["task"]["title"], "Name them");
+        assert_eq!(patched["task"]["complexity"], "high");
+        // Trimmed on the way in, the way a key is.
+        assert_eq!(patched["task"]["assigned_to"], "grace");
         assert_eq!(patched["task"]["labels"].as_array().unwrap().len(), 2);
         assert_eq!(patched["changed"], true);
 

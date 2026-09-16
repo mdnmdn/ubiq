@@ -86,7 +86,20 @@ impl QuotaSnapshot {
             .max()
     }
 
-    /// The gauge [`Self::worst_pct`] reports, for the sentence that names it.
+    /// Every gauge that states a percentage, in the order the provider named them — shortest
+    /// window first, which is how both routes build the list (`5 hours`, then `Week`).
+    ///
+    /// What a mark with room for more than one band reports: the footer's quota ring draws the
+    /// first two, outermost band first. A gauge with no denominator is left out for the reason
+    /// [`Self::worst_pct`] leaves it out — there is no arc to draw for it.
+    pub fn windows(&self) -> Vec<&QuotaGauge> {
+        self.gauges
+            .iter()
+            .filter(|gauge| gauge.reading.used_pct().is_some())
+            .collect()
+    }
+
+    /// The gauge [`Self::worst_pct`] reports, for a surface with room to name one window only.
     pub fn worst(&self) -> Option<&QuotaGauge> {
         self.gauges
             .iter()
@@ -203,6 +216,21 @@ mod tests {
         let snapshot = snapshot(vec![window("5 hours", 7), window("Week", 88)]);
         assert_eq!(snapshot.worst_pct(), Some(88));
         assert_eq!(snapshot.worst().map(|g| g.label.as_str()), Some("Week"));
+    }
+
+    /// The two bands the footer's ring draws, in the order they were named — the short window
+    /// outside, the long one inside.
+    #[test]
+    fn the_bands_keep_the_order_the_provider_named() {
+        let snapshot = snapshot(vec![window("5 hours", 7), window("Week", 88)]);
+        assert_eq!(
+            snapshot
+                .windows()
+                .iter()
+                .map(|gauge| (gauge.label.as_str(), gauge.reading.used_pct()))
+                .collect::<Vec<_>>(),
+            vec![("5 hours", Some(7)), ("Week", Some(88))]
+        );
     }
 
     #[test]

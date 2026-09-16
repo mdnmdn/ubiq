@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: Editor-like chat tabs — many, movable to any dockable region, each a view onto a host-owned conversation or onto none, drawn by the composer, transcript and tool blocks the whole window shares.
 read_when: you are changing a chat tab, the control that starts or attaches a conversation, or which conversation a tab shows
-updated: 2026-09-15
-verified: 2026-09-15
+updated: 2026-09-16
+verified: 2026-09-16
 code_anchors: [crates/ubiq/src/ui/chat/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/app/projects.rs]
 depends_on: [feat-workbench]
 review_cycle: monthly
@@ -135,17 +135,20 @@ project root or a full `ubiq://` opens that place in the window, `http`, `https`
 the operating system, and anything else does nothing — see
 [`workbench.md`](./workbench.md). A path merely *mentioned* in prose is text, not a link.
 
-**The footer's third ring says how much of the account's plan is left.** It is an account fact, not
-a conversation one — two agents signed in as the same identity read one window — so it is drawn from
-what the host cached for that account, falling back to the reading the harness pushed into this
-conversation while nothing has been asked. It takes its colour from the usage thresholds rather than
-the accent, because a ring's whole job here is to make "nearly out" visible without a hover, and
+**The footer's third ring says how much of the account's plan is left, one band per rolling window
+the provider stated.** It is an account fact, not a conversation one — two agents signed in as the
+same identity read one window — so it is drawn from what the host cached for that account, falling
+back to the reading the harness pushed into this conversation while nothing has been asked. A
+provider that states two windows draws two concentric bands, the shorter window outermost — the one
+that stops the next turn first — and the longer one inside it; a provider that states one draws the
+single ring the surface always drew. Each band takes its colour from the usage thresholds rather
+than the accent, because a ring's whole job here is to make "nearly out" visible without a hover, and
 because two accent rings side by side would read as one fact drawn twice. The figure, the window's
-name, its reset, the plan and the age of the reading are in the tooltip: the bare `5h N%` readout
-belongs to the chrome and does not return there (`D111`). A conversation with no account draws none,
-because there is no plan to have a window in; a provider that named no limit draws none rather than
-an empty ring; and a delegate's transcript draws none, on the same rule the context ring beside it
-follows.
+name, its reset, the plan and the age of the reading are in the tooltip for every window drawn: the
+bare `5h N%` readout belongs to the chrome and does not return there (`D111`). A conversation with no
+account draws none, because there is no plan to have a window in; a provider that named no limit
+draws none rather than an empty ring; and a delegate's transcript draws none, on the same rule the
+context ring beside it follows.
 
 **A running turn is drawn at the tail of the transcript.** While the run is `Working` and nothing is
 waiting on a permission answer, the last thing in the transcript is `ui::conversation::writing_mark`
@@ -567,9 +570,11 @@ has no open set of its own — the run is read off its last block, moved by
 reached through `AppState::toggle_conversation_thought_group`. `footer()` takes the account's snapshot from
 `SettingsState::quota` in `crates/ubiq/src/state/settings.rs`, falls back to
 `snapshot_from_rate_limit` over `Conversation::rate_limit` where the host has said nothing yet,
-words the tooltip with `quota_tip`, and colours the ring with `theme::usage_tone` — the one
+words the tooltip with `quota_tip`, and colours each band with `theme::usage_tone` — the one
 accessor the settings meters share, so the two surfaces cannot disagree about where the thresholds
-fall. It also reads
+fall. `QuotaSnapshot::windows()` supplies up to two gauges in provider order for `progress_ring_pair`
+in `crates/ubiq/src/ui/kit/controls.rs`, falling back to `progress_ring_in` where only one is stated.
+It also reads
 `show_cache_ring` off the workbench's UI settings and draws the cache ring from `cached_tokens()`
 over `total_tokens()` — or, on a delegate's transcript, from `Conversation::subagent_tokens()`,
 with `delegate_spend_tip()` for the tooltip that says which grain the figure is banked at; `stop_button()` is the composer's square, on `AppState::cancel_turn`, beside

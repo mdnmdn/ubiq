@@ -1001,29 +1001,33 @@ pub fn describe_status(status: &LoginStatus, now_ms: i64) -> String {
 ///
 /// `as_of` of zero means the reading came in on a turn rather than from a timed read — the push
 /// carries no timestamp of its own, so it says where it came from instead of guessing an age.
+///
+/// Every window the provider stated is named, in the order it named them, because the ring draws
+/// them all: a mark with two bands whose tooltip explains one leaves the other unreadable.
 pub fn quota_tip(snapshot: &QuotaSnapshot, now_ms: i64) -> String {
     let mut tip = format!("{} \u{b7} {}", snapshot.harness, snapshot.account);
 
-    match snapshot.worst() {
-        Some(gauge) => {
-            tip.push_str(&format!(
-                " \u{2014} {}: {} used",
-                gauge.label,
-                gauge.reading.say()
-            ));
-            if let Some(resets_at) = gauge.resets_at {
-                let diff = resets_at * 1000 - now_ms;
-                if diff >= 0 {
-                    tip.push_str(&format!(" \u{b7} resets in {}", magnitude(diff)));
-                } else {
-                    tip.push_str(&format!(" \u{b7} reset {} ago", magnitude(diff)));
-                }
-            }
-            if let Some(detail) = &gauge.detail {
-                tip.push_str(&format!(" \u{b7} {detail}"));
+    let windows = snapshot.windows();
+    if windows.is_empty() {
+        tip.push_str(" \u{2014} no limit stated");
+    }
+    for (index, gauge) in windows.iter().enumerate() {
+        tip.push_str(match index {
+            0 => " \u{2014} ",
+            _ => "; ",
+        });
+        tip.push_str(&format!("{}: {} used", gauge.label, gauge.reading.say()));
+        if let Some(resets_at) = gauge.resets_at {
+            let diff = resets_at * 1000 - now_ms;
+            if diff >= 0 {
+                tip.push_str(&format!(" \u{b7} resets in {}", magnitude(diff)));
+            } else {
+                tip.push_str(&format!(" \u{b7} reset {} ago", magnitude(diff)));
             }
         }
-        None => tip.push_str(" \u{2014} no limit stated"),
+        if let Some(detail) = &gauge.detail {
+            tip.push_str(&format!(" \u{b7} {detail}"));
+        }
     }
 
     match &snapshot.plan {
@@ -1269,6 +1273,20 @@ mod tests {
             quota_tip(&snapshot, 2 * HOUR),
             "claude-code \u{b7} work \u{2014} Week: 88% used \u{b7} resets in 1 hour \u{b7} \
              plan max \u{b7} read 1 hour ago"
+        );
+    }
+
+    /// Both bands of the ring are in the sentence, in the order they are drawn — the short window
+    /// outside, the week inside. A band the tip does not name is a band nobody can read.
+    #[test]
+    fn a_tip_names_every_window_the_ring_draws() {
+        let snapshot =
+            snapshot_from_rate_limit("work", "claude-code", &record(Some(7), Some(88)), 0)
+                .expect("two windows");
+        assert_eq!(
+            quota_tip(&snapshot, HOUR),
+            "claude-code \u{b7} work \u{2014} 5 hours: 7% used \u{b7} resets in 1 hour; \
+             Week: 88% used \u{b7} plan not stated \u{b7} pushed by this turn"
         );
     }
 

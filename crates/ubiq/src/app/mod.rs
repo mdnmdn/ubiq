@@ -721,6 +721,7 @@ pub struct AppState {
     pub task_description_input: Entity<TextareaState>,
     pub task_key_input: Entity<InputState>,
     pub task_link_input: Entity<InputState>,
+    pub task_assigned_input: Entity<InputState>,
     pub task_label_input: Entity<InputState>,
     pub step_title_input: Entity<InputState>,
     pub new_step_input: Entity<InputState>,

@@ -33,6 +33,8 @@ pub enum Field {
     Key,
     /// The URL to the issue the task stands for.
     Link,
+    /// Who the task is assigned to, by whatever name they go by.
+    AssignedTo,
     Step(StepId),
     /// The field at the foot of the list, which names the next sub-task rather than an existing one.
     NewStep,
@@ -53,6 +55,7 @@ pub struct TaskForm {
     pub description: String,
     pub key: String,
     pub link: String,
+    pub assigned_to: String,
     pub step_title: String,
     pub new_step: String,
     pub new_comment: String,
