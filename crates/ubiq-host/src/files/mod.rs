@@ -29,7 +29,8 @@ use ubiq_proto::files::{
     DiffBase, DirEntry, DirListing, EntryKind, FileContents, FileError, FileVersion, LIST_HIDE,
     PathOp, WALK_SKIP,
 };
-use ubiq_proto::ids::ProjectId;
+use ubiq_proto::ids::{KbSourceId, ProjectId};
+use ubiq_proto::kb::KbSource;
 use ubiq_proto::messages::Message;
 
 /// One directory's ceiling. Past it the listing says it is truncated.
@@ -509,6 +510,19 @@ pub enum JobKind {
     /// No project, no root: there is nothing yet to resolve against, which is the whole point of
     /// the family — see [`browse`].
     Browse { path: Option<String> },
+    /// One knowledge-base request, already resolved to a source.
+    ///
+    /// Only [`Request::Tree`] and [`Request::Read`] are legal here — a knowledge-base source is
+    /// read, never written — and `base` is [`crate::kb::Kb::base_path`]'s answer, resolved on the
+    /// coordinator's thread the same way a file-family `root` is. The whole [`KbSource`] rides
+    /// along rather than just its id, because listing has to filter by its glob once the walk is
+    /// done.
+    Kb {
+        project_id: ProjectId,
+        source: KbSource,
+        base: PathBuf,
+        request: Request,
+    },
 }
 
 /// The thread that answers the file family.
@@ -556,6 +570,12 @@ fn answer(job: &Job) -> Message {
             request,
         } => file_answer(*project_id, root, request),
         JobKind::Browse { path } => browse::answer(path.as_deref()),
+        JobKind::Kb {
+            project_id,
+            source,
+            base,
+            request,
+        } => kb_answer(*project_id, source, base, request),
     }
 }
 
@@ -654,6 +674,77 @@ fn diff_answer(
         rel_path,
         FileError::Failed("version control is not in this build".to_string()),
     )
+}
+
+/// Do one knowledge-base job and say what the window is told.
+///
+/// Only a tree listing and a read make sense against a source read-only by [`KbSource::is_writable`];
+/// the other three [`Request`] arms reach here only if the coordinator is ever wired wrongly, and
+/// are refused rather than silently dropped, on [`Message::EditProjectPath`]'s own reasoning for a
+/// destination in the wrong place.
+fn kb_answer(project_id: ProjectId, source: &KbSource, base: &Path, request: &Request) -> Message {
+    match request {
+        Request::Tree { rel_path, depth } => match listing(base, rel_path, *depth) {
+            Ok(mut listings) => {
+                // The filter is a name test on files only — [`KbSource::admits`] is the one place
+                // it is interpreted, so the host's walk and the interface's tree agree by
+                // construction. A folder is never dropped: one holding nothing that matches is
+                // simply empty when it is opened.
+                for listing in &mut listings {
+                    listing.entries.retain(|entry| {
+                        entry.kind != EntryKind::File || source.admits(&entry.name)
+                    });
+                }
+                Message::KbTreeListing {
+                    project_id,
+                    source: source.id,
+                    rel_path: rel_path.clone(),
+                    listings,
+                }
+            }
+            Err(error) => kb_error(project_id, source.id, rel_path, error),
+        },
+        Request::Read {
+            rel_path,
+            max_bytes,
+        } => match contents(base, rel_path, *max_bytes) {
+            Ok(contents) => Message::KbFileContents {
+                project_id,
+                source: source.id,
+                rel_path: rel_path.clone(),
+                contents,
+            },
+            Err(error) => kb_error(project_id, source.id, rel_path, error),
+        },
+        Request::Write { rel_path, .. }
+        | Request::Diff { rel_path, .. }
+        | Request::Edit { rel_path, .. } => kb_error(
+            project_id,
+            source.id,
+            rel_path,
+            FileError::Refused("a knowledge-base source is read-only".to_string()),
+        ),
+    }
+}
+
+/// One path's failure in one knowledge-base source, on [`file_error`]'s own reasoning.
+pub fn kb_error(
+    project_id: ProjectId,
+    source: KbSourceId,
+    rel_path: &str,
+    error: FileError,
+) -> Message {
+    if let FileError::Refused(reason) = &error {
+        tracing::warn!(
+            "refused {rel_path:?} in kb source {source} of project {project_id}: {reason}"
+        );
+    }
+    Message::KbFileError {
+        project_id,
+        source,
+        rel_path: rel_path.to_string(),
+        error,
+    }
 }
 
 /// One path's failure, addressed so the interface can mark the row or the tab it belongs to.

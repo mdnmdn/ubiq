@@ -139,6 +139,10 @@ fn a_blob_missing_the_fields_a_later_build_added_still_opens() {
     assert!(!arranged.show_left && !arranged.show_right && !arranged.show_bottom);
     let git = ModeLayout::default_for(RailMode::Git);
     assert!(git.show_left && git.show_right && !git.show_bottom);
+    // The knowledge base makes the same claim over one side only: its explorer is how a document
+    // is reached, and it has nothing for a right region to hold.
+    let kb = ModeLayout::default_for(RailMode::Kb);
+    assert!(kb.show_left && !kb.show_right && !kb.show_bottom);
 
     assert!(view.open_files.is_empty());
     assert_eq!(view.active_file, None);

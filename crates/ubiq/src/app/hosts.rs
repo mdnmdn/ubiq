@@ -405,6 +405,20 @@ impl Bus {
         self.panes.borrow_mut().remove(&pane_id);
     }
 
+    /// Which host serves a project — what [`Bus::resolve`] would route a message naming it to.
+    ///
+    /// For the one case a *destination* is needed with no message to resolve from: browsing the
+    /// filesystem a project's knowledge base reads its folders on. `BrowseHostDir` names no
+    /// project, so `send` would resolve it to `active`, which is not necessarily where the project
+    /// being edited lives.
+    pub fn host_of_project(&self, project_id: ProjectId) -> HostRef {
+        self.projects
+            .borrow()
+            .get(&project_id)
+            .copied()
+            .unwrap_or(self.active)
+    }
+
     /// Record which host a project belongs to, on the same terms as [`Bus::note_pane`].
     ///
     /// A local listing does not take a row back off a drone that is serving it: re-listing says

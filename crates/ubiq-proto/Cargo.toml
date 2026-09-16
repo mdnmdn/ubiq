@@ -38,3 +38,6 @@ sha2 = "0.10"
 [dev-dependencies]
 # `drone::verify`'s tests write a scratch binary to disk rather than asserting on a fixture path.
 tempfile = "3"
+# `kb`'s test that a `KbStore` defaults to `Internal` from either wire format Ubiq actually uses —
+# `ubiq-host` writes the knowledge-base source list as TOML.
+toml = "1"

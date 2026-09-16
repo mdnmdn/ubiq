@@ -573,6 +573,90 @@ five walks when the host has already opened the repository. `with_tracking` adds
 local branch, one merge-base walk each, so a caller that only wants names — a branch picker —
 skips the cost.
 
+## The knowledge-base family
+
+The documents counterpart of the file family, and the one family whose paths are relative to
+something other than a project's root. A project's knowledge base has **several sources** — a
+folder the user pointed at, a repository the host clones for them, a wiki Ubiq keeps itself — and
+none of them need be inside the project, so every variant carries a `KbSourceId` beside the path
+and the pair is what the host resolves.
+
+| Message | Direction | Payload | Responds with |
+|---|---|---|---|
+| `KbSources` | UI → host | `project_id` | `KbSourcesListed` |
+| `SetKbSources` | UI → host | `project_id`, `sources[]` | `KbSourcesListed`, then `KbSourceChanged` per source it fetches |
+| `KbTree` | UI → host | `project_id`, `source`, `rel_path`, `depth` | `KbTreeListing` or `KbFileError` |
+| `ReadKbFile` | UI → host | `project_id`, `source`, `rel_path`, `max_bytes?` | `KbFileContents` or `KbFileError` |
+| `SyncKbSource` | UI → host | `project_id`, `source` | `KbSourceChanged` ×n |
+| `WriteKbFile` | UI → host | `project_id`, `source`, `rel_path`, `contents` | `KbChanged` or `KbFileError` |
+| `CreateKbEntry` | UI → host | `project_id`, `source`, `rel_path`, `kind` (`EntryKind`) | `KbChanged` or `KbFileError` |
+| `RenameKbEntry` | UI → host | `project_id`, `source`, `rel_path`, `new_name` | `KbChanged` or `KbFileError` |
+| `DeleteKbEntry` | UI → host | `project_id`, `source`, `rel_path` | `KbChanged` or `KbFileError` |
+| `RevealKbPath` | UI → host | `project_id`, `source`, `rel_path` | nothing, or `KbFileError` |
+| `AskKbPath` | UI → host | `project_id`, `source`, `rel_path` | `KbPath` or `KbFileError` |
+| `KbSourcesListed` | host → UI | `project_id`, `sources[]` (`KbSourceStatus`) | — |
+| `KbSourceChanged` | host → UI | `project_id`, `source`, `state` | — |
+| `KbTreeListing` | host → UI | `project_id`, `source`, `rel_path`, `listings[]` | — |
+| `KbFileContents` | host → UI | `project_id`, `source`, `rel_path`, `contents` | — |
+| `KbFileError` | host → UI | `project_id`, `source`, `rel_path`, `error` | — |
+| `KbChanged` | host → UI | `project_id`, `source`, `rel_path` (the directory to re-list) | — |
+| `KbPath` | host → UI | `project_id`, `source`, `rel_path`, `path` (absolute) | — |
+
+Every one answers only the window that asked. Nothing here is broadcast, on the file family's
+reasoning: what one window is reading is not a fact about the catalogue.
+
+**A source's configuration rides whole.** `SetKbSources` carries the entire list rather than one
+row per message, because it is a short list edited in a settings form and a whole-list write is
+what makes a reorder, a rename and a removal one fact instead of three. The host answers the same
+`KbSourcesListed` a `KbSources` gets, so a form that saved and an explorer that asked land on the
+same record.
+
+**A source names where it comes from with `KbOrigin`, and the arms differ in whether the host has
+to fetch one.** A `Folder { path }` is read where it lies and is ready the moment it is configured
+— the one absolute path this family carries, and it carries it for the reason a project record
+carries its own root: the user chose it in a folder picker and the settings row has to print it
+back. A `Git { url, branch?, store }` is fetched onto a directory keyed on the source's own id,
+where `KbStore` says: `Cache` under the machine's temporary area, `Internal` under the project's own
+area of the config root (the default, so nothing Ubiq fetched is written inside a project, `D30`),
+or `Project`, a `.ubiq/kb` folder inside the project itself, the one arm that writes there on
+purpose. `Internal` is a wiki Ubiq keeps itself, under the project's own area of the config root,
+with nothing to fetch and always writable. Further kinds — an Azure DevOps wiki, a Confluence space
+— are further arms of `KbOrigin`, not a second family.
+
+**`KbSourceState` is what a source reads as**: `Pending` before anything fetched it, `Syncing
+{ detail }` while a clone or a refresh runs, `Ready`, or `Failed { error }` with the sentence to
+print. Typed rather than a percentage for `CloneStage`'s reason: the phases are not comparable, and
+one of them names something the user can fix. `KbSourceChanged` is how a fetch reports, so the
+explorer's row moves without the window polling.
+
+**The filter is a name test, interpreted in one place.** `KbSource.filter` is space-separated globs
+— `*.md *.excalidraw` — matched against a file's **name** only, never its path, so a pattern means
+the same thing at every depth. Empty admits everything. `KbSource::admits` in `ubiq-proto` is the
+only implementation, which is what keeps the host's walk and the interface's tree in step by
+construction. Folders are never filtered out: one holding nothing that matches is simply empty when
+it is opened. **The filter never gates a write** — `WriteKbFile` and `CreateKbEntry` never consult
+it, because refusing to create a file the filter would hide is a trap, not a protection.
+
+**The containment check is the file family's, against the source's base instead of the project's.**
+`files/path.rs` resolves every `rel_path` the same way — components refused textually, then every
+symlink resolved and the result required to still be inside the base — so a knowledge base outside
+the project widens what may be read or written by exactly one folder and no more. A failure is a
+`KbFileError` carrying the same `FileError` arms, per path, for `ProjectFileError`'s reason.
+
+**A source is written to only when `KbSource::is_writable` says yes.** `KbAccess` is `ReadOnly` or
+`ReadWrite`, a property of the source rather than of what kind it is; `KbOrigin::Internal` is always
+writable whatever `access` says, since there is no fetched or user-picked material for read-only to
+protect. `crates/ubiq-host/src/kb/ops.rs` holds the six operations — `write_file`, `create`,
+`rename`, `delete`, `absolute`, `reveal` — as free functions rather than methods on `Kb`, so a
+caller with no bus in reach (the `ubiq-kb` MCP server, `_docs/wip/kb.md` names) can use the same
+containment and writability rules the coordinator does. Every mutating one refuses a source that is
+not writable before it touches disk; `reveal` and `absolute` do not, since reading a path costs a
+read-only source nothing. `RevealKbPath` opens the platform's file manager **on the machine the
+host runs on** — `open -R` on macOS, `explorer /select,` on Windows, `xdg-open` on the containing
+folder on Linux — and answers nothing on success, on `Message::WriteProjectGit`'s own reasoning that
+a mutation answers with the state it produced rather than an echo; a full refresh here is
+`KbChanged` naming the parent directory that changed.
+
 ## The work family
 
 The sixth family. **Every variant names a project by id**, because the work belongs to a project:
@@ -1410,7 +1494,8 @@ a form opened on, and every field the user then changed is the user saying other
 
 **The MCP catalogue rides here** because a profile is where a pick is saved. `Mcps` answers with an
 `McpInfo` per server this *build* offers — a slug, a title, a paragraph, and an `McpToolInfo` per
-tool — `test`, `project-info`, `manage-ubiq-tasks` and `use-task` in this build — and `ProfileInfo.mcps` and
+tool — `test`, `project-info`, `manage-ubiq-tasks`, `use-task` and `ubiq-kb` in this build — and
+`ProfileInfo.mcps` and
 `StartConversation.mcps` both name one of those slugs. Nothing on
 the wire says how a server is reached: the host binds one loopback port and hands each run a URL
 carrying its own agent id, and neither the URL nor the port is a fact the interface is told. A slug

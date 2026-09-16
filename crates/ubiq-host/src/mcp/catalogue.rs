@@ -31,6 +31,9 @@ pub const MANAGE_UBIQ_TASKS: &str = "manage-ubiq-tasks";
 /// The slug of the thinner server an agent uses to look up a task, move it, and leave a comment.
 pub const USE_TASK: &str = "use-task";
 
+/// The slug of the server that reads and writes this project's knowledge base.
+pub const UBIQ_KB: &str = "ubiq-kb";
+
 /// One tool, as the catalogue holds it: what the panel shows plus what a harness needs in order
 /// to call it.
 pub struct ToolSpec {
@@ -381,6 +384,126 @@ pub const SERVERS: &[ServerSpec] = &[
                         "text": {"type": "string"}
                     },
                     "required": ["task_id", "text"]
+                }"#,
+            },
+        ],
+    },
+    ServerSpec {
+        name: UBIQ_KB,
+        title: "Project documents",
+        description: "The current project's knowledge base: its sources, and the documents in them, read and written by name.",
+        tools: &[
+            ToolSpec {
+                name: "list_kb_sources",
+                description: "Every knowledge-base source of this project: its name, id, kind, origin, whether it is writable, its filter and its state. Call this first — the names it gives are what every other tool's path starts with.",
+                schema: r#"{"type": "object", "properties": {}}"#,
+            },
+            ToolSpec {
+                name: "list_kb_documents",
+                description: "One folder's entries. Each comes back with the address to pass to the other tools.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "A folder, as <source>/path/to/folder. A bare <source> is that source's top level. <source> is the name list_kb_sources gave, or its id."
+                        }
+                    },
+                    "required": ["path"]
+                }"#,
+            },
+            ToolSpec {
+                name: "read_kb_document",
+                description: "A document's text.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "The document, as <source>/path/to/file.md."
+                        }
+                    },
+                    "required": ["path"]
+                }"#,
+            },
+            ToolSpec {
+                name: "write_kb_document",
+                description: "Write a document's whole contents, creating it if the folder holding it exists. Refused for a source that is not writable.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "The document, as <source>/path/to/file.md. Its parent folder must already exist."
+                        },
+                        "contents": {"type": "string", "description": "The document's whole new text."}
+                    },
+                    "required": ["path", "contents"]
+                }"#,
+            },
+            ToolSpec {
+                name: "create_kb_entry",
+                description: "Create an empty document or a folder. Refused when something is already there, and for a source that is not writable.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "What to create, as <source>/path/to/entry. Its parent folder must already exist."
+                        },
+                        "kind": {
+                            "type": "string",
+                            "enum": ["file", "folder"],
+                            "description": "Whether to create an empty document or a folder."
+                        }
+                    },
+                    "required": ["path", "kind"]
+                }"#,
+            },
+            ToolSpec {
+                name: "rename_kb_entry",
+                description: "Rename one document or folder in place. Refused for a source that is not writable.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "The entry to rename, as <source>/path/to/entry."
+                        },
+                        "new_name": {
+                            "type": "string",
+                            "description": "The new leaf name. A name, never a path: it may not contain a separator."
+                        }
+                    },
+                    "required": ["path", "new_name"]
+                }"#,
+            },
+            ToolSpec {
+                name: "delete_kb_entry",
+                description: "Delete one document, or a folder and everything under it. Refused for a source that is not writable.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "The entry to delete, as <source>/path/to/entry."
+                        }
+                    },
+                    "required": ["path"]
+                }"#,
+            },
+            ToolSpec {
+                name: "sync_kb_source",
+                description: "Fetch or refresh a git source. It runs in the background; call list_kb_sources again to see how it ended. A folder or a wiki source has nothing to fetch and says so.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "source": {
+                            "type": "string",
+                            "description": "The source's name, as list_kb_sources gave it, or its id."
+                        }
+                    },
+                    "required": ["source"]
                 }"#,
             },
         ],

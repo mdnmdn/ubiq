@@ -63,10 +63,10 @@ use crate::state::web_panel::WebPanels;
 use crate::state::work::WorkProjection;
 use crate::state::{
     ActiveSearch, ChatId, ChatTab, EditorPaneState, ExplorerAction, ExplorerKey, ExplorerPressed,
-    ExplorerState, ExplorerView, FileBody, FileDialog, FileLanguage, Follow, LogState, MenuId,
-    NewAgentMenu, NewAgentSurface, NewPaneRow, OpenFile, OverflowRow, PanelKind, ProjectSettings,
-    ProjectSettingsMode, RailMode, Region, SearchState, Toggle, WindowRegistry, WorkbenchState,
-    prefs,
+    ExplorerState, ExplorerView, FileBody, FileDialog, FileLanguage, Follow, KbBody, KbDoc,
+    KbDocKey, KbPressed, KbState, LogState, MenuId, NewAgentMenu, NewAgentSurface, NewPaneRow,
+    OpenFile, OverflowRow, PanelKind, ProjectSettings, ProjectSettingsMode, RailMode, Region,
+    SearchState, Toggle, WindowRegistry, WorkbenchState, prefs,
 };
 use crate::theme::{self, Mode, ThemeId};
 use crate::ui;
@@ -91,9 +91,10 @@ use ubiq_proto::connectors::{AuthKind, ConnectStage, ProviderId, origin};
 use ubiq_proto::files::{DiffBase, FileContents, FileError, PathOp};
 use ubiq_proto::git::{GitEntry, GitError as GitFailure, GitNested, GitWriteOp, RepoOverview};
 use ubiq_proto::ids::{
-    AiProviderId, ConnectId, ConnectionId, OauthAppId, PaneId, ProjectId, SearchId, SessionId,
-    SshProfileId, StepId, SuggestId, TaskId, ToolId,
+    AiProviderId, ConnectId, ConnectionId, KbSourceId, OauthAppId, PaneId, ProjectId, SearchId,
+    SessionId, SshProfileId, StepId, SuggestId, TaskId, ToolId,
 };
+use ubiq_proto::kb::{KbAccess, KbSource, KbStore};
 use ubiq_proto::messages::{
     AgentPicks, CliShortcutAction, Message, ProfileInfo, Secret, WorkspaceInfo,
 };
@@ -265,6 +266,9 @@ pub struct OpenProject {
     focused_pane: Option<PaneId>,
     pub explorer: ExplorerState,
     pub editor: EditorPaneState,
+    /// The knowledge base's sources and the document on screen, the documents half of the tree
+    /// beside `explorer`.
+    pub kb: KbState,
     /// The host's work for this project, as this window last heard it. Empty rather than absent
     /// until the `ListWork` is answered, so a project whose work has never arrived draws as empty
     /// rather than as a project with no work.
@@ -335,6 +339,7 @@ impl OpenProject {
             focused_pane: None,
             explorer: ExplorerState::empty(),
             editor: EditorPaneState::empty(),
+            kb: KbState::default(),
             work: WorkProjection::empty(),
             agents: AgentsView::default(),
             conversations: HashMap::new(),
@@ -763,6 +768,19 @@ pub struct AppState {
     /// than typed into — so a long path can be scrolled and selected instead of overflowing a
     /// label.
     pub project_path_input: Entity<InputState>,
+    /// The "Add source" modal's two typed fields: what the source is called, and — for a git
+    /// source — the repository URL the Check button asks about. They live on the window rather
+    /// than on the form because every field in this crate does: the form is redrawn from state on
+    /// every frame, and an `InputState` is the widget's own.
+    pub kb_name_input: Entity<InputState>,
+    pub kb_url_input: Entity<InputState>,
+    /// One filter field per configured KB source, kept in step with the sources by
+    /// `AppState::ensure_kb_inputs` — a source with no field yet has nothing typed for the
+    /// settings row to show.
+    pub kb_filter_inputs: HashMap<KbSourceId, Entity<InputState>>,
+    /// The subscription that commits each of `kb_filter_inputs` on Enter or blur, held beside the
+    /// field it answers for so the two go and come back together.
+    kb_filter_subs: HashMap<KbSourceId, Subscription>,
     /// One buffer per kitchen-sink fixture, by the document's key. The sink's documents are the
     /// window's own rather than a project's files — nothing reads them from disk and nothing writes
     /// them back — so their buffers sit here beside the window's other component-library state
@@ -956,6 +974,7 @@ pub use hosts::{
     RemoteHostMeta, host_menu_rows, host_row_label, preferred_remote,
 };
 mod image_edit;
+mod kb;
 mod nav;
 mod new_agent;
 mod notifications;

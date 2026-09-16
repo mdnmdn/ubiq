@@ -106,6 +106,10 @@ pub enum PickerOwner {
     /// `HostBrowseState` is what the app layer reads back on commit to know which host the picked
     /// path belongs to.
     HostProject,
+    /// The folder a knowledge base source is read from, chosen on the machine the *host* runs on.
+    /// Carries no host and no path for exactly `HostProject`'s reason — `crate::app::host_browse`
+    /// holds the session, and the answer is folded into the "Add source" form rather than sent.
+    KbFolder,
 }
 
 /// Everything a caller says when it raises a picker.

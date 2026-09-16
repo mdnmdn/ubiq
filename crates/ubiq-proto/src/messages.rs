@@ -15,16 +15,17 @@ use crate::assist::{
 use crate::connectors::{AuthKind, CertInfo, ConnectError, ConnectStage, Connection, ProviderId};
 use crate::conversation::{ConfigChoice, ConvUpdate, StopReason};
 use crate::files::{
-    DiffBase, DirListing, FileContents, FileDiff, FileError, FileVersion, HostDirEntry,
+    DiffBase, DirListing, EntryKind, FileContents, FileDiff, FileError, FileVersion, HostDirEntry,
     HostPathError, PathOp,
 };
 use crate::git::{
     self, GitChangedPath, GitCommit, GitEntry, GitNested, GitRef, GitRollup, RepoOverview,
 };
 use crate::ids::{
-    AiProviderId, CloneId, ConnectId, ConnectionId, NotificationId, OauthAppId, PaneId, ProjectId,
-    RepoQueryId, SearchId, SessionId, SshProfileId, StepId, SuggestId, TaskId, ToolId,
+    AiProviderId, CloneId, ConnectId, ConnectionId, KbSourceId, NotificationId, OauthAppId, PaneId,
+    ProjectId, RepoQueryId, SearchId, SessionId, SshProfileId, StepId, SuggestId, TaskId, ToolId,
 };
+use crate::kb::{KbSource, KbSourceState, KbSourceStatus};
 use crate::mcp::McpInfo;
 use crate::notifications::{
     Level, MuteFor, MuteScope, Notification, NotificationRequest, Notifications,
@@ -1095,6 +1096,143 @@ pub enum Message {
         files: Vec<GitChangedPath>,
     },
 
+    // ── Knowledge-base family: UI → host ────────────────────────────
+    // The documents half of a project, and the one family whose paths are relative to something
+    // other than the project's root — which is why every variant carries a `KbSourceId` beside the
+    // path it names. A source may sit anywhere the user pointed at, so the host resolves the pair
+    // and the interface learns no absolute path from a listing.
+    /// What this project's knowledge base is configured as. Answered with
+    /// [`Message::KbSourcesListed`], whose list is empty for a project nobody has configured — which
+    /// is what the explorer's "Add KB" page is drawn from.
+    KbSources {
+        project_id: ProjectId,
+    },
+    /// Replace the whole source list.
+    ///
+    /// Whole rather than one row per message: it is a short list edited in a settings form, and a
+    /// whole-list write makes a reorder, a rename and a removal one fact instead of three. The
+    /// host answers [`Message::KbSourcesListed`], and fetches whatever source is new.
+    SetKbSources {
+        project_id: ProjectId,
+        sources: Vec<KbSource>,
+    },
+    /// One level of one source's tree. `rel_path` is empty for the source itself; `depth` is how
+    /// many levels below it to list, clamped by the host exactly as [`Message::ProjectTree`] is.
+    KbTree {
+        project_id: ProjectId,
+        source: KbSourceId,
+        rel_path: String,
+        depth: u8,
+    },
+    /// Read a document. `max_bytes` narrows the host's own ceiling and never widens it.
+    ReadKbFile {
+        project_id: ProjectId,
+        source: KbSourceId,
+        rel_path: String,
+        max_bytes: Option<u64>,
+    },
+    /// Fetch or refresh a source that has to be fetched. A no-op for a folder, which is always as
+    /// current as the disk under it.
+    SyncKbSource {
+        project_id: ProjectId,
+        source: KbSourceId,
+    },
+    /// Write a document's whole contents. Refused for a source that is not writable.
+    WriteKbFile {
+        project_id: ProjectId,
+        source: KbSourceId,
+        rel_path: String,
+        contents: String,
+    },
+    /// Create an empty file or a folder at `rel_path`.
+    CreateKbEntry {
+        project_id: ProjectId,
+        source: KbSourceId,
+        rel_path: String,
+        kind: EntryKind,
+    },
+    /// Rename one entry in place. `new_name` is a name, never a path — the host refuses one
+    /// holding a separator.
+    RenameKbEntry {
+        project_id: ProjectId,
+        source: KbSourceId,
+        rel_path: String,
+        new_name: String,
+    },
+    /// Delete one entry. A folder goes with what is inside it.
+    DeleteKbEntry {
+        project_id: ProjectId,
+        source: KbSourceId,
+        rel_path: String,
+    },
+    /// Show one entry in the platform's file manager, on the machine the *host* runs on.
+    RevealKbPath {
+        project_id: ProjectId,
+        source: KbSourceId,
+        rel_path: String,
+    },
+    /// The absolute path of one entry, for the clipboard. The one place this family hands the
+    /// interface an absolute path, and it is asked for rather than volunteered.
+    AskKbPath {
+        project_id: ProjectId,
+        source: KbSourceId,
+        rel_path: String,
+    },
+
+    // ── Knowledge-base family: host → UI ────────────────────────────
+    /// The configuration, and what the host knows about each source now. Sent in answer to
+    /// [`Message::KbSources`] and to [`Message::SetKbSources`], so a settings form that saved and an
+    /// explorer that asked land on the same record.
+    KbSourcesListed {
+        project_id: ProjectId,
+        sources: Vec<KbSourceStatus>,
+    },
+    /// One source's state changed on its own — a clone started, got somewhere, finished or failed.
+    KbSourceChanged {
+        project_id: ProjectId,
+        source: KbSourceId,
+        state: KbSourceState,
+    },
+    /// `rel_path` first, then every directory listed below it, filtered by the source's own globs.
+    /// Both the source and the path are echoed, for [`Message::ProjectTreeListing`]'s reason.
+    KbTreeListing {
+        project_id: ProjectId,
+        source: KbSourceId,
+        rel_path: String,
+        listings: Vec<DirListing>,
+    },
+    KbFileContents {
+        project_id: ProjectId,
+        source: KbSourceId,
+        rel_path: String,
+        contents: FileContents,
+    },
+    /// Something went wrong for one path in one source, on [`Message::ProjectFileError`]'s
+    /// reasoning: the interface can only mark the row the user is looking at if the message says
+    /// which one.
+    KbFileError {
+        project_id: ProjectId,
+        source: KbSourceId,
+        rel_path: String,
+        error: FileError,
+    },
+    /// Something under `rel_path` changed, so whoever is drawing that folder re-lists it.
+    /// `rel_path` names the *directory* to ask about, which is the parent of whatever was written
+    /// — [`Message::ProjectFilesChanged`]'s reasoning, narrowed to the one path a write or an edit
+    /// just touched rather than a watcher's whole batch.
+    KbChanged {
+        project_id: ProjectId,
+        source: KbSourceId,
+        rel_path: String,
+    },
+    /// Answer to [`Message::AskKbPath`].
+    KbPath {
+        project_id: ProjectId,
+        source: KbSourceId,
+        rel_path: String,
+        path: String,
+    },
+
     // ── Work family: UI → host ──────────────────────────────────────
     // Every variant here is addressed by `project_id`, because the work belongs to a project: its
     // tasks are written down under that project's own directory, and its sessions and agents are
@@ -1872,6 +2010,24 @@ impl Message {
             | Message::ProjectFileDiffed { project_id, .. }
             | Message::ProjectPathEdited { project_id, .. }
             | Message::ProjectFileError { project_id, .. }
+            | Message::KbSources { project_id, .. }
+            | Message::SetKbSources { project_id, .. }
+            | Message::KbTree { project_id, .. }
+            | Message::ReadKbFile { project_id, .. }
+            | Message::SyncKbSource { project_id, .. }
+            | Message::WriteKbFile { project_id, .. }
+            | Message::CreateKbEntry { project_id, .. }
+            | Message::RenameKbEntry { project_id, .. }
+            | Message::DeleteKbEntry { project_id, .. }
+            | Message::RevealKbPath { project_id, .. }
+            | Message::AskKbPath { project_id, .. }
+            | Message::KbSourcesListed { project_id, .. }
+            | Message::KbSourceChanged { project_id, .. }
+            | Message::KbTreeListing { project_id, .. }
+            | Message::KbFileContents { project_id, .. }
+            | Message::KbFileError { project_id, .. }
+            | Message::KbChanged { project_id, .. }
+            | Message::KbPath { project_id, .. }
             | Message::ProjectFilesChanged { project_id, .. }
             | Message::ProjectGit { project_id, .. }
             | Message::RefreshProjectGit { project_id, .. }

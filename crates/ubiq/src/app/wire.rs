@@ -470,6 +470,9 @@ impl AppState {
         let Some(message) = self.receive_git(host, message, cx) else {
             return;
         };
+        let Some(message) = self.receive_kb(host, message, cx) else {
+            return;
+        };
         let Some(message) = self.receive_work(host, message, cx) else {
             return;
         };
@@ -1129,6 +1132,144 @@ impl AppState {
                 open.git_view.range_inflight = false;
                 open.git_view.settle(&open.git_entries);
                 cx.notify();
+            }
+
+            other => return Some(other),
+        }
+        None
+    }
+
+    /// The knowledge-base family.
+    ///
+    /// Every arm is guarded on the project still being held, the file family's rule: a reply can
+    /// land after the window has stopped holding the project it names, and there is nothing left
+    /// to draw it on.
+    ///
+    /// Answers with the message when it belongs to another family.
+    fn receive_kb(
+        &mut self,
+        _host: HostRef,
+        message: Message,
+        cx: &mut Context<Self>,
+    ) -> Option<Message> {
+        match message {
+            Message::KbSourcesListed {
+                project_id,
+                sources,
+            } => {
+                let open = self.projects.get_mut(&project_id)?;
+                open.kb.accept(sources);
+                cx.notify();
+            }
+
+            Message::KbSourceChanged {
+                project_id,
+                source,
+                state,
+            } => {
+                let open = self.projects.get_mut(&project_id)?;
+                let became_ready = open
+                    .kb
+                    .source(source)
+                    .is_some_and(|view| !view.status.state.is_ready())
+                    && state.is_ready();
+                open.kb.source_changed(source, state);
+                // A source that just finished cloning was listed against an empty folder, if it
+                // was listed at all — `source_changed` already forgot that listing, so the tree
+                // it now has to draw is asked for again rather than left blank.
+                if became_ready {
+                    self.bus.send(Message::KbTree {
+                        project_id,
+                        source,
+                        rel_path: String::new(),
+                        depth: 1,
+                    });
+                }
+                cx.notify();
+            }
+
+            Message::KbTreeListing {
+                project_id,
+                source,
+                rel_path: _,
+                listings,
+            } => {
+                let open = self.projects.get_mut(&project_id)?;
+                for listing in listings {
+                    open.kb.merge(source, listing);
+                }
+                cx.notify();
+            }
+
+            Message::KbFileContents {
+                project_id,
+                source,
+                rel_path,
+                contents,
+            } => {
+                let open = self.projects.get_mut(&project_id)?;
+                let key = KbDocKey::new(source, rel_path);
+                // A reply for a document the user has clicked past is discarded, not drawn: only
+                // the selection this key still names gets it.
+                if open.kb.selected.as_ref() == Some(&key) {
+                    open.kb.doc = Some(KbDoc {
+                        key,
+                        body: KbBody::Ready(contents),
+                    });
+                    cx.notify();
+                }
+            }
+
+            Message::KbFileError {
+                project_id,
+                source,
+                rel_path,
+                error,
+            } => {
+                let open = self.projects.get_mut(&project_id)?;
+                let reason = describe(&error);
+                let key = KbDocKey::new(source, rel_path);
+                // A refusal for the document on screen is drawn in its place. Anything else — a
+                // listing, or a write, create, rename or delete that has no document behind it —
+                // lands on the source's own row, because a gesture that silently did nothing is
+                // the one failure mode the panel must not have.
+                if !key.path.is_empty() && open.kb.selected.as_ref() == Some(&key) {
+                    open.kb.doc = Some(KbDoc {
+                        key,
+                        body: KbBody::Failed(reason),
+                    });
+                } else {
+                    open.kb.set_error(source, Some(reason));
+                }
+                cx.notify();
+            }
+
+            // Something under `rel_path` changed. The directory is marked unlisted and asked for
+            // again, so the tree redraws from what the host says is there rather than from a guess
+            // about what the gesture did — and a directory nobody has open is not re-asked for.
+            Message::KbChanged {
+                project_id,
+                source,
+                rel_path,
+            } => {
+                let open = self.projects.get_mut(&project_id)?;
+                if open.kb.mark_unlisted(source, &rel_path) {
+                    open.kb.mark_loading(source, &rel_path);
+                    self.bus.send(Message::KbTree {
+                        project_id,
+                        source,
+                        rel_path,
+                        depth: 1,
+                    });
+                }
+                cx.notify();
+            }
+
+            // The answer to a Copy path. It goes to the clipboard and nowhere else: the panel has
+            // no note to raise for a copy, and a path drawn somewhere would be the interface
+            // holding an absolute host path after the gesture that asked for it is over.
+            Message::KbPath { path, .. } => {
+                cx.write_to_clipboard(gpui::ClipboardItem::new_string(path));
             }
 
             other => return Some(other),

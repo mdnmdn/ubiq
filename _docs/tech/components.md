@@ -3,11 +3,11 @@ id: tech-components
 title: Reusable components
 kind: tech
 status: current
-summary: The reusable components Ubiq builds out of its own primitives — the floating popover and the activity bar a conversation heads with — the state that drives them, and the discipline that keeps a compound a component rather than a one-off screen's decoration.
-read_when: you are building a control that floats above another, adding a second activity reading to a conversation's bar, or reshaping something the kit's primitives are insufficient for and a one-off would have duplicated
-updated: 2026-09-14
-verified: 2026-09-14
-code_anchors: [crates/ubiq/src/ui/kit/popover.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/state/conversation.rs]
+summary: The reusable components Ubiq builds out of its own primitives — the floating popover, the activity bar a conversation heads with, and the file picker any screen raises to choose a path — the state that drives them, and the discipline that keeps a compound a component rather than a one-off screen's decoration.
+read_when: you are building a control that floats above another, adding a second activity reading to a conversation's bar, wiring a screen to choose a path on the interface's or a host's filesystem, or reshaping something the kit's primitives are insufficient for and a one-off would have duplicated
+updated: 2026-09-16
+verified: 2026-09-16
+code_anchors: [crates/ubiq/src/ui/kit/popover.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/ui/file_dialog.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
 ---
@@ -71,6 +71,44 @@ floating list does not rebuild it a fourth time.
 
 An optional debug name keeps the panel findable by its tests — the dropdowns this panel mirrors
 answer to nothing but their element id, while a conversation screen's tests name their own panels.
+
+## The file picker
+
+**What it is.** One dialog for choosing a path, raised over whatever forest of files and folders a
+caller hands it and answered back to whoever raised it. `crates/ubiq/src/ui/file_picker.rs` draws it
+in the window's own shape — square, filled, a coloured left edge, painted over everything through
+`deferred` and `anchored` — and `crates/ubiq/src/state/file_picker.rs` holds what it needs to:
+`FilePickerState` for the dialog itself, `PickerRequest` for what a caller asked for, `PickKind`
+(`Files`/`Folders`/`Either`), `PickerCount` (`Single`/`Multiple`) and `Commit` (`OnClick`/`OnButton`)
+for the six ways one ask differs from another, and `PickerOwner` for who is owed the answer. It is
+raised through `AppState::open_file_picker(request, forest, view, window, cx)` in
+`crates/ubiq/src/app/picker.rs`.
+
+**It takes the forest it draws rather than fetching one.** The dialog reads no disk itself; a caller
+builds the tree and hands it in, and grows it further as more arrives. Four owners exist today: the
+kitchen sink's own fixture tree, the composer's `@`-mention (built from the open project's explorer,
+fully listed by that point), and the two host-backed ones — `PickerOwner::HostProject`, for opening a
+project on a detached host, and `PickerOwner::KbFolder`, for the folder a knowledge base source reads
+from. Both run on `crates/ubiq/src/app/host_browse.rs`, which asks `Message::BrowseHostDir` as the
+user walks into a folder and folds each answer into the forest on screen, since nothing about a
+host's filesystem can be known up front. `HostBrowseState::host` is a `HostRef` rather than a
+`HostId` for exactly that pair: one browses a named remote, the other browses whichever host serves
+the project being edited — usually the local one.
+
+**Why it matters.** The platform's own folder dialog — `cx.prompt_for_paths` — browses the
+*interface's* filesystem, which `tech/decisions.md` and `backlog.md` both name as the one place the
+two halves are assumed to share a machine (`G32`). A screen that has to choose a path on the *host's*
+machine, rather than the interface's, raises this picker instead — adding a project from a detached
+host is what it was built for, and the knowledge base's "Add source" form is the second screen to
+reach for it rather than for the platform dialog.
+
+`crates/ubiq/src/ui/file_dialog.rs` is a different thing entirely, despite the name: the name-and-
+confirm modals around a file operation — new file, rename, delete, the untitled buffer's save-as —
+answered from the window's one `file_name` field. Neither draws the other.
+
+**The standing gap.** The picker is raised by one screen only — the kitchen sink's picker page, over
+its fixture tree — so no screen has yet wired a real project's `ProjectTree` listings into
+`PickerNode`s to choose a path through it for real work (`G68`).
 
 ## The boundary with the kit
 

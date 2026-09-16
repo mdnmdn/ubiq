@@ -39,8 +39,9 @@ and is not designed here.
 leave off. One process-wide loopback listener in `mcp/server.rs`, a static table of servers and JSON
 schemas in `mcp/catalogue.rs`'s `SERVERS`, dispatch in `mcp/tools.rs`'s `call`, injected per agent
 as a plain `McpRef::Inline` HTTP server at `/mcps/<key>/<name>`, and offered per profile through the
-settings checklist `Message::Mcps` feeds. A drone server is a fifth `ServerSpec` beside `test`,
-`project-info`, `manage-ubiq-tasks` and `use-task`, and one more arm in `tools::call`'s match.
+settings checklist `Message::Mcps` feeds. A drone server is one more `ServerSpec` beside `test`,
+`project-info`, `manage-ubiq-tasks`, `use-task` and `ubiq-kb`, and one more arm in `tools::call`'s
+match.
 
 **The drone MCP is a façade over the bus, not a new subsystem.** `D116` makes a drone an ordinary
 host on the multi-host bus; this is one more client of it. The tool set maps onto messages that

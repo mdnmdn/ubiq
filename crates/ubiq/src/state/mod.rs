@@ -21,6 +21,7 @@ pub mod explorer;
 pub mod file_picker;
 pub mod git;
 pub mod image_edit;
+pub mod kb;
 pub mod layout;
 pub mod logs;
 pub mod nav;
@@ -65,6 +66,10 @@ pub use git::{
     GraphCell, RefRow, RefSection, Side,
 };
 pub use image_edit::{EditOp, ImageEdit, ImageTool, ShapeKind};
+pub use kb::{
+    KbAction, KbBody, KbDoc, KbDocKey, KbKind, KbList, KbMenu, KbMenuRow, KbPressed, KbRow,
+    KbRowKind, KbSourceForm, KbState, KbUrlCheck, kb_menu_entries,
+};
 pub use layout::Layout;
 pub use logs::LogState;
 pub use nav::{Destination, Locus, View};

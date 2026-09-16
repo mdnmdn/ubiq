@@ -16,6 +16,7 @@ use gpui_component::input::{Input, InputState, Textarea, TextareaState};
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use ubiq_proto::ids::ProjectId;
+use ubiq_proto::kb::KbSourceState;
 use ubiq_proto::projects::{IndexChange, IndexLevel};
 use ubiq_proto::settings::DronePreset;
 
@@ -31,7 +32,7 @@ use crate::state::{RailMode, WindowRegistry};
 use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::kit::{
-    check_box, choice_pill, elided, ghost_button, heading, icon_button, mono, nav_item,
+    UbiqIcon, check_box, choice_pill, elided, ghost_button, heading, icon_button, mono, nav_item,
     primary_button, setting_row,
 };
 use crate::ui::rail::mode_icon;
@@ -316,16 +317,25 @@ fn nav(app: &AppState, form: Form, cx: &mut Context<AppState>) -> AnyElement {
         .iter()
         .copied()
         .map(|item| {
-            // Remote is on Tools' footing exactly: both attach to a record, and a folder with no
-            // record yet has nothing to pin.
+            // Remote and the knowledge base are on Tools' footing exactly: all three attach to a
+            // record, and a folder with no record yet has nothing to pin.
             let enabled = form == Form::Sink
                 || item == ProjectNav::General
-                || (matches!(item, ProjectNav::Tools | ProjectNav::Remote) && live_record);
+                || (matches!(
+                    item,
+                    ProjectNav::Tools | ProjectNav::Remote | ProjectNav::Kb
+                ) && live_record);
+            // The one count that is a live fact rather than fixture copy: it is how many sources
+            // the section below lists.
+            let count = match (item, form) {
+                (ProjectNav::Kb, Form::Live) => app.kb(cx).map(|kb| kb.sources.len()),
+                _ => item.count().map(|n| n as usize),
+            };
             nav_item(
                 ElementId::Name(format!("{prefix}-nav-{}", item.label()).into()),
                 project_icon(item),
                 item.label(),
-                item.count().map(|n| n as usize),
+                count,
                 item == current,
                 enabled,
                 cx.listener(move |this, _, _, cx| this.set_sink_project_nav(item, cx)),
@@ -348,15 +358,18 @@ fn nav(app: &AppState, form: Form, cx: &mut Context<AppState>) -> AnyElement {
         .into_any_element()
 }
 
-fn project_icon(item: ProjectNav) -> IconName {
+fn project_icon(item: ProjectNav) -> Icon {
     match item {
-        ProjectNav::General => IconName::Settings,
-        ProjectNav::Tools => IconName::Play,
+        ProjectNav::General => Icon::new(IconName::Settings),
+        ProjectNav::Tools => Icon::new(IconName::Play),
         // Borrowed, not drawn. `Network` is already Integrations', and the question this panel
         // asks is *which machine*, which is the globe's.
-        ProjectNav::Remote => IconName::Globe,
-        ProjectNav::Documentation => IconName::BookOpen,
-        ProjectNav::Integrations => IconName::Network,
+        ProjectNav::Remote => Icon::new(IconName::Globe),
+        // The rail's own KB mark, so the row that configures the screen and the rail that opens
+        // it read as the same thing.
+        ProjectNav::Kb => Icon::new(UbiqIcon::ModeKb),
+        ProjectNav::Documentation => Icon::new(IconName::BookOpen),
+        ProjectNav::Integrations => Icon::new(IconName::Network),
     }
 }
 
@@ -374,6 +387,7 @@ fn body(app: &AppState, window: &Window, cx: &mut Context<AppState>, form: Form)
         ProjectNav::General => general(app, window, cx, form),
         ProjectNav::Tools => project_tools(app, cx, form),
         ProjectNav::Remote => remote(app, cx, form),
+        ProjectNav::Kb => kb(app, form, window, cx),
         ProjectNav::Documentation => documentation(),
         ProjectNav::Integrations => integrations(),
     };
@@ -730,6 +744,146 @@ fn search_excludes_row(
             )
             .into_any_element(),
     )
+}
+
+/// The project's knowledge base: one row per configured source, and the one way to add another.
+///
+/// **A knowledge base hangs off a record**, so the sink's fixture page and the create form draw
+/// nothing here: there is no project for a source to belong to, and a form that collected sources
+/// before the project existed would have nowhere to send them.
+///
+/// Every edit is sent as it is made, the same rule `search_excludes_row` follows — the whole list
+/// rides one message, so a removal and a filter edit are each one fact rather than three.
+fn kb(app: &AppState, form: Form, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
+    let live_record = form == Form::Live
+        && matches!(
+            app.workbench
+                .project_settings
+                .as_ref()
+                .map(|settings| &settings.mode),
+            Some(ProjectSettingsMode::Edit { .. })
+        );
+    if !live_record {
+        return div().into_any_element();
+    }
+
+    let sources = app.kb(cx).map(|kb| &kb.sources);
+    let rows: Vec<AnyElement> = match sources {
+        Some(sources) if !sources.is_empty() => sources
+            .iter()
+            .map(|view| {
+                let id = view.id();
+                let filter = app.kb_filter_inputs.get(&id);
+                let (word, colour) = state_line(&view.status.state);
+                let access = access_word(&view.status.source);
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .py_1p5()
+                    .border_b_1()
+                    .border_color(theme::border())
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .flex_1()
+                            .min_w(px(0.))
+                            .gap_1()
+                            .child(elided(
+                                crate::ui::eid("project-kb-name", id),
+                                view.name().to_string(),
+                                theme::text(),
+                                theme::font(Family::Chrome, Role::Body),
+                            ))
+                            .child(
+                                mono(view.origin(), theme::text_faint())
+                                    .text_size(theme::font(Family::Chrome, Role::Meta)),
+                            ),
+                    )
+                    // What Ubiq may do to this source, visible without opening anything: a row
+                    // that does not say it is one the reader has to remember for.
+                    .child(
+                        div()
+                            .flex_none()
+                            .text_size(theme::font(Family::Chrome, Role::Meta))
+                            .text_color(theme::text_faint())
+                            .child(SharedString::from(access)),
+                    )
+                    .children(filter.map(|input| {
+                        framed_active(theme::border(), input_on(input, window, cx))
+                            .h(px(26.))
+                            .w(px(180.))
+                            .items_center()
+                            .child(Input::new(input).appearance(false))
+                    }))
+                    .children(word.map(|word| {
+                        div()
+                            .flex_none()
+                            .text_size(theme::font(Family::Chrome, Role::Meta))
+                            .text_color(colour)
+                            .child(SharedString::from(word))
+                    }))
+                    .child(icon_button(
+                        crate::ui::eid("project-kb-remove", id),
+                        IconName::Close,
+                        false,
+                        cx.listener(move |this, _, _, cx| this.remove_kb_source(id, cx)),
+                    ))
+                    .into_any_element()
+            })
+            .collect(),
+        _ => vec![
+            div()
+                .text_size(theme::font(Family::Chrome, Role::Label))
+                .text_color(theme::text_faint())
+                .child("No sources configured. Add one below.")
+                .into_any_element(),
+        ],
+    };
+
+    div()
+        .flex()
+        .flex_col()
+        .gap_1p5()
+        .child(heading(
+            "Knowledge base",
+            "The sources this project's documents are read from. A folder is read where it lies; a \
+             git repository is cloned and kept up to date by Ubiq; a wiki is Ubiq's own, and starts \
+             empty. The filter beside each one limits what its tree shows.",
+        ))
+        .child(div().flex().flex_col().children(rows))
+        .child(
+            div().flex().items_center().pt_3().child(primary_button(
+                "project-kb-add-source",
+                Some(IconName::Plus),
+                "Add source",
+                cx.listener(|this, _, window, cx| this.open_kb_source_form(window, cx)),
+            )),
+        )
+        .into_any_element()
+}
+
+/// The read-only / read-write marker one settings row carries.
+///
+/// Read through [`KbSource::is_writable`] rather than off `access`, so the row cannot disagree with
+/// what the host will actually allow: a wiki is writable whatever `access` was last saved as.
+fn access_word(source: &ubiq_proto::kb::KbSource) -> &'static str {
+    match source.is_writable() {
+        true => "read-write",
+        false => "read-only",
+    }
+}
+
+/// A source's state as the settings row says it: a colour from the status group, and the word that
+/// colour is about. `Ready` says nothing — every row would carry it.
+fn state_line(state: &KbSourceState) -> (Option<String>, Rgba) {
+    match state {
+        KbSourceState::Ready => (None, theme::text_faint()),
+        KbSourceState::Pending => (Some("pending".into()), theme::text_faint()),
+        KbSourceState::Syncing { detail } => (Some(detail.clone()), theme::warning()),
+        KbSourceState::Failed { error } => (Some(error.clone()), theme::danger()),
+    }
 }
 
 fn general(app: &AppState, window: &Window, cx: &mut Context<AppState>, form: Form) -> AnyElement {

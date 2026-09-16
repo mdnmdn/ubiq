@@ -149,13 +149,21 @@ impl AppState {
             }
             // The host this folder came from lives in `host_browse`, not in the owner itself — see
             // `state::file_picker::PickerOwner::HostProject`'s own doc.
+            // The folder a knowledge base source reads from. Written into the "Add source" form
+            // rather than sent anywhere: the source is committed when that form is confirmed, as
+            // one whole-list `SetKbSources`, not one folder at a time.
+            PickerOwner::KbFolder => {
+                if let Some(path) = picked.into_iter().next() {
+                    self.accept_kb_source_folder(path, window, cx);
+                }
+            }
             PickerOwner::HostProject => {
                 if let (Some(path), Some(browse)) =
                     (picked.into_iter().next(), self.host_browse.take())
                 {
                     self.adding = true;
                     self.bus.send_to(
-                        HostRef::Remote(browse.host),
+                        browse.host,
                         Message::AddProject {
                             path,
                             name: None,
@@ -254,8 +262,8 @@ impl AppState {
                 }
             }
             // Nothing to write back here either — closing the dialog with nothing chosen leaves
-            // no project to open.
-            PickerOwner::HostProject => {}
+            // no project to open, and no folder for the form behind it.
+            PickerOwner::HostProject | PickerOwner::KbFolder => {}
         }
         self.close_host_browse();
         cx.notify();

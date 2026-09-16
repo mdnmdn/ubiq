@@ -185,6 +185,9 @@ impl AppState {
         if view.rail_mode == RailMode::Git && saved.layout.is_none() {
             self.queue_git_furniture();
         }
+        if view.rail_mode == RailMode::Kb && saved.layout.is_none() {
+            self.queue_kb_furniture();
+        }
         self.reset_furniture = true;
         self.sync_file_panels(project);
         self.sync_chat_panels(project);
@@ -227,6 +230,17 @@ impl AppState {
     /// The tree the explorer draws, which belongs to the project it is showing.
     pub fn explorer(&self, cx: &App) -> Option<&ExplorerState> {
         self.open_project(cx).map(|open| &open.explorer)
+    }
+
+    /// The knowledge base the project on screen holds: its sources and the document open over
+    /// them.
+    pub fn kb(&self, cx: &App) -> Option<&KbState> {
+        self.open_project(cx).map(|open| &open.kb)
+    }
+
+    pub fn kb_mut(&mut self, cx: &App) -> Option<&mut KbState> {
+        let id = self.project(cx)?;
+        self.projects.get_mut(&id).map(|open| &mut open.kb)
     }
 
     /// The files open in the project on screen.
@@ -326,6 +340,9 @@ impl AppState {
                 .get(&mode)
                 .cloned()
                 .unwrap_or_else(|| prefs::ModeLayout::default_for(mode));
+            // Read before the furniture and the ask below touch `self` mutably: `open` borrows
+            // `self.projects` and cannot outlive the first `&mut self` call.
+            let kb_loaded = open.kb.loaded;
             // A saved arrangement restores whole, regions included. A mode never arranged has no
             // blob, so its defaults are forced directly: regions open or shut on the frame, the
             // tree left as the other mode had it.
@@ -339,6 +356,17 @@ impl AppState {
             // have to be put in their home regions or the opened edges would be empty.
             if mode == RailMode::Git && saved.layout.is_none() {
                 self.queue_git_furniture();
+            }
+            // The KB explorer is the same kind of furniture, and the configuration behind it is
+            // asked for here rather than on every frame: the first visit to the mode is when a
+            // blank explorer needs an answer, not every redraw of it.
+            if mode == RailMode::Kb {
+                if saved.layout.is_none() {
+                    self.queue_kb_furniture();
+                }
+                if !kb_loaded {
+                    self.ask_kb_sources(project);
+                }
             }
             // Which mode the window is in is settled now, and is written down now rather than
             // waiting for the arrangement to change: two modes that arrange nothing between them
@@ -497,6 +525,12 @@ impl AppState {
             self.toggle_new_agent_list(list, window, cx);
             return;
         }
+        // And again for the "Add source" form, whose pickers keep their open state on the form for
+        // exactly the same reason.
+        if let Some(list) = self.workbench.kb_source.as_ref().and_then(|form| form.open) {
+            self.toggle_kb_source_list(list, window, cx);
+            return;
+        }
         // The bell's list is painted last of the window's overlays, so it is peeled first — and
         // the mute picker inside it before the list it is drawn in.
         if self.notifications.muting.is_some() {
@@ -567,6 +601,11 @@ impl AppState {
             self.close_harness_login(cx);
         } else if settings.open {
             self.close_settings(cx);
+        } else if self.workbench.kb_source.is_some() {
+            // Painted over the project settings page that raised it, so it is peeled before that
+            // page — dropping the page and leaving the question over nothing is the one order
+            // this pair must not have.
+            self.close_kb_source_form(cx);
         } else if self.workbench.project_settings.is_some() {
             self.close_project_settings(cx);
         } else if self.conversation_info.is_some() {
@@ -588,6 +627,7 @@ impl AppState {
         self.workbench.conversation_menu = None;
         self.sink.settings.menu = None;
         self.drop_explorer_menu(cx);
+        self.drop_kb_menu(cx);
         cx.notify();
     }
 
@@ -951,6 +991,10 @@ impl Render for AppState {
         self.fill_task_form(window, cx);
         self.fill_columns(window, cx);
         self.fill_project_form(window, cx);
+        // Kept in step with the sources while the dialog holding them is up; a settings row for a
+        // source with no field yet would have nothing to type into. No `cx.notify()` —
+        // `settle_nav`'s discipline, run from the same place.
+        self.ensure_kb_inputs(window, cx);
         self.settle_graph(cx);
         self.settle_board(cx);
         // Where the window is drawing, remembered once the screens above have settled on it.

@@ -51,8 +51,8 @@ use crate::state::git::{CHANGES_WIDTH, SIDEBAR_WIDTH};
 use crate::state::settings::TabClose;
 use crate::theme;
 use crate::ui::{
-    agents, board, chat, editor, empty, explorer, git, logs, orchestration, outline, rail, search,
-    sink, stats, terminal,
+    agents, board, chat, editor, empty, explorer, git, kb, logs, orchestration, outline, rail,
+    search, sink, stats, terminal,
 };
 
 /// The version a saved layout is written under. It travels with the preferences schema, because
@@ -295,6 +295,10 @@ impl WorkbenchPanel {
                 label: "Diff".into(),
                 ..TabInfo::default()
             },
+            PanelKind::KbExplorer => TabInfo {
+                label: "Documents".into(),
+                ..TabInfo::default()
+            },
         }
     }
 }
@@ -350,6 +354,8 @@ fn did_save_or_dirty(file: &crate::state::OpenFile) -> bool {
 fn centre_title(mode: RailMode) -> &'static str {
     match mode {
         RailMode::Ide => "Editor",
+        // The centre is one document, not the mode, so the tab says what it holds.
+        RailMode::Kb => "Document",
         RailMode::Sink => "Kitchen sink",
         other => other.label(),
     }
@@ -614,6 +620,7 @@ fn body(
         PanelKind::GitChanges => git::changes::render(app, window, cx).into_any_element(),
         PanelKind::GitHistory => git::history::render(app, window, cx).into_any_element(),
         PanelKind::GitDiff => git::diff::render(app, cx).into_any_element(),
+        PanelKind::KbExplorer => kb::render(app, cx),
     }
 }
 
@@ -650,6 +657,7 @@ fn centre(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> An
             orchestration::render(app, window, cx).into_any_element()
         }
         RailMode::Tasks if has_project => board::render(app, window, cx).into_any_element(),
+        RailMode::Kb if has_project => kb::centre(app, window, cx),
         // The two modes that are about the application rather than a project answer whether or
         // not one is open: the sink draws its own fixtures, and Control reports on the host, which
         // is running whether or not this window has a folder open.
@@ -691,6 +699,7 @@ pub fn default_layout(
 ) {
     match rail_mode {
         RailMode::Git => default_git_layout(dock, panel, window, cx),
+        RailMode::Kb => default_kb_layout(dock, panel, window, cx),
         _ => default_ide_layout(dock, panel, window, cx),
     }
 }
@@ -801,6 +810,60 @@ fn default_git_layout(
         );
         if dock.is_dock_open(placement_of(Region::Bottom)) {
             dock.toggle_dock(placement_of(Region::Bottom), window, cx);
+        }
+    });
+}
+
+/// Default layout for KB mode: the documents explorer on the left, the document in the centre.
+///
+/// One side rather than Git's two: the knowledge base has an explorer and a reading area, and
+/// nothing a third region would hold. The right and the bottom are installed all the same, so the
+/// sizes are there when a panel is dragged into one, and both start shut.
+fn default_kb_layout(
+    dock: &Entity<DockArea>,
+    panel: &mut impl FnMut(PanelKind, &mut App) -> Option<Entity<WorkbenchPanel>>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let (Some(explorer), Some(centre)) = (
+        panel(PanelKind::KbExplorer, cx),
+        panel(PanelKind::Centre, cx),
+    ) else {
+        return;
+    };
+    let explorer = WorkbenchPanel::handle(&explorer);
+    let centre = WorkbenchPanel::handle(&centre);
+
+    dock.update(cx, |dock, cx| {
+        dock.set_center(DockLayout::tabs().panel_view(centre, cx), window, cx);
+        install(
+            dock,
+            Region::Left,
+            DockLayout::tabs().panel_view(explorer, cx),
+            px(theme::EXPLORER_WIDTH),
+            window,
+            cx,
+        );
+        install(
+            dock,
+            Region::Right,
+            DockLayout::tabs(),
+            px(theme::CHAT_WIDTH),
+            window,
+            cx,
+        );
+        install(
+            dock,
+            Region::Bottom,
+            DockLayout::tabs(),
+            px(theme::DOCK_HEIGHT),
+            window,
+            cx,
+        );
+        for region in [Region::Right, Region::Bottom] {
+            if dock.is_dock_open(placement_of(region)) {
+                dock.toggle_dock(placement_of(region), window, cx);
+            }
         }
     });
 }

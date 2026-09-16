@@ -25,6 +25,8 @@
 //! - `tools`: what the built-in tools actually do
 //! - `tasks`: the `manage-ubiq-tasks` server, talking to [`crate::work::Work`] through a shared
 //!   handle
+//! - `kb`: the `ubiq-kb` server, reaching the project's knowledge base through [`crate::kb`] and
+//!   its `ops` on the same shape
 //!
 //! The boundary this sits inside is the ordinary one: nothing here draws. A notification a tool
 //! raised goes through [`ubiq_proto::bus::Voice`] as
@@ -33,10 +35,13 @@
 //! board redraws without the coordinator answering a question.
 
 pub mod catalogue;
+mod kb;
 pub mod registry;
 pub mod server;
 mod tasks;
 mod tools;
+
+use std::sync::Arc;
 
 use ubiq_proto::bus::Mailbox;
 
@@ -52,5 +57,21 @@ pub use server::{Serving, start};
 /// coordinator uses, so an agent and a window never disagree about what the file holds.
 pub struct WorkAccess {
     pub work: work::Handle,
+    pub everyone: Mailbox,
+}
+
+/// How the knowledge-base tools reach a project's documents, and how they tell every window what
+/// they changed.
+///
+/// Named for the reach rather than for access, because [`ubiq_proto::kb::KbAccess`] already means
+/// something else in this family — whether a source may be written to — and two types spelled the
+/// same in one call chain is a confusion nobody should have to hold.
+///
+/// [`crate::kb::Kb`] is shared rather than copied: it owns the in-memory `Syncing`/`Failed`
+/// overrides a fetch writes, so a listener holding its own would answer a state the coordinator
+/// has never heard of. Mutations go through [`crate::kb::ops`], which needs no handle at all —
+/// only the source and the base path [`crate::kb::Kb`] resolves.
+pub struct KbReach {
+    pub kb: Arc<crate::kb::Kb>,
     pub everyone: Mailbox,
 }

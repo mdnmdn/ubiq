@@ -141,13 +141,15 @@ fn the_form_says_set_local_or_nothing_at_all() {
     assert_eq!(half.change("/srv/proj", None), None);
 }
 
-/// The nav's fifth arm, and the enablement rule it had to learn.
+/// The Remote arm of the nav, and the enablement rule it had to learn. The knowledge base joined
+/// it on the same footing, which is why the count is here rather than the arm's position.
 #[gpui::test]
 fn the_remote_nav_needs_a_record_to_attach_to(cx: &mut gpui::TestAppContext) {
     use gpui::AppContext as _;
 
-    assert_eq!(ProjectNav::all().len(), 5);
+    assert_eq!(ProjectNav::all().len(), 6);
     assert_eq!(ProjectNav::Remote.label(), "Remote");
+    assert_eq!(ProjectNav::Kb.label(), "Knowledge base");
 
     let (hub, _host) = ubiq_proto::bus::hub();
     cx.update(|cx| {

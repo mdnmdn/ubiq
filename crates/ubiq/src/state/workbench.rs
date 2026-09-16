@@ -13,7 +13,7 @@
 //! working-tree totals were invented, and a fact nobody can answer for is not drawn at all.
 
 use gpui::SharedString;
-use ubiq_proto::ids::{PaneId, ProjectId};
+use ubiq_proto::ids::{KbSourceId, PaneId, ProjectId};
 use ubiq_proto::mcp::McpInfo;
 use ubiq_proto::messages::{AccountInfo, AgentTypeInfo, ProfileInfo, ShellInfo};
 use ubiq_proto::tools::ListedTool;
@@ -56,10 +56,10 @@ impl RailMode {
 
     /// Whether this mode uses the left and right edge regions as side panels of its own.
     ///
-    /// The IDE's explorer and chat, and Git's refs and changes, live in those regions; every other
-    /// mode leaves them shut and offers no switch for them.
+    /// The IDE's explorer and chat, Git's refs and changes, and the knowledge base's explorer live
+    /// in those regions; every other mode leaves them shut and offers no switch for them.
     pub fn has_side_panels(self) -> bool {
-        matches!(self, RailMode::Ide | RailMode::Git)
+        matches!(self, RailMode::Ide | RailMode::Git | RailMode::Kb)
     }
 
     pub fn label(self) -> &'static str {
@@ -190,6 +190,9 @@ pub enum MenuId {
     SinkSettings,
     /// The explorer's right-click menu. Which row (or the empty panel) is on `ExplorerState::menu`.
     Explorer,
+    /// The KB explorer's right-click menu. Which row is on `KbState::menu`. Its own id rather than
+    /// `Explorer` reused, because the two panels can both be on screen and only one menu is open.
+    Kb,
     /// The status bar's text-size dropdown. It offers the whole point range the chrome admits.
     FontSize,
     /// A tab's right-click menu — a file, a terminal or a chat tab. Which panel it opened on, and
@@ -340,6 +343,27 @@ pub enum FileDialog {
     /// `quitting` is the same question asked for the whole application — ⌘Q — which takes every
     /// window with it.
     CloseWindow { quitting: bool },
+    /// Naming something new inside `parent` of a knowledge-base source. The KB's own variants
+    /// rather than `New`, `Rename` and `Remove` reused, because every path in that family is
+    /// relative to its source and a dialog that forgot which source it was raised on would write
+    /// into whichever one happened to be first.
+    KbNew {
+        source: KbSourceId,
+        parent: String,
+        dir: bool,
+    },
+    /// Renaming one entry inside a source, seeded with its leaf name.
+    KbRename { source: KbSourceId, path: String },
+    /// Renaming the *source* — Ubiq's own label for it, committed through the whole-list
+    /// `SetKbSources` write. Nothing on disk moves, which is why it is not `KbRename`.
+    KbRenameSource { source: KbSourceId },
+    /// Deleting one entry inside a source. There is no Trash arm: the KB family has one delete,
+    /// so the confirmation says what goes rather than which of two promises is being made.
+    KbRemove {
+        source: KbSourceId,
+        path: String,
+        dir: bool,
+    },
     /// One project's close, asked for the same reasons and answered in the same modal — the close
     /// in the project menu takes the window's unsaved files, running terminals and running agents
     /// just as seriously, it only has one project to say it about.
@@ -383,6 +407,10 @@ pub struct WorkbenchState {
     /// thing: a question raised over the window, answered once, and carrying its own pickers'
     /// open state because a modal is redrawn from state on every frame.
     pub new_agent: Option<crate::state::new_agent::NewAgentForm>,
+    /// The "Add source" modal the knowledge base settings raise, while it is up. Beside
+    /// `project_settings` rather than inside it for `new_agent`'s reason: it is a question raised
+    /// over that page, painted after it, and it carries its own pickers' open state.
+    pub kb_source: Option<crate::state::kb::KbSourceForm>,
     /// What a start still has to say to a harness, by the conversation it was started for.
     ///
     /// A start composes a preamble — the subagent ceiling as a directive, and the opening prompt
@@ -520,6 +548,7 @@ impl Default for WorkbenchState {
             clone_project: None,
             all_projects: None,
             new_agent: None,
+            kb_source: None,
             agent_preambles: Default::default(),
             remote_connect: None,
             remote_manager: RemoteManagerState::default(),

@@ -32,7 +32,10 @@ use super::*;
 /// One open "browse a host's filesystem" session. Lives beside `AppState::file_picker` rather than
 /// inside it — see the module doc — and only while that picker is a host-project one.
 pub struct HostBrowseState {
-    pub host: HostId,
+    /// The host being browsed. A [`HostRef`] rather than a [`HostId`] because the knowledge base's
+    /// folder picker browses whichever host serves the *project* — which is usually the local one
+    /// — while "Open remote project…" browses a named remote. Both are the same session.
+    pub host: HostRef,
     /// The address the picker's title and up-affordance say — `RemoteConn::label`, copied in at
     /// open rather than looked up again every frame.
     pub label: String,
@@ -82,7 +85,7 @@ pub enum Arrival {
 }
 
 impl HostBrowseState {
-    fn new(host: HostId, label: String) -> Self {
+    fn new(host: HostRef, label: String) -> Self {
         Self {
             host,
             label,
@@ -100,7 +103,7 @@ impl HostBrowseState {
     /// Work out what an arriving path is to this session, consuming it from whichever `pending`
     /// set named it so the same path answered twice is not mistaken for a second live request.
     fn classify(&mut self, host: HostRef, path: Option<&str>) -> Arrival {
-        if HostRef::Remote(self.host) != host {
+        if self.host != host {
             return Arrival::Stale;
         }
         if self.awaiting_root {
@@ -202,7 +205,7 @@ impl AppState {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.host_browse = Some(HostBrowseState::new(host, label.clone()));
+        self.host_browse = Some(HostBrowseState::new(HostRef::Remote(host), label.clone()));
         self.bus
             .send_to(HostRef::Remote(host), Message::BrowseHostDir { path: None });
 
@@ -214,6 +217,18 @@ impl AppState {
         .count(PickerCount::Single)
         .commit(Commit::OnButton);
         self.open_file_picker(request, Vec::new(), PickerView::Tree, window, cx);
+    }
+
+    /// Start a browse session against `host` and ask it for a first listing, without raising the
+    /// dialog — the caller raises whichever picker the session is for.
+    ///
+    /// The one way a session is created besides [`Self::open_remote_project_picker`], which is the
+    /// same two steps with the project picker's own request wired onto the end. Replacing the
+    /// session wholesale is the staleness guard the module doc describes, and it is what this does.
+    pub(super) fn begin_host_browse(&mut self, host: HostRef, label: String) {
+        self.host_browse = Some(HostBrowseState::new(host, label));
+        self.bus
+            .send_to(host, Message::BrowseHostDir { path: None });
     }
 
     /// Flip whether a folder picked from a remote host joins its catalogue durably. The
@@ -237,10 +252,8 @@ impl AppState {
         };
         browse.pending_roots.insert(parent.clone());
         browse.error = None;
-        self.bus.send_to(
-            HostRef::Remote(browse.host),
-            Message::BrowseHostDir { path: Some(parent) },
-        );
+        self.bus
+            .send_to(browse.host, Message::BrowseHostDir { path: Some(parent) });
         cx.notify();
     }
 
@@ -268,10 +281,8 @@ impl AppState {
         }
         let host = browse.host;
         for path in asks {
-            self.bus.send_to(
-                HostRef::Remote(host),
-                Message::BrowseHostDir { path: Some(path) },
-            );
+            self.bus
+                .send_to(host, Message::BrowseHostDir { path: Some(path) });
         }
     }
 
@@ -401,7 +412,7 @@ mod tests {
     #[test]
     fn the_first_answer_is_the_root_however_it_is_pathed() {
         let (host, _) = two_hosts();
-        let mut browse = HostBrowseState::new(host, "example".to_string());
+        let mut browse = HostBrowseState::new(HostRef::Remote(host), "example".to_string());
 
         assert_eq!(
             browse.classify(HostRef::Remote(host), Some("/home/mdn")),
@@ -421,7 +432,7 @@ mod tests {
     #[test]
     fn an_answer_from_the_wrong_host_is_always_stale() {
         let (a, b) = two_hosts();
-        let mut browse = HostBrowseState::new(a, "example".to_string());
+        let mut browse = HostBrowseState::new(HostRef::Remote(a), "example".to_string());
         browse.classify(HostRef::Remote(a), Some("/home"));
 
         assert_eq!(
@@ -435,7 +446,7 @@ mod tests {
     #[test]
     fn a_folder_is_recognised_once_and_only_once() {
         let (host, _) = two_hosts();
-        let mut browse = HostBrowseState::new(host, "example".to_string());
+        let mut browse = HostBrowseState::new(HostRef::Remote(host), "example".to_string());
         browse.classify(HostRef::Remote(host), Some("/home/mdn"));
         browse
             .pending_folders
@@ -461,7 +472,7 @@ mod tests {
     #[test]
     fn walking_up_is_a_root_arrival_not_a_folder_one() {
         let (host, _) = two_hosts();
-        let mut browse = HostBrowseState::new(host, "example".to_string());
+        let mut browse = HostBrowseState::new(HostRef::Remote(host), "example".to_string());
         browse.classify(HostRef::Remote(host), Some("/home/mdn"));
         browse.pending_roots.insert("/home".to_string());
 
@@ -476,10 +487,10 @@ mod tests {
     #[test]
     fn a_pathless_failure_is_recognised_only_as_the_opening_answer() {
         let (host, _) = two_hosts();
-        let mut fresh = HostBrowseState::new(host, "example".to_string());
+        let mut fresh = HostBrowseState::new(HostRef::Remote(host), "example".to_string());
         assert_eq!(fresh.classify(HostRef::Remote(host), None), Arrival::Root);
 
-        let mut answered = HostBrowseState::new(host, "example".to_string());
+        let mut answered = HostBrowseState::new(HostRef::Remote(host), "example".to_string());
         answered.classify(HostRef::Remote(host), Some("/home"));
         assert_eq!(
             answered.classify(HostRef::Remote(host), None),

@@ -18,7 +18,9 @@ use ubiq_proto::conversation::{
     ConfigCategory, ConfigChoice, ConfigOption, ConfigValue, ConvUpdate, StopReason,
 };
 use ubiq_proto::files::FileError;
-use ubiq_proto::ids::{PaneId, ProjectId, SearchId, SessionId, SshProfileId, SuggestId, ToolId};
+use ubiq_proto::ids::{
+    KbSourceId, PaneId, ProjectId, SearchId, SessionId, SshProfileId, SuggestId, ToolId,
+};
 use ubiq_proto::messages::{AgentPicks, CatalogueModel, Message, Secret, WorkspaceInfo};
 use ubiq_proto::projects::{IndexLevel, ProjectHealth, Scope};
 use ubiq_proto::settings::{SettingsLayer, SshProfile};
@@ -37,6 +39,7 @@ use crate::files::{self, Files};
 use crate::git::{self, Git};
 use crate::health;
 use crate::host_meta::{self, HostMeta};
+use crate::kb::{self, Kb};
 use crate::notifications;
 use crate::projects::Projects;
 use crate::pty::{self, Pty};
@@ -160,6 +163,14 @@ struct Coordinator {
     /// The thread that reads and writes a project's files. Nothing in the file family touches disk
     /// on this thread: a cold `read_dir` here would stall every pane's keystrokes behind it.
     files: Files,
+    /// A project's knowledge-base sources, and a git one's fetch. Listing and reading still go
+    /// through [`Self::files`] — nothing here touches disk either — but the source list and its
+    /// state are this family's own, on no project's catalogue record.
+    ///
+    /// `Arc` because the MCP listener's `ubiq-kb` server holds the same service on its own thread:
+    /// the `Syncing`/`Failed` overrides live in memory, so a second `Kb` would answer a state this
+    /// one has never heard of.
+    kb: Arc<Kb>,
     /// The thread that reads a project's repository. A status walk is seconds on a large tree, and
     /// seconds here would stall every pane behind it.
     git: Git,
@@ -706,12 +717,20 @@ impl Coordinator {
         // into the harness's configuration and never revisited — there is no later moment to tell
         // a run where the port is. A port that will not bind is said once, here, and every run
         // then composes with no injected servers rather than failing (`crate::mcp`).
+        // Shared with the MCP listener for the same reason the board is: the `ubiq-kb` server
+        // reads and writes the same sources a window does, and the in-flight sync states live in
+        // this one object's memory.
+        let kb = Arc::new(Kb::new(root.path.clone()));
         let mcp_agents = crate::mcp::Registry::new();
         let mcp = crate::mcp::start(
             mcp_agents.clone(),
             host.voice(),
             Some(crate::mcp::WorkAccess {
                 work: work.clone(),
+                everyone: host.mailbox(To::Everyone),
+            }),
+            Some(crate::mcp::KbReach {
+                kb: kb.clone(),
                 everyone: host.mailbox(To::Everyone),
             }),
         )
@@ -828,6 +847,7 @@ impl Coordinator {
             agents,
             catalogue,
             files: Files::start(),
+            kb,
             git: Git::start(),
             quota: crate::quota::Quota::start(quota_root),
             quotas: crate::quota::Quotas::new(),
@@ -1769,6 +1789,165 @@ impl Coordinator {
                 };
                 self.file_job(client, project_id, &rel_path, request);
             }
+
+            // ── the knowledge-base family ────────────────────────────
+            // A source list is this family's own, not the catalogue's, so unlike the file family
+            // there is no project record to look up first — a project ulid with no list written
+            // is simply an empty one. Only `KbTree` and `ReadKbFile` reach the worker; the other
+            // three settle in memory or on a sync thread and answer directly. The project's own
+            // path still has to be found, for `KbOrigin::Git { store: KbStore::Project, .. }`'s
+            // sake — a project ulid with no record has no such source to resolve either, so an
+            // empty path is exactly as unused as the lookup that produced it.
+            Message::KbSources { project_id } => {
+                let sources = self
+                    .kb
+                    .sources(project_id, &self.kb_project_path(project_id));
+                self.host.send(
+                    To::Client(client),
+                    Message::KbSourcesListed {
+                        project_id,
+                        sources,
+                    },
+                );
+            }
+            Message::SetKbSources {
+                project_id,
+                sources,
+            } => {
+                let asker = self.host.mailbox(To::Client(client));
+                let project_path = self.kb_project_path(project_id);
+                let sources = self
+                    .kb
+                    .set_sources(project_id, sources, asker, &project_path);
+                self.host.send(
+                    To::Client(client),
+                    Message::KbSourcesListed {
+                        project_id,
+                        sources,
+                    },
+                );
+            }
+            Message::KbTree {
+                project_id,
+                source,
+                rel_path,
+                depth,
+            } => {
+                let request = files::Request::Tree {
+                    rel_path: rel_path.clone(),
+                    depth,
+                };
+                self.kb_job(client, project_id, source, &rel_path, request);
+            }
+            Message::ReadKbFile {
+                project_id,
+                source,
+                rel_path,
+                max_bytes,
+            } => {
+                let request = files::Request::Read {
+                    rel_path: rel_path.clone(),
+                    max_bytes,
+                };
+                self.kb_job(client, project_id, source, &rel_path, request);
+            }
+            Message::SyncKbSource { project_id, source } => {
+                let asker = self.host.mailbox(To::Client(client));
+                let project_path = self.kb_project_path(project_id);
+                self.kb.sync(project_id, source, asker, &project_path);
+            }
+            // The six below are writes, a rename or a lookup against one already-resolved
+            // source — cheap enough, and rare enough, to answer inline rather than through
+            // `Files`: unlike `ProjectFileContents`, a knowledge-base document is markdown or a
+            // diagram, never the multi-megabyte read `Files` exists to keep off this thread.
+            Message::WriteKbFile {
+                project_id,
+                source,
+                rel_path,
+                contents,
+            } => match self.kb_resolve(project_id, source) {
+                Ok((found, base)) => match kb::ops::write_file(&base, &found, &rel_path, &contents)
+                {
+                    Ok(()) => self.kb_changed(client, project_id, source, &rel_path),
+                    Err(error) => self.kb_failed(client, project_id, source, &rel_path, error),
+                },
+                Err(error) => self.kb_failed(client, project_id, source, &rel_path, error),
+            },
+            Message::CreateKbEntry {
+                project_id,
+                source,
+                rel_path,
+                kind,
+            } => match self.kb_resolve(project_id, source) {
+                Ok((found, base)) => match kb::ops::create(&base, &found, &rel_path, kind) {
+                    Ok(()) => self.kb_changed(client, project_id, source, &rel_path),
+                    Err(error) => self.kb_failed(client, project_id, source, &rel_path, error),
+                },
+                Err(error) => self.kb_failed(client, project_id, source, &rel_path, error),
+            },
+            Message::RenameKbEntry {
+                project_id,
+                source,
+                rel_path,
+                new_name,
+            } => match self.kb_resolve(project_id, source) {
+                Ok((found, base)) => match kb::ops::rename(&base, &found, &rel_path, &new_name) {
+                    Ok(_new_rel) => self.kb_changed(client, project_id, source, &rel_path),
+                    Err(error) => self.kb_failed(client, project_id, source, &rel_path, error),
+                },
+                Err(error) => self.kb_failed(client, project_id, source, &rel_path, error),
+            },
+            Message::DeleteKbEntry {
+                project_id,
+                source,
+                rel_path,
+            } => match self.kb_resolve(project_id, source) {
+                Ok((found, base)) => match kb::ops::delete(&base, &found, &rel_path) {
+                    Ok(()) => self.kb_changed(client, project_id, source, &rel_path),
+                    Err(error) => self.kb_failed(client, project_id, source, &rel_path, error),
+                },
+                Err(error) => self.kb_failed(client, project_id, source, &rel_path, error),
+            },
+            Message::RevealKbPath {
+                project_id,
+                source,
+                rel_path,
+            } => match self.kb_resolve(project_id, source) {
+                Ok((found, base)) => match kb::ops::absolute(&base, &found, &rel_path) {
+                    Ok(path) => {
+                        if let Err(error) = kb::ops::reveal(&path) {
+                            self.kb_failed(
+                                client,
+                                project_id,
+                                source,
+                                &rel_path,
+                                FileError::Failed(error.to_string()),
+                            );
+                        }
+                    }
+                    Err(error) => self.kb_failed(client, project_id, source, &rel_path, error),
+                },
+                Err(error) => self.kb_failed(client, project_id, source, &rel_path, error),
+            },
+            Message::AskKbPath {
+                project_id,
+                source,
+                rel_path,
+            } => match self.kb_resolve(project_id, source) {
+                Ok((found, base)) => match kb::ops::absolute(&base, &found, &rel_path) {
+                    Ok(path) => self.host.send(
+                        To::Client(client),
+                        Message::KbPath {
+                            project_id,
+                            source,
+                            rel_path: rel_path.clone(),
+                            path: path.to_string_lossy().into_owned(),
+                        },
+                    ),
+                    Err(error) => self.kb_failed(client, project_id, source, &rel_path, error),
+                },
+                Err(error) => self.kb_failed(client, project_id, source, &rel_path, error),
+            },
 
             // ── the git family ──────────────────────────────────────
             // Two arms, no syscall: the record is a lookup in memory and the work goes to the
@@ -3548,6 +3727,109 @@ impl Coordinator {
             },
             reply_to: self.host.mailbox(To::Client(client)),
         });
+    }
+
+    /// A project's own folder, for the one knowledge-base origin that reads or writes inside it —
+    /// `KbOrigin::Git { store: KbStore::Project, .. }` today. A project id with no catalogue
+    /// record has no such source configured either, so the empty path this falls back to is never
+    /// actually resolved against.
+    fn kb_project_path(&self, project_id: ProjectId) -> PathBuf {
+        self.projects
+            .record(project_id)
+            .map(|record| PathBuf::from(&record.path))
+            .unwrap_or_default()
+    }
+
+    /// Hand one knowledge-base request to the worker.
+    ///
+    /// The only thing this decides is which source the request resolves against; a project with
+    /// no such source — never written, or written without this id — is refused here rather than
+    /// reaching a thread that could not answer it, on [`Self::file_job`]'s own reasoning.
+    fn kb_job(
+        &self,
+        client: ClientId,
+        project_id: ProjectId,
+        source_id: KbSourceId,
+        rel_path: &str,
+        request: files::Request,
+    ) {
+        let Some(source) = self.kb.find(project_id, source_id) else {
+            self.host.send(
+                To::Client(client),
+                files::kb_error(
+                    project_id,
+                    source_id,
+                    rel_path,
+                    FileError::Refused("no such knowledge-base source".to_string()),
+                ),
+            );
+            return;
+        };
+
+        let project_path = self.kb_project_path(project_id);
+        let base = self.kb.base_path(project_id, &source, &project_path);
+        self.files.submit(files::Job {
+            kind: files::JobKind::Kb {
+                project_id,
+                source,
+                base,
+                request,
+            },
+            reply_to: self.host.mailbox(To::Client(client)),
+        });
+    }
+
+    /// Resolve a knowledge-base source and its base path, for one of the six mutating arms above.
+    /// `Kb::find` and `Kb::base_path`, exactly as [`Self::kb_job`] resolves them for a read — the
+    /// two never diverge, because a write against a source a read could not find would be a
+    /// contract nobody could reason about.
+    fn kb_resolve(
+        &self,
+        project_id: ProjectId,
+        source_id: KbSourceId,
+    ) -> Result<(ubiq_proto::kb::KbSource, PathBuf), FileError> {
+        let Some(source) = self.kb.find(project_id, source_id) else {
+            return Err(FileError::Refused(
+                "no such knowledge-base source".to_string(),
+            ));
+        };
+        let project_path = self.kb_project_path(project_id);
+        let base = self.kb.base_path(project_id, &source, &project_path);
+        Ok((source, base))
+    }
+
+    /// Say a directory in one knowledge-base source changed, naming `rel_path`'s own parent — the
+    /// folder whoever is drawing it has to re-list, on [`Message::KbChanged`]'s own reasoning.
+    fn kb_changed(
+        &self,
+        client: ClientId,
+        project_id: ProjectId,
+        source: KbSourceId,
+        rel_path: &str,
+    ) {
+        self.host.send(
+            To::Client(client),
+            Message::KbChanged {
+                project_id,
+                source,
+                rel_path: kb::ops::parent_of(rel_path),
+            },
+        );
+    }
+
+    /// One path's failure in one knowledge-base source, on [`files::kb_error`]'s own reasoning.
+    fn kb_failed(
+        &self,
+        client: ClientId,
+        project_id: ProjectId,
+        source: KbSourceId,
+        rel_path: &str,
+        error: FileError,
+    ) {
+        self.host.send(
+            To::Client(client),
+            files::kb_error(project_id, source, rel_path, error),
+        );
     }
 
     /// Hand one host-browse request to the worker.

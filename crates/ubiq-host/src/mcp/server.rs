@@ -30,9 +30,9 @@ use std::time::Duration;
 use serde_json::{Value, json};
 use ubiq_proto::bus::Voice;
 
-use super::WorkAccess;
 use super::catalogue::{self, ServerSpec};
 use super::registry::{AgentFacts, Registry};
+use super::{KbReach, WorkAccess};
 
 /// How often the serving thread wakes to check whether it should stop. Bounds shutdown latency
 /// without needing to unblock the listener.
@@ -93,6 +93,7 @@ pub fn start(
     registry: Registry,
     voice: Voice,
     work: Option<WorkAccess>,
+    kb: Option<KbReach>,
 ) -> anyhow::Result<Serving> {
     let http = tiny_http::Server::http("127.0.0.1:0")
         .map_err(|error| anyhow::anyhow!("binding the MCP listener: {error}"))?;
@@ -106,7 +107,7 @@ pub fn start(
     let stop_thread = Arc::clone(&stop);
     let handle = std::thread::Builder::new()
         .name("ubiq-mcp".to_string())
-        .spawn(move || serve(http, registry, voice, work, stop_thread))
+        .spawn(move || serve(http, registry, voice, work, kb, stop_thread))
         .expect("the MCP listener thread");
 
     Ok(Serving {
@@ -124,11 +125,12 @@ fn serve(
     registry: Registry,
     voice: Voice,
     work: Option<WorkAccess>,
+    kb: Option<KbReach>,
     stop: Arc<AtomicBool>,
 ) {
     while !stop.load(Ordering::SeqCst) {
         match http.recv_timeout(POLL_INTERVAL) {
-            Ok(Some(request)) => handle(request, &registry, &voice, work.as_ref()),
+            Ok(Some(request)) => handle(request, &registry, &voice, work.as_ref(), kb.as_ref()),
             Ok(None) => continue,
             Err(_) => break,
         }
@@ -142,6 +144,7 @@ fn handle(
     registry: &Registry,
     voice: &Voice,
     work: Option<&WorkAccess>,
+    kb: Option<&KbReach>,
 ) {
     let Some((key, server)) = route(request.url()) else {
         let _ = request.respond(not_found());
@@ -183,7 +186,7 @@ fn handle(
     let method = parsed.get("method").and_then(Value::as_str).unwrap_or("");
     let params = parsed.get("params").cloned().unwrap_or(Value::Null);
 
-    let response = match dispatch(method, params, spec, &facts, voice, work) {
+    let response = match dispatch(method, params, spec, &facts, voice, work, kb) {
         Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
         Err((code, message)) => {
             json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}})
@@ -221,6 +224,7 @@ fn dispatch(
     facts: &AgentFacts,
     voice: &Voice,
     work: Option<&WorkAccess>,
+    kb: Option<&KbReach>,
 ) -> Result<Value, (i64, String)> {
     match method {
         "initialize" => Ok(json!({
@@ -235,7 +239,7 @@ fn dispatch(
                 .get("arguments")
                 .cloned()
                 .unwrap_or_else(|| json!({}));
-            match super::tools::call(spec.name, name, &arguments, facts, voice, work) {
+            match super::tools::call(spec.name, name, &arguments, facts, voice, work, kb) {
                 Ok(value) => {
                     let text = serde_json::to_string(&value).unwrap_or_default();
                     Ok(json!({
@@ -317,7 +321,7 @@ mod tests {
         let (hub, host) = bus::hub();
         let registry = Registry::new();
         registry.register(facts());
-        let serving = start(registry, host.voice(), None).expect("the listener binds");
+        let serving = start(registry, host.voice(), None, None).expect("the listener binds");
         (serving, hub, host)
     }
 
@@ -332,7 +336,8 @@ mod tests {
             work,
             everyone: host.mailbox(ubiq_proto::bus::To::Everyone),
         };
-        let serving = start(registry, host.voice(), Some(access)).expect("the listener binds");
+        let serving =
+            start(registry, host.voice(), Some(access), None).expect("the listener binds");
         (serving, hub, host)
     }
 
@@ -743,6 +748,341 @@ mod tests {
             .expect("the request is answered");
         let value: Value = response.into_json().unwrap();
         assert_eq!(value["error"]["code"], -32700);
+    }
+
+    /// A knowledge base with one read-only folder source and one wiki, on a config root of its
+    /// own.
+    ///
+    /// The list is written through [`crate::kb::Kb::set_sources`] rather than by hand, so the test
+    /// reads back exactly what a settings form would have saved — and the `Kb` it was written
+    /// through is the one the listener holds, which is what the `Arc` in [`crate::mcp::KbReach`]
+    /// exists for.
+    struct KbFixture {
+        /// Held for the test's life: dropping it takes the config root, and with it the wiki.
+        _root: tempfile::TempDir,
+        docs: tempfile::TempDir,
+        kb: std::sync::Arc<crate::kb::Kb>,
+        project: ubiq_proto::ids::ProjectId,
+        folder: ubiq_proto::ids::KbSourceId,
+    }
+
+    impl KbFixture {
+        fn wiki_path(&self, rel: &str) -> std::path::PathBuf {
+            self._root
+                .path()
+                .join("projects")
+                .join(self.project.to_string())
+                .join("wiki")
+                .join(rel)
+        }
+    }
+
+    fn running_with_kb() -> (Serving, bus::Hub, bus::HostEnd, KbFixture) {
+        use ubiq_proto::ids::{KbSourceId, ProjectId};
+        use ubiq_proto::kb::{KbAccess, KbOrigin, KbSource};
+
+        let (hub, host) = bus::hub();
+        let registry = Registry::new();
+        registry.register(facts());
+
+        let root = tempfile::TempDir::new().unwrap();
+        let docs = tempfile::TempDir::new().unwrap();
+        std::fs::write(docs.path().join("guide.md"), b"how it works").unwrap();
+        std::fs::write(docs.path().join("main.rs"), b"fn main() {}").unwrap();
+        std::fs::create_dir(docs.path().join("deep")).unwrap();
+        std::fs::write(docs.path().join("deep/notes.md"), b"deeper").unwrap();
+
+        let kb = std::sync::Arc::new(crate::kb::Kb::new(root.path().to_path_buf()));
+        let project: ProjectId = facts().project.id.parse().unwrap();
+        let folder = KbSourceId::generate();
+        kb.set_sources(
+            project,
+            vec![
+                KbSource {
+                    id: folder,
+                    name: "Docs".to_string(),
+                    origin: KbOrigin::Folder {
+                        path: docs.path().display().to_string(),
+                    },
+                    filter: "*.md".to_string(),
+                    access: KbAccess::ReadOnly,
+                },
+                KbSource {
+                    id: KbSourceId::generate(),
+                    name: "Wiki".to_string(),
+                    origin: KbOrigin::Internal,
+                    filter: String::new(),
+                    access: KbAccess::ReadOnly,
+                },
+            ],
+            host.mailbox(ubiq_proto::bus::To::Everyone),
+            std::path::Path::new("/tmp/project"),
+        );
+
+        let reach = crate::mcp::KbReach {
+            kb: kb.clone(),
+            everyone: host.mailbox(ubiq_proto::bus::To::Everyone),
+        };
+        let serving = start(registry, host.voice(), None, Some(reach)).expect("the listener binds");
+        (
+            serving,
+            hub,
+            host,
+            KbFixture {
+                _root: root,
+                docs,
+                kb,
+                project,
+                folder,
+            },
+        )
+    }
+
+    #[test]
+    fn the_kb_server_lists_a_projects_sources() {
+        let (serving, _hub, _host, fixture) = running_with_kb();
+        let url = url(&serving, KEY, "ubiq-kb");
+
+        let list = post(
+            &url,
+            json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}),
+        );
+        let names: Vec<&str> = list["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|tool| tool["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "list_kb_sources",
+                "list_kb_documents",
+                "read_kb_document",
+                "write_kb_document",
+                "create_kb_entry",
+                "rename_kb_entry",
+                "delete_kb_entry",
+                "sync_kb_source",
+            ]
+        );
+
+        let sources = answered(&call(&url, "list_kb_sources", json!({})));
+        let rows = sources["sources"].as_array().unwrap();
+        assert_eq!(rows.len(), 2);
+
+        assert_eq!(rows[0]["name"], "Docs");
+        assert_eq!(rows[0]["id"], fixture.folder.to_string());
+        assert_eq!(rows[0]["kind"], "folder");
+        assert_eq!(rows[0]["writable"], false);
+        assert_eq!(rows[0]["filter"], "*.md");
+        assert_eq!(rows[0]["state"]["state"], "ready");
+        assert_eq!(rows[0]["path"], fixture.docs.path().display().to_string());
+
+        // A wiki is Ubiq's own: always writable, nothing to point at, ready the moment it is
+        // asked about — and its directory is never answered.
+        assert_eq!(rows[1]["name"], "Wiki");
+        assert_eq!(rows[1]["kind"], "wiki");
+        assert_eq!(rows[1]["writable"], true);
+        assert_eq!(rows[1]["state"]["state"], "ready");
+        assert!(rows[1].get("path").is_none());
+        assert!(rows[1].get("url").is_none());
+
+        // A folder and a wiki have nothing to fetch, and that is an answer rather than an error.
+        let synced = answered(&call(&url, "sync_kb_source", json!({"source": "Docs"})));
+        assert_eq!(synced["started"], false);
+        assert_eq!(synced["kind"], "folder");
+    }
+
+    #[test]
+    fn a_kb_address_names_a_source_by_name_or_by_id() {
+        let (serving, _hub, host, fixture) = running_with_kb();
+        let url = url(&serving, KEY, "ubiq-kb");
+
+        // A bare source is its own top level, and the filter is honoured because it is what the
+        // source shows: `main.rs` is not offered, `deep` is, because a folder is never filtered.
+        let top = answered(&call(&url, "list_kb_documents", json!({"path": "Docs"})));
+        let names: Vec<&str> = top["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| entry["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(names, ["deep", "guide.md"]);
+        assert_eq!(top["entries"][0]["is_folder"], true);
+        assert_eq!(top["entries"][0]["path"], "Docs/deep");
+        assert_eq!(top["entries"][1]["path"], "Docs/guide.md");
+
+        let nested = answered(&call(
+            &url,
+            "list_kb_documents",
+            json!({"path": "Docs/deep"}),
+        ));
+        assert_eq!(nested["entries"][0]["path"], "Docs/deep/notes.md");
+
+        // The id works where the name does, and the answer names the source the way
+        // `list_kb_sources` did, whichever was typed.
+        let by_id = answered(&call(
+            &url,
+            "read_kb_document",
+            json!({"path": format!("{}/guide.md", fixture.folder)}),
+        ));
+        assert_eq!(by_id["contents"], "how it works");
+        assert_eq!(by_id["path"], "Docs/guide.md");
+
+        let unknown = call(&url, "list_kb_documents", json!({"path": "Nope/x.md"}));
+        assert_eq!(unknown["result"]["isError"], true);
+        let said = unknown["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(said.contains("not a knowledge-base source"), "{said}");
+        assert!(said.contains("Docs"), "{said}");
+
+        // Two sources may share a name — nothing stops the user — so the tools say which two by
+        // id rather than picking one.
+        use ubiq_proto::ids::KbSourceId;
+        use ubiq_proto::kb::{KbAccess, KbOrigin, KbSource};
+        let twin = KbSourceId::generate();
+        fixture.kb.set_sources(
+            fixture.project,
+            vec![
+                KbSource {
+                    id: fixture.folder,
+                    name: "Docs".to_string(),
+                    origin: KbOrigin::Folder {
+                        path: fixture.docs.path().display().to_string(),
+                    },
+                    filter: String::new(),
+                    access: KbAccess::ReadOnly,
+                },
+                KbSource {
+                    id: twin,
+                    name: "docs".to_string(),
+                    origin: KbOrigin::Internal,
+                    filter: String::new(),
+                    access: KbAccess::ReadOnly,
+                },
+            ],
+            host.mailbox(ubiq_proto::bus::To::Everyone),
+            std::path::Path::new("/tmp/project"),
+        );
+
+        let ambiguous = call(&url, "list_kb_documents", json!({"path": "Docs"}));
+        assert_eq!(ambiguous["result"]["isError"], true);
+        let said = ambiguous["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(said.contains("names 2 knowledge-base sources"), "{said}");
+        assert!(said.contains(&fixture.folder.to_string()), "{said}");
+        assert!(said.contains(&twin.to_string()), "{said}");
+
+        // The id still resolves the one the name no longer can.
+        let resolved = answered(&call(
+            &url,
+            "list_kb_documents",
+            json!({"path": twin.to_string()}),
+        ));
+        assert_eq!(resolved["entries"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn a_write_to_a_read_only_kb_source_is_refused_in_band() {
+        let (serving, _hub, _host, fixture) = running_with_kb();
+        let url = url(&serving, KEY, "ubiq-kb");
+
+        let refused = call(
+            &url,
+            "write_kb_document",
+            json!({"path": "Docs/guide.md", "contents": "rewritten"}),
+        );
+        assert!(refused.get("error").is_none());
+        assert_eq!(refused["result"]["isError"], true);
+        let said = refused["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(said.contains("read-only"), "{said}");
+        assert!(said.contains("Docs/guide.md"), "{said}");
+
+        // The refusal is `kb::ops`', before anything touched disk.
+        assert_eq!(
+            std::fs::read_to_string(fixture.docs.path().join("guide.md")).unwrap(),
+            "how it works"
+        );
+    }
+
+    #[test]
+    fn a_write_to_the_wiki_lands_on_disk_and_is_announced() {
+        let (serving, hub, _host, fixture) = running_with_kb();
+        let url = url(&serving, KEY, "ubiq-kb");
+        // A window has to be attached for a broadcast to reach anybody.
+        let window = hub.connect();
+
+        let created = answered(&call(
+            &url,
+            "create_kb_entry",
+            json!({"path": "Wiki/plans", "kind": "folder"}),
+        ));
+        assert_eq!(created["created"], true);
+        assert!(fixture.wiki_path("plans").is_dir());
+        match window.from_host().recv_timeout(TIMEOUT) {
+            Ok(Message::KbChanged { rel_path, .. }) => assert_eq!(rel_path, ""),
+            other => panic!("expected KbChanged, got {other:?}"),
+        }
+
+        let written = answered(&call(
+            &url,
+            "write_kb_document",
+            json!({"path": "Wiki/plans/ship.md", "contents": "ship it"}),
+        ));
+        assert_eq!(written["written"], true);
+        assert_eq!(written["path"], "Wiki/plans/ship.md");
+        assert_eq!(
+            std::fs::read_to_string(fixture.wiki_path("plans/ship.md")).unwrap(),
+            "ship it"
+        );
+
+        // The parent is what an open panel re-lists, so that is what is named.
+        match window.from_host().recv_timeout(TIMEOUT) {
+            Ok(Message::KbChanged {
+                project_id,
+                rel_path,
+                ..
+            }) => {
+                assert_eq!(project_id, fixture.project);
+                assert_eq!(rel_path, "plans");
+            }
+            other => panic!("expected KbChanged, got {other:?}"),
+        }
+
+        let read = answered(&call(
+            &url,
+            "read_kb_document",
+            json!({"path": "Wiki/plans/ship.md"}),
+        ));
+        assert_eq!(read["contents"], "ship it");
+
+        let renamed = answered(&call(
+            &url,
+            "rename_kb_entry",
+            json!({"path": "Wiki/plans/ship.md", "new_name": "shipped.md"}),
+        ));
+        assert_eq!(renamed["path"], "Wiki/plans/shipped.md");
+        assert!(fixture.wiki_path("plans/shipped.md").is_file());
+
+        let deleted = answered(&call(
+            &url,
+            "delete_kb_entry",
+            json!({"path": "Wiki/plans"}),
+        ));
+        assert_eq!(deleted["deleted"], true);
+        assert!(!fixture.wiki_path("plans").exists());
+    }
+
+    #[test]
+    fn a_kb_tool_without_a_knowledge_base_fails_in_band() {
+        let (serving, _hub, _host) = running();
+        let response = call(&url(&serving, KEY, "ubiq-kb"), "list_kb_sources", json!({}));
+        assert_eq!(response["result"]["isError"], true);
+        assert!(
+            response["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("no knowledge base")
+        );
     }
 
     /// `ureq` reports a 4xx as an `Err`, so both sides of the result have a status.

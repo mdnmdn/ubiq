@@ -40,6 +40,7 @@ pub mod drone;
 pub mod files;
 pub mod git;
 pub mod ids;
+pub mod kb;
 pub mod log;
 pub mod mcp;
 pub mod messages;

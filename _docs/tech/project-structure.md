@@ -7,7 +7,7 @@ summary: Every folder in the workspace, what belongs in it, what must never go i
 read_when: you are adding a file and are not certain where it goes, or you are new to the repository
 updated: 2026-09-16
 verified: 2026-09-16
-code_anchors: [Cargo.toml, crates/ubiq-host/src/store/usage.rs, crates/ubiq-host/src/lib.rs, crates/ubiq/Cargo.toml, crates/ubiq-proto/Cargo.toml, crates/ubiq-host/Cargo.toml, crates/ubiq-app/Cargo.toml, crates/ubiq-drone/Cargo.toml, vendor/gpui-terminal/Cargo.toml, _tools/icns.py]
+code_anchors: [Cargo.toml, crates/ubiq-host/src/store/usage.rs, crates/ubiq-host/src/kb/mod.rs, crates/ubiq-host/src/lib.rs, crates/ubiq/Cargo.toml, crates/ubiq-proto/Cargo.toml, crates/ubiq-host/Cargo.toml, crates/ubiq-app/Cargo.toml, crates/ubiq-drone/Cargo.toml, vendor/gpui-terminal/Cargo.toml, _tools/icns.py]
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -76,6 +76,8 @@ project's own folder — `D30`.
     └── <project ulid>/
         ├── tasks.toml       that project's tasks, the user's data
         ├── view.toml        that project's view blob, opaque to the host
+        ├── kb.toml          that project's knowledge-base roots, the user's data
+        ├── kb/<root ulid>/  a cloned knowledge-base repository, re-fetchable
         └── ui/              the interface's workarea — the host makes it and never looks in
 ```
 
@@ -89,6 +91,11 @@ cannot be asked what it spent last Tuesday, so the meter is the only record of i
 file destroys data rather than costing work. It is a database rather than a file because it
 accumulates and is unbounded — `D78`, and
 [`../features/stats.md`](../features/stats.md) for what is in it.
+
+`kb/` is the one directory under a project that Ubiq fetches rather than the user writing: a
+knowledge-base root cloned from a repository lands there and never inside the project's own folder,
+on `D30`. Losing it costs a re-clone, which is why it sits under the project rather than beside
+`kb.toml` in the catalogue — the list of roots is the user's data and the clone is not.
 
 A `projects/<ulid>/` with no record in the catalogue is collected at the next successful load, which
 is what makes forgetting a project complete even after a crash halfway through it. The `ui/`
@@ -192,6 +199,7 @@ interface does not depend on the host, so a module in the wrong crate does not c
 | `ubiq-host/src/remote.rs` | The listener that lets a UI on another machine attach: an accept thread, a thread per connection, a token handshake over HTTP, then raw `wire` frames onto an ordinary `Hub::connect()` client | A special case for any message family, TLS, or a second kind of client |
 | `ubiq-host/src/git/` | A project's repository, observed off the coordinator's thread | A write into the repository, including the index stat cache |
 | `ubiq-host/src/repos/` | Listing a remote's repositories, and cloning one into a folder, on a thread of its own per clone | A read of an existing repository — that is `git/` — or a write into one |
+| `ubiq-host/src/kb/` | A project's knowledge-base roots: `mod.rs`'s `Kb` holds the list (one TOML file per project, in `store.rs`) and derives each root's state; `sync.rs` fetches or refreshes a git root on a thread of its own, behind `git`. Listing and reading still run on `files/`'s worker | A project's own tree — that is `files/` — or a second implementation of the glob `KbRoot::admits` is |
 | `ubiq-host/src/files/browse.rs` | Listing one absolute directory on the host's own filesystem before any project exists — the host browse family's worker logic, with its own 2,000-entry ceiling independent of the file family's | A project-relative path, or the containment `path.rs` enforces once a project's root is known |
 | `ubiq-host/src/host_path.rs` | Absolute host paths as they cross the wire: stripping the verbatim prefix for display and normalising separators before a filesystem call, on every platform by doing nothing elsewhere | A project-relative path, or any knowledge of what the path is for |
 | `ubiq-host/src/pty/` | Pseudo-terminal streams, reading, writing, backpressure | Terminal emulation |
@@ -203,7 +211,7 @@ interface does not depend on the host, so a module in the wrong crate does not c
 | `ubiq-host/src/work/` | A project's tasks as the host keeps them, and the sessions and agents it mocks over them | Where anything is drawn, or an invented reply from an agent |
 | `ubiq-host/src/watch/` | One `notify` watch per open project, debounced and coalesced, and the project-relative paths it reports | An absolute path on the wire, an opinion about what a reader should redraw |
 | `ubiq-host/src/agent.rs` | Agent-type definitions and the registry over them | Hard-coded harness knowledge that belongs in the library |
-| `ubiq-host/src/mcp/` | The MCP surface Ubiq exposes to the agents it hosts: one loopback listener, the built-in `test`, `project-info`, `manage-ubiq-tasks` and `use-task` servers, and the registry that says which agent is calling | Anything the hosted agent should not reach |
+| `ubiq-host/src/mcp/` | The MCP surface Ubiq exposes to the agents it hosts: one loopback listener, the built-in `test`, `project-info`, `manage-ubiq-tasks`, `use-task` and `ubiq-kb` servers, and the registry that says which agent is calling | Anything the hosted agent should not reach |
 | `ubiq/src/app/` | `AppState`: the panes, the focused pane, the dock and its panels, the workbench state, and window creation. `mod.rs` holds the struct, the free window functions and the key bindings; `boot.rs` the constructor; `shell.rs` chrome and the `Render` impl; `wire.rs` `receive()` and the pane calls; `panels.rs` the dock; and one file per screen — `explorer`, `editor`, `git`, `agents`, `graph`, `board`, `chat`, `sink`, `picker`, `projects`, `settings` | Process handles, PTY handles, disk |
 | `ubiq/src/app/hosts.rs` | `Bus`, the window's multiplexer over every host it is attached to; `HostRef`, the UI-local `HostId`, and the routing that resolves a message to one host | A `HostId` in a `Message`, or any knowledge that a host has of another host |
 | `ubiq/src/state/remote.rs` | The "Connect to a remote host" modal's state and steps, the `AttemptId` a stale dial result is checked against, and the pure `parse_connection_string` / `with_default_port` a test pins down with no socket | A socket, a thread, or any blocking call |

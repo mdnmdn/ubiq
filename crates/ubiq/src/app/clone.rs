@@ -419,19 +419,33 @@ impl AppState {
                 }
             }
 
+            // Two surfaces ask for branches with the same message, and each holds its own query
+            // id: the clone modal, and the knowledge base's "Add source" form, whose Check button
+            // is this exact ask. Both are offered the answer and each takes it only if it named
+            // the id it is still waiting on, so neither has to know the other exists.
             Message::RepoBranches {
                 query_id,
                 branches,
                 default,
             } => {
                 if let Some(clone) = self.workbench.clone_project.as_mut()
-                    && clone.accept_branches(query_id, branches, default)
+                    && clone.accept_branches(query_id, branches.clone(), default.clone())
+                {
+                    cx.notify();
+                }
+                if let Some(form) = self.workbench.kb_source.as_mut()
+                    && form.accept_branches(query_id, branches, default)
                 {
                     cx.notify();
                 }
             }
 
             Message::RepoError { query_id, error } => {
+                if let Some(form) = self.workbench.kb_source.as_mut()
+                    && form.accept_error(query_id, &error)
+                {
+                    cx.notify();
+                }
                 if let Some(clone) = self.workbench.clone_project.as_mut()
                     && clone.accept_error(query_id, error)
                 {

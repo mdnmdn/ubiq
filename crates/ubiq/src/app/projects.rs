@@ -414,7 +414,7 @@ impl AppState {
     /// The project the settings dialog is editing, if it is open on one that already exists. Only
     /// such a project has a record to override — the same gate `ui::sink::project::form_project`
     /// draws for the index row.
-    fn editing_project(&self) -> Option<ProjectId> {
+    pub(super) fn editing_project(&self) -> Option<ProjectId> {
         match self.workbench.project_settings.as_ref().map(|s| &s.mode) {
             Some(ProjectSettingsMode::Edit { project }) => Some(*project),
             _ => None,
@@ -674,6 +674,16 @@ impl AppState {
             drone: DroneField::from_origin(snapshot.record.runs_on.as_ref()),
             nav: ProjectNav::General,
         });
+        // The KB nav's sources and the explorer's are the same configuration, so whichever asks
+        // first is the one that lands: a dialog opened before the mode was ever visited must not
+        // draw a blank Documents page for want of an ask.
+        if !self
+            .projects
+            .get(&project)
+            .is_some_and(|open| open.kb.loaded)
+        {
+            self.ask_kb_sources(project);
+        }
         self.fill_project_form = true;
         cx.notify();
     }

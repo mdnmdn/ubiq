@@ -247,3 +247,12 @@ ulid_id! {
     /// reference.
     SshProfileId
 }
+
+ulid_id! {
+    /// One source of a project's knowledge base. Minted UI-side when the row is added, on
+    /// [`ToolId`]'s discipline and for the same reason: the whole source list rides
+    /// `SetKbSources`, so the half that writes the list is the half that names its rows. Stable
+    /// across a rename and across a filter edit — this is what a KB listing, a KB read and a
+    /// fetched source's clone folder under the config root all reference.
+    KbSourceId
+}

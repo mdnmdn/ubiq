@@ -149,6 +149,9 @@ pub enum PanelKind {
     GitHistory,
     /// Git diff viewer panel: shows diff for selected file/commit.
     GitDiff,
+    /// The knowledge base's explorer: one row per configured root, and the documents under each.
+    /// KB mode's only side panel — the centre is the document it selects.
+    KbExplorer,
 }
 
 impl PanelKind {
@@ -173,7 +176,7 @@ impl PanelKind {
             | PanelKind::GitChanges
             | PanelKind::GitHistory
             | PanelKind::GitDiff => PanelClass::Free,
-            PanelKind::Explorer => PanelClass::Edge,
+            PanelKind::Explorer | PanelKind::KbExplorer => PanelClass::Edge,
             PanelKind::Centre | PanelKind::File(_) => PanelClass::Centre,
         }
     }
@@ -183,7 +186,7 @@ impl PanelKind {
     pub fn home(&self) -> Region {
         match self {
             PanelKind::Terminal(_) | PanelKind::Logs | PanelKind::Search => Region::Bottom,
-            PanelKind::Explorer | PanelKind::Outline => Region::Left,
+            PanelKind::Explorer | PanelKind::Outline | PanelKind::KbExplorer => Region::Left,
             PanelKind::Chat(_) => Region::Right,
             PanelKind::Centre | PanelKind::File(_) => Region::Centre,
             // Git panels default to left/right edges for IDE-like layout
@@ -214,6 +217,7 @@ impl PanelKind {
             PanelKind::GitChanges => "ubiq.git.changes",
             PanelKind::GitHistory => "ubiq.git.history",
             PanelKind::GitDiff => "ubiq.git.diff",
+            PanelKind::KbExplorer => "ubiq.kb.explorer",
         }
     }
 
@@ -236,6 +240,7 @@ impl PanelKind {
             "ubiq.git.changes" => Some(PanelKind::GitChanges),
             "ubiq.git.history" => Some(PanelKind::GitHistory),
             "ubiq.git.diff" => Some(PanelKind::GitDiff),
+            "ubiq.kb.explorer" => Some(PanelKind::KbExplorer),
             _ => None,
         }
     }
@@ -305,19 +310,29 @@ impl PanelKind {
             | PanelKind::GitChanges
             | PanelKind::GitHistory
             | PanelKind::GitDiff => at.has_project && matches!(at.rail_mode, Some(RailMode::Git)),
+            // The same rule one mode along: the knowledge base's explorer is KB's own furniture,
+            // and a project is what it lists.
+            PanelKind::KbExplorer => at.has_project && matches!(at.rail_mode, Some(RailMode::Kb)),
         }
     }
 
     /// Whether this panel belongs to Git mode rather than to the window.
-    ///
-    /// The refs, the changes, the history and the diff travel with Git's own saved arrangement.
-    /// Putting one back into another mode's tree would open that mode's edges for a panel it
-    /// hides — so leftover restore skips them, and a first visit to Git asks for them again.
     pub fn is_git(&self) -> bool {
         matches!(
             self,
             PanelKind::GitRefs | PanelKind::GitChanges | PanelKind::GitHistory | PanelKind::GitDiff
         )
+    }
+
+    /// Whether this panel belongs to a rail mode rather than to the window.
+    ///
+    /// Git's four and the knowledge base's explorer travel with their own mode's saved
+    /// arrangement. Putting one back into another mode's tree would open that mode's edges for a
+    /// panel it hides — so leftover restore skips them, and a first visit to the mode asks for
+    /// them again. A second mode with side panels of its own is a name in this list, not a second
+    /// branch in the restore.
+    pub fn is_mode_owned(&self) -> bool {
+        self.is_git() || matches!(self, PanelKind::KbExplorer)
     }
 
     /// Whether the panel's tab offers a close. A terminal's close kills its harness, a file's

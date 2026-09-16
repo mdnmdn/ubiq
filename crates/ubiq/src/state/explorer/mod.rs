@@ -350,7 +350,10 @@ impl ExplorerAction {
     }
 }
 
-fn open_in_system_label() -> &'static str {
+/// What the "show this in the platform's own file manager" row says, named for the platform the
+/// window is running on. Shared with the KB explorer's menu, which offers the same row against the
+/// host's file manager rather than the project's — one wording, so the two menus cannot drift.
+pub(crate) fn open_in_system_label() -> &'static str {
     if cfg!(target_os = "macos") {
         "Open in Finder"
     } else if cfg!(target_os = "windows") {

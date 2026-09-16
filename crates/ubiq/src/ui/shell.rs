@@ -127,6 +127,15 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .as_ref()
                 .map(|_| project_settings::overlay(app, window, cx)),
         )
+        // The knowledge base's "Add source" question, over the project settings page that raised
+        // it — painted here rather than from that page for the reason the login modal is painted
+        // over settings: a modal drawn inside the page it overlays is a modal the page can clip.
+        .children(
+            app.workbench
+                .kb_source
+                .as_ref()
+                .map(|_| crate::ui::kb::source_form::render(app, window, cx)),
+        )
         // Application settings is a page with a nav, not the kit's one-question modal, so it is
         // painted here — over the window — the same way project settings is.
         .children(

@@ -44,13 +44,19 @@ impl ModeLayout {
     ///
     /// Most modes open on the centre alone: no region is furniture, and each comes back the
     /// moment it is asked for. Git is the exception — its refs explorer and its changes panel
-    /// *are* the screen, so the left and right regions open with it (`D119`).
+    /// *are* the screen, so the left and right regions open with it (`D119`). The knowledge base
+    /// is the same claim over one side: its explorer is how a document is reached at all, and its
+    /// right is the centre's to use.
     pub fn default_for(mode: RailMode) -> Self {
-        let sides = mode == RailMode::Git;
+        let (show_left, show_right) = match mode {
+            RailMode::Git => (true, true),
+            RailMode::Kb => (true, false),
+            _ => (false, false),
+        };
         Self {
-            show_left: sides,
+            show_left,
             show_bottom: false,
-            show_right: sides,
+            show_right,
             layout: None,
         }
     }

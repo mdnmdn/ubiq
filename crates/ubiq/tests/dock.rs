@@ -28,6 +28,7 @@ fn every_kind() -> Vec<PanelKind> {
         PanelKind::GitChanges,
         PanelKind::GitHistory,
         PanelKind::GitDiff,
+        PanelKind::KbExplorer,
     ]
 }
 
@@ -42,17 +43,18 @@ fn nothing() -> Visibility {
 /// the centre or the bottom is refused and returns.
 #[test]
 fn an_edge_panel_lives_on_a_border_and_nowhere_else() {
-    let kind = PanelKind::Explorer;
-    assert!(kind.class().allows(Region::Left), "{kind:?} in the left");
-    assert!(kind.class().allows(Region::Right), "{kind:?} in the right");
-    assert!(
-        !kind.class().allows(Region::Centre),
-        "{kind:?} in the centre"
-    );
-    assert!(
-        !kind.class().allows(Region::Bottom),
-        "{kind:?} in the bottom"
-    );
+    for kind in [PanelKind::Explorer, PanelKind::KbExplorer] {
+        assert!(kind.class().allows(Region::Left), "{kind:?} in the left");
+        assert!(kind.class().allows(Region::Right), "{kind:?} in the right");
+        assert!(
+            !kind.class().allows(Region::Centre),
+            "{kind:?} in the centre"
+        );
+        assert!(
+            !kind.class().allows(Region::Bottom),
+            "{kind:?} in the bottom"
+        );
+    }
 }
 
 /// A terminal, the console and a chat tab go wherever the user puts them: nothing about any of
@@ -153,6 +155,8 @@ fn the_names_a_saved_layout_is_keyed_by_are_fixed() {
     assert_eq!(PanelKind::GitChanges.home(), Region::Right);
     assert_eq!(PanelKind::GitHistory.home(), Region::Centre);
     assert_eq!(PanelKind::GitDiff.home(), Region::Centre);
+    assert_eq!(PanelKind::KbExplorer.name(), "ubiq.kb.explorer");
+    assert_eq!(PanelKind::KbExplorer.home(), Region::Left);
 }
 
 /// **Every file panel answers the same name**, whichever tab it is. A name is a `&'static str` and
@@ -337,6 +341,38 @@ fn what_is_drawn_follows_the_mode_and_the_project() {
         rail_mode: Some(RailMode::Git),
         ..nothing()
     }));
+
+    // The knowledge base's explorer wants its own mode and a project, and nothing else draws it.
+    let kb = Visibility {
+        has_project: true,
+        rail_mode: Some(RailMode::Kb),
+        ..nothing()
+    };
+    assert!(PanelKind::KbExplorer.is_drawn(kb));
+    assert!(!PanelKind::KbExplorer.is_drawn(Visibility {
+        rail_mode: Some(RailMode::Kb),
+        ..nothing()
+    }));
+    assert!(!PanelKind::KbExplorer.is_drawn(git));
+    // The centre stays in KB mode: it is the document the explorer selects.
+    assert!(PanelKind::Centre.is_drawn(kb));
+}
+
+/// A panel that belongs to a rail mode rather than to the window is never put back into another
+/// mode's tree by the leftover restore — it would open that mode's edges for a panel it hides.
+#[test]
+fn a_mode_s_own_panels_say_so() {
+    for kind in every_kind() {
+        let owned = matches!(
+            kind,
+            PanelKind::GitRefs
+                | PanelKind::GitChanges
+                | PanelKind::GitHistory
+                | PanelKind::GitDiff
+                | PanelKind::KbExplorer
+        );
+        assert_eq!(kind.is_mode_owned(), owned, "{kind:?}");
+    }
 }
 
 /// **In IDE mode the open files are the centre.** A file panel is drawn while its tab is open, and

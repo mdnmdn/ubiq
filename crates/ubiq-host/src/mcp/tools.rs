@@ -20,9 +20,9 @@ use ubiq_proto::bus::Voice;
 use ubiq_proto::messages::Message;
 use ubiq_proto::notifications::{Family, Level, NotificationRequest};
 
-use super::WorkAccess;
-use super::catalogue::{MANAGE_UBIQ_TASKS, PROJECT_INFO, TEST, USE_TASK};
+use super::catalogue::{MANAGE_UBIQ_TASKS, PROJECT_INFO, TEST, UBIQ_KB, USE_TASK};
 use super::registry::AgentFacts;
+use super::{KbReach, WorkAccess};
 
 /// Call one tool. `server` and `tool` have already been matched against the catalogue's server;
 /// the tool has not, so an unknown one ends here as the in-band error a model sees.
@@ -33,6 +33,7 @@ pub fn call(
     facts: &AgentFacts,
     voice: &Voice,
     work: Option<&WorkAccess>,
+    kb: Option<&KbReach>,
 ) -> Result<Value, String> {
     match (server, tool) {
         (TEST, "send_notification") => send_notification(arguments, facts, voice),
@@ -48,6 +49,11 @@ pub fn call(
             let access =
                 work.ok_or_else(|| "this host has no task board for agents to use".to_string())?;
             super::tasks::use_call(tool, arguments, facts, access)
+        }
+        (UBIQ_KB, _) => {
+            let reach = kb
+                .ok_or_else(|| "this host has no knowledge base for agents to reach".to_string())?;
+            super::kb::call(tool, arguments, facts, reach)
         }
         _ => Err(format!("unknown tool: {server}/{tool}")),
     }

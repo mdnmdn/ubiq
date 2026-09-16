@@ -166,6 +166,10 @@ impl AppState {
                 crate::state::sink::PROJECT_PATH,
             ))
         });
+        let kb_name_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("What the source is called"));
+        let kb_url_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("https://github.com/org/wiki.git"));
 
         // The kitchen sink's fixtures become buffers here, where there is a window to build one
         // with. They are constants, so this is the whole of their lifecycle: nothing arrives late,
@@ -1042,6 +1046,33 @@ impl AppState {
             },
         ));
 
+        // The "Add source" modal's name field. It commits on every keystroke rather than on Enter
+        // or blur, because what it commits is not a write to the host — it is the fact that the
+        // user has named this source themselves, which is what stops the form seeding over them.
+        subscriptions.push(cx.subscribe_in(
+            &kb_name_input,
+            window,
+            |this, input, event: &InputEvent, _window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    let value = input.read(cx).value().to_string();
+                    this.retype_kb_source_name(value, cx);
+                }
+            },
+        ));
+
+        // Its URL field, on the same beat: nothing is asked of the host until Check is pressed,
+        // but whatever was checked stops being about what is typed the moment it changes.
+        subscriptions.push(cx.subscribe_in(
+            &kb_url_input,
+            window,
+            |this, input, event: &InputEvent, window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    let value = input.read(cx).value().to_string();
+                    this.retype_kb_source_url(value, window, cx);
+                }
+            },
+        ));
+
         // A field's underline is drawn by the parent, so a focus change has to redraw the window
         // rather than only the library widget.
         for handle in [
@@ -1089,6 +1120,8 @@ impl AppState {
             project_form_hex.read(cx).focus_handle(cx),
             project_exclude_input.read(cx).focus_handle(cx),
             project_path_input.read(cx).focus_handle(cx),
+            kb_name_input.read(cx).focus_handle(cx),
+            kb_url_input.read(cx).focus_handle(cx),
             picker_search.read(cx).focus_handle(cx),
         ] {
             subscriptions.push(cx.on_focus(&handle, window, |_, _, cx| cx.notify()));
@@ -1244,6 +1277,10 @@ impl AppState {
             project_form_hex,
             project_exclude_input,
             project_path_input,
+            kb_name_input,
+            kb_url_input,
+            kb_filter_inputs: HashMap::new(),
+            kb_filter_subs: HashMap::new(),
             sink_buffers,
             a2ui_buffer,
             script_buffer,

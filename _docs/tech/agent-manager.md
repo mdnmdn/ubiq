@@ -438,8 +438,8 @@ that wants the library to host and rewrite its service for it; Ubiq instead bind
 `McpRef::Inline` HTTP reference pointed at it, the same shape a remote server would arrive in. That
 keeps the listener's lifetime, its identity model and its stateless-by-URL routing entirely inside
 `ubiq-host` rather than behind a library feature flag, which is the choice `D102` states and costs.
-The catalogue is `test`, `project-info`, `manage-ubiq-tasks` and `use-task`; the last two share the
-host's `Work` through a handle so an agent can read and write the project's board (`D120`).
+The catalogue is `test`, `project-info`, `manage-ubiq-tasks`, `use-task` and `ubiq-kb`; the last three
+share the host's `Work` and `Kb` through handles, so an agent reaches what a window does (`D120`).
 
 `crates/ubiq-host/Cargo.toml` declares the dependency and `crates/ubiq/Cargo.toml` does not, which
 is where the edge belongs: the host owns configuration and processes, and the interface may not name

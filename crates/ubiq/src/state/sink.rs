@@ -482,6 +482,8 @@ pub enum ProjectNav {
     Tools,
     /// Where the project's folder actually is: here, or behind a drone on another machine.
     Remote,
+    /// Which folders and repositories the project's documents come from.
+    Kb,
     Documentation,
     Integrations,
 }
@@ -492,6 +494,7 @@ impl ProjectNav {
             ProjectNav::General,
             ProjectNav::Tools,
             ProjectNav::Remote,
+            ProjectNav::Kb,
             ProjectNav::Documentation,
             ProjectNav::Integrations,
         ]
@@ -508,10 +511,13 @@ impl ProjectNav {
 }
 
 /// Label and the count beside it, one row per [`ProjectNav`], in variant order.
-const PROJECT_NAV_COPY: [(&str, Option<u32>); 5] = [
+const PROJECT_NAV_COPY: [(&str, Option<u32>); 6] = [
     ("General", None),
     ("Tools", None),
     ("Remote", None),
+    // The fixture's root count. The live dialog prints the project's own instead, because the
+    // number beside this row is what the section is a list of.
+    ("Knowledge base", Some(2)),
     ("Documentation", Some(4)),
     ("Integrations", Some(1)),
 ];

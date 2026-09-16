@@ -908,6 +908,14 @@ impl AppState {
                     None => self.open_untitled_text(cx),
                 }
             }
+            // The knowledge base's four, answered by the family that owns them: every path in it
+            // is relative to a source, so none of the messages above would be the right one.
+            dialog @ (FileDialog::KbNew { .. }
+            | FileDialog::KbRename { .. }
+            | FileDialog::KbRenameSource { .. }
+            | FileDialog::KbRemove { .. }) => {
+                self.confirm_kb_dialog(dialog, project, typed, cx);
+            }
             // Answered above, before the project was looked up.
             FileDialog::DiscardChanges { .. }
             | FileDialog::CloseWindow { .. }

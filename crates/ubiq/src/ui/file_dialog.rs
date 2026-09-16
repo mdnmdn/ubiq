@@ -116,6 +116,85 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
             window,
             cx,
         ),
+        // The knowledge base's four. The same three kit calls as the project's own, worded for a
+        // tree whose paths are relative to a source rather than to the project.
+        Some(FileDialog::KbNew { parent, dir, .. }) => {
+            let where_ = match parent.is_empty() {
+                true => "the source's top level".to_string(),
+                false => parent,
+            };
+            prompt_modal(
+                "app-kb-new",
+                match dir {
+                    true => "New folder",
+                    false => "New file",
+                },
+                Some(&format!("It is made in {where_}.")),
+                "Name",
+                &app.file_name,
+                "Create",
+                !typed.is_empty(),
+                crate::ui::handler(&view, |this, window, cx| {
+                    this.confirm_file_dialog(window, cx)
+                }),
+                crate::ui::handler(&view, |this, _, cx| this.close_file_dialog(cx)),
+                window,
+                cx,
+            )
+        }
+        Some(FileDialog::KbRename { path, .. }) => {
+            let leaf = leaf_of(&path).to_string();
+            prompt_modal(
+                "app-kb-rename",
+                "Rename",
+                Some("The name on disk, in the source this document belongs to."),
+                "Name",
+                &app.file_name,
+                "Rename",
+                !typed.is_empty() && typed != leaf,
+                crate::ui::handler(&view, |this, window, cx| {
+                    this.confirm_file_dialog(window, cx)
+                }),
+                crate::ui::handler(&view, |this, _, cx| this.close_file_dialog(cx)),
+                window,
+                cx,
+            )
+        }
+        // Renaming the source says so, because nothing on disk moves: the name is Ubiq's own label
+        // for where the documents come from, which is why a read-only source can be renamed too.
+        Some(FileDialog::KbRenameSource { .. }) => prompt_modal(
+            "app-kb-rename-source",
+            "Rename source",
+            Some("What this source is called in Ubiq. Nothing on disk is renamed."),
+            "Name",
+            &app.file_name,
+            "Rename",
+            !typed.is_empty(),
+            crate::ui::handler(&view, |this, window, cx| {
+                this.confirm_file_dialog(window, cx)
+            }),
+            crate::ui::handler(&view, |this, _, cx| this.close_file_dialog(cx)),
+            window,
+            cx,
+        ),
+        Some(FileDialog::KbRemove { path, dir, .. }) => {
+            let contents = match dir {
+                true => " Everything inside it goes too.",
+                false => "",
+            };
+            confirm_modal(
+                "app-kb-remove",
+                "Delete",
+                &format!("{path}?{contents}"),
+                "Delete permanently",
+                true,
+                crate::ui::handler(&view, |this, window, cx| {
+                    this.confirm_file_dialog(window, cx)
+                }),
+                crate::ui::handler(&view, |this, _, cx| this.close_file_dialog(cx)),
+                window,
+            )
+        }
         Some(FileDialog::Remove { path, dir, trash }) => {
             let contents = match dir {
                 true => " Everything inside it goes too.",

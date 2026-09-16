@@ -20,6 +20,7 @@ pub mod explorer;
 pub mod file_dialog;
 pub mod file_picker;
 pub mod git;
+pub mod kb;
 pub mod kit;
 pub mod logs;
 pub mod navigator;

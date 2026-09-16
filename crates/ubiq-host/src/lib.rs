@@ -42,6 +42,8 @@
 //! - `web_assets`: the vendor bundles a web panel needs, fetched once into the shared workarea,
 //!   verified against a manifest in source, and served by the interface off its own origin (behind
 //!   `listener`)
+//! - `kb`: a project's knowledge base — its configured sources, a git one's fetch, and the state
+//!   of each now (git fetch behind `git`, same as `repos`)
 //! - `index`: the full-text index that speeds up content search (behind `index`)
 //! - `notifications`: telling the desktop about a notification (behind `desktop`)
 //! - `remote`, `links`: the rest of what `listener` gates
@@ -84,6 +86,7 @@ pub mod host_meta;
 pub mod host_path;
 #[cfg(feature = "index")]
 pub mod index;
+pub mod kb;
 pub mod links;
 #[cfg(feature = "harness")]
 pub mod mcp;

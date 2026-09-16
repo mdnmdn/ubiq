@@ -41,12 +41,48 @@ when there is room for a single badge, and a window too short for even one shows
 never moves**: badges stay in the order the window holds them, whichever of them the rail had to
 leave out. The switch is Appearance settings, on by default.
 
-**Seven modes are built.** What the rail selects between is the centre. Git fills it with the
+**Every mode is built.** What the rail selects between is the centre. Git fills it with the
 repository, Agents with the parallel columns, Orchestration with the graph, Tasks with the board,
 Sink with the kitchen sink, Control with the stats screen, and the centre panel's tab is named for
 the mode. IDE fills it with the open files, one panel each, and the centre panel steps aside for as
-long as any is open. `KB` renders one empty page naming the mode and what it will hold. This is a
-stated gap, not an error state.
+long as any is open. KB fills it with the one document its explorer selected.
+
+**KB is the documents counterpart of IDE, and its explorer has several sources.** A source is a
+folder the user pointed at, a repository the host clones for them, or a wiki Ubiq keeps itself, each
+with its own name, its own read-only/read-write access and its own name-glob filter —
+`*.md *.excalidraw` — and none of them need be inside the project. A project nobody has configured
+draws one page in the panel with an **Add KB** button on it, which opens project settings on its own
+section; everything else about a source is edited there. The sources, their listings and their
+documents are the transport contract's knowledge-base family, and a source that has to be fetched
+reports its clone on its own row rather than in a modal. The centre renders markdown through the
+same viewer the IDE uses; a diagram and an image say they open in the IDE, which is `G11`.
+
+**Every row of the KB explorer has a right-click menu**, drawn with the same `kit::context_menu` the
+project explorer uses and answered by the same prompt and confirm modals. A **source row** offers
+Open in Finder, Copy path, *Get latest version* for a git source only, New file and New folder for a
+writable source, and *Rename source* always — a source's name is Ubiq's label for it, so it is
+renameable even where the material behind it is not, and it commits through the whole-list
+`SetKbSources` write rather than a rename on disk. A **folder row** offers Open in Finder and Copy
+path, plus New file, New folder, Rename and Delete when the source is writable; a **file row** the
+same two, plus Rename and Delete. Nothing is drawn greyed: an entry the row cannot do is left out,
+because unlike the explorer's Paste there is no state a user could reach to earn it. Open in Finder
+opens the *host's* file manager (`RevealKbPath`), and Copy path asks for the absolute path
+(`AskKbPath`) and puts the answer on the clipboard — the one place the interface learns one, and it
+is asked for rather than volunteered. Delete confirms first, and a folder's confirmation says what is
+inside it goes too. Details in `_docs/wip/kb.md`.
+
+**The KB settings section lists the sources and raises one modal to add another.** Each row carries
+the source's name, where it comes from, its filter field, a read-only/read-write marker and a remove
+control; under them is a single **Add source** button. The modal it raises is the New agent modal's
+shape — `ui/kb/source_form.rs`, `kit::modal` with a footer, a first full-width `Picker` and every
+row below it drawn inert until that first answer lands: a name seeded from whatever the form points
+at until the user types their own, the kind (folder, git repository or wiki), and then the one thing
+that kind needs. A folder is chosen through **Ubiq's own host-backed file picker**, never the
+platform dialog, because the path has to be one on the machine the *host* runs on; a repository
+takes a URL with a **Check** button beside it that sends `ListRepoBranches` — the clone modal's own
+ask, answered in the same `receive_repo` arm — and fills the branch picker from the answer, plus a
+store picker over `KbStore`. Access is read-only by default and is fixed on read-write for a wiki.
+Confirm appends the source and commits the whole list as one `SetKbSources`; Cancel discards.
 
 **The explorer and the chat belong to IDE mode.** They are IDE furniture and leave together when the
 mode changes; the console, the terminals and the centre panel itself outlive a mode switch. The chat
@@ -2500,6 +2536,7 @@ The panels, each one a `PanelKind` in `state/dock.rs`:
 | Panel | Module | Class | Opens in | State |
 |---|---|---|---|---|
 | Explorer | `ui/explorer.rs` | Edge | Left, at `EXPLORER_WIDTH` | `ExplorerState`, one per project the window holds |
+| KB explorer | `ui/kb/` | Edge | Left, at `EXPLORER_WIDTH`, in `KB` mode only | `KbState`, one per project the window holds |
 | Outline | `ui/outline.rs` | Free | Left, beside the explorer | One `Vec<Def>` cache on `AppState` (`outline`, `outline_key`, `outline_gen`), rebuilt from the buffer on screen and drawn as a `uniform_list` |
 | Chat | `ui/chat/` | Free | Right, at `CHAT_WIDTH`, or wherever it is dragged | One `ChatTab` per open instance, in `OpenProject::chats` — see the chat document |
 | Centre | `ui/dock/mod.rs`, `centre()` | Centre | The centre | `WorkbenchState::rail_mode`, and whatever the screen it draws owns |
@@ -2532,9 +2569,11 @@ saying no file is open, because the files are panels of their own:
 | Project settings | `ui/sink/project.rs` | The kitchen sink, on its eighth page | A dialog-shaped panel in the page | `SinkState::project`, and the window's project-name fields |
 | Script page | `ui/sink/script.rs` | The kitchen sink, on its last page | Fills it; the settings panel discloses under the chrome, the console scrolls under the two editors, and the right half switches between the reference and the declared panel | `script_buffer` and `script_prelude` on `AppState`, and `SinkState::script` — the last `ScriptOutcome`, the `OxcOptions`, and the `Live` a declared panel draws into |
 | New agent form | `ui/new_agent.rs` | A modal over the whole window, above the settings overlay | `MODAL_WIDTH`; its body scrolls inside it | `WorkbenchState::new_agent`, or the settings page's `profile_form` — one `NewAgentForm` either way |
+| Add KB source form | `ui/kb/source_form.rs` | A modal over the whole window, above the project settings overlay that raises it | `MODAL_WIDTH`; its body scrolls inside it | `WorkbenchState::kb_source`, one `KbSourceForm` |
 | File picker | `ui/file_picker.rs` | Over the whole window, wherever it was raised | `DEFAULT_WIDTH` by `DEFAULT_HEIGHT`, resized from its corner grip and floored at `MIN_WIDTH`/`MIN_HEIGHT` | `AppState::file_picker`, and the window's `picker_filter` |
 | Stats screen | `ui/stats.rs` | The centre panel in Control mode, project or no project | Fills it; its page strip takes the tab strip's own height, and its table scrolls both ways | `StatsState`, on the window rather than on a project |
-| Empty page | `ui/empty.rs` | The centre panel in `KB` mode, and with no project open | Fills it | `RailMode`, or nothing at all |
+| KB document | `ui/kb/` | The centre panel in `KB` mode | Fills it; the document scrolls | `KbState::doc`, the one document the explorer selected |
+| Empty page | `ui/empty.rs` | The centre panel with no project open, and every rail mode with no screen | Fills it | `RailMode`, or nothing at all |
 
 Two rules hold across the three tables. **The chrome does not move and the panels do** — the
 titlebar, the rail and the status bar each take one fixed constant and are the frame the dock is
@@ -3000,7 +3039,9 @@ text-size dropdown, `MenuId::ViewerKind` for the file-kind chip beside it, `Menu
 `WorkbenchState::tab_menu` for a tab's right-click, `MenuId::NewPane` with its anchor
 in `WorkbenchState::new_pane_menu` and its rows in `WorkbenchState::shells` for the new-pane
 control's chevron, and `MenuId::Overflow` with its anchor in `WorkbenchState::overflow_menu` and its
-rows in `WorkbenchState::overflow_rows` for the titlebar's own chevron; `settings.rs` for the Ui-layer
+rows in `WorkbenchState::overflow_rows` for the titlebar's own chevron, and `MenuId::Kb` with its row
+in `KbState::menu` for the KB explorer's right-click — its own id rather than `MenuId::Explorer`
+reused, because both panels can be on screen and only one menu is open; `settings.rs` for the Ui-layer
 schema, the overlay's nav, and how a blob is read;
 `explorer.rs` for the tree, the list, the keyboard and the right-click menu, drawing through the
 shared chrome in `ui/kit/files.rs`; `editor.rs`
@@ -3314,7 +3355,9 @@ a single pick is final on it; `commit_file_picker` and `cancel_file_picker` take
 route the answer by `PickerRequest::owner` — the sink's page, the composer's attachments (taken as
 `picked_with_sizes()`, so a tag knows how big its file is without anything reading a disk), and
 `PickerOwner::HostProject`, which sends `AddProject` to the host `AppState::host_browse` names
-rather than writing back into any field of the picker's own. `ui/file_picker.rs` draws it, painted
+rather than writing back into any field of the picker's own, and `PickerOwner::KbFolder`, which
+folds the chosen folder into the "Add source" form instead of sending anything — a source is
+committed when that form is confirmed, as one whole-list `SetKbSources`. `ui/file_picker.rs` draws it, painted
 from `ui/sink/mod.rs` for the same reason the modal is: where a dialog is asked for is not where it
 is painted. `crates/ubiq/tests/file_picker.rs` asserts every rule above with no frame at all, over
 the sink's own fixture tree.
@@ -3627,7 +3670,6 @@ field's, instead of landing in the middle of the centred row and covering the te
 
 ## Next steps
 
-- Build the KB screen.
 - Reorder a task's sub-tasks, which `MoveStep` names on the wire for exactly that.
 - Hand a sub-task to an agent, so `Step.owner` is set by something.
 - Write the graph's arrangement down, so a hand-placed card survives a restart.

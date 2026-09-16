@@ -233,6 +233,14 @@ impl AppState {
             .push(PanelEdit::Reveal(PanelKind::GitHistory));
     }
 
+    /// Queue the KB screen's own panel into its home region — the left-edge explorer, on
+    /// [`Self::queue_git_furniture`]'s reasoning: a mode never arranged keeps the tree the last
+    /// mode had, and the explorer is not named by a blob until one exists.
+    pub(super) fn queue_kb_furniture(&mut self) {
+        self.pending_panels
+            .push(PanelEdit::Open(PanelKind::KbExplorer));
+    }
+
     /// The panel for one kind, built the first time it is asked for.
     pub(super) fn panel(&mut self, kind: PanelKind, cx: &mut App) -> Entity<WorkbenchPanel> {
         if let Some(panel) = self.panels.get(&kind) {
@@ -486,9 +494,9 @@ impl AppState {
         // later: the blob predates it. A panel the user closed is not on screen and does not come
         // back — closing is what took it out of the tree.
         for (kind, panel) in panels {
-            // Git's panels belong to Git's own blob. Revealing one here would open this mode's
-            // edges for a panel it hides.
-            let restorable = !kind.is_git()
+            // A mode's own panels belong to that mode's blob. Revealing one here would open this
+            // mode's edges for a panel it hides.
+            let restorable = !kind.is_mode_owned()
                 && (kind.pane().is_some() || kind.tab_key().is_some() || on_screen.contains(&kind));
             if restorable && !kept.contains_key(&kind) {
                 let home = kind.home();
