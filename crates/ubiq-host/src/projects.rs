@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use chrono::Utc;
 use ubiq_proto::ids::ProjectId;
-use ubiq_proto::projects::{IndexChange, ProjectRecord, ProjectSnapshot, Scope};
+use ubiq_proto::projects::{DroneChange, IndexChange, ProjectRecord, ProjectSnapshot, Scope};
 use ubiq_proto::tools::ToolDef;
 
 #[cfg(feature = "harness")]
@@ -298,7 +298,17 @@ impl Projects {
             // twice, or added for real twice — is answered exactly as before.
             if existing.temporary && !temporary {
                 let id = existing.id;
-                return self.promote(id, name, colour, custom_colour, None, None, None, None);
+                return self.promote(
+                    id,
+                    name,
+                    colour,
+                    custom_colour,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                );
             }
             // The path is a uniqueness key, not an identity: this is the project that is there.
             return vec![Reply::Asker(ubiq_proto::messages::Message::ProjectAdded {
@@ -325,6 +335,7 @@ impl Projects {
             index: None,
             managed_repos: Vec::new(),
             tools: Vec::new(),
+            runs_on: None,
         };
 
         let snapshot = self.snapshot(&record);
@@ -351,6 +362,7 @@ impl Projects {
         index: Option<IndexChange>,
         tools: Option<Vec<ToolDef>>,
         managed_repos: Option<Vec<String>>,
+        runs_on: Option<DroneChange>,
     ) -> Vec<Reply> {
         let Some(record) = self.find(id) else {
             return vec![Reply::Asker(message_error(Some(id), "no such project"))];
@@ -375,6 +387,9 @@ impl Projects {
         }
         if let Some(managed_repos) = managed_repos {
             record.managed_repos = managed_repos;
+        }
+        if let Some(runs_on) = runs_on {
+            record.runs_on = runs_on.resolve();
         }
 
         let snapshot = self.snapshot(&record);
@@ -437,9 +452,10 @@ impl Projects {
 
     /// Rename, recolour, change what a project's searches skip, or change which repositories
     /// inside it the project takes on. Touches no filesystem and cannot fail beyond "no such
-    /// project": `search_excludes`, `index` and `managed_repos` are display state exactly like the
-    /// rest — `None` leaves a field as it is, `Some` replaces it. A managed path naming no
-    /// repository the walk can find is kept as given; only the observation decides what it means.
+    /// project": `search_excludes`, `index`, `managed_repos` and `runs_on` are display state
+    /// exactly like the rest — `None` leaves a field as it is, `Some` replaces it. A managed path
+    /// naming no repository the walk can find is kept as given; only the observation decides what
+    /// it means.
     // One argument per field of `Message::UpdateProject` plus the id: the mirror is the
     // point, and the same shape `Coordinator::start_conversation` keeps for its message.
     #[allow(clippy::too_many_arguments)]
@@ -453,6 +469,7 @@ impl Projects {
         index: Option<IndexChange>,
         tools: Option<Vec<ToolDef>>,
         managed_repos: Option<Vec<String>>,
+        runs_on: Option<DroneChange>,
     ) -> Vec<Reply> {
         let Some(record) = self.find(id) else {
             return vec![Reply::Asker(message_error(Some(id), "no such project"))];
@@ -469,6 +486,7 @@ impl Projects {
                 index,
                 tools,
                 managed_repos,
+                runs_on,
             );
         }
         let mut record = record.clone();
@@ -490,6 +508,9 @@ impl Projects {
         }
         if let Some(managed_repos) = managed_repos {
             record.managed_repos = managed_repos;
+        }
+        if let Some(runs_on) = runs_on {
+            record.runs_on = runs_on.resolve();
         }
 
         let snapshot = self.snapshot(&record);

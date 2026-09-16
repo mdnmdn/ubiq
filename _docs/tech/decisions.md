@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-09-15
-verified: 2026-09-15
+updated: 2026-09-16
+verified: 2026-09-16
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -2414,7 +2414,9 @@ the catalogue rather than unreachable ones — there is no local record to mark 
 right answer for a host the user attaches to deliberately and the wrong one for "this project lives
 over there", which is what per-project configuration wants; closing that gap is where the multi-host
 model has to learn about a locally-owned record a remote host fills in, and it is the one place this
-choice costs more than the alternative rather than less.
+choice costs more than the alternative rather than less. `D132` is that split, and it leaves this
+entry standing: the coordinator still never learns a drone exists, because the row that survives a
+drone being down is the interface's to hold.
 
 ### D117 — The carrier family is the one part of the contract no dispatch ever sees
 
@@ -2779,6 +2781,193 @@ than a schema bump, so an old blob still parses and nobody's settings reset over
 change. A user who never opens the settings page gets `Close` on both terminal kinds, which is a
 behaviour change from `D103`'s unconditional detach; the confirm modal is what keeps that change
 from being a silent one.
+
+### D131 — A drone's lifetime is two axes over one knob, and three presets name the points worth having
+
+What a drone's lifetime actually varies over is two independent things: whether the process detaches
+from the `ssh` that started it, and how long it waits with no client before it kills its panes and
+goes. The second is `--linger`, one knob with three answers — `0`, a number of seconds, `never` —
+and the first is the difference between `--stdio` and `--listen`. Every useful combination is one of
+three, so `DronePreset` names those three rather than putting two controls in front of a user:
+**Attached** is `--stdio` with no socket at all, **Session** detaches at the default ten-minute
+linger, **Managed** detaches at `never`. `ssh_connect::remote_command` is where a preset becomes a
+command line, and `linger_arg` where a project's `DroneOrigin` overrides the preset's own seconds.
+
+The knob is the *drone's* timer and never Ubiq's, because the whole point of a detached drone is
+that the interface may be gone — closed, asleep, or behind a link that dropped — so a countdown
+held where the user is would never run when it is needed. It is re-asserted on every attach, over
+the socket preamble rather than the protocol, so changing it costs no restart and no pane.
+
+**Cost:** a preset is a name for a pair of values, so a user who wants the fourth combination —
+attached but surviving a dropped link — has no pill for it, and the only way to that shape is a
+per-project `linger_secs` override or a hand-typed command line. Three presets also mean three
+lifetimes to explain on a modal that had none, and `Managed` in particular leaves a process running
+on somebody else's machine with nothing but the Drones settings section to find it again (`D132`'s
+row survives a drone; an unpinned `Managed` drone is found only by looking).
+
+### D132 — For a duplicate project id the local host owns the row, whatever host is serving it
+
+Everywhere else in `Bus` a host owns what it reports wholesale — `projects_not_on`,
+`replace_all_except` and `drop_remote` all read that way — and a project configured with `runs_on`
+is the one case that is not. The row is the local catalogue's; the drone, launched with `--root-id`,
+announces the same folder under the id the local catalogue minted, and what it contributes is its
+liveness. So `Bus::owned_locally` remembers every id the local catalogue ever named and
+`Bus::row_owner` answers `Local` for any of them whatever host is serving it. Every site that asks
+"whose rows are these" asks `row_owner` rather than reading `projects`, which makes all three
+correct at once: the drone's `ProjectList` arrives with the pinned id in `keep`, and a kept
+row wins over an incoming one of the same id, so the row is neither evicted, duplicated, nor
+overwritten with the drone's bare reading of the folder.
+
+Serving still moves, which is what puts a pane on the far machine: `note_project` files the drone as
+the project's host and leaves ownership where it was, and a later local re-listing does not take the
+folder back off a live drone. `drop_remote` brings the serving home and keeps the row;
+`disconnect_host` reads `local_rows_served_by` first and marks each survivor
+`ProjectHealth::Unreadable` naming the drone.
+
+**This is the row `D116` said was owed.** That entry's cost paragraph named exactly this gap — a
+machine that is not reachable has no rows in the catalogue rather than unreachable ones, which is
+the wrong answer for "this project lives over there" — and said closing it is where the multi-host
+model has to learn about a locally-owned record a remote fills in. This is that split, and `D116`
+stands otherwise: the coordinator still never learns a drone exists.
+
+**Cost:** one concept more than "a host owns its rows", and a set that only grows — `owned_locally`
+is cleared by `forget_project` and by nothing else, so an id the local catalogue named once outranks
+a remote's claim to it for the life of the window even after the project has been re-listed from
+elsewhere. Two machines that genuinely hold different folders under one id would resolve to the
+local one silently; ids are ULIDs minted per catalogue, so that collision is a mis-copied
+`--root-id` rather than an accident, and it reads as the drone's folder being ignored.
+
+### D133 — The remote `PATH` is tried first and the deployer is the fallback
+
+`dial_ssh` runs the bare `ubiq-drone` on the far `PATH` exactly as it always has, and reaches
+`ensure_drone` only after the far shell has answered that there is nothing by that name — keyed on
+the shell's own exit 127, and on nothing else, so `ssh`'s 255 and a refused handshake are left to
+the classes they have. The re-dial happens once, and only when no `drone_path` was given: an
+explicit path is the caller's own answer to this same question and is never second-guessed.
+
+Deploying eagerly would invert the order and break the case that works. `ensure_drone` refuses any
+triple `manifest::BINARIES` has no entry for, and a tree with no cross toolchain has an entry for
+none — so an eager deploy would turn every connect to a machine with a hand-installed drone into a
+refusal naming `just drone-build`. The order is the decision here, not a tuning.
+
+**Cost:** a first connect to a machine with no drone pays a whole failed `ssh` before the deploy
+starts, so the slow path is slower by one round trip, and the user watches "Connecting" through it —
+which is what `DeployStep` and the modal's four notes exist to narrate. A machine whose shell
+answers 127 for some other reason is deployed to needlessly, and a machine whose drone is on `PATH`
+but *broken* is never replaced, because it ran.
+
+### D134 — A drone shells to the machine's own `rg`, `ag` or `grep`, and never builds an index
+
+`ubiq_drone::search` probes once, in that order, and runs a one-shot exec per query: `rg --json`
+first, because it is the only one of the three that hands back exact match ranges rather than a
+highlighted line; then `ag`; then a bare `grep -rn`. The flags are built as argv and never as a
+shell string, so a query holding a quote or a semicolon is a query and not an injection. What comes
+back is translated into exactly the messages `ubiq_host::search::worker` sends, batched the same way
+and under the same ceilings, so the interface needs no branch for a drone's answer. `CancelSearch`
+kills the child. `Scope::Files` is the only scope served — tasks, chats and the knowledge base are
+the coordinator's own state, which a drone holds none of, so anything else answers an empty
+`SearchFinished` rather than an error.
+
+**A drone never builds an index.** It is a guest on somebody else's machine, and the resident cost
+an index implies — a directory of state that outlives the search that asked for it — is the thing
+this whole design exists to avoid. Porting `ubiq_host::search`'s own walker instead would be that
+same cost in a different shape, and slower than a tool the machine carries.
+
+**Cost:** a machine with none of the three answers every search with `SearchError::Walk` naming what
+was tried, and the remedy is installing something rather than anything Ubiq can do — which is why
+`D135` keeps the capability unadvertised there. Results also vary with the tool: `grep` gives a
+whole line where `rg` gives a range, and the three disagree about what they skip by default, so the
+same query over the same tree can read differently on two machines. And a drone's search is O(tree)
+every time, where a local project's is answered from `tantivy`.
+
+### D135 — A capability is advertised only once it has been probed
+
+`ubiq_drone::capabilities` is a function, not a `const`. `files` is unconditional; `search` is named
+only when `search::probe` actually found a tool on this machine's `PATH`. Whether a binary exists is
+a fact about the machine the drone happens to be running on, discovered at start and cached, not
+something the build knows.
+
+Naming a capability the drone would only refuse is worse than naming none: the interface reads
+`capabilities` to decide what to *offer*, so an optimistic list puts a search field in front of a
+user that answers with a refusal every time, and the refusal arrives after they have typed. An
+absent name costs one unavailable feature and no false promise. The probe runs before
+`shells::repair_path` widens the process's `PATH` for the sake of spawning a login shell by name, so
+what a drone advertises is what its own account can reach rather than what a shell would add on its
+behalf.
+
+**Cost:** the probe is a one-time snapshot, so a tool installed on the far machine after the drone
+started is not noticed until the drone is restarted, and a tool removed under a running drone leaves
+behind a capability that advertises and refuses. A string set also has no version: two drones can both say
+`search` and answer differently, which is `D134`'s cost arriving through this door.
+
+### D136 — The drone's MCP tools see roots, not a filesystem
+
+Every file-family message carries a `ProjectId` and a `rel_path`, never an absolute path, so
+`drone_ls`, `drone_read`, `drone_write`, `drone_delete` and `drone_move` take the same shape: a root
+plus a relative path under it. A root is exactly the folder `info` reports for that drone,
+confinement above it is the file worker's own path safety rather than a second check built for a
+model, and read-only is a property stated per root rather than inferred from the machine, because
+one drone can serve a project meant for editing and a second meant only for reading logs.
+
+**Cost:** an agent cannot reach anything outside a root by design, which the tool set states as its
+whole point and which a user still meets as a refusal the first time they ask for a file one level
+up.
+
+### D137 — `shell` is a message on the bus, never a scraped pseudo-terminal
+
+A drone's pane is a byte stream with no exit code and no completion signal — the domain rule that
+terminal bytes stay opaque holds for exactly this reason. A tool call needs stdout, stderr and an
+exit code, and reading them off a pane's screen is the thing that rule forbids rather than a
+shortcut around it. `RunCommand` and `CommandFinished` are a message pair answered by an ordinary
+process on the host side, capability-gated as `shell`. The pair is not drone-specific: the local
+host answers it the same way a drone does, so `drone_copy` between a local project and a remote one
+composes two hosts' `read` and `write` rather than needing a transfer protocol of its own.
+
+**Cost:** a second way to run a command exists beside the pane a person types into, and the two can
+disagree about environment — a login shell's `PATH` against whatever `RunCommand` inherits — which a
+user notices only when a tool call and a typed command give different answers.
+
+### D138 — A drone tool call is answered off the bus, not on the listener's thread
+
+`mcp/tools.rs` answers most tools from the facts a URL resolved to, on the listener's own thread, and
+asks the coordinator nothing — a harness waiting on that thread is a harness a busy coordinator can
+stall. A drone tool has no local fact to answer from; every one is a question the far end has to
+answer, so the drone server holds a pending-call table with a timeout and drives it as a client of
+the bus. Correlation rides the echo keys the file family carries for a different reader:
+`ProjectTreeListing` and `ProjectFileContents` echo their `rel_path` so a late answer lands on the
+right row, and a pending call matches the same way.
+
+**A streaming family is collected whole, then answered once.** `SearchProject` replies over time —
+`SearchMatches`, `SearchProgress`, then `SearchFinished` — and an MCP call is one request and one
+response, so the pending-call table carries an accumulating case beside the one-reply case:
+`drone_search` gathers matches until `SearchFinished` or `SearchError` ends it, and answers with
+what it gathered. `SearchProgress` is discarded, because there is nothing to stream it to. The
+timeout spans the whole search rather than the gap between messages — a per-message timeout would
+kill a slow but healthy walk of a large tree. Because an unbounded collection is a response no model
+can read, the tool takes a `limit`, states its default in the description so a model can narrow its
+pattern rather than discover truncation afterwards, and on reaching it sends `CancelSearch` instead
+of letting the drone finish walking a tree whose results are already being thrown away.
+
+**Cost:** this is the one path through the MCP server where a slow or wedged drone stalls a tool call
+rather than answering instantly, bounded by the timeout and nothing else — a drone that hangs
+mid-write answers eventually or times out, and either way the listener's own thread stays free for
+every other agent's calls.
+
+### D139 — The drone tool list is built per run from advertised capabilities
+
+`ubiq_drone::capabilities()` states the same rule for the interface: naming a capability a drone
+would only refuse is worse than naming none, because an optimistic list puts something in front of a
+user, or here a model, that answers with a refusal every time. `drone_search` is offered only when
+the attached drone's `DroneIdentity` carries `search`, and `drone_shell` only when it carries
+`shell`; `drone_ls`, `drone_read`, `drone_write`, `drone_delete` and `drone_move` need only `files`,
+which every drone states.
+
+This is the first call site to read `DroneIdentity::has` for a reason other than a test — `G265`
+names exactly that absence, and this phase is what closes it.
+
+**Cost:** the tool list a harness sees depends on which drone it is talking to when the run starts,
+so two runs against two machines offer two different tool sets under one name, and a capability a
+drone gains mid-run is invisible to it until the next one.
 
 ## Related docs
 

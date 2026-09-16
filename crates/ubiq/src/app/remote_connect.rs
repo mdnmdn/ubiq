@@ -31,7 +31,8 @@ use std::time::Duration;
 
 use ubiq_proto::bus::{self, Client, FromClient};
 use ubiq_proto::carrier::{Beat, Heartbeat};
-use ubiq_proto::settings::RemoteScheme;
+use ubiq_proto::projects::DroneOrigin;
+use ubiq_proto::settings::{RemoteCarrier, RemoteScheme};
 use ubiq_proto::wire;
 
 use crate::state::remote::{
@@ -692,9 +693,14 @@ impl AppState {
         cx: &mut Context<Self>,
     ) {
         self.clear_remote_connect_inputs(window, cx);
-        let (mode, profile) = match &saved.carrier {
-            RemoteCarrier::Socket => (ConnectMode::Socket, None),
-            RemoteCarrier::Ssh { profile, root } => {
+        let (mode, profile, preset) = match &saved.carrier {
+            RemoteCarrier::Socket => (ConnectMode::Socket, None, DronePreset::default()),
+            RemoteCarrier::Ssh {
+                profile,
+                root,
+                preset,
+                ..
+            } => {
                 self.remote_root_input.update(cx, |state, cx| {
                     state.set_value(root, window, cx);
                 });
@@ -708,7 +714,7 @@ impl AppState {
                     .iter()
                     .any(|known| known.id == *profile)
                     .then_some(*profile);
-                (ConnectMode::Ssh, still_there)
+                (ConnectMode::Ssh, still_there, *preset)
             }
         };
         if matches!(mode, ConnectMode::Socket) {
@@ -731,6 +737,7 @@ impl AppState {
             trust_insecure: saved.trust_insecure,
             mode,
             profile,
+            preset,
         });
         cx.notify();
     }
@@ -740,6 +747,15 @@ impl AppState {
     pub fn set_remote_mode(&mut self, mode: ConnectMode, cx: &mut Context<Self>) {
         if let Some(state) = &mut self.workbench.remote_connect {
             state.mode = mode;
+        }
+        cx.notify();
+    }
+
+    /// Pick the drone's lifetime — attached, session-lingering, or managed. Only meaningful in
+    /// [`ConnectMode::Ssh`]; kept regardless, like the profile pick above.
+    pub fn set_remote_preset(&mut self, preset: DronePreset, cx: &mut Context<Self>) {
+        if let Some(state) = &mut self.workbench.remote_connect {
+            state.preset = preset;
         }
         cx.notify();
     }
@@ -868,7 +884,10 @@ impl AppState {
 
         let attempt = AttemptId::generate();
         if let Some(state) = &mut self.workbench.remote_connect {
-            state.step = RemoteConnectStep::Connecting { attempt };
+            state.step = RemoteConnectStep::Connecting {
+                attempt,
+                deploy: None,
+            };
         }
         cx.notify();
 
@@ -899,7 +918,9 @@ impl AppState {
         let showing = matches!(
             &self.workbench.remote_connect,
             Some(RemoteConnectState {
-                step: RemoteConnectStep::Connecting { attempt: current },
+                step: RemoteConnectStep::Connecting {
+                    attempt: current, ..
+                },
                 ..
             }) if *current == attempt
         );
@@ -971,6 +992,222 @@ impl AppState {
 
     // ── Drones over ssh ─────────────────────────────────────────────────────
 
+    /// The project pinned to this profile and folder, with the linger its origin overrides, or
+    /// nothing at all. Whitespace-insensitive on the folder, because the string is the user's and
+    /// a trailing space is not a different machine.
+    ///
+    /// Answers with the first match. Two projects pinned to one folder on one machine are the
+    /// same folder, so which one names it is not a choice worth making.
+    pub(super) fn project_pinned_to(
+        &self,
+        profile: SshProfileId,
+        root: &str,
+        cx: &App,
+    ) -> Option<(ProjectId, Option<u64>)> {
+        let root = root.trim();
+        WindowRegistry::read(cx).all().find_map(|snapshot| {
+            let origin = snapshot.record.runs_on.as_ref()?;
+            (origin.profile == profile && origin.root.trim() == root)
+                .then_some((snapshot.record.id, origin.linger_secs))
+        })
+    }
+
+    /// The drone binary path a saved host records for this profile and folder, if any.
+    ///
+    /// Read from the saved host rather than carried on the project, because where the binary sits
+    /// is the *machine's* fact: `DroneOrigin` says which machine and which folder and nothing
+    /// about how the drone got there.
+    pub fn saved_drone_path(&self, profile: SshProfileId, root: &str) -> Option<String> {
+        let root = root.trim();
+        self.workbench
+            .settings
+            .host
+            .remote_hosts
+            .iter()
+            .find_map(|saved| match &saved.carrier {
+                RemoteCarrier::Ssh {
+                    profile: known,
+                    root: known_root,
+                    drone_path,
+                    ..
+                } if *known == profile && known_root.trim() == root => drone_path.clone(),
+                _ => None,
+            })
+    }
+
+    /// File the drone binary path a dial actually launched against the saved host it belongs to.
+    ///
+    /// The one field of the carrier this touches: a reconnect has no name, address, scheme or
+    /// preset to restate, and restating them would let a loop running against a stale clone
+    /// overwrite an edit made while it was backing off. A path equal to the one already saved
+    /// writes nothing, so the settings message is sent only when the deploy actually moved it.
+    pub fn remember_drone_path(&mut self, save_id: &str, drone_path: Option<String>) {
+        let Some(saved) = self
+            .workbench
+            .settings
+            .host
+            .remote_hosts
+            .iter_mut()
+            .find(|saved| saved.id == save_id)
+        else {
+            return;
+        };
+        let RemoteCarrier::Ssh {
+            drone_path: known, ..
+        } = &mut saved.carrier
+        else {
+            return;
+        };
+        if *known == drone_path {
+            return;
+        }
+        *known = drone_path;
+        self.remember_host_settings();
+    }
+
+    /// Whether some host this window is already attached to is the drone an origin names.
+    ///
+    /// The live connection carries a saved entry's id, and the saved entry carries the carrier,
+    /// so the match runs through `remote_hosts` rather than through a field on `RemoteConn`:
+    /// how a connection's bytes arrive is the saved host's business, not the live one's.
+    pub(super) fn drone_attached(&self, origin: &DroneOrigin) -> bool {
+        self.bus.remote_conns().iter().any(|conn| {
+            self.workbench
+                .settings
+                .host
+                .remote_hosts
+                .iter()
+                .any(|saved| {
+                    saved.id == conn.save_id
+                        && matches!(
+                            &saved.carrier,
+                            RemoteCarrier::Ssh { profile, root, .. }
+                                if *profile == origin.profile
+                                    && root.trim() == origin.root.trim()
+                        )
+                })
+        })
+    }
+
+    /// Launch the drone a project names, because opening the project is what asks for it.
+    ///
+    /// The [`ProjectId`] rides the argv as `--root-id`, so the drone announces that folder under
+    /// the id the local catalogue already holds: one row whose host attribution moves as the
+    /// drone comes and goes, never two (`D116`).
+    ///
+    /// Nothing waits on this. The project opens now against its local row — which is the row
+    /// either way — and the drone's own catalogue answer arrives whenever `ssh` has finished.
+    pub(super) fn dial_project_drone(
+        &mut self,
+        project: ProjectId,
+        origin: DroneOrigin,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(profile) = self
+            .workbench
+            .settings
+            .host
+            .ssh_profiles
+            .iter()
+            .find(|profile| profile.id == origin.profile)
+            .cloned()
+        else {
+            // The profile was deleted out from under the project. Said on the row rather than
+            // dialled: there is no argv to build.
+            cx.global_mut::<WindowRegistry>().mark_unreadable(
+                project,
+                "the SSH profile this project runs on is gone".to_string(),
+            );
+            cx.notify();
+            return;
+        };
+        let label = profile.name.clone();
+        let address = profile.host.clone();
+        let params = ssh_connect::SshDialParams {
+            profile,
+            root: origin.root.clone(),
+            preset: origin.preset,
+            root_id: Some(project),
+            linger_secs: origin.linger_secs,
+            drone_path: self.saved_drone_path(origin.profile, &origin.root),
+            config_root: self.workbench.config_root.clone(),
+        };
+
+        let outcome = cx.background_spawn(async move { ssh_connect::dial_ssh(&params) });
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            let outcome = outcome.await;
+            let _ = this.update(cx, |this, cx| {
+                this.land_project_drone(project, origin, label, address, outcome, cx)
+            });
+        })
+        .detach();
+    }
+
+    /// A project's own dial, landing back on the GPUI thread.
+    ///
+    /// **A failure does not take the project with it.** The row is the local catalogue's and
+    /// stays, carrying the dial's own sentence — the vocabulary [`ConnectFailure`] already
+    /// speaks — in `ProjectHealth::Unreadable`, which is what a folder on a machine that did not
+    /// answer actually is.
+    #[allow(clippy::too_many_arguments)]
+    fn land_project_drone(
+        &mut self,
+        project: ProjectId,
+        origin: DroneOrigin,
+        label: String,
+        address: String,
+        outcome: Result<ssh_connect::SshDial, ConnectFailure>,
+        cx: &mut Context<Self>,
+    ) {
+        match outcome {
+            Ok(dial) => {
+                let ssh_connect::SshDial {
+                    client,
+                    identity,
+                    drone_path,
+                } = dial;
+                tracing::info!(
+                    "attached ubiq-drone {} ({}) for a project that runs on it",
+                    identity.drone_version,
+                    identity.triplet
+                );
+                // The path the dial actually launched: the saved one when that worked, and the
+                // one `ensure_drone` uploaded when the far `PATH` had nothing. Saving the second
+                // is what keeps the deploy to once per machine — the next dial for this profile
+                // and folder reads it straight back out of `saved_drone_path`.
+                let saved = self.save_remote_host(
+                    String::new(),
+                    label.clone(),
+                    address.clone(),
+                    RemoteScheme::Http,
+                    false,
+                    RemoteCarrier::Ssh {
+                        profile: origin.profile,
+                        root: origin.root,
+                        preset: origin.preset,
+                        drone_path,
+                    },
+                    cx,
+                );
+                self.attach_remote(
+                    client,
+                    label,
+                    saved,
+                    address.clone(),
+                    RemoteScheme::Http,
+                    cx,
+                );
+                self.workbench.settings.failed_hosts.remove(&address);
+            }
+            Err(failure) => {
+                tracing::warn!("project drone dial failed: {failure}");
+                cx.global_mut::<WindowRegistry>()
+                    .mark_unreadable(project, failure.to_string());
+            }
+        }
+        cx.notify();
+    }
+
     /// Start an `ssh` to a drone. The SSH half of [`Self::try_connect_remote`], on the same
     /// terms: the [`AttemptId`] is minted here, the work runs on the background executor, and
     /// the answer is discarded on arrival if the modal has moved on.
@@ -1002,9 +1239,17 @@ impl AppState {
             return;
         };
         let root = self.remote_root_input.read(cx).value().trim().to_string();
+        let preset = modal.preset;
+        // A folder a project already pins to this profile is dialled under that project's id, so
+        // a hand-typed dial to it lands on the row the catalogue holds rather than beside it.
+        let pinned = self.project_pinned_to(picked, &root, cx);
         let params = ssh_connect::SshDialParams {
             profile: profile.clone(),
             root: root.clone(),
+            preset,
+            root_id: pinned.map(|(project, _)| project),
+            linger_secs: pinned.and_then(|(_, linger)| linger),
+            drone_path: self.saved_drone_path(picked, &root),
             config_root: self.workbench.config_root.clone(),
         };
         let save_id = modal.save_id.clone();
@@ -1015,18 +1260,68 @@ impl AppState {
 
         let attempt = AttemptId::generate();
         if let Some(state) = &mut self.workbench.remote_connect {
-            state.step = RemoteConnectStep::Connecting { attempt };
+            state.step = RemoteConnectStep::Connecting {
+                attempt,
+                deploy: None,
+            };
         }
         cx.notify();
 
-        let outcome = cx.background_spawn(async move { ssh_connect::dial_ssh(&params) });
+        // A first connect to a machine with no drone on its `PATH` deploys one before it can
+        // succeed, and a probe, a verify and an `scp` over that same link take long enough that a
+        // modal saying only "connecting" reads as hung. The steps arrive on this channel and land
+        // on the `Connecting` line the modal already draws.
+        let (steps, arriving) = flume::unbounded::<ssh_connect::DeployStep>();
+        let outcome = cx.background_spawn(async move {
+            ssh_connect::dial_ssh_reporting(&params, &mut |step| {
+                let _ = steps.send(step);
+            })
+        });
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            while let Ok(step) = arriving.recv_async().await {
+                if this
+                    .update(cx, |this, cx| this.note_deploy_step(attempt, step, cx))
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        })
+        .detach();
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
             let outcome = outcome.await;
             let _ = this.update(cx, |this, cx| {
-                this.land_drone_connect(attempt, outcome, save_id, label, picked, root, cx)
+                this.land_drone_connect(attempt, outcome, save_id, label, picked, root, preset, cx)
             });
         })
         .detach();
+    }
+
+    /// Show which step the deployer is on, for the attempt the modal is still waiting on.
+    ///
+    /// Guarded by the same stale-attempt rule every landing here follows: a deploy for a dial the
+    /// user has already cancelled or retried past says nothing, rather than writing a step over
+    /// whatever replaced it.
+    fn note_deploy_step(
+        &mut self,
+        attempt: AttemptId,
+        step: ssh_connect::DeployStep,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(state) = &mut self.workbench.remote_connect else {
+            return;
+        };
+        if !matches!(
+            state.step,
+            RemoteConnectStep::Connecting { attempt: current, .. } if current == attempt
+        ) {
+            return;
+        }
+        state.step = RemoteConnectStep::Connecting {
+            attempt,
+            deploy: Some(step),
+        };
+        cx.notify();
     }
 
     /// An `ssh` dial's answer, landing back on the GPUI thread. The stale-attempt discipline is
@@ -1035,17 +1330,20 @@ impl AppState {
     fn land_drone_connect(
         &mut self,
         attempt: AttemptId,
-        outcome: Result<(Client, ubiq_proto::carrier::DroneIdentity), ConnectFailure>,
+        outcome: Result<ssh_connect::SshDial, ConnectFailure>,
         save_id: String,
         label: String,
         profile: SshProfileId,
         root: String,
+        preset: DronePreset,
         cx: &mut Context<Self>,
     ) {
         let showing = matches!(
             &self.workbench.remote_connect,
             Some(RemoteConnectState {
-                step: RemoteConnectStep::Connecting { attempt: current },
+                step: RemoteConnectStep::Connecting {
+                    attempt: current, ..
+                },
                 ..
             }) if *current == attempt
         );
@@ -1053,7 +1351,12 @@ impl AppState {
             return;
         }
         match outcome {
-            Ok((client, identity)) => {
+            Ok(dial) => {
+                let ssh_connect::SshDial {
+                    client,
+                    identity,
+                    drone_path,
+                } = dial;
                 tracing::info!(
                     "attached ubiq-drone {} ({}) over ssh",
                     identity.drone_version,
@@ -1071,13 +1374,21 @@ impl AppState {
                     .find(|known| known.id == profile)
                     .map(|known| known.host.clone())
                     .unwrap_or_default();
+                // The path this dial launched at, not the one it was handed: a hand-typed or
+                // previously saved path comes back unchanged, and a deploy's fresh one is filed
+                // here so the next connect to this machine skips the probe and the upload.
                 let saved = self.save_remote_host(
                     save_id,
                     label.clone(),
                     address.clone(),
                     RemoteScheme::Http,
                     false,
-                    RemoteCarrier::Ssh { profile, root },
+                    RemoteCarrier::Ssh {
+                        profile,
+                        root,
+                        preset,
+                        drone_path,
+                    },
                     cx,
                 );
                 self.attach_remote(
@@ -1185,14 +1496,23 @@ impl AppState {
             return;
         }
         self.workbench.settings.failed_hosts.insert(address.clone());
-        // A drone is reached by spawning an `ssh`, not by dialling an address, so the loop below
-        // — which is a socket dial and a keychain token — cannot reconnect one. Reattaching is
-        // a fresh launch, and phase 6 is what makes that resume anything; until then it is the
-        // user's click, which the Hosts section already offers.
-        if self
-            .saved_entry(&key)
-            .is_some_and(|host| matches!(host.carrier, RemoteCarrier::Ssh { .. }))
-        {
+        // A drone reached under `Attached` has no socket behind it: the `ssh` that just died was
+        // the whole of the session, and there is nothing left to reattach to — the user's click on
+        // the Hosts section is the only way back, same as before phase 7. `Session` and `Managed`
+        // both detach, so the drone itself is very likely still there; a fresh `ssh` line is cheap
+        // and, because `--listen` adopts rather than rivals, non-destructive — it reattaches to
+        // the same drone instead of starting a second one. So those two fall through to the same
+        // reconnect loop a socket host uses; `retry_reconnect` is carrier-aware and re-dials with
+        // `ssh_connect::dial_ssh` rather than a socket for them.
+        if self.saved_entry(&key).is_some_and(|host| {
+            matches!(
+                host.carrier,
+                RemoteCarrier::Ssh {
+                    preset: DronePreset::Attached,
+                    ..
+                }
+            )
+        }) {
             return;
         }
         // TrustAny accepts any certificate. Auto-reconnect would re-apply that without a
@@ -1236,8 +1556,9 @@ impl AppState {
         cx.notify();
     }
 
-    /// One attempt, now. Reads the saved entry and its keychain token fresh every time, so an
-    /// edit or a re-saved token between tries is honoured without stopping the loop.
+    /// One attempt, now. Reads the saved entry fresh every time, so an edit between tries is
+    /// honoured without stopping the loop, and dispatches on its carrier: a socket host dials with
+    /// its keychain token, a drone re-launches the same `ssh` line the connect modal would.
     fn retry_reconnect(&mut self, key: String, generation: u64, cx: &mut Context<Self>) {
         let current = self.workbench.settings.reconnects.get(&key).cloned();
         let Some(state) = current else {
@@ -1251,6 +1572,25 @@ impl AppState {
             cx.notify();
             return;
         };
+        match saved.carrier.clone() {
+            RemoteCarrier::Socket => self.retry_reconnect_socket(key, generation, saved, cx),
+            RemoteCarrier::Ssh {
+                profile,
+                root,
+                preset,
+                ..
+            } => self.retry_reconnect_ssh(key, generation, saved, profile, root, preset, cx),
+        }
+    }
+
+    /// The socket half of [`Self::retry_reconnect`]: unchanged from before phase 7.
+    fn retry_reconnect_socket(
+        &mut self,
+        key: String,
+        generation: u64,
+        saved: SavedRemoteHost,
+        cx: &mut Context<Self>,
+    ) {
         let address = saved.address.clone();
         let Some(token) = host_secrets::load_token(&key) else {
             // No secret, no loop: retrying without one is a dial that cannot succeed. The entry
@@ -1269,23 +1609,128 @@ impl AppState {
         };
         let label = saved.name.clone();
         let save_id = saved.id.clone();
+        let scheme = saved.scheme;
         let outcome = cx.background_spawn(async move { dial_with(&params) });
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
             let outcome = outcome.await;
             let _ = this.update(cx, |this, cx| {
                 this.land_reconnect(
-                    key,
-                    generation,
-                    label,
-                    save_id,
-                    address,
-                    saved.scheme,
-                    outcome,
-                    cx,
+                    key, generation, label, save_id, address, scheme, outcome, cx,
                 )
             });
         })
         .detach();
+    }
+
+    /// The drone half of [`Self::retry_reconnect`]: a fresh `ssh` on [`Self::try_connect_drone`]'s
+    /// own terms, dialled with the saved profile and root rather than with a socket and a token.
+    /// Reached only for [`DronePreset::Session`] and [`DronePreset::Managed`] — see
+    /// [`Self::remote_socket_lost`] — where the relaunch adopts the drone that is very likely
+    /// still there instead of starting a rival.
+    #[allow(clippy::too_many_arguments)]
+    fn retry_reconnect_ssh(
+        &mut self,
+        key: String,
+        generation: u64,
+        saved: SavedRemoteHost,
+        profile_id: SshProfileId,
+        root: String,
+        preset: DronePreset,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(profile) = self
+            .workbench
+            .settings
+            .host
+            .ssh_profiles
+            .iter()
+            .find(|known| known.id == profile_id)
+            .cloned()
+        else {
+            // The profile this entry names is gone. There is nothing to dial with, so the loop
+            // stops here rather than retrying against a target it cannot build an argv for.
+            self.workbench.settings.reconnects.remove(&key);
+            if let Some(address) = self.address_of_host(&saved.name) {
+                self.workbench.settings.failed_hosts.insert(address);
+            }
+            cx.notify();
+            return;
+        };
+        // A drone that comes back has to come back as the *same* row for a project pinned to it,
+        // or the reconnect would announce the folder under a fresh id and the catalogue would
+        // grow a duplicate — see `Bus::row_owner`.
+        let pinned = self.project_pinned_to(profile_id, &root, cx);
+        let drone_path = self.saved_drone_path(profile_id, &root);
+        let params = ssh_connect::SshDialParams {
+            profile,
+            root,
+            preset,
+            root_id: pinned.map(|(project, _)| project),
+            linger_secs: pinned.and_then(|(_, linger)| linger),
+            drone_path,
+            config_root: self.workbench.config_root.clone(),
+        };
+        let label = saved.name.clone();
+        let save_id = saved.id.clone();
+        let address = saved.address.clone();
+        let outcome = cx.background_spawn(async move { ssh_connect::dial_ssh(&params) });
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            let outcome = outcome.await;
+            let _ = this.update(cx, |this, cx| {
+                this.land_reconnect_ssh(key, generation, label, save_id, address, outcome, cx)
+            });
+        })
+        .detach();
+    }
+
+    /// The drone-reconnect answer, landing back on the GPUI thread. Mirrors [`Self::land_reconnect`]
+    /// on every rule — generation check, backoff, attach — over an `ssh` dial's outcome instead of
+    /// a socket's.
+    #[allow(clippy::too_many_arguments)]
+    fn land_reconnect_ssh(
+        &mut self,
+        key: String,
+        generation: u64,
+        label: String,
+        save_id: String,
+        address: String,
+        outcome: Result<ssh_connect::SshDial, ConnectFailure>,
+        cx: &mut Context<Self>,
+    ) {
+        let current = self.workbench.settings.reconnects.get(&key).cloned();
+        let Some(state) = current else {
+            return;
+        };
+        if state.generation != generation {
+            return;
+        }
+        match outcome {
+            Ok(dial) => {
+                self.workbench.settings.reconnects.remove(&key);
+                self.workbench.settings.failed_hosts.remove(&address);
+                // A reconnect can be the dial that deploys — the drone the link lost may have
+                // been the last thing on that machine's `PATH`. Filed against the same entry the
+                // first connect saved, so the loop does not re-deploy on every later attempt.
+                self.remember_drone_path(&save_id, dial.drone_path);
+                self.attach_remote(dial.client, label, save_id, address, RemoteScheme::Http, cx);
+            }
+            Err(failure) => {
+                let attempt = state.attempt + 1;
+                if let Some(state) = self.workbench.settings.reconnects.get_mut(&key) {
+                    state.attempt = attempt;
+                    state.error = failure.to_string();
+                }
+                let delay = Self::backoff_for(attempt);
+                cx.notify();
+                cx.spawn(async move |this: WeakEntity<Self>, cx| {
+                    cx.background_executor().timer(delay).await;
+                    let _ = this.update(cx, |this, cx| this.retry_reconnect(key, generation, cx));
+                })
+                .detach();
+                return;
+            }
+        }
+        cx.notify();
     }
 
     /// A reconnect attempt's answer, landing back on the GPUI thread.

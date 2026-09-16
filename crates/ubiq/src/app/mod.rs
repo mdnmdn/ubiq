@@ -53,7 +53,8 @@ use crate::state::settings::{
     TabClose, ToolEditScope, ToolEditor,
 };
 use crate::state::sink::{
-    ColourField, ProjectNav, SettingsMenu, SettingsNav, SinkDoc, SinkModal, SinkSection, SinkState,
+    ColourField, DroneField, ProjectNav, SettingsMenu, SettingsNav, SinkDoc, SinkModal,
+    SinkSection, SinkState,
 };
 use crate::state::stats::{StatsState, StatsTab};
 use crate::state::viewport::{Content, Viewport};
@@ -101,7 +102,7 @@ use ubiq_proto::notifications::{
 };
 use ubiq_proto::projects::{ProjectSnapshot, Scope};
 use ubiq_proto::settings::{
-    AgentHome, Grant, HOST_SETTINGS_SCHEMA, HostSettings, RemoteCarrier, RemoteScheme,
+    AgentHome, DronePreset, Grant, HOST_SETTINGS_SCHEMA, HostSettings, RemoteCarrier, RemoteScheme,
     SavedRemoteHost, SettingsLayer, SshAuth, SshProfile,
 };
 use ubiq_proto::work::{AgentId, Bucket, Priority, Shape, Status};
@@ -858,6 +859,11 @@ pub struct AppState {
     /// The remote-hosts manager's rename prompt. Read at confirm time, like the connect modal's
     /// fields, rather than mirrored into state.
     pub remote_rename_input: Entity<InputState>,
+    /// The project settings dialog's Remote panel: the folder on the drone's machine. Separate
+    /// from `remote_root_input` because the two are different questions about different things —
+    /// one machine to look at, one project to pin — and a dialog must not inherit whatever the
+    /// connect modal was last pointed at. Filled by `fill_project_form`, read at Save.
+    pub project_remote_root_input: Entity<InputState>,
     /// The settings pages' fields. Separate from the style reference's, because a fixture's
     /// value is the thing being looked at and one state drawn on two pages is one field in two
     /// places if both were ever on screen at once — they are not, but the split matches every
@@ -961,7 +967,7 @@ mod remote_hosts;
 mod settings;
 mod shell;
 mod sink;
-mod ssh_connect;
+pub mod ssh_connect;
 mod stats;
 mod vim;
 mod web_panel;

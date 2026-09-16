@@ -29,7 +29,7 @@ use crate::mcp::McpInfo;
 use crate::notifications::{
     Level, MuteFor, MuteScope, Notification, NotificationRequest, Notifications,
 };
-use crate::projects::{IndexChange, ProjectSnapshot, Scope};
+use crate::projects::{DroneChange, IndexChange, ProjectSnapshot, Scope};
 use crate::quota::{QuotaSnapshot, QuotaSource};
 use crate::repos::{CloneError, CloneRequest, CloneStage, RemoteRepo, RepoSource};
 use crate::search::{self, Batch, Query, Source};
@@ -718,6 +718,10 @@ pub enum Message {
         /// kept as it was given — a repository behind a branch switch is still the user's answer.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         managed_repos: Option<Vec<String>>,
+        /// What to do with the drone this project's folder lives behind. Absent leaves it as it
+        /// is; see [`DroneChange`] for why this is not an `Option<Option<_>>`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        runs_on: Option<DroneChange>,
     },
     /// Re-point a record at a folder that moved, keeping its id, colour and history. Unlike
     /// [`Message::UpdateProject`] this changes truth, so it can answer [`Message::ProjectError`].

@@ -247,6 +247,11 @@ pub struct Bus {
     /// Every project this window has been told about, and which host reported it. Same shape and
     /// the same reason as `panes`.
     projects: RefCell<HashMap<ProjectId, HostRef>>,
+    /// Every project id the *local* catalogue has ever named, whatever host serves it now.
+    ///
+    /// The one thing in this bus that is not a host's wholesale property — see
+    /// [`Bus::row_owner`], which is the rule this set exists for.
+    owned_locally: RefCell<HashSet<ProjectId>>,
     /// What each attached remote said about itself — its `HostInfo` greeting plus the latest
     /// `Stats` poll. Same shape and same reason as `panes`: written from `receive`, read from
     /// `render`, without taking `&mut`.
@@ -266,6 +271,7 @@ impl Bus {
             active: HostRef::Local,
             panes: RefCell::new(HashMap::new()),
             projects: RefCell::new(HashMap::new()),
+            owned_locally: RefCell::new(HashSet::new()),
             remote_meta: RefCell::new(HashMap::new()),
             next_host_id: AtomicU64::new(0),
         }
@@ -400,13 +406,61 @@ impl Bus {
     }
 
     /// Record which host a project belongs to, on the same terms as [`Bus::note_pane`].
+    ///
+    /// A local listing does not take a row back off a drone that is serving it: re-listing says
+    /// the row is still the local catalogue's, which [`Bus::row_owner`] already knew, not that
+    /// the folder came home. Only [`Bus::drop_remote`] brings it home.
     pub fn note_project(&self, project_id: ProjectId, host: HostRef) {
+        if host == HostRef::Local {
+            self.owned_locally.borrow_mut().insert(project_id);
+            if matches!(
+                self.projects.borrow().get(&project_id),
+                Some(HostRef::Remote(_))
+            ) {
+                return;
+            }
+        }
         self.projects.borrow_mut().insert(project_id, host);
+    }
+
+    /// Whose *row* a project is, as against which host is currently serving it.
+    ///
+    /// Everywhere else here a host owns what it reports wholesale, and this is the one exception.
+    /// `D116` is where it comes from: a project configured with `runs_on` is a row the local
+    /// catalogue holds and a drone *fills in*. The drone is launched with `--root-id`, so it
+    /// announces that folder under the id the local catalogue already names — what it contributes
+    /// is its liveness, not the row. Serving moves to the drone, so panes and file reads reach the
+    /// machine the folder is actually on; ownership does not move at all, which is what keeps the
+    /// row on screen when the drone is down. Without the split a user loses a configured project
+    /// every time their laptop sleeps.
+    ///
+    /// For a duplicate [`ProjectId`], then, the local host owns the row. Every place that asks
+    /// "whose rows are these" asks here rather than reading `projects` directly.
+    pub fn row_owner(&self, project_id: ProjectId) -> HostRef {
+        if self.owned_locally.borrow().contains(&project_id) {
+            return HostRef::Local;
+        }
+        self.project_host(project_id)
+    }
+
+    /// The locally-owned rows a remote is serving right now — a `runs_on` project's, and nothing
+    /// else. Read *before* [`Bus::drop_remote`], which is what brings them home; the caller is
+    /// what marks them unreadable.
+    pub fn local_rows_served_by(&self, id: HostId) -> Vec<ProjectId> {
+        let host = HostRef::Remote(id);
+        let owned = self.owned_locally.borrow();
+        self.projects
+            .borrow()
+            .iter()
+            .filter(|(project_id, owner)| **owner == host && owned.contains(*project_id))
+            .map(|(project_id, _)| *project_id)
+            .collect()
     }
 
     /// Forget a project, once it has been forgotten by the catalogue too.
     pub fn forget_project(&self, project_id: ProjectId) {
         self.projects.borrow_mut().remove(&project_id);
+        self.owned_locally.borrow_mut().remove(&project_id);
     }
 
     /// Which host reported a project. `Local` for one never recorded — the catalogue a window
@@ -466,10 +520,24 @@ impl Bus {
     /// pane still recorded here that close resolves to this now-absent host and is dropped, where
     /// forgetting it first would resolve it to `active` and ask the local host about a pane id it
     /// never minted. `close_pane` forgets each as it goes.
+    ///
+    /// **A row this host only *served* stays.** A `runs_on` project is the local catalogue's, and
+    /// a drone going away is not the catalogue forgetting anything — see [`Bus::row_owner`]. Its
+    /// serving comes home to the local host, which is what makes the surviving row resolve
+    /// somewhere rather than to a `HostId` nothing answers for.
     pub fn drop_remote(&mut self, id: HostId) -> Vec<PaneId> {
         let host = HostRef::Remote(id);
         self.remotes.retain(|remote| remote.id != id);
-        self.projects.borrow_mut().retain(|_, owner| *owner != host);
+        self.projects.borrow_mut().retain(|project_id, owner| {
+            if *owner != host {
+                return true;
+            }
+            if self.owned_locally.borrow().contains(project_id) {
+                *owner = HostRef::Local;
+                return true;
+            }
+            false
+        });
         self.remote_meta.borrow_mut().remove(&id);
         if self.active == host {
             self.active = HostRef::Local;
@@ -488,12 +556,16 @@ impl Bus {
     /// truth about the host that sent it and says nothing at all about any other, so the rows to
     /// keep are named here and handed to
     /// [`WindowRegistry::replace_all_except`](crate::state::windows::WindowRegistry).
+    ///
+    /// Asked of [`Bus::row_owner`] and not of `projects`, so a drone's list arrives with the
+    /// `runs_on` row it also names already in `keep`: the local record is neither evicted by the
+    /// drone's version of it nor duplicated beside it.
     pub fn projects_not_on(&self, host: HostRef) -> Vec<ProjectId> {
         self.projects
             .borrow()
-            .iter()
-            .filter(|(_, owner)| **owner != host)
-            .map(|(project_id, _)| *project_id)
+            .keys()
+            .copied()
+            .filter(|project_id| self.row_owner(*project_id) != host)
             .collect()
     }
 
@@ -1137,6 +1209,59 @@ mod tests {
         // The local host's project survives; the remote's is gone.
         assert_eq!(bus.projects_not_on(HostRef::Local), Vec::<ProjectId>::new());
         assert_eq!(bus.projects_not_on(HostRef::Remote(remote)), vec![ours]);
+    }
+
+    /// The one row in the bus a host does not own wholesale: a project the local catalogue named
+    /// and a drone serves under the same id. The drone's list must not be treated as this row's
+    /// truth, so `projects_not_on` names it as something the drone's answer has no opinion about.
+    #[test]
+    fn a_drone_serving_a_local_row_does_not_come_to_own_it() {
+        let (local, _local_end) = ubiq_proto::bus::detached();
+        let mut bus = Bus::new(local);
+        let (drone, _) = test_remote(&mut bus, ubiq_proto::bus::detached().0, "drone");
+
+        let pinned = a_project_id();
+        let theirs = a_project_id();
+        bus.note_project(pinned, HostRef::Local);
+        // The drone announces the same folder under the id `--root-id` gave it, plus one of its
+        // own.
+        bus.note_project(pinned, HostRef::Remote(drone));
+        bus.note_project(theirs, HostRef::Remote(drone));
+
+        // Serving moved — that is what makes a pane open on the far machine.
+        assert_eq!(bus.project_host(pinned), HostRef::Remote(drone));
+        // Ownership did not.
+        assert_eq!(bus.row_owner(pinned), HostRef::Local);
+        // So the drone's own catalogue answer is told to keep the row rather than replace it.
+        assert_eq!(bus.projects_not_on(HostRef::Remote(drone)), vec![pinned]);
+        assert_eq!(bus.projects_not_on(HostRef::Local), vec![theirs]);
+
+        // And the local host re-listing does not take the folder back off the drone.
+        bus.note_project(pinned, HostRef::Local);
+        assert_eq!(bus.project_host(pinned), HostRef::Remote(drone));
+    }
+
+    /// A drone going away is not the catalogue forgetting anything: the row it was serving stays,
+    /// resolves to the local host again, and is named to the caller so the picker can mark it.
+    #[test]
+    fn dropping_a_drone_keeps_the_row_it_was_only_serving() {
+        let (local, _local_end) = ubiq_proto::bus::detached();
+        let mut bus = Bus::new(local);
+        let (drone, _) = test_remote(&mut bus, ubiq_proto::bus::detached().0, "drone");
+
+        let pinned = a_project_id();
+        let theirs = a_project_id();
+        bus.note_project(pinned, HostRef::Local);
+        bus.note_project(pinned, HostRef::Remote(drone));
+        bus.note_project(theirs, HostRef::Remote(drone));
+
+        assert_eq!(bus.local_rows_served_by(drone), vec![pinned]);
+        bus.drop_remote(drone);
+
+        // The pinned row survives and comes home; the drone's own row goes with it.
+        assert_eq!(bus.project_host(pinned), HostRef::Local);
+        assert_eq!(bus.row_owner(pinned), HostRef::Local);
+        assert_eq!(bus.projects_not_on(HostRef::Local), Vec::<ProjectId>::new());
     }
 
     /// The poison this replaces: after a remote goes, its pane ids mean nothing to the local

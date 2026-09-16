@@ -203,6 +203,34 @@ web-assets-drawio *ARGS:
 web-assets-verify-drawio:
     uv run _tools/webassets.py verify --out crates/ubiq-host/src/web_assets/manifest_drawio.rs
 
+# ── the drone ──────────────────────────────────────────────────────
+
+# Cross-build ubiq-drone for one triple, or every triple this toolchain has installed
+drone-build TRIPLE="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -n "{{TRIPLE}}" ]; then
+        cargo build -p ubiq-drone --release --target {{TRIPLE}}
+        exit 0
+    fi
+    installed=$(rustup target list --installed)
+    triples="x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu x86_64-unknown-linux-musl aarch64-unknown-linux-musl x86_64-apple-darwin aarch64-apple-darwin x86_64-pc-windows-msvc"
+    for triple in $triples; do
+        if echo "$installed" | grep -qx "$triple"; then
+            cargo build -p ubiq-drone --release --target "$triple"
+        else
+            echo "skipping $triple — not installed (rustup target add $triple)"
+        fi
+    done
+
+# Hash every locally built drone binary into the generated manifest
+drone-manifest:
+    uv run _tools/drone.py snapshot
+
+# Re-hash each named binary on disk and report drift against the manifest
+drone-manifest-verify:
+    uv run _tools/drone.py verify
+
 # ── housekeeping ───────────────────────────────────────────────────
 
 # Remove build output

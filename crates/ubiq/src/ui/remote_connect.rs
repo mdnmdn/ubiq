@@ -5,16 +5,20 @@
 //! body and a footer, with the fields living in `AppState` rather than mirrored into
 //! `RemoteConnectState`, exactly as that flow's fields do.
 
-use gpui::{AnyElement, Context, Focusable, IntoElement, ParentElement, Styled, Window, div, px};
+use gpui::{
+    AnyElement, Context, Focusable, IntoElement, ParentElement, SharedString, Styled, Window, div,
+    px,
+};
 use gpui_component::input::Input;
 
 use crate::app::AppState;
+use crate::app::ssh_connect::DeployStep;
 use crate::state::remote::{ConnectMode, RemoteConnectStep};
 use crate::theme;
 use crate::ui::kit::{
     check_box, field, ghost_button, label_block, modal, modal_note, primary_button, toggle_pill,
 };
-use ubiq_proto::settings::{RemoteScheme, SshAuth};
+use ubiq_proto::settings::{DronePreset, RemoteScheme, SshAuth};
 
 pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> AnyElement {
     let Some(state) = &app.workbench.remote_connect else {
@@ -27,11 +31,11 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
             editing_body(app, window, cx),
             editing_footer(app, cx),
         ),
-        RemoteConnectStep::Connecting { .. } if state.mode == ConnectMode::Ssh => (
+        RemoteConnectStep::Connecting { deploy, .. } if state.mode == ConnectMode::Ssh => (
             "Connecting",
             div()
                 .pt_3()
-                .child(modal_note("Starting a drone over ssh\u{2026}"))
+                .child(modal_note(deploy_note(*deploy)))
                 .into_any_element(),
             cancel_footer("remote-connect-cancel-connecting", cx),
         ),
@@ -100,6 +104,22 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
     )
 }
 
+/// What the one `Connecting` line says while an `ssh` dial runs.
+///
+/// Without a deploy it is the dial itself, which is the common case and the whole of it. With
+/// one, the far machine had no drone on its `PATH` and this connect is putting one there before
+/// it can go on — four steps over a slow link, each named so the wait reads as work rather than
+/// as a modal that stopped.
+pub fn deploy_note(deploy: Option<DeployStep>) -> &'static str {
+    match deploy {
+        None => "Starting a drone over ssh\u{2026}",
+        Some(DeployStep::CheckingCache) => "Checking the drone already uploaded there\u{2026}",
+        Some(DeployStep::Probing) => "No drone there yet — asking what machine it is\u{2026}",
+        Some(DeployStep::Resolving) => "Verifying the drone built for that machine\u{2026}",
+        Some(DeployStep::Uploading) => "Uploading the drone\u{2026}",
+    }
+}
+
 /// The mode picker, then whichever half it chose.
 ///
 /// Two carriers, one modal: a `ubiq --serve` host is an address and a token, and a drone is a
@@ -157,6 +177,12 @@ fn ssh_body(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> 
         .remote_connect
         .as_ref()
         .and_then(|state| state.profile);
+    let preset = app
+        .workbench
+        .remote_connect
+        .as_ref()
+        .map(|state| state.preset)
+        .unwrap_or_default();
     let root_focused = app
         .remote_root_input
         .read(cx)
@@ -194,6 +220,26 @@ fn ssh_body(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> 
         ));
     }
 
+    let check_row = picked.map(|profile_id| {
+        let busy = app.workbench.settings.ssh_check_busy.contains(&profile_id);
+        let result = app.workbench.settings.ssh_checks.get(&profile_id);
+        let mut row = div().flex().items_center().gap_2().child(ghost_button(
+            crate::ui::eid("remote-connect-check", profile_id),
+            None,
+            if busy { "Checking\u{2026}" } else { "Check" },
+            cx.listener(move |this, _, _, cx| this.check_picked_ssh_profile(profile_id, cx)),
+        ));
+        if let Some((text, colour)) = result.map(crate::ui::host_check_line) {
+            row = row.child(
+                div()
+                    .text_size(theme::font(theme::Family::Chrome, theme::Role::Meta))
+                    .text_color(colour)
+                    .child(SharedString::from(text)),
+            );
+        }
+        row.into_any_element()
+    });
+
     div()
         .flex()
         .flex_col()
@@ -211,7 +257,8 @@ fn ssh_body(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> 
                     "SSH profile",
                     "Where to connect, and how it authenticates.",
                 ))
-                .child(rows),
+                .child(rows)
+                .children(check_row),
         )
         .child(
             div()
@@ -227,6 +274,51 @@ fn ssh_body(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> 
                         .h(px(30.))
                         .px_2()
                         .child(Input::new(&app.remote_root_input).appearance(false)),
+                ),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(label_block(
+                    "Lifetime",
+                    "Attached ends with this session. Session survives a dropped link, not \
+                     Ubiq quitting. Managed survives both, until stopped from Settings \u{203a} \
+                     Drones.",
+                ))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(toggle_pill(
+                            "remote-connect-preset-attached",
+                            "Attached",
+                            theme::accent(),
+                            preset == DronePreset::Attached,
+                            cx.listener(|this, _, _, cx| {
+                                this.set_remote_preset(DronePreset::Attached, cx)
+                            }),
+                        ))
+                        .child(toggle_pill(
+                            "remote-connect-preset-session",
+                            "Session",
+                            theme::accent(),
+                            preset == DronePreset::Session,
+                            cx.listener(|this, _, _, cx| {
+                                this.set_remote_preset(DronePreset::Session, cx)
+                            }),
+                        ))
+                        .child(toggle_pill(
+                            "remote-connect-preset-managed",
+                            "Managed",
+                            theme::accent(),
+                            preset == DronePreset::Managed,
+                            cx.listener(|this, _, _, cx| {
+                                this.set_remote_preset(DronePreset::Managed, cx)
+                            }),
+                        )),
                 ),
         )
         .into_any_element()

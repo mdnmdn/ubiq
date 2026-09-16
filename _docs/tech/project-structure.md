@@ -5,9 +5,9 @@ kind: tech
 status: current
 summary: Every folder in the workspace, what belongs in it, what must never go in it, and the two crates' division of labour.
 read_when: you are adding a file and are not certain where it goes, or you are new to the repository
-updated: 2026-09-15
-verified: 2026-09-15
-code_anchors: [Cargo.toml, crates/ubiq-host/src/store/usage.rs, crates/ubiq-host/src/lib.rs, crates/ubiq/Cargo.toml, crates/ubiq-proto/Cargo.toml, crates/ubiq-host/Cargo.toml, crates/ubiq-app/Cargo.toml, vendor/gpui-terminal/Cargo.toml, _tools/icns.py]
+updated: 2026-09-16
+verified: 2026-09-16
+code_anchors: [Cargo.toml, crates/ubiq-host/src/store/usage.rs, crates/ubiq-host/src/lib.rs, crates/ubiq/Cargo.toml, crates/ubiq-proto/Cargo.toml, crates/ubiq-host/Cargo.toml, crates/ubiq-app/Cargo.toml, crates/ubiq-drone/Cargo.toml, vendor/gpui-terminal/Cargo.toml, _tools/icns.py]
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -16,7 +16,7 @@ review_cycle: quarterly
 
 ## The workspace
 
-One Cargo workspace, four crates of Ubiq's own, the harness-management library they embed, one
+One Cargo workspace, five crates of Ubiq's own, the harness-management library they embed, one
 vendored third-party crate, and everything else is documentation or tooling.
 
 ```
@@ -31,6 +31,7 @@ ubiq/
 │   ├── ubiq-host/       the headless host: processes, pseudo-terminals, projects, the work
 │   ├── ubiq/            the desktop interface (GPUI)
 │   ├── ubiq-app/        the binary, the only thing that names both halves
+│   ├── ubiq-drone/      the windowless binary that serves one machine over a byte stream
 │   └── agent-manager/   the harness-management library and its `am` CLI
 ├── vendor/
 │   └── gpui-terminal/   the terminal emulator component, vendored
@@ -135,7 +136,10 @@ the CLI or the TUI. The boundary in detail is in [`agent-manager.md`](./agent-ma
 `ubiq-host` itself carries a matching split, in `crates/ubiq-host/Cargo.toml`'s `[features]` table:
 five features, each gating a slice of its module tree and the dependencies only that slice needs,
 plus `full` — what `default` turns on — which is all five together and what `coordinator` needs. An
-ordinary `cargo build` is unaffected; the split exists for a lean embedder that wants the pseudo-terminal, file and machine-facts core without the rest.
+ordinary `cargo build` is unaffected; the split exists for a lean embedder that wants the pseudo-terminal, file and machine-facts core without the rest. `crates/ubiq-drone` is that embedder — a
+windowless binary Ubiq puts on another machine, serving its terminal, files, search and facts over
+one duplex byte stream. It depends on `ubiq-host` with `--no-default-features` and on `ubiq-proto`,
+never on `crates/ubiq`, and [`../features/drone.md`](../features/drone.md) is what it does.
 
 | Feature | Gates | Dependencies |
 |---|---|---|
@@ -167,7 +171,7 @@ rather than an evaluation — so a build with no interpreter still syntax-checks
 compiles TypeScript to JavaScript. `D127` is the interpreter and its cost, `D128` the front end in
 front of it.
 
-## Inside Ubiq's four crates
+## Inside Ubiq's five crates
 
 Module by module, and what must never appear in each. The generated tree, with every file, is in
 [`code-map.md`](./code-map.md). Which crate a module sits in is itself the first rule: the
@@ -183,6 +187,7 @@ interface does not depend on the host, so a module in the wrong crate does not c
 | `ubiq-proto/src/log.rs` | The process-wide sink every subsystem writes to | Anything either half has to be handed |
 | `ubiq-proto/src/repos.rs` | A remote repository, a clone's request, its stages and its errors, and the one repository-URL parser both halves call | A token, a credential, or a `git2` type |
 | `ubiq-proto/src/git.rs` | A project's repository as it crosses the bus: overview, working-tree map, errors | A `git2` type, a path on disk |
+| `ubiq-proto/src/drone/` | The generated manifest of cross-built drone binaries, the `uname -sm` → triple map, the local cache path and the hash verifier — here rather than in `ubiq-host` because `crates/ubiq` shells to `ssh` itself and cannot name that crate | A signature, a fetch, or a path on a remote machine |
 | `ubiq-host/src/coordinator.rs` | Spawn, supervise and reap harness processes; answer the bus | Rendering, layout, colour |
 | `ubiq-host/src/remote.rs` | The listener that lets a UI on another machine attach: an accept thread, a thread per connection, a token handshake over HTTP, then raw `wire` frames onto an ordinary `Hub::connect()` client | A special case for any message family, TLS, or a second kind of client |
 | `ubiq-host/src/git/` | A project's repository, observed off the coordinator's thread | A write into the repository, including the index stat cache |
@@ -215,6 +220,10 @@ interface does not depend on the host, so a module in the wrong crate does not c
 | `ubiq/src/state/` | Pane and application state machines, the workbench, explorer, editor and chat state, what a panel is and where it may sit, the projections of the host's catalogue and of a project's work, the three views over that work — `agents.rs` for the columns, `orchestration.rs` for the graph, `board.rs` for the board — and the fixture that still seeds the chat | Rendering, or any component-library type |
 | `ubiq-app/src/lib.rs` | The boot as a library: `Stores` (the four boxed store traits), `Boot` (what an edition composes — the stores it hands in) and `run(boot)`, the whole start sequence: config root, host, theme, key bindings, the first window | Any logic, including window construction — that is `app::open_project_window` |
 | `ubiq-app/src/main.rs` | Three lines: `run(Boot::default())`. The base edition's binary, entire | A step of the boot — a second binary composing these crates must not be able to skip one |
+| `ubiq-drone/src/relay.rs` | The run loop that answers the bus on a machine Ubiq is not running on: the pty map, a `files` worker, a `host_meta` sampler, the seeded catalogue, and a catch-all arm that refuses every family it does not serve | A coordinator, an index, a keychain, or any knowledge of a harness |
+| `ubiq-drone/src/socket.rs` | The unix socket a detached drone is found again through, its `0600`/`0700` modes, the two-verb preamble, and the multiplexer that only *holds* the process | A protocol change, or anything that talks to a multiplexer rather than through the socket |
+| `ubiq-drone/src/state.rs` | The JSON state file beside that socket, written atomically and refreshed on a slow cadence, and the list-and-prune a caller adopts by | The authority on whether a drone is there — that is the socket answering |
+| `ubiq-drone/src/search.rs` | One-shot execs of `rg`, `ag` or `grep`, translated into the search family's own messages | A walker, a matcher, or any index |
 
 The "never holds" column is the enforcement of the architecture's rules in file terms. A
 `portable-pty` type under `ui/`, or a GPUI type in `messages.rs`, is a violation you can grep for —

@@ -1,5 +1,8 @@
+use super::remote_connect::ConnectFailure;
+use super::ssh_connect::{self, DroneState, HostCheck};
 use super::*;
 use crate::state::new_agent::{NewAgentForm, Purpose};
+use crate::state::settings::DroneStopConfirm;
 use ubiq_proto::tools::{ToolDef, parse_env};
 
 /// What a kept agent home is called when the choice is made before a name is typed. A home with
@@ -51,7 +54,7 @@ impl AppState {
     /// host discards whatever this sends, because a provider record and the key filed under its id
     /// go together and only the host can write the key. Providers change through the four provider
     /// messages instead — see the assistance section below.
-    fn remember_host_settings(&mut self) {
+    pub(super) fn remember_host_settings(&mut self) {
         let mut host = self.workbench.settings.host.clone();
         host.schema = HOST_SETTINGS_SCHEMA;
         self.bus.send(Message::SetSettings {
@@ -2336,6 +2339,210 @@ impl AppState {
 
     pub fn close_remove_ssh_profile(&mut self, cx: &mut Context<Self>) {
         self.workbench.settings.ssh_remove = None;
+        cx.notify();
+    }
+
+    // ── Drones ──────────────────────────────────────────────────────────────
+
+    /// The profile a saved ssh-carrier host dials with, for a Drones-section reach that is
+    /// neither a dial nor a reconnect — just asking or telling the target something. `None` when
+    /// the host is not an ssh carrier, or when it names a profile since deleted.
+    fn ssh_profile_of(&self, host_id: &str) -> Option<SshProfile> {
+        let host = self
+            .workbench
+            .settings
+            .host
+            .remote_hosts
+            .iter()
+            .find(|host| host.id == host_id)?;
+        let RemoteCarrier::Ssh { profile, .. } = &host.carrier else {
+            return None;
+        };
+        self.workbench.settings.ssh_profile(*profile).cloned()
+    }
+
+    /// Ask a saved host's target what drones are running there: `ubiq-drone --list` over `ssh`,
+    /// off the main thread, on [`Self::try_connect_drone`]'s own terms.
+    pub fn refresh_drones(&mut self, host_id: String, cx: &mut Context<Self>) {
+        let Some(profile) = self.ssh_profile_of(&host_id) else {
+            self.workbench.settings.drones_error.insert(
+                host_id,
+                "that SSH profile is gone — pick another".to_string(),
+            );
+            cx.notify();
+            return;
+        };
+        self.workbench.settings.drones_busy.insert(host_id.clone());
+        self.workbench.settings.drones_error.remove(&host_id);
+        cx.notify();
+        let config_root = self.workbench.config_root.clone();
+        let outcome = cx.background_spawn(async move {
+            ssh_connect::list_drones(&profile, config_root.as_deref())
+        });
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            let outcome = outcome.await;
+            let _ = this.update(cx, |this, cx| this.land_drones(host_id, outcome, cx));
+        })
+        .detach();
+    }
+
+    /// A `--list` answer, landing back on the GPUI thread.
+    fn land_drones(
+        &mut self,
+        host_id: String,
+        outcome: Result<Vec<DroneState>, ConnectFailure>,
+        cx: &mut Context<Self>,
+    ) {
+        self.workbench.settings.drones_busy.remove(&host_id);
+        match outcome {
+            Ok(list) => {
+                self.workbench.settings.drones.insert(host_id, list);
+            }
+            Err(failure) => {
+                self.workbench
+                    .settings
+                    .drones_error
+                    .insert(host_id, failure.to_string());
+            }
+        }
+        cx.notify();
+    }
+
+    /// Check whether `profile`'s target is reachable and whether a drone is already on its
+    /// `PATH`: `ubiq-drone --probe` over `ssh`, off the main thread, on [`Self::refresh_drones`]'s
+    /// own terms. Takes the profile itself rather than a host id — this is the one Drones action
+    /// the connect modal's own profile picker raises too, where there is no saved host to resolve
+    /// one from.
+    pub fn check_ssh_host(&mut self, profile: SshProfile, cx: &mut Context<Self>) {
+        let profile_id = profile.id;
+        self.workbench.settings.ssh_check_busy.insert(profile_id);
+        self.workbench.settings.ssh_checks.remove(&profile_id);
+        cx.notify();
+        let config_root = self.workbench.config_root.clone();
+        let outcome = cx.background_spawn(async move {
+            ssh_connect::check_host(&profile, config_root.as_deref())
+        });
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            let outcome = outcome.await;
+            let _ = this.update(cx, |this, cx| this.land_ssh_check(profile_id, outcome, cx));
+        })
+        .detach();
+    }
+
+    /// A check's answer, landing back on the GPUI thread.
+    fn land_ssh_check(
+        &mut self,
+        profile_id: SshProfileId,
+        outcome: Result<HostCheck, ConnectFailure>,
+        cx: &mut Context<Self>,
+    ) {
+        self.workbench.settings.ssh_check_busy.remove(&profile_id);
+        self.workbench
+            .settings
+            .ssh_checks
+            .insert(profile_id, outcome.map_err(|failure| failure.to_string()));
+        cx.notify();
+    }
+
+    /// [`Self::check_ssh_host`] for a saved host's row in the Drones settings section, which
+    /// knows only the host id — resolved on [`Self::ssh_profile_of`]'s own terms. A host whose
+    /// profile has since been deleted has nothing to check and nowhere to key the answer, so this
+    /// is a silent no-op rather than a fabricated error under a key nothing else reads.
+    pub fn check_saved_ssh_host(&mut self, host_id: String, cx: &mut Context<Self>) {
+        let Some(profile) = self.ssh_profile_of(&host_id) else {
+            return;
+        };
+        self.check_ssh_host(profile, cx);
+    }
+
+    /// [`Self::check_ssh_host`] for the connect modal's own profile picker, which has an id and no
+    /// saved host to resolve it through — the record itself lives on `host.ssh_profiles`. A picked
+    /// id the user has since deleted the profile of is the same silent no-op as a saved host whose
+    /// profile is gone.
+    pub fn check_picked_ssh_profile(&mut self, profile_id: SshProfileId, cx: &mut Context<Self>) {
+        let Some(profile) = self.workbench.settings.ssh_profile(profile_id).cloned() else {
+            return;
+        };
+        self.check_ssh_host(profile, cx);
+    }
+
+    /// Raise the Stop confirm. Stopping kills every pane the drone holds, which is why this is a
+    /// danger dialog rather than a direct click, on [`Self::open_remove_ssh_profile`]'s footing.
+    pub fn open_drone_stop(
+        &mut self,
+        host_id: String,
+        socket: String,
+        roots: Vec<String>,
+        cx: &mut Context<Self>,
+    ) {
+        self.workbench.settings.drone_stop = Some(DroneStopConfirm {
+            host_id,
+            socket,
+            roots,
+        });
+        cx.notify();
+    }
+
+    pub fn close_drone_stop(&mut self, cx: &mut Context<Self>) {
+        self.workbench.settings.drone_stop = None;
+        cx.notify();
+    }
+
+    /// Stop the drone the confirm named: `ubiq-drone --stop <socket>` over `ssh`.
+    pub fn confirm_drone_stop(&mut self, cx: &mut Context<Self>) {
+        let Some(confirm) = self.workbench.settings.drone_stop.take() else {
+            return;
+        };
+        let host_id = confirm.host_id;
+        let socket = confirm.socket;
+        let Some(profile) = self.ssh_profile_of(&host_id) else {
+            self.workbench.settings.drones_error.insert(
+                host_id,
+                "that SSH profile is gone — pick another".to_string(),
+            );
+            cx.notify();
+            return;
+        };
+        self.workbench.settings.drones_busy.insert(host_id.clone());
+        cx.notify();
+        let config_root = self.workbench.config_root.clone();
+        let socket_for_stop = socket.clone();
+        let outcome = cx.background_spawn(async move {
+            ssh_connect::stop_drone(&profile, config_root.as_deref(), &socket_for_stop)
+        });
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            let outcome = outcome.await;
+            let _ = this.update(cx, |this, cx| {
+                this.land_drone_stop(host_id, socket, outcome, cx)
+            });
+        })
+        .detach();
+    }
+
+    /// A `--stop` answer, landing back on the GPUI thread. Drops the row from the last-known
+    /// list on success rather than waiting for the next refresh — a stopped drone reappearing
+    /// until someone clicks Refresh would read as the stop having done nothing.
+    fn land_drone_stop(
+        &mut self,
+        host_id: String,
+        socket: String,
+        outcome: Result<(), ConnectFailure>,
+        cx: &mut Context<Self>,
+    ) {
+        self.workbench.settings.drones_busy.remove(&host_id);
+        match outcome {
+            Ok(()) => {
+                if let Some(list) = self.workbench.settings.drones.get_mut(&host_id) {
+                    list.retain(|drone| drone.socket != socket);
+                }
+            }
+            Err(failure) => {
+                self.workbench
+                    .settings
+                    .drones_error
+                    .insert(host_id, failure.to_string());
+            }
+        }
         cx.notify();
     }
 

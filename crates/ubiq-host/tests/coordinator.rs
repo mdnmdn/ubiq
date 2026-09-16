@@ -1071,6 +1071,7 @@ fn naming_a_temporary_project_makes_it_durable() {
         index: None,
         tools: None,
         managed_repos: None,
+        runs_on: None,
     });
     loop {
         match ui.from_host().recv_timeout(PATIENCE) {
@@ -1112,6 +1113,7 @@ fn the_managed_repositories_survive_the_round_trip() {
         index: None,
         tools: None,
         managed_repos: Some(vec!["vendor/inner".to_string()]),
+        runs_on: None,
     });
     let changed = loop {
         match ui.from_host().recv_timeout(PATIENCE) {
@@ -1138,6 +1140,7 @@ fn the_managed_repositories_survive_the_round_trip() {
         index: None,
         tools: None,
         managed_repos: None,
+        runs_on: None,
     });
     loop {
         match ui.from_host().recv_timeout(PATIENCE) {

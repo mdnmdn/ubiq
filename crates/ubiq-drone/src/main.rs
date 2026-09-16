@@ -4,10 +4,12 @@
 //! binary whose whole surface is a handful of flags does not need one brought in for it.
 
 use std::path::PathBuf;
+use std::str::FromStr;
 
 use ubiq_drone::linger::Linger;
-use ubiq_drone::relay::Relay;
+use ubiq_drone::relay::{Relay, Root};
 use ubiq_drone::socket;
+use ubiq_proto::ids::ProjectId;
 
 const USAGE: &str = "\
 ubiq-drone — one machine's terminal, files and facts, over one duplex byte stream
@@ -21,6 +23,12 @@ ubiq-drone — one machine's terminal, files and facts, over one duplex byte str
     --linger <spec>    how long a drone with no client waits: 0, a number of seconds
                        (10m, 2h), or never. The default is 10m, and an attach re-asserts it
     --root <path>      add a project at <path>; may be given more than once
+    --root-id <ulid>   bind the preceding --root to this id, so the interface sees one project
+                       rather than two; without it the drone mints a fresh one, as it always has
+    --list             print every running drone this machine knows of, as JSON, and exit
+    --status [<sock>]  print one running drone's state as JSON; without a path the socket
+                       is derived from the roots, as --attach does. Exits 1 if none is there
+    --stop [<sock>]    ask a listening drone to end; same path rule as --status
     --probe            print this machine's facts and exit
     --version          print the version and exit
 ";
@@ -37,10 +45,26 @@ enum Mode {
     Attach {
         path: Option<PathBuf>,
     },
+    /// Every running drone this machine knows of, as JSON.
+    List,
+    /// One running drone's state, as JSON.
+    Status {
+        path: Option<PathBuf>,
+    },
+    /// Ask a listening drone to end.
+    Stop {
+        path: Option<PathBuf>,
+    },
 }
 
 fn main() {
-    let mut roots: Vec<PathBuf> = Vec::new();
+    // Ahead of anything else, including argv parsing: this is what `capabilities()` reports, and
+    // it must see this process's own `PATH` before `repair_path` widens it with a login shell's
+    // own homes for the sake of spawning a shell by name. Caching happens inside `search::probe`
+    // itself, so this is the only call site that matters for what gets remembered.
+    ubiq_drone::search::probe();
+
+    let mut roots: Vec<Root> = Vec::new();
     let mut mode = Mode::Stdio;
     let mut linger: Option<Linger> = None;
     let mut held = false;
@@ -67,6 +91,17 @@ fn main() {
                     path: optional_value(&argv, &mut at).map(PathBuf::from),
                 }
             }
+            "--list" => mode = Mode::List,
+            "--status" => {
+                mode = Mode::Status {
+                    path: optional_value(&argv, &mut at).map(PathBuf::from),
+                }
+            }
+            "--stop" => {
+                mode = Mode::Stop {
+                    path: optional_value(&argv, &mut at).map(PathBuf::from),
+                }
+            }
             "--foreground" => held = true,
             "--linger" => {
                 let given = value(&argv, &mut at, arg);
@@ -75,7 +110,23 @@ fn main() {
                     std::process::exit(2);
                 }));
             }
-            "--root" => roots.push(PathBuf::from(value(&argv, &mut at, arg))),
+            "--root" => roots.push(Root::new(PathBuf::from(value(&argv, &mut at, arg)))),
+            // Binds to whichever --root came immediately before it. An id before any --root, or
+            // one that does not parse, is an argv error: there is nothing for it to bind to, and
+            // a silently-ignored id would announce a project under an id the interface never
+            // asked for.
+            "--root-id" => {
+                let given = value(&argv, &mut at, arg);
+                let Some(root) = roots.last_mut() else {
+                    eprintln!("ubiq-drone: --root-id {given}: no --root came before it");
+                    std::process::exit(2);
+                };
+                let id = ProjectId::from_str(&given).unwrap_or_else(|_| {
+                    eprintln!("ubiq-drone: --root-id {given}: not a project id");
+                    std::process::exit(2);
+                });
+                root.id = Some(id);
+            }
             "--probe" => {
                 println!("{}", ubiq_drone::probe_line());
                 return;
@@ -105,25 +156,59 @@ fn main() {
     match mode {
         Mode::Stdio => serve_stdio(roots),
         Mode::Attach { path } => {
-            let path = path.unwrap_or_else(|| socket::socket_path(&roots));
+            let path = path.unwrap_or_else(|| socket::socket_path(&paths(&roots)));
             if let Err(error) = socket::attach(&path, linger) {
                 eprintln!("ubiq-drone: attaching to {}: {error}", path.display());
                 std::process::exit(1);
             }
         }
         Mode::Listen { path, held } => {
-            let path = path.unwrap_or_else(|| socket::socket_path(&roots));
+            let path = path.unwrap_or_else(|| socket::socket_path(&paths(&roots)));
             if held {
                 listen(roots, &path, linger.unwrap_or_default());
             } else {
                 detach(&roots, linger.unwrap_or_default(), &path);
             }
         }
+        // `--list` and `--status` print JSON on standard output rather than standard error: they
+        // never serve frames, so there is no session output for a log line to corrupt.
+        Mode::List => {
+            let drones = ubiq_drone::state::list(&socket::state_dir());
+            println!(
+                "{}",
+                serde_json::to_string(&drones).expect("a drone's state serialises")
+            );
+        }
+        Mode::Status { path } => {
+            let path = path.unwrap_or_else(|| socket::socket_path(&paths(&roots)));
+            match ubiq_drone::state::DroneState::read(&ubiq_drone::state::state_path(&path)) {
+                Ok(state) if ubiq_drone::state::is_live(&state) => {
+                    println!(
+                        "{}",
+                        serde_json::to_string(&state).expect("a drone's state serialises")
+                    );
+                }
+                _ => {
+                    eprintln!("ubiq-drone: no drone is listening on {}", path.display());
+                    std::process::exit(1);
+                }
+            }
+        }
+        Mode::Stop { path } => {
+            let path = path.unwrap_or_else(|| socket::socket_path(&paths(&roots)));
+            match socket::stop(&path) {
+                Ok(answer) => println!("{answer}"),
+                Err(error) => {
+                    eprintln!("ubiq-drone: stopping {}: {error}", path.display());
+                    std::process::exit(1);
+                }
+            }
+        }
     }
 }
 
 /// One session on this process's standard input and output, and nothing that outlives it.
-fn serve_stdio(roots: Vec<PathBuf>) {
+fn serve_stdio(roots: Vec<Root>) {
     repair_path();
     // A refused handshake is not a crash and not a session: nothing was spawned, so there is
     // nothing to unwind. It is reported on standard error — the frames own standard output — and
@@ -135,7 +220,7 @@ fn serve_stdio(roots: Vec<PathBuf>) {
 }
 
 /// Bind the socket and serve every attach on it until the linger runs out.
-fn listen(roots: Vec<PathBuf>, path: &std::path::Path, linger: Linger) {
+fn listen(roots: Vec<Root>, path: &std::path::Path, linger: Linger) {
     repair_path();
     if let Err(error) = socket::listen(roots, path, linger) {
         eprintln!("ubiq-drone: listening on {}: {error}", path.display());
@@ -145,7 +230,7 @@ fn listen(roots: Vec<PathBuf>, path: &std::path::Path, linger: Linger) {
 
 /// Hand this same command line to whatever will hold it, and print the socket the held process
 /// bound, so the caller — an `ssh` that is about to end — knows what to attach to next.
-fn detach(roots: &[PathBuf], linger: Linger, path: &std::path::Path) {
+fn detach(roots: &[Root], linger: Linger, path: &std::path::Path) {
     let exe = std::env::current_exe().unwrap_or_else(|error| {
         eprintln!("ubiq-drone: this drone cannot find its own binary: {error}");
         std::process::exit(1);
@@ -161,7 +246,14 @@ fn detach(roots: &[PathBuf], linger: Linger, path: &std::path::Path) {
     ];
     for root in roots {
         held.push("--root".to_string());
-        held.push(root.to_string_lossy().to_string());
+        held.push(root.path.to_string_lossy().to_string());
+        // Forwarded right after its --root, exactly as it was given: the held process must
+        // announce the same ids the attached one did, or a reattach would look like a second
+        // project to the interface rather than the same one coming back.
+        if let Some(id) = root.id {
+            held.push("--root-id".to_string());
+            held.push(id.to_string());
+        }
     }
 
     if let Err(error) = socket::hold(&exe, &held, path) {
@@ -169,6 +261,12 @@ fn detach(roots: &[PathBuf], linger: Linger, path: &std::path::Path) {
         std::process::exit(1);
     }
     println!("{}", path.display());
+}
+
+/// The bare paths behind a set of roots, for the socket derivation that only ever needs those —
+/// `socket_path` and `DroneState::new` hash and record the folders, never the ids bound to them.
+fn paths(roots: &[Root]) -> Vec<PathBuf> {
+    roots.iter().map(|root| root.path.clone()).collect()
 }
 
 /// A desktop launcher's thin `PATH` breaks every bare-name spawn, and a drone is started by

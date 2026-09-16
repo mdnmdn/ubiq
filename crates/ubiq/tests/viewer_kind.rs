@@ -95,6 +95,7 @@ fn a_project() -> ProjectSnapshot {
             index: None,
             tools: Vec::new(),
             managed_repos: Vec::new(),
+            runs_on: None,
         },
         health: ProjectHealth::Ok,
         open_panes: 0,

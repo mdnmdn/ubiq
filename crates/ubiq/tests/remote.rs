@@ -2,7 +2,13 @@
 //! see `crates/ubiq/src/state/remote.rs`'s module doc for why this is the layer that can be
 //! tested this way at all.
 
+use ubiq::app::ssh_connect::DeployStep;
+use ubiq::app::{AppState, BusHub};
 use ubiq::state::remote::{AttemptId, parse_connection_string, with_default_port};
+use ubiq::state::windows::WindowRegistry;
+use ubiq::ui::remote_connect::deploy_note;
+use ubiq_proto::ids::SshProfileId;
+use ubiq_proto::settings::{DronePreset, RemoteCarrier, RemoteScheme, SavedRemoteHost};
 
 #[test]
 fn full_connection_string_yields_address_and_token() {
@@ -76,4 +82,94 @@ fn attempt_ids_are_never_equal_to_a_fresh_one() {
     let a = AttemptId::generate();
     let b = AttemptId::generate();
     assert_ne!(a, b);
+}
+
+/// One `Connecting` line, four extra sentences for the deploy a first connect may have to run.
+/// No deploy is the dial's own wording, which is what every connect to a machine that already has
+/// a drone shows — the common case keeps the sentence it always had.
+#[test]
+fn every_deploy_step_says_something_of_its_own() {
+    let plain = deploy_note(None);
+    let steps = [
+        DeployStep::CheckingCache,
+        DeployStep::Probing,
+        DeployStep::Resolving,
+        DeployStep::Uploading,
+    ];
+    let mut said: Vec<&str> = steps.iter().map(|step| deploy_note(Some(*step))).collect();
+    assert!(said.iter().all(|note| !note.is_empty()));
+    assert!(said.iter().all(|note| *note != plain));
+    said.sort_unstable();
+    said.dedup();
+    assert_eq!(said.len(), steps.len(), "each step reads differently");
+}
+
+/// The drone path a dial actually launched is what the saved host keeps — the whole of what makes
+/// a deploy run once rather than on every connect to the same machine. The next dial for this
+/// profile and folder reads it straight back.
+#[gpui::test]
+fn a_saved_host_keeps_the_drone_path_a_dial_used(cx: &mut gpui::TestAppContext) {
+    use gpui::AppContext as _;
+
+    let (hub, _host) = ubiq_proto::bus::hub();
+    cx.update(|cx| {
+        gpui_component::init(cx);
+        ubiq::theme::set_mode(ubiq::app::boot_theme(), cx);
+        BusHub::install(hub, cx);
+        WindowRegistry::install(cx);
+        ubiq::app::install_key_bindings(cx);
+    });
+
+    let held: std::rc::Rc<std::cell::RefCell<Option<gpui::Entity<AppState>>>> = Default::default();
+    let taken = held.clone();
+    let _handle = cx.add_window(move |window, cx| {
+        let state = cx.new(|cx| AppState::for_project(None, 'A', window, cx));
+        *taken.borrow_mut() = Some(state.clone());
+        gpui_component::Root::new(state, window, cx)
+    });
+    cx.run_until_parked();
+    let state = held
+        .borrow_mut()
+        .take()
+        .expect("the window built its state");
+
+    let profile = SshProfileId::generate();
+    let deployed = "~/.cache/ubiq/drone/0.4.0/ubiq-drone";
+    state.update(cx, |state, _cx| {
+        state
+            .workbench
+            .settings
+            .host
+            .remote_hosts
+            .push(SavedRemoteHost {
+                id: "save-1".to_string(),
+                name: "build box".to_string(),
+                address: "build.example".to_string(),
+                scheme: RemoteScheme::Http,
+                trust_insecure: false,
+                carrier: RemoteCarrier::Ssh {
+                    profile,
+                    root: "/srv/proj".to_string(),
+                    preset: DronePreset::Session,
+                    drone_path: None,
+                },
+            });
+
+        // The first connect dialled the bare remote `PATH`, found nothing, and deployed.
+        assert_eq!(state.saved_drone_path(profile, "/srv/proj"), None);
+        state.remember_drone_path("save-1", Some(deployed.to_string()));
+        assert_eq!(
+            state.saved_drone_path(profile, "/srv/proj").as_deref(),
+            Some(deployed)
+        );
+
+        // The second connect dials that path and reports it back unchanged, which files nothing
+        // new — and a folder nobody has connected to still has no path of its own.
+        state.remember_drone_path("save-1", Some(deployed.to_string()));
+        assert_eq!(
+            state.saved_drone_path(profile, "/srv/proj").as_deref(),
+            Some(deployed)
+        );
+        assert_eq!(state.saved_drone_path(profile, "/srv/other"), None);
+    });
 }

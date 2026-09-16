@@ -187,6 +187,7 @@ fn a_project() -> ProjectSnapshot {
             index: None,
             tools: Vec::new(),
             managed_repos: Vec::new(),
+            runs_on: None,
         },
         health: ProjectHealth::Ok,
         open_panes: 0,
@@ -755,6 +756,7 @@ fn exclude_from_search_adds_the_path_then_offers_to_add_it_back(cx: &mut TestApp
             index,
             tools,
             managed_repos,
+            runs_on,
         } => Some((
             project_id,
             name,
@@ -764,6 +766,7 @@ fn exclude_from_search_adds_the_path_then_offers_to_add_it_back(cx: &mut TestApp
             index,
             tools,
             managed_repos,
+            runs_on,
         )),
         _ => None,
     });
@@ -775,6 +778,7 @@ fn exclude_from_search_adds_the_path_then_offers_to_add_it_back(cx: &mut TestApp
             None,
             None,
             Some(vec!["src".to_string()]),
+            None,
             None,
             None,
             None

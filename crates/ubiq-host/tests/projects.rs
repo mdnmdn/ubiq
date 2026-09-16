@@ -14,10 +14,13 @@ use tempfile::TempDir;
 #[cfg(feature = "harness")]
 use ubiq_host::gc;
 use ubiq_host::health::probe;
+use ubiq_host::projects::Projects;
 use ubiq_host::store::file::FileProjectStore;
+use ubiq_host::store::memory::{MemoryPreferenceStore, MemoryProjectStore};
 use ubiq_host::store::{ProjectStore, StoreError};
-use ubiq_proto::ids::ProjectId;
-use ubiq_proto::projects::{ProjectHealth, ProjectRecord};
+use ubiq_proto::ids::{ProjectId, SshProfileId};
+use ubiq_proto::projects::{DroneChange, DroneOrigin, ProjectHealth, ProjectRecord};
+use ubiq_proto::settings::DronePreset;
 
 fn record(name: &str, path: &str) -> ProjectRecord {
     ProjectRecord {
@@ -33,7 +36,31 @@ fn record(name: &str, path: &str) -> ProjectRecord {
         index: None,
         managed_repos: Vec::new(),
         tools: Vec::new(),
+        runs_on: None,
     }
+}
+
+/// A drone origin worth telling apart from "local": a real profile, a real far root.
+fn origin() -> DroneOrigin {
+    DroneOrigin {
+        profile: SshProfileId::generate(),
+        root: "/far/root".to_string(),
+        preset: DronePreset::Session,
+        linger_secs: None,
+    }
+}
+
+/// A catalogue holding one record, in memory, for the `runs_on` tests below. The `TempDir` is
+/// returned alongside so its folder outlives the catalogue that reserves a workarea inside it.
+fn projects_with(record: ProjectRecord) -> (Projects, ProjectId, TempDir) {
+    let id = record.id;
+    let dir = TempDir::new().unwrap();
+    let (projects, _) = Projects::open(
+        dir.path().to_path_buf(),
+        Box::new(MemoryProjectStore::with(vec![record])),
+        Box::new(MemoryPreferenceStore::new()),
+    );
+    (projects, id, dir)
 }
 
 fn store(dir: &TempDir) -> FileProjectStore {
@@ -96,6 +123,92 @@ fn an_update_replaces_rather_than_duplicates() {
     assert_eq!(got.len(), 1);
     assert_eq!(got[0].name, "renamed");
     assert_eq!(got[0].colour, 4);
+}
+
+// ── runs_on ─────────────────────────────────────────────────────────
+
+#[test]
+fn updating_a_project_sets_its_drone_origin() {
+    let (mut projects, id, _dir) = projects_with(record("ubiq", "/dev/ubiq"));
+    let origin = origin();
+
+    projects.update(
+        id,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        Some(DroneChange::Set(origin.clone())),
+    );
+
+    assert_eq!(projects.record(id).unwrap().runs_on, Some(origin));
+}
+
+#[test]
+fn an_update_that_says_nothing_about_the_drone_keeps_it() {
+    let (mut projects, id, _dir) = projects_with(record("ubiq", "/dev/ubiq"));
+    let origin = origin();
+    projects.update(
+        id,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        Some(DroneChange::Set(origin.clone())),
+    );
+
+    // A rename says nothing about where the project runs, so it keeps what it had.
+    projects.update(
+        id,
+        Some("renamed".to_string()),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    );
+
+    let after = projects.record(id).unwrap();
+    assert_eq!(after.name, "renamed");
+    assert_eq!(after.runs_on, Some(origin));
+}
+
+#[test]
+fn updating_a_project_can_bring_it_back_home() {
+    let (mut projects, id, _dir) = projects_with(record("ubiq", "/dev/ubiq"));
+    projects.update(
+        id,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        Some(DroneChange::Set(origin())),
+    );
+
+    projects.update(
+        id,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        Some(DroneChange::Local),
+    );
+
+    assert_eq!(projects.record(id).unwrap().runs_on, None);
 }
 
 #[test]

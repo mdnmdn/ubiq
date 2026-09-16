@@ -5,9 +5,9 @@ kind: tech
 status: draft
 summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, quota, profile, command-line, host browse, connector, repository, assist, notification, web asset and carrier families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
-updated: 2026-09-14
-verified: 2026-09-14
-code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs]
+updated: 2026-09-16
+verified: 2026-09-16
+code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq-drone/src/search.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
 ---
@@ -125,7 +125,7 @@ recolour and a move on disk.
 | `ListProjects` | UI → host | — | `ProjectList` |
 | `AddProject` | UI → host | `path`, `name?`, `colour?`, `custom_colour?`, `temporary` | `ProjectAdded` or `ProjectError` |
 | `ForgetProject` | UI → host | `project_id` | `ProjectForgotten` |
-| `UpdateProject` | UI → host | `project_id`, `name?`, `colour?`, `custom_colour?`, `search_excludes?`, `index?`, `tools?`, `managed_repos?` | `ProjectChanged` |
+| `UpdateProject` | UI → host | `project_id`, `name?`, `colour?`, `custom_colour?`, `search_excludes?`, `index?`, `tools?`, `managed_repos?`, `runs_on?` | `ProjectChanged` |
 | `LocateProject` | UI → host | `project_id`, `path` | `ProjectChanged` or `ProjectError` |
 | `OpenedProject` | UI → host | `project_id` | `ProjectChanged` |
 | `RefreshProject` | UI → host | `project_id` | `ProjectChanged` |
@@ -1128,6 +1128,16 @@ default moves every project that never overrode it. `UpdateProject` carries that
 serde reads an absent field and an explicit `null` into the same outer `None` and "clear the
 override" would become indistinguishable from "say nothing about it".
 
+`ProjectRecord.runs_on` is an `Option<DroneOrigin>` — an SSH profile id, the folder on the far
+machine, a `DronePreset` and an optional linger in seconds — and names the drone a project's folder
+lives behind; absent is a project that runs where Ubiq does. It rides `UpdateProject` as a
+`DroneChange` — `Local` or `Set(origin)` — for the reason `IndexChange` is one. The field is purely
+additive, so `CATALOGUE_VERSION` does not move: a catalogue written before it reads back with
+`runs_on: None`, which is the answer such a record already meant. The coordinator stores it and
+rebroadcasts `ProjectChanged`, and does nothing else with it — under `D116` a drone attaches as an
+ordinary host, so the coordinator never learns one exists. Launching the drone, and keeping the row
+on screen while it is down, are the interface's (`D132`).
+
 The conversation family's own enums are the Agent Client Protocol's and are named after it rather
 than after anything here, so a reader can check them against
 [`../references/acp-protocol.md`](../references/acp-protocol.md) directly. `ToolKind` is ACP's ten —
@@ -1181,7 +1191,7 @@ project and identified by the UI-created `SearchId` that rides on every message.
 
 | Message | Direction | Payload | Responds with |
 |---|---|---|---|
-| `SearchProject` | UI → host | `search_id`, `project_id`, `query` | `SearchMatches`, `SearchProgress`, `SearchFinished`, or `SearchError` |
+| `SearchProject` | UI → host | `search_id`, `project_id`, `query`, `scope`, `filter` | `SearchMatches`, `SearchProgress`, `SearchFinished`, or `SearchError` |
 | `CancelSearch` | UI → host | `search_id`, `project_id` | — |
 | `SearchMatches` | host → UI | `search_id`, `project_id`, `batch` | — |
 | `SearchProgress` | host → UI | `search_id`, `project_id`, `files_seen` | — |
@@ -1202,6 +1212,14 @@ that bites sets the relevant `truncated` flag.
 
 **Progress.** `SearchProgress` is sent every 100 files the walker sees, so the UI can show a spinner
 that advances.
+
+**A drone answers this family too, and never from an index** (`D134`). `ubiq_drone::search` shells to
+whatever `rg`, `ag` or `grep` the far machine's own `PATH` carries and translates its output into
+these same messages, batched the same way and under the same ceilings, so the interface needs no
+branch for a drone's answer; `CancelSearch` kills the child. `Scope::Files` is the only scope a
+drone serves — tasks, chats and the knowledge base are the coordinator's own state, which a drone
+holds none of, so any other scope answers `SearchFinished` with an empty `searched` rather than an
+error. A machine with none of the three tools answers `SearchError::Walk` naming what was tried.
 
 ## The account family
 
@@ -1509,13 +1527,35 @@ saved host except a person on that settings page, so there is no concurrent writ
 
 **A saved host says what carries its frames, not what kind of host it is.** `SavedRemoteHost.carrier`
 is `Socket` — an address Ubiq dials, `scheme` deciding whether TLS wraps it — or
-`Ssh { profile, root }`, an `ssh` Ubiq spawns whose standard input and output are the stream. Both
-ends speak the same length-prefixed MessagePack; what differs is what the bytes travel over and what
-failing to reach the far end looks like. It is a discriminant on the existing record rather than a
-second list because a drone attaches as an ordinary host (`D116`), so the Hosts section, the picker
-and Disconnect carry it with no change of their own. `HOST_SETTINGS_SCHEMA` is 17 for the field: an
-older build drops it and every saved drone silently becomes a socket host pointed at an address it
-never had, which is a row that looks connectable and is not — worse than one that is gone.
+`Ssh { profile, root, preset }`, an `ssh` Ubiq spawns whose standard input and output are the
+stream. Both ends speak the same length-prefixed MessagePack; what differs is what the bytes travel
+over and what failing to reach the far end looks like. It is a discriminant on the existing record
+rather than a second list because a drone attaches as an ordinary host (`D116`), so the Hosts
+section, the picker and Disconnect carry it with no change of their own. `HOST_SETTINGS_SCHEMA` is
+17 for the field: an older build drops it and every saved drone silently becomes a socket host
+pointed at an address it never had, which is a row that looks connectable and is not — worse than
+one that is gone.
+
+**`preset` says whether that drone detaches, and for how long it outlives a dropped link.**
+`DronePreset` is `Attached` (`--stdio`, no socket — dies with this `ssh`), `Session` (detaches with
+the default ten-minute linger — survives a dropped link, not Ubiq quitting) or `Managed` (detaches
+with `--linger never` — survives both, until stopped). The connect modal's remote command for the
+latter two is one shell line — `ubiq-drone --listen --root <r> --linger <L> >/dev/null && exec
+ubiq-drone --attach --root <r> --linger <L>` — because `--listen` *adopts* a drone already
+listening on those roots rather than starting a rival, which is the whole of phase 7's adoption
+story on the interface's side. `HOST_SETTINGS_SCHEMA` is 18 for the field: an older build drops it
+on its next write and every saved drone comes back as `Attached` — a real answer, the one every
+record before this schema already meant, not a guess.
+
+**`drone_path` says where the drone binary sits on the far machine, when it is not on the remote
+`PATH`.** Typed by hand, or written back by `ssh_connect::ensure_drone` once it has resolved,
+uploaded and cached one — which it does only after the bare `ubiq-drone` has come back as the
+shell's own exit 127, because a `PATH`-first dial is what keeps a machine with a hand-installed
+drone working against an empty manifest (`D133`). `remote_command` runs the path in place of the
+bare name whenever it is set. `HOST_SETTINGS_SCHEMA` is 19 for the field, on the same lighter footing as 18:
+an older build drops it on its next write and a drone off the remote `PATH` goes back to a bare
+lookup that cannot find it — a location the deployer can re-learn and re-save on the next connect,
+not a fact stranded anywhere a user cannot get back.
 
 **`bundled` on `Connections` says which providers this build ships an application for.** It is a
 compile-time fact of the host — every built-in client id is an `option_env!` — and the interface's
@@ -1915,18 +1955,25 @@ covers exactly what a drone speaks — the pane family, the file family, the hos
 read half of the project family, `ListShells` and `HostInfo` — because those are the only messages
 an old drone and a new Ubiq can disagree about; every other family a drone refuses outright. A
 mismatch is answered with `accepted: false` and a sentence a modal shows, then both sides close
-cleanly. Reporting it as a `PaneError` instead would read like a crashed shell. **Nothing enforces
-the bump mechanically**: no test compares the message set against a recorded shape. It is a
+cleanly. Reporting it as a `PaneError` instead would read like a crashed shell. An **additive**
+field on one of those messages is not a bump: `ProjectRecord.runs_on` carries `#[serde(default)]`
+and is skipped when absent, so a drone that has never heard of it decodes the record as the local
+project every such record already meant, and raising the number would refuse every deployed drone
+over a change neither end can misread. **Nothing enforces the bump mechanically**: no test compares
+the message set against a recorded shape. It is a
 discipline, and what it buys when honoured is a sentence at connect time instead of a decode failure
 mid-session.
 
-**`capabilities` is a string set, advertised and never demanded.** A relay drone says `files` and
-nothing else — it refuses search, version control, persistence and every harness, and naming a
-capability it does not have would have the interface offer the user something that answers with a
-refusal. A set of strings rather than a bitfield is what lets the list grow without a schema bump: a
-peer that has never heard a name simply does not ask for it.
+**`capabilities` is a string set, advertised and never demanded.** A relay drone says `files`, and
+`search` as well when a tool was found for it — `ubiq_drone::capabilities` is a function rather than
+a constant precisely because whether `rg`, `ag` or `grep` exists is a fact about the machine the
+binary landed on, probed at start (`D135`). It refuses version control, persistence and every
+harness, and names neither: a capability the drone would only refuse has the interface offer the
+user something that answers with a refusal. A set of strings rather than a bitfield is what lets the
+list grow without a schema bump — a peer that has never heard a name simply does not ask for it —
+and `DroneIdentity::has` is how a reader asks, which nothing outside a test does (`G265`).
 
-**The heartbeat is a message pair, not a frame type** (`G189`). A frame type below the message would
+**The heartbeat is a message pair, not a frame type** (`D118`). A frame type below the message would
 change `[u32 length][msgpack]` for every build that already exists, for a feature two variants on a
 self-describing enum express at no cost. Either end may ping and both answer, because either end can
 be the one that goes quiet. A ping is owed only after `PING_INTERVAL` — 20 seconds — of complete

@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: The window's shell — the activity rail and its modes, the dock of movable panels the user arranges around the centre, the file explorer and editor a project owns, the Git screen of refs, history and uncommitted changes, the agents screen of parallel columns, the orchestration graph and the tasks board the rail's other built modes hold, the kitchen sink the application tests itself against, the file picker any screen raises to choose a path, the empty state a window with no project shows, and the status bar that reports on all of it.
 read_when: you are changing the window layout, a rail mode, where a panel may sit or when it is drawn, the explorer, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, capturing the window or annotating a capture, saving a file, the Git screen's refs, history, change lists or diff, the agents screen's columns, what a tab drag means or what the bench is, the orchestration screen's graph, how it arranges itself, its inspector or its tasks, the tasks board's columns, cards or task panel, the kitchen sink's pages or fixtures, the file picker a screen raises to choose a path, cloning a project, application settings, vim mode, or the status bar
-updated: 2026-09-15
-verified: 2026-09-15
+updated: 2026-09-16
+verified: 2026-09-16
 code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/tests/image_gestures.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/app/sink.rs, crates/ubiq/src/state/a2ui.rs, crates/ubiq/src/state/a2ui/value.rs, crates/ubiq/src/state/a2ui/eval.rs, crates/ubiq/src/state/a2ui/action.rs, crates/ubiq/src/state/a2ui/live.rs, crates/ubiq/src/state/a2ui/svg.rs, crates/ubiq/src/state/a2ui/path.rs, crates/ubiq/src/state/a2ui/ubiq-catalog.json, crates/ubiq/src/ui/a2ui.rs, crates/ubiq/src/ui/a2ui/registry.rs, crates/ubiq/src/ui/a2ui/svg.rs, crates/ubiq/src/ui/a2ui/path.rs, crates/ubiq/src/ui/sink/a2ui.rs, crates/ubiq/tests/a2ui.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/sink/script.rs, crates/ubiq/src/state/script.rs, crates/ubiq/tests/script.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/stats.rs, crates/ubiq/src/ui/stats.rs, crates/ubiq/src/app/stats.rs, crates/ubiq/tests/stats.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/src/ui/git/repo_selector.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/app/new_agent.rs, crates/ubiq/src/ui/new_agent.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/app/graph.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/ui/web_view.rs, crates/ubiq/src/ui/viewer/web.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/state/web_panel.rs, crates/ubiq/src/app/explorer.rs, crates/ubiq/src/state/explorer/menu.rs, crates/ubiq/src/ui/file_dialog.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
@@ -959,6 +959,16 @@ path can be scrolled and selected instead of overflowing, and the home directory
 abbreviated form). Documentation and Integrations are drawn and disabled. Save writes the name and
 colour through `UpdateProject`.
 
+**Remote says where the project's folder actually is** — here, or behind a drone on another machine.
+It is the dialog's third nav item, enabled on the same terms as Tools: both attach to a record, and
+a folder not yet in the catalogue has nothing to pin. On-a-drone asks for a saved SSH profile, the
+folder on *that* machine, and the drone's lifetime — the same three presets the connect modal
+offers. Saving writes the record and stops: **nothing dials from here.** The drone is launched, or
+an already-attached one adopted, when the project is next opened, which is the moment there is
+anything for it to serve. A project pinned this way keeps its row in the catalogue whether or not
+its drone is reachable; with the drone away the row reads as unreadable and names it, so a laptop
+that sleeps loses the drone and never the project.
+
 **General carries the project's rail modes, as the rail's own icons.** One tile per mode, lit when
 the mode is on screen and flat when it is not, flipped by a click — it takes effect at once and is
 written into the project's view blob (`ViewPrefs::hidden_modes`), not through `UpdateProject`, so
@@ -1168,8 +1178,13 @@ Connect button; only the body beneath the pills and what "ready" means differ. P
 `http://host:port?token=…` into the socket carrier's address field splits it across both fields at
 once, so the one string a running `ubiq --serve` printed is the only thing a user has to paste. The
 ssh carrier lists the SSH profiles from the settings page (below) as pills of their own — connecting
-is disabled until one is picked — and a folder field the drone serves, empty meaning the login
-directory. `Connected` attaches the dialled host to the window's `Bus` as a `HostRef::Remote`,
+is disabled until one is picked — a folder field the drone serves, empty meaning the login
+directory, and a third pill row for the drone's own lifetime: **Attached** (dies with this `ssh`),
+**Session** (detaches, survives a dropped link, not Ubiq quitting) or **Managed** (detaches for
+good, until stopped from the Drones settings section, below). `Session` and `Managed` both launch
+the drone with a `--listen … && exec … --attach …` line that *adopts* one already running on those
+roots rather than starting a rival — reconnecting after a dropped link is a fresh instance of that
+same line, on the same terms. `Connected` attaches the dialled host to the window's `Bus` as a `HostRef::Remote`,
 labelled — for a fresh dial, by the address or the picked profile's name, or the saved host's own
 name for a reconnect started from the Hosts settings section, below — what `Bus::remotes()` hands
 back to the project picker's "Open remote project…" row (above) so a project can be opened on it. A
@@ -1177,10 +1192,26 @@ dial that succeeds is saved automatically, its carrier included, so it can be of
 restart — the Hosts section, below, is where that record is managed. A dial that fails, ssh included,
 lands on the same `Failed` step and shows the reason verbatim — an unreachable host, a refused
 handshake, or a drone that exited on the far machine all read here rather than the modal being stuck
-on "Connecting" forever. The transport underneath the modal — `crates/ubiq/src/app/remote_connect.rs`'s
+on "Connecting" forever. **A first connect to a machine with no drone deploys one and says so as it
+goes**: the far `PATH` is tried first, and only a shell answering "not found" sends Ubiq round the
+four steps the `Connecting` line names in turn — checking what was uploaded before, asking what
+machine it is, verifying the drone built for it, uploading it. A machine this build has no
+cross-built binary for stops there, naming the triple and `just drone-build`, which is what a tree
+with an empty manifest says every time. The transport underneath the modal — `crates/ubiq/src/app/remote_connect.rs`'s
 socket dial, and `crates/ubiq/src/app/ssh_connect.rs`'s `ssh` child process, each ending in the same
 pump threads — is [`../tech/architecture.md`](../tech/architecture.md)'s to describe, not this
 document's.
+
+**A Check control sits under the ssh carrier's profile picker**, answering a question neither of
+the modal's own moves can: is this host reachable at all, and does it already have a drone on its
+`PATH` — without listing what that drone is running (which needs one already dialled) or dialling
+and deploying one (which the Connect button already does, at the cost of a real attempt). Three
+outcomes land, not two: unreachable or unauthenticated shows the connect failure's own sentence in
+`theme::danger`; reachable with nothing installed shows in `theme::warning` — a useful middle
+answer, not an error, since the Connect button can still deploy one from here; reachable with a
+drone shows its version, its triple and the round-trip time in `theme::success`.
+`crate::ui::host_check_line` renders that one line wherever this document names Check — here, and
+in the Drones settings section below.
 
 **Application settings' Hosts section is where a window says which host an unaddressed message
 reaches, and where a saved host is managed.** A dropdown lists `Local` first, always attached; then
@@ -1295,7 +1326,7 @@ a screenshot. Nothing crosses the bus.
 **Application settings is a page overlay, not a one-question modal.** It is `SETTINGS_WIDTH` by
 `SETTINGS_HEIGHT`, clamped to the viewport, with a left nav and a scrolling body; switching
 sections does not resize the panel. Toggles persist as they are flipped — there is no Save. Opening
-it dismisses project settings, and the reverse. Eleven sections ship: **Appearance** (the four theme
+it dismisses project settings, and the reverse. Thirteen sections ship: **Appearance** (the four theme
 axes, then three switches: the palette family as one pill per family — labelled by the member whose
 ground is in use, so picking one keeps the ground; the ground itself, the same flip the titlebar
 offers, within the family; the accent as a row of swatches, the palette's own first and then the six
@@ -1317,12 +1348,19 @@ agent is confined, whose home it runs in, and the directories it may reach beyon
 remote hosts a window may attach to), **SSH profiles** (the named SSH targets a host connection can
 dial, each with its address, port and user and one of four ways to authenticate — an agent, a key
 file, a password or a `~/.ssh/config` alias — and a key's passphrase or a password filed at this
-machine's own credential store rather than in the settings file), **Assistance** (which backend
+machine's own credential store rather than in the settings file), **Drones** (per saved ssh-carrier
+host, what `ubiq-drone --list` reports is running there — uptime, pane count, version, linger and
+the roots served — with a Check beside Refresh that asks only whether the host is reachable and a
+drone already on its `PATH`, drawn the same one line the connect modal's own Check does, above; a
+Refresh that shells to `ssh` again and a Stop, danger-confirmed because it
+kills every pane the drone holds; a version differing from this build's own is flagged with the
+one remedy the design names: stop, redeploy, reattach), **Assistance** (which backend
 writes the short lines Ubiq
 would otherwise invent mechanically, what that backend reports about itself, whether a conversation
 names itself from its opening exchange, and the API providers
 configured here — each with its key typed once, its models picked from what the provider lists, and
-a test that streams a real answer back), and
+a test that streams a real answer back), **Tools** (the runnable tools
+every project inherits, edited at machine scope), and
 **Command line** (the `ubiq`
 command on the shell's `PATH`). The kitchen sink still draws the larger
 fixture nav; that page is how the furniture is looked at, not how the application is configured.

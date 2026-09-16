@@ -5,9 +5,9 @@ kind: tech
 status: current
 summary: Prerequisites, the complete command reference, what a first build costs, the checks a change has to pass before it lands, and the runbook for a tool an agent cannot run.
 read_when: you are setting the project up, running or testing it, adding a command, or an agent reports that it cannot run a tool
-updated: 2026-09-14
-verified: 2026-09-14
-code_anchors: [Justfile, crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/isolate.rs, _tools/docs.py, _tools/icns.py, _tools/webassets.py, _tools/Info.plist, _devops/scripts/bundle-version.sh, crates/ubiq-app/src/lib.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-app/build.rs, crates/ubiq-app/res/ubiq-app.rc, .github/workflows/create-release.yml, .github/workflows/release-macos.yml, .github/workflows/release-windows.yml]
+updated: 2026-09-16
+verified: 2026-09-16
+code_anchors: [Justfile, crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/isolate.rs, _tools/docs.py, _tools/icns.py, _tools/webassets.py, _tools/drone.py, _tools/Info.plist, _devops/scripts/bundle-version.sh, crates/ubiq-app/src/lib.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-app/build.rs, crates/ubiq-app/res/ubiq-app.rc, .github/workflows/create-release.yml, .github/workflows/release-macos.yml, .github/workflows/release-windows.yml]
 depends_on: [tech-structure]
 review_cycle: monthly
 ---
@@ -91,6 +91,22 @@ everything else only when it complains. What the console does with the records i
 | `just ui` | Build the interface and prove it never names the host, and never names a type size of its own — a literal `text_size(px(N))` outside `theme.rs` fails it |
 | `just core` | Build the library the way Ubiq consumes it, with default features off. **This is the check that matters** — it fails the moment a CLI or terminal type leaks into the core |
 | `just relay` | Build `ubiq-host` with `--no-default-features` — the lean core a headless drone links: `pty`, `files`, `browse`, `watch`, `search`, `projects`, `health`, `config`, `store` minus the usage meter, `host_meta`, `links`, `environment` — and prove none of `git`, `index`, `harness`, `listener` or `desktop` reached its tree by grepping `cargo tree` for the crates each one gates: `git2`, `tantivy`, `rusqlite`, `agent-manager`, `isol8`, `notify-rust`, `trash`, `ureq`, `rustls`, `tiny_http`, `gpui` |
+
+### The drone
+
+The binary `just relay`'s lean core exists for. [`../features/drone.md`](../features/drone.md) is
+the capability; these three recipes are how its provenance is produced and checked.
+
+| Command | Does |
+|---|---|
+| `just drone-build [TRIPLE]` | Cross-build `ubiq-drone --release` for one triple, or — with no argument — for each of the seven it knows that `rustup target list --installed` names, printing `rustup target add …` for the rest rather than failing on them |
+| `just drone-manifest` | Hash every `target/<triple>/release/ubiq-drone` that exists into the generated `crates/ubiq-proto/src/drone/manifest.rs` — sha256 and length per entry. A triple with no build is skipped with a warning and left out: a partial manifest is the honest state, not a failed run |
+| `just drone-manifest-verify` | Re-read that generated file and re-hash each binary it names, reporting drift. The generated file is the only source of truth; the script keeps no state of its own |
+
+Nothing here fetches anything: a drone binary is built locally and never downloaded, so `_tools/drone.py`
+is `hashlib` and the filesystem. **Hash-pinned, not signed** — there is no signing key and no release
+pipeline (`G108`). An empty manifest makes `ssh_connect::ensure_drone` refuse every triple with a
+sentence naming `just drone-build`, which is what a machine with no cross toolchain sees.
 
 ### Checks
 

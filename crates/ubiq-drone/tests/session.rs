@@ -12,10 +12,9 @@
 //! the wire. Those are logged and dropped — see the catch-all in `relay::dispatch`.
 
 use std::net::{TcpListener, TcpStream};
-use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use ubiq_drone::relay::Relay;
+use ubiq_drone::relay::{Relay, Root};
 use ubiq_host::carrier::{self, NoCloser};
 use ubiq_proto::bus;
 use ubiq_proto::ids::SessionId;
@@ -45,7 +44,7 @@ impl Drop for Session {
 }
 
 impl Session {
-    fn open(roots: Vec<PathBuf>) -> Self {
+    fn open(roots: Vec<Root>) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback port");
         let address = listener.local_addr().expect("the bound address");
         let far = TcpStream::connect(address).expect("dialling the relay");
@@ -121,7 +120,7 @@ fn a_session_serves_a_terminal_and_the_files_beside_it() {
     let project = tempfile::tempdir().expect("a project folder");
     std::fs::write(project.path().join("hello.txt"), b"from the far machine")
         .expect("seeding a file");
-    let session = Session::open(vec![project.path().to_path_buf()]);
+    let session = Session::open(vec![Root::new(project.path().to_path_buf())]);
 
     // Attaching is answered without being asked: the interface cannot read the far machine's disk.
     let hostname = session.wait_for("HostInfo", |message| match message {
@@ -240,7 +239,7 @@ fn shell() -> String {
 #[test]
 fn the_end_of_the_stream_kills_every_pane() {
     let project = tempfile::tempdir().expect("a project folder");
-    let session = Session::open(vec![project.path().to_path_buf()]);
+    let session = Session::open(vec![Root::new(project.path().to_path_buf())]);
     session.wait_for("HostInfo", |message| {
         matches!(message, Message::HostInfo { .. }).then_some(())
     });

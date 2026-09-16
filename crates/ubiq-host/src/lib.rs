@@ -45,6 +45,9 @@
 //! - `index`: the full-text index that speeds up content search (behind `index`)
 //! - `notifications`: telling the desktop about a notification (behind `desktop`)
 //! - `remote`, `links`: the rest of what `listener` gates
+//! - `drone`: re-exports `ubiq_proto::drone` — resolving and caching a cross-built `ubiq-drone`
+//!   binary for deployment, hash-pinned against a generated manifest rather than signed (`G108`);
+//!   moved there so `crates/ubiq`'s deployer can reach it too (behind `listener`)
 //! - `cli_shortcut`: behind `harness`
 //!
 //! `git`, `index`, `harness`, `listener` and `desktop` are the features a lean embedder (a
@@ -68,6 +71,8 @@ pub mod conversation;
 pub mod conversation_record;
 #[cfg(feature = "full")]
 pub mod coordinator;
+#[cfg(feature = "listener")]
+pub mod drone;
 pub mod environment;
 pub mod files;
 #[cfg(feature = "harness")]

@@ -9,7 +9,8 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::ids::ProjectId;
+use crate::ids::{ProjectId, SshProfileId};
+use crate::settings::DronePreset;
 use crate::tools::ToolDef;
 
 /// A project as it is written down. Everything here survives a restart.
@@ -69,6 +70,67 @@ pub struct ProjectRecord {
     /// [`Message::UpdateProject`]: crate::messages::Message::UpdateProject
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tools: Vec<ToolDef>,
+    /// The drone this project's folder lives behind, or `None` for a project that runs where Ubiq
+    /// does. See [`DroneOrigin`].
+    ///
+    /// Purely additive, so the catalogue version does not move: a file written before this field
+    /// existed reads back with `runs_on: None`, which is the answer every such record already
+    /// meant — a local project — rather than a guess.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runs_on: Option<DroneOrigin>,
+}
+
+/// Where a project's folder actually is, when it is not on this machine.
+///
+/// Pre-authorised by name: `_docs/inbox/completed/project-handling-proposal.md` reserved "the field
+/// a remote drone would need to say *where* the folder is" while ruling a per-project default
+/// harness out, which is `agent-manager`'s and not this.
+///
+/// The record says *where*, never *how to get in*: [`profile`] is a reference into
+/// [`crate::settings::HostSettings::ssh_profiles`], whose secret is the host's and reaches `ssh`
+/// through the askpass helper, so a catalogue is still a file a user could read out loud.
+///
+/// [`profile`]: Self::profile
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DroneOrigin {
+    /// The saved SSH profile that reaches the machine.
+    pub profile: SshProfileId,
+    /// The folder on *that* machine, as the drone is launched with `--root`. It is the far
+    /// machine's path, never resolvable here, which is why it is a plain string.
+    pub root: String,
+    /// The drone's lifetime: whether it detaches, and for how long it waits with no client.
+    pub preset: DronePreset,
+    /// A linger this project overrides the preset's own with, in seconds, or `None` to take the
+    /// preset's. An override rather than a value, for the reason
+    /// [`ProjectRecord::index`] is one: a preset whose default moves must move every project that
+    /// never said otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub linger_secs: Option<u64>,
+}
+
+/// What an update does to a project's drone origin.
+///
+/// Three states have to cross the wire — leave it alone, clear it, set it — and
+/// `Option<Option<DroneOrigin>>` cannot carry them: serde reads an absent field and an explicit
+/// `null` into the same outer `None`, which would make "bring this project home" indistinguishable
+/// from "say nothing about it". So the outer `Option` means *was anything said*, and this says
+/// what. The same shape as [`IndexChange`], for the same reason.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DroneChange {
+    /// Drop the origin: the project runs where Ubiq does.
+    Local,
+    /// Pin this project to a drone.
+    Set(DroneOrigin),
+}
+
+impl DroneChange {
+    /// The origin this change leaves behind.
+    pub fn resolve(self) -> Option<DroneOrigin> {
+        match self {
+            Self::Local => None,
+            Self::Set(origin) => Some(origin),
+        }
+    }
 }
 
 /// How much of a project Ubiq keeps an index of.
@@ -206,4 +268,83 @@ impl ProjectSnapshot {
 pub enum Scope {
     Interface,
     Project(ProjectId),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn origin() -> DroneOrigin {
+        DroneOrigin {
+            profile: SshProfileId::generate(),
+            root: "/srv/work".into(),
+            preset: DronePreset::Session,
+            linger_secs: Some(60),
+        }
+    }
+
+    fn record() -> ProjectRecord {
+        ProjectRecord {
+            id: ProjectId::generate(),
+            name: "demo".into(),
+            path: "/tmp/demo".into(),
+            colour: 3,
+            custom_colour: None,
+            temporary: false,
+            created_at: Utc::now(),
+            last_opened_at: None,
+            search_excludes: vec![],
+            index: None,
+            managed_repos: vec![],
+            tools: vec![],
+            runs_on: None,
+        }
+    }
+
+    #[test]
+    fn an_index_change_resolves_the_two_it_can_mean() {
+        assert_eq!(IndexChange::Inherit.resolve(), None);
+        assert_eq!(
+            IndexChange::Set(IndexLevel::Full).resolve(),
+            Some(IndexLevel::Full)
+        );
+    }
+
+    /// The third state is the absent `Option<IndexChange>` itself, which is what makes this enum
+    /// two variants rather than three.
+    #[test]
+    fn a_drone_change_resolves_the_three_states() {
+        let said: Option<DroneChange> = None;
+        assert!(said.is_none(), "saying nothing carries no change at all");
+        assert_eq!(DroneChange::Local.resolve(), None);
+        let origin = origin();
+        assert_eq!(
+            DroneChange::Set(origin.clone()).resolve(),
+            Some(origin.clone())
+        );
+    }
+
+    #[test]
+    fn a_record_round_trips_its_drone_origin() {
+        let origin = origin();
+        let mut record = record();
+        record.runs_on = Some(origin.clone());
+        let raw = serde_json::to_string(&record).expect("a record serialises");
+        let back: ProjectRecord = serde_json::from_str(&raw).expect("and reads back");
+        assert_eq!(back.runs_on, Some(origin));
+    }
+
+    /// A catalogue written before `runs_on` existed: the field is simply absent, and it reads back
+    /// as the local project it always was. This is why `CATALOGUE_VERSION` does not move.
+    #[test]
+    fn a_record_without_a_drone_origin_reads_back_local() {
+        let record = record();
+        let raw = serde_json::to_string(&record).expect("a record serialises");
+        assert!(
+            !raw.contains("runs_on"),
+            "a local project writes no origin at all: {raw}"
+        );
+        let back: ProjectRecord = serde_json::from_str(&raw).expect("and reads back");
+        assert_eq!(back.runs_on, None);
+    }
 }

@@ -90,9 +90,31 @@ impl AppState {
         false
     }
 
+    /// Launch or adopt the drone a project names, on the way to opening it.
+    ///
+    /// **On this side of the bus, never the coordinator's.** `D116` keeps the coordinator from
+    /// learning a drone exists at all — attaching one is adding a host to this window, which is
+    /// the interface's business and nothing the catalogue can do on its own.
+    ///
+    /// A host already attached for the origin's profile and folder is adopted: it is already
+    /// serving that root, and a second `ssh` to it would start a rival drone for the same folder.
+    pub(super) fn ensure_drone(&mut self, project: ProjectId, cx: &mut Context<Self>) {
+        let Some(origin) = WindowRegistry::read(cx)
+            .project(project)
+            .and_then(|snapshot| snapshot.record.runs_on.clone())
+        else {
+            return;
+        };
+        if self.drone_attached(&origin) {
+            return;
+        }
+        self.dial_project_drone(project, origin, cx);
+    }
+
     /// Point this window at a project it already holds.
     pub fn activate_project(&mut self, project: ProjectId, cx: &mut Context<Self>) {
         let id = self.window_id;
+        self.ensure_drone(project, cx);
         cx.global_mut::<WindowRegistry>().activate(id, project);
         self.bus.send(Message::OpenedProject {
             project_id: project,
@@ -114,6 +136,9 @@ impl AppState {
             self.close_menu(cx);
             return;
         }
+        // Before the reconciliation below, so a project that runs on a drone has its `ssh` on the
+        // way while the tree and the tabs are being built.
+        self.ensure_drone(project, cx);
         // The host decides what opening a project means, and stamps it.
         self.bus.send(Message::OpenedProject {
             project_id: project,
@@ -193,6 +218,7 @@ impl AppState {
             index: None,
             tools: None,
             managed_repos: None,
+            runs_on: None,
         });
         self.workbench.row_action = None;
         cx.notify();
@@ -218,7 +244,43 @@ impl AppState {
             index: Some(index),
             tools: None,
             managed_repos: None,
+            runs_on: None,
         });
+        cx.notify();
+    }
+
+    /// Where this project's folder lives: on a drone, or here.
+    ///
+    /// Sent on the Remote panel's Save rather than held to the dialog's, and the snapshot is
+    /// applied at once, the way `set_project_search_excludes` applies its own — pinning a project
+    /// is what the next open acts on, and a row that still reads "runs here" after a save reads
+    /// as the save having been dropped.
+    ///
+    /// Sending it is the whole of the change. Nothing dials here: a drone is launched by
+    /// [`Self::ensure_drone`] when the project is opened, which is the moment there is anything
+    /// for one to serve.
+    pub fn set_project_runs_on(
+        &mut self,
+        project: ProjectId,
+        change: ubiq_proto::projects::DroneChange,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(mut snapshot) = WindowRegistry::read(cx).project(project).cloned() else {
+            return;
+        };
+        snapshot.record.runs_on = change.clone().resolve();
+        self.bus.send(Message::UpdateProject {
+            project_id: project,
+            name: None,
+            colour: None,
+            custom_colour: None,
+            search_excludes: None,
+            index: None,
+            tools: None,
+            managed_repos: None,
+            runs_on: Some(change),
+        });
+        cx.global_mut::<WindowRegistry>().apply(snapshot);
         cx.notify();
     }
 
@@ -246,6 +308,7 @@ impl AppState {
             index: None,
             tools: None,
             managed_repos: None,
+            runs_on: None,
         });
         cx.global_mut::<WindowRegistry>().apply(snapshot);
         cx.notify();
@@ -274,6 +337,7 @@ impl AppState {
             index: None,
             tools: Some(tools),
             managed_repos: None,
+            runs_on: None,
         });
         cx.global_mut::<WindowRegistry>().apply(snapshot);
         cx.notify();
@@ -303,6 +367,7 @@ impl AppState {
             index: None,
             tools: None,
             managed_repos: Some(repos),
+            runs_on: None,
         });
         cx.global_mut::<WindowRegistry>().apply(snapshot);
         cx.notify();
@@ -568,6 +633,9 @@ impl AppState {
                 swatch: colour,
                 ..ColourField::default()
             },
+            // A folder not in the catalogue yet has no origin to seed from, and the Remote nav is
+            // not enabled over it either.
+            drone: DroneField::default(),
             nav: ProjectNav::General,
         });
         self.fill_project_form = true;
@@ -603,6 +671,7 @@ impl AppState {
                 custom,
                 ..ColourField::default()
             },
+            drone: DroneField::from_origin(snapshot.record.runs_on.as_ref()),
             nav: ProjectNav::General,
         });
         self.fill_project_form = true;
@@ -661,6 +730,16 @@ impl AppState {
                 .map(|entry| entry.record.path.clone())
                 .unwrap_or_default(),
         };
+        // The far machine's folder, which is the record's and never this machine's — not
+        // abbreviated, because a `~` here would name a home directory on the wrong side.
+        let remote_root = match &settings.mode {
+            ProjectSettingsMode::Create { .. } => String::new(),
+            ProjectSettingsMode::Edit { project } => WindowRegistry::read(cx)
+                .project(*project)
+                .and_then(|entry| entry.record.runs_on.as_ref())
+                .map(|origin| origin.root.clone())
+                .unwrap_or_default(),
+        };
         if let Some(settings) = self.workbench.project_settings.as_mut() {
             settings.colour.seed_hsv();
         }
@@ -679,6 +758,8 @@ impl AppState {
                 cx,
             );
         });
+        let remote_root_input = self.project_remote_root_input.clone();
+        remote_root_input.update(cx, |input, cx| input.set_value(&remote_root, window, cx));
         self.sync_project_form_hex(window, cx);
     }
 

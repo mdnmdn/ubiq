@@ -17,6 +17,7 @@ use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use ubiq_proto::ids::ProjectId;
 use ubiq_proto::projects::{IndexChange, IndexLevel};
+use ubiq_proto::settings::DronePreset;
 
 use crate::app::AppState;
 use crate::state::git::head_label;
@@ -300,10 +301,10 @@ fn nav(app: &AppState, form: Form, cx: &mut Context<AppState>) -> AnyElement {
             .unwrap_or(ProjectNav::General),
     };
     let prefix = form.prefix();
-    // The live dialog is create-or-edit, not a page: it opens on General, and only an
-    // existing project answers to Tools — a folder not yet in the catalogue has no record
-    // to carry them.
-    let live_tools = form == Form::Live
+    // The live dialog is create-or-edit, not a page: it opens on General, and only an existing
+    // project answers to Tools or Remote — a folder not yet in the catalogue has no record to
+    // carry either.
+    let live_record = form == Form::Live
         && matches!(
             app.workbench
                 .project_settings
@@ -315,9 +316,11 @@ fn nav(app: &AppState, form: Form, cx: &mut Context<AppState>) -> AnyElement {
         .iter()
         .copied()
         .map(|item| {
+            // Remote is on Tools' footing exactly: both attach to a record, and a folder with no
+            // record yet has nothing to pin.
             let enabled = form == Form::Sink
                 || item == ProjectNav::General
-                || (item == ProjectNav::Tools && live_tools);
+                || (matches!(item, ProjectNav::Tools | ProjectNav::Remote) && live_record);
             nav_item(
                 ElementId::Name(format!("{prefix}-nav-{}", item.label()).into()),
                 project_icon(item),
@@ -349,6 +352,9 @@ fn project_icon(item: ProjectNav) -> IconName {
     match item {
         ProjectNav::General => IconName::Settings,
         ProjectNav::Tools => IconName::Play,
+        // Borrowed, not drawn. `Network` is already Integrations', and the question this panel
+        // asks is *which machine*, which is the globe's.
+        ProjectNav::Remote => IconName::Globe,
         ProjectNav::Documentation => IconName::BookOpen,
         ProjectNav::Integrations => IconName::Network,
     }
@@ -367,6 +373,7 @@ fn body(app: &AppState, window: &Window, cx: &mut Context<AppState>, form: Form)
     let content = match nav {
         ProjectNav::General => general(app, window, cx, form),
         ProjectNav::Tools => project_tools(app, cx, form),
+        ProjectNav::Remote => remote(app, cx, form),
         ProjectNav::Documentation => documentation(),
         ProjectNav::Integrations => integrations(),
     };
@@ -1099,6 +1106,150 @@ fn current_rgba(app: &AppState, form: Form) -> Rgba {
         Some(rgb) => theme::rgba_of(rgb),
         None => theme::project_colour(picked.swatch),
     }
+}
+
+/// Where this project's folder actually is: on this machine, or behind a drone on another one.
+///
+/// **Nothing here dials.** Saving writes `runs_on` and stops; the drone is launched or adopted
+/// when the project is next opened — `AppState::ensure_drone` — which is the moment there is
+/// something for one to serve. That also means a machine that is asleep when this is saved costs
+/// nothing: the row stays local until an open asks for it.
+///
+/// The record's three states are the three the form has: runs here, on a drone, and — when the
+/// pill says drone but no profile is picked yet — nothing said at all.
+fn remote(app: &AppState, cx: &mut Context<AppState>, form: Form) -> AnyElement {
+    let Some(project) = form_project(app, form, cx) else {
+        return div()
+            .text_size(theme::font(Family::Chrome, Role::Label))
+            .text_color(theme::text_faint())
+            .child("Where a project lives is a record's, not a folder's — name this folder first.")
+            .into_any_element();
+    };
+    let field = match form {
+        Form::Sink => app.sink.project.drone.clone(),
+        Form::Live => app
+            .workbench
+            .project_settings
+            .as_ref()
+            .map(|settings| settings.drone.clone())
+            .unwrap_or_default(),
+    };
+    let profiles = app.workbench.settings.host.ssh_profiles.clone();
+    let prefix = form.prefix();
+
+    let where_row = setting_row(
+        "Where this folder is",
+        "A project that runs on a drone keeps its row here — the name, the colour and this \
+         setting are this machine's. What the drone contributes is the folder and the terminals \
+         in it, and a drone that is not answering leaves the row saying so rather than taking it \
+         away.",
+        div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap_1()
+            .child(choice_pill(
+                ElementId::Name(format!("{prefix}-runs-here").into()),
+                "Runs here",
+                !field.on_drone,
+                cx.listener(|this, _, _, cx| this.set_project_on_drone(false, cx)),
+            ))
+            .child(choice_pill(
+                ElementId::Name(format!("{prefix}-runs-on-drone").into()),
+                "On a drone",
+                field.on_drone,
+                cx.listener(|this, _, _, cx| this.set_project_on_drone(true, cx)),
+            ))
+            .into_any_element(),
+    );
+
+    let mut rows = div().flex().flex_col().child(where_row);
+
+    if field.on_drone {
+        let picker: AnyElement = if profiles.is_empty() {
+            div()
+                .text_size(theme::font(Family::Chrome, Role::Label))
+                .text_color(theme::text_faint())
+                .child("No SSH profiles yet \u{2014} add one in application settings.")
+                .into_any_element()
+        } else {
+            div()
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap_1()
+                .flex_wrap()
+                .children(profiles.iter().map(|profile| {
+                    let id = profile.id;
+                    choice_pill(
+                        ElementId::Name(format!("{prefix}-drone-profile-{id}").into()),
+                        profile.name.clone(),
+                        field.profile == Some(id),
+                        cx.listener(move |this, _, _, cx| this.set_project_drone_profile(id, cx)),
+                    )
+                }))
+                .into_any_element()
+        };
+        rows = rows.child(setting_row(
+            "Reached through",
+            "One of the saved SSH profiles. The profile says where and how to connect; the \
+             secret stays the host's and never reaches this dialog.",
+            picker,
+        ));
+
+        rows = rows.child(setting_row(
+            "Folder on that machine",
+            "An absolute path as that machine spells it \u{2014} it is never resolved here, which \
+             is why no folder chooser opens for it.",
+            div()
+                .w(px(280.))
+                .flex_none()
+                .child(Input::new(&app.project_remote_root_input).appearance(false))
+                .into_any_element(),
+        ));
+
+        let preset_pill = |id: &str, label: &str, want: DronePreset| {
+            choice_pill(
+                ElementId::Name(format!("{prefix}-drone-{id}").into()),
+                label.to_string(),
+                field.preset == want,
+                cx.listener(move |this, _, _, cx| this.set_project_drone_preset(want, cx)),
+            )
+        };
+        rows = rows.child(setting_row(
+            "Lifetime",
+            "Attached dies with this window's connection. Session survives a dropped link for ten \
+             minutes. Managed keeps running until it is stopped, which is what a long build or a \
+             harness left thinking wants.",
+            div()
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap_1()
+                .flex_wrap()
+                .child(preset_pill("attached", "Attached", DronePreset::Attached))
+                .child(preset_pill("session", "Session", DronePreset::Session))
+                .child(preset_pill("managed", "Managed", DronePreset::Managed))
+                .into_any_element(),
+        ));
+    }
+
+    div()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .child(heading(
+            "Remote",
+            "The machine this project's folder is on, and the drone that serves it.",
+        ))
+        .child(rows)
+        .child(div().flex().justify_end().pt_3().child(primary_button(
+            ElementId::Name(format!("{prefix}-drone-save").into()),
+            None,
+            "Save",
+            cx.listener(move |this, _, _, cx| this.save_project_drone(project, cx)),
+        )))
+        .into_any_element()
 }
 
 fn documentation() -> AnyElement {

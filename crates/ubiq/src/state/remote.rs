@@ -10,7 +10,9 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use ubiq_proto::ids::SshProfileId;
-use ubiq_proto::settings::RemoteScheme;
+use ubiq_proto::settings::{DronePreset, RemoteScheme};
+
+use crate::app::ssh_connect::DeployStep;
 
 /// The port a remote host listens on when nothing else is said. Matches
 /// `ubiq_host::remote::serve`'s own default bind port — kept as a constant here rather than
@@ -43,7 +45,17 @@ pub enum RemoteConnectStep {
     /// The two fields are being typed into. The modal's idle state.
     Editing,
     /// A dial is running in the background for `attempt`.
-    Connecting { attempt: AttemptId },
+    ///
+    /// `deploy` is the step the deployer is on, once a drone dial has found nothing on the far
+    /// `PATH` and fallen back to putting one there — a probe, a hash-verified resolve and an
+    /// upload over the same slow link the dial failed on. `None` for every dial that does not
+    /// reach that fallback, which is every socket dial and every drone the far machine already
+    /// has. The wording is the modal's, as it is for every other step here; what crosses is which
+    /// step, on `app::ssh_connect`'s own terms.
+    Connecting {
+        attempt: AttemptId,
+        deploy: Option<DeployStep>,
+    },
     /// The dial answered with a `Client` and it was registered on the bus. `label` is the address
     /// that succeeded, shown back so the user can tell which host they just added.
     Connected { label: String },
@@ -97,6 +109,10 @@ pub struct RemoteConnectState {
     /// entry whose profile has since been deleted lands here as `None` too, so the modal asks
     /// again rather than dialling something the user did not mean.
     pub profile: Option<SshProfileId>,
+    /// The drone's lifetime, in [`ConnectMode::Ssh`]: attached to this session, detached with a
+    /// linger, or detached for good. Kept regardless of mode, like the scheme and trust picks
+    /// above — switching to `Ssh` and back loses nobody's choice.
+    pub preset: DronePreset,
 }
 
 impl Default for RemoteConnectState {
@@ -109,6 +125,7 @@ impl Default for RemoteConnectState {
             trust_insecure: false,
             mode: ConnectMode::Socket,
             profile: None,
+            preset: DronePreset::Attached,
         }
     }
 }

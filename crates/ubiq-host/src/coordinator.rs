@@ -1306,6 +1306,7 @@ impl Coordinator {
                 index,
                 tools,
                 managed_repos,
+                runs_on,
             } => {
                 let managed_changed = managed_repos.is_some();
                 let replies = self.projects.update(
@@ -1317,6 +1318,7 @@ impl Coordinator {
                     index,
                     tools,
                     managed_repos,
+                    runs_on,
                 );
                 self.answer(client, replies);
                 // A level the user just changed takes effect now, not at the next open: turning
@@ -1330,6 +1332,10 @@ impl Coordinator {
                 if managed_changed {
                     self.git_job(client, project_id, git::Request::Full);
                 }
+                // `runs_on` gets no such settle: per D116 the coordinator never learns a drone
+                // exists. It is stored and rebroadcast as part of the record above, and that is
+                // the whole of the coordinator's involvement — no reader is spawned, no relay is
+                // dialed, nothing here treats the project as remote. The absence is the decision.
             }
             Message::LocateProject { project_id, path } => {
                 let replies = self.projects.locate(project_id, &path);

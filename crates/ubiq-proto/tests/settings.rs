@@ -2,7 +2,7 @@
 //! never carries a token.
 
 use ubiq_proto::settings::{
-    HOST_SETTINGS_SCHEMA, HostSettings, RemoteCarrier, RemoteScheme, SavedRemoteHost,
+    DronePreset, HOST_SETTINGS_SCHEMA, HostSettings, RemoteCarrier, RemoteScheme, SavedRemoteHost,
 };
 
 #[test]
@@ -86,4 +86,64 @@ fn a_saved_host_has_no_field_a_token_could_land_in() {
         ]),
         "a saved host must carry nothing beyond identity and connectivity \u{2014} in particular, no token"
     );
+}
+
+/// Schema seventeen's own `RemoteCarrier::Ssh` — written before `preset` existed — still parses,
+/// and comes back as [`DronePreset::Attached`]: the one shape every record from before phase 7
+/// already meant, not a guess.
+#[test]
+fn an_ssh_carrier_from_before_phase_seven_defaults_to_attached() {
+    let json = r#"{"kind":"ssh","profile":"01ARZ3NDEKTSV4RRFFQ69G5FAV","root":"/srv/proj"}"#;
+    let carrier: RemoteCarrier = serde_json::from_str(json).unwrap();
+    match carrier {
+        RemoteCarrier::Ssh { preset, root, .. } => {
+            assert_eq!(preset, DronePreset::Attached);
+            assert_eq!(root, "/srv/proj");
+        }
+        other => panic!("expected an ssh carrier, got {other:?}"),
+    }
+}
+
+/// The preset round-trips for every arm — a saved `Session` or `Managed` host must come back
+/// exactly as it was written, not silently downgraded to `Attached`.
+#[test]
+fn an_ssh_carriers_preset_round_trips() {
+    for preset in [
+        DronePreset::Attached,
+        DronePreset::Session,
+        DronePreset::Managed,
+    ] {
+        let carrier = RemoteCarrier::Ssh {
+            profile: ubiq_proto::ids::SshProfileId::generate(),
+            root: "/srv/proj".to_string(),
+            preset,
+            drone_path: None,
+        };
+        let json = serde_json::to_string(&carrier).unwrap();
+        let read_back: RemoteCarrier = serde_json::from_str(&json).unwrap();
+        assert_eq!(read_back, carrier);
+    }
+}
+
+/// `drone_path` round-trips when set, and a record from before schema nineteen — which never
+/// wrote the field at all — defaults it to `None` rather than refusing to parse.
+#[test]
+fn an_ssh_carriers_drone_path_round_trips_and_defaults() {
+    let carrier = RemoteCarrier::Ssh {
+        profile: ubiq_proto::ids::SshProfileId::generate(),
+        root: "/srv/proj".to_string(),
+        preset: DronePreset::Attached,
+        drone_path: Some("/opt/ubiq/ubiq-drone".to_string()),
+    };
+    let json = serde_json::to_string(&carrier).unwrap();
+    let read_back: RemoteCarrier = serde_json::from_str(&json).unwrap();
+    assert_eq!(read_back, carrier);
+
+    // Schema eighteen and earlier never wrote `drone_path` at all.
+    let json = r#"{"kind":"ssh","profile":"01ARZ3NDEKTSV4RRFFQ69G5FAV","root":"/srv/proj","preset":"attached"}"#;
+    let carrier: RemoteCarrier = serde_json::from_str(json).unwrap();
+    match carrier {
+        RemoteCarrier::Ssh { drone_path, .. } => assert_eq!(drone_path, None),
+        other => panic!("expected an ssh carrier, got {other:?}"),
+    }
 }

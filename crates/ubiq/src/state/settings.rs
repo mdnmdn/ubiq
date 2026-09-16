@@ -20,6 +20,7 @@ use ubiq_proto::messages::{AccountInfo, CliDir, LoginStatus, ProfileInfo};
 use ubiq_proto::quota::{QuotaGauge, QuotaReading, QuotaSnapshot};
 use ubiq_proto::settings::{HostSettings, SshAuth, SshProfile};
 
+use crate::app::ssh_connect::{DroneState, HostCheck};
 use crate::state::editor::ViewLayout;
 
 /// A running login's own output has offered this many links without one being clicked or
@@ -44,6 +45,7 @@ pub enum SettingsSection {
     Connectors,
     Hosts,
     Ssh,
+    Drones,
     Tools,
     CommandLine,
 }
@@ -61,6 +63,7 @@ impl SettingsSection {
             SettingsSection::Connectors,
             SettingsSection::Hosts,
             SettingsSection::Ssh,
+            SettingsSection::Drones,
             SettingsSection::Tools,
             SettingsSection::CommandLine,
         ]
@@ -77,6 +80,7 @@ impl SettingsSection {
             SettingsSection::Assist => "Assistance",
             SettingsSection::Connectors => "Connectors",
             SettingsSection::Hosts => "Hosts",
+            SettingsSection::Drones => "Drones",
             SettingsSection::Ssh => "SSH profiles",
             SettingsSection::Tools => "Tools",
             SettingsSection::CommandLine => "Command line",
@@ -578,6 +582,21 @@ pub struct SshProfileForm {
     pub method: SshMethod,
 }
 
+/// The Stop-drone question, while one is up.
+///
+/// Carries the row's own facts rather than just an id, on [`AiTest`]'s footing: a refresh
+/// elsewhere could replace or drop the row this was raised from before the question is answered,
+/// and the confirm still has to read right.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DroneStopConfirm {
+    /// The saved host this drone runs on — keys back into [`SettingsState::drones`].
+    pub host_id: String,
+    /// The drone's own socket path, which is what `ubiq-drone --stop` takes.
+    pub socket: String,
+    /// The roots it serves, named in the question so "this drone" reads as a specific one.
+    pub roots: Vec<String>,
+}
+
 /// The provider test, while its modal is up: which provider is being checked, and what the host
 /// has said so far.
 ///
@@ -683,6 +702,32 @@ pub struct SettingsState {
     pub ssh_form: Option<SshProfileForm>,
     /// The profile a removal is being confirmed for.
     pub ssh_remove: Option<SshProfileId>,
+    /// What the last `--list` said for each ssh-carrier saved host, keyed by
+    /// [`ubiq_proto::settings::SavedRemoteHost::id`]. Absent means never asked, which the section
+    /// says out loud rather than drawing an empty row list — the same rule [`Self::ai_models`]
+    /// follows.
+    pub drones: HashMap<String, Vec<DroneState>>,
+    /// Saved host ids with a refresh or a stop in flight. A row's own buttons are dimmed while its
+    /// id is here, so a second click while one is running cannot race it.
+    pub drones_busy: HashSet<String>,
+    /// Why the last refresh or stop for a saved host failed, in `ssh`'s or the drone's own words.
+    /// Cleared the next time that host's refresh starts.
+    pub drones_error: HashMap<String, String>,
+    /// The Stop confirm, while one is up. Stopping kills every pane the drone holds, so — on
+    /// `ssh_remove`'s footing — it is gated behind a danger dialog rather than firing on the
+    /// row's own click.
+    pub drone_stop: Option<DroneStopConfirm>,
+    /// SSH profile ids with a Check in flight, keyed by [`SshProfile::id`] rather than by
+    /// [`ubiq_proto::settings::SavedRemoteHost::id`] the way [`Self::drones_busy`] is: a Check
+    /// asks a *profile*, in the connect modal's picker as much as in a saved host's own section,
+    /// and a profile is what both places share. A row's Check button is dimmed while its id is
+    /// here, on [`Self::drones_busy`]'s own footing.
+    pub ssh_check_busy: HashSet<SshProfileId>,
+    /// The last Check for each profile: `Ok` is what [`crate::app::ssh_connect::check_host`]
+    /// answered, `Err` is its `ConnectFailure` already rendered to a sentence — the same split
+    /// [`Self::drones_error`] would be if it kept its `Ok` case instead of dropping it. Absent
+    /// means never checked in this window.
+    pub ssh_checks: HashMap<SshProfileId, Result<HostCheck, String>>,
     /// Whether the Hosts section's dropdown list is down.
     pub host_picker_open: bool,
     /// Addresses a reconnect started from the Hosts section most recently failed to reach —
@@ -776,6 +821,33 @@ impl SettingsState {
     }
 }
 
+/// How long a drone has been running, at the granularity a row is read at rather than formatted
+/// to the second: seconds under a minute, minutes under an hour, hours and minutes under a day,
+/// days and hours beyond that. `now` is a parameter rather than [`std::time::SystemTime::now`]
+/// read inside, so the row this feeds is a pure function of its inputs and provable without a
+/// clock.
+pub fn drone_uptime(started_at: u64, now: u64) -> String {
+    let elapsed = now.saturating_sub(started_at);
+    if elapsed < 60 {
+        format!("{elapsed}s")
+    } else if elapsed < 3600 {
+        format!("{}m", elapsed / 60)
+    } else if elapsed < 86_400 {
+        format!("{}h {}m", elapsed / 3600, (elapsed % 3600) / 60)
+    } else {
+        format!("{}d {}h", elapsed / 86_400, (elapsed % 86_400) / 3600)
+    }
+}
+
+/// Whether a listed drone's version differs from this build's own.
+///
+/// Version skew is expected, not exceptional — a managed drone outlives the Ubiq that deployed
+/// it — and this is the one fact the Drones row needs to say so and name the remedy: stop,
+/// redeploy, reattach. A drone is never hot-swapped under live panes.
+pub fn drone_version_skew(remote_version: &str) -> bool {
+    remote_version != env!("CARGO_PKG_VERSION")
+}
+
 impl Default for SettingsState {
     fn default() -> Self {
         Self {
@@ -805,6 +877,12 @@ impl Default for SettingsState {
             ai_remove: None,
             ssh_form: None,
             ssh_remove: None,
+            drones: HashMap::new(),
+            drones_busy: HashSet::new(),
+            drones_error: HashMap::new(),
+            drone_stop: None,
+            ssh_check_busy: HashSet::new(),
+            ssh_checks: HashMap::new(),
             host_picker_open: false,
             failed_hosts: HashSet::new(),
             reconnects: HashMap::new(),

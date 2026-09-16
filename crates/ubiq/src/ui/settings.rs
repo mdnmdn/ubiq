@@ -20,13 +20,14 @@ use ubiq_proto::connectors::{
 use ubiq_proto::ids::PaneId;
 use ubiq_proto::messages::{AccountInfo, CliShortcutAction, LoginStatus, ProfileInfo};
 use ubiq_proto::projects::IndexLevel;
-use ubiq_proto::settings::{AgentHome, SshAuth, SshProfile};
+use ubiq_proto::settings::{AgentHome, RemoteCarrier, SshAuth, SshProfile};
 
+use crate::app::ssh_connect::DroneState;
 use crate::app::{AppState, HostEntry, HostId, HostRef, host_menu_rows, host_row_label};
 use crate::state::settings::{
     AccountDialog, AiProviderForm, AssistInfo, CliShortcut, ConnectApp, ConnectStep,
     ConnectorDialog, LoginStep, MarkdownOpen, SettingsSection, SshMethod, TabClose, ToolEditScope,
-    connect_error_note, describe_status, magnitude,
+    connect_error_note, describe_status, drone_uptime, drone_version_skew, magnitude,
 };
 use crate::theme;
 use crate::theme::{Family, Role};
@@ -165,6 +166,8 @@ fn nav_icon(item: SettingsSection) -> Icon {
         SettingsSection::Connectors => UbiqIcon::FamilyConnectors.into(),
         SettingsSection::Hosts => UbiqIcon::HostRemote.into(),
         SettingsSection::Ssh => IconName::Network.into(),
+        // A drone is unattended by design — the same mark the titlebar's own agent menu wears.
+        SettingsSection::Drones => IconName::Bot.into(),
         SettingsSection::Tools => IconName::Play.into(),
         SettingsSection::CommandLine => IconName::SquareTerminal.into(),
     }
@@ -182,6 +185,7 @@ fn body(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         SettingsSection::Connectors => connectors(app, cx),
         SettingsSection::Hosts => hosts_section(app, cx),
         SettingsSection::Ssh => ssh_profiles(app, cx),
+        SettingsSection::Drones => drones_section(app, cx),
         SettingsSection::Tools => crate::ui::tools::panel(app, cx, ToolEditScope::System),
         SettingsSection::CommandLine => command_line(app, cx),
     };
@@ -2965,6 +2969,194 @@ fn ssh_profile_row(profile: &SshProfile, cx: &mut Context<AppState>) -> AnyEleme
     )
 }
 
+/// The drones running on every saved ssh-carrier host, one sub-section per host.
+///
+/// Drawn whether or not there are any saved ssh hosts, on [`ssh_profiles`]'s footing: a section
+/// that vanishes when the list is empty is a section nobody finds the first time they need it.
+fn drones_section(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+    let hosts: Vec<_> = app
+        .workbench
+        .settings
+        .host
+        .remote_hosts
+        .iter()
+        .filter(|host| matches!(host.carrier, RemoteCarrier::Ssh { .. }))
+        .cloned()
+        .collect();
+
+    let mut rows = vec![heading(
+        "Drones",
+        "What is running on the machines Ubiq reaches over ssh \u{2014} a drone launched with \
+         the Session or Managed lifetime outlives the connection that started it, and this is \
+         where it is found again, or stopped.",
+    )];
+
+    if hosts.is_empty() {
+        rows.push(note(
+            "No saved ssh hosts yet. Connect to one with the Session or Managed lifetime, and \
+             it appears here.",
+            theme::text_faint(),
+        ));
+        return column(rows);
+    }
+
+    rows.extend(hosts.iter().map(|host| drone_host_section(app, host, cx)));
+    column(rows)
+}
+
+/// One saved host's own drones: its name and target, a Refresh, and a row per drone the last
+/// refresh found. `Refresh` reaches the target itself — the list here is never pushed, only
+/// pulled, on [`crate::app::AppState::test_saved_host`]'s footing.
+fn drone_host_section(
+    app: &AppState,
+    host: &ubiq_proto::settings::SavedRemoteHost,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let host_id = host.id.clone();
+    let busy = app.workbench.settings.drones_busy.contains(&host_id);
+    let error = app.workbench.settings.drones_error.get(&host_id);
+    let drones = app.workbench.settings.drones.get(&host_id);
+    let RemoteCarrier::Ssh {
+        profile: profile_id,
+        ..
+    } = host.carrier
+    else {
+        unreachable!("drones_section only ever collects ssh-carrier hosts")
+    };
+    let check_busy = app.workbench.settings.ssh_check_busy.contains(&profile_id);
+    let check_result = app.workbench.settings.ssh_checks.get(&profile_id);
+
+    let refresh_id = host_id.clone();
+    let refresh_button = primary_button(
+        ElementId::Name(format!("app-settings-drones-{host_id}-refresh").into()),
+        Some(IconName::RotateCw),
+        if busy {
+            "Refreshing\u{2026}"
+        } else {
+            "Refresh"
+        },
+        cx.listener(move |this, _, _, cx| this.refresh_drones(refresh_id.clone(), cx)),
+    )
+    .when(busy, |button| button.opacity(0.5));
+
+    let check_host_id = host_id.clone();
+    let check_button = ghost_button(
+        ElementId::Name(format!("app-settings-drones-{host_id}-check").into()),
+        Some(IconName::CircleCheck),
+        if check_busy {
+            "Checking\u{2026}"
+        } else {
+            "Check"
+        },
+        cx.listener(move |this, _, _, cx| this.check_saved_ssh_host(check_host_id.clone(), cx)),
+    )
+    .when(check_busy, |button| button.opacity(0.5));
+
+    let mut children = vec![
+        div()
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap_3()
+            .child(label_block(&host.name, &host.address))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(check_button)
+                    .child(refresh_button),
+            )
+            .into_any_element(),
+    ];
+    if let Some((text, colour)) = check_result.map(crate::ui::host_check_line) {
+        children.push(note(&text, colour));
+    }
+    if let Some(error) = error {
+        children.push(note(&format!("Last attempt: {error}"), theme::danger()));
+    }
+    match drones {
+        None => children.push(note("Not checked yet in this window.", theme::text_faint())),
+        Some(list) if list.is_empty() => {
+            children.push(note("No drones running.", theme::text_faint()))
+        }
+        Some(list) => children.extend(
+            list.iter()
+                .map(|drone| drone_row(&host_id, drone, busy, cx)),
+        ),
+    }
+    div()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .pt_3()
+        .pb_4()
+        .border_b_1()
+        .border_color(theme::border())
+        .children(children)
+        .into_any_element()
+}
+
+/// One running drone: its roots, uptime, pane count, version (flagged on skew) and linger, with
+/// a Stop that raises the danger confirm rather than acting at once.
+fn drone_row(
+    host_id: &str,
+    drone: &DroneState,
+    busy: bool,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let now = chrono::Utc::now().timestamp().max(0) as u64;
+    let uptime = drone_uptime(drone.started_at, now);
+    let roots = if drone.roots.is_empty() {
+        "(login directory)".to_string()
+    } else {
+        drone.roots.join(", ")
+    };
+    let skew = drone_version_skew(&drone.version);
+
+    let host_id = host_id.to_string();
+    let socket = drone.socket.clone();
+    let roots_for_stop = drone.roots.clone();
+
+    setting_row(
+        &roots,
+        &format!(
+            "up {uptime} \u{b7} {} pane{} \u{b7} linger {} \u{b7} {}",
+            drone.panes,
+            if drone.panes == 1 { "" } else { "s" },
+            drone.linger,
+            drone.version,
+        ),
+        div()
+            .flex()
+            .items_center()
+            .gap_2()
+            .children(skew.then(|| {
+                badge(
+                    "version differs \u{2014} stop, redeploy, reattach",
+                    theme::warning(),
+                )
+            }))
+            .child(
+                ghost_button(
+                    ElementId::Name(format!("app-settings-drones-{host_id}-{socket}-stop").into()),
+                    None,
+                    "Stop",
+                    cx.listener(move |this, _, _, cx| {
+                        this.open_drone_stop(
+                            host_id.clone(),
+                            socket.clone(),
+                            roots_for_stop.clone(),
+                            cx,
+                        )
+                    }),
+                )
+                .when(busy, |button| button.opacity(0.5)),
+            )
+            .into_any_element(),
+    )
+}
+
 /// How many connections live at an origin — what a "forget this certificate" question has to
 /// say out loud, since a pin is instance-wide rather than per connection.
 fn certificate_uses(app: &AppState, at: &str) -> usize {
@@ -4057,6 +4249,34 @@ pub fn ssh_remove(app: &AppState, window: &mut Window, cx: &mut Context<AppState
         true,
         crate::ui::handler(&view, |this, _, cx| this.confirm_remove_ssh_profile(cx)),
         crate::ui::handler(&view, |this, _, cx| this.close_remove_ssh_profile(cx)),
+        window,
+    )
+}
+
+/// The Stop-drone question. Danger, because it kills every pane the drone holds — the same
+/// footing [`ssh_remove`] stands on, over a different consequence.
+pub fn drone_stop(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> AnyElement {
+    let Some(confirm) = app.workbench.settings.drone_stop.clone() else {
+        return div().into_any_element();
+    };
+    let view = cx.entity();
+    let roots = if confirm.roots.is_empty() {
+        "(login directory)".to_string()
+    } else {
+        confirm.roots.join(", ")
+    };
+
+    confirm_modal(
+        "app-settings-drone-stop",
+        "Stop drone",
+        &format!(
+            "Stop the drone serving {roots}? Every pane it holds ends with it. Reaching that \
+             folder again over ssh with the Session or Managed lifetime starts a fresh drone."
+        ),
+        "Stop",
+        true,
+        crate::ui::handler(&view, |this, _, cx| this.confirm_drone_stop(cx)),
+        crate::ui::handler(&view, |this, _, cx| this.close_drone_stop(cx)),
         window,
     )
 }

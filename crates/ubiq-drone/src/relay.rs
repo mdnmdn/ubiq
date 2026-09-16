@@ -2,9 +2,10 @@
 //!
 //! It is deliberately *not* a smaller coordinator: it is a different thing with a smaller job.
 //! The coordinator owns conversations, accounts, quotas, version control, an index and a
-//! notification centre, and it needs every feature of the host crate to do it. A drone owns three
-//! things — the pseudo-terminals it opened, a catalogue that lives only in memory, and the worker
-//! that answers the file family — and that is the whole of its state.
+//! notification centre, and it needs every feature of the host crate to do it. A drone owns four
+//! things — the pseudo-terminals it opened, a catalogue that lives only in memory, the worker that
+//! answers the file family, and the worker that shells out for the search family — and that is the
+//! whole of its state.
 //!
 //! **Every message gets an answer.** What this relay cannot serve is refused with the error
 //! variant of its own family, never dropped: a drone is reached over a stream where silence is
@@ -24,12 +25,32 @@ use ubiq_host::host_meta::HostMeta;
 use ubiq_host::host_path::wire_string;
 use ubiq_host::{health, host_meta, pty, shells};
 use ubiq_proto::bus::{ClientId, FromClient, HostEnd, To};
-use ubiq_proto::ids::{PaneId, ProjectId};
+use ubiq_proto::ids::{PaneId, ProjectId, SearchId};
 use ubiq_proto::messages::{Message, WorkspaceInfo};
 use ubiq_proto::projects::{ProjectRecord, ProjectSnapshot};
 
-use crate::linger::Linger;
+use crate::linger::Live;
 use crate::scrollback::Scrollback;
+use crate::search::{self, Cancel, Search};
+
+/// One `--root`, and the id the interface already minted for it, if any.
+///
+/// A root given bare gets a fresh [`ProjectId::generate`], as it always did. A root given with
+/// `--root-id` announces itself under that id instead, which is what lets a project the interface
+/// launched a drone for stay *one* row in its catalogue rather than a second one alongside it —
+/// the drone does not know it is being asked for that; it only obeys the id it was handed.
+#[derive(Debug, Clone)]
+pub struct Root {
+    pub path: PathBuf,
+    pub id: Option<ProjectId>,
+}
+
+impl Root {
+    /// A root with no id, which is every root today's `--root` alone still produces.
+    pub fn new(path: PathBuf) -> Self {
+        Self { path, id: None }
+    }
+}
 
 /// The geometry a pane starts at, before the interface has measured its own bounds. The same
 /// numbers the coordinator uses, for the same reason: the truth arrives a frame later as a
@@ -54,8 +75,10 @@ const STARTUP_GRACE: Duration = Duration::from_secs(30);
 
 /// What a drone that outlives its link is holding.
 struct Holding {
-    /// Shared with the accept loop, because `--linger` is re-asserted on every attach.
-    linger: Arc<Mutex<Linger>>,
+    /// Shared with the accept loop and the state file: `--linger` is re-asserted on every attach,
+    /// `panes` is kept true here, and `--stop` sets a flag this checks rather than acting on the
+    /// bus's own thread.
+    live: Arc<Live>,
     /// When the last client left; `None` while one is attached.
     alone_since: Option<Instant>,
     /// Whether a client has ever been here. Until one has, [`STARTUP_GRACE`] is the rule.
@@ -65,6 +88,12 @@ struct Holding {
 /// One machine, served.
 pub struct Relay {
     files: Files,
+    search: Search,
+    /// One live search per project, the same rule `Coordinator::active_searches` keeps: a second
+    /// `SearchProject` for a project supersedes the first, and `CancelSearch` is only honoured
+    /// against the search it names. The flag inside `Cancel` also means "this search is over", so
+    /// an entry is reaped the next time a search is asked for rather than on its own timer.
+    active_searches: HashMap<ProjectId, (SearchId, Cancel)>,
     meta: Arc<Mutex<HostMeta>>,
     /// The catalogue, in memory and nowhere else.
     ///
@@ -102,17 +131,17 @@ impl Relay {
     /// A root that is not a directory is still taken into the catalogue: the interface shows it
     /// with the health the probe gave it, which is the same thing a local host does for a project
     /// whose folder has gone. Refusing here would leave the user with no row to look at.
-    pub fn new(roots: Vec<PathBuf>) -> Self {
+    pub fn new(roots: Vec<Root>) -> Self {
         Self::build(roots, None)
     }
 
     /// The same relay, detached: its panes outlive the link that opened them, and `linger` — which
     /// an attach may re-assert at any time — is what decides how long they outlive the last one.
-    pub fn holding(roots: Vec<PathBuf>, linger: Arc<Mutex<Linger>>) -> Self {
+    pub fn holding(roots: Vec<Root>, live: Arc<Live>) -> Self {
         Self::build(
             roots,
             Some(Holding {
-                linger,
+                live,
                 // A drone that has never had a client is already alone: a link that never
                 // arrives must not leave a process nobody knows to go and kill.
                 alone_since: Some(Instant::now()),
@@ -121,7 +150,7 @@ impl Relay {
         )
     }
 
-    fn build(roots: Vec<PathBuf>, holding: Option<Holding>) -> Self {
+    fn build(roots: Vec<Root>, holding: Option<Holding>) -> Self {
         let scratch = std::env::temp_dir().join(format!("ubiq-drone-{}", std::process::id()));
         if let Err(error) = std::fs::create_dir_all(&scratch) {
             tracing::warn!("could not reserve {}: {error}", scratch.display());
@@ -129,9 +158,11 @@ impl Relay {
 
         // No `--root` is a drone with an empty catalogue, not an error: it can still serve a
         // terminal and browse the machine, which is what the host-browse family is for.
-        let records = roots.iter().map(|root| record_for(root)).collect();
+        let records = roots.iter().map(record_for).collect();
         Self {
             files: Files::start(),
+            search: Search::start(),
+            active_searches: HashMap::new(),
             meta: host_meta::start(scratch.clone()),
             records,
             scratch,
@@ -162,7 +193,12 @@ impl Relay {
                 Err(flume::RecvTimeoutError::Timeout) => {}
                 Err(flume::RecvTimeoutError::Disconnected) => break,
             }
-            if self.lingered_out() {
+            // Kept true on every tick, whether or not this one changed it, so a state file
+            // written between ticks never reports a pane count nobody here asked for.
+            if let Some(holding) = self.holding.as_ref() {
+                holding.live.set_panes(self.panes.len());
+            }
+            if self.should_stop() {
                 tracing::info!("nobody attached within the linger: killing the panes and going");
                 break;
             }
@@ -170,19 +206,26 @@ impl Relay {
         self.shutdown();
     }
 
-    /// Whether this drone has waited alone for as long as it was told to.
-    fn lingered_out(&self) -> bool {
+    /// Whether this drone should end now: `--stop` was asked for, or it has waited alone for as
+    /// long as it was told to.
+    ///
+    /// A stop is checked first and unconditionally: it is a direct order over the same socket a
+    /// linger is re-asserted on, and honouring it a tick late for the sake of the countdown would
+    /// make `--stop` a request rather than the immediate exit its name promises.
+    fn should_stop(&self) -> bool {
         let Some(holding) = self.holding.as_ref() else {
             return false;
         };
+        if holding.live.stopping() {
+            return true;
+        }
         let Some(since) = holding.alone_since else {
             return false;
         };
         if !holding.ever {
             return since.elapsed() >= STARTUP_GRACE;
         }
-        let linger = *holding.linger.lock().expect("the linger");
-        linger.expired(since.elapsed())
+        holding.live.linger().expired(since.elapsed())
     }
 
     /// Kill and reap every pane this drone still holds.
@@ -297,10 +340,7 @@ impl Relay {
                 if let Some(holding) = self.holding.as_mut() {
                     holding.alone_since = Some(Instant::now());
                 }
-                let linger = self
-                    .holding
-                    .as_ref()
-                    .map(|holding| *holding.linger.lock().expect("the linger"));
+                let linger = self.holding.as_ref().map(|holding| holding.live.linger());
                 tracing::info!(
                     "the last client detached, holding {} panes with linger {}",
                     self.panes.len(),
@@ -564,6 +604,31 @@ impl Relay {
                 self.file_job(host, client, project_id, &rel_path, request);
             }
 
+            // ── the search family ────────────────────────────────────
+            // The lean host carries `ubiq_host::search`'s own walk, but a drone shells out
+            // instead — see `search`'s own doc for why. `scope` decides whether there is
+            // anything here to answer at all.
+            Message::SearchProject {
+                project_id,
+                search_id,
+                query,
+                scope,
+                filter,
+            } => {
+                self.search_job(host, client, project_id, search_id, scope, query, filter);
+            }
+            Message::CancelSearch {
+                project_id,
+                search_id,
+            } => {
+                if let Some((active_id, cancel)) = self.active_searches.get(&project_id)
+                    && *active_id == search_id
+                {
+                    cancel.cancel();
+                    tracing::info!(search = %search_id, project = %project_id, "search cancelled");
+                }
+            }
+
             // Everything else. A refusal the asker can act on, or — where the family has no error
             // variant to carry one — a log line, which is the only honest alternative.
             other => match refusal(&other) {
@@ -621,6 +686,80 @@ impl Relay {
                 root: PathBuf::from(&record.path),
                 request,
             },
+            reply_to: host.mailbox(To::Client(client)),
+        });
+    }
+
+    /// Hand one `SearchProject` to the search worker, or answer it directly when there is nothing
+    /// for the worker to do.
+    #[allow(clippy::too_many_arguments)]
+    fn search_job(
+        &mut self,
+        host: &HostEnd,
+        client: ClientId,
+        project_id: ProjectId,
+        search_id: SearchId,
+        scope: ubiq_proto::search::Scope,
+        query: ubiq_proto::search::Query,
+        filter: ubiq_proto::search::Filter,
+    ) {
+        // Tasks, chats and the knowledge base are the coordinator's own state — a drone holds
+        // none of it — so `Scope::Files` is the only scope this machine can ever answer. That is
+        // answered empty rather than refused: nothing here failed, there was simply nothing a
+        // drone could have looked at.
+        if !matches!(scope, ubiq_proto::search::Scope::Files) {
+            host.send(
+                To::Client(client),
+                Message::SearchFinished {
+                    project_id,
+                    search_id,
+                    searched: Vec::new(),
+                    truncated: false,
+                },
+            );
+            return;
+        }
+
+        // Reap searches that have finished — the flag also means "this search is over", set by
+        // the worker itself. This is the one place `active_searches` gains an entry, so it is the
+        // one place that needs to drop stale ones.
+        self.active_searches
+            .retain(|_, (_, cancel)| !cancel.is_set());
+
+        let Some(record) = self.records.iter().find(|record| record.id == project_id) else {
+            host.send(
+                To::Client(client),
+                Message::SearchError {
+                    project_id,
+                    search_id,
+                    error: ubiq_proto::search::SearchError::Root,
+                },
+            );
+            return;
+        };
+
+        // A second search for this project supersedes the first, which is interrupted mid-tool.
+        if let Some((superseded, cancel)) = self.active_searches.remove(&project_id) {
+            cancel.cancel();
+            tracing::info!(
+                search = %superseded,
+                by = %search_id,
+                project = %project_id,
+                "search superseded"
+            );
+        }
+
+        let cancel = Cancel::new();
+        self.active_searches
+            .insert(project_id, (search_id, cancel.clone()));
+
+        self.search.submit(search::Job {
+            project_id,
+            search_id,
+            root: PathBuf::from(&record.path),
+            query,
+            filter,
+            cancel,
             reply_to: host.mailbox(To::Client(client)),
         });
     }
@@ -705,14 +844,16 @@ impl Relay {
 /// and a relative root would resolve against whatever directory the drone happened to be started
 /// in. A path that cannot be canonicalised is kept as given, so the interface gets a row with a
 /// health to show rather than a project that silently is not there.
-fn record_for(root: &std::path::Path) -> ProjectRecord {
-    let resolved = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+fn record_for(root: &Root) -> ProjectRecord {
+    let resolved = std::fs::canonicalize(&root.path).unwrap_or_else(|_| root.path.clone());
     let name = resolved
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| wire_string(&resolved));
     ProjectRecord {
-        id: ProjectId::generate(),
+        // `--root-id` binds this root to an id the interface already minted; a bare `--root`
+        // keeps announcing a fresh one, as it always has.
+        id: root.id.unwrap_or_else(ProjectId::generate),
         name,
         path: wire_string(&resolved),
         colour: 0,
@@ -727,6 +868,10 @@ fn record_for(root: &std::path::Path) -> ProjectRecord {
         index: None,
         managed_repos: Vec::new(),
         tools: Vec::new(),
+        // A drone does not know it is one: `runs_on` is the interface's own record of *where* a
+        // project's folder is, and this catalogue is built on the machine the folder is already
+        // on.
+        runs_on: None,
     }
 }
 
@@ -848,23 +993,6 @@ fn refusal(message: &Message) -> Option<Message> {
             project_id: *project_id,
             task_id: None,
             error: NOT_HERE.to_string(),
-        },
-
-        // ── content search ──
-        // The lean host carries the search worker, so this is a scope decision and not a missing
-        // capability: a drone answers the file family and nothing built on top of it yet.
-        SearchProject {
-            project_id,
-            search_id,
-            ..
-        }
-        | CancelSearch {
-            project_id,
-            search_id,
-        } => SearchError {
-            project_id: *project_id,
-            search_id: *search_id,
-            error: ubiq_proto::search::SearchError::Walk(NOT_HERE.to_string()),
         },
 
         // ── assistance, and the providers behind it ──

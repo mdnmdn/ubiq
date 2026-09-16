@@ -378,7 +378,42 @@ pub enum RemoteCarrier {
         /// Empty means the drone's own default — the login directory.
         #[serde(default)]
         root: String,
+        /// Whether the drone detaches, and for how long it survives a dropped link. Defaults to
+        /// [`DronePreset::Attached`], which is the only shape a record from before phase 7 could
+        /// have meant.
+        #[serde(default)]
+        preset: DronePreset,
+        /// Where the drone binary sits on the far machine, if it is not on the remote `PATH` —
+        /// either typed once by hand, or the cache path phase 9's deployer wrote back after it
+        /// last uploaded one. `remote_command` runs this in place of the bare `ubiq-drone` when
+        /// set. `None` is a bare `PATH` lookup, which is every record from before a deployer
+        /// existed.
+        #[serde(default)]
+        drone_path: Option<String>,
     },
+}
+
+/// The drone's lifetime, picked once on the connect path and carried on the saved host.
+///
+/// Two axes — does the drone detach, and what `--linger` does it launch with — collapse to three
+/// presets rather than staying two knobs, because the useful combinations are exactly these three
+/// and the fourth (detach with `--linger 0`) is just [`Self::Attached`] with an extra hop: it would
+/// still die the moment this window's `ssh` line drops.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DronePreset {
+    /// `--stdio`, no socket: the drone is this session's `ssh` and nothing survives it. What the
+    /// interface has always done, and still the right shape for a one-off look at a machine.
+    #[default]
+    Attached,
+    /// Detaches with the default ten-minute linger. A dropped link — a laptop's Wi-Fi, a closed
+    /// lid — is outlived; Ubiq quitting for the day is not, so the drone still cleans up after
+    /// itself rather than becoming a thing the user has to remember is running.
+    Session,
+    /// Detaches with `--linger never`: a managed drone, meant to survive this Ubiq closing
+    /// entirely. `--list` and the Drones settings section are how it is found again, and `--stop`
+    /// is the only thing that ends it short of the far machine going down.
+    Managed,
 }
 
 /// Which protocol a saved remote host dials with.
@@ -453,7 +488,21 @@ pub enum RemoteScheme {
 /// Seventeen adds [`SavedRemoteHost::carrier`]. An older build drops it on its next write and
 /// every saved drone silently becomes a socket host pointed at an address it never had — a row
 /// that looks connectable and cannot connect, which is worse than one that is gone.
-pub const HOST_SETTINGS_SCHEMA: u32 = 17;
+///
+/// Eighteen adds [`DronePreset`] to [`RemoteCarrier::Ssh`]. Additive on the same footing as
+/// fourteen's trio: an older build drops the field on its next write and every saved drone comes
+/// back as [`DronePreset::Attached`] — a real answer, the one every record before this schema
+/// already meant, rather than a guess. What is lost is only the *choice*, not a fact the record
+/// needs to stay correct, which is why this earns the bump on the lighter footing rather than
+/// fourteen's or sixteen's: nothing is stranded in the keychain, and nothing a user set reverts to
+/// the wrong direction — it reverts to the one shape that was always safe to assume.
+///
+/// Nineteen adds `drone_path` to [`RemoteCarrier::Ssh`]. An older build drops it on its next
+/// write and a drone deployed off the remote `PATH` goes back to a bare `ubiq-drone` lookup that
+/// cannot find it — on the same lighter footing as eighteen: what reverts is a location phase 9's
+/// deployer can re-learn and re-save on the next connect, not a fact stranded anywhere a user
+/// cannot get back.
+pub const HOST_SETTINGS_SCHEMA: u32 = 19;
 
 fn isolate_agents_default() -> bool {
     true

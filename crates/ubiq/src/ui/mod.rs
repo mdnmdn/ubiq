@@ -88,6 +88,35 @@ pub fn eid2(prefix: &str, a: impl std::fmt::Display, b: impl std::fmt::Display) 
     ElementId::Name(format!("{prefix}-{a}-{b}").into())
 }
 
+/// One line for the last answer to [`AppState::check_ssh_host`], plus the status colour to draw
+/// it in — shared by the Drones settings section and the connect modal's profile picker, which
+/// draw the same fact in two places rather than two facts.
+///
+/// A host with no drone reachable there is not a failure — it is `theme::warning`, on
+/// [`crate::theme`]'s rule that status rides colour, never wording alone; only `Err` earns
+/// `theme::danger`, and its sentence is the [`crate::app::remote_connect::ConnectFailure`] this
+/// crate already shows for every other failed reach, unchanged.
+pub fn host_check_line(
+    result: &Result<crate::app::ssh_connect::HostCheck, String>,
+) -> (String, gpui::Rgba) {
+    match result {
+        Ok(check) => match &check.drone {
+            Some(drone) => (
+                format!(
+                    "Reachable \u{2014} ubiq-drone {} ({}), {}ms",
+                    drone.version, drone.triple, check.elapsed_ms
+                ),
+                crate::theme::success(),
+            ),
+            None => (
+                "Reachable \u{2014} no drone installed".to_string(),
+                crate::theme::warning(),
+            ),
+        },
+        Err(reason) => (reason.clone(), crate::theme::danger()),
+    }
+}
+
 /// Follow a link written inside a rendered document.
 ///
 /// `base` is the document's own path, which a relative target is resolved against; `None` is the

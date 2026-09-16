@@ -24,7 +24,7 @@ use crate::state::clone::CloneState;
 use crate::state::remote::RemoteConnectState;
 use crate::state::remote_hosts::RemoteManagerState;
 use crate::state::settings::SettingsState;
-use crate::state::sink::{ColourField, ProjectNav};
+use crate::state::sink::{ColourField, DroneField, ProjectNav};
 use crate::theme::ThemeId;
 
 /// The left rail's destinations. `Control`, `Ide`, `Git`, `Agents`, `Orchestration`, `Tasks` and
@@ -139,6 +139,8 @@ pub enum ProjectSettingsMode {
 pub struct ProjectSettings {
     pub mode: ProjectSettingsMode,
     pub colour: ColourField,
+    /// The Remote panel's draft, seeded from the record when the dialog opens.
+    pub drone: DroneField,
     /// The dialog's own nav, starting on General. The sink page keeps its separate
     /// [`crate::state::sink`] nav — a dialog left on Tools must not reopen the sink there.
     pub nav: ProjectNav,

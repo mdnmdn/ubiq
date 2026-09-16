@@ -8,6 +8,8 @@
 //! costs no restart and no pane.
 
 use std::fmt;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
 /// What a drone does once the last client has detached.
@@ -73,6 +75,69 @@ impl fmt::Display for Linger {
             Self::For(window) => write!(f, "{}s", window.as_secs()),
             Self::Never => write!(f, "never"),
         }
+    }
+}
+
+/// What a listening drone's accept loop and its relay share, in place of the `Arc<Mutex<Linger>>`
+/// phase 6 got away with.
+///
+/// Phase 6 had one fact to share across threads — the linger, re-asserted on every attach — and a
+/// mutex around it was the whole of the machinery. Phase 7 adds two more: the pane count a state
+/// file reports without asking the relay for it, and a stop flag `--stop` sets from a session
+/// thread that never touches the relay's own loop otherwise. Bundling the three keeps one thing
+/// alive across `socket::listen`'s threads instead of three, and keeps the panes-and-stopping
+/// counters lock-free since nothing about them needs the mutex's ordering.
+pub struct Live {
+    linger: Mutex<Linger>,
+    panes: AtomicUsize,
+    stopping: AtomicBool,
+}
+
+impl Live {
+    /// A drone about to listen, with the linger it was launched with and no panes yet.
+    pub fn new(linger: Linger) -> Self {
+        Self {
+            linger: Mutex::new(linger),
+            panes: AtomicUsize::new(0),
+            stopping: AtomicBool::new(false),
+        }
+    }
+
+    /// The linger as it stands right now — re-asserted on every attach, so this can change between
+    /// one read and the next.
+    pub fn linger(&self) -> Linger {
+        *self.linger.lock().expect("the linger")
+    }
+
+    /// An attach re-asserting the knob.
+    pub fn set_linger(&self, linger: Linger) {
+        *self.linger.lock().expect("the linger") = linger;
+    }
+
+    /// How many panes the relay is holding, as of its last tick.
+    pub fn panes(&self) -> usize {
+        self.panes.load(Ordering::Relaxed)
+    }
+
+    /// The relay's own count, kept here so a state file or a `--status` answer can be written
+    /// without asking the relay's thread for it.
+    pub fn set_panes(&self, panes: usize) {
+        self.panes.store(panes, Ordering::Relaxed);
+    }
+
+    /// `--stop` asked, over the socket, for this process to end.
+    ///
+    /// It sets a flag rather than killing anything itself: the relay's own tick is the one place
+    /// panes are killed and the socket unlinked, and a second path to that would be the second
+    /// shutdown path the doc says never to add.
+    pub fn stop(&self) {
+        self.stopping.store(true, Ordering::Relaxed);
+    }
+
+    /// Whether `--stop` has been asked for. The relay treats this as an immediate expiry, whatever
+    /// the linger says.
+    pub fn stopping(&self) -> bool {
+        self.stopping.load(Ordering::Relaxed)
     }
 }
 

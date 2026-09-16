@@ -5,9 +5,9 @@ kind: tech
 status: current
 summary: The two halves — coordinator and UI — the single bus between them, the rules neither may break, and why the split is drawn before it is needed.
 read_when: you are about to add a capability that crosses the UI/coordinator line, or you want to know why the code is shaped this way
-updated: 2026-09-14
-verified: 2026-09-14
-code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq/src/lib.rs, crates/ubiq/src/version.rs, crates/ubiq-app/src/lib.rs, crates/ubiq-app/src/main.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/state/windows.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-proto/src/lib.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/files/mod.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq-host/src/store/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/store/memory.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq-host/src/links.rs, crates/ubiq/src/web_export/mod.rs, crates/ubiq-host/src/mcp/mod.rs, crates/ubiq-host/src/mcp/tasks.rs]
+updated: 2026-09-16
+verified: 2026-09-16
+code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq/src/lib.rs, crates/ubiq/src/version.rs, crates/ubiq-app/src/lib.rs, crates/ubiq-app/src/main.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/state/windows.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-proto/src/lib.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/files/mod.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq-host/src/store/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/store/memory.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq-host/src/links.rs, crates/ubiq/src/web_export/mod.rs, crates/ubiq-host/src/mcp/mod.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-drone/src/lib.rs]
 review_cycle: quarterly
 ---
 
@@ -36,7 +36,8 @@ turns `full` on, so an ordinary build is unaffected. This is what lets a second,
 embed the host's own `pty`, `files` and `host_meta` — a machine's terminal, files and facts — without
 carrying the harness-composition half those modules never needed. `just relay` builds the lean
 configuration and checks the gated crates stay out of it — the feature split is in
-[`project-structure.md`](./project-structure.md).
+[`project-structure.md`](./project-structure.md). That second binary is `crates/ubiq-drone`, and
+what it does with the lean host is [`../features/drone.md`](../features/drone.md)'s.
 
 A `[[bin]]` inside `crates/ubiq` could not express this: a binary shares its package's
 `[dependencies]`, so naming the host there would put it in the library's graph too. That is why the
@@ -214,7 +215,7 @@ the transport beneath the contract.
 | The project catalogue | `crates/ubiq-host/src/projects.rs` | The host acts on it; the interface holds a projection |
 | A project's tasks, and the sessions and agents over them | `crates/ubiq-host/src/work/` | Tasks are the user's data, written down per project; sessions and agents are the host's mocks, minted per project and never written |
 | Window, panes, chrome, focus | `crates/ubiq/src/app/`, `crates/ubiq/src/ui/` | GPUI. `AppState` is the only view; `ui/` renders it |
-| The window's multiplexer over every host it is attached to | `crates/ubiq/src/app/hosts.rs` | `Bus`, `HostRef`, the UI-local `HostId`; the local host is always attached, remotes are added alongside it, and `drop_remote` takes a lost one's panes and projects with it rather than rerouting them |
+| The window's multiplexer over every host it is attached to | `crates/ubiq/src/app/hosts.rs` | `Bus`, `HostRef`, the UI-local `HostId`; the local host is always attached and remotes are added alongside it. `drop_remote` takes a lost host's panes with it rather than rerouting them, and takes its projects too — except the rows `Bus::row_owner` says are the local catalogue's, which stay and resolve locally again (`D132`) |
 | Colour palette | `crates/ubiq/src/theme.rs` | Every colour goes through a token |
 | Build/bundle version | `crates/ubiq/src/version.rs` | `option_env!("UBIQ_VERSION")`, baked in at compile time by the Justfile from `_devops/scripts/bundle-version.sh`, `"dev"` when unset. Read by the status bar and the web-export footer |
 | Application and pane state | `crates/ubiq/src/state/` | Pane and app lifecycle, plus the workbench, explorer, editor, chat, agents, orchestration and board state, and the projection of a project's work. A window holds one tree, one set of open files and one projection of the work per project |
@@ -371,6 +372,15 @@ project second, because a project is hosted on one machine even while none of it
 and, only for a message naming neither — a fresh terminal, a fresh project — the active host, since
 there is nothing to resolve *from*. `send_to` bypasses resolution for the one case it cannot cover:
 talking to a host before any project on it exists, to browse its repositories or its filesystem.
+
+**Serving a project and owning its row are two different things.** Everywhere else a host owns what
+it reports wholesale; a project the local catalogue names while a drone *fills it in* is the one
+exception, and `Bus::row_owner` is where it is decided — `Local` for any id the local catalogue ever
+named, whatever host is serving it (`D132`). `projects_not_on`, `replace_all_except` and
+`drop_remote` all ask it rather than reading `projects`, so a drone's `ProjectList` neither evicts
+the pinned row nor duplicates it, and the row survives the drone going away as
+`ProjectHealth::Unreadable` naming what is not attached. `note_project` still files the drone as the
+project's *host*, which is what puts a pane on the far machine.
 
 **A `HostId` is UI-local and never enters the contract.** `hosts.rs` mints it, and it never
 serialises, never crosses the bus, and is never carried in a `Message`. A host has no way to learn

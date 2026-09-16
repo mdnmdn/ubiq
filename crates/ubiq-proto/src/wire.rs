@@ -183,6 +183,7 @@ mod tests {
                 index: None,
                 managed_repos: vec![],
                 tools: vec![],
+                runs_on: None,
             },
             health: ProjectHealth::Ok,
             open_panes: 2,

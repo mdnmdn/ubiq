@@ -398,12 +398,29 @@ impl AppState {
             .as_ref()
             .map(|(_, _, label)| label.clone())
             .unwrap_or_default();
+        // Read while this host is still on the bus: the rows it was only *serving* survive it,
+        // and after `drop_remote` there is nothing left to ask which those were.
+        let served = self.bus.local_rows_served_by(id);
         for pane_id in self.bus.drop_remote(id) {
             self.close_pane(pane_id, cx);
             // `close_pane` gives up on a pane whose project this window does not hold open, so it
             // has not necessarily forgotten it. Nothing may stay recorded under a host that is
             // gone.
             self.bus.forget_pane(pane_id);
+        }
+        // A project pinned to this drone keeps its row and says why it cannot be read, rather
+        // than vanishing from the catalogue — `Bus::row_owner`. The folder is on a machine that
+        // is no longer answering, which is exactly `ProjectHealth::Unreadable`.
+        if !served.is_empty() {
+            let reason = if label.is_empty() {
+                "the drone serving this folder is not attached".to_string()
+            } else {
+                format!("the drone {label} is not attached")
+            };
+            let registry = cx.global_mut::<crate::state::WindowRegistry>();
+            for project in served {
+                registry.mark_unreadable(project, reason.clone());
+            }
         }
         // Asked for, not dropped: the reconnect loop stops with it rather than dialling back a
         // host the user just let go of.

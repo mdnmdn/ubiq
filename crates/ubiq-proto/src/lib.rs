@@ -12,6 +12,9 @@
 //! - `messages`: the message set, serialisable by construction
 //! - `assist`: whether a suggestion can be asked for, and what one names
 //! - `connectors`: an authenticated identity at an external service, and the providers there are
+//! - `drone`: resolving and hash-pinning a cross-built `ubiq-drone` binary for deployment —
+//!   shared because `crates/ubiq` dials, probes and now deploys a drone directly, never through
+//!   `crates/ubiq-host`
 //! - `ids`: the contract's identifiers, one newtype per kind
 //! - `projects`: the project record, its snapshot, and what the project family carries
 //! - `settings`: which half owns a settings blob, and the host's own record
@@ -33,6 +36,7 @@ pub mod bus;
 pub mod carrier;
 pub mod connectors;
 pub mod conversation;
+pub mod drone;
 pub mod files;
 pub mod git;
 pub mod ids;

@@ -20,6 +20,9 @@
 use std::collections::HashMap;
 
 use gpui::ScrollHandle;
+use ubiq_proto::ids::SshProfileId;
+use ubiq_proto::projects::{DroneChange, DroneOrigin};
+use ubiq_proto::settings::DronePreset;
 use ubiq_proto::work::AgentId;
 
 use crate::state::editor::{FileLanguage, ViewLayout, ViewerKind};
@@ -477,6 +480,8 @@ pub enum ProjectNav {
     #[default]
     General,
     Tools,
+    /// Where the project's folder actually is: here, or behind a drone on another machine.
+    Remote,
     Documentation,
     Integrations,
 }
@@ -486,6 +491,7 @@ impl ProjectNav {
         &[
             ProjectNav::General,
             ProjectNav::Tools,
+            ProjectNav::Remote,
             ProjectNav::Documentation,
             ProjectNav::Integrations,
         ]
@@ -502,9 +508,10 @@ impl ProjectNav {
 }
 
 /// Label and the count beside it, one row per [`ProjectNav`], in variant order.
-const PROJECT_NAV_COPY: [(&str, Option<u32>); 4] = [
+const PROJECT_NAV_COPY: [(&str, Option<u32>); 5] = [
     ("General", None),
     ("Tools", None),
+    ("Remote", None),
     ("Documentation", Some(4)),
     ("Integrations", Some(1)),
 ];
@@ -617,11 +624,70 @@ pub fn swatch_rgb(index: usize) -> u32 {
     rgb_from_channels(colour.r, colour.g, colour.b)
 }
 
+/// The Remote panel's draft, held between frames until Save sends it.
+///
+/// One shape for both copies of the form, on [`ColourField`]'s reasoning: the sink page and the
+/// live dialog are the same form, so the maths behind them has to be the same maths. The folder is
+/// not a field here but an `InputState` on `AppState` — `set_value` needs a window, and this
+/// struct is built without one.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DroneField {
+    /// Whether the project is pinned to a drone. A flag of its own rather than
+    /// `profile.is_some()`, so switching back to "runs here" leaves the profile and the folder on
+    /// screen to switch back to.
+    pub on_drone: bool,
+    pub profile: Option<SshProfileId>,
+    pub preset: DronePreset,
+}
+
+impl DroneField {
+    /// Seed the draft from a record's origin, so the form opens on what the project says.
+    pub fn from_origin(origin: Option<&DroneOrigin>) -> Self {
+        match origin {
+            Some(origin) => Self {
+                on_drone: true,
+                profile: Some(origin.profile),
+                preset: origin.preset,
+            },
+            None => Self::default(),
+        }
+    }
+
+    /// What Save has to send, given the folder typed beside it and the record as it stands.
+    ///
+    /// Three answers, which are the three `UpdateProject` can carry: `Set` for a project that
+    /// names a drone, `Local` for one brought home, and `None` — nothing said — when the form
+    /// agrees with the record, or when it says "on a drone" without yet naming which.
+    ///
+    /// The linger override rides through untouched: the panel picks a lifetime preset, and a
+    /// per-project override in seconds is a value only a record carries.
+    pub fn change(&self, root: &str, current: Option<&DroneOrigin>) -> Option<DroneChange> {
+        let wanted = match (self.on_drone, self.profile) {
+            (true, Some(profile)) => Some(DroneOrigin {
+                profile,
+                root: root.trim().to_string(),
+                preset: self.preset,
+                linger_secs: current.and_then(|origin| origin.linger_secs),
+            }),
+            (true, None) => return None,
+            (false, _) => None,
+        };
+        if wanted.as_ref() == current {
+            return None;
+        }
+        Some(match wanted {
+            Some(origin) => DroneChange::Set(origin),
+            None => DroneChange::Local,
+        })
+    }
+}
+
 /// What the project settings dialog holds between frames.
 #[derive(Default)]
 pub struct ProjectDemo {
     pub nav: ProjectNav,
     pub colour: ColourField,
+    pub drone: DroneField,
 }
 
 impl ProjectDemo {

@@ -56,7 +56,7 @@ pub fn serve(
     closer: Box<dyn Closer>,
     relay: Relay,
 ) -> Result<(), HandshakeError> {
-    let introduction = hello(env!("CARGO_PKG_VERSION"), crate::CAPABILITIES);
+    let introduction = hello(env!("CARGO_PKG_VERSION"), &crate::capabilities());
     greet(&mut reader, &mut writer, &introduction)?;
 
     let (hub, host) = bus::hub();

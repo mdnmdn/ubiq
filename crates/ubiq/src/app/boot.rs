@@ -357,6 +357,9 @@ impl AppState {
         });
         let remote_rename_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("A name for this host\u{2026}"));
+        let project_remote_root_input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("/srv/projects/\u{2026} on that machine")
+        });
 
         let sink_search =
             cx.new(|cx| InputState::new(window, cx).placeholder("Search settings\u{2026}"));
@@ -1069,6 +1072,7 @@ impl AppState {
             remote_address_input.read(cx).focus_handle(cx),
             remote_token_input.read(cx).focus_handle(cx),
             remote_root_input.read(cx).focus_handle(cx),
+            project_remote_root_input.read(cx).focus_handle(cx),
             clone_filter_input.read(cx).focus_handle(cx),
             clone_url_input.read(cx).focus_handle(cx),
             clone_name_input.read(cx).focus_handle(cx),
@@ -1275,6 +1279,7 @@ impl AppState {
             remote_token_input,
             remote_root_input,
             remote_rename_input,
+            project_remote_root_input,
             sink_search,
             sink_harness_name,
             sink_harness_exec,

@@ -20,7 +20,7 @@ use std::collections::BTreeMap;
 
 use gpui::{App, Global, WindowId};
 use ubiq_proto::ids::ProjectId;
-use ubiq_proto::projects::ProjectSnapshot;
+use ubiq_proto::projects::{ProjectHealth, ProjectSnapshot};
 
 /// One live window: the letter it is named by, and the projects open in it.
 #[derive(Clone, Debug)]
@@ -147,12 +147,20 @@ impl WindowRegistry {
     /// would take away every project belonging to any *other* host, which is how attaching a
     /// remote used to make the local machine's projects vanish. `keep` is what the caller knows
     /// this answer has no opinion about; see `Bus::projects_not_on`.
+    ///
+    /// A kept row wins over an incoming one of the same id. That case is a drone announcing a
+    /// `runs_on` project's folder under the id the local catalogue already minted for it: the
+    /// local record is the row, the drone's is its liveness, and letting the answer overwrite
+    /// would replace the user's name, colour and origin with the drone's bare reading of the
+    /// folder. One row, and it is the local one — `Bus::row_owner`.
     pub fn replace_all_except(&mut self, projects: Vec<ProjectSnapshot>, keep: &[ProjectId]) {
         let mut kept: BTreeMap<ProjectId, ProjectSnapshot> = keep
             .iter()
             .filter_map(|id| self.projects.remove(id).map(|p| (*id, p)))
             .collect();
-        kept.extend(projects.into_iter().map(|p| (p.record.id, p)));
+        for project in projects {
+            kept.entry(project.record.id).or_insert(project);
+        }
         self.projects = kept;
         let known: Vec<ProjectId> = self.projects.keys().copied().collect();
         for slot in &mut self.windows {
@@ -164,6 +172,20 @@ impl WindowRegistry {
     /// Apply one snapshot, whether it is new or a change to one already held.
     pub fn apply(&mut self, project: ProjectSnapshot) {
         self.projects.insert(project.record.id, project);
+    }
+
+    /// A row nothing can read right now, with the sentence that says why.
+    ///
+    /// What a dropped drone leaves behind: the record stays, because a machine that is asleep is
+    /// not the user forgetting a project, and the health carries the drone's name so the picker
+    /// marks it rather than offering it. The same state an unplugged drive puts a local project
+    /// in, which is why it needs no vocabulary of its own.
+    pub fn mark_unreadable(&mut self, id: ProjectId, reason: String) {
+        if let Some(project) = self.projects.get_mut(&id) {
+            project.health = ProjectHealth::Unreadable(reason);
+            // The panes were the drone's and went with it.
+            project.open_panes = 0;
+        }
     }
 
     /// The host has forgotten a project. Every window that held it is left pointed at whatever else

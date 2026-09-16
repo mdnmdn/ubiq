@@ -509,12 +509,14 @@ impl AppState {
 
     pub fn set_sink_project_nav(&mut self, nav: ProjectNav, cx: &mut Context<Self>) {
         // The live dialog keeps its own nav on `ProjectSettings`: the sink page must not
-        // reopen wherever the dialog was left. Only an existing project can carry tools, so
-        // Tools is the one other nav a live dialog answers to — a folder not yet in the
-        // catalogue stays on General.
+        // reopen wherever the dialog was left. Only an existing project can carry tools or a
+        // drone origin, so those two are the navs a live dialog answers to besides General — a
+        // folder not yet in the catalogue has no record to attach either to, and stays there.
         if let Some(settings) = self.workbench.project_settings.as_mut() {
             let editing = matches!(settings.mode, ProjectSettingsMode::Edit { .. });
-            if nav == ProjectNav::General || (nav == ProjectNav::Tools && editing) {
+            if nav == ProjectNav::General
+                || (matches!(nav, ProjectNav::Tools | ProjectNav::Remote) && editing)
+            {
                 settings.nav = nav;
                 cx.notify();
             }
@@ -531,6 +533,56 @@ impl AppState {
             Some(settings) => &mut settings.colour,
             None => &mut self.sink.project.colour,
         }
+    }
+
+    /// Which drone draft the two project forms are editing, on `colour_field`'s terms exactly.
+    pub(crate) fn drone_field(&mut self) -> &mut DroneField {
+        match self.workbench.project_settings.as_mut() {
+            Some(settings) => &mut settings.drone,
+            None => &mut self.sink.project.drone,
+        }
+    }
+
+    /// Pin the form to a drone, or bring it home. Nothing is sent until Save: unlike the index
+    /// pills, changing where a project lives is not something to act on mid-sentence.
+    pub fn set_project_on_drone(&mut self, on_drone: bool, cx: &mut Context<Self>) {
+        self.drone_field().on_drone = on_drone;
+        cx.notify();
+    }
+
+    /// Which saved SSH profile the form's drone is reached through.
+    pub fn set_project_drone_profile(&mut self, profile: SshProfileId, cx: &mut Context<Self>) {
+        let field = self.drone_field();
+        field.profile = Some(profile);
+        field.on_drone = true;
+        cx.notify();
+    }
+
+    /// The drone's lifetime, on the connect modal's own three presets.
+    pub fn set_project_drone_preset(&mut self, preset: DronePreset, cx: &mut Context<Self>) {
+        self.drone_field().preset = preset;
+        cx.notify();
+    }
+
+    /// Send the Remote panel's draft, if it says anything the record does not.
+    ///
+    /// Nothing dials here. A drone is launched when the project is *opened* —
+    /// `AppState::ensure_drone` — which is the moment there is something for one to serve; saving
+    /// is only the record changing.
+    pub fn save_project_drone(&mut self, project: ProjectId, cx: &mut Context<Self>) {
+        let root = self
+            .project_remote_root_input
+            .read(cx)
+            .value()
+            .trim()
+            .to_string();
+        let current = WindowRegistry::read(cx)
+            .project(project)
+            .and_then(|snapshot| snapshot.record.runs_on.clone());
+        let Some(change) = self.drone_field().change(&root, current.as_ref()) else {
+            return;
+        };
+        self.set_project_runs_on(project, change, cx);
     }
 
     /// Print that field's colour into whichever hex input belongs to it.

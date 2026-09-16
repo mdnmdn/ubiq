@@ -254,6 +254,15 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .as_ref()
                 .map(|_| settings::ssh_remove(app, window, cx)),
         )
+        // The Stop-drone question, raised from the Drones section — over whatever raised it, on
+        // the same terms as the SSH-profile removal above it.
+        .children(
+            app.workbench
+                .settings
+                .drone_stop
+                .as_ref()
+                .map(|_| settings::drone_stop(app, window, cx)),
+        )
         // The clone modal, over the picker that raised it and over the settings page, since the
         // omni search can raise it from anywhere.
         .children(

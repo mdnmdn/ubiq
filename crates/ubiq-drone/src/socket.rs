@@ -28,34 +28,82 @@ use crate::linger::Linger;
 /// What an attaching process says before the framing starts.
 ///
 /// One ASCII line, read whole before the stream is handed to the handshake, so no frame is ever
-/// split by it. It exists for one fact: `--linger` is re-asserted on every attach, and that fact
-/// has to reach the holding process without a message — the protocol's carrier family is Ubiq's
-/// conversation with the drone, and this is the drone's own two halves talking over a socket only
-/// they can open.
-const PREAMBLE: &str = "ubiq-drone attach";
+/// split by it. Two verbs live here: `attach`, which carries `--linger` re-asserted on every
+/// attach, and `stop`, which asks the drone to end. Both stay off the protocol proper — the
+/// carrier family is Ubiq's conversation with the drone, and this is the drone's own two halves
+/// talking over a socket only they can open.
+const PREAMBLE: &str = "ubiq-drone";
 
 /// The longest preamble that will be read before the stream is given up as not a drone's.
 const PREAMBLE_MAX: usize = 128;
 
+/// What the preamble said, once it has been told apart from anything else that might dial a unix
+/// socket.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Preamble {
+    /// A normal attach. `Some(linger)` when it re-asserted the knob, `None` when it said nothing
+    /// and the drone keeps what it has.
+    Attach(Option<Linger>),
+    /// `--stop`: end this drone, no attach and no handshake to follow.
+    Stop,
+}
+
 /// Say who is attaching, and what the drone's linger should be from now on.
 pub fn write_preamble(writer: &mut impl Write, linger: Option<Linger>) -> io::Result<()> {
     match linger {
-        Some(linger) => writeln!(writer, "{PREAMBLE} linger={linger}")?,
-        None => writeln!(writer, "{PREAMBLE}")?,
+        Some(linger) => writeln!(writer, "{PREAMBLE} attach linger={linger}")?,
+        None => writeln!(writer, "{PREAMBLE} attach")?,
     }
     writer.flush()
 }
 
-/// Read it back: `Ok(Some(linger))` when the attach re-asserted one, `Ok(None)` when it said
-/// nothing and the drone keeps what it has.
-pub fn read_preamble(reader: &mut impl Read) -> io::Result<Option<Linger>> {
+/// Say `--stop`, and nothing else: there is no handshake after it, only the one-line answer
+/// [`read_stop_answer`] reads back.
+pub fn write_stop(writer: &mut impl Write) -> io::Result<()> {
+    writeln!(writer, "{PREAMBLE} stop")?;
+    writer.flush()
+}
+
+/// Read the preamble back, whichever verb it named.
+pub fn read_preamble(reader: &mut impl Read) -> io::Result<Preamble> {
+    let line = read_line(reader, "the attach named itself")?;
+    let Some(rest) = line.strip_prefix(PREAMBLE) else {
+        return Err(not_a_drone());
+    };
+    let rest = rest.trim();
+    if let Some(rest) = rest.strip_prefix("attach") {
+        return match rest.trim().strip_prefix("linger=") {
+            Some(given) => Linger::parse(given)
+                .map(|linger| Preamble::Attach(Some(linger)))
+                .map_err(|why| io::Error::new(io::ErrorKind::InvalidData, why)),
+            None => Ok(Preamble::Attach(None)),
+        };
+    }
+    if rest == "stop" {
+        return Ok(Preamble::Stop);
+    }
+    Err(not_a_drone())
+}
+
+/// The one line a `--stop` gets back, once the drone has been told to end.
+pub fn read_stop_answer(reader: &mut impl Read) -> io::Result<String> {
+    read_line(reader, "the stop was answered")
+}
+
+fn not_a_drone() -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, "this is not an attaching drone")
+}
+
+/// One line, read byte at a time so nothing beyond it is consumed and left off whatever reads
+/// next — the framing that follows an `attach` line depends on that.
+fn read_line(reader: &mut impl Read, what_for: &str) -> io::Result<String> {
     let mut line = Vec::new();
     let mut byte = [0u8; 1];
     loop {
         if reader.read(&mut byte)? == 0 {
             return Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
-                "the stream ended before the attach named itself",
+                format!("the stream ended before {what_for}"),
             ));
         }
         if byte[0] == b'\n' {
@@ -63,25 +111,10 @@ pub fn read_preamble(reader: &mut impl Read) -> io::Result<Option<Linger>> {
         }
         line.push(byte[0]);
         if line.len() > PREAMBLE_MAX {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "this is not an attaching drone",
-            ));
+            return Err(not_a_drone());
         }
     }
-    let line = String::from_utf8_lossy(&line).trim().to_string();
-    let Some(rest) = line.strip_prefix(PREAMBLE) else {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "this is not an attaching drone",
-        ));
-    };
-    match rest.trim().strip_prefix("linger=") {
-        Some(given) => Linger::parse(given)
-            .map(Some)
-            .map_err(|why| io::Error::new(io::ErrorKind::InvalidData, why)),
-        None => Ok(None),
-    }
+    Ok(String::from_utf8_lossy(&line).trim().to_string())
 }
 
 /// Where the socket for these roots lives.
@@ -91,8 +124,14 @@ pub fn read_preamble(reader: &mut impl Read) -> io::Result<Option<Linger>> {
 /// none (a bare `ssh` into a system without a login session is the ordinary case), and the
 /// temporary directory the fallback for a machine with neither.
 pub fn socket_path(roots: &[PathBuf]) -> PathBuf {
-    let dir = runtime_dir().join("ubiq-drone");
-    dir.join(format!("{:016x}.sock", root_hash(roots)))
+    state_dir().join(format!("{:016x}.sock", root_hash(roots)))
+}
+
+/// Where every drone's socket and state file live: `$XDG_RUNTIME_DIR/ubiq-drone`, with the same
+/// fallbacks [`socket_path`] always had. Factored out so [`crate::state::list`] can find every
+/// drone on the machine without knowing a single one's roots.
+pub fn state_dir() -> PathBuf {
+    runtime_dir().join("ubiq-drone")
 }
 
 fn runtime_dir() -> PathBuf {
@@ -143,7 +182,7 @@ fn on_path(program: &str) -> bool {
 }
 
 #[cfg(unix)]
-pub use unix::{attach, hold, listen};
+pub use unix::{attach, hold, listen, stop};
 
 #[cfg(unix)]
 mod unix {
@@ -152,7 +191,7 @@ mod unix {
     use std::os::unix::net::{UnixListener, UnixStream};
     use std::path::{Path, PathBuf};
     use std::process::{Command, Stdio};
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
     use std::thread;
     use std::time::{Duration, Instant};
 
@@ -160,27 +199,54 @@ mod unix {
     use ubiq_proto::bus;
     use ubiq_proto::carrier::{greet, hello};
 
-    use super::{io, on_path, read_preamble, write_preamble};
-    use crate::linger::Linger;
-    use crate::relay::Relay;
+    use super::{Preamble, io, on_path, read_preamble, write_preamble};
+    use crate::linger::{Linger, Live};
+    use crate::relay::{Relay, Root};
+    use crate::state::DroneState;
 
     /// How long [`hold`] waits for the held process to bind before it reports that it did not.
     const APPEARS_WITHIN: Duration = Duration::from_secs(5);
 
+    /// How often the state file beside the socket is rewritten, so `panes` and `linger` stay
+    /// roughly true for a `--list` or `--status` that reads it between attaches. Roughly, not
+    /// exactly: the socket is the authority on whether the drone is there at all, and this is
+    /// only what it says about itself while it is.
+    const STATE_REFRESH: Duration = Duration::from_secs(5);
+
     /// Bind, serve every attach, and return when the drone's linger has expired.
+    ///
+    /// A path already claimed by a live drone is **adopted, not refused**: [`bind`] returning
+    /// `Ok(None)` is success with nothing served, which is what makes
+    /// `ubiq-drone --listen … && ubiq-drone --attach …` idempotent rather than a race the second
+    /// caller can lose.
     ///
     /// The relay runs on its own thread and the accept loop on another, so the main thread is
     /// free to be the one thing that ends the process: when the relay's countdown runs out it
-    /// kills its panes, returns, and the socket is unlinked here. There is no other exit, which
-    /// is the same discipline `carrier` states for the attached case — a second shutdown path is
-    /// a second chance to leave a pane running on somebody else's machine.
-    pub fn listen(roots: Vec<PathBuf>, path: &Path, linger: Linger) -> io::Result<()> {
-        let listener = bind(path)?;
-        let linger = Arc::new(Mutex::new(linger));
-        tracing::info!("listening on {} with linger {linger:?}", path.display());
+    /// kills its panes, returns, and the socket and its state file are unlinked here. There is no
+    /// other exit, which is the same discipline `carrier` states for the attached case — a second
+    /// shutdown path is a second chance to leave a pane running on somebody else's machine.
+    pub fn listen(roots: Vec<Root>, path: &Path, linger: Linger) -> io::Result<()> {
+        let Some(listener) = bind(path)? else {
+            tracing::info!("adopting the drone already listening on {}", path.display());
+            return Ok(());
+        };
+        let live = Arc::new(Live::new(linger));
+        tracing::info!("listening on {} with linger {linger}", path.display());
+
+        // The state file and its refresh only ever name the folders, never the ids bound to
+        // them: `DroneState` is what a caller lists and adopts by, not what a client attaches to
+        // learn a project's id from — that arrives on the wire, once, at `ListProjects`.
+        let paths: Vec<PathBuf> = roots.iter().map(|root| root.path.clone()).collect();
+
+        if let Err(error) = DroneState::new(path, &paths, 0, live.linger()).write(path) {
+            tracing::warn!(
+                "could not write the state file for {}: {error}",
+                path.display()
+            );
+        }
 
         let (hub, host) = bus::hub();
-        let relay = Relay::holding(roots, linger.clone());
+        let relay = Relay::holding(roots, live.clone());
         let relay = thread::Builder::new()
             .name("ubiq-drone-relay".to_string())
             .spawn(move || relay.run(host))
@@ -188,31 +254,61 @@ mod unix {
 
         thread::Builder::new()
             .name("ubiq-drone-accept".to_string())
-            .spawn(move || accept(listener, hub, linger))
+            .spawn({
+                let live = live.clone();
+                move || accept(listener, hub, live)
+            })
             .expect("the drone accept thread");
+
+        thread::Builder::new()
+            .name("ubiq-drone-state".to_string())
+            .spawn({
+                let path = path.to_path_buf();
+                move || refresh_state(&path, &paths, &live)
+            })
+            .expect("the drone state thread");
 
         let _ = relay.join();
         let _ = std::fs::remove_file(path);
+        DroneState::remove(path);
         Ok(())
+    }
+
+    /// Rewrite the state file every [`STATE_REFRESH`], so `panes` and `linger` stay true for
+    /// whoever reads it between attaches. It ends on its own, by noticing the socket is gone,
+    /// rather than being joined: a state thread with nothing left to refresh has nothing left to
+    /// do, and joining it would only make the process's one exit path wait on a sleep.
+    fn refresh_state(path: &Path, roots: &[PathBuf], live: &Live) {
+        loop {
+            thread::sleep(STATE_REFRESH);
+            if !path.exists() {
+                return;
+            }
+            let state = DroneState::new(path, roots, live.panes(), live.linger());
+            if let Err(error) = state.write(path) {
+                tracing::warn!(
+                    "could not refresh the state file for {}: {error}",
+                    path.display()
+                );
+            }
+        }
     }
 
     /// The socket, at mode `0600` in a directory at `0700`.
     ///
     /// The directory is what closes the window between binding and the mode being set: a socket
-    /// nobody can reach the folder of cannot be connected to whatever its own bits say. A path
-    /// that is already there is either a live drone — in which case this one has no business
-    /// starting, and says so — or the remains of one that died, which is removed.
-    fn bind(path: &Path) -> io::Result<UnixListener> {
+    /// nobody can reach the folder of cannot be connected to whatever its own bits say. `Ok(None)`
+    /// is a path a live drone already answers on, for [`listen`] to adopt rather than refuse.
+    /// `Ok(Some(_))` is a fresh bind, whether the path was free or the remains of a dead drone
+    /// that this removed first.
+    fn bind(path: &Path) -> io::Result<Option<UnixListener>> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
             let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
         }
         if path.exists() {
             if UnixStream::connect(path).is_ok() {
-                return Err(io::Error::new(
-                    io::ErrorKind::AddrInUse,
-                    format!("a drone is already listening on {}", path.display()),
-                ));
+                return Ok(None);
             }
             tracing::info!(
                 "removing the socket a dead drone left at {}",
@@ -222,13 +318,13 @@ mod unix {
         }
         let listener = UnixListener::bind(path)?;
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
-        Ok(listener)
+        Ok(Some(listener))
     }
 
     /// Every attach is a **new host attach**: its own handshake, its own client on the same hub.
     /// Nothing is resumed — the relay re-announces what it is holding, which is what makes a
     /// reattach need no state the two ends have to agree about.
-    fn accept(listener: UnixListener, hub: bus::Hub, linger: Arc<Mutex<Linger>>) {
+    fn accept(listener: UnixListener, hub: bus::Hub, live: Arc<Live>) {
         for stream in listener.incoming() {
             let stream = match stream {
                 Ok(stream) => stream,
@@ -238,27 +334,34 @@ mod unix {
                 }
             };
             let hub = hub.clone();
-            let linger = linger.clone();
+            let live = live.clone();
             thread::Builder::new()
                 .name("ubiq-drone-session".to_string())
-                .spawn(move || serve_one(stream, hub, linger))
+                .spawn(move || serve_one(stream, hub, live))
                 .expect("the drone session thread");
         }
     }
 
-    fn serve_one(mut stream: UnixStream, hub: bus::Hub, linger: Arc<Mutex<Linger>>) {
-        match read_preamble(&mut stream) {
-            // Re-asserted here, before anything else: changing the knob costs no restart, and a
-            // drone that is about to hold panes should already know for how long.
-            Ok(Some(asked)) => {
-                tracing::info!("the attaching client asked for linger {asked}");
-                *linger.lock().expect("the linger") = asked;
+    fn serve_one(mut stream: UnixStream, hub: bus::Hub, live: Arc<Live>) {
+        let asked = match read_preamble(&mut stream) {
+            Ok(Preamble::Attach(asked)) => asked,
+            Ok(Preamble::Stop) => {
+                tracing::info!("--stop asked over the socket: ending this drone");
+                let _ = writeln!(stream, "stopped");
+                let _ = stream.flush();
+                live.stop();
+                return;
             }
-            Ok(None) => {}
             Err(error) => {
                 tracing::warn!("refusing a connection that is not an attach: {error}");
                 return;
             }
+        };
+        // Re-asserted here, before anything else: changing the knob costs no restart, and a
+        // drone that is about to hold panes should already know for how long.
+        if let Some(asked) = asked {
+            tracing::info!("the attaching client asked for linger {asked}");
+            live.set_linger(asked);
         }
 
         let (Ok(mut reader), Ok(writer), Ok(closing)) =
@@ -267,7 +370,7 @@ mod unix {
             tracing::warn!("could not split the attached stream");
             return;
         };
-        let introduction = hello(env!("CARGO_PKG_VERSION"), crate::CAPABILITIES);
+        let introduction = hello(env!("CARGO_PKG_VERSION"), &crate::capabilities());
         if let Err(refusal) = greet(&mut reader, &mut stream, &introduction) {
             tracing::warn!("the attaching client refused this drone: {refusal}");
             return;
@@ -331,6 +434,17 @@ mod unix {
         let _ = stream.shutdown(std::net::Shutdown::Both);
         let _ = upward.join();
         Ok(())
+    }
+
+    /// Ask a listening drone to end, and return what it said back.
+    ///
+    /// One connection, one line out, one line in: there is no handshake and no attach after a
+    /// `stop`, because there is nothing left here to carry on with — the relay's own tick is what
+    /// actually ends the process, and this only asks for that tick to come.
+    pub fn stop(path: &Path) -> io::Result<String> {
+        let mut stream = UnixStream::connect(path)?;
+        super::write_stop(&mut stream)?;
+        super::read_stop_answer(&mut stream)
     }
 
     /// Detach: hand the listening process to something that will hold it, and return once its
@@ -416,6 +530,7 @@ mod elsewhere {
 
     use super::*;
     use crate::linger::Linger;
+    use crate::relay::Root;
 
     fn unsupported(what: &str) -> io::Error {
         io::Error::new(
@@ -424,7 +539,7 @@ mod elsewhere {
         )
     }
 
-    pub fn listen(_roots: Vec<PathBuf>, _path: &Path, _linger: Linger) -> io::Result<()> {
+    pub fn listen(_roots: Vec<Root>, _path: &Path, _linger: Linger) -> io::Result<()> {
         Err(unsupported("--listen"))
     }
 
@@ -435,10 +550,14 @@ mod elsewhere {
     pub fn hold(_exe: &Path, _argv: &[String], _path: &Path) -> io::Result<()> {
         Err(unsupported("detaching"))
     }
+
+    pub fn stop(_path: &Path) -> io::Result<String> {
+        Err(unsupported("--stop"))
+    }
 }
 
 #[cfg(not(unix))]
-pub use elsewhere::{attach, hold, listen};
+pub use elsewhere::{attach, hold, listen, stop};
 
 #[cfg(test)]
 mod tests {
@@ -472,13 +591,26 @@ mod tests {
         .expect("writing the preamble");
         assert_eq!(
             read_preamble(&mut said.as_slice()).expect("reading it back"),
-            Some(Linger::For(std::time::Duration::from_secs(30)))
+            Preamble::Attach(Some(Linger::For(std::time::Duration::from_secs(30))))
         );
 
         let mut quiet = Vec::new();
         write_preamble(&mut quiet, None).expect("writing the preamble");
-        assert_eq!(read_preamble(&mut quiet.as_slice()).expect("reading"), None);
+        assert_eq!(
+            read_preamble(&mut quiet.as_slice()).expect("reading"),
+            Preamble::Attach(None)
+        );
 
         assert!(read_preamble(&mut b"GET / HTTP/1.1\n".as_slice()).is_err());
+    }
+
+    #[test]
+    fn the_preamble_s_second_verb_asks_to_stop() {
+        let mut said = Vec::new();
+        write_stop(&mut said).expect("writing the stop preamble");
+        assert_eq!(
+            read_preamble(&mut said.as_slice()).expect("reading it back"),
+            Preamble::Stop
+        );
     }
 }

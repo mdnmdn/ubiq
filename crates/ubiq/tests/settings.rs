@@ -184,6 +184,7 @@ fn a_project() -> ProjectSnapshot {
             index: None,
             tools: Vec::new(),
             managed_repos: Vec::new(),
+            runs_on: None,
         },
         health: ProjectHealth::Ok,
         open_panes: 0,
@@ -875,4 +876,27 @@ fn a_typed_model_reaches_the_host_with_no_list_to_pick_from(cx: &mut TestAppCont
         draft.smart_model, None,
         "an empty smart box is no smart model, not an empty one"
     );
+}
+
+/// The Drones row's uptime is read at the granularity a person reads a process's age at, not
+/// formatted to the second.
+#[test]
+fn drone_uptime_reads_at_the_right_granularity() {
+    assert_eq!(settings::drone_uptime(100, 130), "30s");
+    assert_eq!(settings::drone_uptime(0, 125), "2m");
+    assert_eq!(settings::drone_uptime(0, 3 * 3600 + 61 * 60), "4h 1m");
+    assert_eq!(settings::drone_uptime(0, 2 * 86_400 + 3600), "2d 1h");
+    // A clock skew or a stale `started_at` must not underflow and panic.
+    assert_eq!(settings::drone_uptime(500, 100), "0s");
+}
+
+/// The one fact a version-skew row needs: whether the listed drone's own version matches this
+/// build's. A managed drone outliving the Ubiq that deployed it is the expected case, not an
+/// error — the row says so and names the remedy, this function only says whether to.
+#[test]
+fn drone_version_skew_compares_against_this_build() {
+    assert!(!settings::drone_version_skew(env!("CARGO_PKG_VERSION")));
+    assert!(settings::drone_version_skew(
+        "0.0.1-definitely-not-this-build"
+    ));
 }

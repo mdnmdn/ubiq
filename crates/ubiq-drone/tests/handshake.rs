@@ -14,7 +14,7 @@ use std::io::Write;
 use std::net::{Shutdown, TcpListener, TcpStream};
 use std::time::Duration;
 
-use ubiq_drone::relay::Relay;
+use ubiq_drone::relay::{Relay, Root};
 use ubiq_host::carrier::NoCloser;
 use ubiq_proto::carrier::{HandshakeError, welcome};
 use ubiq_proto::messages::Message;
@@ -33,7 +33,7 @@ struct FarEnd {
 impl FarEnd {
     /// Start a drone on one end of a loopback pair and hand back the other end. Nothing has been
     /// exchanged yet: the caller is the one that decides how the handshake goes.
-    fn open(roots: Vec<std::path::PathBuf>) -> Self {
+    fn open(roots: Vec<Root>) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback port");
         let address = listener.local_addr().expect("the bound address");
         let stream = TcpStream::connect(address).expect("dialling the drone");
@@ -76,7 +76,7 @@ impl FarEnd {
 #[test]
 fn a_matching_schema_completes_the_handshake_and_serves() {
     let project = tempfile::tempdir().expect("a project folder");
-    let mut far = FarEnd::open(vec![project.path().to_path_buf()]);
+    let mut far = FarEnd::open(vec![Root::new(project.path().to_path_buf())]);
 
     let mut reader = far.stream.try_clone().expect("the read half");
     let mut writer = far.stream.try_clone().expect("the write half");
@@ -86,9 +86,17 @@ fn a_matching_schema_completes_the_handshake_and_serves() {
     assert_eq!(identity.os, std::env::consts::OS);
     assert!(identity.has("files"), "a relay drone serves files");
     assert!(
-        !identity.has("harness") && !identity.has("search") && !identity.has("git"),
+        !identity.has("harness") && !identity.has("git"),
         "a relay drone advertises nothing it would only refuse: {:?}",
         identity.capabilities
+    );
+    // `search` is the one capability this build's own machine decides, not a fixed refusal: this
+    // test process has whatever `PATH` it was launched with, and `has("search")` must agree with
+    // what a real probe of it finds.
+    assert_eq!(
+        identity.has("search"),
+        ubiq_drone::search::probe().is_some(),
+        "the advertised search capability must match what this machine's own PATH probe found"
     );
 
     // The relay exists only because the handshake said so, and it greets on attach exactly as it
@@ -112,7 +120,7 @@ fn a_matching_schema_completes_the_handshake_and_serves() {
 #[test]
 fn a_mismatched_schema_is_refused_and_nothing_is_ever_spawned() {
     let project = tempfile::tempdir().expect("a project folder");
-    let mut far = FarEnd::open(vec![project.path().to_path_buf()]);
+    let mut far = FarEnd::open(vec![Root::new(project.path().to_path_buf())]);
 
     // The hello is the drone's first frame, before anything else it would ever write.
     let schema = match far.next_frame() {
@@ -152,7 +160,7 @@ fn a_mismatched_schema_is_refused_and_nothing_is_ever_spawned() {
 #[test]
 fn a_ping_is_answered_by_the_pump_and_never_reaches_the_relay() {
     let project = tempfile::tempdir().expect("a project folder");
-    let mut far = FarEnd::open(vec![project.path().to_path_buf()]);
+    let mut far = FarEnd::open(vec![Root::new(project.path().to_path_buf())]);
 
     let mut reader = far.stream.try_clone().expect("the read half");
     let mut writer = far.stream.try_clone().expect("the write half");

@@ -21,6 +21,15 @@ flume = "0.12"
 # Stamping a seeded project record's `created_at`, which is a `chrono` type in the protocol. Named
 # here only to build that one value; already in the workspace graph through `ubiq-proto`.
 chrono = "0.4"
+# The state file beside a listening drone's socket (`state::DroneState`) is JSON, so `--list` and
+# `--status` can print it straight through. Both already in the graph via `ubiq-proto`; named here
+# because this crate now derives and reads its own type, not just forwards somebody else's.
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+# `filter.patterns` as gitignore-style globs, the same crate `ubiq_host::search` already links for
+# its own walk and its index shortcut. Already in the graph through `ubiq-host`; named here because
+# this crate now builds an `Override` of its own rather than only reading one back.
+ignore = "0.4"
 
 [dev-dependencies]
 tempfile = "3"
