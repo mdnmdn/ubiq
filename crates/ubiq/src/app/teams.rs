@@ -49,6 +49,20 @@ impl AppState {
         cx.notify();
     }
 
+    /// Stop drawing the delegates that have finished, or draw them again.
+    ///
+    /// **It does not relayout**, exactly as the bucket pills do not: a filter narrows what is on
+    /// the canvas, and throwing every hand-placed card away is `Tidy`'s job and nobody else's. The
+    /// rings the arrangement measures against are refreshed on the next frame by `settle_teams`,
+    /// so the next relayout — a `Tidy`, an arrangement picked, or the next thing the host says —
+    /// packs the cards against the shorter rings.
+    pub fn toggle_teams_hide_done(&mut self, cx: &mut Context<Self>) {
+        if let Some(graph) = self.teams_mut(cx) {
+            graph.toggle_hide_done();
+        }
+        cx.notify();
+    }
+
     pub fn zoom_teams(&mut self, delta: f32, cx: &mut Context<Self>) {
         if let Some(graph) = self.teams_mut(cx) {
             graph.zoom_by(delta);
@@ -232,27 +246,38 @@ impl AppState {
         // conversations here, once, and the geometry readers in `state::teams` work from the list
         // rather than from the transcript. Written only when it changed, so a settled canvas does
         // not touch the state every frame.
-        let counts: std::collections::HashMap<AgentId, Vec<String>> = self
+        //
+        // Every delegate the transcripts named, before the filter: which of them a card *draws*
+        // is `TeamsView::drawn_delegates`'s answer and only its, so the room the arrangement
+        // leaves under a card and the boxes the canvas puts there cannot disagree.
+        let named: std::collections::HashMap<
+            AgentId,
+            Vec<crate::state::conversation::SubagentTab>,
+        > = self
             .open_project(cx)
             .map(|open| {
                 open.conversations
                     .iter()
-                    .map(|(id, conversation)| {
-                        let subs: Vec<String> = conversation
-                            .subagents()
-                            .into_iter()
-                            .map(|tab| tab.id)
-                            .collect();
-                        (*id, subs)
-                    })
-                    .filter(|(_, subs)| !subs.is_empty())
+                    .map(|(id, conversation)| (*id, conversation.subagents()))
                     .collect()
             })
             .unwrap_or_default();
-        if let Some(graph) = self.teams_mut(cx)
-            && graph.rings != counts
-        {
-            graph.rings = counts;
+        if let Some(graph) = self.teams_mut(cx) {
+            let counts: std::collections::HashMap<AgentId, Vec<String>> = named
+                .into_iter()
+                .map(|(id, tabs)| {
+                    let subs: Vec<String> = graph
+                        .drawn_delegates(tabs)
+                        .into_iter()
+                        .map(|tab| tab.id)
+                        .collect();
+                    (id, subs)
+                })
+                .filter(|(_, subs)| !subs.is_empty())
+                .collect();
+            if graph.rings != counts {
+                graph.rings = counts;
+            }
         }
 
         let stranded = self

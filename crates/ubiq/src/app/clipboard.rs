@@ -37,6 +37,23 @@ fn decodable(format: ImageFormat) -> bool {
     !matches!(format, ImageFormat::Pnm)
 }
 
+/// The byte a harness that reads the system clipboard itself waits for: `Ctrl+V`, `0x16`.
+///
+/// Claude Code takes an image by pressing `Ctrl+V` and reading the pasteboard on its own — the
+/// image never crosses the wire as a path or as bytes, which is what lets this work with no
+/// temp file, no new message and nothing local named in UI code.
+const CTRL_V: u8 = 0x16;
+
+/// What a focused terminal is sent for the platform paste chord, given what is on the board.
+///
+/// With an image and no text there is nothing to bracket-paste, and the chord means "give the
+/// harness its image": `Ctrl+V` goes down the pane's own byte stream and the harness reads the
+/// pasteboard itself. Anything else answers `None` and the emulator's own paste — a bracketed
+/// paste of the clipboard's text — runs unchanged.
+pub fn terminal_paste_bytes(keystroke: &gpui::Keystroke, has_image: bool) -> Option<Vec<u8>> {
+    (has_image && gpui_terminal::input::is_paste_shortcut(keystroke)).then(|| vec![CTRL_V])
+}
+
 /// The clipboard item copy-region writes: already-flattened PNG bytes as an image.
 pub fn clipboard_image_item(png: Vec<u8>) -> ClipboardItem {
     ClipboardItem::new_image(&Image::from_bytes(ImageFormat::Png, png))
@@ -67,6 +84,41 @@ mod tests {
                 assert_eq!(image.bytes, vec![1, 2, 3]);
             }
             other => panic!("expected an image, got {other:?}"),
+        }
+    }
+
+    /// An image on the board turns the terminal's paste chord into `Ctrl+V` for the harness,
+    /// which is how Claude Code is asked to read the pasteboard itself.
+    #[test]
+    fn a_terminal_paste_of_an_image_sends_ctrl_v() {
+        let paste = if cfg!(target_os = "macos") {
+            "cmd-v"
+        } else {
+            "ctrl-shift-v"
+        };
+        let keystroke = gpui::Keystroke::parse(paste).unwrap();
+        assert_eq!(terminal_paste_bytes(&keystroke, true), Some(vec![0x16]));
+    }
+
+    /// Text, or an empty board, is the emulator's own paste: this hands the chord back.
+    #[test]
+    fn a_terminal_paste_of_text_is_left_to_the_emulator() {
+        let paste = if cfg!(target_os = "macos") {
+            "cmd-v"
+        } else {
+            "ctrl-shift-v"
+        };
+        let keystroke = gpui::Keystroke::parse(paste).unwrap();
+        assert_eq!(terminal_paste_bytes(&keystroke, false), None);
+    }
+
+    /// Every other key is untouched, image or not — including `Ctrl+V`, which already reaches
+    /// the harness as `0x16` through the emulator's ordinary keystroke path.
+    #[test]
+    fn only_the_paste_chord_is_translated() {
+        for key in ["ctrl-v", "cmd-c", "ctrl-c", "a"] {
+            let keystroke = gpui::Keystroke::parse(key).unwrap();
+            assert_eq!(terminal_paste_bytes(&keystroke, true), None, "{key}");
         }
     }
 

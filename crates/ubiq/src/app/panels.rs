@@ -32,6 +32,21 @@ impl AppState {
         }
     }
 
+    /// Whether a tab's right-click menu offers Restart: a terminal whose pane was started by a
+    /// configured tool, whose command has since ended.
+    ///
+    /// A pane whose command is still running has nothing to restart — Close is the row that ends
+    /// it — and a shell or a harness pane has no tool to run again. Only a tool with "wait on
+    /// exit" is ever both stopped and still on screen, which is exactly the case this answers to.
+    pub fn tab_restartable(&self, kind: &PanelKind, _cx: &App) -> bool {
+        match kind {
+            PanelKind::Terminal(pane_id) => self
+                .pane(*pane_id)
+                .is_some_and(|pane| pane.tool.is_some() && !pane.running),
+            _ => false,
+        }
+    }
+
     /// Flip whether a tab is pinned, the rename menu's Pin/Unpin row.
     pub fn toggle_tab_pin(&mut self, kind: PanelKind, cx: &mut Context<Self>) {
         match &kind {
@@ -143,6 +158,42 @@ impl AppState {
         if was_open || !was_empty {
             self.spawn_pane(None, Vec::new(), AgentPicks::default(), cx);
         }
+    }
+
+    /// Make sure a pane about to be started has somewhere on screen to land: the IDE if the mode
+    /// the window is in has no pane region at all, and the bottom region opened if it is shut.
+    ///
+    /// **Not `toggle_region`.** That fills an empty bottom with a fresh shell, which is exactly
+    /// the wrong thing here — the pane the caller is starting is what fills it, and a shell
+    /// beside it is a pane nobody asked for. So the dock is opened directly. A region opened
+    /// empty is not closed again by `hide_emptied_regions`: that only fires on a region that
+    /// went from holding something to holding nothing.
+    /// It is **asked for rather than done here**, because everything that could shut the region
+    /// again runs later in the same frame: a mode switch forces the incoming mode's own regions
+    /// in `settle_mode`, and a pane closed on the way out empties the region, which
+    /// `hide_emptied_regions` closes. So the ask is queued and [`Self::settle_pane_region`]
+    /// answers it at the end of the frame, when nothing is left to overrule it.
+    pub fn reveal_pane_region(&mut self, cx: &mut Context<Self>) {
+        if !self.workbench.rail_mode.has_pane_region() {
+            self.set_rail_mode(RailMode::Ide, cx);
+        }
+        self.pending_pane_region = true;
+        cx.notify();
+    }
+
+    /// Answer a queued [`Self::reveal_pane_region`]: open the bottom region if it is still shut.
+    pub(super) fn settle_pane_region(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !std::mem::take(&mut self.pending_pane_region) {
+            return;
+        }
+        let placement = dock::placement_of(Region::Bottom);
+        if self.dock.read(cx).is_dock_open(placement) {
+            return;
+        }
+        self.dock.update(cx, |dock, cx| {
+            dock.toggle_dock(placement, window, cx);
+        });
+        cx.notify();
     }
 
     /// Close a region the user just emptied — by closing its last panel or dragging it elsewhere —

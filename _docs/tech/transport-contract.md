@@ -152,8 +152,9 @@ recolour and a move on disk.
 | `ListStats` | UI → host | — | `Stats` |
 | `Stats` | host → UI | `stats` | — |
 
-**`AdoptProject` answers nothing because it changes no fact — only who is told.** A project is open
-in one window at a time, so moving it between windows moves everything running in it: the host
+**`AdoptProject` answers nothing because it changes no fact — only who is told.** A project's panes
+and conversations move with it (`D142`): a project is open in one window at a time, so moving it
+between windows moves everything running in it: the host
 re-homes that project's panes in `owners` and its conversations in `conversation_owners`, and
 re-points the `MovingAddress` each pane's reader and reaper were given at spawn. No pseudo-terminal
 opens or closes and no harness is signalled. The sender is trusted: the interface's `WindowRegistry`
@@ -264,10 +265,14 @@ the asking client only, because a form is one window's question.
 **Runnable tools are shells the user wrote.** `ListTools` names the project whose rows are wanted —
 absent for none — and the host answers `ToolsListed` with the machine-wide rows and that
 project's own, each carrying whether it runs on the answering host's platform. The menu offers
-the applicable ones below the shells; a run is `RunTool` with the row's scope and id, and the
+the applicable ones behind the titlebar's run control; a run is `RunTool` with the row's scope and id, and the
 coordinator spawns the row's command, arguments and environment in the project's folder,
-answering `WorkspaceSpawned` with the row's name as the tab's title seed. A run refused before a
-pane exists — unknown row, wrong platform, empty command — answers `ToolError`, which is a log
+answering `WorkspaceSpawned` with the row's name as the tab's title seed and the `ToolRun` that
+started it, which is what a Restart re-sends. A row marked `single_instance` runs once at a time:
+a second `RunTool` while a pane started by it is still held is refused, and the host is where that
+is decided because only the host sees every window's panes. A run refused before a
+pane exists — unknown row, wrong platform, empty command, a single-instance row already running —
+answers `ToolError`, which is a log
 line rather than a tab to close, the standing a refused spawn's `PaneError` has. The machine-wide
 rows ride `HostSettings.tools` through `SetSettings` whole, and a project's own ride
 `UpdateProject.tools`, replaced whole like its `search_excludes`.
@@ -1109,10 +1114,11 @@ Forty-seven records travel inside payloads.
 | Record | Fields |
 |---|---|
 | `SessionInfo` | `id`, `name`, `home_folder`, `created_at` |
-| `WorkspaceInfo` | `id`, `session_id`, `project_id`, `rel_path?`, `agent_type`, `cols`, `rows`, `running`, `wait_on_exit` |
+| `WorkspaceInfo` | `id`, `session_id`, `project_id`, `rel_path?`, `agent_type`, `cols`, `rows`, `running`, `wait_on_exit`, `tool?` |
 | `ShellInfo` | `label`, `program`, `is_default` |
 | `AgentTypeInfo` | `id`, `label`, `command`, `available`, `chat`, `modes[]`, `unattended_mode?`, `keeps_sessions` |
-| `ToolDef` | `id`, `name`, `command`, `args`, `env`, `platforms[]`, `wait_on_exit` |
+| `ToolDef` | `id`, `name`, `command`, `args`, `env`, `platforms[]`, `wait_on_exit`, `single_instance` |
+| `ToolRun` | `scope`, `id` |
 | `ListedTool` | `scope`, `tool`, `applicable` |
 | `ProjectRecord` | `id`, `name`, `path`, `colour`, `custom_colour?`, `temporary`, `created_at`, `last_opened_at?`, `search_excludes[]`, `index?`, `tools[]`, `managed_repos[]` |
 | `ProjectSnapshot` | a `ProjectRecord`, flattened, plus `health`, `open_panes`, `workarea` and `ephemeral` |
@@ -1157,7 +1163,7 @@ Forty-seven records travel inside payloads.
 | `RemoteRepo` | `id`, `name`, `full_name`, `description?`, `default_branch?`, `private`, `clone_url`, `pushed_at?` |
 | `CloneRequest` | `clone_id`, `source`, `branch?`, `shallow`, `parent`, `name`, `ephemeral` |
 | `ParsedRepo` | `host`, `owner`, `name`, `clone_url` |
-| `SuggestSubject` | one of: `CommitMessage { project_id }`, `ProviderCheck { provider_id, role }` |
+| `SuggestSubject` | one of: `CommitMessage { project_id }`, `ProviderCheck { provider_id, role }`, `TaskTitle { project_id, task_id }` |
 | `AssistLimits` | `label`, `context_tokens` |
 
 **The record is what the store holds; the snapshot is what crosses the bus.** Keeping them apart is
@@ -1800,8 +1806,9 @@ carry a record and, once, a key.
 
 **The interface names a subject and never a prompt.** A `SuggestSubject` carries ids only —
 `CommitMessage { project_id }` says *this project's commit message*, `ProviderCheck { provider_id,
-role }` says *make sure this provider's fast model answers* — and nothing about how to ask for
-either. Every prompt string, every instruction and every truncation budget lives in
+role }` says *make sure this provider's fast model answers*, `TaskTitle { project_id, task_id }`
+says *name this card from what is written on it* — and nothing about how to ask for any of them.
+Every prompt string, every instruction and every truncation budget lives in
 `crates/ubiq-host/src/assist/subject.rs`, so the host is where a wording is tested, against a fake
 backend and with no window. A family that accepted prompt text would be a generic model console
 whatever it was called, and every later feature would reach for it (`D83`).
@@ -1825,6 +1832,26 @@ prose is not what the conversation is about — and published whole at `TurnEnde
 opening prompt cannot crowd out the reply that says what was done about it. It is the one subject
 whose material is not ASCII by construction, so `subject.rs` clips it on a character boundary
 rather than a byte one.
+
+**`TaskTitle` is the one subject whose material is not on disk.** A task's description is in the
+work store, which lives on the coordinator's thread, so `suggest_job` reads it there and hands it
+to `gather` rather than giving a worker the store's lock — a task the store does not hold is a
+`SuggestError`, and so is one with an empty description. The card must therefore already exist:
+the board creates it under a stand-in title cut from the first line of its own description, and
+*then* asks for a written one, so a model that is switched off, unreachable or slow leaves a card
+named after what the user typed rather than a card named nothing. The answer is put on the task
+with an ordinary `UpdateTask`; nothing draws it on the way, because there is no field open to draw
+it in. The form in front of it is the tasks board's, in the workbench document.
+
+**Every generated name is plain text, and twice over.** Both namings' wordings ask for it in so
+many words — simple plain text, no Markdown, no formatting characters, no emoji, no symbols — and
+`ubiq_proto::assist::plain_text` is the net under the wording: it strips `*`, `` ` ``, `#` and `~`,
+strips emoji, dingbats and the invisible characters that join them, and collapses what is left. It
+is in `ubiq-proto` because both halves run it — the host over the two lines a `conversation_title`
+answers with, in `subject.rs`'s `undecorate`; the interface over a `Suggestion` carrying a task
+title, before it becomes an `UpdateTask`. `_` and `[]` survive on purpose: a name in this domain
+carries identifiers and paths more often than a model emphasises a six-word heading. An answer
+with nothing left in it after that is no answer at all, and whatever was already named stays.
 
 **`ProviderCheck` is the one subject that names its own backend.** Every other subject is answered
 by the provider the setting points at; a user checking a key they have just typed is asking about

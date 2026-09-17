@@ -910,7 +910,7 @@ const STAND_IN_TITLE: usize = 60;
 pub(super) fn stand_in_title(description: &str) -> String {
     let first = description
         .lines()
-        .map(|line| ubiq_proto::assist::plain_text(line))
+        .map(ubiq_proto::assist::plain_text)
         .find(|line| !line.is_empty())
         .unwrap_or_default();
     if first.chars().count() <= STAND_IN_TITLE {
@@ -952,7 +952,7 @@ mod tests {
         assert!(title.ends_with('…'), "{title}");
         assert!(title.chars().count() <= 61, "{title}");
         assert!(!title.contains("forever"));
-        // Cut between words, never through one.
-        assert!(title.trim_end_matches('…').ends_with("came"), "{title}");
+        // Cut between words, never through one: the word the budget landed inside goes whole.
+        assert!(title.trim_end_matches('…').ends_with("the last"), "{title}");
     }
 }

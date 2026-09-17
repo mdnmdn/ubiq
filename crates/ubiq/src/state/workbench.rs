@@ -68,6 +68,17 @@ impl RailMode {
         matches!(self, RailMode::Ide | RailMode::Git | RailMode::Kb)
     }
 
+    /// Whether a pane started here has an edge region to land in that the user is looking at.
+    ///
+    /// Every mode but two is a view onto a project, and the bottom region is where its terminals
+    /// live. `Control` reports the running host and `Sink` is the application's own test bench —
+    /// neither is about a project's folder, and a pane started from one has nowhere to be seen.
+    /// So starting a runner from either moves the window to the IDE first; see
+    /// `AppState::reveal_pane_region`.
+    pub fn has_pane_region(self) -> bool {
+        !matches!(self, RailMode::Control | RailMode::Sink)
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             RailMode::Control => "Control",
@@ -210,6 +221,9 @@ pub enum MenuId {
     /// The new-pane control's chevron menu: which shell a pane runs, and the console. Where it
     /// opened is `WorkbenchState::new_pane_menu`.
     NewPane,
+    /// The titlebar's run chevron, beside the play triangle: every runnable tool this project
+    /// offers. Where it opened is `WorkbenchState::run_tool_menu`.
+    RunTool,
     /// The titlebar's overflow chevron: the rarely-used commands moved off the strip to make room
     /// for it — remote connect, web export, window capture and settings. Where it opened is
     /// `WorkbenchState::overflow_menu`.
@@ -261,8 +275,6 @@ pub enum NewPaneRow {
     Detached(usize),
     /// A shell, by its index in [`WorkbenchState::shells`].
     Shell(usize),
-    /// A runnable tool, by its index in [`WorkbenchState::tools`].
-    Tool(usize),
     /// The line between what starts something and what does not.
     Separator,
     /// The console, which is revealed rather than started.
@@ -488,6 +500,9 @@ pub struct WorkbenchState {
     /// Where the titlebar's new-project chevron was clicked, which is what anchors the menu over
     /// the window. `Some` exactly while `open_menu` is `MenuId::NewProject`.
     pub new_project_menu: Option<(f32, f32)>,
+    /// Where the titlebar's run chevron was clicked, which is what anchors the menu over the
+    /// window. `Some` exactly while `open_menu` is `MenuId::RunTool`.
+    pub run_tool_menu: Option<(f32, f32)>,
     /// The `+` menu, while it is down. `Some` exactly while `open_menu` is `MenuId::NewAgent`.
     pub new_agent_menu: Option<NewAgentMenu>,
     /// Where a conversation's three-dots menu was clicked. `Some` exactly while `open_menu` is
@@ -525,9 +540,9 @@ pub struct WorkbenchState {
     /// [`Message::Mcps`]: ubiq_proto::messages::Message::Mcps
     pub mcps: Vec<McpInfo>,
     /// The runnable tools the host lists: the machine-wide rows first, then the current
-    /// project's. The menu offers the applicable ones below the shells. Empty until the host
-    /// answers — asked with the shells and harnesses every time the menu opens, so a tool
-    /// added in the settings is offered without a restart.
+    /// project's. The titlebar's run chevron offers the applicable ones. Empty until the host
+    /// answers — asked every time that menu opens, so a tool added in the settings is offered
+    /// without a restart.
     pub tools: Vec<ListedTool>,
     /// Whether the explorer's bookmarks section is open. Furniture, so it is not written down.
     pub bookmarks_open: bool,
@@ -589,6 +604,7 @@ impl Default for WorkbenchState {
             new_pane_menu: None,
             overflow_menu: None,
             new_project_menu: None,
+            run_tool_menu: None,
             new_agent_menu: None,
             conversation_menu: None,
             confirm_end_conversation: None,
@@ -608,8 +624,9 @@ impl WorkbenchState {
     /// A window with no project can start no pane — there is no folder to run one in — so it is
     /// offered the console alone rather than anything that would do nothing. Detached panes come
     /// first: reattaching one is picking up work already running, which reads before starting
-    /// something new. Then the shells, and below them the runnable tools, because they are the
-    /// specific case. Only applicable tools are rows — a macOS-only row on Windows is not offered.
+    /// something new. Then the shells. **A runnable tool is no longer a row here** — it lives
+    /// behind the titlebar's own play control and its chevron, which is where the whole of a
+    /// project's tools are read at once; see [`Self::run_tool_rows`].
     /// Each separator is a row like any other, and there is none when there is nothing above it to
     /// separate — no detached pane degrades to exactly the menu before detaching existed.
     ///
@@ -632,20 +649,24 @@ impl WorkbenchState {
             if !self.shells.is_empty() {
                 rows.push(NewPaneRow::Separator);
             }
-            let tools: Vec<usize> = self
-                .tools
-                .iter()
-                .enumerate()
-                .filter(|(_, tool)| tool.applicable)
-                .map(|(index, _)| index)
-                .collect();
-            rows.extend(tools.into_iter().map(NewPaneRow::Tool));
-            if self.tools.iter().any(|tool| tool.applicable) {
-                rows.push(NewPaneRow::Separator);
-            }
         }
         rows.push(NewPaneRow::Console);
         rows
+    }
+
+    /// What the titlebar's run menu offers: every applicable tool, by its index in
+    /// [`Self::tools`].
+    ///
+    /// Indices rather than a row enum, because there is exactly one kind of row — a tool — and
+    /// the index *is* the row. The applicable filter is the host's own stamp: a macOS-only tool
+    /// is not offered on Windows, and the host is what knows which platform it answers for.
+    pub fn run_tool_rows(&self) -> Vec<usize> {
+        self.tools
+            .iter()
+            .enumerate()
+            .filter(|(_, tool)| tool.applicable)
+            .map(|(index, _)| index)
+            .collect()
     }
 
     /// What the titlebar's overflow menu offers.

@@ -2445,4 +2445,9 @@ pub struct WorkspaceInfo {
     /// "wait on exit". Absent on answers from older hosts, which never set it.
     #[serde(default)]
     pub wait_on_exit: bool,
+    /// The tool this pane was started by, when [`Message::RunTool`] is what started it. A shell
+    /// and a harness carry `None`. It is what lets a stopped tool pane offer Restart — the
+    /// interface sends the very same `RunTool` again rather than guessing from the tab's title.
+    #[serde(default)]
+    pub tool: Option<crate::tools::ToolRun>,
 }

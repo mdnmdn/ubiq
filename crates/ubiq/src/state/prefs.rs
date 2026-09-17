@@ -271,6 +271,15 @@ pub struct ViewPrefs {
     /// `state::board::BoardState::popup`.
     #[serde(default)]
     pub board_popup: bool,
+    /// Whether the Teams canvas stops drawing the delegates that have finished — see
+    /// `state::teams::TeamsView::hide_done`.
+    ///
+    /// Remembered rather than transient: it is a reading preference about a canvas the user comes
+    /// back to, and a long-running project is exactly the one where it was turned on. The other
+    /// two Teams filters — the session and the buckets — are not written down, because narrowing
+    /// to one session is a thing a reader does *now*.
+    #[serde(default)]
+    pub teams_hide_done: bool,
     /// Every key in the blob this build does not know, kept as it was found and written back out.
     ///
     /// Serde drops what a struct does not name, so without this a blob carrying more than this
@@ -302,6 +311,7 @@ impl Default for ViewPrefs {
             recents: Vec::new(),
             board_shut: Vec::new(),
             board_popup: false,
+            teams_hide_done: false,
             rest: Default::default(),
         }
     }

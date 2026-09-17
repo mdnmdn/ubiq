@@ -46,7 +46,7 @@ use crate::state::{MenuId, TeamsSelection};
 use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::kit::{
-    Picker, ghost_button, icon_button, mono, section_label, stepper, toggle_pill,
+    Picker, check_box, ghost_button, icon_button, mono, section_label, stepper, toggle_pill,
 };
 use crate::ui::work::bucket_colour;
 use crate::ui::{eid, handler, indexed};
@@ -164,6 +164,8 @@ fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         .children(sessions)
         .child(div().w(px(12.)).flex_none())
         .children(filters)
+        .child(div().w(px(12.)).flex_none())
+        .child(hide_done_check(graph.hide_done, cx))
         .child(div().flex_1().min_w(px(0.)))
         .children(graph.filtered().then(|| {
             ghost_button(
@@ -209,6 +211,38 @@ fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
             cx.listener(|this, _, _, cx| this.toggle_teams_inspector(cx)),
         ))
         .into_any_element()
+}
+
+/// The one control on the row about *delegates* rather than cards: whether a card goes on drawing
+/// the boxes for the delegates that have finished.
+///
+/// A tick box rather than a pill, because it is not one more bucket — the pills narrow the canvas
+/// to a set of states, and this drops one kind of thing out of every card that has any. `Show
+/// everything` clears it with the rest.
+fn hide_done_check(hidden: bool, cx: &mut Context<AppState>) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap_1p5()
+        .child(check_box(
+            "teams-hide-done",
+            hidden,
+            cx.listener(|this, _, _, cx| this.toggle_teams_hide_done(cx)),
+        ))
+        .child(
+            div()
+                .id("teams-hide-done-label")
+                .text_size(theme::font(Family::Chrome, Role::Label))
+                .text_color(if hidden {
+                    theme::text()
+                } else {
+                    theme::text_muted()
+                })
+                .cursor_pointer()
+                .child("Hide done")
+                .on_click(cx.listener(|this, _, _, cx| this.toggle_teams_hide_done(cx))),
+        )
 }
 
 /// One pill in the session row: a name, how many agents are under it, and whether it is the one

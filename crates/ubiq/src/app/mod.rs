@@ -232,6 +232,9 @@ pub struct PaneState {
     /// Keep the pane open after the process ends instead of closing it: a tool run with
     /// "wait on exit", whose output stays readable until the tab is closed.
     pub wait_on_exit: bool,
+    /// The tool that started this pane, when one did. What Restart re-sends — see
+    /// `AppState::restart_pane_tool` — and `None` for a shell or a harness.
+    pub tool: Option<ubiq_proto::tools::ToolRun>,
 }
 
 /// What the window keeps for one pane's terminal: the emulator, and the end of the bus its output
@@ -527,6 +530,10 @@ pub struct AppState {
     /// A rail-mode switch whose mode had no arrangement to restore: which edge regions that mode's
     /// defaults put on screen, for the frame that has a window to force them with.
     pending_regions: Option<(bool, bool, bool)>,
+    /// A runner asked for the bottom region to be on screen. Answered by
+    /// [`Self::settle_pane_region`] at the end of the frame rather than at the ask, because a
+    /// mode switch and an emptied region both move that region later in the same frame.
+    pending_pane_region: bool,
     /// Whether the left, bottom and right regions held a visible panel as of the last layout
     /// change — the edge that tells "its content just left" apart from "it was just opened
     /// empty", so [`Self::toggle_region`] opening a region on purpose is never mistaken for the

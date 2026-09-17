@@ -619,7 +619,7 @@ fn pressing_new_task_twice_leaves_one_draft_and_makes_no_card() {
 fn a_draft_holds_the_panel_and_is_never_refilled_from_a_record() {
     // Two rules at once: the panel has one slot, and a refill on the frame after a keystroke would
     // wipe what is being typed into a form that has no record behind it.
-    let mut f = seeded();
+    let f = seeded();
     let mut board = BoardState::default();
     board.select(f.cache);
     assert!(board.open_task(&f.work).is_some());

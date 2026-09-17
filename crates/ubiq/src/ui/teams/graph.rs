@@ -135,10 +135,14 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
     let rings: Vec<Ring> = visible
         .iter()
         .filter_map(|agent| {
-            let delegates = app
-                .conversation(agent.id, cx)
-                .map(|conversation| conversation.subagents())
-                .unwrap_or_default();
+            // Through the filter, not off the transcript: the finished delegates the toolbar's
+            // tick box hides are hidden here and in `settle_teams`'s ring counts, which are two
+            // readings of one answer.
+            let delegates = graph.drawn_delegates(
+                app.conversation(agent.id, cx)
+                    .map(|conversation| conversation.subagents())
+                    .unwrap_or_default(),
+            );
             if delegates.is_empty() {
                 return None;
             }

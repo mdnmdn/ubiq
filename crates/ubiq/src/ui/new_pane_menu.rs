@@ -1,4 +1,4 @@
-//! The new-pane control's chevron menu: which shell or tool a pane runs, and the console.
+//! The new-pane control's chevron menu: which shell a pane runs, and the console.
 //!
 //! The "+" itself opens the platform's default shell and needs no menu. This is what else can be
 //! started here — every shell the host found on the machine, the default marked — painted over the
@@ -7,8 +7,9 @@
 //!
 //! The rows are, first, any pane still running with no panel drawing it — under its own heading
 //! and a separator, omitted whole when there is none — then the shells, then a separator, then the
-//! applicable runnable tools, then a separator, then the console. The index a row is picked at is
-//! its index in that list — the separators and the heading included, because each is a row — which
+//! console. **A runnable tool is not a row here**: a project's tools are reached from the
+//! titlebar's own play control and its chevron (`super::run_tool_menu`), which is where the whole
+//! of them are read at once. The index a row is picked at is its index in that list — the separators and the heading included, because each is a row — which
 //! is what `AppState::pick_new_pane_menu` matches on: keep the two in step.
 //!
 //! **No harness is a row here.** Starting an agent is the New agent form's job, which asks the
@@ -69,10 +70,6 @@ pub fn overlay(
                     shell.label.clone()
                 };
                 kit::ContextItem::new(SharedString::from(label))
-            }
-            NewPaneRow::Tool(tool) => {
-                let tool = &app.workbench.tools[tool].tool;
-                kit::ContextItem::new(SharedString::from(tool.name.clone()))
             }
             // The console is not a pane, and the line says so: everything above it starts
             // something.

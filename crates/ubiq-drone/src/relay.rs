@@ -443,6 +443,9 @@ impl Relay {
                     rows: INITIAL_ROWS,
                     running: true,
                     wait_on_exit: false,
+                    // A drone spawns shells, never a configured tool — `RunTool` is the local
+                    // coordinator's alone.
+                    tool: None,
                 };
                 // Kept so a client attaching later can be told about this pane in the same words
                 // the client that spawned it heard.

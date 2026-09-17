@@ -189,6 +189,7 @@ impl AppState {
         open.wanted = view.expanded.clone();
         open.board.shut = view.board_shut.clone();
         open.board.popup = view.board_popup;
+        open.teams.hide_done = view.teams_hide_done;
 
         // Each tab is a panel. A saved arrangement usually carries them and the queued edits are
         // then no-ops, but one that was discarded — a stale version, an unreadable blob — must
@@ -525,7 +526,8 @@ impl AppState {
         self.workbench.open_menu = None;
         self.workbench.tab_menu = None;
         let pinned = self.tab_pinned(&kind, cx);
-        let Some(&row) = ui::tab_menu::rows(&kind, pinned).get(index) else {
+        let restartable = self.tab_restartable(&kind, cx);
+        let Some(&row) = ui::tab_menu::rows(&kind, pinned, restartable).get(index) else {
             return;
         };
         match &kind {
@@ -557,6 +559,7 @@ impl AppState {
             // window already does.
             PanelKind::Terminal(pane_id) => match row {
                 "Rename…" => self.open_rename_tab(kind, window, cx),
+                "Restart" => self.restart_pane_tool(*pane_id, cx),
                 "Hide" => self.detach_pane(*pane_id, cx),
                 "Close" => self.ask_close_pane(*pane_id, cx),
                 "Pin" | "Unpin" => self.toggle_tab_pin(kind, cx),
@@ -688,19 +691,81 @@ impl AppState {
         self.workbench.new_pane_menu = Some(at);
         self.bus.send(Message::ListShells);
         self.bus.send(Message::ListAgentTypes);
+        cx.notify();
+    }
+
+    /// Open the titlebar's run chevron, anchored where it was clicked: every runnable tool this
+    /// project offers.
+    ///
+    /// The list is asked for again here for [`Self::open_new_pane_menu`]'s reason: a tool added
+    /// in the settings since the window opened is offered without a restart. Whatever is already
+    /// known is what this frame draws; the answer replaces it.
+    pub fn open_run_tool_menu(&mut self, at: (f32, f32), cx: &mut Context<Self>) {
+        if self.workbench.open_menu.is_some() {
+            self.close_menu(cx);
+        }
+        self.workbench.open_menu = Some(MenuId::RunTool);
+        self.workbench.run_tool_menu = Some(at);
         self.bus.send(Message::ListTools {
             project_id: self.project(cx),
         });
         cx.notify();
     }
 
+    /// Act on one row of the open run menu, by the row's index — the tool at that place in
+    /// `WorkbenchState::run_tool_rows`, which is the same list the menu drew from.
+    pub fn pick_run_tool_menu(
+        &mut self,
+        index: usize,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.workbench.open_menu = None;
+        self.workbench.run_tool_menu = None;
+        if let Some(&at) = self.workbench.run_tool_rows().get(index) {
+            self.run_tool_at(at, cx);
+        }
+        cx.notify();
+    }
+
+    /// Dismiss the run menu — an outside click, or a pick already taken it.
+    pub fn dismiss_run_tool_menu(&mut self, cx: &mut Context<Self>) {
+        self.workbench.open_menu = None;
+        self.workbench.run_tool_menu = None;
+        cx.notify();
+    }
+
+    /// Run the tool at one index of `WorkbenchState::tools`, if it is one this host can run.
+    ///
+    /// The one place a listed row becomes a `RunTool`: the play button and the menu both come
+    /// through here, so neither can start a tool the other would refuse.
+    pub fn run_tool_at(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(listed) = self.workbench.tools.get(index) else {
+            return;
+        };
+        if !listed.applicable {
+            return;
+        }
+        let (scope, id) = (listed.scope.clone(), listed.tool.id);
+        self.run_tool(scope, id, cx);
+    }
+
+    /// The titlebar's play triangle: run the first tool this project offers. Nothing happens when
+    /// it offers none — the chevron beside it is what says so.
+    pub fn run_first_tool(&mut self, cx: &mut Context<Self>) {
+        if let Some(&first) = self.workbench.run_tool_rows().first() {
+            self.run_tool_at(first, cx);
+        }
+    }
+
     /// Act on one row of the open new-pane menu, by the row's index.
     ///
     /// A detached row brings a still-running pane's panel back, the same list
     /// `ui::new_pane_menu::overlay` read to draw it. A shell row starts a pane running that shell
-    /// — the same call the "+" makes, with a program on it — and a tool row runs that tool. Past
-    /// the last one is the separator, which is a row and does nothing, and then the console, which
-    /// is revealed rather than started.
+    /// — the same call the "+" makes, with a program on it. Past the last one is the separator,
+    /// which is a row and does nothing, and then the console, which is revealed rather than
+    /// started. A runnable tool is not a row here: it is the titlebar's run control's, through
+    /// [`Self::pick_run_tool_menu`].
     pub fn pick_new_pane_menu(
         &mut self,
         index: usize,
@@ -732,15 +797,6 @@ impl AppState {
                     return;
                 };
                 self.spawn_pane(Some(program), Vec::new(), AgentPicks::default(), cx);
-            }
-            Some(NewPaneRow::Tool(tool)) => {
-                let Some(listed) = self.workbench.tools.get(*tool) else {
-                    return;
-                };
-                if !listed.applicable {
-                    return;
-                }
-                self.run_tool(listed.scope.clone(), listed.tool.id, cx);
             }
             Some(NewPaneRow::Console) => self.reveal_console(window, cx),
             Some(NewPaneRow::Separator) | None => {}

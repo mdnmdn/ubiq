@@ -1228,6 +1228,7 @@ impl AppState {
             pending_layout: None,
             reset_furniture: false,
             pending_regions: None,
+            pending_pane_region: false,
             region_had_content: (false, false, false),
             git_sides_hidden: (false, false),
             workbench: WorkbenchState::default(),

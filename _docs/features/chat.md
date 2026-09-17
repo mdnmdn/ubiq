@@ -607,6 +607,7 @@ field the filter. A grouped, searchable, partly-inert list was already what that
 | A chat tab has nothing attached | Its page is the play button that starts one, rather than an empty transcript, and its dock tab reads `New chat` |
 | No provider is configured, or the naming fails | The tab keeps the mechanical name it started with and hovers to nothing. Nothing is reported: no name was taken away and no question was asked |
 | A naming answers a title and nothing after it | The tab is renamed and draws no hover. A summary is a tooltip, and a tooltip is allowed to be absent |
+| A naming answers Markdown, an emoji or a label it was asked not to add | Both are taken off before the title is written down. The wording asks for simple plain text in so many words; `ubiq_proto::assist::plain_text` is the net under it, and a line that was nothing but decoration is dropped rather than becoming an empty name |
 | The chat range's composer slots are all taken | The strip's `+` and a re-opened empty right region do nothing; there is no ninth slot to hand out, the same ceiling a ninth column meets |
 | A harness is uninstalled between the draw and the click | The start form refuses rather than sending a `StartConversation` that would fail as a spawn, and the tab stays attached to what it had |
 | The remembered harness is gone, or the remembered profile deleted | The form answers nothing rather than opening on a start that would fail |

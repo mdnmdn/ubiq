@@ -311,6 +311,20 @@ pub struct TeamsView {
     /// bucket is not drawn, and neither are the connectors into it, so a row with every pill off
     /// would otherwise be an empty screen with no way back.
     pub buckets: Vec<Bucket>,
+    /// Whether a card stops drawing the delegates that have finished.
+    ///
+    /// **A third filter beside the session and the buckets, and the only one about delegates.**
+    /// The bucket row hides whole cards; a card's ring goes on growing under it for the life of
+    /// the conversation, because every delegate a transcript ever named is still named there. A
+    /// long session therefore ends as a wall of finished boxes round three working ones, which is
+    /// the clutter this answers.
+    ///
+    /// **Done is a state the data already carries, not a timer.** A delegate is the spawning
+    /// `Task` call, and that call's [`ToolStatus`] reaches `Completed` when the delegate returns —
+    /// so [`DelegateStatus::Done`] is a real terminal reading and nothing here has to guess from
+    /// how long it has been quiet. `Failed` is left on screen: an error is what a reader came to
+    /// find.
+    pub hide_done: bool,
     pub zoom: f32,
     pub selection: Option<TeamsSelection>,
     pub tab: TeamsInspectorTab,
@@ -342,6 +356,7 @@ impl Default for TeamsView {
             algo: Algo::default(),
             session: None,
             buckets: Bucket::all().to_vec(),
+            hide_done: false,
             zoom: 0.8,
             // Nothing is selected until there is something to select; the window points the
             // selection at the first agent the moment the work arrives.
@@ -501,6 +516,21 @@ impl TeamsView {
         self.buckets.is_empty() || self.buckets.contains(&bucket)
     }
 
+    /// The delegates one card draws, out of everything its transcript named.
+    ///
+    /// **The one place the delegate filter is applied**, because the ring is read twice — once by
+    /// the window, to write [`Self::rings`] and so tell the arrangement how much room a card
+    /// needs, and once by the canvas, to draw the boxes. Two readings that disagree are a card
+    /// packed for a ring it does not draw.
+    pub fn drawn_delegates(&self, tabs: Vec<SubagentTab>) -> Vec<SubagentTab> {
+        if !self.hide_done {
+            return tabs;
+        }
+        tabs.into_iter()
+            .filter(|tab| delegate_status(tab) != DelegateStatus::Done)
+            .collect()
+    }
+
     /// Whether a card is drawn at all, given the two filters. `session` absent is every session.
     pub fn visible(&self, agent: &WorkAgent) -> bool {
         self.showing(agent.activity.bucket()) && self.session.is_none_or(|id| agent.session == id)
@@ -544,6 +574,11 @@ impl TeamsView {
         }
     }
 
+    /// Stop drawing the delegates that have finished, or draw them again.
+    pub fn toggle_hide_done(&mut self) {
+        self.hide_done = !self.hide_done;
+    }
+
     /// Show one session, or every one. It leaves the selection alone: "show me all of it" is not
     /// "stop looking at this".
     pub fn show_session(&mut self, session: Option<SessionId>) {
@@ -554,12 +589,13 @@ impl TeamsView {
     pub fn clear_filters(&mut self) {
         self.session = None;
         self.buckets = Bucket::all().to_vec();
+        self.hide_done = false;
     }
 
     /// Whether anything is being hidden, so the control that clears the filters can say whether it
     /// has anything to do.
     pub fn filtered(&self) -> bool {
-        self.session.is_some() || self.buckets.len() < Bucket::all().len()
+        self.session.is_some() || self.buckets.len() < Bucket::all().len() || self.hide_done
     }
 
     pub fn zoom_by(&mut self, delta: f32) {
@@ -753,5 +789,136 @@ impl TeamsView {
     pub fn settle_sand(&mut self, now: Instant) -> bool {
         self.sand.retain(|g| !g.spent(now));
         !self.sand.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ubiq_proto::work::Activity;
+
+    fn a_delegate(id: &str, status: Option<ToolStatus>) -> SubagentTab {
+        SubagentTab {
+            id: id.to_string(),
+            name: id.to_string(),
+            status,
+            kind: None,
+            model: None,
+            thinking: None,
+            waiting: 0,
+            activity: None,
+        }
+    }
+
+    fn an_agent(session: SessionId, parent: Option<AgentId>) -> WorkAgent {
+        WorkAgent {
+            id: AgentId::generate(),
+            session,
+            task: None,
+            parent,
+            name: "worker".to_string(),
+            summary: None,
+            role: "Implementer".to_string(),
+            activity: Activity::Writing,
+            note: String::new(),
+            branch: "main".to_string(),
+            tokens: 0.0,
+            harness: "Claude Code".to_string(),
+            account: "work".to_string(),
+            model: String::new(),
+            context_pct: 0,
+            persistent: false,
+            accept_all: false,
+            debug_dump: None,
+            run_dir: None,
+            config_dir: None,
+            thread: Vec::new(),
+        }
+    }
+
+    /// The filter drops the finished delegates and nothing else. A failed one stays: an error is
+    /// what a reader came to the canvas to find, and `Unknown` is a delegate whose spawning call
+    /// the transcript does not hold — not a claim that it is over.
+    #[test]
+    fn hide_done_drops_only_the_delegates_that_finished() {
+        let tabs = vec![
+            a_delegate("done", Some(ToolStatus::Completed)),
+            a_delegate("working", Some(ToolStatus::InProgress)),
+            a_delegate("failed", Some(ToolStatus::Failed)),
+            a_delegate("unknown", None),
+        ];
+
+        let mut view = TeamsView::default();
+        assert_eq!(
+            view.drawn_delegates(tabs.clone()).len(),
+            4,
+            "the filter off is every delegate the transcript named"
+        );
+
+        view.hide_done = true;
+        let drawn: Vec<String> = view
+            .drawn_delegates(tabs)
+            .into_iter()
+            .map(|tab| tab.id)
+            .collect();
+        assert_eq!(drawn, vec!["working", "failed", "unknown"]);
+    }
+
+    /// **A hidden delegate is not laid out.** The ring counts the arrangement packs against come
+    /// from the same filter the canvas draws through, so hiding a finished delegate gives the row
+    /// below the card its room back rather than leaving a gap where a box used to be.
+    #[test]
+    fn a_hidden_delegate_stops_taking_room_in_the_arrangement() {
+        let session = SessionId::generate();
+        let lead = an_agent(session, None);
+        let under = an_agent(session, Some(lead.id));
+        let work = WorkProjection {
+            sessions: Vec::new(),
+            agents: vec![lead.clone(), under.clone()],
+            tasks: Vec::new(),
+            loaded: true,
+        };
+        let tabs = vec![
+            a_delegate("done", Some(ToolStatus::Completed)),
+            a_delegate("working", Some(ToolStatus::InProgress)),
+        ];
+
+        let mut view = TeamsView::default();
+        let ring = |view: &TeamsView| -> Vec<String> {
+            view.drawn_delegates(tabs.clone())
+                .into_iter()
+                .map(|tab| tab.id)
+                .collect()
+        };
+
+        view.rings.insert(lead.id, ring(&view));
+        view.relayout(&work);
+        let both = view.at(&under).1;
+
+        view.hide_done = true;
+        view.rings.insert(lead.id, ring(&view));
+        view.relayout(&work);
+        let one = view.at(&under).1;
+
+        assert!(
+            one < both,
+            "the row under the card came up by the hidden box's height: {one} vs {both}"
+        );
+    }
+
+    /// Turning the tick box on is something being hidden, so the row's one control for "show me
+    /// all of it" appears — and clears it along with the session and the buckets.
+    #[test]
+    fn hide_done_is_a_filter_that_show_everything_clears() {
+        let mut view = TeamsView::default();
+        assert!(!view.filtered());
+
+        view.toggle_hide_done();
+        assert!(view.hide_done);
+        assert!(view.filtered());
+
+        view.clear_filters();
+        assert!(!view.hide_done);
+        assert!(!view.filtered());
     }
 }

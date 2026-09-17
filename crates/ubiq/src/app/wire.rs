@@ -1,4 +1,6 @@
 use super::*;
+// A pane's write half is an `io::Write`; the key handler's image paste is the one caller here.
+use std::io::Write as _;
 
 impl AppState {
     /// The panes the dock draws: the active project's, and none at all without one.
@@ -67,16 +69,40 @@ impl AppState {
     /// Run a configured tool in this project's folder. The pane appears when the coordinator
     /// answers, so a tool that fails to start leaves no empty tab behind — the same standing
     /// `spawn_pane` gives a harness.
+    ///
+    /// The pane region is brought on screen *before* the ask rather than when the answer lands:
+    /// a run the user cannot see is a run they will start twice, and the reveal is the same
+    /// gesture whether the spawn succeeds or is refused. See
+    /// [`Self::reveal_pane_region`](Self::reveal_pane_region), which also moves a window out of a
+    /// mode that has no pane region at all.
     pub fn run_tool(&mut self, scope: Scope, id: ToolId, cx: &mut Context<Self>) {
         let Some(project_id) = self.project(cx) else {
             return;
         };
+        self.reveal_pane_region(cx);
         self.bus.send(Message::RunTool {
             session_id: self.session,
             project_id,
             scope,
             id,
         });
+    }
+
+    /// Run a stopped tool pane's tool again, and take the spent pane away.
+    ///
+    /// The old pane is closed **first**, and the order matters: a `single_instance` tool would
+    /// refuse the second run while the first pane is still held, and the coordinator answers
+    /// messages in the order they arrive. What comes back is a new pane with a new id, not the
+    /// old one revived — a pseudo-terminal cannot be restarted, only replaced.
+    pub fn restart_pane_tool(&mut self, pane_id: PaneId, cx: &mut Context<Self>) {
+        let Some(run) = self
+            .pane(pane_id)
+            .and_then(|pane| (!pane.running).then(|| pane.tool.clone()).flatten())
+        else {
+            return;
+        };
+        self.close_pane(pane_id, cx);
+        self.run_tool(run.scope, run.id, cx);
     }
 
     /// Whether a panel currently draws this pane. `panels` is the live registry, so this is what
@@ -2659,6 +2685,9 @@ impl AppState {
     ) {
         let (output, reader) = bus::pane_output();
         let writer = self.bus.input(pane_id);
+        // A second write half for the key handler, which runs behind an `Fn` and so cannot hold
+        // the emulator's own. It is the same pane's stream: bytes out, nothing local named.
+        let paste_input = std::cell::RefCell::new(self.bus.input(pane_id));
         let config = ui::terminal::config(cols, rows, font_size);
 
         let to_host = self.bus.sender();
@@ -2677,6 +2706,16 @@ impl AppState {
                     let _ = geometry.send((pane_id, cols, rows));
                 })
                 .with_key_handler(move |event, window, cx| {
+                    // A paste with an image on the board belongs to the harness, not to the
+                    // editor: the window's own paste binding is suppressed in the terminal's
+                    // key context, and this is what the chord means once it arrives.
+                    if let Some(bytes) = super::clipboard::terminal_paste_bytes(
+                        &event.keystroke,
+                        super::clipboard::clipboard_image(cx).is_some(),
+                    ) {
+                        let _ = paste_input.borrow_mut().write_all(&bytes);
+                        return true;
+                    }
                     if !is_terminal_defocus(&event.keystroke) {
                         return false;
                     }
@@ -2735,6 +2774,7 @@ impl AppState {
                 title,
                 running: workspace.running,
                 wait_on_exit: workspace.wait_on_exit,
+                tool: workspace.tool,
             });
             // A pane in a background project becomes that project's focused one only if it had
             // none: the keyboard belongs to whatever is on screen.

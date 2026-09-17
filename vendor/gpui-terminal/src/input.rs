@@ -288,6 +288,28 @@ pub fn is_paste_shortcut(keystroke: &Keystroke) -> bool {
     }
 }
 
+/// Whether this build treats a bare `Ctrl+C` as a copy when there is a selection.
+///
+/// Windows only. Windows Terminal, conhost and every console app a Windows user has typed in
+/// resolve `Ctrl+C` by the selection: something selected is a copy, nothing selected is the
+/// interrupt. macOS and Linux have a separate copy chord (`Cmd+C`, `Ctrl+Shift+C`) and
+/// `Ctrl+C` is unconditionally the interrupt there, which is what those users expect.
+pub const CTRL_C_COPIES_SELECTION: bool = cfg!(target_os = "windows");
+
+/// Bare `Ctrl+C` — a copy when `enabled` and something is selected, the interrupt otherwise.
+///
+/// `enabled` is passed rather than read from [`CTRL_C_COPIES_SELECTION`] so the rule is
+/// testable on the host that is running the tests, whichever one that is. Callers pass the
+/// constant.
+pub fn is_selection_copy_chord(keystroke: &Keystroke, enabled: bool) -> bool {
+    enabled
+        && keystroke.key == "c"
+        && keystroke.modifiers.control
+        && !keystroke.modifiers.shift
+        && !keystroke.modifiers.alt
+        && !keystroke.modifiers.platform
+}
+
 /// Bracketed-paste wrapper (`\x1b[200~` … `\x1b[201~`).
 pub fn bracketed_paste(text: &str) -> Vec<u8> {
     let mut out = Vec::with_capacity(text.len() + 12);
@@ -526,6 +548,39 @@ mod tests {
             assert!(!is_paste_shortcut(&cmd_v));
             assert!(is_paste_shortcut(&ctrl_shift_v));
         }
+    }
+
+    /// Windows' `Ctrl+C`: only the bare chord, and only where the platform switch says so.
+    #[test]
+    fn selection_copy_chord_is_bare_ctrl_c() {
+        let ctrl_c = Keystroke::parse("ctrl-c").unwrap();
+        assert!(is_selection_copy_chord(&ctrl_c, true));
+        assert!(!is_selection_copy_chord(&ctrl_c, false));
+        for other in ["ctrl-shift-c", "cmd-c", "ctrl-alt-c", "ctrl-d"] {
+            let keystroke = Keystroke::parse(other).unwrap();
+            assert!(
+                !is_selection_copy_chord(&keystroke, true),
+                "{other} is not the selection copy chord"
+            );
+        }
+    }
+
+    /// With nothing selected the chord is never a copy, so the caller falls through to the
+    /// interrupt byte `Ctrl+C` has always meant.
+    #[test]
+    fn ctrl_c_is_still_the_interrupt_byte() {
+        let ctrl_c = Keystroke::parse("ctrl-c").unwrap();
+        assert_eq!(
+            keystroke_to_bytes(&ctrl_c, TermMode::empty()),
+            Some(vec![0x03])
+        );
+    }
+
+    /// The switch is off everywhere but Windows: `Ctrl+C` stays the interrupt on macOS and
+    /// Linux, which have a copy chord of their own.
+    #[test]
+    fn only_windows_resolves_ctrl_c_by_selection() {
+        assert_eq!(CTRL_C_COPIES_SELECTION, cfg!(target_os = "windows"));
     }
 
     #[test]

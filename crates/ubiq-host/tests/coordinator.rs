@@ -14,9 +14,11 @@ use ubiq_host::work::Work;
 use ubiq_proto::bus::{self, Client, FromClient, Hub};
 use ubiq_proto::conversation::{ConfigCategory, ConfigOption, ConfigValue, ConvUpdate};
 use ubiq_proto::files::{DiffBase, DiffRowKind, FileError, FileVersion};
-use ubiq_proto::ids::{PaneId, ProjectId, SessionId};
+use ubiq_proto::ids::{PaneId, ProjectId, SessionId, ToolId};
 use ubiq_proto::messages::{AgentPicks, Message, TaskField};
+use ubiq_proto::projects::Scope;
 use ubiq_proto::settings::{HostSettings, SettingsLayer};
+use ubiq_proto::tools::{ToolDef, ToolRun};
 use ubiq_proto::work::{AgentId, Kind, Label, Shape, Status};
 
 /// Long enough for a process to start and say something on a loaded machine.
@@ -2093,4 +2095,92 @@ fn expect_settings_error(ui: &Client) -> String {
             other => panic!("expected a settings refusal, got {other:?}"),
         }
     }
+}
+
+// ── runnable tools ──────────────────────────────────────────────────
+
+/// Put one machine-wide tool in the host settings layer, and answer its id.
+fn a_tool(ui: &Client, name: &str, command: &str, single_instance: bool) -> ToolId {
+    let id = ToolId::generate();
+    let settings = HostSettings {
+        tools: vec![ToolDef {
+            id,
+            name: name.to_string(),
+            command: command.to_string(),
+            args: String::new(),
+            env: Default::default(),
+            platforms: Vec::new(),
+            wait_on_exit: false,
+            single_instance,
+        }],
+        ..Default::default()
+    };
+    ui.send(Message::SetSettings {
+        layer: SettingsLayer::Host,
+        value: serde_json::to_string(&settings).unwrap(),
+    });
+    id
+}
+
+/// Ask for a run, and answer whichever of the two the coordinator gives back: the pane, or the
+/// refusal.
+fn run_tool(ui: &Client, project_id: ProjectId, id: ToolId) -> Result<PaneId, String> {
+    ui.send(Message::RunTool {
+        session_id: SessionId::generate(),
+        project_id,
+        scope: Scope::Interface,
+        id,
+    });
+    loop {
+        match ui.from_host().recv_timeout(PATIENCE) {
+            Ok(Message::WorkspaceSpawned { workspace }) => {
+                // The pane remembers what started it, which is what Restart re-sends.
+                assert_eq!(
+                    workspace.tool,
+                    Some(ToolRun {
+                        scope: Scope::Interface,
+                        id
+                    }),
+                    "a tool pane arrived without the tool that started it"
+                );
+                return Ok(workspace.id);
+            }
+            Ok(Message::ToolError { error, .. }) => return Err(error),
+            Ok(_) => continue,
+            other => panic!("expected a pane or a refusal, got {other:?}"),
+        }
+    }
+}
+
+/// A tool with no restriction runs as many times as it is asked to.
+#[test]
+fn a_tool_runs_as_many_panes_as_it_is_asked_for() {
+    let (_hub, ui) = coordinator();
+    let (project_id, _path) = a_project(&ui);
+    let id = a_tool(&ui, "watch", "/bin/sleep 30", false);
+
+    let first = run_tool(&ui, project_id, id).expect("the first run started");
+    let second = run_tool(&ui, project_id, id).expect("the second run started");
+    assert_ne!(first, second, "two runs are two panes");
+}
+
+/// `single_instance` is the host's rule, not a window's: a second run is refused while the first
+/// pane is still held, and allowed again once it is closed.
+#[test]
+fn a_single_instance_tool_is_refused_a_second_pane() {
+    let (_hub, ui) = coordinator();
+    let (project_id, _path) = a_project(&ui);
+    let id = a_tool(&ui, "server", "/bin/sleep 30", true);
+
+    let first = run_tool(&ui, project_id, id).expect("the first run started");
+    let refusal = run_tool(&ui, project_id, id).expect_err("the second run was given a pane");
+    assert!(
+        refusal.contains("already running"),
+        "the refusal was {refusal:?}"
+    );
+
+    // The pane going takes the claim with it, so the tool can be started again.
+    ui.send(Message::CloseWorkspace { pane_id: first });
+    let again = run_tool(&ui, project_id, id).expect("the run after the close started");
+    assert_ne!(again, first);
 }

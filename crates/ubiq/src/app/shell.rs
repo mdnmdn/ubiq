@@ -848,6 +848,7 @@ impl AppState {
         self.workbench.new_pane_menu = None;
         self.workbench.overflow_menu = None;
         self.workbench.new_project_menu = None;
+        self.workbench.run_tool_menu = None;
         self.workbench.conversation_menu = None;
         self.sink.settings.menu = None;
         self.drop_explorer_menu(cx);
@@ -1225,6 +1226,9 @@ impl Render for AppState {
         // Where the window is drawing, remembered once the screens above have settled on it.
         self.settle_nav(cx);
         self.settle_tab_drag(cx);
+        // Last of the dock's settles: a runner's region is opened after the mode's own regions
+        // have been forced and after anything emptied has been hidden, so nothing overrules it.
+        self.settle_pane_region(window, cx);
         // The filter field is one per window; the project on screen's filter is the window's habit
         // from the frame after the project swings in. Cheap when nothing changed, and it never
         // fights a query being typed.

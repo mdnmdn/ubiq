@@ -92,6 +92,46 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
             )
         })
         .children(repo_link(app, cx))
+        // The project's runnable tools, beside its settings and its web link because that is
+        // what they are: a property of the project rather than of a terminal. The triangle runs
+        // the first tool the project offers; the chevron says what else there is. Both need a
+        // folder to run in, the same reason the new-pane control does.
+        .when(has_project, |this| {
+            let first = app
+                .workbench
+                .run_tool_rows()
+                .first()
+                .map(|&at| app.workbench.tools[at].tool.name.clone());
+            let tip: gpui::SharedString = match &first {
+                Some(name) => format!("Run {name}").into(),
+                None => "No tools for this project".into(),
+            };
+            this.child(
+                icon_button(
+                    "run-tool",
+                    IconName::Play,
+                    false,
+                    cx.listener(|this, _, _, cx| this.run_first_tool(cx)),
+                )
+                .tooltip(move |window, cx| {
+                    gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx)
+                }),
+            )
+            .child(
+                icon_button(
+                    "run-tool-menu",
+                    IconName::ChevronDown,
+                    app.workbench.open_menu == Some(MenuId::RunTool),
+                    cx.listener(|this, event: &ClickEvent, _, cx| {
+                        let at = (f32::from(event.position().x), f32::from(event.position().y));
+                        this.open_run_tool_menu(at, cx);
+                    }),
+                )
+                .tooltip(move |window, cx| {
+                    gpui_component::tooltip::Tooltip::new("Run a tool").build(window, cx)
+                }),
+            )
+        })
         // Back and forward belong to the project they walk, so they sit beside it rather than
         // beside the field: project, its menu, a rule, then the two arrows.
         .child(

@@ -36,6 +36,7 @@ pub mod rail;
 pub mod remote_connect;
 pub mod remote_hosts;
 pub mod ribbon;
+pub mod run_tool_menu;
 pub mod search;
 pub mod settings;
 pub mod shell;

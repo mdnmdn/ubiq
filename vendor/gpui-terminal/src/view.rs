@@ -51,7 +51,8 @@ use crate::clipboard::{Clipboard, osc52_load_reply};
 use crate::colors::ColorPalette;
 use crate::event::{GpuiEventProxy, TerminalEvent};
 use crate::input::{
-    bracketed_paste, is_copy_shortcut, is_paste_shortcut, keystroke_to_bytes, quote_path,
+    CTRL_C_COPIES_SELECTION, bracketed_paste, is_copy_shortcut, is_paste_shortcut,
+    is_selection_copy_chord, keystroke_to_bytes, quote_path,
 };
 use crate::links::url_at;
 use crate::mouse::{
@@ -123,22 +124,32 @@ use std::thread;
 ///     terminal.update_config(config, cx);
 /// });
 /// ```
-/// Key context a focused terminal installs, so Tab and the platform copy chord
-/// reach the harness instead of the window's focus-cycle and copy bindings.
+/// Key context a focused terminal installs, so Tab and the platform copy and paste chords
+/// reach the harness instead of the window's focus-cycle, copy and paste bindings.
 pub const KEY_CONTEXT: &str = "Terminal";
 
-/// Suppress window-level Tab / copy bindings while a terminal holds the keyboard.
+/// Suppress window-level Tab / copy / paste bindings while a terminal holds the keyboard.
 ///
 /// Call once at application start. The matching [`KEY_CONTEXT`] is set on every
 /// [`TerminalView`].
+///
+/// A focused terminal owns every clipboard chord, because a terminal's clipboard is the
+/// harness's: the paste chords go to [`TerminalView::on_key_down`], which pastes text into the
+/// pseudo-terminal, and `Ctrl+V` reaches the harness as `0x16` so an agent that reads the
+/// system clipboard itself — Claude Code's image paste — sees the chord it is waiting for.
+/// Without these the window's own paste binding wins and a pane never sees the key.
 pub fn install_key_bindings(cx: &mut App) {
     cx.bind_keys([
         KeyBinding::new("tab", gpui::NoAction, Some(KEY_CONTEXT)),
         KeyBinding::new("shift-tab", gpui::NoAction, Some(KEY_CONTEXT)),
+        KeyBinding::new("cmd-v", gpui::NoAction, Some(KEY_CONTEXT)),
+        KeyBinding::new("ctrl-v", gpui::NoAction, Some(KEY_CONTEXT)),
         #[cfg(target_os = "macos")]
         KeyBinding::new("cmd-c", gpui::NoAction, Some(KEY_CONTEXT)),
         #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-c", gpui::NoAction, Some(KEY_CONTEXT)),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("ctrl-shift-v", gpui::NoAction, Some(KEY_CONTEXT)),
     ]);
 }
 
@@ -831,6 +842,23 @@ impl TerminalView {
             {
                 let _ = clipboard.copy(&text);
             }
+            return;
+        }
+
+        // Windows resolves a bare Ctrl+C by the selection: something selected is a copy, and
+        // the selection is dropped so the next one is the interrupt again. With nothing
+        // selected this falls through untouched and the harness gets `0x03`.
+        if is_selection_copy_chord(&event.keystroke, CTRL_C_COPIES_SELECTION)
+            && let Some(text) = self
+                .state
+                .with_term(|term| term.selection_to_string())
+                .filter(|text| !text.is_empty())
+        {
+            if let Ok(mut clipboard) = Clipboard::new() {
+                let _ = clipboard.copy(&text);
+            }
+            self.state.with_term_mut(|term| term.selection = None);
+            cx.notify();
             return;
         }
 

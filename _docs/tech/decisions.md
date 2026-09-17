@@ -3038,6 +3038,45 @@ enum against the paint tree it is meant to mirror. `backlog.md`'s `G242` is the 
 still duplicated by hand: `ui/shell.rs`'s `overlaid()` lists the same overlays again, for a different
 question (does a native webview need hiding), and could read `top_layer().is_some()` instead.
 
+### D142 — A project's panes and conversations move with it; a window only lets go or takes on
+
+A project is open in one window at a time, so a project changing windows — the picker's "take it
+from there", or "Open in a new window" — has to answer what happens to what is running inside it.
+The answer is that everything follows: the panes stay alive and the conversations stay open, and
+the move is a change of routing, never a stop and restart. The window losing the project lets go
+rather than closes anything (`AppState::hand_off_project`) — no `CloseWorkspace`, no
+`UnloadConversation` — and hands the whole `OpenProject` to the window taking it, which sends
+`Message::AdoptProject` and installs it (`AppState::adopt_project`).
+
+The host answers by re-homing, not by respawning. `Coordinator::adopt_project` rewrites `owners`
+and `conversation_owners` for everything `pane_addresses` says belongs to that project, and calls
+`MovingAddress::point_at` on each pane so its reader and reaper — threads that hold one destination
+for the harness's life — address the taking window from the next byte on. `Mailbox`'s `Sink::Moving`
+variant exists so that address is a handle the host can re-point rather than a value fixed at spawn.
+No pseudo-terminal opens or closes and no harness is signalled; `AdoptProject` answers nothing
+because it changes no fact the sender does not hold, only who is told.
+
+**Why.** Closing the panes and reopening them in the new window would drop every harness mid-turn
+for a move that is bookkeeping, not a lifecycle event — the project does not stop being worked on
+because a different window is looking at it. Re-pointing the address is what lets the pane's
+byte destination survive a change of owner: the alternative, teaching the reader and reaper to
+consult `owners` on every write, would put a lookup on the hot path of every byte a harness produces
+for a case that changes only on a move.
+
+**Cost.** The taking window rebuilds the emulator from nothing, so scrollback does not survive the
+move — the old emulator's keystroke writer, resize sender and state handle all pointed at a window
+that no longer owns the pane, and none of those can be re-pointed the way the mailbox address is
+(`G280`). The sender is trusted: the host takes `AdoptProject` at its word that exactly one window
+just took the project, and relies on the interface's `WindowRegistry` to make that true rather than
+checking it itself.
+
+**Relationship to `D103`/`D130`.** Those decide when a pane *dies* — what a tab's × does, per pane
+kind, to the harness behind it. This decides when a pane *changes hands* — what happens to a live
+pane and its conversation when the project owning it moves to a different window. Neither reaches
+the other: a pane mid-move is neither hidden nor closed, and `D103`'s note that "reattaching from a
+different window would need the host to move a pane between owners, and no message does that" is
+what this decision fills in — `AdoptProject` is that message.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce
@@ -3045,6 +3084,6 @@ question (does a native webview need hiding), and could read `top_layer().is_som
 - [`transport-contract.md`](./transport-contract.md) — the conversation family D53 shapes, the
   naming rules D58 and D90 state, and the connector family D65 to D71 produce
 - [`../features/notifications.md`](../features/notifications.md) — the bell D88 shapes
-- [`../features/panes-and-terminals.md`](../features/panes-and-terminals.md) — what D103 and D130
-  decide between
+- [`../features/panes-and-terminals.md`](../features/panes-and-terminals.md) — what D103, D130 and
+  D142 decide between
 - [`../backlog.md`](../backlog.md) — the choices still open

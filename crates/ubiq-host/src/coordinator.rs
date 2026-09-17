@@ -25,7 +25,7 @@ use ubiq_proto::messages::{AgentPicks, CatalogueModel, Message, Secret, Workspac
 use ubiq_proto::projects::{IndexLevel, ProjectHealth, Scope};
 use ubiq_proto::settings::{SettingsLayer, SshProfile};
 use ubiq_proto::stats::{HostStats, UsageRow};
-use ubiq_proto::tools::{ListedTool, ToolDef};
+use ubiq_proto::tools::{ListedTool, ToolDef, ToolRun};
 use ubiq_proto::work::{Activity, AgentId, WorkAgent, WorkSession};
 
 use crate::agent::{Agents, ConverseOptions, PendingLogin};
@@ -232,6 +232,13 @@ struct Coordinator {
     /// Which session each pane belongs to, so `stats()` can count live sessions. Ubiq's sense of
     /// session — a named grouping of panes — not the harness library's resumable conversation.
     pane_sessions: HashMap<PaneId, SessionId>,
+    /// Which tool each pane started by [`Message::RunTool`] is running, so a tool marked
+    /// `single_instance` can be refused a second pane. Only tool panes have an entry, and it
+    /// goes with the pane in [`Self::pane_gone`].
+    ///
+    /// Here rather than in a window, because a window only sees its own panes and the rule is
+    /// "one run at a time" on the machine, not one per window.
+    pane_tools: HashMap<PaneId, ToolId>,
     panes: HashMap<PaneId, Pty>,
     /// Which window owns which pane, recorded when the pane is spawned. This is the whole routing
     /// table: everything a pane emits goes to its owner, and nobody else may drive it.
@@ -882,6 +889,7 @@ impl Coordinator {
             pending,
             pane_projects: HashMap::new(),
             pane_sessions: HashMap::new(),
+            pane_tools: HashMap::new(),
             panes: HashMap::new(),
             owners: HashMap::new(),
             pane_addresses: HashMap::new(),
@@ -1186,6 +1194,9 @@ impl Coordinator {
         self.login_gone(client, pane_id);
         self.pane_addresses.remove(&pane_id);
         self.pane_sessions.remove(&pane_id);
+        // A single-instance tool's next run is allowed the moment its pane is gone, so this goes
+        // with the pane rather than being swept later.
+        self.pane_tools.remove(&pane_id);
         if let Some(project_id) = self.pane_projects.remove(&pane_id) {
             let replies = self.projects.pane_closed(project_id);
             self.answer(client, replies);
@@ -4355,11 +4366,7 @@ impl Coordinator {
         let (backend, root, held) = match &subject {
             SuggestSubject::CommitMessage { project_id } => {
                 match self.projects.record(*project_id) {
-                    Some(record) => (
-                        self.assist.clone(),
-                        Some(PathBuf::from(&record.path)),
-                        None,
-                    ),
+                    Some(record) => (self.assist.clone(), Some(PathBuf::from(&record.path)), None),
                     None => return fail("that project is not in the catalogue".to_string()),
                 }
             }
@@ -4402,37 +4409,38 @@ impl Coordinator {
             .name(format!("suggest-{suggest_id}"))
             .spawn(move || {
                 let chunks = mailbox.clone();
-                let answer = gather(&subject, root.as_deref(), held, &*backend).and_then(|request| {
-                    // A deadline, because nothing below can be interrupted from here: a model
-                    // that hangs would otherwise leave the window waiting forever, and a
-                    // mechanical name is better than a control that never comes back. The
-                    // generation itself runs on one more thread only so this one can stop waiting
-                    // for it — and it holds the mailbox, so chunks reach the window while this
-                    // thread is still inside `recv_timeout`.
-                    let (done, waiting) = std::sync::mpsc::channel();
-                    let stop = cancel.clone();
-                    thread::Builder::new()
-                        .name(format!("suggest-run-{suggest_id}"))
-                        .spawn(move || {
-                            let mut sink = |text: &str| {
-                                // Two reasons to stop, and both mean the same thing to a
-                                // backend: the suggestion was given up on, or the window that
-                                // asked for it has gone and `send` says so.
-                                if stop.load(Ordering::Relaxed) {
-                                    return false;
-                                }
-                                chunks.send(Message::SuggestChunk {
-                                    suggest_id,
-                                    text: text.to_string(),
-                                })
-                            };
-                            let _ = done.send(backend.stream(request, &mut sink));
-                        })
-                        .map_err(|error| format!("assist thread: {error}"))?;
-                    waiting
-                        .recv_timeout(SUGGEST_DEADLINE)
-                        .unwrap_or_else(|_| Err("the model did not answer in time".to_string()))
-                });
+                let answer =
+                    gather(&subject, root.as_deref(), held, &*backend).and_then(|request| {
+                        // A deadline, because nothing below can be interrupted from here: a model
+                        // that hangs would otherwise leave the window waiting forever, and a
+                        // mechanical name is better than a control that never comes back. The
+                        // generation itself runs on one more thread only so this one can stop waiting
+                        // for it — and it holds the mailbox, so chunks reach the window while this
+                        // thread is still inside `recv_timeout`.
+                        let (done, waiting) = std::sync::mpsc::channel();
+                        let stop = cancel.clone();
+                        thread::Builder::new()
+                            .name(format!("suggest-run-{suggest_id}"))
+                            .spawn(move || {
+                                let mut sink = |text: &str| {
+                                    // Two reasons to stop, and both mean the same thing to a
+                                    // backend: the suggestion was given up on, or the window that
+                                    // asked for it has gone and `send` says so.
+                                    if stop.load(Ordering::Relaxed) {
+                                        return false;
+                                    }
+                                    chunks.send(Message::SuggestChunk {
+                                        suggest_id,
+                                        text: text.to_string(),
+                                    })
+                                };
+                                let _ = done.send(backend.stream(request, &mut sink));
+                            })
+                            .map_err(|error| format!("assist thread: {error}"))?;
+                        waiting
+                            .recv_timeout(SUGGEST_DEADLINE)
+                            .unwrap_or_else(|_| Err("the model did not answer in time".to_string()))
+                    });
 
                 // Cancelled: the answer is dropped rather than forwarded. Setting the flag here
                 // as well is what marks this suggestion over, for the reaping above.
@@ -4675,11 +4683,12 @@ impl Coordinator {
                 rows: INITIAL_ROWS,
                 running: true,
                 wait_on_exit: false,
+                tool: None,
             },
         });
     }
 
-    /// The machine-wide tools as the new-pane menu offers them, stamped with whether each
+    /// The machine-wide tools as the run menu offers them, stamped with whether each
     /// runs on this host's own platform.
     fn system_tools(&self) -> Vec<ListedTool> {
         let os = std::env::consts::OS;
@@ -4777,6 +4786,17 @@ impl Coordinator {
             );
             return;
         }
+        // One run at a time, when the row says so. The check is here rather than in the window
+        // because only the host knows every pane: two windows on the same project would each
+        // think theirs was the only one.
+        if tool.single_instance && self.pane_tools.values().any(|held| *held == id) {
+            self.tool_error(
+                client,
+                Some(project_id),
+                format!("{} is already running", tool.name),
+            );
+            return;
+        }
         let mut words = crate::agent::split_command(&format!("{} {}", tool.command, tool.args));
         if words.is_empty() {
             self.tool_error(
@@ -4841,6 +4861,7 @@ impl Coordinator {
         self.pane_addresses.insert(pane_id, address);
         self.pane_projects.insert(pane_id, project_id);
         self.pane_sessions.insert(pane_id, session_id);
+        self.pane_tools.insert(pane_id, id);
         let replies = self.projects.pane_opened(project_id);
         self.answer(client, replies);
 
@@ -4855,6 +4876,9 @@ impl Coordinator {
                 rows: INITIAL_ROWS,
                 running: true,
                 wait_on_exit: tool.wait_on_exit,
+                // What started it, so a stopped pane can be restarted with the same two values
+                // this call was addressed with.
+                tool: Some(ToolRun { scope, id }),
             },
         });
     }

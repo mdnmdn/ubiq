@@ -613,13 +613,31 @@ is drawn for it. Neither the inspector, the tasks drawer nor a connector reads t
 colours by `activity_colour(agent.activity)`, so all three report `Ended` where the card reports
 `Idle` (`G279`).
 
-**Two filters narrow it, and both clear.** The session row leads with `all` and then names each
-session with the count of agents under it; the four bucket pills — running, waiting, ended, error —
-decide which states are drawn. Any pill may be the last one turned off, because **a bucket row with
-none lit is not filtering**: the row means "narrow it to these", and narrowing to nothing is what an
-untouched row already does. That is what makes an empty canvas honest — it means an empty project,
-never a filter the user cannot find their way back out of — and one control at the end of the strip
-puts both filters back at once, drawn only while there is something to put back.
+**Three filters narrow it, and all of them clear.** The session row leads with `all` and then names
+each session with the count of agents under it; the four bucket pills — running, waiting, ended,
+error — decide which states are drawn. Any pill may be the last one turned off, because **a bucket
+row with none lit is not filtering**: the row means "narrow it to these", and narrowing to nothing is
+what an untouched row already does. That is what makes an empty canvas honest — it means an empty
+project, never a filter the user cannot find their way back out of — and one control at the end of
+the strip puts every filter back at once, drawn only while there is something to put back.
+
+**The third is `Hide done`, and it is about delegates rather than cards.** A tick box after the
+bucket pills, on `Teams` alone. The pills hide whole cards; a card's ring goes on growing under it
+for the life of the conversation, because every delegate a transcript ever named is still named
+there — so a long session ends as a wall of finished boxes round the three that are working, which
+is the clutter it answers. **Done is a state the data already carries, not a timer**: a delegate *is*
+its spawning `Task` call, that call's `ToolStatus` reaches `Completed` when the delegate returns, and
+`DelegateStatus::Done` is that reading. Nothing infers an ending from how long a delegate has been
+quiet (`G283`). `Failed` and `Unknown` stay on screen — an error is what a reader came to find, and a
+delegate whose spawning call the transcript does not hold is not a delegate anything says is over.
+`TeamsView::drawn_delegates` is the one place the rule is applied, read both by the canvas that draws
+the boxes and by `settle_teams`, which writes the ring counts the arrangement packs against — so a
+hidden delegate stops taking room the next time the graph is laid out. Like the bucket pills, the
+tick box does not itself relayout: a filter narrows what is drawn, and throwing every hand-placed
+card away is `Tidy`'s job. **It is the one Teams filter that survives a restart**, carried in
+`ViewPrefs::teams_hide_done` beside the board's two, because it is a reading preference about a
+canvas the user comes back to; which session and which buckets are showing are questions a reader
+asks now, and are not written down.
 
 **Which session is drawn and which is selected are two questions.** Picking a session from the row
 does both, because narrowing to one and looking at it are the same gesture; `all` does neither to the
@@ -712,10 +730,33 @@ shut is still counted.
 description, its key, its kind, its labels and its session — because a card that cannot be found by
 something written on it is a card that has been lost. Two prefixes narrow it to one field: `key:`
 matches only the key, so a task is found by the id a human says out loud, and `#` matches only the
-labels. `New task` names the next one after whatever is in that field — so typing to look for a card
-that turns out not to exist is already most of making it. The new task lands in the backlog, and
-the field clears rather than leaving the board filtered down to the one card just asked for. `New task` cannot select what it asked for, because the id is the host's to
-mint: the task that arrives is the one selected.
+labels. `New task` seeds the next one from whatever is in that field — so typing to look for a card
+that turns out not to exist is already most of making it — and the field clears rather than leaving
+the board filtered down to the one card just asked for.
+
+**`New task` writes a card; it does not make one.** The button opens a form in the task panel's own
+slot — a title, a description, and Create — and **sends nothing**. A card is created once the form
+has a title or a description, and never by the click that opened it: pressing `New task`, looking
+away and pressing it again returns to the one form with what was typed still in it, rather than
+leaving two cards called `New task` behind. Create reads as a ghost and does nothing until there is
+something to save; Enter in the title and `⌘⏎` in the description are the same act. A draft holds
+the panel while it is open, so the form and a task's report are never both on screen, and nothing
+refills its fields from a record — there is no record behind it. Cancel throws it away, and there
+is nothing to unwind, because nothing was sent.
+
+**A card written as a description names itself.** A draft with a description and no title is
+created under a stand-in — the first line of that description, taken as plain text, cut to sixty
+characters on a word boundary — and then asks the host's own assistance for a written one through
+`SuggestSubject::TaskTitle`, the same facility that names a conversation. The answer arrives as an
+ordinary `Suggestion` and is put on the task as an ordinary `UpdateTask`, sanitised to plain text
+on the way. The stand-in is the point of the order: assistance that is switched off, unreachable,
+slow or answers nothing usable leaves the card named after what the user actually wrote, and no
+card is ever created called nothing.
+
+The description and the generated title both arrive after the card does, because a `CreateTask`
+carries a title and a session and nothing else, and because the id is the host's to mint. That is
+also why `New task` cannot select what it asked for: the task that arrives is the one selected, and
+the rest of the draft is sent the moment there is an id to send it to.
 
 **The labels are pills in the toolbar, and they narrow rather than widen.** One pill per label the
 project actually uses, in that label's own colour; turning two on asks for the cards carrying both.
@@ -829,8 +870,9 @@ somewhere. Why the interface asks rather than writing first is the state ownersh
 **A refusal ends whatever asked for it.** What the host would not do is said on the panel, in its
 own sentence rather than the project picker's, because a task that would not move is not a fact
 about the catalogue and has to be said where the user was looking. It also puts the open field away,
-takes the waiting mark off, gives up on selecting a `New task` that never arrived and withdraws an
-unanswered delete question — so nothing is left in a state that cannot resolve. The next thing the
+takes the waiting mark off, gives up on selecting a `New task` that never arrived — and on the rest
+of the draft that was waiting for its id — and withdraws an unanswered delete question, so nothing
+is left in a state that cannot resolve. The next thing the
 host confirms clears the sentence: a report about a change that did not happen is stale the moment
 one does.
 
@@ -1164,9 +1206,23 @@ provider and says which URL in its hint. It is drawn only when `ubiq_proto::git:
 the default remote's URL, so a project that is not a repository, has no remote, or fetches from a
 local path shows nothing rather than a dead button.
 
+**The project's runnable tools are a play triangle and a chevron, next along from the globe.** They
+sit with the project's settings and its web link because that is what they are — a property of the
+project rather than of a terminal — and both are drawn only with a project open, for the same
+reason the new-pane control is: a tool runs in a project's folder. The triangle runs the **first**
+tool the project offers and its tooltip names it; with no tool to run it does nothing and says so.
+The chevron opens the list of every applicable tool, machine-wide rows and the project's own
+together in the order the host listed them, each behind the same play glyph; a host with none to
+offer draws one disabled row saying so, so the control never opens onto nothing. The list is asked
+for every time the chevron opens, which is what makes a tool added in the settings runnable without
+a restart. **Starting one brings the pane region on screen**: the bottom region opens if it was put
+away, and a window in a mode with no pane region at all — Control or the kitchen sink, neither of
+which is a view onto a project's folder — is moved to the IDE first. The rows themselves, what a
+pick sends and what a tool is are the panes-and-terminals document's.
+
 **Back and forward are one stack per window, spanning every project it has shown.** `⌃-` and
 `⌃⇧-`, and two controls at the left of the titlebar, past a rule from the project menu, its own
-`+`/chevron pair and project settings: they walk that project's places, so they sit beside it
+`+`/chevron pair, project settings and the run controls: they walk that project's places, so they sit beside it
 rather than beside the field — each drawn
 faint and taking neither pointer nor click when its end of the stack is empty, and each carrying
 the name of where it would
@@ -1296,7 +1352,8 @@ rather than spawning anything. The `+` that opens another one sits at the right 
 group that holds a terminal or the console, in the pane region even when it holds neither, and only
 while a project is open — because a pane runs in a project's folder. Beside it is a chevron, drawn
 whether or not a project is, which opens the menu of what else can be reached here: the shells this
-machine has, and a row that puts the console on screen. What the rows are and what a click does is
+machine has, and a row that puts the console on screen. A runnable tool is not one of its rows —
+the titlebar's own play triangle and chevron are where a project's tools are reached. What the rows are and what a click does is
 `feat-panes`'s. Past a divider, the titlebar offers search (a stub), then two shortcuts that need a
 project the same reason the pane region's own `+` does: **New agent** (`IconName::Bot`) raises the
 New agent form directly, picking the chat strip as its surface in IDE mode and the agents screen
@@ -2974,7 +3031,13 @@ closed left reveals it rather than spawning anything. The titlebar offers the le
 switches in IDE and in Git (`WorkbenchState::has_side_panels`). `new_terminal()` is the titlebar's
 own New terminal shortcut: it calls `toggle_region()` when the bottom is shut, and spawns a pane
 itself only when the region was already open or was reopened onto panes still in it, so opening
-onto true emptiness is never given two panes by two different callers. A chevron beside it opens
+onto true emptiness is never given two panes by two different callers. `reveal_pane_region()` is
+the runner's version of the same errand and deliberately not `toggle_region()`: the pane it is
+clearing the way for is what fills the region, so opening it must not spawn a shell beside that
+pane. It switches to the IDE when the mode has no pane region (`RailMode::has_pane_region`), then
+*queues* the open — `settle_pane_region()` answers it at the end of the frame, after
+`settle_mode()` has forced the incoming mode's own regions and after `hide_emptied_regions()` has
+had its say, because both would otherwise shut the region again in the same frame. A chevron beside it opens
 the same new-pane menu the terminal `+` offers, with its shells and runnable tools. `open_new_agent_direct()` is
 the titlebar's New agent shortcut, making the same `aim_start()` call `pick_new_agent_menu()` makes
 for the `+` menu's first row, with that menu's own first stage skipped. A panel reaches the dock
@@ -3655,7 +3718,8 @@ equivalent of the active tab's ×), `cmd-=` and `cmd-shift-=` (zoom in), `cmd--`
 `AppState::allow_permission`/`reject_permission`, in both contexts for the same reason: a permission
 prompt blocks the turn and the chat composer holds the keyboard while it is up), and `cmd-v`/`ctrl-v`
 (`PasteClipboardImage` → the clipboard's image as an untitled picture, in `Workbench` only so a
-field's own paste wins the tie)
+field's own paste wins the tie — and a focused terminal wins it too, since `gpui-terminal` nulls
+both paste chords in its own deeper `Terminal` context and the image goes to the harness instead)
 in the `Workbench` key context, then the file picker's, the navigator's and
 the explorer's keys — each bound for the surface and for the field inside it, after the component
 library's own so they win — and the binary calls it beside its own quit binding.

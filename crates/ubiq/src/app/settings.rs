@@ -618,6 +618,7 @@ impl AppState {
             id: Some(id),
             platforms: tool.platforms.clone(),
             wait_on_exit: tool.wait_on_exit,
+            single_instance: tool.single_instance,
         });
         cx.notify();
     }
@@ -645,6 +646,7 @@ impl AppState {
             env,
             platforms: editor.platforms,
             wait_on_exit: editor.wait_on_exit,
+            single_instance: editor.single_instance,
         };
         match editor.scope {
             ToolEditScope::System => {
@@ -730,6 +732,15 @@ impl AppState {
             return;
         };
         editor.wait_on_exit = !editor.wait_on_exit;
+        cx.notify();
+    }
+
+    /// Flip "single instance" on the editor.
+    pub fn toggle_tool_single_instance(&mut self, cx: &mut Context<Self>) {
+        let Some(editor) = self.workbench.settings.tool_editor.as_mut() else {
+            return;
+        };
+        editor.single_instance = !editor.single_instance;
         cx.notify();
     }
 

@@ -779,6 +779,9 @@ pub struct ToolEditor {
     /// everywhere.
     pub platforms: Vec<String>,
     pub wait_on_exit: bool,
+    /// Whether this tool is restricted to one run at a time. The host is what enforces it —
+    /// see [`ubiq_proto::tools::ToolDef::single_instance`].
+    pub single_instance: bool,
 }
 
 /// One saved host the interface is trying to get back to without being asked again.

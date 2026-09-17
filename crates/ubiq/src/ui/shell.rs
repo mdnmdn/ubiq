@@ -351,6 +351,12 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
             (app.workbench.open_menu == Some(crate::state::MenuId::NewProject))
                 .then(|| crate::ui::new_project_menu::overlay(app, window, cx)),
         )
+        // The titlebar's run chevron menu, named a point by a click on the chevron beside the
+        // play triangle. Painted here for the same reason the new-project menu just above is.
+        .children(
+            (app.workbench.open_menu == Some(crate::state::MenuId::RunTool))
+                .then(|| crate::ui::run_tool_menu::overlay(app, window, cx)),
+        )
         // The `+` menu, named a point by whichever surface asked — the agents screen's control,
         // the IDE chat strip's `+`, or the sink's bench. It is painted here rather than from any
         // of them, so all three get it: the state it reads is the window's.

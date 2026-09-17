@@ -51,6 +51,7 @@ fn a_blob_survives_the_round_trip() {
         recents: Vec::new(),
         board_shut: Vec::new(),
         board_popup: false,
+        teams_hide_done: true,
         rest: Default::default(),
     };
 

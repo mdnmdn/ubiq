@@ -112,7 +112,7 @@ fn tool_row(
         [] => "all platforms".to_string(),
         picked => picked.join(", "),
     };
-    let summary = format!(
+    let mut summary = format!(
         "{} · {} · {}",
         command,
         platforms,
@@ -122,6 +122,9 @@ fn tool_row(
             "closes on exit"
         }
     );
+    if tool.single_instance {
+        summary.push_str(" · one at a time");
+    }
     div()
         .flex()
         .items_center()
@@ -308,6 +311,25 @@ fn editor_form(
             .child(label_block(
                 "Wait on exit",
                 "Keep the pane open after the command ends, so its output stays readable.",
+            )),
+    );
+
+    let single = editor.single_instance;
+    form = form.child(
+        div()
+            .flex()
+            .items_center()
+            .gap_2()
+            .child(check_box(
+                ElementId::Name(format!("{prefix}-single").into()),
+                single,
+                cx.listener(|this, _, _, cx| {
+                    this.toggle_tool_single_instance(cx);
+                }),
+            ))
+            .child(label_block(
+                "Single instance",
+                "Allow one run at a time. A second is refused while the first pane is still open.",
             )),
     );
 

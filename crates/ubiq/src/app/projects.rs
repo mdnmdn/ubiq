@@ -1032,6 +1032,7 @@ impl AppState {
             open.prefs.file_filter = self.workbench.file_filter.clone();
             open.prefs.board_shut = open.board.shut.clone();
             open.prefs.board_popup = open.board.popup;
+            open.prefs.teams_hide_done = open.teams.hide_done;
         }
 
         if self.project(cx) == Some(project) {

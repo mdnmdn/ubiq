@@ -38,8 +38,15 @@ use crate::app::AppState;
 use crate::state::PanelKind;
 use crate::ui::{self, kit};
 
-/// The rows a tab's right-click menu offers, by the panel's own kind and whether it is pinned.
-pub fn rows(kind: &PanelKind, pinned: bool) -> Vec<&'static str> {
+/// The rows a tab's right-click menu offers, by the panel's own kind, whether it is pinned, and
+/// whether it is a stopped tool pane.
+///
+/// `restartable` is that last question, asked of the caller rather than computed here for the
+/// reason `WorkbenchState::new_pane_rows` takes `has_project`: this module has no `AppState` and
+/// a pane's origin is one. It is true only for a terminal whose pane was started by
+/// [`ubiq_proto::messages::Message::RunTool`] and whose command has since ended — the "wait on
+/// exit" case, where the tab is still up over output nothing is producing any more.
+pub fn rows(kind: &PanelKind, pinned: bool, restartable: bool) -> Vec<&'static str> {
     let pin_row = if pinned { "Unpin" } else { "Pin" };
     match kind {
         PanelKind::File(_) => {
@@ -63,6 +70,12 @@ pub fn rows(kind: &PanelKind, pinned: bool) -> Vec<&'static str> {
         }
         PanelKind::Terminal(_) | PanelKind::Chat(_) => {
             let mut rows = vec!["Rename…"];
+            // Above the endings, because it is the opposite of them: the row that puts the pane
+            // back to work rather than taking it away. Offered only while there is nothing
+            // running to restart.
+            if restartable {
+                rows.push("Restart");
+            }
             if !pinned {
                 rows.push("Hide");
             }
@@ -95,7 +108,8 @@ pub fn overlay(
         return div().into_any_element();
     };
     let pinned = app.tab_pinned(&kind, cx);
-    let items: Vec<_> = rows(&kind, pinned)
+    let restartable = app.tab_restartable(&kind, cx);
+    let items: Vec<_> = rows(&kind, pinned, restartable)
         .iter()
         .map(|label| {
             let label = if *label == "Open in Finder" {

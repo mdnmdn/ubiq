@@ -7,7 +7,7 @@ summary: What a pane shows, how exactly one of them holds focus, how a resize re
 read_when: you are changing where a pane sits, pane focus, resize, pane chrome, or how terminal bytes reach the screen
 updated: 2026-09-17
 verified: 2026-09-17
-code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/editor.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/new_pane_menu.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/tools.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/tests/coordinator.rs, crates/ubiq-host/src/pty/mod.rs, crates/ubiq-host/src/shells.rs, vendor/gpui-terminal/src/view.rs, vendor/gpui-terminal/src/render.rs, vendor/gpui-terminal/src/input.rs, vendor/gpui-terminal/src/mouse.rs, vendor/gpui-terminal/src/clipboard.rs, vendor/gpui-terminal/src/event.rs, vendor/gpui-terminal/src/terminal.rs]
+code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/editor.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/new_pane_menu.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/tools.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/tests/coordinator.rs, crates/ubiq-host/src/pty/mod.rs, crates/ubiq-host/src/shells.rs, vendor/gpui-terminal/src/view.rs, vendor/gpui-terminal/src/render.rs, vendor/gpui-terminal/src/input.rs, vendor/gpui-terminal/src/mouse.rs, vendor/gpui-terminal/src/clipboard.rs, vendor/gpui-terminal/src/event.rs, vendor/gpui-terminal/src/terminal.rs]
 depends_on: [tech-transport]
 review_cycle: monthly
 ---
@@ -73,10 +73,11 @@ installed is not offered. Above the shells, and separated from them, the menu of
 harness the harness library knows; picking one starts a composed agent rather than a program, which
 [`sessions-and-workspaces.md`](./sessions-and-workspaces.md) describes. A harness whose binary is
 not on this machine is offered as an unavailable row rather than left out, because the row is how a
-user learns it could be there. Below the shells, and separated from them the same way, the menu
-offers the runnable tools — named commands defined for the machine in Settings › Tools or for the
-project in its own settings; picking one starts a pane running that command in the project's
-folder, titled with the tool's name. A tool for another platform is not offered at all. Below a separator — everything above it starts something — one row puts
+user learns it could be there. **The runnable tools are not on this menu.** A named command defined
+for the machine in Settings › Tools or for the project in its own settings is reached from the
+titlebar's own run control instead — a play triangle that runs the first of them and a chevron that
+lists them all — because a project's tools are a property of the project rather than of a terminal;
+the workbench document owns that strip. Below a separator — everything above it starts something — one row puts
 the console on screen, which is the one thing on that menu that is not a pane. The `+` needs a
 project and is not drawn without one; the chevron is drawn either way, and with no project the
 console is the only row it offers, because a shell that cannot be started is not worth a row.
@@ -91,8 +92,8 @@ command to run, is started as itself.
 **Which shells exist is the host's answer, asked for and never assumed.** The interface may not look
 on disk, so it asks — as it attaches, and again every time the menu opens, which is what makes a
 shell installed since the window opened available without a restart. It asks for the agent types the
-same way, and for the same reason — and for the runnable tools with them, the machine-wide rows and
-the project's own, so a tool added in the settings is offered without a restart.
+same way, and for the same reason. The runnable tools are asked for on the same terms from their own
+control, so a tool added in the settings is offered without a restart.
 
 **A pane's environment is whatever started it.** A shell inherits Ubiq's own, plus the `TERM` and
 `COLORTERM` every pane is given. A composed agent adds the variables that point it at the throwaway
@@ -107,9 +108,9 @@ rather than removed, so they come back where they were left. A project *closed* 
 different: its panes are closed with it, since a pane's working directory is that project's and a
 harness nobody is left looking at is a leak.
 
-**A project moved to another window takes its panes with it, still running.** A project is open in
-one window at a time, so "take it from there" in the picker and "Open in a new window" are the same
-gesture — and neither is a close. The window losing it lets go rather than kills
+**A project moved to another window takes its panes with it, still running** (`D142`). A project is
+open in one window at a time, so "take it from there" in the picker and "Open in a new window" are
+the same gesture — and neither is a close. The window losing it lets go rather than kills
 (`AppState::hand_off_project`): no `CloseWorkspace`, no `UnloadConversation`, and the whole
 `OpenProject` is handed to the window taking it, which sends `AdoptProject` and installs it
 (`AppState::adopt_project`). The host re-homes the pane's owner *and* re-addresses the mailbox its
@@ -163,9 +164,23 @@ panes keep drawing — an agent working in the background stays visible — but 
 goes straight into the pane's emulator; keystrokes from the focused pane go straight to the harness
 unless they are one of: platform copy (`Cmd+C` on Mac, `Ctrl+Shift+C` elsewhere), platform paste
 (`Cmd+V` / `Ctrl+Shift+V`), or a defocus chord (`Shift+Escape`, `Ctrl+Escape`, `Cmd+Escape`).
-`Ctrl+C` is SIGINT on every platform. Bare Escape is `\x1b` to the harness. Copy with no selection
+Bare Escape is `\x1b` to the harness. Copy with no selection
 is consumed and does nothing; paste wraps the clipboard in bracketed paste. Tab and Shift+Tab reach
 the harness: the emulator's `Terminal` key context suppresses the window's focus-cycle bindings.
+
+**`Ctrl+C` is SIGINT, except on Windows with a selection.** Windows is the one exception, because
+conhost and Windows Terminal have taught every Windows user that `Ctrl+C` copies what is selected:
+there, and only there, a bare `Ctrl+C` with a non-empty selection copies it and drops the
+selection, so the next press is the interrupt again. With nothing selected it is `0x03`, as it is
+unconditionally on macOS and Linux, which have a copy chord of their own.
+
+**A paste with an image on the clipboard belongs to the harness.** Both paste chords are nulled in
+the `Terminal` key context, so the window's own `Cmd+V` / `Ctrl+V` binding — which opens a picture
+as an editor tab — never fires while a pane holds the keyboard. With an image and no text on the
+board, the pane's key handler writes `Ctrl+V` (`0x16`) down the pane's byte stream: Claude Code
+reads the system clipboard itself when it sees that chord, so the image reaches the agent with no
+temp file, no path and no new message, and nothing local crosses into UI code. With text on the
+board the emulator's own bracketed paste runs unchanged.
 Special keys, Ctrl and Alt chords, mouse reporting and the alternate screen are otherwise the
 emulator's. Enter is `\r`; Shift+Enter is `\x1b\r` — the sequence Claude Code's own
 `/terminal-setup` binds Shift+Enter to — so a harness can tell "newline" from "submit" without
@@ -221,7 +236,11 @@ immediately resized draws correctly; one that never learns its size does not.
 coordinator reports `PaneExited`, and the tab goes with it — a path of its own, with no confirm and
 no dependence on what the × is set to. A tool run with wait on
 exit stays readable instead: the process ends, the dot reports the stop, and the tab stays with
-its output until it is closed.
+its output until it is closed. That tab's right-click menu then offers **Restart**, above Hide and
+Close because it is the opposite of them: the spent pane is closed and the very same `RunTool` is
+sent again, in that order, so a tool restricted to one run at a time is not refused its own
+restart. The row is offered on a tool pane alone, and only while its command has ended — a shell
+has no tool to run again, and a pane still running has nothing to restart.
 
 **A pane's chrome is its tab.** The title says which agent, and the dot beside it says whether the
 harness is still running. The pane itself carries that same state on the coloured left edge every
@@ -257,7 +276,10 @@ never stalls on whether anyone is looking at it.
 The pane family of the transport contract: `TerminalOutput`, `TerminalInput`, `TerminalResize`,
 `Focus`, `PaneExited` and `PaneError`. A pane's own lifecycle uses three of the session family,
 `SpawnWorkspace` with its `WorkspaceSpawned` answer, `RunTool` with the same answer naming the
-tool, and `CloseWorkspace`. `SpawnWorkspace` carries a
+tool and carrying the `ToolRun` that started it — the scope and id a Restart re-sends — and
+`CloseWorkspace`. A `RunTool` for a row marked `single_instance` is refused with `ToolError` while
+a pane started by that row is still held: the host is what enforces it, because only the host sees
+every window's panes. `SpawnWorkspace` carries a
 `project_id` that is not optional and an optional `rel_path`, and it can answer `ProjectError`
 instead — a refusal names the project, because there is no pane yet to name. A refused tool run
 answers `ToolError` instead, which is a log line rather than a tab. Which shell a pane runs
@@ -306,10 +328,12 @@ same way back: the parser composes them and reports a `PtyWrite`, which the view
 pane's `Write` — the cursor report answering ConPTY's opening device-status ask, and
 device-attribute reports anywhere. A reply dropped there leaves the harness waiting for an answer
 and the pane blank. It installs the `Terminal` key context, and
-`install_key_bindings()` nulls Tab, Shift+Tab and the window copy chord in that context so they are
-not stolen by the shell's focus cycle. Ubiq only adds the defocus chord: `open_pane()` sets
-`with_key_handler` so Shift/Ctrl/Cmd+Escape calls `window.blur` and `blur_panes()`, and does not
-send `Focus`. A `PaneExited` is `close_pane()`.
+`install_key_bindings()` nulls Tab, Shift+Tab, the window copy chord and both paste chords in that
+context so they are not stolen by the shell's focus cycle or its paste. Ubiq adds two things
+through `with_key_handler`, which `open_terminal()` sets: the defocus chord, where
+Shift/Ctrl/Cmd+Escape calls `window.blur` and `blur_panes()` and does not send `Focus`; and the
+image paste, where `app::clipboard::terminal_paste_bytes` turns the platform paste chord into
+`0x16` on the pane's own `Write` when the board holds an image and no text. A `PaneExited` is `close_pane()`.
 
 **The `+` that opens a pane sits at the right end of the tab strip.** Opening a terminal is chrome
 rather than a group's own action: `crates/ubiq/src/ui/dock/skin.rs` draws the control in
@@ -321,8 +345,7 @@ landed on and nothing else. `crates/ubiq/src/ui/new_pane_menu.rs` paints the men
 for the reason the file tab's menu is painted there — the skin does not name `AppState`, so it
 cannot draw a menu with state in it. **The rows themselves are `WorkbenchState::new_pane_rows()`**,
 which both the drawing and the pick read: a menu matched by position cannot have two lists.
-`pick_new_pane_menu()` maps a row back — a shell is `spawn_pane(Some(program), ..)`, a tool is
-`run_tool()` with the row's scope and id, the separator
+`pick_new_pane_menu()` maps a row back — a shell is `spawn_pane(Some(program), ..)`, the separator
 is a row and does nothing, and the console is `reveal_console()`, which is `dock::reveal()`: a
 panel already in the tree has its region brought back and its tab brought forward, and one that is
 not is added to its home region first. `AppState::toggle_region()` is where opening an empty pane
@@ -390,7 +413,8 @@ The paths through the two halves, in call order:
 | What the user does | ui → state → orchestrator → pty |
 |---|---|
 | Opens a pane | `spawn_pane()` sends `SpawnWorkspace`, or does nothing when the window holds no project; the coordinator looks the record up, probes its folder, resolves the working directory, then `pty::spawn` opens a pseudo-terminal and starts the child, and the answer `WorkspaceSpawned` reaches `open_pane()`, which routes on its `project_id`, builds the emulator and queues a `PanelEdit::Open`; `settle_panels()` puts the panel in the region terminals live in on the next frame, because a panel reaches the dock through a window and a message does not come with one |
-| Runs a tool | `run_tool()` sends `RunTool` with the row's scope and id; the coordinator resolves the row, spawns its command, arguments and environment in the project's folder, and the answer `WorkspaceSpawned` carries the tool's name and its wait flag, which `open_pane()` numbers onto the tab and keeps on the pane |
+| Runs a tool | `run_tool()` asks for the pane region through `reveal_pane_region()`, then sends `RunTool` with the row's scope and id; the coordinator resolves the row, spawns its command, arguments and environment in the project's folder, and the answer `WorkspaceSpawned` carries the tool's name, its wait flag and its `ToolRun`, which `open_pane()` numbers onto the tab and keeps on the pane |
+| Restarts a stopped tool | `restart_pane_tool()` runs `close_pane()` and then `run_tool()` on the pane's own `ToolRun`, in that order, so a `single_instance` row's claim is released before the second run asks for it |
 | Types | the emulator writes into `PaneInput`, which posts `TerminalInput`; the coordinator finds the pane's `Pty` and writes to the pseudo-terminal |
 | Watches output | `Pty::forward_output` puts a reader thread on the pseudo-terminal, sending `TerminalOutput` in fixed chunks; `receive()` hands the bytes to the pane's output sender, and the emulator reads them |
 | Resizes | the emulator measures its own bounds and its resize callback sends `TerminalResize`; `Pty::resize` sets the size and the kernel signals the harness |
@@ -417,11 +441,11 @@ stalled reader stalls the harness.
 | The harness exits | `PaneExited`; `close_pane()` takes the tab out of the dock. Focus moves to another pane, or to none if it was the last |
 | The harness exits while its pane is a background tab | The same close: the tab leaves that project's dock, and the pane the user is typing into is untouched |
 | A waiting tool's process exits | `PaneExited` dims the dot through `pane_stopped()` and the tab stays with its output; × still closes it through `close_pane()` |
-| A tool run is refused | `ToolError`: unknown row, wrong platform or empty command. A log line, no tab — the interface was never told of a pane |
+| A tool run is refused | `ToolError`: unknown row, wrong platform, empty command, or a `single_instance` row whose pane is still held. A log line, no tab — the interface was never told of a pane |
 | The harness cannot be started | `PaneError` against a pane ID the UI never drew; no tab appears |
 | A spawn is asked for with no project open | Nothing is sent; there is no folder to start a harness in |
 | The shell list has not been answered yet | The menu offers the console row alone, and no separator. The list is asked for again on every open, so the next one has it |
-| The tool list has not been answered yet | The menu offers shells and harnesses alone. The list is asked for again on every open, beside them |
+| The tool list has not been answered yet | The run chevron offers one disabled row saying there are none, and the play triangle runs nothing. The list is asked for again on every open |
 | The pane region is opened with no project | Nothing is started; the region opens empty, and the chevron's menu still reaches the console |
 | A shell is uninstalled between the list and the pick | The spawn fails the way any unstartable program does: `PaneError` against a pane the UI never drew |
 | A spawn names a project whose folder has gone | `ProjectError`, and the picker's row is marked. No pseudo-terminal is opened and no tab appears |

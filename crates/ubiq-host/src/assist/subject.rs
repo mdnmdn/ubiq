@@ -167,7 +167,9 @@ const TASK_TITLE_LEAD: &str = "Description:\n";
 /// the work *is* should not have to name it as well. One line rather than two — a card has no
 /// tooltip to put a summary in, and the description is already the long form.
 pub fn task_title(description: &str, limits: &AssistLimits) -> Request {
-    let budget = (limits.context_tokens.saturating_sub(TASK_TITLE_RESPONSE_TOKENS) as usize)
+    let budget = (limits
+        .context_tokens
+        .saturating_sub(TASK_TITLE_RESPONSE_TOKENS) as usize)
         .saturating_mul(CHARS_PER_TOKEN)
         .saturating_sub(TASK_TITLE_INSTRUCTIONS.len() + TASK_TITLE_LEAD.len());
 
@@ -379,7 +381,10 @@ mod tests {
             Some(("Fix name_job Thread".to_string(), None))
         );
         // A line that was nothing but decoration leaves no empty name behind.
-        assert_eq!(naming("\u{1f389} \u{2728}\nReal Title"), Some(("Real Title".to_string(), None)));
+        assert_eq!(
+            naming("\u{1f389} \u{2728}\nReal Title"),
+            Some(("Real Title".to_string(), None))
+        );
     }
 
     #[test]

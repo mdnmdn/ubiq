@@ -2,9 +2,10 @@
 //! or for one project.
 //!
 //! A tool is a shell row the user wrote themselves — a build, a watcher, a specific shell with
-//! flags. It travels the road a shell does: the interface lists it in the new-pane menu and runs
-//! it with [`Message::RunTool`], the host spawns it in the project's folder and answers
-//! [`Message::WorkspaceSpawned`] with the tool's name as the tab title's seed.
+//! flags. It travels the road a shell does: the interface lists it behind the titlebar's run
+//! control and runs it with [`Message::RunTool`], the host spawns it in the project's folder and
+//! answers [`Message::WorkspaceSpawned`] with the tool's name as the tab title's seed and the
+//! [`ToolRun`] that started it.
 //!
 //! [`Message::RunTool`]: crate::messages::Message::RunTool
 //! [`Message::WorkspaceSpawned`]: crate::messages::Message::WorkspaceSpawned
@@ -46,6 +47,18 @@ pub struct ToolDef {
     /// its output stays readable until the tab is closed.
     #[serde(default)]
     pub wait_on_exit: bool,
+    /// Restrict this tool to one run at a time. A second [`Message::RunTool`] while a pane
+    /// started by this tool is still held is refused with [`Message::ToolError`] rather than
+    /// given a pane — a watcher on a port, a dev server, anything that cannot share a resource
+    /// with a copy of itself.
+    ///
+    /// The host is what enforces it, because the host is what knows every pane that exists:
+    /// a window can only see its own.
+    ///
+    /// [`Message::RunTool`]: crate::messages::Message::RunTool
+    /// [`Message::ToolError`]: crate::messages::Message::ToolError
+    #[serde(default)]
+    pub single_instance: bool,
 }
 
 impl ToolDef {
@@ -54,6 +67,20 @@ impl ToolDef {
     pub fn applies(&self, os: &str) -> bool {
         self.platforms.is_empty() || self.platforms.iter().any(|platform| platform == os)
     }
+}
+
+/// Which tool a pane was started by: the list it came from and its id — the pair
+/// [`Message::RunTool`] is addressed with.
+///
+/// Carried back on [`WorkspaceInfo`] so a pane remembers what started it, which is what lets a
+/// stopped tool pane offer Restart without the interface guessing from a tab's title.
+///
+/// [`Message::RunTool`]: crate::messages::Message::RunTool
+/// [`WorkspaceInfo`]: crate::messages::WorkspaceInfo
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolRun {
+    pub scope: Scope,
+    pub id: ToolId,
 }
 
 /// One tool as a menu offers it: the definition, whose list it came from, and whether the host
@@ -112,6 +139,7 @@ mod tests {
             env: BTreeMap::new(),
             platforms: Vec::new(),
             wait_on_exit: false,
+            single_instance: false,
         }
     }
 
