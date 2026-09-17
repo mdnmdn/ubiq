@@ -14,6 +14,7 @@ use crate::assist::{
 };
 use crate::connectors::{AuthKind, CertInfo, ConnectError, ConnectStage, Connection, ProviderId};
 use crate::conversation::{ConfigChoice, ConvUpdate, StopReason};
+use crate::feedback::{FeedbackError, FeedbackOffer, FeedbackReceipt, FeedbackReport};
 use crate::files::{
     DiffBase, DirListing, EntryKind, FileContents, FileDiff, FileError, FileVersion, HostDirEntry,
     HostPathError, PathOp,
@@ -403,6 +404,35 @@ pub enum Message {
         account: String,
         harness: String,
         snapshot: QuotaSnapshot,
+    },
+
+    // ── Feedback family: what the user says about Ubiq itself ───────
+    // The only family whose destination is outside the user's own world — not their harness, not
+    // their repository host. Which service a build reports to is compiled in, so the interface
+    // asks once and the answer never changes while the process runs.
+    /// Ask whether this build can send feedback, and where to. Answered with
+    /// [`Message::FeedbackOffered`], to the asking client alone.
+    QueryFeedback,
+    /// Whether a destination is configured, and which. The interface draws its send button
+    /// disabled while this says `enabled: false`.
+    FeedbackOffered {
+        offer: FeedbackOffer,
+    },
+    /// Send one report outward. Answered exactly once with [`Message::FeedbackSent`] or
+    /// [`Message::FeedbackFailed`], to the sending client alone.
+    ///
+    /// The screenshot rides inside the report, as PNG bytes: the interface photographed its own
+    /// window, and on a remote host there is no path that would mean anything here.
+    SendFeedback {
+        report: Box<FeedbackReport>,
+    },
+    /// It landed, with whatever the destination called it.
+    FeedbackSent {
+        receipt: FeedbackReceipt,
+    },
+    /// It did not. A sentence the user reads, never a key and never a raw body.
+    FeedbackFailed {
+        failure: FeedbackError,
     },
 
     // ── Profile family: the saved setups a conversation starts from ──

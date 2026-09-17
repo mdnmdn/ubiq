@@ -7,7 +7,7 @@ summary: The complete message set the UI and the coordinator exchange — the pa
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
 updated: 2026-09-17
 verified: 2026-09-17
-code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq-drone/src/search.rs]
+code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/feedback.rs, crates/ubiq-host/src/feedback/mod.rs, crates/ubiq-host/src/feedback/api.rs, crates/ubiq-host/src/feedback/issues.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq-drone/src/search.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
 ---
@@ -1474,6 +1474,45 @@ feature, and this is not one. It is the same fact-before-process split `AgentTyp
 token that bought them is read inside `agent-manager`, spent on one request and dropped — the same
 rule the account family keeps, and for the same reason: the log sink listens to this bus.
 
+## The feedback family
+
+The nineteenth family, and the only one whose destination is outside the user's own world — not
+their harness, not their repository host, not a service they authorised. **Which service a build
+reports to is compiled in, never a setting**: `option_env!`, on the connector family's
+`ProviderId` discipline (`D71`), selects the destination when Ubiq is built, and the interface
+asks once, because the answer cannot change while the process runs.
+
+| Message | Direction | Payload | Responds with |
+|---|---|---|---|
+| `QueryFeedback` | UI → host | — | `FeedbackOffered` |
+| `SendFeedback` | UI → host | `report` (boxed `FeedbackReport`) | `FeedbackSent` or `FeedbackFailed`, to the sending client alone |
+| `FeedbackOffered` | host → UI, asking client only | `offer` (`FeedbackOffer`) | — |
+| `FeedbackSent` | host → UI | `receipt` (`FeedbackReceipt`) | — |
+| `FeedbackFailed` | host → UI | `failure` (`FeedbackError`) | — |
+
+**`FeedbackOffer.enabled` is what disables the send button**, not a capability the interface
+infers. A build compiled with neither `UBIQ_FEEDBACK_URL`/`UBIQ_FEEDBACK_API_KEY` nor
+`UBIQ_FEEDBACK_GITHUB_REPO`/`UBIQ_FEEDBACK_GITHUB_TOKEN` set answers `enabled: false` and names
+`FeedbackChannel::None`, which is the honest state for a build from source rather than a failure.
+Where both pairs are compiled in, the API destination wins, because it is the one that can carry
+the screenshot.
+
+**The screenshot rides the report as PNG bytes, `#[serde(with = "serde_bytes")]`, never a path.**
+The interface photographs its own window before it ever crosses the bus — the host has no reason
+to learn where that picture would have been saved, and on a remote host there is no such place to
+name. `FeedbackReport.screenshot` is `None` where the platform offered no capture, where the user
+turned it off, or where the user removed it from the modal before sending; a report is worth
+sending without one.
+
+**`FeedbackId` is minted by the interface, on `CloneId`'s discipline.** An answer naming a report
+the window is no longer holding — the modal was closed, or a second one opened since — is
+discarded by id rather than drawn over whatever is on screen now.
+
+**`SendFeedback` always goes to the local host, whichever host the window is looking at.** The
+destination is compiled into the binary the interface itself booted with, and the same host is
+who answered `FeedbackOffered` — a remote host attached later would report its own build's
+destination, which is not the one the send button offered.
+
 ## The profile family
 
 The thirteenth family, and the account family's neighbour. A **profile** is a saved setup — which
@@ -2157,6 +2196,8 @@ ever dropped.
    does not exist yet — the repository family. If it names a **subject Ubiq wants a sentence for**
    and carries no prompt, or configures the provider that would write it, the assist family.
    If it names **nothing in Ubiq and reports that something happened**, the notification family.
+   If it says something about **Ubiq itself, addressed to a destination outside the user's own
+   world**, the feedback family.
 2. Add the variant to the enum in `crates/ubiq-proto/src/messages.rs`, with an owned payload — no
    borrowed data, no handles, nothing that fails to serialise.
 3. Add a row to the table above, in the same commit.

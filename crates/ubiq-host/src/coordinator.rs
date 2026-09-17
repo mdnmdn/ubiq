@@ -185,6 +185,9 @@ struct Coordinator {
     /// What each account last read. In memory and never written down: unlike spend, what is left
     /// is re-derivable by asking again, so a restart re-probes — see [`crate::quota`].
     quotas: crate::quota::Quotas,
+    /// The thread that posts the user's report to whatever destination this build was compiled
+    /// with. A blocking HTTPS call, so it is a thread for [`crate::quota`]'s reason.
+    feedback: crate::feedback::Feedback,
     /// One live search per project. The flag means two things: a cancel request, set when a
     /// second search for the same project arrives or `CancelSearch` names this one; and "this
     /// search is over", set by the worker itself when it finishes, cancelled or not. `search_job`
@@ -860,6 +863,7 @@ impl Coordinator {
             git: Git::start(),
             quota: crate::quota::Quota::start(quota_root),
             quotas: crate::quota::Quotas::new(),
+            feedback: crate::feedback::Feedback::start(),
             search: Search::start(),
             index: crate::index::Index::start(),
             active_searches: HashMap::new(),
@@ -1508,6 +1512,25 @@ impl Coordinator {
                 account,
             } => {
                 self.delete_harness_login(client, agent_type, account);
+            }
+
+            // ── the feedback family ─────────────────────────────────
+            // Where a build reports to is compiled in, so the offer is read rather than asked;
+            // the report itself is a blocking POST and goes to the worker, which answers the
+            // window that sent it.
+            Message::QueryFeedback => {
+                self.host.send(
+                    To::Client(client),
+                    Message::FeedbackOffered {
+                        offer: self.feedback.offer(),
+                    },
+                );
+            }
+            Message::SendFeedback { report } => {
+                self.feedback.submit(crate::feedback::Job {
+                    report,
+                    reply_to: self.host.mailbox(To::Client(client)),
+                });
             }
 
             // ── Quota family: how much of an account's plan is left ──

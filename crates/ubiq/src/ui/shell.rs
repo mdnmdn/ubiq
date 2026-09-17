@@ -280,6 +280,15 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .as_ref()
                 .map(|_| crate::ui::clone::render(app, window, cx)),
         )
+        // The feedback modal, over the clone modal on the same terms: raised from the titlebar,
+        // from anywhere, and over whatever is already on screen — which is the window it just
+        // photographed.
+        .children(
+            app.workbench
+                .feedback
+                .as_ref()
+                .map(|_| crate::ui::feedback::render(app, window, cx)),
+        )
         // The "All projects" modal, raised from the picker's History group — painted here on the
         // same terms as the clone modal just above.
         .children(

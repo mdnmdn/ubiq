@@ -19,6 +19,8 @@
 //! - `repos`: cloning a repository into a project, and the listings that find one (behind `git`)
 //! - `projects`: the catalogue as the host runs it
 //! - `gc`: collecting the directories of projects no record names (behind `harness`)
+//! - `feedback`: the user's report on its way out — the destination trait, the one this build was
+//!   compiled with, and the thread that posts it (the destinations behind `listener`)
 //! - `files`: a project's tree and its files, read and written off the coordinator's thread
 //! - `git`: a project's repository, observed off the coordinator's thread (behind `git`)
 //! - `work`: the tasks a project has written down, and the sessions and agents doing them (behind
@@ -76,6 +78,7 @@ pub mod coordinator;
 #[cfg(feature = "listener")]
 pub mod drone;
 pub mod environment;
+pub mod feedback;
 pub mod files;
 #[cfg(feature = "harness")]
 pub mod gc;

@@ -17,6 +17,7 @@ pub mod dock;
 pub mod editor;
 pub mod empty;
 pub mod explorer;
+pub mod feedback;
 pub mod file_dialog;
 pub mod file_picker;
 pub mod git;

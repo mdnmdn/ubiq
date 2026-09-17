@@ -249,6 +249,14 @@ ulid_id! {
 }
 
 ulid_id! {
+    /// One feedback report, from the `SendFeedback` that carries it to the single receipt or
+    /// error that ends it. Minted by the interface on [`CloneId`]'s discipline: an answer naming
+    /// a report the interface is no longer holding is discarded rather than drawn over a modal
+    /// the user has closed.
+    FeedbackId
+}
+
+ulid_id! {
     /// One source of a project's knowledge base. Minted UI-side when the row is added, on
     /// [`ToolId`]'s discipline and for the same reason: the whole source list rides
     /// `SetKbSources`, so the half that writes the list is the half that names its rows. Stable

@@ -3038,6 +3038,24 @@ enum against the paint tree it is meant to mirror. `backlog.md`'s `G242` is the 
 still duplicated by hand: `ui/shell.rs`'s `overlaid()` lists the same overlays again, for a different
 question (does a native webview need hiding), and could read `top_layer().is_some()` instead.
 
+### D142 — Feedback's destination is compiled in, on `D71`'s discipline
+
+A report the user sends is the one thing Ubiq says to a service that is neither the user's harness
+nor a service they authorised, so `crates/ubiq-host/src/feedback` reads its URL, its API key, its
+repository and its token through `option_env!` and nothing else — the same choice `D71` makes for a
+built-in application's client id, for the same reason. The alternative was a setting: a field beside
+the assist providers or the SSH profiles, editable from the interface or a config file.
+
+**Why:** a destination decided at run time would let a user's own shell, or a config file an agent
+wrote to, repoint where their words and their screenshot are posted — and an intake key baked into
+that setting would be a credential a config file could leak, not one a keychain protects. Compiling
+it in means the only way to change where a build reports is to build it again.
+
+**Cost:** there is no way to point one build at a second feedback service — a self-hosted fork
+compiles its own destination in, the way a self-hosted OAuth install supplies its own client id
+under `D71`. A build with neither pair set has no destination at all, permanently, and the send
+button says so rather than offering a field to fill in.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce

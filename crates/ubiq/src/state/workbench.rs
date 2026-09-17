@@ -188,6 +188,8 @@ pub enum MenuId {
     /// controls and only one menu in the window is open at a time anyway.
     CloneConnection,
     CloneBranch,
+    /// The feedback modal's one dropdown: what the report is about.
+    FeedbackKind,
     /// The style reference's demo dropdown. It picks nothing: the sink is where a control is
     /// looked at, and one menu in the window has to be openable with no project behind it.
     SinkPicker,
@@ -408,6 +410,14 @@ pub struct WorkbenchState {
     /// clone has no project yet, and the two questions — "which repository" and "what is this
     /// project called here" — are asked in different places.
     pub clone_project: Option<CloneState>,
+    /// The feedback modal, while it is up. Beside `clone_project` for its reason: a question
+    /// raised over the window, answered once, carrying its own dropdown's open state.
+    pub feedback: Option<crate::state::feedback::FeedbackForm>,
+    /// Whether this build can send feedback at all, and where to. Asked once at boot and never
+    /// again: the destination is compiled into the binary, so it cannot change while the process
+    /// runs. Off until the host answers, which is what keeps the send button disabled in a build
+    /// that has no destination.
+    pub feedback_offer: ubiq_proto::feedback::FeedbackOffer,
     /// The "All projects" modal, while it is up. Raised from the picker's History group when it
     /// hides more than it shows — beside `clone_project` for the same reason: a question raised
     /// over the window, answered from its own state rather than the picker's.
@@ -555,6 +565,8 @@ impl Default for WorkbenchState {
             row_action: None,
             project_settings: None,
             clone_project: None,
+            feedback: None,
+            feedback_offer: ubiq_proto::feedback::FeedbackOffer::default(),
             all_projects: None,
             new_agent: None,
             kb_source: None,

@@ -836,6 +836,10 @@ pub struct AppState {
     pub clone_filter_input: Entity<InputState>,
     pub clone_url_input: Entity<InputState>,
     pub clone_name_input: Entity<InputState>,
+    /// The feedback modal's two fields: what the report is called, and what it says. Mirrored
+    /// into the form per keystroke, because what the send button does is decided by the title.
+    pub feedback_title_input: Entity<InputState>,
+    pub feedback_description: Entity<TextareaState>,
     /// The connect modal's three fields. Read at send time rather than mirrored per keystroke,
     /// for the reason `begin_harness_login` gives: a value the interface copies into its own
     /// state is a second copy that can disagree with the one on screen.
@@ -971,6 +975,7 @@ mod clipboard;
 mod clone;
 mod editor;
 mod explorer;
+mod feedback;
 pub use explorer::MIN_QUERY;
 pub use projects::Holds;
 mod git;

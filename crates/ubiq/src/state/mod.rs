@@ -18,6 +18,7 @@ pub mod diagrams;
 pub mod dock;
 pub mod editor;
 pub mod explorer;
+pub mod feedback;
 pub mod file_picker;
 pub mod git;
 pub mod image_edit;
