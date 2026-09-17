@@ -31,6 +31,7 @@
 //! - `wire`: the binary framing a socket transport puts the contract in
 //! - `carrier`: what both pumps on a byte stream must agree on — the handshake and the heartbeat
 
+pub mod acp;
 pub mod assist;
 pub mod bus;
 pub mod carrier;

@@ -5,9 +5,9 @@ kind: tech
 status: draft
 summary: What the embedded harness-management library owns, what Ubiq owns, how the application consumes it, and the rule that keeps the two from growing into each other.
 read_when: you are about to write code that launches a harness, drives one as a conversation, names a harness config path, or touches accounts, skills or MCP servers
-updated: 2026-09-14
+updated: 2026-09-17
 verified: 2026-09-17
-code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/quota.rs, crates/agent-manager/src/credentials/mod.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/mod.rs, crates/agent-manager/src/io/acp.rs, crates/agent-manager/src/io/acp_client.rs, crates/ubiq-host/src/mcp/mod.rs]
+code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/quota.rs, crates/agent-manager/src/credentials/mod.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/mod.rs, crates/agent-manager/src/io/acp.rs, crates/agent-manager/src/io/acp_caps.rs, crates/agent-manager/src/io/acp_client.rs, crates/ubiq-host/src/mcp/mod.rs]
 depends_on: [tech-structure]
 review_cycle: monthly
 ---
@@ -273,7 +273,7 @@ is `harness.io_support().structured`, all three answer it `true`, and
 each speak ACP a second way instead: one provisioner, a second id — `claude-code-acp` and
 `codex-acp` — sharing every non-wire concern (config dir, skills, MCP, account/login) with its
 native sibling and only swapping `structured_bridge` for `AcpBridge` over `claude-agent-acp` /
-`codex-acp`. **Two things ACP does not say, the bridge says for it.** `from_acp` is a pure per-notification
+`codex-acp`. **`initialize` is the only discovery an ACP agent offers, so the bridge takes all of it**: `io/acp_caps.rs` reads that answer once into an `AcpCapabilities` and `IoBridge::acp_capabilities` hands it to a type-erased caller, `None` for every bridge on a wire of its own — `_docs/tech/transport-contract.md` owns what Ubiq does with it. **Two things ACP does not say, the bridge says for it.** `from_acp` is a pure per-notification
 mapping, so the pieces of the `AgentEvent::UsageUpdate` and `Origin` contracts that need memory live
 in `AcpBridge`'s reader instead. ACP states `cost.amount` as a session-cumulative figure while
 `UsageUpdate.cost` is contractually a per-report delta, so the reader subtracts the running total —

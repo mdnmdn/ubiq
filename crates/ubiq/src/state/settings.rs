@@ -7,6 +7,7 @@
 use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
+use ubiq_proto::acp::AcpCapabilitiesRecord;
 use ubiq_proto::assist::{
     AiModelList, AiProviderInfo, AiProviderKind, AssistLimits, AssistReason, ModelRole,
 };
@@ -757,6 +758,20 @@ pub struct SettingsState {
     /// Its own map rather than a field on the snapshot, so a failed refresh leaves the last good
     /// reading on screen beside the sentence saying the refresh failed.
     pub quota_errors: HashMap<(String, String), String>,
+    /// What each ACP harness said it can do, keyed by harness id alone: an agent states this once,
+    /// in its `initialize` answer, and every conversation behind the same harness hears the same
+    /// thing — so unlike [`Self::quotas`] it is not a fact about a login.
+    pub acp_capabilities: HashMap<String, AcpCapabilitiesRecord>,
+    /// Which harnesses have been asked **on this visit**. An absent record and an unasked harness
+    /// look the same in the map above and mean different things: the first is the host's honest
+    /// "no handshake has happened", the second is a question nobody has put yet. Holding the asks
+    /// separately is what keeps a surface from re-sending on every render.
+    ///
+    /// Cleared when a surface that shows the list is opened, deliberately: the answer genuinely
+    /// changes — a conversation started since the page was last looked at is exactly what turns a
+    /// "none has yet" into a record — and a set that persisted for the life of the process would
+    /// leave that page stale until a restart. Once per visit, never once per frame.
+    pub acp_asked: HashSet<String>,
 }
 
 /// Which tools list a tool editor writes: the machine-wide rows, or one project's.
@@ -890,6 +905,8 @@ impl Default for SettingsState {
             tool_editor: None,
             quotas: HashMap::new(),
             quota_errors: HashMap::new(),
+            acp_capabilities: HashMap::new(),
+            acp_asked: HashSet::new(),
         }
     }
 }
@@ -910,6 +927,18 @@ impl SettingsState {
         self.quota_errors
             .get(&(agent_type.to_string(), account.to_string()))
             .map(String::as_str)
+    }
+
+    /// What `agent_type` said it can do, where an ACP handshake on it has been seen. `None` is
+    /// drawn as the sentence saying so — it is never an error.
+    pub fn acp_capabilities(&self, agent_type: &str) -> Option<&AcpCapabilitiesRecord> {
+        self.acp_capabilities.get(agent_type)
+    }
+
+    /// Whether the window has already put the question for `agent_type`. Asked lazily and once:
+    /// the answer is a map lookup on the host, but a send per render is a send per frame.
+    pub fn acp_asked(&self, agent_type: &str) -> bool {
+        self.acp_asked.contains(agent_type)
     }
 }
 

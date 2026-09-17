@@ -271,6 +271,9 @@ impl AppState {
             // What the accounts section draws beside each login. Asked with whatever the window
             // already holds; the `Accounts` answer on its way in asks again for the rest.
             self.ask_quotas();
+            // Same shape, one question per ACP harness. The list it walks may still be on its way
+            // in, which is why the `AgentTypes` answer asks again.
+            self.ask_acp_capabilities_all(true);
         }
         cx.notify();
     }
@@ -299,6 +302,48 @@ impl AppState {
                 harness,
                 fresh: false,
             });
+        }
+    }
+
+    /// Ask what one ACP harness said it can do, unless that question has already been put.
+    ///
+    /// Lazy and once: the answer is a harness fact that only changes when an agent handshakes
+    /// again, and the host answers from a record it already holds. A harness that does not speak
+    /// ACP is never asked at all — there is no answer for it, and
+    /// [`ubiq_proto::messages::AgentTypeInfo::acp`] is the fact that says so.
+    pub fn ask_acp_capabilities(&mut self, agent_type: String) {
+        let speaks_acp = self
+            .workbench
+            .agent_type(&agent_type)
+            .is_some_and(|info| info.acp);
+        if !speaks_acp || self.workbench.settings.acp_asked(&agent_type) {
+            return;
+        }
+        self.workbench.settings.acp_asked.insert(agent_type.clone());
+        self.bus.send(Message::ListAcpCapabilities { agent_type });
+    }
+
+    /// The same question for every ACP harness the host lists — what arriving at the Harnesses
+    /// page asks, because that page draws one block per harness.
+    ///
+    /// `revisit` forgets what has already been asked, which is what arriving at the page does: a
+    /// conversation started since it was last open is precisely what turns "none has yet" into a
+    /// record, and a window that asked once per process would draw the old answer until a restart.
+    /// The answers that arrive behind a `false` are the same question asked once for the list the
+    /// visit began without.
+    pub fn ask_acp_capabilities_all(&mut self, revisit: bool) {
+        if revisit {
+            self.workbench.settings.acp_asked.clear();
+        }
+        let asks: Vec<String> = self
+            .workbench
+            .agent_types
+            .iter()
+            .filter(|info| info.acp)
+            .map(|info| info.id.clone())
+            .collect();
+        for agent_type in asks {
+            self.ask_acp_capabilities(agent_type);
         }
     }
 
@@ -332,6 +377,7 @@ impl AppState {
             // Arriving at the page is what makes the readouts worth having, and the cached
             // answer costs the host a map lookup.
             self.ask_quotas();
+            self.ask_acp_capabilities_all(true);
         }
         if nav == SettingsSection::Assist {
             // Asked on arrival rather than at startup, for the reason the connections are: a

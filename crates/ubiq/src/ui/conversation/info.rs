@@ -11,8 +11,8 @@
 //! precisely so this panel can offer the folder without knowing what a harness keeps in it.
 
 use gpui::{
-    AnyElement, ClipboardItem, Context, ElementId, IntoElement, ParentElement, Styled, Window, div,
-    px,
+    AnyElement, ClipboardItem, Context, ElementId, InteractiveElement, IntoElement, ParentElement,
+    StatefulInteractiveElement, Styled, Window, div, px,
 };
 use gpui_component::IconName;
 
@@ -46,6 +46,7 @@ pub fn render(
     }
     let entity = cx.entity();
     let record = app.work(cx).and_then(|work| work.agent(id));
+    let harness = harness_label(conversation, record);
 
     let mut body = div()
         .flex()
@@ -59,13 +60,20 @@ pub fn render(
     if let Some(record) = record {
         body = body.child(session(record, cx));
     }
+    if app.conversation_info_capabilities {
+        // Read once for the frame and threaded down, the way the settings page threads its own
+        // `now_ms` into every block that words an age: a clock read inside a render is a reading
+        // that differs between two lines of the same panel.
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        body = body.child(capabilities(app, &harness, now_ms));
+    }
 
     modal(
         "conversation-info",
         theme::accent(),
         "Conversation info",
         body.into_any_element(),
-        footer(record, cx),
+        footer(app, record, &harness, cx),
         handler(&entity, |this, _, cx| this.dismiss_conversation_info(cx)),
         window,
     )
@@ -76,10 +84,7 @@ pub fn render(
 /// The harness is the display label the host minted, never an id: a `WorkAgent` carries the label
 /// and the window has nothing else in hand — the same reason `super::keeps_sessions` matches on it.
 fn profile(conversation: &Conversation, record: Option<&WorkAgent>) -> AnyElement {
-    let harness = record
-        .map(|agent| agent.harness.clone())
-        .filter(|label| !label.is_empty())
-        .unwrap_or_else(|| conversation.harness.clone());
+    let harness = harness_label(conversation, record);
     let model = conversation
         .model
         .clone()
@@ -217,7 +222,12 @@ fn session(record: &WorkAgent, cx: &mut Context<AppState>) -> AnyElement {
 /// where the host has reported no path — a control that comes and goes teaches nothing about why
 /// it is missing, and a conversation that has never launched has genuinely no configuration
 /// directory to name.
-fn footer(record: Option<&WorkAgent>, cx: &mut Context<AppState>) -> AnyElement {
+fn footer(
+    app: &AppState,
+    record: Option<&WorkAgent>,
+    harness: &str,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
     let run_dir = record.and_then(|agent| agent.run_dir.clone());
     let config_dir = record.and_then(|agent| agent.config_dir.clone());
     let dump = record.and_then(|agent| agent.debug_dump.clone());
@@ -236,7 +246,90 @@ fn footer(record: Option<&WorkAgent>, cx: &mut Context<AppState>) -> AnyElement 
     if dump.is_some() {
         row = row.child(reveal("info-open-dump", "Open dump", dump, cx));
     }
+    row = row.child(capabilities_button(app, harness, cx));
     row.into_any_element()
+}
+
+/// The one control in this panel that asks the host anything: show what this conversation's
+/// harness said it can do.
+///
+/// A toggle inside the same modal rather than a second overlay — it is another reading of the same
+/// conversation, and a modal raised over a modal to say one more thing about it is a layer the
+/// reader has to dismiss twice. Drawn live for an ACP harness and dead, with the reason under the
+/// pointer, for anything else: a harness with its own wire has no such answer, and a control that
+/// vanished would read as a feature that is missing.
+fn capabilities_button(app: &AppState, harness: &str, cx: &mut Context<AppState>) -> AnyElement {
+    let acp = app
+        .workbench
+        .agent_type_by_label(harness)
+        .is_some_and(|info| info.acp);
+    if !acp {
+        return div()
+            .id("info-capabilities-dead")
+            .h(px(26.))
+            .px_2()
+            .flex()
+            .items_center()
+            .border_1()
+            .border_color(theme::border())
+            .text_size(meta())
+            .text_color(theme::text_faint())
+            .child("Capabilities")
+            .tooltip(|window, cx| {
+                gpui_component::tooltip::Tooltip::new(
+                    "This harness speaks its own wire rather than ACP, so it advertises no \
+                     capabilities.",
+                )
+                .build(window, cx)
+            })
+            .into_any_element();
+    }
+
+    let harness = harness.to_string();
+    ghost_button(
+        "info-capabilities",
+        Some(IconName::Info),
+        if app.conversation_info_capabilities {
+            "Hide capabilities"
+        } else {
+            "Capabilities"
+        },
+        cx.listener(move |this, _, _, cx| {
+            this.toggle_conversation_info_capabilities(harness.clone(), cx)
+        }),
+    )
+    .into_any_element()
+}
+
+/// The capabilities section, drawn inside the body while the foot's toggle is on.
+///
+/// The panel itself is shared with the harness settings — see
+/// [`crate::ui::acp_capabilities::panel`] — so the two surfaces word every answer, including both
+/// empty ones, exactly the same way.
+fn capabilities(app: &AppState, harness: &str, now_ms: i64) -> AnyElement {
+    let info = app.workbench.agent_type_by_label(harness);
+    let id = info.map(|info| info.id.as_str()).unwrap_or(harness);
+    let acp = info.is_some_and(|info| info.acp);
+    group("Capabilities")
+        .child(crate::ui::acp_capabilities::panel(
+            id,
+            app.workbench.settings.acp_capabilities(id),
+            acp,
+            now_ms,
+        ))
+        .into_any_element()
+}
+
+/// Which harness answers this conversation, as the display label both halves of the panel read.
+///
+/// The work record's label where the host has minted one, the conversation's own otherwise — the
+/// same fallback [`profile`] draws, kept in one place now that the foot resolves it to a harness
+/// too.
+fn harness_label(conversation: &Conversation, record: Option<&WorkAgent>) -> String {
+    record
+        .map(|agent| agent.harness.clone())
+        .filter(|label| !label.is_empty())
+        .unwrap_or_else(|| conversation.harness.clone())
 }
 
 /// One folder button: live where there is a path, dead where there is not.

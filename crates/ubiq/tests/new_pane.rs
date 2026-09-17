@@ -153,6 +153,7 @@ fn an_agent(id: &str, label: &str, available: bool) -> AgentTypeInfo {
         // The new-pane menu draws every harness, conversable or not — a pane is a terminal, and
         // a harness that cannot hold a transcript still draws its own screen perfectly well.
         chat: true,
+        acp: false,
         modes: Vec::new(),
         unattended_mode: None,
         keeps_sessions: true,

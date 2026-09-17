@@ -1861,6 +1861,35 @@ impl AppState {
             // a harness that has been uninstalled has to leave the menu, or read as unavailable.
             Message::AgentTypes { agent_types } => {
                 self.workbench.agent_types = agent_types;
+                // Which harnesses speak ACP is a fact this list carries, so it is the earliest
+                // moment the capabilities question can be put at all — and the Harnesses page
+                // draws a block per harness that wants the answer. Asked once per harness.
+                if self.workbench.settings.open
+                    && self.workbench.settings.nav == SettingsSection::Harnesses
+                {
+                    self.ask_acp_capabilities_all(false);
+                }
+                cx.notify();
+            }
+
+            // What one ACP harness said it can do, in answer to one `ListAcpCapabilities`. `None`
+            // is not an error and writes nothing: it means no handshake on that harness has been
+            // seen, and the surfaces say so in their own words from the absent entry.
+            Message::AcpCapabilities {
+                agent_type,
+                capabilities,
+            } => {
+                match capabilities {
+                    Some(record) => {
+                        self.workbench
+                            .settings
+                            .acp_capabilities
+                            .insert(agent_type, record);
+                    }
+                    None => {
+                        self.workbench.settings.acp_capabilities.remove(&agent_type);
+                    }
+                }
                 cx.notify();
             }
 

@@ -263,6 +263,7 @@ mod tests {
             command: "claude".to_string(),
             available: true,
             chat: true,
+            acp: false,
             modes: vec![choice("plan"), choice("bypass")],
             unattended_mode: unattended.map(str::to_string),
             keeps_sessions: true,

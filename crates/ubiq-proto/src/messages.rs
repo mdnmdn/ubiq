@@ -260,6 +260,23 @@ pub enum Message {
         last_model: String,
         last_thinking: String,
     },
+    /// What `agent_type`'s ACP agent said it can do, asked by any surface that wants to show it.
+    /// Answered with [`Message::AcpCapabilities`].
+    ///
+    /// **This is a read, never a probe.** The record exists only because a conversation on this
+    /// harness completed an ACP handshake at some point — the host keeps the answer, and asking
+    /// here starts nothing and spawns nothing. Meaningless for a harness whose
+    /// [`AgentTypeInfo::acp`] is false, which is answered with `None` rather than refused.
+    ListAcpCapabilities {
+        agent_type: String,
+    },
+    /// The record that answers it. `None` means no ACP handshake on this harness has been seen —
+    /// either it does not speak ACP, or nothing has conversed with it yet. A surface says which by
+    /// reading [`AgentTypeInfo::acp`]; the host does not repeat the distinction here.
+    AcpCapabilities {
+        agent_type: String,
+        capabilities: Option<crate::acp::AcpCapabilitiesRecord>,
+    },
 
     // ── Account family: the identities a harness runs as ─────────────
     /// Which accounts exist, and which harnesses each can actually log in. Answered with
@@ -2225,6 +2242,15 @@ pub struct AgentTypeInfo {
     /// argv, one answer, exit — is `chat: true`, because the host continues it by launching again
     /// with the session id the last run reported.
     pub chat: bool,
+    /// Whether that structured bridge is the **Agent Client Protocol** rather than a wire of the
+    /// harness's own. The library's `IoSupport::acp`, verbatim.
+    ///
+    /// It is what makes [`Message::ListAcpCapabilities`] worth asking: an ACP agent states what it
+    /// can do in its `initialize` answer, and nothing else does. A surface reads this to decide
+    /// whether to offer that list at all, rather than inferring it from a harness id — `-acp` in a
+    /// name is a naming convention, not a fact, and three of the ACP harnesses do not carry it.
+    #[serde(default)]
+    pub acp: bool,
     /// The permission modes this harness advertises, as the library reports them. Empty when
     /// the harness has no such axis — a mode is not a universal concept, it is whatever this
     /// particular harness named.

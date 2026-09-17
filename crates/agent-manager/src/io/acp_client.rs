@@ -193,10 +193,10 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 use super::{
-    AgentEvent, AgentInput, AgentInputSink, ConfigCategory, ConfigChoice, ConfigOption,
-    ConfigSetting, ConfigValue, Content, IoBridge, Origin, PermissionKind, PermissionOption,
-    PermissionOutcome, PlanEntry, Spend, StopReason, ToolCall, ToolCallUpdate, ToolContent,
-    ToolKind, ToolStatus,
+    AcpCapabilities, AgentEvent, AgentInput, AgentInputSink, ConfigCategory, ConfigChoice,
+    ConfigOption, ConfigSetting, ConfigValue, Content, IoBridge, Origin, PermissionKind,
+    PermissionOption, PermissionOutcome, PlanEntry, Spend, StopReason, ToolCall, ToolCallUpdate,
+    ToolContent, ToolKind, ToolStatus,
 };
 
 /// How long the handshake waits for `initialize` / `session/new` /
@@ -372,6 +372,12 @@ pub struct AcpBridge {
     /// `loadSession` and `promptCapabilities` are the two this bridge itself
     /// reads.
     agent_capabilities: Value,
+    /// The same `initialize` result read as a list a reader can be shown, built
+    /// once during the handshake. **The handshake is the only discovery there
+    /// is**: an ACP agent states this on connection and nothing re-asks, so a
+    /// surface that wants to show it reads this record rather than opening a
+    /// second connection of its own.
+    capabilities: AcpCapabilities,
 }
 
 /// The detached input side of an [`AcpBridge`], for a caller pumping events on
@@ -464,6 +470,7 @@ impl AcpBridge {
             writer: Some(writer),
             shared,
             agent_capabilities: Value::Null,
+            capabilities: AcpCapabilities::default(),
         };
 
         bridge.handshake(&cwd, resume, model)?;
@@ -495,6 +502,9 @@ impl AcpBridge {
             );
         }
 
+        // Read for display here, at the one moment the whole result is in hand.
+        // Nothing asks the agent a second time, so anything not taken now is gone.
+        self.capabilities = super::acp_caps::read_initialize(&init);
         self.agent_capabilities = init
             .get("agentCapabilities")
             .cloned()
@@ -622,6 +632,13 @@ impl AcpBridge {
     pub fn agent_capabilities(&self) -> &Value {
         &self.agent_capabilities
     }
+
+    /// What this endpoint said it can do, from the same `initialize` — see
+    /// [`super::acp_caps`]. Reached through [`IoBridge::acp_capabilities`] by a
+    /// caller holding the bridge type-erased, which is every caller.
+    pub fn capabilities(&self) -> &AcpCapabilities {
+        &self.capabilities
+    }
 }
 
 impl IoBridge for AcpBridge {
@@ -631,6 +648,10 @@ impl IoBridge for AcpBridge {
 
     fn next_event(&mut self) -> crate::Result<Option<AgentEvent>> {
         Ok(self.next_event_raw()?.map(|(event, _)| event))
+    }
+
+    fn acp_capabilities(&self) -> Option<AcpCapabilities> {
+        Some(self.capabilities.clone())
     }
 
     fn next_event_raw(&mut self) -> crate::Result<Option<(AgentEvent, Option<String>)>> {

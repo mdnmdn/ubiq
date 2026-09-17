@@ -1258,6 +1258,7 @@ impl AppState {
             composer_rows: vec![None; COMPOSER_SLOTS],
             composer_drag: None,
             conversation_info: None,
+            conversation_info_capabilities: false,
             dump_copy_pending: None,
             file_filter,
             file_name,

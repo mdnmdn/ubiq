@@ -678,11 +678,42 @@ impl AppState {
     /// a conversation that has not launched yet simply has fewer answers to give.
     pub fn open_conversation_info(&mut self, agent_id: AgentId, cx: &mut Context<Self>) {
         self.conversation_info = Some(agent_id);
+        self.conversation_info_capabilities = false;
         cx.notify();
     }
 
     pub fn dismiss_conversation_info(&mut self, cx: &mut Context<Self>) {
         self.conversation_info = None;
+        self.conversation_info_capabilities = false;
+        cx.notify();
+    }
+
+    /// Show or hide the Info panel's ACP capabilities section.
+    ///
+    /// The one thing in that panel that asks the host anything, and expanding it is what puts the
+    /// question: the record is a harness fact the host already holds, so the ask is a map lookup
+    /// there. Asked on every expansion rather than once for the life of the window, for the reason
+    /// [`crate::state::settings::SettingsState::acp_asked`] is cleared on a visit — a conversation
+    /// started since the last look is exactly what turns "none has yet" into a record.
+    ///
+    /// `harness` is the display label the work record carries —
+    /// [`crate::state::workbench::WorkbenchState::agent_type_by_label`] is what turns it back into
+    /// the harness the question is about.
+    pub fn toggle_conversation_info_capabilities(
+        &mut self,
+        harness: String,
+        cx: &mut Context<Self>,
+    ) {
+        self.conversation_info_capabilities = !self.conversation_info_capabilities;
+        if self.conversation_info_capabilities
+            && let Some(id) = self
+                .workbench
+                .agent_type_by_label(&harness)
+                .map(|info| info.id.clone())
+        {
+            self.workbench.settings.acp_asked.remove(&id);
+            self.ask_acp_capabilities(id);
+        }
         cx.notify();
     }
 

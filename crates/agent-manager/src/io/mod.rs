@@ -27,6 +27,12 @@ pub use model::{
 pub mod acp;
 pub use acp::{from_acp, to_acp};
 
+pub mod acp_caps;
+pub use acp_caps::{
+    AcpAuthMethod, AcpCapabilities, AcpCapability, AcpCapabilityGroup, AcpImplementation,
+    read_initialize,
+};
+
 pub mod agui;
 pub use agui::to_agui;
 

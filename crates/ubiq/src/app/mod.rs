@@ -684,6 +684,10 @@ pub struct AppState {
     /// a project switch that left one standing over a different project's agents would be showing
     /// a conversation nothing on screen holds.
     pub conversation_info: Option<AgentId>,
+    /// Whether that panel's ACP capabilities section is expanded. Beside the panel's own flag and
+    /// not inside it: the section is a second reading in the same modal rather than a second
+    /// overlay, and it collapses again with the panel it lives in.
+    pub conversation_info_capabilities: bool,
     /// The conversation whose dump was just asked for and whose file has not been named yet.
     ///
     /// The window asks for a capture with a `bool` and the host answers with a path, so the path a

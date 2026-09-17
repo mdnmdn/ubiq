@@ -647,9 +647,7 @@ fn has_chat_tab(app: &AppState, id: AgentId, cx: &App) -> bool {
 /// works. The host refuses the ones that genuinely cannot; this only saves the user the click.
 fn keeps_sessions(app: &AppState, conversation: &Conversation, _cx: &App) -> bool {
     app.workbench
-        .agent_types
-        .iter()
-        .find(|info| info.label == conversation.harness)
+        .agent_type_by_label(&conversation.harness)
         .is_none_or(|info| info.keeps_sessions)
 }
 
