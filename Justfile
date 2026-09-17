@@ -35,6 +35,7 @@ bundle:
     cp target/release/ubiq target/Ubiq.app/Contents/MacOS/ubiq
     cp target/AppIcon.icns target/Ubiq.app/Contents/Resources/AppIcon.icns
     cp _tools/Info.plist target/Ubiq.app/Contents/Info.plist
+    @echo "Done at $(date)"
 
 # Assemble the Windows release in target/ubiq-windows-x86_64/ — the .exe
 bundle-win:

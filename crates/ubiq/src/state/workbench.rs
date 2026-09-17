@@ -27,20 +27,26 @@ use crate::state::settings::SettingsState;
 use crate::state::sink::{ColourField, DroneField, ProjectNav};
 use crate::theme::ThemeId;
 
-/// The left rail's destinations. `Control`, `Ide`, `Git`, `Agents`, `Orchestration`, `Tasks` and
-/// `Sink` are built; the rest render an empty page.
+/// The left rail's destinations. `Control`, `Ide`, `Git`, `Agents`, `Teams`, `TeamsOld`, `Tasks`
+/// and `Sink` are built; the rest render an empty page.
 ///
-/// `Agents` and `Orchestration` are two screens over the same records, and the split is the point.
+/// `Agents` and `TeamsOld` are two screens over the same records, and the split is the point.
 /// `Agents` is where the user *talks to* the agents — parallel columns, one conversation each.
-/// `Orchestration` is where the user *arranges* them — the graph of who spawned whom and which
-/// task each card serves.
+/// `TeamsOld` is where the user *arranges* them — the graph of who spawned whom and which task
+/// each card serves.
+///
+/// `Teams` is the new mode standing beside it: a clone of `TeamsOld`'s screen and state, kept
+/// independent so the two can drift apart wave by wave. `TeamsOld` is not removed and not
+/// redirected — it keeps drawing exactly what it always has, under its old label wrapped in
+/// brackets, until the waves after this one either fold it away or replace it outright.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub enum RailMode {
     Control,
     Ide,
     Git,
     Agents,
-    Orchestration,
+    Teams,
+    TeamsOld,
     Kb,
     Tasks,
     /// The kitchen sink: the application's own test bench. The one mode with no project behind it
@@ -68,7 +74,8 @@ impl RailMode {
             RailMode::Ide => "IDE",
             RailMode::Git => "Git",
             RailMode::Agents => "Agents",
-            RailMode::Orchestration => "Teams",
+            RailMode::Teams => "Teams",
+            RailMode::TeamsOld => "[Teams]",
             RailMode::Kb => "KB",
             RailMode::Tasks => "Tasks",
             RailMode::Sink => "Sink",
@@ -84,7 +91,8 @@ impl RailMode {
             RailMode::Ide => "",
             RailMode::Git => "What version control knows about this project.",
             RailMode::Agents => "The agents running in this project, one column each.",
-            RailMode::Orchestration => "How the agents are arranged, and which task each serves.",
+            RailMode::Teams => "How the agents are arranged, and which task each serves.",
+            RailMode::TeamsOld => "How the agents are arranged, and which task each serves.",
             RailMode::Kb => "Notes and documents the agents can read.",
             RailMode::Tasks => "Work queued for the agents in this session.",
             RailMode::Sink => "The application's own test bench.",
@@ -108,7 +116,8 @@ impl RailMode {
                     RailMode::Ide,
                     RailMode::Git,
                     RailMode::Agents,
-                    RailMode::Orchestration,
+                    RailMode::Teams,
+                    RailMode::TeamsOld,
                     RailMode::Kb,
                     RailMode::Tasks,
                 ],

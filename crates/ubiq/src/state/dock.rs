@@ -118,7 +118,7 @@ pub struct Visibility {
 /// looking at, because it may be looking at nothing at all.
 ///
 /// `Centre` is the one panel whose body follows the rail mode: the columns in Agents mode, the
-/// graph in Orchestration mode, the board in Tasks mode, and the empty page otherwise. In IDE mode
+/// graph in Teams and [Teams] mode, the board in Tasks mode, and the empty page otherwise. In IDE mode
 /// it is the page that says no file is open — as soon as one is, the file panels are the centre and
 /// it steps aside.
 ///

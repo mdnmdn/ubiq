@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: Every open question, known gap and deferred item across the project, in one register.
 read_when: you are planning the next piece of work, or you hit something unresolved and need somewhere to put it
-updated: 2026-09-16
-verified: 2026-09-16
+updated: 2026-09-17
+verified: 2026-09-17
 review_cycle: monthly
 ---
 
@@ -290,6 +290,12 @@ change what Ubiq does (here), or where a document lives (there)?
 | G268 | Whether `drone_write` creates or overwrites is undecided. `WriteProjectFile` refuses an absent `expected` on a file that exists rather than forcing an overwrite, and threading a content hash through a model's tool call is awkward for a value it does not carry between turns. A plain create call plus an explicit overwrite flag on write is the likely shape; settling between them is what closes it | [`wip/drone.md`](./wip/drone.md) |
 | G269 | `KbStore::Project` has no decision row. A knowledge-base source checked out at `.ubiq/kb/<source id>` inside the project is a deliberate exception to `D30` — nothing Ubiq fetched is ever written inside a user's project folder — for a team that wants the checkout shared or committed, and nothing argues its cost or how it differs from every other case `D30` covers | [`wip/kb.md`](./wip/kb.md), [`tech/decisions.md`](./tech/decisions.md) |
 | G270 | Picking a repository in the Git screen's selector does nothing but close the menu. `crates/ubiq/src/ui/git/repo_selector.rs` lists the project's root and any submodule or nested repository, but every git message in `crates/ubiq-proto/src/messages.rs` is keyed by `ProjectId` alone and `RepoOverview::scoped_to` is computed host-side, so there is no request the UI could send to view a different repository. Closing it needs either a repository id threaded through the git message family or the host answering more than one repository's data per project | [`features/workbench.md`](./features/workbench.md), [`tech/transport-contract.md`](./tech/transport-contract.md) |
+| G272 | `Teams` draws no dashed ring round a session. A task gets one — the outline computed from its cards' bounds, in `ui/teams/graph.rs` and `ui/orchestration/graph.rs` alike — but nothing groups a session's containers inside a ring of its own on either screen | [`features/workbench.md`](./features/workbench.md) |
+| G275 | `Teams` and `[Teams]` share one icon, `UbiqIcon::ModeTeams`, so the rail tells the two apart only by the bracketed label. A distinct icon for one of them is undrawn | [`tech/ui-and-design.md`](./tech/ui-and-design.md), [`features/workbench.md`](./features/workbench.md) |
+| G276 | A card's ring has nowhere to grow past one row. `state::layout`'s packers — `Flow`, `Packed`, `Tree` and `Columns` alike — size every row at a flat `CARD_HEIGHT`, so a card with a ring reaches into the gap the arrangement leaves and no further; `RING_MAX` caps a ring at four boxes for the same reason, not because a fifth delegate is impossible. A second ring row, or a box tall enough to carry more than a label, needs a packer that asks each card its own extent rather than assuming `CARD_HEIGHT` for all of them | [`features/workbench.md`](./features/workbench.md) |
+| G277 | The `teams` link slug and `TeamsSelection::Subagent` have no test. `crates/ubiq/tests/nav_text.rs` round-trips `graph` links and `crates/ubiq/tests/navigator.rs` and `bookmarks.rs` cover `Selection`, but nothing parses or prints a `teams/a:<id>/chat/<call-id>` link, exercises the `NotALink` case of a delegate named on a `s:` selection, or drives a click into `TeamsSelection::Subagent` end to end | [`features/workbench.md`](./features/workbench.md) |
+| G278 | Two of the seven status glyphs `ui/teams/status.rs` draws are borrowed rather than designed. The icon registry has no mark for "composing a reply" or "running a tool", so `AgentStatus::Writing` wears `IconName::FileText` and `AgentStatus::Tools` wears `IconName::SquareTerminal` — the closest existing shapes, not ones drawn for these readings. Drawing the pair closes it | [`features/workbench.md`](./features/workbench.md) |
+| G279 | The inspector, the tasks drawer and a card's connectors read `activity_colour(agent.activity)` rather than `state::teams::agent_status`, so a card's edge and chip can say `Idle` while everything else drawn about the same agent says `Ended` — the one state the wider reading adds is invisible past the card. Threading `agent_status` (or a cached reading of it) through `ui/teams/inspector.rs`, `ui/teams/tasks.rs` and the connector colouring in `ui/teams/graph.rs` closes it | [`features/workbench.md`](./features/workbench.md) |
 
 ## Related docs
 

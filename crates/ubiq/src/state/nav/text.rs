@@ -24,6 +24,7 @@ use ubiq_proto::work::AgentId;
 use super::{Destination, Locus, View};
 use crate::state::dock::ChatId;
 use crate::state::orchestration::{InspectorTab, Selection};
+use crate::state::teams::{TeamsInspectorTab, TeamsSelection};
 
 const SCHEME: &str = "ubiq://";
 
@@ -53,6 +54,23 @@ impl fmt::Display for Destination {
                     InspectorTab::Tasks => "tasks",
                 };
                 write!(f, "graph/{kind}:{id}/{tab}")?;
+            }
+            View::Teams { selection, tab } => {
+                let (kind, id) = match selection {
+                    TeamsSelection::Session(id) => ("s", id.to_string()),
+                    TeamsSelection::Agent(id) => ("a", id.to_string()),
+                    TeamsSelection::Subagent { agent, .. } => ("a", agent.to_string()),
+                };
+                let tab = match tab {
+                    TeamsInspectorTab::Chat => "chat",
+                    TeamsInspectorTab::Tasks => "tasks",
+                };
+                write!(f, "teams/{kind}:{id}/{tab}")?;
+                // The delegate comes last and takes the rest of the link, because a `Task` call's
+                // id is the harness's string and nothing here may promise what is in it.
+                if let TeamsSelection::Subagent { subagent, .. } = selection {
+                    write!(f, "/{}", encode(subagent))?;
+                }
             }
             View::Agents { agent } => write!(f, "agents/{agent}")?,
             View::Tasks { task } => write!(f, "tasks/{task}")?,
@@ -159,6 +177,48 @@ fn parse_view(slug: &str, item: Option<&str>) -> Result<View, NotALink> {
                 Some(_) => return Err(NotALink),
             };
             Ok(View::Graph { selection, tab })
+        }
+        // The same shape as `graph`, plus a third segment for a delegate: a selection, which half
+        // of the inspector is up, and — where the link names one — which subagent of that agent is
+        // being read. The delegate is last and unsplit, so a `Task` call id holding a `/` survives.
+        "teams" => {
+            let item = item.ok_or(NotALink)?;
+            let mut parts = item.splitn(3, '/');
+            let sel = parts.next().ok_or(NotALink)?;
+            let tab = parts.next();
+            let subagent = parts.next();
+            // The `s:`/`a:` prefix is forced, for the same reason `graph`'s is: both ids are
+            // 26-character ULIDs and the text alone cannot tell a session from an agent.
+            let selection = match sel.split_once(':') {
+                Some(("s", id)) => {
+                    if subagent.is_some() {
+                        // A session has no delegate. Naming one is a different string, not a
+                        // refinement of this one.
+                        return Err(NotALink);
+                    }
+                    TeamsSelection::Session(id.parse::<SessionId>().map_err(|_| NotALink)?)
+                }
+                Some(("a", id)) => {
+                    let agent = id.parse::<AgentId>().map_err(|_| NotALink)?;
+                    match subagent {
+                        None => TeamsSelection::Agent(agent),
+                        Some(sub) => {
+                            let subagent = decode(sub)?;
+                            if subagent.is_empty() {
+                                return Err(NotALink);
+                            }
+                            TeamsSelection::Subagent { agent, subagent }
+                        }
+                    }
+                }
+                _ => return Err(NotALink),
+            };
+            let tab = match tab {
+                None | Some("chat") => TeamsInspectorTab::Chat,
+                Some("tasks") => TeamsInspectorTab::Tasks,
+                Some(_) => return Err(NotALink),
+            };
+            Ok(View::Teams { selection, tab })
         }
         _ => Err(NotALink),
     }

@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: Editor-like chat tabs — many, movable to any dockable region, each a view onto a host-owned conversation or onto none, drawn by the composer, transcript and tool blocks the whole window shares.
 read_when: you are changing a chat tab, the control that starts or attaches a conversation, or which conversation a tab shows
-updated: 2026-09-16
-verified: 2026-09-16
+updated: 2026-09-17
+verified: 2026-09-17
 code_anchors: [crates/ubiq/src/ui/chat/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/app/projects.rs]
 depends_on: [feat-workbench]
 review_cycle: monthly
@@ -477,8 +477,9 @@ current pick. One builder, so "already taken" is answered once for the chat head
 `+` menu's second stage and the agents screen alike.
 
 `crates/ubiq/src/state/agents.rs` defines `COLUMNS_MAX`, `CHATS_MAX` and
-`COMPOSER_SLOTS = COLUMNS_MAX + CHATS_MAX`; `AgentsView::free_slot` still allocates a column's slot
-from the low range, unchanged.
+`COMPOSER_SLOTS = COLUMNS_MAX + CHATS_MAX + 2` — the two above the chat range are `SINK_SLOT`, the
+kitchen sink's bench, and `TEAMS_SLOT`, the Teams screen's inspector; `AgentsView::free_slot` still
+allocates a column's slot from the low range, unchanged.
 
 `crates/ubiq/src/app/chat.rs` is where a tab's own lifecycle lives: `open_chat_tab` mints one and
 gives it a slot, `open_chat_tab_now` puts it in the dock as well — called when there is a

@@ -98,6 +98,10 @@ pub struct SubagentTab {
     /// on its row, in place of what it would otherwise say it was doing: a delegate waiting on a
     /// human is not doing anything, and the question is the more useful of the two readings.
     pub waiting: usize,
+    /// What this delegate's own last line says it is doing — the running tool's title, or
+    /// thinking/writing where the line was prose. `None` where the transcript holds nothing of
+    /// its own yet: a delegate with no lines is not doing anything this window can name.
+    pub activity: Option<String>,
 }
 
 /// Which of the activity panels above the composer is open: the spawned-subagent
@@ -510,9 +514,30 @@ impl Conversation {
                     .subagent_stamps(id)
                     .find_map(|who| who.thinking.clone()),
                 waiting: self.pending_count(Some(id)),
+                activity: self.subagent_activity(id),
             });
         }
         tabs
+    }
+
+    /// What this delegate's own last line says it is doing — the running tool's title, or
+    /// thinking/writing where the line was prose. `None` where the transcript holds nothing of
+    /// its own yet: a delegate with no lines is not doing anything this window can name.
+    ///
+    /// Read off `ConvBlock::subagent_id`, so the spawning `Task` call itself — whose id equals
+    /// this delegate's id but whose own attribution is the parent's — is never mistaken for one of
+    /// the delegate's own lines.
+    pub fn subagent_activity(&self, id: &str) -> Option<String> {
+        self.blocks
+            .iter()
+            .rev()
+            .find(|block| block.subagent_id() == Some(id))
+            .and_then(|block| match block {
+                ConvBlock::Tool { call, .. } => Some(call.title.clone()),
+                ConvBlock::Thought { .. } => Some("Thinking".to_string()),
+                ConvBlock::Agent { .. } => Some("Writing".to_string()),
+                ConvBlock::User(_) | ConvBlock::Compacted => None,
+            })
     }
 
     /// Every stamp this delegate's own lines carry, in order — its kind, and what it was launched
@@ -1639,6 +1664,67 @@ mod tests {
             tabs[1].model, None,
             "a delegate the harness named no model for carries none — not the parent's"
         );
+    }
+
+    /// What a delegate is doing right now is read off its own last line — the running tool's
+    /// title where that line is a call, "Thinking" or "Writing" where it is prose, and nothing at
+    /// all where it has not said anything of its own yet. The spawning `Task` call, whose id
+    /// equals the delegate's own, is never mistaken for one of those lines.
+    #[test]
+    fn a_delegates_activity_is_its_own_last_line() {
+        let mut c = conversation();
+        c.apply(
+            1,
+            task_call("t751", "Formal greeting agent", ToolStatus::InProgress),
+        );
+        assert_eq!(
+            c.subagent_activity("t751"),
+            None,
+            "spawned, and nothing said yet"
+        );
+
+        c.apply(
+            2,
+            ConvUpdate::ThoughtChunk {
+                content: ConvContent::Text("How to greet formally?".to_string()),
+                message_id: Some("m1".to_string()),
+                subagent: Some(Subagent {
+                    id: "t751".to_string(),
+                    kind: Some("general-purpose".to_string()),
+                    ..Default::default()
+                }),
+            },
+        );
+        assert_eq!(c.subagent_activity("t751"), Some("Thinking".to_string()));
+
+        c.apply(
+            3,
+            ConvUpdate::ToolCall(ToolCallRecord {
+                id: "inner-1".to_string(),
+                title: "Reading etiquette.md".to_string(),
+                kind: ToolKind::Other,
+                status: ToolStatus::InProgress,
+                content: Vec::new(),
+                locations: Vec::new(),
+                subagent: Some(Subagent {
+                    id: "t751".to_string(),
+                    kind: Some("general-purpose".to_string()),
+                    ..Default::default()
+                }),
+            }),
+        );
+        assert_eq!(
+            c.subagents()
+                .iter()
+                .find(|t| t.id == "t751")
+                .unwrap()
+                .activity,
+            Some("Reading etiquette.md".to_string()),
+            "the running tool's own title, carried through to the tab"
+        );
+
+        c.apply(4, said_by("Good day.", "t751", Some("general-purpose")));
+        assert_eq!(c.subagent_activity("t751"), Some("Writing".to_string()));
     }
 
     /// The panels are closed until they are asked for: a conversation's delegates or plans are a

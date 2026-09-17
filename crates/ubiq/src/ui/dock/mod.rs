@@ -52,7 +52,7 @@ use crate::state::settings::TabClose;
 use crate::theme;
 use crate::ui::{
     agents, board, chat, editor, empty, explorer, git, kb, logs, orchestration, outline, rail,
-    search, sink, stats, terminal,
+    search, sink, stats, teams, terminal,
 };
 
 /// The version a saved layout is written under. It travels with the preferences schema, because
@@ -653,9 +653,10 @@ fn centre(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> An
         RailMode::Ide if has_project => editor::render(app, cx),
         RailMode::Git if has_project => editor::render(app, cx),
         RailMode::Agents if has_project => agents::render(app, window, cx).into_any_element(),
-        RailMode::Orchestration if has_project => {
+        RailMode::TeamsOld if has_project => {
             orchestration::render(app, window, cx).into_any_element()
         }
+        RailMode::Teams if has_project => teams::render(app, window, cx).into_any_element(),
         RailMode::Tasks if has_project => board::render(app, window, cx).into_any_element(),
         RailMode::Kb if has_project => kb::centre(app, window, cx),
         // The two modes that are about the application rather than a project answer whether or

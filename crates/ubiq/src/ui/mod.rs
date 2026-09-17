@@ -42,6 +42,7 @@ pub mod sink;
 pub mod stats;
 pub mod status_bar;
 pub mod tab_menu;
+pub mod teams;
 pub mod terminal;
 pub mod titlebar;
 pub mod tools;

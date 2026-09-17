@@ -276,6 +276,7 @@ fn kind_of(view: &View) -> &'static str {
         View::Explorer { .. } => "Folder",
         View::Terminal { .. } => "Terminal",
         View::Graph { .. } => "Graph",
+        View::Teams { .. } => "Teams",
         View::Agents { .. } => "Agents",
         View::Tasks { .. } => "Task",
         View::Chat { .. } => "Chat",

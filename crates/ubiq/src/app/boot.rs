@@ -1347,6 +1347,7 @@ impl AppState {
             picker_scroll: ScrollHandle::new(),
             explorer_scroll: ScrollHandle::new(),
             graph_scroll: ScrollHandle::new(),
+            teams_scroll: ScrollHandle::new(),
             nav: History::default(),
             nav_settling: false,
             bookmark_marks: HashMap::new(),

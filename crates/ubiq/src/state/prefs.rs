@@ -22,7 +22,12 @@ use crate::theme::{AccentId, Density, ThemeId};
 /// column screen. `rail_mode: "Agents"` is still a name this build reads, and it now names a
 /// different screen — the one case a default cannot rescue, because nothing is missing: the value
 /// changed meaning. An older blob would open the wrong mode with the wrong arrangement under it.
-pub const SCHEMA: u32 = 3;
+///
+/// It moved to `4` when `RailMode::Orchestration` was renamed to `RailMode::TeamsOld` to make room
+/// for the new `Teams` mode beside it. Same screen, same arrangement, but the serialised tag
+/// changed — `rail_mode: "Orchestration"` names nothing this build reads, so a blob written
+/// before this change is discarded rather than opening on defaults with the wrong mode recorded.
+pub const SCHEMA: u32 = 4;
 
 /// One rail mode's arrangement of one project's window: which edge regions were on screen, and the
 /// dock blob that restores it.

@@ -182,6 +182,13 @@ impl AppState {
         if slot == crate::state::agents::SINK_SLOT {
             return self.sink_agent();
         }
+        // The Teams inspector addresses the card the canvas has selected, which is the mode's own
+        // selection rather than anything the arrangement holds.
+        if slot == crate::state::agents::TEAMS_SLOT {
+            // A delegate selected in the ring is still its parent's composer: a subagent takes no
+            // turn of its own, so the prompt goes to the workspace that spawned it.
+            return self.teams(cx)?.agent_in_focus();
+        }
         if slot >= COLUMNS_MAX {
             return self
                 .open_project(cx)?

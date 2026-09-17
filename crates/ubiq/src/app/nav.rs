@@ -17,7 +17,7 @@ impl AppState {
             RailMode::Ide => View::Ide {
                 key: self.editor(cx)?.active_file()?.key(),
             },
-            RailMode::Orchestration => {
+            RailMode::TeamsOld => {
                 let graph = self.graph(cx)?;
                 View::Graph {
                     selection: graph.selection?,
@@ -33,6 +33,13 @@ impl AppState {
             RailMode::Tasks => View::Tasks {
                 task: self.board(cx)?.selected?,
             },
+            RailMode::Teams => {
+                let teams = self.teams(cx)?;
+                View::Teams {
+                    selection: teams.selection.clone()?,
+                    tab: teams.tab,
+                }
+            }
             RailMode::Sink => return None,
         };
         let locus = self.where_locus(&view, cx);
@@ -81,6 +88,9 @@ impl AppState {
                 .push(PanelEdit::Reveal(PanelKind::Chat(*chat))),
             View::Graph { selection, tab } => {
                 self.reveal_graph(*selection, *tab, dest.locus.as_ref(), cx)
+            }
+            View::Teams { selection, tab } => {
+                self.reveal_teams(selection.clone(), *tab, dest.locus.as_ref(), cx)
             }
             View::Agents { agent } => self.reveal_agent(*agent, cx),
             View::Tasks { task } => self.select_task(*task, cx),
@@ -176,6 +186,14 @@ impl AppState {
                     scale: self.graph(cx)?.zoom,
                 })
             }
+            View::Teams { .. } => {
+                let offset = self.teams_scroll.offset();
+                Some(Locus::Viewport {
+                    x: f32::from(offset.x),
+                    y: f32::from(offset.y),
+                    scale: self.teams(cx)?.zoom,
+                })
+            }
             _ => None,
         }
     }
@@ -252,6 +270,31 @@ impl AppState {
         }
         cx.notify();
     }
+
+    /// The same for the Teams canvas, over its own state and its own scroll.
+    ///
+    /// The selection goes through [`Self::select_in_teams`] rather than being written here,
+    /// because arriving at a delegate has to point the conversation at it too — a link that put
+    /// the canvas on a subagent and left the thread on the parent would arrive half way.
+    fn reveal_teams(
+        &mut self,
+        selection: TeamsSelection,
+        tab: TeamsInspectorTab,
+        locus: Option<&Locus>,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(teams) = self.teams_mut(cx) {
+            teams.tab = tab;
+            if let Some(Locus::Viewport { scale, .. }) = locus {
+                teams.zoom = *scale;
+            }
+        }
+        self.select_in_teams(selection, cx);
+        if let Some(Locus::Viewport { x, y, .. }) = locus {
+            self.teams_scroll.set_offset(point(px(*x), px(*y)));
+        }
+        cx.notify();
+    }
 }
 
 /// Which rail mode a view is drawn in. `None` for the three that are panels rather than screens:
@@ -262,7 +305,8 @@ pub fn rail_of(view: &View) -> Option<RailMode> {
         View::Kb => RailMode::Kb,
         View::Git => RailMode::Git,
         View::Ide { .. } | View::Explorer { .. } => RailMode::Ide,
-        View::Graph { .. } => RailMode::Orchestration,
+        View::Graph { .. } => RailMode::TeamsOld,
+        View::Teams { .. } => RailMode::Teams,
         View::Agents { .. } => RailMode::Agents,
         View::Tasks { .. } => RailMode::Tasks,
         View::Terminal { .. } | View::Logs | View::Chat { .. } => return None,

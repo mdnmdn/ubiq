@@ -21,6 +21,7 @@ pub use text::{NotALink, resolve_relative};
 
 use crate::state::dock::ChatId;
 use crate::state::orchestration::{InspectorTab, Selection};
+use crate::state::teams::{TeamsInspectorTab, TeamsSelection};
 
 /// One place: a project, a screen of it, and where in that screen.
 ///
@@ -76,6 +77,7 @@ impl Destination {
             View::Explorer { path } => path.clone(),
             View::Terminal { .. } => "Terminal".into(),
             View::Graph { .. } => "Graph".into(),
+            View::Teams { .. } => "Teams".into(),
             View::Agents { .. } => "Agents".into(),
             View::Tasks { .. } => "Task".into(),
             View::Chat { .. } => "Chat".into(),
@@ -106,6 +108,14 @@ pub enum View {
     Graph {
         selection: Selection,
         tab: InspectorTab,
+    },
+    /// The Teams canvas. Its own arm rather than a reading of [`View::Graph`]: the two are
+    /// separate modes over separate state, and a link written in one must not land in the other.
+    /// It is also the only arm that can name a *delegate* — an agent, plus the id of the `Task`
+    /// call inside its conversation that spawned one.
+    Teams {
+        selection: TeamsSelection,
+        tab: TeamsInspectorTab,
     },
     /// The agents columns — the transcript, not the map.
     Agents {

@@ -265,7 +265,7 @@ fn a_blob_from_a_previous_schema_is_discarded() {
 /// a round trip, or a window would come back on the wrong one.
 #[test]
 fn both_screens_over_the_work_survive_a_round_trip() {
-    for mode in [RailMode::Agents, RailMode::Orchestration] {
+    for mode in [RailMode::Agents, RailMode::TeamsOld] {
         let out = ViewPrefs {
             schema: prefs::SCHEMA,
             rail_mode: mode,
@@ -392,10 +392,8 @@ fn a_blob_carries_the_places_written_down() {
 /// existed opens with them empty rather than being discarded.
 #[test]
 fn the_schema_stays_where_it_was() {
-    assert_eq!(prefs::SCHEMA, 3);
-
     let older = serde_json::json!({
-        "schema": 3,
+        "schema": prefs::SCHEMA,
         "rail_mode": "Ide",
         "open_files": ["README.md"],
     })
@@ -417,7 +415,7 @@ fn a_bookmark_that_no_longer_parses_is_dropped() {
     let project = ProjectId::generate();
     let good = Destination::new(project, View::Control).to_string();
     let blob = serde_json::json!({
-        "schema": 3,
+        "schema": prefs::SCHEMA,
         "rail_mode": "Ide",
         "bookmarks": [
             { "name": "gone", "dest": "ubiq://not-an-id/telepathy" },

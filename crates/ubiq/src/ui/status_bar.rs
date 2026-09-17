@@ -175,7 +175,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
     // what is on screen instead: how many sessions and agents there are, and how the agents are
     // spread across the four states. A count of zero is drawn as zero rather than dropped — "no
     // agent is failing" is a fact, and it is the one the user is checking for.
-    if app.workbench.rail_mode == RailMode::Orchestration
+    if app.workbench.rail_mode == RailMode::TeamsOld
         && let Some(work) = app.work(cx)
     {
         return strip

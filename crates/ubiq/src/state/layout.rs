@@ -25,9 +25,11 @@ use ubiq_proto::ids::{SessionId, TaskId};
 use ubiq_proto::work::{AgentId, TaskRecord, WorkAgent};
 
 /// The card's size at 100% zoom. The graph's arithmetic — containers, connectors, hit testing —
-/// all works from these, so a card that changes size changes them in one place.
+/// all works from these, so a card that changes size changes them in one place. The height is
+/// four rows: what the agent is, what is answering for it and how full its window is, the line it
+/// says, and its branch and spend.
 pub const CARD_WIDTH: f32 = 264.0;
-pub const CARD_HEIGHT: f32 = 116.0;
+pub const CARD_HEIGHT: f32 = 140.0;
 
 /// What a task's container leaves round its cards, and the room its label takes above them.
 pub const GROUP_PAD: f32 = 22.0;
@@ -41,6 +43,71 @@ pub const LAYOUT_MARGIN: f32 = 24.0;
 
 /// How wide a row of containers may get before the next one wraps onto a new row.
 pub const LAYOUT_WIDTH: f32 = 1_320.0;
+
+/// The delegate ring: the fence a card with subagents wears, and the small cards inside it.
+///
+/// **A subagent is not a [`WorkAgent`], but it is a card.** The host writes `parent: None` on every
+/// agent it reports, so a delegate is never a second record; it is read off the conversation and
+/// drawn *inside* its parent's fence — as a small card of the same kind, carried the same way, held
+/// at an offset of its own against the card that spawned it.
+///
+/// **The fence is derived, never placed.** It is the box round a card and wherever its delegates
+/// have been dragged to, so moving one resizes it and nothing has to keep a rectangle in step.
+/// [`sub_slot`] is only where a delegate starts: one to a row under the card, full width, so the
+/// fence stays inside the horizontal gap the arrangement already leaves, and the room the rows
+/// need is what [`ring_drop`] tells the packers to leave under that card.
+pub const RING_PAD: f32 = 14.0;
+pub const SUB_WIDTH: f32 = CARD_WIDTH;
+pub const SUB_HEIGHT: f32 = 96.0;
+pub const SUB_GAP: f32 = 12.0;
+
+/// How far under its parent's bottom edge the first row of delegates starts.
+pub const SUB_DROP: f32 = 16.0;
+
+/// Where the `ix`-th delegate starts, as an offset from its parent card's top-left. One to a row,
+/// squared up under the card, so a fence round the default arrangement is never wider than the
+/// card plus its padding.
+pub fn sub_slot(ix: usize) -> (f32, f32) {
+    (
+        0.0,
+        CARD_HEIGHT + SUB_DROP + ix as f32 * (SUB_HEIGHT + SUB_GAP),
+    )
+}
+
+/// How much room a card with `count` delegates needs under it, fence included — what the packers
+/// leave so the row below clears a ring rather than being drawn under one. Zero for a card with
+/// no delegates, which is every card the arrangement used to know about.
+pub fn ring_drop(count: usize) -> f32 {
+    if count == 0 {
+        return 0.0;
+    }
+    let rows = count as f32;
+    SUB_DROP + rows * SUB_HEIGHT + (rows - 1.0) * SUB_GAP + RING_PAD
+}
+
+/// The fence round a card and its delegates: `(x, y, w, h)` at 100% zoom, in the caller's frame.
+///
+/// `subs` are the delegates' top-left corners on the same canvas. An empty slice is a card with no
+/// delegates, which wears no fence and is why this answers `None` rather than the bare card.
+pub fn fence(at: (f32, f32), subs: &[(f32, f32)]) -> Option<(f32, f32, f32, f32)> {
+    if subs.is_empty() {
+        return None;
+    }
+    let (mut x0, mut y0) = (at.0, at.1);
+    let (mut x1, mut y1) = (at.0 + CARD_WIDTH, at.1 + CARD_HEIGHT);
+    for sub in subs {
+        x0 = x0.min(sub.0);
+        y0 = y0.min(sub.1);
+        x1 = x1.max(sub.0 + SUB_WIDTH);
+        y1 = y1.max(sub.1 + SUB_HEIGHT);
+    }
+    Some((
+        x0 - RING_PAD,
+        y0 - RING_PAD,
+        (x1 - x0) + RING_PAD * 2.0,
+        (y1 - y0) + RING_PAD * 2.0,
+    ))
+}
 
 /// What a packer answers: a position per box, in the order it was given them, and the extent the
 /// lot takes. Named because five functions return it and the tuple says nothing on its own.
@@ -90,15 +157,29 @@ impl Algo {
 
     /// Arrange one container's cards. The inner arrangement fixes the group's box, which is what
     /// the session-level packer then treats as rigid — the whole thing is solved bottom-up.
-    fn inside(self, task: TaskId, agents: &[WorkAgent]) -> Contents {
+    fn inside(self, task: TaskId, agents: &[WorkAgent], rings: &Rings) -> Contents {
         let members: Vec<&WorkAgent> = agents.iter().filter(|a| a.task == Some(task)).collect();
         match self {
             // Tree wants the connectors to run straight down, which is what the plain stack draws.
-            Algo::Flow | Algo::Tree => stack(&members),
-            Algo::Packed => stack_wrapped(&members),
-            Algo::Columns => column(&members),
+            Algo::Flow | Algo::Tree => stack(&members, rings),
+            Algo::Packed => stack_wrapped(&members, rings),
+            Algo::Columns => column(&members, rings),
         }
     }
+}
+
+/// How many delegates each card is drawing, for the packers that have to leave room under it.
+///
+/// A card the map does not name has none, which is why every reader goes through [`drop_under`]
+/// rather than the map: the arrangement is the same one it always was for a graph with no
+/// delegates in it.
+pub type Rings = HashMap<AgentId, usize>;
+
+/// The room one row of cards needs under it: the tallest fence any card in it wears.
+fn drop_under(row: &[AgentId], rings: &Rings) -> f32 {
+    row.iter()
+        .map(|id| ring_drop(rings.get(id).copied().unwrap_or(0)))
+        .fold(0.0f32, f32::max)
 }
 
 /// Every position the graph draws from.
@@ -110,6 +191,10 @@ pub struct Layout {
     tasks: HashMap<TaskId, (f32, f32)>,
     /// An agent's offset inside its task, or its absolute position when it has no task.
     agents: HashMap<AgentId, (f32, f32)>,
+    /// A delegate's offset inside the card that spawned it, by the id of the `Task` call that
+    /// did. Nested rather than keyed on the pair, so a card's delegates can be looked up by the
+    /// `&str` the conversation holds without building an owned key to ask.
+    subs: HashMap<AgentId, HashMap<String, (f32, f32)>>,
 }
 
 impl Layout {
@@ -118,7 +203,7 @@ impl Layout {
     /// Each session is laid out from the same top-left corner, because only one is on screen at a
     /// time and a session that starts where the last one ended would open scrolled away from its
     /// own work.
-    pub fn auto(agents: &[WorkAgent], tasks: &[TaskRecord], algo: Algo) -> Self {
+    pub fn auto(agents: &[WorkAgent], tasks: &[TaskRecord], algo: Algo, rings: &Rings) -> Self {
         let mut layout = Self::default();
         let mut sessions: Vec<SessionId> = Vec::new();
         for session in agents
@@ -135,7 +220,7 @@ impl Layout {
         // the moment it draws them all.
         let mut y = LAYOUT_MARGIN;
         for session in sessions {
-            y = layout.arrange(session, y, agents, tasks, algo);
+            y = layout.arrange(session, y, agents, tasks, algo, rings);
         }
         layout
     }
@@ -148,8 +233,14 @@ impl Layout {
     /// everything and adopted for the unseen keys alone — so a new task takes the next container
     /// slot in the same order the chosen arrangement would have used, and a new agent the next
     /// offset inside its task, with no second geometry to keep in step with the first.
-    pub fn place_new(&mut self, agents: &[WorkAgent], tasks: &[TaskRecord], algo: Algo) {
-        let tidy = Self::auto(agents, tasks, algo);
+    pub fn place_new(
+        &mut self,
+        agents: &[WorkAgent],
+        tasks: &[TaskRecord],
+        algo: Algo,
+        rings: &Rings,
+    ) {
+        let tidy = Self::auto(agents, tasks, algo, rings);
         for (task, origin) in tidy.tasks {
             self.tasks.entry(task).or_insert(origin);
         }
@@ -188,6 +279,16 @@ impl Layout {
         self.agents.insert(agent, offset);
     }
 
+    /// A delegate's offset inside its parent card, where it has been given one. `None` is a
+    /// delegate nobody has moved, which draws in the slot [`sub_slot`] gives it.
+    pub fn sub_offset(&self, agent: AgentId, sub: &str) -> Option<(f32, f32)> {
+        self.subs.get(&agent)?.get(sub).copied()
+    }
+
+    pub fn place_sub(&mut self, agent: AgentId, sub: String, offset: (f32, f32)) {
+        self.subs.entry(agent).or_default().insert(sub, offset);
+    }
+
     /// One session: the agents nobody gave work to along the top, then the containers underneath,
     /// packed the way `algo` asks for. Lay it out starting at `top`, and answer the `y` the next
     /// session starts at.
@@ -198,6 +299,7 @@ impl Layout {
         agents: &[WorkAgent],
         tasks: &[TaskRecord],
         algo: Algo,
+        rings: &Rings,
     ) -> f32 {
         let mut y = top;
 
@@ -210,7 +312,7 @@ impl Layout {
             .iter()
             .filter(|a| a.session == session && a.task.is_none())
             .collect();
-        let Contents { cards, height, .. } = stack(&loose);
+        let Contents { cards, height, .. } = stack(&loose, rings);
         if !cards.is_empty() {
             for (agent, offset) in cards {
                 self.agents
@@ -225,7 +327,10 @@ impl Layout {
             .iter()
             .filter(|t| t.session == Some(session))
             .collect();
-        let contents: Vec<Contents> = boxes.iter().map(|t| algo.inside(t.id, agents)).collect();
+        let contents: Vec<Contents> = boxes
+            .iter()
+            .map(|t| algo.inside(t.id, agents, rings))
+            .collect();
         let sizes: Vec<(f32, f32)> = contents
             .iter()
             .map(|c| {
@@ -306,7 +411,7 @@ impl Contents {
 /// Shared by a container and by the row of agents that have no task, because the second one holds a
 /// spawn tree too: the agent coordinating a project parents each session's master, and drawing it
 /// beside its own child rather than above it would send the connector sideways.
-fn stack(members: &[&WorkAgent]) -> Contents {
+fn stack(members: &[&WorkAgent], rings: &Rings) -> Contents {
     let rows = rows_by_depth(members);
     if rows.is_empty() {
         return Contents::empty();
@@ -317,23 +422,23 @@ fn stack(members: &[&WorkAgent]) -> Contents {
         .map(|row| row_width(row.len()))
         .fold(0.0f32, f32::max);
 
+    // Rows are walked rather than multiplied out, because a row holding a card with delegates is
+    // taller than one that does not: the fence under it is part of what that row draws.
     let mut cards = Vec::new();
-    for (depth, row) in rows.iter().enumerate() {
+    let mut y = 0.0f32;
+    let mut height = 0.0f32;
+    for row in &rows {
         // Short rows are centred over long ones, so a coordinator sits above the middle of its
         // workers rather than over the leftmost one.
         let start = (width - row_width(row.len())) / 2.0;
         for (ix, agent) in row.iter().enumerate() {
-            cards.push((
-                *agent,
-                (
-                    start + ix as f32 * (CARD_WIDTH + CARD_GAP_X),
-                    depth as f32 * (CARD_HEIGHT + CARD_GAP_Y),
-                ),
-            ));
+            cards.push((*agent, (start + ix as f32 * (CARD_WIDTH + CARD_GAP_X), y)));
         }
+        let tall = CARD_HEIGHT + drop_under(row, rings);
+        height = y + tall;
+        y += tall + CARD_GAP_Y;
     }
 
-    let height = rows.len() as f32 * CARD_HEIGHT + rows.len().saturating_sub(1) as f32 * CARD_GAP_Y;
     Contents {
         cards,
         width,
@@ -346,7 +451,7 @@ fn stack(members: &[&WorkAgent]) -> Contents {
 /// **A wide row is what makes a canvas wide.** Eight workers on one task drag every other container
 /// out past them, and the whitespace that leaves is the thing Packed exists to remove — so a row of
 /// `n` breaks at about `ceil(sqrt(n))` cards, which is the squarest break there is.
-fn stack_wrapped(members: &[&WorkAgent]) -> Contents {
+fn stack_wrapped(members: &[&WorkAgent], rings: &Rings) -> Contents {
     let rows = rows_by_depth(members);
     if rows.is_empty() {
         return Contents::empty();
@@ -359,26 +464,22 @@ fn stack_wrapped(members: &[&WorkAgent]) -> Contents {
         .fold(0.0f32, f32::max);
 
     let mut cards = Vec::new();
-    let mut line = 0usize;
+    let mut y = 0.0f32;
+    let mut height = 0.0f32;
     for (row, per) in rows.iter().zip(&per_line) {
         for chunk in row.chunks(*per) {
             // Every line is centred, for the same reason a short row is: the card handing work out
             // belongs over the middle of the cards taking it.
             let start = (width - row_width(chunk.len())) / 2.0;
             for (ix, agent) in chunk.iter().enumerate() {
-                cards.push((
-                    *agent,
-                    (
-                        start + ix as f32 * (CARD_WIDTH + CARD_GAP_X),
-                        line as f32 * (CARD_HEIGHT + CARD_GAP_Y),
-                    ),
-                ));
+                cards.push((*agent, (start + ix as f32 * (CARD_WIDTH + CARD_GAP_X), y)));
             }
-            line += 1;
+            let tall = CARD_HEIGHT + drop_under(chunk, rings);
+            height = y + tall;
+            y += tall + CARD_GAP_Y;
         }
     }
 
-    let height = line as f32 * CARD_HEIGHT + line.saturating_sub(1) as f32 * CARD_GAP_Y;
     Contents {
         cards,
         width,
@@ -387,20 +488,21 @@ fn stack_wrapped(members: &[&WorkAgent]) -> Contents {
 }
 
 /// One card per row, in spawn order. The tall, narrow container a small window has room for.
-fn column(members: &[&WorkAgent]) -> Contents {
+fn column(members: &[&WorkAgent], rings: &Rings) -> Contents {
     let rows = rows_by_depth(members);
     if rows.is_empty() {
         return Contents::empty();
     }
 
-    let cards: Vec<(AgentId, (f32, f32))> = rows
-        .iter()
-        .flatten()
-        .enumerate()
-        .map(|(ix, agent)| (*agent, (0.0, ix as f32 * (CARD_HEIGHT + CARD_GAP_Y))))
-        .collect();
-    let height =
-        cards.len() as f32 * CARD_HEIGHT + cards.len().saturating_sub(1) as f32 * CARD_GAP_Y;
+    let mut cards = Vec::new();
+    let mut y = 0.0f32;
+    let mut height = 0.0f32;
+    for agent in rows.iter().flatten() {
+        cards.push((*agent, (0.0, y)));
+        let tall = CARD_HEIGHT + drop_under(std::slice::from_ref(agent), rings);
+        height = y + tall;
+        y += tall + CARD_GAP_Y;
+    }
     Contents {
         cards,
         width: CARD_WIDTH,
@@ -968,7 +1070,7 @@ mod tests {
             agent(session, Some(job), Some(lead.id)),
             agent(session, Some(job), Some(lead.id)),
         ];
-        let contents = Algo::Columns.inside(job, &members);
+        let contents = Algo::Columns.inside(job, &members, &Rings::new());
         assert_eq!(contents.cards.len(), 3);
         assert!(contents.cards.iter().all(|(_, at)| at.0 == 0.0));
         assert_eq!(contents.width, CARD_WIDTH);
@@ -986,8 +1088,8 @@ mod tests {
         let mut members = vec![lead.clone()];
         members.extend((0..8).map(|_| agent(session, Some(job), Some(lead.id))));
 
-        let wide = Algo::Flow.inside(job, &members);
-        let folded = Algo::Packed.inside(job, &members);
+        let wide = Algo::Flow.inside(job, &members, &Rings::new());
+        let folded = Algo::Packed.inside(job, &members, &Rings::new());
         assert_eq!(wide.width, row_width(8));
         assert_eq!(folded.width, row_width(3), "eight workers break three wide");
         assert!(folded.height > wide.height, "which costs rows");
@@ -1007,7 +1109,7 @@ mod tests {
         let agents = vec![one.clone(), two.clone(), three.clone()];
         let tasks = vec![task(first, session), task(second, session)];
 
-        let layout = Layout::auto(&agents, &tasks, Algo::Flow);
+        let layout = Layout::auto(&agents, &tasks, Algo::Flow, &Rings::new());
 
         // The first container starts at the margin, inside its own padding and under its label.
         assert_eq!(layout.task_origin(first), (46.0, 72.0));
@@ -1038,7 +1140,7 @@ mod tests {
         let tasks = vec![task(first, session), task(second, session)];
 
         for algo in Algo::ALL {
-            let layout = Layout::auto(&agents, &tasks, algo);
+            let layout = Layout::auto(&agents, &tasks, algo, &Rings::new());
             let at = layout.at(&boss);
             assert_eq!(at, (LAYOUT_MARGIN, LAYOUT_MARGIN), "{}", algo.label());
             for card in [&one, &two] {
@@ -1068,7 +1170,7 @@ mod tests {
         let tasks = vec![task(job, session), task(nobodys, session)];
 
         for algo in Algo::ALL {
-            let layout = Layout::auto(&agents, &tasks, algo);
+            let layout = Layout::auto(&agents, &tasks, algo, &Rings::new());
             let origin = layout.task_origin(nobodys);
             assert!(
                 origin.0 >= LAYOUT_MARGIN && origin.1 >= LAYOUT_MARGIN,
@@ -1092,13 +1194,68 @@ mod tests {
         let parents = task_forest(&tasks.iter().collect::<Vec<_>>(), &agents);
         assert_eq!(parents, vec![None, Some(0)]);
 
-        let layout = Layout::auto(&agents, &tasks, Algo::Tree);
+        let layout = Layout::auto(&agents, &tasks, Algo::Tree, &Rings::new());
         let above = layout.at(&lead);
         let below = layout.at(&worker);
         assert!(below.1 > above.1, "the child container is a row down");
         assert!(
             (above.0 - below.0).abs() < EPS,
             "and centred under it: {above:?} over {below:?}"
+        );
+    }
+
+    #[test]
+    fn a_fence_grows_round_wherever_a_delegate_was_put() {
+        let snug = fence((0.0, 0.0), &[sub_slot(0), sub_slot(1)]).expect("a card with delegates");
+        assert_eq!(snug.0, -RING_PAD, "the fence starts a pad left of the card");
+        assert!(
+            snug.2 <= CARD_WIDTH + RING_PAD * 2.0 + EPS,
+            "and the default row is no wider than the card: {snug:?}"
+        );
+
+        // One delegate dragged out to the right, and the fence is the box round where it landed.
+        let moved = fence((0.0, 0.0), &[sub_slot(0), (600.0, 40.0)]).expect("still a fence");
+        assert!(
+            moved.2 > snug.2,
+            "the fence widened: {moved:?} from {snug:?}"
+        );
+        assert_eq!(moved.0 + moved.2, 600.0 + SUB_WIDTH + RING_PAD);
+
+        assert!(
+            fence((0.0, 0.0), &[]).is_none(),
+            "a card with no delegates wears none"
+        );
+    }
+
+    #[test]
+    fn a_row_of_cards_clears_the_fence_above_it() {
+        let session = SessionId::generate();
+        let job = TaskId::generate();
+        let lead = agent(session, Some(job), None);
+        let worker = agent(session, Some(job), Some(lead.id));
+        let members = vec![lead.clone(), worker.clone()];
+
+        let bare = Algo::Flow.inside(job, &members, &Rings::new());
+        let rings: Rings = [(lead.id, 3usize)].into_iter().collect();
+        let ringed = Algo::Flow.inside(job, &members, &rings);
+
+        let row_of = |contents: &Contents, id: AgentId| {
+            contents
+                .cards
+                .iter()
+                .find(|(card, _)| *card == id)
+                .expect("placed")
+                .1
+                .1
+        };
+        assert_eq!(row_of(&bare, lead.id), row_of(&ringed, lead.id));
+        assert!(
+            row_of(&ringed, worker.id) - row_of(&bare, worker.id) >= ring_drop(3) - EPS,
+            "the row under a card with three delegates is pushed clear of its fence"
+        );
+        assert!(
+            ringed.height > bare.height,
+            "and the container grew with it"
         );
     }
 }

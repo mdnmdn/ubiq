@@ -57,6 +57,7 @@ use crate::state::sink::{
     SinkSection, SinkState,
 };
 use crate::state::stats::{StatsState, StatsTab};
+use crate::state::teams::{TeamsHeld, TeamsInspectorTab, TeamsSelection, TeamsView, live_work};
 use crate::state::viewport::{Content, Viewport};
 use crate::state::vim::VimState;
 use crate::state::web_panel::WebPanels;
@@ -286,8 +287,12 @@ pub struct OpenProject {
     pub chats: Vec<ChatTab>,
     /// The graph's view of that work: what is selected in it, which states it is showing, and where
     /// its cards sit. Per project, because a selection and an arrangement are about one project's
-    /// agents and switching away must not lose either.
+    /// agents and switching away must not lose either. This is `TeamsOld`'s own — see `teams` for
+    /// the new mode's independent copy.
     pub graph: GraphView,
+    /// The Teams screen's view of the same work, independent of `graph`: its own selection, its
+    /// own arrangement, its own filters. A clone of `graph`'s shape under the new rail mode.
+    pub teams: TeamsView,
     /// The board's view of the same work: what is filtered, which task is open, which columns and
     /// cards are shut.
     pub board: BoardState,
@@ -345,6 +350,7 @@ impl OpenProject {
             conversations: HashMap::new(),
             chats,
             graph: GraphView::default(),
+            teams: TeamsView::default(),
             board: BoardState::default(),
             prefs,
             restored: false,
@@ -639,8 +645,8 @@ pub struct AppState {
     /// chat tab's, because the two are two conversations and a shared draft would leak between
     /// them.
     pub agent_input: Entity<TextareaState>,
-    /// One composer per slot that hosts a conversation — every column on the agents screen, plus
-    /// every chat tab's — [`COMPOSER_SLOTS`] of them.
+    /// One composer per slot that hosts a conversation — every column on the agents screen, every
+    /// chat tab's, the sink bench's and the Teams inspector's — [`COMPOSER_SLOTS`] of them.
     ///
     /// A fixed pool rather than one entity per live column: an entity is created with a `Window`
     /// and columns open from handlers that have one, but the *subscription* that mirrors what is
@@ -902,6 +908,9 @@ pub struct AppState {
     pub explorer_scroll: ScrollHandle,
     /// The orchestration canvas, so a destination can name where on it the user was.
     pub graph_scroll: ScrollHandle,
+    /// The Teams canvas, independent of `graph_scroll` for the reason `teams` is independent of
+    /// `graph`.
+    pub teams_scroll: ScrollHandle,
     /// Where the keyboard rests when it is on the tree rather than in the filter above it. The two
     /// are separate focuses on purpose: the field owns every key a field owns — Backspace first of
     /// all — and the tree's own keys, removal included, are only live once the tree holds focus.
@@ -969,6 +978,7 @@ mod graph;
 mod host_browse;
 pub mod host_secrets;
 mod hosts;
+mod teams;
 pub use host_browse::HostBrowseState;
 pub use hosts::{
     Bus, ConnStatus, HostEntry, HostId, HostRef, HostStatus, LiveRemote, RemoteConn,

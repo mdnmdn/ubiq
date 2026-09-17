@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-09-16
-verified: 2026-09-16
+updated: 2026-09-17
+verified: 2026-09-17
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -709,10 +709,12 @@ acts on; the messages exist so a later host setting does not redesign the wire.
 
 ### D47 — Two screens over one set of agents: one to talk to them, one to arrange them
 
-The rail carries `Agents` and `Orchestration`, and both read the same `WorkProjection`. Agents is
-parallel columns — one conversation each, tabs that group, a composer per column. Orchestration is
-the graph — who spawned whom, which task a card serves, where a card sits. Neither screen holds a
-record; each holds its own arrangement over the same ones, and neither arrangement crosses the bus.
+The rail carries `Agents` and a graph screen — `[Teams]` (`RailMode::TeamsOld`; `D140` is why a
+second graph screen, `Teams`, sits beside it) — and both read the same `WorkProjection`. Agents
+is parallel columns — one conversation each, tabs that group, a composer per column. The graph
+screen is the canvas — who spawned whom, which task a card serves, where a card sits. Neither
+screen holds a record; each holds its own arrangement over the same ones, and neither arrangement
+crosses the bus.
 
 **Why:** the two questions want opposite shapes. Talking to an agent wants width — a transcript, a
 harness readout, a field — and several of those side by side is the whole point of a multiplexer.
@@ -2968,6 +2970,48 @@ names exactly that absence, and this phase is what closes it.
 **Cost:** the tool list a harness sees depends on which drone it is talking to when the run starts,
 so two runs against two machines offer two different tool sets under one name, and a capability a
 drone gains mid-run is invisible to it until the next one.
+
+### D140 — The new Teams mode is a clone beside `[Teams]`, not a rework of it
+
+`RailMode::Orchestration` is renamed `RailMode::TeamsOld`, labelled `[Teams]`, its screen
+(`ui/orchestration/*`), its state (`GraphView`) and its `ubiq://<project>/graph/...` nav slug all
+otherwise unchanged. A new `RailMode::Teams`, labelled `Teams`, sits ahead of it in the rail's
+`PROJECT` group, with its own screen (`ui/teams/*`), its own state (`TeamsView` in
+`state/teams.rs`) and its own `OpenProject` field — copied from `[Teams]`'s shape rather than
+sharing it, and narrowed to draw only agents this window holds a live `Conversation` with
+(`state::teams::live_work`), where `[Teams]` still draws the host's whole projection, mock
+fixtures included.
+
+**Why:** `Teams` is meant to diverge from `[Teams]` — subagents nested on the canvas, a session
+ring, click-to-focus, real conversations in the inspector rather than a composer with nothing
+behind it — and a shared `GraphView`/`ui/orchestration` would have to carry both a stable, shipped
+screen and an unstable one behind the same field and the same files. Cloning lets each wave change
+one without the other regressing, and `[Teams]` stays the fallback a user can still reach while
+`Teams` is unfinished.
+
+**Cost:** two near-identical implementations — state, screen and app-layer helpers each duplicated
+— to keep in step by hand rather than by the compiler; a second entry in the rail's `PROJECT` group
+sharing one icon (`UbiqIcon::ModeTeams`) until one is drawn for `Teams` (`G275`); `prefs::SCHEMA`
+moved `3` to `4`, because the serialised `rail_mode: "Orchestration"` tag names nothing this
+build reads, so a saved rail-mode preference from before this change opens on defaults rather than
+the wrong mode; and `Teams` has no status-bar counts, which `[Teams]` has. `current_destination`
+answers `View::Teams` for the mode, with its own `ubiq://<project>/teams/...` slug alongside
+`graph`'s, so the bookmark, back/forward and titlebar gaps `G274` named are closed; the two links
+share the `s:`/`a:` prefix and the optional `chat`/`tasks` tab, and only `teams` can carry a third,
+unsplit part naming a delegate. Whichever of the two eventually drops the bracket is `D47`'s to
+update again.
+
+**Amendment — a delegate is read off the conversation, never a `WorkAgent`.** The delegate ring
+`Teams` draws (one row of boxes under a card, `state::layout::ring`) answers to
+`Conversation::subagents()`, not to a second `WorkAgent` per delegate. The wire carries the field
+for it — `ConvUpdate`'s `Option<Subagent>`, and `WorkAgent.parent` exists on the record — but the
+real coordinator sets `parent: None` on every agent it reports (`crates/ubiq-host/src/
+coordinator.rs`) and only `work/mock.rs` populates it, so a `WorkAgent` reading is a fixture's
+opinion, never a live one. Reading the conversation instead costs a delegate its own id: it is named
+by the `Task` call that spawned it, a `String` rather than an `AgentId`, so it has no pane, no
+`WorkAgent` and no membership in `WorkProjection` — `TeamsSelection::Subagent` carries a call id
+beside the parent's `AgentId` rather than an id of its own, which is also why the enum is `Clone`
+and not `Copy`.
 
 ## Related docs
 

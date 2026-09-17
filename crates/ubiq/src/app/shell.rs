@@ -269,6 +269,22 @@ impl AppState {
         self.open_project(cx).map(|open| &open.graph)
     }
 
+    /// The Teams screen's own view of that work, independent of `graph`.
+    pub fn teams(&self, cx: &App) -> Option<&TeamsView> {
+        self.open_project(cx).map(|open| &open.teams)
+    }
+
+    /// The work the Teams mode draws: the host's projection narrowed to the agents this window
+    /// holds a conversation with — see [`crate::state::teams::live_work`].
+    ///
+    /// Owned rather than borrowed, because it is a narrowing of what the project holds rather than
+    /// a field of it. Every reader on that screen asks for this instead of [`Self::work`];
+    /// `TeamsOld` keeps asking for the whole projection.
+    pub fn teams_work(&self, cx: &App) -> Option<WorkProjection> {
+        self.open_project(cx)
+            .map(|open| live_work(&open.work, &open.agents.live))
+    }
+
     /// The board's view of the same work.
     pub fn board(&self, cx: &App) -> Option<&BoardState> {
         self.open_project(cx).map(|open| &open.board)
@@ -287,6 +303,11 @@ impl AppState {
     pub fn graph_mut(&mut self, cx: &App) -> Option<&mut GraphView> {
         let id = self.project(cx)?;
         self.projects.get_mut(&id).map(|open| &mut open.graph)
+    }
+
+    pub fn teams_mut(&mut self, cx: &App) -> Option<&mut TeamsView> {
+        let id = self.project(cx)?;
+        self.projects.get_mut(&id).map(|open| &mut open.teams)
     }
 
     // ── the Git screen ──────────────────────────────────────────────
@@ -308,6 +329,20 @@ impl AppState {
         let id = self.project(cx)?;
         let open = self.projects.get_mut(&id)?;
         Some((&mut open.graph, &open.work))
+    }
+
+    /// The Teams view and the work behind it, together — the same pairing `graph_over_work` gives
+    /// `TeamsOld`, kept for the reason that one is: a drag reads the records while it writes the
+    /// arrangement, and the two live in the same [`OpenProject`].
+    ///
+    /// The work is the narrowed one, owned — a drag on this canvas has to measure the same
+    /// containers the canvas drew, and those are [`Self::teams_work`]'s.
+    pub(super) fn teams_over_work(&mut self, cx: &App) -> Option<(&mut TeamsView, WorkProjection)> {
+        let id = self.project(cx)?;
+        let open = self.projects.get(&id)?;
+        let work = live_work(&open.work, &open.agents.live);
+        let open = self.projects.get_mut(&id)?;
+        Some((&mut open.teams, work))
     }
 
     /// Which project a pane belongs to. A pane is only ever in one, so the first answer is the
@@ -996,6 +1031,7 @@ impl Render for AppState {
         // `settle_nav`'s discipline, run from the same place.
         self.ensure_kb_inputs(window, cx);
         self.settle_graph(cx);
+        self.settle_teams(cx);
         self.settle_board(cx);
         // Where the window is drawing, remembered once the screens above have settled on it.
         self.settle_nav(cx);
