@@ -830,12 +830,15 @@ them.
 
 **Cost:** three of them. The environment a pane starts from is no longer Ubiq's own, so `pty::spawn`
 takes a `Program` rather than a program name — a confined run brings its whole environment, because
-the policy sanitized it. Confinement of a pane is macOS-only, because isol8 spawns
-with inherited stdio and a host cannot hand it a pseudo-terminal; the seam that fixes it on unix is
-specified in `refs/isol8-pty-seam-update.md` and the stopgap renders the policy and execs
-`sandbox-exec`. Windows confines inherited-stdio runs through an embedded hook DLL (isol8 v0.4.0)
-but has no ConPTY seam, so a pane there errors rather than running unconfined. And a harness whose toolchain lives outside the project reads as broken until a
-recipe grants it — both are rows in the backlog register.
+the policy sanitized it. Confinement of a pane is macOS and Windows only. isol8 spawns with
+inherited stdio and a host cannot hand it a pseudo-terminal directly; on macOS the stopgap renders
+the policy and execs `sandbox-exec`, and on Windows `confined_launch` renders it into an `am-confine`
+shim process instead — the shim runs inside the pane, isol8 creates the harness from there, and the
+harness lands on the pane's own ConPTY, because isol8's Windows backend spawns with no
+console-creation flag and so attaches to whatever console its caller has. The seam that fixes this
+natively on unix is specified in `refs/isol8-pty-seam-update.md`; Linux has no rendered form at all,
+because Landlock applies between `fork` and `exec`. And a harness whose toolchain lives outside the
+project reads as broken until a recipe grants it — both are rows in the backlog register.
 
 ### D53 — The agent conversation is ACP-shaped, bus-transported, and keyed by agent id
 

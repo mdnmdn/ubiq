@@ -10,12 +10,18 @@ default:
 
 # ── the application ────────────────────────────────────────────────
 
+# The pane-confinement shim. `cargo run -p ubiq-app` never builds it — it belongs to
+# agent-manager — and `isolate::confine_shim` looks for it beside the running binary,
+# so a confined pane on Windows fails without it. `build` gets it from `--workspace`.
+shim:
+    cargo build -p agent-manager --bin am-confine
+
 # Run Ubiq
-dev:
+dev: shim
     cargo run -p ubiq-app
 
 # Run Ubiq with debug logging
-verbose:
+verbose: shim
     RUST_LOG=debug cargo run -p ubiq-app
 
 # Build the whole workspace for release

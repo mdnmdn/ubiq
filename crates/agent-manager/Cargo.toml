@@ -15,6 +15,13 @@ name = "agent-manager"
 path = "src/main.rs"
 required-features = ["frontend"]
 
+# The Windows pane shim. No feature gate: an embedder building this crate in lib
+# mode (`--no-default-features`) still needs the shim beside its own binary, or a
+# confined pane has nothing to run. See `src/bin/am-confine.rs`.
+[[bin]]
+name = "am-confine"
+path = "src/bin/am-confine.rs"
+
 [features]
 # Default build (standalone tool) ships both front ends.
 default = ["frontend"]
@@ -107,3 +114,18 @@ ureq = { version = "2", default-features = false, features = ["tls", "json"] }
 
 [dev-dependencies]
 tempfile = "3"
+
+# Job objects for the `am-confine` shim: the host kills the shim, and the job is
+# what takes the harness underneath down with it.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+  "Win32_Foundation",
+  "Win32_System_JobObjects",
+  "Win32_System_Threading",
+] }
+
+# Temporary probe: does a child isol8 creates on Windows attach to the caller's
+# ConPTY? Remove once the answer is recorded in the docs.
+[[example]]
+name = "conpty_confine_probe"
+required-features = ["pty"]

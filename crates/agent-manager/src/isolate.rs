@@ -997,7 +997,8 @@ pub fn confined_launch(confined: &Confined) -> Result<Launch> {
 
     let env: Vec<(String, String)> = effective.env.into_iter().collect();
 
-    if cfg!(target_os = "macos") {
+    #[cfg(target_os = "macos")]
+    {
         let policy = isol8::backends::select().render_policy(&effective.profile);
         debug!(program = %effective.cmd.first().cloned().unwrap_or_default(), via_sandbox_exec = true, "confined launch");
         let mut args = vec!["-p".to_string(), policy];
@@ -1011,20 +1012,130 @@ pub fn confined_launch(confined: &Confined) -> Result<Launch> {
         });
     }
 
-    if cfg!(target_os = "windows") {
-        return Err(anyhow!(
-            "isolating a run whose terminal the caller owns is not supported on Windows: \
-             isol8 confines a process it creates itself (suspended CreateProcessW plus the \
-             hook DLL) and offers inherited stdio only, with no ConPTY seam. Run without \
-             --isolate, or confine an inherited-stdio run (e.g. `am account login --isolate`)"
-        ));
+    #[cfg(target_os = "windows")]
+    {
+        // isol8 confines only a process it creates itself, and offers no ConPTY
+        // seam — so nothing can be rendered to an argv the caller execs. What it
+        // does do is spawn without any console creation flag, which means the
+        // confined child attaches to its caller's console. Put `am-confine` in
+        // the pane instead: isol8 creates the harness from in there, and it
+        // lands on the very ConPTY the caller opened. See `confine_shim`.
+        debug!(program = %effective.cmd.first().cloned().unwrap_or_default(), via_confine_shim = true, "confined launch");
+        let payload = ConfinePayload {
+            profile: effective.profile,
+            env,
+            cmd: effective.cmd,
+            cwd: confined.ctx.cwd.clone(),
+        };
+        return Ok(Launch {
+            program: path_string(&confine_shim()?),
+            args: vec![path_string(&payload.write(&confined.ctx.config_dir)?)],
+            env: Vec::new(),
+            env_remove: Vec::new(),
+            env_clear: false,
+        });
     }
 
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = (env, effective);
+    }
+
+    #[allow(unreachable_code)]
     Err(anyhow!(
         "isolating a run whose descriptors the caller owns needs isol8's stdio seam, \
          which this platform has no substitute for. Run without --isolate, or see \
          refs/isol8-pty-seam-update.md"
     ))
+}
+
+/// The resolved policy `am-confine` applies, as it crosses from this process to
+/// the shim.
+///
+/// Resolution stays here — the shim never loads a layer, reads a config file or
+/// consults a [`Context`](isol8::Context). It receives the same three values
+/// [`isol8::backends::Backend::spawn`] takes and hands them straight over, so
+/// the policy a pane runs under is the one this module computed and nothing
+/// else.
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct ConfinePayload {
+    /// The merged, deny-first profile, with every path grant already resolved.
+    pub profile: isol8::Profile,
+    /// The sanitized environment for the confined process.
+    pub env: Vec<(String, String)>,
+    /// The command to run, program first, after profile rewrite rules.
+    pub cmd: Vec<String>,
+    /// The directory the policy was resolved against, which the shim must make
+    /// its own before spawning.
+    ///
+    /// Not a convenience. isol8 grants the resolving process's working directory
+    /// read-write (`overrides_layer`, from `Context::cwd`), and the confined
+    /// child inherits its parent's — so if the shim runs anywhere else, the
+    /// harness lands in a directory its own policy does not grant. A pane
+    /// spawned with no explicit directory starts in the user's home, which is
+    /// exactly that mismatch: the harness dies on startup with no denial to read,
+    /// because isol8's Windows hook writes no denial log.
+    pub cwd: PathBuf,
+}
+
+impl ConfinePayload {
+    /// Write the payload under `state_dir` and return the file the shim reads.
+    ///
+    /// One file per launch, named from the pid and a counter so two panes
+    /// starting at once cannot collide. The shim deletes it on read: it carries
+    /// a run's grants and environment, and nothing needs it twice.
+    pub fn write(&self, state_dir: &Path) -> Result<PathBuf> {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+
+        let dir = state_dir.join("confine");
+        std::fs::create_dir_all(&dir)
+            .with_context(|| format!("creating the confine payload dir {}", dir.display()))?;
+        let path = dir.join(format!(
+            "{}-{}.json",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let json = serde_json::to_vec(self).context("serializing the confine payload")?;
+        std::fs::write(&path, json)
+            .with_context(|| format!("writing the confine payload {}", path.display()))?;
+        Ok(path)
+    }
+
+    /// Read a payload written by [`ConfinePayload::write`] and delete the file.
+    pub fn take(path: &Path) -> Result<Self> {
+        let bytes = std::fs::read(path)
+            .with_context(|| format!("reading the confine payload {}", path.display()))?;
+        let payload =
+            serde_json::from_slice(&bytes).context("parsing the confine payload as JSON")?;
+        let _ = std::fs::remove_file(path);
+        Ok(payload)
+    }
+}
+
+/// The `am-confine` executable, looked for beside the running binary.
+///
+/// A sibling rather than a `PATH` lookup: the shim applies a policy this build
+/// resolved, so it has to be this build's shim, not whichever one happens to be
+/// installed. `cargo build` already puts every workspace binary in the same
+/// directory, so a dev build finds it with no packaging step.
+#[cfg(target_os = "windows")]
+fn confine_shim() -> Result<PathBuf> {
+    let exe = std::env::current_exe().context("locating the running executable")?;
+    let dir = exe
+        .parent()
+        .ok_or_else(|| anyhow!("the running executable has no parent directory"))?;
+    let shim = dir.join("am-confine.exe");
+    if !shim.is_file() {
+        return Err(anyhow!(
+            "confining a pane on Windows needs the am-confine shim next to {}, \
+             and {} is not there. Build it (`cargo build -p agent-manager --bin am-confine`) \
+             or run without --isolate",
+            exe.display(),
+            shim.display()
+        ));
+    }
+    Ok(shim)
 }
 
 /// The command `launch` wants exec'd, as isol8 wants it: argv, program first.

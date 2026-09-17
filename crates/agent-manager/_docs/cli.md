@@ -64,13 +64,18 @@ defaults, not a hard-coded flag list — so teams can define what "safe" means.
 inherited stdio; combining `--isolate` with `--io structured` has no seam to
 confine through yet, so `am` refuses the combination outright rather than
 silently running it unconfined. Passthrough is unaffected: on macOS, a
-confined passthrough run execs `sandbox-exec` around the harness. Off macOS,
-confining a run in a caller-owned terminal has no native seam either — isol8
-spawns with inherited stdio and keeps its `SandboxChild` constructors private
-— so `--isolate` fails there too until isol8 grows that seam; see
-`refs/isol8-pty-seam-update.md`. The exception is `am account login
---isolate`, which lets isol8 own the spawn: genuinely confined on macOS and on
-Windows (hook DLL), via the login composition in `src/cli/account/login.rs`.
+confined passthrough run execs `sandbox-exec` around the harness; on Windows
+it instead launches `am-confine`, a small shim that reads the resolved policy
+from a file and lets isol8 spawn the harness from inside the shim's own
+console — isol8's Windows backend adds no console-creation flag of its own, so
+that child simply attaches to whichever console the shim runs in, ConPTY
+included. Only Linux still has no seam: Landlock applies between `fork` and
+`exec` and isol8 keeps its `SandboxChild` constructors private, so `--isolate`
+fails there until isol8 grows a rendered form; see
+`refs/isol8-pty-seam-update.md`. `am account login --isolate` takes the same
+Windows path as any other confined passthrough run — genuinely confined on
+both macOS and Windows — via the login composition in
+`src/cli/account/login.rs`.
 
 Anything `am` doesn't recognize after `--` is the harness's own CLI (e.g.
 `am claude -- --model opus -p`). This keeps `am` from having to mirror every

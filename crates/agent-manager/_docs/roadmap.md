@@ -56,11 +56,12 @@ normalized events. All three harnesses wrap and launch end-to-end.
   [isol8](https://github.com/mdnmdn/isol8) sandbox policy (filesystem/network confinement).
   isol8 is a core library dependency, not an external binary: `src/isolate.rs` builds the
   policy (a `Spec` + `Context`) in-process from the provisioned `Launch`, configurable via
-   settings `[isolate] enabled|profile|home`. Confining a run in a caller-owned terminal is
-   macOS-only today (renders the policy and execs `sandbox-exec`); Linux needs
-   isol8's pseudo-terminal seam — see `refs/isol8-pty-seam-update.md` — while Windows confines
-   inherited-stdio runs through an embedded hook DLL (`am account login --isolate`) but has no
-   ConPTY seam for panes.
+   settings `[isolate] enabled|profile|home`. Confining a run in a caller-owned terminal works
+   on macOS (renders the policy and execs `sandbox-exec`) and on Windows (renders it into an
+   `am-confine` shim launch instead, since isol8 has no ConPTY seam but its Windows backend
+   spawns with no console-creation flag, so the shim's child attaches to whatever console the
+   shim itself runs in — the pane's own ConPTY). Linux still needs isol8's pseudo-terminal seam
+   — see `refs/isol8-pty-seam-update.md`.
 - **Session history:** `am session ls|show|resume`; persist transcripts +
   metadata under `am`'s own state dir; resume a prior run via `am session resume <id>` or
   direct `--resume <harness-session-id>` (Claude + opencode; codex deferred to app-server).

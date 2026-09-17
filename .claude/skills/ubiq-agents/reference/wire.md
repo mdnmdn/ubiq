@@ -58,8 +58,11 @@ paths. The default home is the user's real one and that is **not** a soft defaul
 toolchain grant (`~/.cargo`, `~/.npm`, `~/.dotnet`) at a directory nothing populated.
 `compose_run` calls `IsolateOptions::grant_toolchains_from_env()` before applying the settings'
 grants, so a `CARGO_HOME` or `GOPATH` outside `~` needs no host setting; the user's own grant is
-applied last and stays the last word. Confining a run in a terminal Ubiq owns is **macOS-only**
-(`sandbox-exec`); the replacing seam is `refs/isol8-pty-seam-update.md`.
+applied last and stays the last word. Confining a run in a terminal Ubiq owns works on **macOS**
+(`sandbox-exec`) and on **Windows** (an `am-confine` shim launched in the pane, since isol8 has no
+ConPTY seam but its Windows backend attaches an unflagged child to whatever console its caller
+runs in); Linux still errors, and the seam that would close it is
+`refs/isol8-pty-seam-update.md`.
 
 Tool approval is the bridge's alone — it answers each request itself, because it holds its child's
 descriptors. **Today only the Claude bridge actually asks a human**: Codex auto-accepts every
