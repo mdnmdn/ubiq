@@ -426,7 +426,13 @@ after `askpass()`, `agent-manager`'s own `main()` before `init_tracing()` — an
 run's exit code, or `None` for an ordinary one. The re-entered process joins a `KILL_ON_JOB_CLOSE`
 job through the `win32job` wrapper, since `lib.rs` forbids raw `unsafe`, so killing it takes the
 harness with it, and the payload's `cwd` is load-bearing: isol8 grants the *resolving* process's
-directory read-write and a confined child inherits its parent's (`G280`). Landlock has no rendered
+directory read-write and a confined child inherits its parent's (`G280`). Windows confinement also
+denies the network outright unless granted: isol8 checks a socket open (`\Device\Afd`) the same way
+it checks a file path, so `WINDOWS_DEVICE_RW` grants that device and `\Device\Nsi` read-write to
+every confined run and login — a capability grant, not one scoped to a host or port (`G281`).
+`isolate::confined_probe_launch` runs a different command under a login's exact policy, resolving it
+from the harness's own program before swapping in the argv — `crates/ubiq-host/src/agent.rs`'s login
+probe is the caller. Landlock has no rendered
 form, applying between `fork` and `exec`, so `confined_launch` errors on Linux;
 `refs/isol8-pty-seam-update.md` specifies the seam that replaces it on unix.
 

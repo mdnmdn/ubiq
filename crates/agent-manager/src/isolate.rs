@@ -47,6 +47,24 @@ use crate::harness::Launch;
 use crate::source::Source;
 use crate::spec::{Isolation, RunSpec};
 
+/// NT device paths a confined process needs open before it can use a socket.
+///
+/// isol8's Windows hook checks every `NtCreateFile` against the policy, and it
+/// checks the object name it is handed without exempting anything that is not a
+/// file. Winsock creates a socket by opening the `Afd` device, so a policy that
+/// names only directories denies the socket itself: a confined harness cannot
+/// reach the network at all, and the symptom is whatever that harness says when
+/// a bind fails — `claude auth login` reports its OAuth callback server refusing
+/// to start.
+///
+/// Empty on every other platform. On Windows these are a capability grant rather
+/// than a path one: they say a confined run may use the network, which is what
+/// an agent is for. Filed against isol8 in `_docs/inbox/isol8-upstream.md`.
+#[cfg(target_os = "windows")]
+const WINDOWS_DEVICE_RW: &[&str] = &[r"\Device\Afd", r"\Device\Nsi"];
+#[cfg(not(target_os = "windows"))]
+const WINDOWS_DEVICE_RW: &[&str] = &[];
+
 /// Where a confined run's `$HOME` comes from.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum HomeMode {
@@ -750,6 +768,8 @@ pub fn login_confined(
 
     let mut base = isol8::Spec::new(cmd.clone());
     base.add_dirs_rw = vec![path_string(home)];
+    base.add_dirs_rw
+        .extend(WINDOWS_DEVICE_RW.iter().map(|d| (*d).to_string()));
     // A relocated toolchain root is as unreachable to a login as it is to a run — the caller
     // names it the same way, so this honours `extra_rw` the same way [`plan`] does.
     for extra in &options.extra_rw {
@@ -982,6 +1002,22 @@ pub fn describe(confined: &Confined) -> Result<isol8::DryRun> {
 /// until isol8 grows the seam (`refs/isol8-pty-seam-update.md` for unix;
 /// ConPTY is separate work).
 pub fn confined_launch(confined: &Confined) -> Result<Launch> {
+    confined_launch_running(confined, None)
+}
+
+/// The [`Launch`] that runs `argv` under `confined`'s policy instead of the
+/// harness the policy was resolved for.
+///
+/// The policy is resolved from the harness's own program first and only then is
+/// the command swapped, so a probe inspects exactly the sandbox a real run would
+/// get rather than one computed for a shell. The argv shape a confined launch
+/// takes differs per platform and belongs here — a caller asks for a different
+/// command, never for a different argument list.
+pub fn confined_probe_launch(confined: &Confined, argv: Vec<String>) -> Result<Launch> {
+    confined_launch_running(confined, Some(argv))
+}
+
+fn confined_launch_running(confined: &Confined, instead: Option<Vec<String>>) -> Result<Launch> {
     // Rendering the policy ourselves bypasses the guard `isol8::Sandbox::spawn`
     // applies, so it is applied here: a sandbox cannot nest, and the honest
     // answer is that this process cannot confine anything — not a
@@ -994,6 +1030,12 @@ pub fn confined_launch(confined: &Confined) -> Result<Launch> {
     isol8::home::materialize(&effective.home).context("materializing the confined run's home")?;
     isol8::resolve::confine_executable(&mut effective.profile, &mut effective.cmd)
         .context("granting the harness binary to the policy that confines it")?;
+
+    // After `confine_executable`, so the policy still grants the harness binary
+    // the run was planned around and the swap changes nothing about the sandbox.
+    if let Some(argv) = instead {
+        effective.cmd = argv;
+    }
 
     let env: Vec<(String, String)> = effective.env.into_iter().collect();
 
@@ -1270,6 +1312,15 @@ fn read_write_grants(dir: &Path, run: &RunSpec, options: &IsolateOptions) -> Vec
         }
     }
 
+    // A run reaches the network for the same reason a login does, and on Windows
+    // that is a path grant like any other.
+    for device in WINDOWS_DEVICE_RW {
+        let grant = (*device).to_string();
+        if !grants.contains(&grant) {
+            grants.push(grant);
+        }
+    }
+
     grants
 }
 
@@ -1390,15 +1441,21 @@ mod tests {
             !layers.contains(&"agents/claude-code"),
             "auto-selection must be off, or the agent layer brings the keychain back: {layers:?}"
         );
-        // The capture home is the login's own $HOME and its only writable directory.
+        // The capture home is the login's own $HOME and the only directory it may
+        // write. The device grants beside it are not directories: they are what
+        // lets the login open a socket at all (see [`WINDOWS_DEVICE_RW`]), and a
+        // login that cannot reach the network cannot capture anything.
         assert_eq!(
             confined.spec.home.as_deref(),
             Some(home.path().display().to_string().as_str())
         );
-        assert_eq!(
-            confined.spec.add_dirs_rw,
-            vec![home.path().display().to_string()]
-        );
+        let directories: Vec<&String> = confined
+            .spec
+            .add_dirs_rw
+            .iter()
+            .filter(|grant| !WINDOWS_DEVICE_RW.contains(&grant.as_str()))
+            .collect();
+        assert_eq!(directories, vec![&home.path().display().to_string()]);
     }
 
     // 2. A sandboxed run must grant its ephemeral config dir and its cwd

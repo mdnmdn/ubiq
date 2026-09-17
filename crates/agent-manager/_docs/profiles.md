@@ -352,13 +352,14 @@ Either way the two axes compose cleanly:
 - **A login's policy can be inspected empirically, by running something other than the login
   in it.** `login_confined`'s grants are computed from `plan.launch.program` — never from what a
   caller actually execs — so a caller may build the `Confined` from the harness's real
-  `LoginPlan`, call `confined_launch` exactly as for a real login, and then swap the argv that
-  follows `-p <policy>` for a plain shell (interactive, `-i`) before spawning it. The rendered
-  policy is untouched by the swap, so a person can run `which node`, `ls
-  ~/.local/share/mise`, etc. inside the *exact* sandbox a login would have run under — which is
-  how Ubiq's harness-settings `Shell` button was verified against a login that failed inside the
-  sandbox for reasons only reachable this way. See `crates/ubiq-host/src/agent.rs`'s
-  `shell_probe_launch`.
+  `LoginPlan` and call `isolate::confined_probe_launch(confined, argv)` in place of
+  `confined_launch`: it resolves the policy and grants the harness binary exactly as a real login
+  would, then swaps in the given command only after that resolution, so the sandbox itself is
+  untouched by the swap. Ubiq's harness-settings `Shell` button uses it to run an interactive shell
+  (`-i`) under a login's exact policy, so a person can run `which node`, `ls ~/.local/share/mise`,
+  etc. inside the *exact* sandbox a login would have run under — which is how a login that failed
+  inside the sandbox for reasons only reachable this way was diagnosed. See `isolate.rs`'s
+  `confined_probe_launch` and `crates/ubiq-host/src/agent.rs`'s call to it.
 
 ## 9. Materializing the overlay (symlink-else-copy, GC, Windows)
 

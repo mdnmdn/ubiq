@@ -350,6 +350,13 @@ the **argv/env** (printed) and the **files on disk** (in the config dir).
 | T-07f | **MANUAL:** `account login <new-id> --harness <h>` (e.g. `account login personal --harness codex`) — authenticate with the harness's native login flow | launches the harness interactively in a persistent per-account home (`<accounts-root>/<new-id>/`); on successful login (harness exits 0), writes `<new-id>.toml` with `home = "<full-path-to-accounts-root>/<new-id>/"`; verify with `account ls` that `<new-id>` now appears with `(home)` reference. Subsequent `am codex --account personal` reuses that login without re-authenticating. **Status: typically `BLOCKED` unless login completed by human; record `PASS` if the credential file appeared and `home` was recorded.** |
 | T-07g | **MANUAL:** unknown harness: `account login <id> --harness nonexistent` | errors with "unknown harness 'nonexistent'" listing known ids; non-zero exit; no account `<id>` written. Non-zero harness exit: `account login <id> --harness <h>` where the harness exits non-zero (login cancelled/failed) | no account recorded, `accounts.toml` unchanged. **Status: `BLOCKED` (needs live harness binary); mark as PASS if error message and non-invasiveness verified.** |
 
+> **Windows diagnosis.** A confined login pane that opens and closes at once leaves nothing to
+> read, and isol8 writes no denial log on Windows (`G280`). `cargo run -p agent-manager --features
+> pty --example login_confined_probe -- <harness>` runs the same `Harness::login` →
+> `isolate::login_confined` → `isolate::confined_launch` path against a real ConPTY and streams
+> every byte, plus the exit code and whether the credential file appeared — use it to diagnose a
+> T-07f run whose pane vanished before anyone could read it.
+
 ---
 
 ## 8. Passthrough argument forwarding (`--`) (no login)
@@ -426,6 +433,7 @@ actual spawn (§T-12f) execs under the policy.
 | T-12f | live, macOS: `<h> --isolate -- --version` | execs `/usr/bin/sandbox-exec` around the harness (one process, no PTY seam needed); harness output forwarded; exits with the harness's own exit code |
 | T-12g | live, Linux: `<h> --isolate -- --version` | fails before spawning the harness; the error names the pty seam (`refs/isol8-pty-seam-update.md`) |
 | T-12h | live, Windows: `<h> --isolate -- --version` | re-invokes the running binary under `--am-confine` in the pane, which spawns the harness under the resolved policy; harness output forwarded on the same console (a real ConPTY, no seam needed); exits with the harness's own exit code; the `<state_dir>/confine/` payload file is gone afterward |
+| T-12i | live, Windows: `<h> --isolate` running a step that opens a socket (a login, or `--list-models` against a live provider) | succeeds — `WINDOWS_DEVICE_RW` grants `\Device\Afd`/`\Device\Nsi` read-write to the confined run, without which any confined socket use fails regardless of the rest of the policy (`G281`); the grant is all-or-nothing, so there is no confined case that reaches some hosts and not others to assert against |
 
 ---
 

@@ -134,7 +134,7 @@ agent-manager/
     │   ├── mod.rs         #   McpService trait for embedders (core, P2)
     │   └── server.rs      #   HTTP MCP server for in-process MCPs (feature: inproc-mcp, P2)
     ├── session.rs         # SessionStore/SessionRecorder traits + FsSessionStore; history + transcripts (core, P3)
-    ├── isolate.rs         # RunSpec -> isol8 Spec/Context in-process; confined_launch execs sandbox-exec on macOS, re-invokes the running binary under CONFINE_ARG on Windows (confine_entrypoint, no second binary), errors on Linux; login capture confines inherited-stdio runs incl. Windows (core, P3)
+    ├── isolate.rs         # RunSpec -> isol8 Spec/Context in-process; confined_launch execs sandbox-exec on macOS, re-invokes the running binary under CONFINE_ARG on Windows (confine_entrypoint, no second binary), errors on Linux; confined_probe_launch swaps in a different command after the policy resolves; login capture confines inherited-stdio runs incl. Windows, where WINDOWS_DEVICE_RW grants the two devices a socket needs (core, P3)
     ├── cli/               # the `am` command surface (feature: cli)
     │   ├── mod.rs         #   dispatch: reserved words vs `am <harness>`
     │   ├── run.rs         #   `am <harness> [flags] [-- passthrough]`

@@ -635,8 +635,9 @@ impl Agents {
     /// plaintext credential a capture needs, so the policy denies the keychain instead —
     /// see [`agent_manager::isolate::login_confined`]. Ubiq names none of that: it asks the
     /// library for the policy and spawns what comes back, exactly as it does for a pane.
-    /// `probe` runs a plain shell under the login's policy instead of the harness — see
-    /// [`Self::shell_probe_launch`] for why the policy is unaffected by the swap.
+    /// `probe` runs a plain shell under the login's policy instead of the harness:
+    /// [`agent_manager::isolate::confined_probe_launch`] resolves the policy from the harness
+    /// and only then swaps the command, so the sandbox is the one a real login would get.
     /// This machine's own variables, added to a launch the harness has already described.
     /// Never over a name the harness itself set: a confined launch's `env` is the whole
     /// environment, and `CLAUDE_CONFIG_DIR` and its siblings are what pin a run — or a
@@ -710,11 +711,17 @@ impl Agents {
         // would run under, not a policy computed for a shell.
         let confined = isolate::login_confined(&home, &plan, None, &self.isolate_options())
             .with_context(|| format!("resolving the policy a {agent_type} login runs under"))?;
-        let mut launch = isolate::confined_launch(&confined)
-            .with_context(|| format!("preparing a confined {agent_type} login"))?;
-        if probe {
-            launch = Self::shell_probe_launch(launch);
+        let launch = match probe {
+            // A shell instead of the harness, under the policy just resolved for
+            // the harness: `isolate` owns what a confined launch looks like, so
+            // the swap names a command and never an argument list.
+            true => isolate::confined_probe_launch(
+                &confined,
+                vec![crate::shells::default_program(), "-i".to_string()],
+            ),
+            false => isolate::confined_launch(&confined),
         }
+        .with_context(|| format!("preparing a confined {agent_type} login"))?;
 
         Ok(PendingLogin {
             account: account.to_string(),
@@ -725,26 +732,6 @@ impl Agents {
             launch,
             probe,
         })
-    }
-
-    /// Replace a confined login's argv with an interactive shell, keeping everything about the
-    /// policy it runs under untouched.
-    ///
-    /// `isolate::confined_launch` renders macOS's `Launch` as `sandbox-exec -p <policy>
-    /// <harness argv...>` — the policy text is the second argument, after the `-p` flag — so
-    /// only the harness argv past that pair is replaced; `program`, `-p`, the policy string,
-    /// `env` and `env_clear` all stay exactly as `confined_launch` produced them. The shell
-    /// runs `-i` so the user gets a prompt rather than a one-shot command.
-    fn shell_probe_launch(mut launch: Launch) -> Launch {
-        debug_assert_eq!(
-            launch.args.first().map(String::as_str),
-            Some("-p"),
-            "confined_launch's argv shape changed out from under the probe swap"
-        );
-        launch.args.truncate(2);
-        launch.args.push(crate::shells::default_program());
-        launch.args.push("-i".to_string());
-        launch
     }
 
     /// Record a finished login, or say why it captured nothing.
@@ -1954,57 +1941,6 @@ mod tests {
             split_command("mise exec -- opencode"),
             vec!["mise", "exec", "--", "opencode"]
         );
-    }
-
-    /// The test that protects the whole point of the probe feature: swapping in a shell must
-    /// change nothing about the policy a real login would render, and the harness's own argv is
-    /// the only thing that differs.
-    ///
-    /// Built on a `Launch` shaped exactly as `isolate::confined_launch` renders one on macOS
-    /// (`sandbox-exec -p <policy> <harness argv...>` — read from its source rather than assumed),
-    /// instead of calling the real `login_confined`/`confined_launch` pair: this process is
-    /// itself running under a sandbox while these tests execute, and a sandbox cannot nest —
-    /// `isolate::ensure_can_confine` refuses exactly that, which is what the real pair would hit
-    /// here regardless of platform.
-    #[test]
-    fn probe_launch_keeps_the_harness_s_policy_and_only_swaps_the_argv_after_it() {
-        let harness_launch = Launch {
-            program: "/usr/bin/sandbox-exec".to_string(),
-            args: vec![
-                "-p".to_string(),
-                "(version 1)(deny default)(allow file-read* (subpath \"/usr\"))".to_string(),
-                "/opt/harness/bin/claude".to_string(),
-                "auth".to_string(),
-                "login".to_string(),
-            ],
-            env: vec![("HOME".to_string(), "/tmp/capture-home".to_string())],
-            env_remove: Vec::new(),
-            env_clear: true,
-        };
-
-        let probe_launch = Agents::shell_probe_launch(harness_launch.clone());
-
-        assert_eq!(
-            probe_launch.program, harness_launch.program,
-            "the probe must still run through sandbox-exec"
-        );
-        assert_eq!(probe_launch.args[0], "-p");
-        assert_eq!(
-            probe_launch.args[1], harness_launch.args[1],
-            "a probe must run under the exact policy a real login would get"
-        );
-        assert_eq!(
-            probe_launch.args[2..].to_vec(),
-            vec![crate::shells::default_program(), "-i".to_string()],
-            "everything after the policy must be the shell, run interactively"
-        );
-        assert_ne!(
-            probe_launch.args[2..],
-            harness_launch.args[2..],
-            "the argv after the policy is the only thing that may differ"
-        );
-        assert_eq!(probe_launch.env, harness_launch.env);
-        assert_eq!(probe_launch.env_clear, harness_launch.env_clear);
     }
 
     /// Every agent type the library knows is offered, with an id the spawn path
