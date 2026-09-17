@@ -6,7 +6,7 @@ status: current
 summary: How a repository becomes a project — a connection's listing or a pasted URL, a branch, a destination, and the throwaway clone that is deleted when it closes. The clone half is built and covered by tests; the named OAuth registrations the connect flow picks from are built and never exercised against a live provider, which is the gap this document exists to record.
 read_when: you are changing how a repository is cloned, what an ephemeral project is, or how a connection chooses the application it authenticates as
 updated: 2026-09-10
-verified: 2026-09-10
+verified: 2026-09-17
 code_anchors: [crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq-host/src/projects.rs, crates/ubiq-host/src/connectors/app.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq/src/ui/kit/menu.rs]
 depends_on: [feat-workbench, feat-connectors, tech-transport, tech-version-control]
 ---

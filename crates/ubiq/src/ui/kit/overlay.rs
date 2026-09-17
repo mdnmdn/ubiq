@@ -17,9 +17,15 @@
 //! handler over the panel's own bounds, and a picker's list — `Picker::above_modal` — is painted
 //! at a higher priority but tests against those bounds all the same: a click in the list, its
 //! filter field included, reads as a click outside the modal, and no `stop_propagation` from a
-//! layer above can undo it, because capture runs back to front. A modal that raises its own list
-//! therefore says so in the closure it hands here: while the list is down, an outside click is the
-//! list's, not the modal's. `ui::new_agent` is where that reads.
+//! layer above can undo it, because capture runs back to front. That is true of every layer above,
+//! not only a list: a click inside the modal on top would otherwise dismiss every modal under it,
+//! one gesture peeling the whole stack.
+//!
+//! **So a dismissal asks the order, rather than naming the layers it happens to know about.**
+//! `crate::state::overlay::Layer` is that order — `ui::shell`'s paint order, bottom-up — and an
+//! overlay something can be painted over hands its dismissal through `ui::dismiss(&view, rung, …)`
+//! instead of `ui::handler`, which yields while anything sits above `rung`. Adding an overlay is a
+//! rung there; the layers below it need no edit.
 //!
 //! **Escape is not here, deliberately.** A modal in this module is a function returning an
 //! element: it owns no focus, so a key never arrives at it, and a `key_context` per modal would be

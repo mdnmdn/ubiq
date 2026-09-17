@@ -7,7 +7,7 @@ summary: The window's shell — the activity rail and its modes, the dock of mov
 read_when: you are changing the window layout, a rail mode, where a panel may sit or when it is drawn, the explorer, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, capturing the window or annotating a capture, saving a file, the Git screen's refs, history, change lists or diff, the agents screen's columns, what a tab drag means or what the bench is, the Teams or `[Teams]` screen's graph, how it arranges itself, its inspector or its tasks, the tasks board's columns, cards or task panel, the kitchen sink's pages or fixtures, the file picker a screen raises to choose a path, cloning a project, application settings, vim mode, or the status bar
 updated: 2026-09-17
 verified: 2026-09-17
-code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/teams.rs, crates/ubiq/src/state/teams.rs, crates/ubiq/src/ui/teams/mod.rs, crates/ubiq/src/ui/teams/graph.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/src/ui/teams/inspector.rs, crates/ubiq/src/ui/teams/tasks.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/tests/image_gestures.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/app/sink.rs, crates/ubiq/src/state/a2ui.rs, crates/ubiq/src/state/a2ui/value.rs, crates/ubiq/src/state/a2ui/eval.rs, crates/ubiq/src/state/a2ui/action.rs, crates/ubiq/src/state/a2ui/live.rs, crates/ubiq/src/state/a2ui/svg.rs, crates/ubiq/src/state/a2ui/path.rs, crates/ubiq/src/state/a2ui/ubiq-catalog.json, crates/ubiq/src/ui/a2ui.rs, crates/ubiq/src/ui/a2ui/registry.rs, crates/ubiq/src/ui/a2ui/svg.rs, crates/ubiq/src/ui/a2ui/path.rs, crates/ubiq/src/ui/sink/a2ui.rs, crates/ubiq/tests/a2ui.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/sink/script.rs, crates/ubiq/src/state/script.rs, crates/ubiq/tests/script.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/stats.rs, crates/ubiq/src/ui/stats.rs, crates/ubiq/src/app/stats.rs, crates/ubiq/tests/stats.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/src/ui/git/repo_selector.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/app/new_agent.rs, crates/ubiq/src/ui/new_agent.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/app/graph.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/ui/web_view.rs, crates/ubiq/src/ui/viewer/web.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/state/web_panel.rs, crates/ubiq/src/app/explorer.rs, crates/ubiq/src/state/explorer/menu.rs, crates/ubiq/src/ui/file_dialog.rs]
+code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/teams.rs, crates/ubiq/src/state/teams.rs, crates/ubiq/src/ui/teams/mod.rs, crates/ubiq/src/ui/teams/graph.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/src/ui/teams/inspector.rs, crates/ubiq/src/ui/teams/tasks.rs, crates/ubiq/tests/teams.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/tests/image_gestures.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/app/sink.rs, crates/ubiq/src/state/a2ui.rs, crates/ubiq/src/state/a2ui/value.rs, crates/ubiq/src/state/a2ui/eval.rs, crates/ubiq/src/state/a2ui/action.rs, crates/ubiq/src/state/a2ui/live.rs, crates/ubiq/src/state/a2ui/svg.rs, crates/ubiq/src/state/a2ui/path.rs, crates/ubiq/src/state/a2ui/ubiq-catalog.json, crates/ubiq/src/ui/a2ui.rs, crates/ubiq/src/ui/a2ui/registry.rs, crates/ubiq/src/ui/a2ui/svg.rs, crates/ubiq/src/ui/a2ui/path.rs, crates/ubiq/src/ui/sink/a2ui.rs, crates/ubiq/tests/a2ui.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/sink/script.rs, crates/ubiq/src/state/script.rs, crates/ubiq/tests/script.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/stats.rs, crates/ubiq/src/ui/stats.rs, crates/ubiq/src/app/stats.rs, crates/ubiq/tests/stats.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/src/ui/git/repo_selector.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/app/new_agent.rs, crates/ubiq/src/ui/new_agent.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/app/graph.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/ui/web_view.rs, crates/ubiq/src/ui/viewer/web.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/state/web_panel.rs, crates/ubiq/src/app/explorer.rs, crates/ubiq/src/state/explorer/menu.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/app/board.rs, crates/ubiq/tests/prefs.rs, crates/ubiq/tests/viewer_kind.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
 ---
@@ -536,8 +536,9 @@ with no summary hovers to its own name in full, since that is what an elided row
 anyway. It happens **once per conversation**, it needs a provider configured, and a naming that
 fails says nothing: the mechanical name is still there, so there is nothing to report and nothing
 to undo. The checkbox that switches it off is in application settings' Assistance section below;
-`D90` is the decision behind replacing a name nobody typed, and the row a user still cannot type
-one over is `G119`.
+`D90` is the decision behind replacing a name nobody typed. A user's own rename — the tab's
+right-click Rename, or the same field on an attached chat tab — sends `Message::RenameConversation`
+(`tech/transport-contract.md`) and counts as named, so this naming pass never overwrites it.
 
 **The sidebar lists every conversation this window holds, not what is on screen.** That is the point of it: a
 column is one conversation and there are only ever a few of them, so the list is the one place a
@@ -992,10 +993,12 @@ holds one set of each per project open in it, and switching between them is a lo
 tabs and which terminal panels are drawn all change together, and nothing is re-read or rebuilt. The
 terminals of the projects behind keep running and keep their scrollback.
 
-**A project leaving the window takes its panes and its running agents with it.** Closing it, moving it
-to another window, or forgetting it kills the terminal harnesses running in it and unloads every
-conversation whose process is up — a pane's working directory is that project's folder, and no other
-window can adopt a running emulator or a live agent. Closing asks first when any of those are open,
+**A project leaving the window takes its panes and its running agents with it — moved, or ended.**
+Moving it to another window moves them: the harnesses keep running and answer to the window that
+took it, which is what `Message::AdoptProject` re-homes on the host's side, and only the scrollback
+is lost, because the emulator is rebuilt on the taking window's bus. Closing it or forgetting it
+ends them: the terminal harnesses are killed and every conversation whose process is up is unloaded,
+because a pane nobody is left looking at is a leak. Closing asks first when any of those are open,
 or when a buffer is unsaved, in the same modal the window's own close raises. An unloaded conversation
 is stopped rather than deleted: a conversation the user marked to keep comes back, and the window's
 own close is what retires the rest. What the project *remembers* is written down first, so reopening
@@ -1599,9 +1602,10 @@ two places at once. The rename, delete and sign-out questions are painted the sa
 whatever raised them, for the same reason.
 
 **A Profiles block sits below the accounts, and it is where a conversation's setup gets a name.**
-One row per saved profile, read as `reviewer — Codex · syn · gpt-5 · Plan`: the id, then whichever
-of the harness, the account, the model and the mode that profile pins, the mode drawn by its label
-rather than its harness-native id. A row whose harness is not installed on this machine is drawn
+One row per saved profile, read as `reviewer — Codex · syn · gpt-5 · Plan · 2 MCPs`: the id, then
+whichever of the harness, the account, the model, the mode and a count of the MCP servers it
+launches with that profile pins, the mode drawn by its label rather than its harness-native id, and
+the MCP count left off a profile that pins none. A row whose harness is not installed on this machine is drawn
 faint, the same way a harness type is in the New-agent menu, because a definition survives a machine
 that cannot run it. Clicking a row opens it for editing; `+ Add profile` opens the same form empty.
 Nothing here deletes or renames — see [`../backlog.md`](../backlog.md) — so correcting a profile
@@ -2159,8 +2163,12 @@ in Finder revealing it (or its folder) in the system's file manager, Save writin
 one tab rather than only the active one, and a dirty tab in a bulk close still asked for rather than
 silently closed. A terminal's or a chat's is Rename…, Hide, Close and Pin (or Unpin) — Rename raises
 the same single-field prompt every other rename in the window uses, seeded with the tab's current
-label, and the typed name is never written down: a pane's id dies with its process and a chat's is
-reminted every run, so a saved name would only ever point at nothing. **Hide and Close are two
+label. **A chat tab attached to a live agent renames the agent, not the tab**: the typed name goes
+out as `Message::RenameConversation` (`../tech/transport-contract.md`) rather than into `tab_names`,
+because the agents column, the bench and every other surface reading `WorkAgent::name` would
+otherwise keep showing the old one. A terminal's rename, and a chat tab attached to nothing, still
+go nowhere but `tab_names`: a pane's id dies with its process and an unattached chat's is reminted
+every run, so a saved name there would only ever point at nothing. **Hide and Close are two
 different endings.** Hide takes the tab down and leaves the thing behind it running — a terminal's
 harness, a chat's conversation — reattachable from the new-pane menu's Detached group or by
 pointing a chat tab at the conversation again. Close is the real end: a terminal's kills its harness
@@ -2212,9 +2220,13 @@ file's text size. The vim chip is the one thing in the strip that is not only a 
 the open `/` line — when it is on, and a click toggles the same setting the checkbox does. **The
 language is the second**: it is a chip, and clicking it opens a searchable picker of the viewers a
 file can be drawn with — `ViewerKind::all()`, filtered by what is typed — so a file the extension
-sent to the wrong viewer can be redirected without renaming it. What is picked lasts as long as the
-tab does and is written nowhere: a viewer forced on for one sitting is a way of looking at the file
-now, not a fact about the file, so a tab closed and reopened starts from `ViewerKind::of` again. A project that is not a repository
+sent to the wrong viewer can be redirected without renaming it. Forcing a kind that names a
+language of its own — Markdown is the one today — settles `language` the same way, so the source
+underneath is highlighted as what was picked rather than as what the extension named; a kind with
+no language of its own, the plain Editor included, leaves whatever is there. What is picked lasts as
+long as the tab does and is written nowhere: a viewer forced on for one sitting is a way of looking
+at the file now, not a fact about the file, so a tab closed and reopened starts from
+`ViewerKind::of` again. A project that is not a repository
 prints nothing git-related, and a branch with no upstream draws no `0/0`. The caret and the language
 go with the file, so a window with no file open reports neither rather than a position in nothing.
 With no project open it says so and stops. On the screens over the agents there is no file and
@@ -2659,7 +2671,7 @@ saying no file is open, because the files are panels of their own:
 | `Teams` inspector | `ui/teams/inspector.rs` | The `Teams` screen, right | `INSPECTOR_WIDTH`, fixed | `TeamsView::selection`; a selected agent's chat is `ui::conversation::render` at `TEAMS_SLOT` |
 | `Teams` tasks drawer | `ui/teams/tasks.rs` | The `Teams` screen, under the graph | `TASKS_HEIGHT` open, its header shut | `TeamsView::tasks_open` |
 | Tasks board | `ui/board/mod.rs` | The centre panel in Tasks mode | Fills it; the row of columns scrolls sideways and each column scrolls vertically | `BoardState` over the project's `WorkProjection`, and `COLUMN_WIDTH`/`COLUMN_SHUT` |
-| Task panel | `ui/board/detail.rs` | The board, right | `TASK_PANEL_WIDTH`, fixed | `BoardState::selected`, `show_detail` and `editing`, and the window's four form entities |
+| Task panel | `ui/board/detail.rs` | The board, right, or a centred modal when `BoardState::popup` is on | `TASK_PANEL_WIDTH`, fixed | `BoardState::selected`, `show_detail`, `editing` and `popup`, and the window's four form entities |
 | Kitchen sink | `ui/sink/mod.rs` | The centre panel in Sink mode, project or no project | Fills it; its page strip takes the tab strip's own height | `SinkState`, on the window rather than on a project |
 | Sink documents | `ui/sink/docs.rs` | The kitchen sink, on four of its eleven pages | Fills it | The fixture in `state/sink.rs` its page names, and the window's buffer for it |
 | A2UI surface | `ui/sink/a2ui.rs`, drawn by `ui/a2ui/` | The kitchen sink, on its tenth page | Fills it; the preview half scrolls, and the model-and-actions pane sits under the editor | The live surface in `state/a2ui/live.rs` — its data model, its per-field entities and its action log — reached through `SinkState::a2ui`, over the window's `a2ui_buffer` |
@@ -3341,7 +3353,11 @@ composer.
 
 `state/board.rs` is the board's view of the same projection, and holds nothing that is a fact about a
 task: the filter text, which session's pills are on, which task is open, which columns and cards are
-shut, the carry, and what the panel is in the middle of doing. `Field` names the one field open — the
+shut, whether the open task draws in the side panel or a centred modal (`popup`,
+`toggle_popup()`), the carry, and what the panel is in the middle of doing. Both `shut` and `popup`
+survive a restart, the way the explorer's expanded folders do — carried in `ViewPrefs::board_shut`
+and `board_popup`, gathered by `AppState::remember()` and put back once by `restore_files()`, since
+neither is a fact the host reports back. `Field` names the one field open — the
 title, the description, a step by its id rather than its place in the list, or the field that names
 the next one — and `TaskForm` is what was typed into them. `moving` is a drop the host has not
 answered, read back by `is_moving()`; `awaiting_new` is a `CreateTask` whose id is not known;
@@ -3379,7 +3395,12 @@ frame are. `title()` and `description()` are
 the two fields that open, `pills()` is priority and shape, `session()` is the picker behind
 `MenuId::TaskSession`, `step_controls()`, `step_field()` and `new_step()` belong to the sub-task
 list, `delete()` is the two-click question, and `refusal()` is where `WorkbenchState::work_error` is
-said.
+said. The description's textarea answers `SubmitSearch` (⌘⏎, ⌃⏎ off macOS) by calling
+`commit_task_description()` — the same "confirm this form from inside a field" device
+`ui::new_agent::confirmable()` uses, so bare Enter stays a newline. `detail::popup()` is `render()`'s
+report and controls again, wrapped in `kit::modal_sized` instead of the panel's own chrome — what
+`ui/board/mod.rs::render()` draws in place of the side panel while `BoardState::popup` is on; both
+read the same `selected`/`editing`, so the toggle only moves where the task is drawn.
 
 Projects, the file tree, a file's bytes, the panes, the work, the chat's conversations and the
 Git screen's refs and history all come from the host now; `state/sample.rs` and the constructors
@@ -3696,7 +3717,7 @@ field's, instead of landing in the middle of the centred row and covering the te
 | A repository URL is pasted that is `ssh` | The modal names it as unsupported and offers nothing to click. https is the only transport a clone runs over |
 | A connection's provider has no repository listing | The modal says the provider is unsupported. A pasted URL still works, because it needs no connection |
 | The repository listing is cut short | The modal says so, and a filter that matches nothing against a cut-short listing asks the provider to search rather than claiming there is nothing |
-| A project open in another window is opened here | It leaves that window, which stays open on the empty state if it held nothing else. Its panes are killed rather than moved |
+| A project open in another window is opened here | It leaves that window, which stays open on the empty state if it held nothing else. Its panes and its conversations move with it, still running; a pane the user had detached arrives detached, and the scrollback does not survive the move |
 | More than 26 windows are open | The 27th and beyond are named `#`; nothing else changes |
 | The last window is closed | The application quits. Closing one of several does not |
 | A rail mode has no screen | The empty page names the mode and says it is not built |

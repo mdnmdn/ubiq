@@ -19,8 +19,8 @@ use gpui_component::{Icon, IconName, Sizable as _, Size};
 use ubiq_proto::repos::RemoteRepo;
 
 use crate::app::AppState;
-use crate::state::MenuId;
 use crate::state::clone::{CloneMode, CloneState, check_url, clone_error_note, stage_note};
+use crate::state::{Layer, MenuId};
 use crate::theme;
 use crate::ui::kit::{
     Picker, check_box, elided, field, ghost_button, label_block, modal_note, modal_sized,
@@ -87,7 +87,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         "Clone a project",
         body,
         footer(clone, cx),
-        handler(&view, |this, _, cx| this.close_clone(cx)),
+        crate::ui::dismiss(&view, Layer::Clone, |this, _, cx| this.close_clone(cx)),
         window,
     )
 }

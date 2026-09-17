@@ -26,7 +26,10 @@ use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::board::{form, status_colour};
 use crate::ui::eid2;
-use crate::ui::kit::{ghost_button, icon_button, meter, mono, panel, pill, section_label};
+use crate::ui::handler;
+use crate::ui::kit::{
+    ghost_button, icon_button, meter, modal_sized, mono, panel, pill, section_label,
+};
 use crate::ui::work::{activity_colour, bucket_colour};
 
 pub fn render(
@@ -64,6 +67,36 @@ pub fn render(
         )
         .child(body(app, task, window, cx))
         .child(footer(app, task, cx))
+}
+
+/// The same report and controls as [`render`], centred over the window instead of hung off the
+/// columns — what `board.popup` draws. Both read `board.selected` and `board.editing` straight, so
+/// there is no second copy of the task to keep in step: the toggle only moves where the panel is
+/// drawn, never what is open in it.
+pub fn popup(
+    app: &AppState,
+    task: &TaskRecord,
+    window: &Window,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let colour = app
+        .work(cx)
+        .map(|work| bucket_colour(work.pulse(task)))
+        .unwrap_or_else(theme::text_faint);
+    let title = task.title.clone();
+    let entity = cx.entity();
+
+    modal_sized(
+        "board-task-modal",
+        colour,
+        theme::TASK_PANEL_WIDTH,
+        None,
+        &title,
+        body(app, task, window, cx),
+        footer(app, task, cx).into_any_element(),
+        handler(&entity, |this, _, cx| this.close_task_detail(cx)),
+        window,
+    )
 }
 
 fn body(

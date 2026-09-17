@@ -408,3 +408,104 @@ fn a_list_going_down_gives_the_form_the_keyboard(cx: &mut gpui::TestAppContext) 
         );
     });
 }
+
+/// The other gesture over the same stack: **an outside click belongs to the topmost layer.**
+///
+/// `on_mouse_down_out` is a capture-phase handler over one panel's own bounds, so a click inside a
+/// layer painted above it reads to every layer below as a click outside *them* — left alone, one
+/// click peels the whole stack. Every such dismissal asks `AppState::covered` first, and that
+/// answer is what this asserts: the rung order in `state::overlay`, read the way an outside click
+/// reads it, rather than each pair of overlays hard-coding the other.
+#[gpui::test]
+fn an_outside_click_in_a_higher_layer_leaves_the_layer_under_it_up(cx: &mut gpui::TestAppContext) {
+    use gpui::AppContext as _;
+    use ubiq::state::Layer;
+    use ubiq::state::kb::{KbList, KbSourceForm};
+
+    let (hub, _host) = ubiq_proto::bus::hub();
+    cx.update(|cx| {
+        gpui_component::init(cx);
+        ubiq::theme::set_mode(ubiq::app::boot_theme(), cx);
+        BusHub::install(hub, cx);
+        WindowRegistry::install(cx);
+    });
+
+    let held: std::rc::Rc<std::cell::RefCell<Option<gpui::Entity<AppState>>>> = Default::default();
+    let taken = held.clone();
+    let _handle = cx.add_window(move |window, cx| {
+        let state = cx.new(|cx| AppState::for_project(None, 'A', window, cx));
+        *taken.borrow_mut() = Some(state.clone());
+        gpui_component::Root::new(state, window, cx)
+    });
+    cx.run_until_parked();
+    let state = held
+        .borrow_mut()
+        .take()
+        .expect("the window built its state");
+
+    // Nothing up: no layer is covered, so every dismissal still answers its own outside click.
+    state.read_with(cx, |state, _| {
+        assert!(state.top_layer().is_none());
+        assert!(!state.covered(Layer::ProjectSettings));
+    });
+
+    // The triple this rule was found on: the project settings page, the "Add source" modal over
+    // it, and one of that modal's own lists over both.
+    state.update(cx, |state, _| {
+        state.workbench.project_settings = Some(ProjectSettings {
+            mode: ProjectSettingsMode::Create {
+                path: "/tmp/x".to_string(),
+            },
+            colour: ColourField::default(),
+            drone: DroneField::default(),
+            nav: ProjectNav::General,
+        });
+        state.workbench.kb_source = Some(KbSourceForm::default());
+    });
+    state.read_with(cx, |state, _| {
+        assert!(
+            state.covered(Layer::ProjectSettings),
+            "a click in the modal over the page would have closed the page under it"
+        );
+        assert!(
+            !state.covered(Layer::KbSource),
+            "the modal on top still answers its own outside click"
+        );
+    });
+
+    state.update(cx, |state, _| {
+        if let Some(form) = state.workbench.kb_source.as_mut() {
+            form.open = Some(KbList::Kind);
+        }
+    });
+    state.read_with(cx, |state, _| {
+        assert!(
+            state.covered(Layer::KbSource),
+            "a click in the list is the list's, not the modal's under it"
+        );
+        assert!(state.covered(Layer::ProjectSettings));
+    });
+
+    // And the pair the hand-patched triple never knew about: the settings page under a file
+    // question, which is the same hazard one rung further up the stack.
+    state.update(cx, |state, _| {
+        state.workbench.project_settings = None;
+        state.workbench.kb_source = None;
+        state.workbench.settings.open = true;
+    });
+    state.read_with(cx, |state, _| assert!(!state.covered(Layer::Settings)));
+    state.update(cx, |state, _| {
+        state.workbench.file_dialog = Some(FileDialog::New {
+            parent: String::new(),
+            dir: false,
+            ext: None,
+        });
+    });
+    state.read_with(cx, |state, _| {
+        assert!(
+            state.covered(Layer::Settings),
+            "a click in the file question would have taken the page under it"
+        );
+        assert!(!state.covered(Layer::FileDialog));
+    });
+}

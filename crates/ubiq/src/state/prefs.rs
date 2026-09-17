@@ -7,6 +7,8 @@
 
 use serde::{Serialize, de::DeserializeOwned};
 
+use ubiq_proto::work::Status;
+
 use crate::state::RailMode;
 use crate::theme::{AccentId, Density, ThemeId};
 
@@ -261,6 +263,14 @@ pub struct ViewPrefs {
     /// that survive a restart are in it.
     #[serde(default)]
     pub recents: Vec<String>,
+    /// The tasks board's columns folded to a strip — see `state::board::BoardState::shut`. `default`
+    /// like every field added after the first release, so no schema bump.
+    #[serde(default)]
+    pub board_shut: Vec<Status>,
+    /// Whether the tasks board opens a task as a centred modal instead of the side panel — see
+    /// `state::board::BoardState::popup`.
+    #[serde(default)]
+    pub board_popup: bool,
     /// Every key in the blob this build does not know, kept as it was found and written back out.
     ///
     /// Serde drops what a struct does not name, so without this a blob carrying more than this
@@ -290,6 +300,8 @@ impl Default for ViewPrefs {
             hidden_modes: Vec::new(),
             bookmarks: Vec::new(),
             recents: Vec::new(),
+            board_shut: Vec::new(),
+            board_popup: false,
             rest: Default::default(),
         }
     }

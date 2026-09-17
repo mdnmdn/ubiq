@@ -24,6 +24,7 @@ use ubiq_proto::settings::{AgentHome, RemoteCarrier, SshAuth, SshProfile};
 
 use crate::app::ssh_connect::DroneState;
 use crate::app::{AppState, HostEntry, HostId, HostRef, host_menu_rows, host_row_label};
+use crate::state::Layer;
 use crate::state::settings::{
     AccountDialog, AiProviderForm, AssistInfo, CliShortcut, ConnectApp, ConnectStep,
     ConnectorDialog, LoginStep, MarkdownOpen, SettingsSection, SshMethod, TabClose, ToolEditScope,
@@ -40,7 +41,13 @@ use crate::ui::kit::{
 
 pub fn overlay(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
     let viewport = window.viewport_size();
+    // Every modal this page raises — the login, the forms, the questions over them — is painted
+    // over it, and a click inside one is outside this panel's bounds. `AppState::covered` is what
+    // keeps a click in the login modal from taking the page out from under it.
     let panel = dialog(app, window, cx).on_mouse_down_out(cx.listener(|this, _, _, cx| {
+        if this.covered(Layer::Settings) {
+            return;
+        }
         this.close_settings(cx);
     }));
 
@@ -1587,6 +1594,14 @@ fn profile_row(app: &AppState, profile: &ProfileInfo, cx: &mut Context<AppState>
             .filter(|it| !it.is_empty())
             .map(|mode| mode_label(app, &profile.agent_type, mode).to_string()),
     );
+    // The MCP servers this profile launches with — saved on it the same way the account, model
+    // and mode above are, so the summary line names everything a run of it starts composed of.
+    if !profile.mcps.is_empty() {
+        parts.push(match profile.mcps.len() {
+            1 => "1 MCP".to_string(),
+            n => format!("{n} MCPs"),
+        });
+    }
 
     let edit = profile.clone();
     div()
@@ -2175,7 +2190,9 @@ pub fn profile_form(app: &AppState, window: &mut Window, cx: &mut Context<AppSta
             "Profile",
             body,
             footer,
-            crate::ui::handler(&view, |this, _, cx| this.close_profile_form(cx)),
+            crate::ui::dismiss(&view, Layer::ProfileForm, |this, _, cx| {
+                this.close_profile_form(cx)
+            }),
             window,
         )),
         cx,
@@ -2269,7 +2286,9 @@ pub fn login(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) ->
             title,
             body,
             footer,
-            crate::ui::handler(&view, |this, _, cx| this.close_harness_login(cx)),
+            crate::ui::dismiss(&view, Layer::Login, |this, _, cx| {
+                this.close_harness_login(cx)
+            }),
             window,
         )
     } else {
@@ -2279,7 +2298,9 @@ pub fn login(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) ->
             title,
             body,
             footer,
-            crate::ui::handler(&view, |this, _, cx| this.close_harness_login(cx)),
+            crate::ui::dismiss(&view, Layer::Login, |this, _, cx| {
+                this.close_harness_login(cx)
+            }),
             window,
         )
     }
@@ -3646,7 +3667,9 @@ pub fn app_form(app: &AppState, window: &mut Window, cx: &mut Context<AppState>)
         },
         body,
         footer,
-        crate::ui::handler(&view, |this, window, cx| this.close_app_form(window, cx)),
+        crate::ui::dismiss(&view, Layer::AppForm, |this, window, cx| {
+            this.close_app_form(window, cx)
+        }),
         window,
     )
 }
@@ -3858,7 +3881,9 @@ pub fn ai_form(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) 
         },
         body,
         footer,
-        crate::ui::handler(&view, |this, window, cx| this.close_ai_form(window, cx)),
+        crate::ui::dismiss(&view, Layer::AiForm, |this, window, cx| {
+            this.close_ai_form(window, cx)
+        }),
         window,
     )
 }
@@ -4216,7 +4241,9 @@ pub fn ssh_form(app: &AppState, window: &mut Window, cx: &mut Context<AppState>)
         },
         body,
         footer,
-        crate::ui::handler(&view, |this, window, cx| this.close_ssh_form(window, cx)),
+        crate::ui::dismiss(&view, Layer::SshForm, |this, window, cx| {
+            this.close_ssh_form(window, cx)
+        }),
         window,
     )
 }
@@ -4384,7 +4411,7 @@ pub fn ai_test(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) 
         &format!("Test {}", test.name),
         body,
         footer,
-        crate::ui::handler(&view, |this, _, cx| this.close_ai_test(cx)),
+        crate::ui::dismiss(&view, Layer::AiTest, |this, _, cx| this.close_ai_test(cx)),
         window,
     )
 }
@@ -4564,7 +4591,9 @@ pub fn connect(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) 
         title,
         body,
         footer,
-        crate::ui::handler(&view, |this, window, cx| this.cancel_connect(window, cx)),
+        crate::ui::dismiss(&view, Layer::Connect, |this, window, cx| {
+            this.cancel_connect(window, cx)
+        }),
         window,
     )
 }

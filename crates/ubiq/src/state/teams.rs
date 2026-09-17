@@ -317,11 +317,6 @@ pub struct TeamsView {
     pub show_inspector: bool,
     pub tasks_open: bool,
 
-    /// How many agents the arrangement has been given a place for. The window absorbs arrivals on
-    /// the frame it draws them — nothing on the wire tells this mode a card appeared — and this is
-    /// what keeps a frame that changed nothing from recomputing the whole arrangement.
-    pub absorbed: usize,
-
     /// Which delegates each card is drawing, in the order the transcript named them, as of the
     /// last frame.
     ///
@@ -354,7 +349,6 @@ impl Default for TeamsView {
             tab: TeamsInspectorTab::Chat,
             show_inspector: true,
             tasks_open: false,
-            absorbed: 0,
             rings: HashMap::new(),
             carry: None,
             sand: Vec::new(),

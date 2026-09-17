@@ -49,6 +49,8 @@ fn a_blob_survives_the_round_trip() {
         editor_wrap: Some(false),
         bookmarks: Vec::new(),
         recents: Vec::new(),
+        board_shut: Vec::new(),
+        board_popup: false,
         rest: Default::default(),
     };
 

@@ -170,15 +170,27 @@ impl Algo {
 
 /// How many delegates each card is drawing, for the packers that have to leave room under it.
 ///
-/// A card the map does not name has none, which is why every reader goes through [`drop_under`]
-/// rather than the map: the arrangement is the same one it always was for a graph with no
-/// delegates in it.
+/// A card the map does not name has none, which is why every reader goes through
+/// [`card_extent`]/[`row_extent`] rather than the map: the arrangement is the same one it always
+/// was for a graph with no delegates in it.
 pub type Rings = HashMap<AgentId, usize>;
 
-/// The room one row of cards needs under it: the tallest fence any card in it wears.
-fn drop_under(row: &[AgentId], rings: &Rings) -> f32 {
+/// What one card takes up top to bottom, ring included: `CARD_HEIGHT` plus whatever room its
+/// delegates need under it.
+///
+/// **The one place a card's vertical extent is computed.** A packer that instead wrote
+/// `CARD_HEIGHT + ring_drop(..)` inline would have to be found and changed again the day a second
+/// ring row, a taller delegate box, or a wider cap on how many a card can carry moves the number —
+/// three call sites is three chances to fix two of them and miss the third. Every packer below
+/// asks this rather than assuming `CARD_HEIGHT` on its own.
+fn card_extent(agent: AgentId, rings: &Rings) -> f32 {
+    CARD_HEIGHT + ring_drop(rings.get(&agent).copied().unwrap_or(0))
+}
+
+/// The room one row of cards needs: the tallest extent any card in it takes.
+fn row_extent(row: &[AgentId], rings: &Rings) -> f32 {
     row.iter()
-        .map(|id| ring_drop(rings.get(id).copied().unwrap_or(0)))
+        .map(|id| card_extent(*id, rings))
         .fold(0.0f32, f32::max)
 }
 
@@ -434,7 +446,7 @@ fn stack(members: &[&WorkAgent], rings: &Rings) -> Contents {
         for (ix, agent) in row.iter().enumerate() {
             cards.push((*agent, (start + ix as f32 * (CARD_WIDTH + CARD_GAP_X), y)));
         }
-        let tall = CARD_HEIGHT + drop_under(row, rings);
+        let tall = row_extent(row, rings);
         height = y + tall;
         y += tall + CARD_GAP_Y;
     }
@@ -474,7 +486,7 @@ fn stack_wrapped(members: &[&WorkAgent], rings: &Rings) -> Contents {
             for (ix, agent) in chunk.iter().enumerate() {
                 cards.push((*agent, (start + ix as f32 * (CARD_WIDTH + CARD_GAP_X), y)));
             }
-            let tall = CARD_HEIGHT + drop_under(chunk, rings);
+            let tall = row_extent(chunk, rings);
             height = y + tall;
             y += tall + CARD_GAP_Y;
         }
@@ -499,7 +511,7 @@ fn column(members: &[&WorkAgent], rings: &Rings) -> Contents {
     let mut height = 0.0f32;
     for agent in rows.iter().flatten() {
         cards.push((*agent, (0.0, y)));
-        let tall = CARD_HEIGHT + drop_under(std::slice::from_ref(agent), rings);
+        let tall = card_extent(*agent, rings);
         height = y + tall;
         y += tall + CARD_GAP_Y;
     }

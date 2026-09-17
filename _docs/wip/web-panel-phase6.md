@@ -5,9 +5,9 @@ kind: wip
 status: current
 summary: Phase 6 of the web-panel proposal as built — the container moves from an external browser into the window through `gpui-wry` on macOS and Windows, `Edit` becomes a fourth `ViewLayout` (reversing phase 5's call), a mark-and-sweep module keeps the child webview clipped to its own dock tab, sessions are settled every render rather than on a click, saving reaches the file through the existing `⌘S` path with a new `Save` bridge frame, and the explorer gains a `New Excalidraw` row. Every platform without `gpui-wry`'s finished Unix path keeps phase 5's external browser. A later addition, draw.io, is the second tenant on this same axis — it offers the same `[Edit, Preview]` layouts, the explorer gains a matching `New draw.io` row, and a new `Preview { svg }` bridge frame gives its Preview position a picture for a format the interface has no native renderer for.
 read_when: you are touching the embedded webview, the mark-and-sweep in `ui/web_view.rs`, the `Editor` `ViewLayout`, the web panel's save path, or the explorer's `New Excalidraw` row
-updated: 2026-09-11
-verified: 2026-09-11
-code_anchors: [crates/ubiq/Cargo.toml, crates/ubiq-app/Cargo.toml, crates/ubiq/src/state/editor.rs, crates/ubiq/src/ui/web_view.rs, crates/ubiq/src/ui/viewer/web.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/app/editor.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/web_export/bridge.rs, crates/ubiq/src/app/explorer.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/menu.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/ui/viewer/diagram.rs]
+updated: 2026-09-17
+verified: 2026-09-17
+code_anchors: [crates/ubiq/Cargo.toml, crates/ubiq-app/Cargo.toml, crates/ubiq/src/state/editor.rs, crates/ubiq/src/ui/web_view.rs, crates/ubiq/src/ui/viewer/web.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/app/editor.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/web_export/bridge.rs, crates/ubiq/src/app/explorer.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/menu.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq-host/src/files/mod.rs, crates/ubiq-host/tests/files.rs]
 depends_on: [wip-web-panel-phase2, wip-web-panel-phase3, wip-web-panel-phase45, feat-workbench, tech-decisions]
 ---
 
@@ -153,8 +153,16 @@ one is the editor's own act and nothing else in Ubiq can perform it.
 `confirm_file_dialog` in `crates/ubiq/src/app/explorer.rs` appends that extension to the typed name
 when it does not already end with it — forced rather than merely suggested, so deleting the seed's
 suffix cannot turn a drawing into a plain text file. The name field is seeded `drawing.excalidraw`.
-The host still creates the file empty (`PathOp::Create` always writes `b""`), which is what an empty
-Excalidraw scene is.
+
+**The host no longer creates the file empty.** `PathOp::Create` used to always write `b""`, on the
+premise that an empty Excalidraw scene is nothing — it is not: `state::scene::Scene::parse` only
+accepts JSON starting with `{`, so an empty `.excalidraw` opened straight into the native preview's
+`SceneError::NotAScene`, and an empty `.drawio` failed the same way inside the embedded editor's own
+XML parser (below). `crates/ubiq-host/src/files/mod.rs`'s `new_file_seed` now answers `PathOp::Create`
+by extension: a minimal `{"type":"excalidraw","version":2,...,"elements":[],...}` for `.excalidraw`,
+a minimal `<mxGraphModel>…</mxGraphModel>` for `.drawio`, and `b""` — unchanged — for everything else.
+Each is exactly what the application's own "new document" writes, so a file created here opens the
+same as one created from inside Excalidraw or draw.io.
 
 `ExplorerAction::NewDrawio` is the same row for the second tenant, seeded `diagram.drawio`, and
 `ui/file_dialog.rs`'s modal title follows suit: it is keyed off the extension being created —

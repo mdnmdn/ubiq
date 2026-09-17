@@ -6,7 +6,7 @@ status: draft
 summary: One bell in the titlebar over a host-owned history — a level, an origin and an optional link per notification, a badge that counts the unread, a flash that carries a click straight to where it points, and mute rules by scope, level and duration that also decide what the desktop hears.
 read_when: you are raising a notification from a subsystem, changing the bell, the notification list or a mute rule, or wiring an event that should reach the user without a screen open
 updated: 2026-09-10
-verified: 2026-09-10
+verified: 2026-09-17
 code_anchors: [crates/ubiq-proto/src/notifications.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/notifications/os.rs, crates/ubiq/src/state/notifications.rs, crates/ubiq/src/app/notifications.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/ui/notifications.rs, crates/ubiq/src/ui/titlebar.rs]
 depends_on: [tech-architecture, tech-transport, feat-workbench]
 review_cycle: monthly

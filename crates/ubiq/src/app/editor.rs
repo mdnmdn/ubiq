@@ -44,6 +44,13 @@ impl AppState {
     /// what `has_preview` already makes harmless. The settled value goes to the panel by the same
     /// path [`Self::set_view_layout`] uses, and for the same reason.
     ///
+    /// The forced kind also settles `language` — [`ViewerKind::forced_language`] — and pushes it
+    /// onto the buffer's own highlighter. `language` alone would leave the source unhighlighted:
+    /// the buffer's `EditorState` is built once, at `attach_file`, with the language baked in as a
+    /// tree-sitter grammar, so a fact changed only on `OpenFile` is a fact the already-open buffer
+    /// never sees. `set_highlighter` is `gpui-component`'s own hook for exactly this — a language
+    /// picked after the buffer exists.
+    ///
     /// **Nothing here is written down** — not into `ViewPrefs`, not into the dock's payload. A
     /// viewer the user forced on for one sitting is a way of looking at the file now, not a fact
     /// about the file, so a tab closed and reopened starts from `ViewerKind::of` again. For the
@@ -60,12 +67,23 @@ impl AppState {
             return;
         };
         file.viewer = viewer;
+        if let Some(language) = viewer.forced_language() {
+            file.language = language;
+        }
         if !viewer.offers(file.layout)
             && let Some(first) = viewer.layouts().first().copied()
         {
             file.layout = first;
         }
         let settled = file.layout;
+        let language = file.language;
+        let buffer = file.buffer().cloned();
+
+        if let Some(buffer) = buffer {
+            buffer.update(cx, |state, cx| {
+                state.set_highlighter(ui::editor::highlighter_language(language), cx);
+            });
+        }
 
         let panel = self.panels.get(&PanelKind::File(key.to_string())).cloned();
         if let Some(panel) = panel {
@@ -169,6 +187,8 @@ impl AppState {
         }
         open.explorer.selected = view.selected.clone();
         open.wanted = view.expanded.clone();
+        open.board.shut = view.board_shut.clone();
+        open.board.popup = view.board_popup;
 
         // Each tab is a panel. A saved arrangement usually carries them and the queued edits are
         // then no-ops, but one that was discarded — a stale version, an unreadable blob — must

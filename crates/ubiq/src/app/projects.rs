@@ -131,10 +131,31 @@ impl AppState {
     pub fn take_project(&mut self, project: ProjectId, cx: &mut Context<Self>) {
         let id = self.window_id;
         // A project the catalogue does not hold is not opened, and the host is not told that a
-        // window pointed at one.
+        // window pointed at one. Asked before the hand-off below rather than after, because
+        // `open_in` answers the same question and a project taken out of a window it could not
+        // then be put into would be a move that lost it.
+        let registry = WindowRegistry::read(cx);
+        if registry.project(project).is_none() || registry.slot(id).is_none() {
+            self.close_menu(cx);
+            return;
+        }
+        // Taking a project from another window moves what is running in it — the panes and the
+        // conversations — rather than closing them. `open_in` below only moves the *row*; this is
+        // the window that held it letting go of the live state, which has to happen before the
+        // registry changes hands so the losing window's own reconcile finds nothing to drop.
+        let handed = WindowRegistry::read(cx)
+            .holder(project)
+            .map(|slot| slot.id)
+            .filter(|holder| *holder != id)
+            .and_then(|holder| OpenWindows::get(cx, holder))
+            .and_then(|view| view.update(cx, |state, cx| state.hand_off_project(project, cx)));
+
         if !cx.global_mut::<WindowRegistry>().open_in(id, project) {
             self.close_menu(cx);
             return;
+        }
+        if let Some(handed) = handed {
+            self.adopt_project(project, handed, cx);
         }
         // Before the reconciliation below, so a project that runs on a drone has its `ssh` on the
         // way while the tree and the tabs are being built.
@@ -1009,6 +1030,8 @@ impl AppState {
             open.prefs.expanded = open.explorer.expanded();
             open.prefs.selected = open.explorer.selected.clone();
             open.prefs.file_filter = self.workbench.file_filter.clone();
+            open.prefs.board_shut = open.board.shut.clone();
+            open.prefs.board_popup = open.board.popup;
         }
 
         if self.project(cx) == Some(project) {

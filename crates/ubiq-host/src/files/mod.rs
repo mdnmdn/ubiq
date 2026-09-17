@@ -301,6 +301,35 @@ pub fn save(
     fs::metadata(&file).map(version_of).map_err(from_io)
 }
 
+/// The bytes a brand-new file of this path starts with.
+///
+/// Plain text opens empty, which is the general case. `.excalidraw` and `.drawio` are not: each
+/// names a document their own web panel opens, and an empty file is not a document either one
+/// accepts. Excalidraw's native preview (`state::scene::Scene::parse`, over in `crates/ubiq`)
+/// requires JSON starting with `{`, so an empty file reads as [`SceneError::NotAScene`] rather
+/// than an empty scene; draw.io's embedded editor loads its `xml` through `mxUtils.parseXml`,
+/// which an empty string fails the same way. Both seeds are exactly what each application's own
+/// "new document" writes, so a `.excalidraw` or `.drawio` created here opens the same as one
+/// created from inside Excalidraw or draw.io.
+fn new_file_seed(rel_path: &str) -> &'static [u8] {
+    let ext = rel_path
+        .rsplit('/')
+        .next()
+        .unwrap_or(rel_path)
+        .rsplit_once('.')
+        .map(|(_, ext)| ext.to_ascii_lowercase())
+        .unwrap_or_default();
+    match ext.as_str() {
+        "excalidraw" => {
+            br#"{"type":"excalidraw","version":2,"source":"https://excalidraw.com","elements":[],"appState":{},"files":{}}"#
+        }
+        "drawio" => {
+            br#"<mxGraphModel dx="800" dy="600" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0"><root><mxCell id="0" /><mxCell id="1" parent="0" /></root></mxGraphModel>"#
+        }
+        _ => b"",
+    }
+}
+
 /// Create, move, copy or remove one path.
 ///
 /// Containment is settled before anything on disk is touched, and every destination must be free:
@@ -327,7 +356,8 @@ pub fn edit(root: &Path, rel_path: &str, to: Option<&str>, op: PathOp) -> Result
             if dir {
                 fs::create_dir(&target).map_err(from_io)
             } else {
-                crate::atomic::write_atomic_with(&target, b"", None).map_err(from_io)
+                crate::atomic::write_atomic_with(&target, new_file_seed(rel_path), None)
+                    .map_err(from_io)
             }
         }
         PathOp::Move | PathOp::Copy => {

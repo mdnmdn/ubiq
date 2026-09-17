@@ -5,8 +5,8 @@ kind: tech
 status: draft
 summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, quota, profile, command-line, host browse, connector, repository, assist, notification, web asset and carrier families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
-updated: 2026-09-16
-verified: 2026-09-16
+updated: 2026-09-17
+verified: 2026-09-17
 code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq-drone/src/search.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
@@ -128,6 +128,7 @@ recolour and a move on disk.
 | `UpdateProject` | UI → host | `project_id`, `name?`, `colour?`, `custom_colour?`, `search_excludes?`, `index?`, `tools?`, `managed_repos?`, `runs_on?` | `ProjectChanged` |
 | `LocateProject` | UI → host | `project_id`, `path` | `ProjectChanged` or `ProjectError` |
 | `OpenedProject` | UI → host | `project_id` | `ProjectChanged` |
+| `AdoptProject` | UI → host | `project_id` | — |
 | `RefreshProject` | UI → host | `project_id` | `ProjectChanged` |
 | `GetPreferences` | UI → host | `scope` | `Preferences` |
 | `SetPreferences` | UI → host | `scope`, `value` | — |
@@ -150,6 +151,14 @@ recolour and a move on disk.
 | `ToolsListed` | host → UI | `system[]`, `project[]` | — |
 | `ListStats` | UI → host | — | `Stats` |
 | `Stats` | host → UI | `stats` | — |
+
+**`AdoptProject` answers nothing because it changes no fact — only who is told.** A project is open
+in one window at a time, so moving it between windows moves everything running in it: the host
+re-homes that project's panes in `owners` and its conversations in `conversation_owners`, and
+re-points the `MovingAddress` each pane's reader and reaper were given at spawn. No pseudo-terminal
+opens or closes and no harness is signalled. The sender is trusted: the interface's `WindowRegistry`
+is what guarantees there is exactly one window that has just taken the project, and the interface
+already holds the state it adopted, so there is nothing for an answer to carry.
 
 **A `Stats` goes only to the window that asked, and `ListStats` is the one thing the interface
 polls for.** Everything else in Ubiq is pushed because something happened; the host's memory and its
@@ -796,6 +805,7 @@ is what multiplexes several of them down one channel.
 | `SetConversationPersistent` | UI → host | `agent_id`, `persistent` | `AgentChanged` |
 | `SetConversationAcceptAll` | UI → host | `agent_id`, `accept_all` | `AgentChanged` |
 | `SetConversationDebugDump` | UI → host | `agent_id`, `debug_dump` | `AgentChanged` |
+| `RenameConversation` | UI → host | `agent_id`, `name` | `AgentChanged` |
 | `ReviveConversation` | UI → host | `source`, `agent_id`, `project_id`, `session_id` | `ConversationStarted` or `ConversationError` |
 | `ConversationStarted` | host → UI | `project_id`, `agent`, `session`, `accepts_input` | — |
 | `ConversationUpdate` | host → UI | `agent_id`, `seq`, `update` | — |
@@ -859,6 +869,17 @@ request is never shown rather than shown and then answered**, because the interf
 permission as a live prompt on the tool call it authorises and nothing retracts one. A request
 offering no allowing option is emitted to the window unchanged: the flag says which answer to give,
 never that an answer must be invented. `D98` is the decision and its costs.
+
+**`RenameConversation` writes `WorkAgent.name` directly, and it is not a fourth flag.** The three
+above each carry a boolean the record already had a place for; this carries the string every
+surface that draws an agent already reads, so there is no second field to reconcile it against —
+unlike a chat tab's own typed-over label (`WorkbenchState::tab_names`, purely cosmetic and local to
+the window that typed it), a rename here changes the one name every surface reads, and
+`Coordinator::rename_conversation` is what makes it durable: it is stamped onto the conversation's
+row as `title` — the same field [`Message::ConversationNamed`] writes from its own idea of a name —
+so a restart keeps it, and it counts as an already-answered naming, so the pass behind
+`ConversationNamed` never runs over it. Refused for nothing beyond ownership: unlike persistence,
+naming asks nothing of the harness.
 
 **`SetConversationDebugDump` narrows the process-wide tape to one agent.** The capture holds the
 `ConvUpdate`s with the raw harness frame behind each, plus every inbound message naming that agent —
@@ -934,16 +955,17 @@ builders follow: a remembered model absent from the discovered catalogue falls b
 rather than naming a model that is gone, and a remembered level the resolved model does not accept
 is dropped, because a level belongs to a model and never to a harness.
 
-**`WorkAgent.name` is derived host-side, not typed by the user.** The host names a conversation
+**`WorkAgent.name` starts host-derived, not typed by the user.** The host names a conversation
 from its harness's command — `claude`, `codex`, `opencode`, not the display label a menu shows —
 with a counter from the second occurrence onward, per project: `claude`, `claude 2`, `claude 3`.
 The first free name is picked, so a closed `claude 2` is reused before a new `claude 4` would be
 minted. The sidebar row, the column header and the chat panel row all draw that field, never
-`harness` directly. **That name is a placeholder, and two things may replace it.**
-`ConvUpdate::Title` is the harness naming the conversation itself, and `ConversationNamed` is Ubiq
-naming it from the opening exchange; both write the same field, and whichever spoke last is the
-name. Neither of them is the user — no rename message exists on the wire, so a name nothing else
-writes is the name for the conversation's life (`G119`).
+`harness` directly. **That name is a placeholder, and three things may replace it.**
+`ConvUpdate::Title` is the harness naming the conversation itself, `ConversationNamed` is Ubiq
+naming it from the opening exchange, and `RenameConversation` is the user naming it by hand — all
+three write the same field, and whichever spoke last is the name. A rename also marks the
+conversation as already named, the same flag [`Message::ConversationNamed`]'s pass sets on itself,
+so a reply that lands after a manual rename does not overwrite it.
 
 **`ConvUpdate::Compacted` marks where the harness's memory begins, and carries nothing else.** A
 harness that compacts its context has forgotten what came before, while the transcript above still

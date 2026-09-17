@@ -6,7 +6,7 @@ status: current
 summary: The working note for the drone's tenth phase — the drone as a fifth MCP server, with `drone_*` tools over the bus, capability-gated, a new `shell` message pair and a per-root read-only mode. Designed, and none of it written. Carries the gaps the nine built phases left open too, chief among them that nothing has been run against a real `ssh`, `scp` or `sshd`.
 read_when: you are picking up the drone work — building phase 10, or closing one of the gaps the built phases left
 updated: 2026-09-16
-verified: 2026-09-16
+verified: 2026-09-17
 code_anchors: [crates/ubiq-host/src/mcp/server.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/tools.rs, crates/ubiq-host/src/mcp/registry.rs, crates/ubiq-host/Cargo.toml, crates/ubiq-proto/src/carrier.rs, crates/ubiq-drone/src/lib.rs, crates/ubiq-proto/src/messages.rs]
 depends_on: [feat-drone, tech-transport, tech-architecture, inbox-drone-runtime]
 ---

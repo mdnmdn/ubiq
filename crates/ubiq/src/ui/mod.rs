@@ -68,6 +68,31 @@ pub fn handler(
     }
 }
 
+/// [`handler`], for the dismissal of an overlay something else can be painted over.
+///
+/// A modal's `on_mouse_down_out` fires on its own bounds, capture-phase, so a click inside a
+/// layer *above* it reads here as a click outside — see `crate::state::overlay`. This yields:
+/// while anything sits above `layer`, the click belongs to that layer and this one stays up. The
+/// same closure is the modal's × and its outside click both, and a covered modal's × is under
+/// another scrim anyway, so one guard serves both.
+///
+/// An overlay that nothing is ever painted over takes plain [`handler`].
+pub fn dismiss(
+    view: &Entity<AppState>,
+    layer: crate::state::Layer,
+    f: impl Fn(&mut AppState, &mut Window, &mut Context<AppState>) + 'static,
+) -> impl Fn(&mut Window, &mut App) + 'static {
+    let view = view.clone();
+    move |window, cx| {
+        view.update(cx, |this, cx| {
+            if this.covered(layer) {
+                return;
+            }
+            f(this, window, cx);
+        });
+    }
+}
+
 /// The same, for the kit's index-carrying callbacks: tab strips and menu rows.
 pub fn indexed(
     view: &Entity<AppState>,

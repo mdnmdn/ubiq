@@ -5,9 +5,9 @@ kind: feature
 status: draft
 summary: What a pane shows, how exactly one of them holds focus, how a resize reaches the harness, and how a pane is moved around the window's dock.
 read_when: you are changing where a pane sits, pane focus, resize, pane chrome, or how terminal bytes reach the screen
-updated: 2026-09-15
-verified: 2026-09-15
-code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/editor.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/new_pane_menu.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/tools.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/pty/mod.rs, crates/ubiq-host/src/shells.rs, vendor/gpui-terminal/src/view.rs, vendor/gpui-terminal/src/render.rs, vendor/gpui-terminal/src/input.rs, vendor/gpui-terminal/src/mouse.rs, vendor/gpui-terminal/src/clipboard.rs, vendor/gpui-terminal/src/event.rs, vendor/gpui-terminal/src/terminal.rs]
+updated: 2026-09-17
+verified: 2026-09-17
+code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/editor.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/new_pane_menu.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/tools.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/tests/coordinator.rs, crates/ubiq-host/src/pty/mod.rs, crates/ubiq-host/src/shells.rs, vendor/gpui-terminal/src/view.rs, vendor/gpui-terminal/src/render.rs, vendor/gpui-terminal/src/input.rs, vendor/gpui-terminal/src/mouse.rs, vendor/gpui-terminal/src/clipboard.rs, vendor/gpui-terminal/src/event.rs, vendor/gpui-terminal/src/terminal.rs]
 depends_on: [tech-transport]
 review_cycle: monthly
 ---
@@ -103,9 +103,21 @@ computed the whole of it and inheriting Ubiq's would put back what the sandbox t
 **A project's panes stay alive while another project is on screen.** A window can hold several
 projects, and switching between them swaps which project's panes are drawn; the ones behind keep
 running and keep their scrollback, because nothing is killed under the user. Their panels are hidden
-rather than removed, so they come back where they were left. A project *leaving* the window is
-different: its panes are closed with it, since a pane's working directory is that project's and no
-other window can adopt an emulator.
+rather than removed, so they come back where they were left. A project *closed* in the window is
+different: its panes are closed with it, since a pane's working directory is that project's and a
+harness nobody is left looking at is a leak.
+
+**A project moved to another window takes its panes with it, still running.** A project is open in
+one window at a time, so "take it from there" in the picker and "Open in a new window" are the same
+gesture — and neither is a close. The window losing it lets go rather than kills
+(`AppState::hand_off_project`): no `CloseWorkspace`, no `UnloadConversation`, and the whole
+`OpenProject` is handed to the window taking it, which sends `AdoptProject` and installs it
+(`AppState::adopt_project`). The host re-homes the pane's owner *and* re-addresses the mailbox its
+reader and reaper hold — `HostEnd::moving_mailbox`, because those two run on threads of their own
+and hold one destination for the life of the harness. What the move costs is the scrollback: the
+emulator is rebuilt on the taking window's bus, since the old one's keystroke writer, resize sender
+and state handle all point at a window that no longer owns the pane. The harness is untouched and
+redraws into the new screen (`G280`).
 
 **A pane exists because the coordinator says it does.** Asking for one is a request; the panel and
 its emulator are drawn on the answer. A harness that fails to start produces an error against a pane
@@ -349,6 +361,13 @@ A pane belongs to the window that spawned it: the host records the owner before 
 everything that pane emits back to that window alone, and refuses a message about it from any
 other. When a window goes, the host reaps the pseudo-terminals it owned — nothing else drops now
 that the host outlives every window.
+
+It belongs to that window until its project moves. `Message::AdoptProject` re-homes every pane and
+every conversation of one project onto the sender, which is two maps (`owners`,
+`conversation_owners`) and the `MovingAddress` beside each pane. `Mailbox` gained `Sink::Moving` for
+exactly this: a reader thread is handed one mailbox and never asks again, so the destination has to
+be behind a handle the host can re-point. The host takes the sender's word for who may adopt — the
+interface's `WindowRegistry` is what guarantees there is one such window.
 
 Inside the window, a pane also belongs to one of its hosts — recorded in `Bus::note_pane` the moment
 `WorkspaceSpawned` arrives — which is how its keystrokes and its resizes reach the connection

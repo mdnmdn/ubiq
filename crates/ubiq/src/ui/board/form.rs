@@ -28,7 +28,7 @@ use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use ubiq_proto::work::{Complexity, Kind, Priority, Shape, TaskRecord};
 
-use crate::app::AppState;
+use crate::app::{AppState, SubmitSearch};
 use crate::state::MenuId;
 use crate::state::board::Field;
 use crate::theme;
@@ -650,6 +650,13 @@ pub fn description(
             .on_click(cx.listener(|this, _, window, cx| {
                 let input = this.task_description_input.clone();
                 input.update(cx, |state, cx| state.focus(window, cx));
+            }))
+            // ⌘⏎ (⌃⏎ off macOS) saves, the same key the new-agent form and the settings profile
+            // form already answer to for "confirm this form from inside a field" — `SubmitSearch`
+            // is bound at the window and at the field's own depth, so it reaches here whichever
+            // has the keyboard. Bare Enter stays a newline: a description is prose, not a line.
+            .on_action(cx.listener(|this, _: &SubmitSearch, _, cx| {
+                this.commit_task_description(cx);
             }))
             .into_any_element()
     } else {

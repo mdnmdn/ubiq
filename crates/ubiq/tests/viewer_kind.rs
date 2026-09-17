@@ -12,7 +12,7 @@ use chrono::Utc;
 use gpui::{AppContext as _, Entity, TestAppContext, WindowHandle};
 use ubiq::app::{AppState, BusHub};
 use ubiq::state::WindowRegistry;
-use ubiq::state::editor::{ViewLayout, ViewerKind};
+use ubiq::state::editor::{FileLanguage, ViewLayout, ViewerKind};
 use ubiq_proto::bus;
 use ubiq_proto::ids::ProjectId;
 use ubiq_proto::projects::{ProjectHealth, ProjectRecord, ProjectSnapshot};
@@ -66,6 +66,13 @@ impl Fixture {
                 .editor(cx)
                 .and_then(|editor| editor.open.get(editor.index_of_key(key)?))
                 .map(|file| (file.viewer, file.layout))
+        })
+    }
+
+    /// The language a tab is highlighted as, `None` if it is not open at all.
+    fn language_of(&self, key: &str, cx: &mut TestAppContext) -> Option<FileLanguage> {
+        self.state.read_with(cx, |state, cx| {
+            state.file(key, cx).map(|file| file.language)
         })
     }
 
@@ -164,6 +171,66 @@ fn a_forced_viewer_re_settles_the_layout_and_dies_with_the_tab(cx: &mut TestAppC
     assert_eq!(
         fixture.view_of("README.md", cx).map(|(viewer, _)| viewer),
         Some(ViewerKind::of("README.md")),
+        "nothing was written down, so the reopened tab starts from the extension again"
+    );
+}
+
+/// Forcing the Markdown viewer onto a tab whose extension named no language must make the source
+/// highlight as Markdown too — T-13. `language` used to lag behind `viewer`: the chip's label and
+/// the tree-sitter grammar `attach_file` bakes into the buffer both read `file.language`, and
+/// `set_viewer_kind` used to leave it exactly where the extension put it, so a `.txt` file forced
+/// onto Markdown drew the Markdown viewer over an unhighlighted source. Closing the tab and
+/// reopening it must drop the override, the same as the viewer itself does.
+#[gpui::test]
+fn forcing_the_markdown_viewer_forces_markdown_highlighting_too(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+
+    fixture.state.update(cx, |state, cx| {
+        state.select_file("notes.txt".to_string(), cx)
+    });
+    cx.run_until_parked();
+    assert_eq!(
+        fixture.language_of("notes.txt", cx),
+        Some(FileLanguage::Plain),
+        "a `.txt` file has no grammar of its own"
+    );
+
+    fixture.state.update(cx, |state, cx| {
+        state.set_viewer_kind("notes.txt", ViewerKind::Markdown, cx)
+    });
+    cx.run_until_parked();
+    assert_eq!(
+        fixture.view_of("notes.txt", cx).map(|(viewer, _)| viewer),
+        Some(ViewerKind::Markdown),
+        "the forced kind takes"
+    );
+    assert_eq!(
+        fixture.language_of("notes.txt", cx),
+        Some(FileLanguage::Markdown),
+        "the source must highlight as what the forced viewer draws, not as what the extension named"
+    );
+
+    // Forcing the plain Editor back does not un-force the language: the picker offers viewers,
+    // not languages, and there is no "Plain Text" entry to force it back with. That is unchanged
+    // by this fix — it is `ViewerKind::forced_language` returning `None` for `Editor`, on purpose.
+    fixture.state.update(cx, |state, cx| {
+        state.set_viewer_kind("notes.txt", ViewerKind::Editor, cx)
+    });
+    cx.run_until_parked();
+    assert_eq!(
+        fixture.language_of("notes.txt", cx),
+        Some(FileLanguage::Markdown),
+        "Editor names no language of its own, so the last forced one stands"
+    );
+
+    fixture.close("notes.txt", cx);
+    fixture.state.update(cx, |state, cx| {
+        state.select_file("notes.txt".to_string(), cx)
+    });
+    cx.run_until_parked();
+    assert_eq!(
+        fixture.language_of("notes.txt", cx),
+        Some(FileLanguage::Plain),
         "nothing was written down, so the reopened tab starts from the extension again"
     );
 }

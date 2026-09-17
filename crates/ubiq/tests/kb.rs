@@ -15,9 +15,10 @@ use chrono::Utc;
 use gpui::{AppContext as _, Entity, TestAppContext, WindowHandle};
 use gpui_component::Root;
 use ubiq::app::{AppState, BusHub};
+use ubiq::state::sink::ProjectNav;
 use ubiq::state::{KbAction, KbBody, KbKind, KbMenuRow, WindowRegistry, kb_menu_entries};
 use ubiq_proto::bus::{self, FromClient, To};
-use ubiq_proto::files::{DirEntry, DirListing, EntryKind, FileContents};
+use ubiq_proto::files::{DirEntry, DirListing, EntryKind, FileContents, HostDirEntry};
 use ubiq_proto::ids::{KbSourceId, ProjectId, RepoQueryId};
 use ubiq_proto::kb::{KbAccess, KbOrigin, KbSource, KbSourceState, KbSourceStatus, KbStore};
 use ubiq_proto::messages::Message;
@@ -692,5 +693,90 @@ fn kb_changed_re_lists_the_directory_it_names(cx: &mut TestAppContext) {
     assert!(
         trees_asked(&fixture.said()).is_empty(),
         "a folder the tree has never held has nothing to re-list"
+    );
+}
+
+/// The knowledge base section of the project settings dialog opens like Tools and Remote do: it
+/// hangs off an existing project's record, so an edit dialog answers to it and a create one does
+/// not.
+#[gpui::test]
+fn the_settings_dialogs_kb_section_opens_on_an_existing_project(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    fixture.with(cx, |state, _, cx| state.open_edit_project(cx));
+    fixture.with(cx, |state, _, cx| {
+        state.set_sink_project_nav(ProjectNav::Kb, cx)
+    });
+    fixture.with(cx, |state, _, _| {
+        assert_eq!(
+            state
+                .workbench
+                .project_settings
+                .as_ref()
+                .map(|settings| settings.nav),
+            Some(ProjectNav::Kb),
+            "the KB row is one an edit dialog answers to"
+        );
+    });
+}
+
+/// The folder field is answered by Ubiq's own host-backed picker: the icon asks the host for a
+/// listing, the answer fills the dialog, and the folder chosen there lands on the form rather than
+/// being sent anywhere — the source is written when the form is confirmed.
+#[gpui::test]
+fn the_folder_chooser_browses_the_host_and_answers_the_form(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    open_form(&fixture, cx);
+    fixture.with(cx, |state, window, cx| {
+        state.pick_kb_source_kind(KbKind::Folder, window, cx)
+    });
+    let _ = fixture.said();
+
+    fixture.with(cx, |state, window, cx| {
+        state.browse_kb_source_folder(window, cx)
+    });
+    assert!(
+        fixture
+            .said()
+            .iter()
+            .any(|message| matches!(message, Message::BrowseHostDir { .. })),
+        "the chooser asks the host the project runs on for a listing"
+    );
+
+    fixture.deliver(
+        Message::HostDirListing {
+            path: "/srv".to_string(),
+            parent: Some("/".to_string()),
+            entries: vec![HostDirEntry {
+                name: "docs".to_string(),
+                kind: EntryKind::Dir,
+                hidden: false,
+                readable: true,
+            }],
+            truncated: false,
+        },
+        cx,
+    );
+    fixture.with(cx, |state, window, cx| {
+        let rows = state
+            .file_picker
+            .as_ref()
+            .expect("the dialog is up")
+            .rows()
+            .len();
+        assert_eq!(rows, 1, "the host's listing is what the dialog draws");
+        state.click_picker_row("/srv/docs".to_string(), window, cx);
+        state.commit_file_picker(window, cx);
+    });
+    fixture.with(cx, |state, _, _| {
+        let form = state.workbench.kb_source.as_ref().expect("the form is up");
+        assert_eq!(
+            form.path.as_deref(),
+            Some("/srv/docs"),
+            "the folder lands on the form the chooser was raised from"
+        );
+    });
+    assert!(
+        sources_written(&fixture.said()).is_empty(),
+        "a folder chosen is not a source written: Confirm is what writes one"
     );
 }

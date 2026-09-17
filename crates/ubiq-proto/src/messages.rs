@@ -734,6 +734,21 @@ pub enum Message {
     OpenedProject {
         project_id: ProjectId,
     },
+    /// Take over every pane and every conversation running in a project, from whichever window
+    /// owned them until now.
+    ///
+    /// A project is open in one window at a time, so moving it between windows moves its running
+    /// harnesses with it: the panes are the same pseudo-terminals with the same processes behind
+    /// them, and only the client their bytes are addressed to changes. Without this the window
+    /// losing the project would have to kill what it holds, which is the user's work.
+    ///
+    /// Sent by the window a project has just been moved *into*, and only by it — the registry in
+    /// the interface is what guarantees there is exactly one such window. The host takes the
+    /// sender's word for it: it re-homes whatever it is running for that project and answers
+    /// nothing, because the interface already knows what it adopted.
+    AdoptProject {
+        project_id: ProjectId,
+    },
     /// Probe the folder again — the Locate-and-refresh path for a project marked missing.
     RefreshProject {
         project_id: ProjectId,
@@ -1538,6 +1553,19 @@ pub enum Message {
         agent_id: AgentId,
         accept_all: bool,
     },
+    /// Give a conversation a new name, from a window that asked to. Written onto
+    /// [`WorkAgent::name`](crate::work::WorkAgent::name) — the one field every surface that draws
+    /// an agent reads (the sidebar row, the agents column, a chat tab) — so a rename shows up
+    /// wherever the old name did, rather than only on the surface it was typed into.
+    ///
+    /// The naming pass behind [`Message::ConversationNamed`] writes the same field once, from its
+    /// own idea of a title; this is the user's, and it does not ask that pass to run again — a
+    /// conversation renamed by hand is not renamed a second time out from under the user once its
+    /// opening reply lands.
+    RenameConversation {
+        agent_id: AgentId,
+        name: String,
+    },
     /// Write this conversation's traffic to a file — the harness's own frames and the bus messages
     /// about it — for reading afterwards.
     ///
@@ -1997,6 +2025,7 @@ impl Message {
             | Message::UpdateProject { project_id, .. }
             | Message::LocateProject { project_id, .. }
             | Message::OpenedProject { project_id, .. }
+            | Message::AdoptProject { project_id, .. }
             | Message::RefreshProject { project_id, .. }
             | Message::ProjectForgotten { project_id, .. }
             | Message::ProjectTree { project_id, .. }

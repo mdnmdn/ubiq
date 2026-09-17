@@ -15,7 +15,7 @@
 //! A column is asserted by the ids in it and never by where it is drawn. The board has no
 //! geometry of its own: a card's place is its status, and its status is the task's.
 
-use ubiq::state::board::BoardState;
+use ubiq::state::board::{BoardState, Field};
 use ubiq::state::work::{WorkProjection, fraction};
 use ubiq_proto::ids::{SessionId, TaskId};
 use ubiq_proto::work::{
@@ -806,6 +806,23 @@ fn shutting_a_column_and_folding_a_card_undo_themselves() {
     board.toggle_fold(f.pane);
     assert!(!board.is_folded(f.pane));
     assert!(board.folded.is_empty());
+}
+
+#[test]
+fn the_popup_toggle_changes_where_the_task_is_drawn_and_nothing_else() {
+    let f = seeded();
+    let mut board = BoardState::default();
+    board.select(f.pane);
+
+    assert!(!board.popup);
+    board.toggle_popup();
+    assert!(board.popup);
+    // Neither what is open nor what is being typed moves with it.
+    assert_eq!(board.selected, Some(f.pane));
+    board.edit(Field::Description);
+    board.toggle_popup();
+    assert!(!board.popup);
+    assert!(board.is_editing(Field::Description));
 }
 
 #[test]

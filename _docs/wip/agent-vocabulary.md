@@ -5,8 +5,8 @@ kind: wip
 status: draft
 summary: What landed in the round that made a login reach its harness's runtime, gave a conversation its model, thinking level and mode, turned the IDE chat into editor-like tabs, and gave every conversation a lifecycle — and what of it is verified against a running binary rather than only against tests.
 read_when: you are picking up this work, or you need to know which parts of it have been seen working and which have only been reasoned about
-updated: 2026-09-10
-verified: 2026-09-14
+updated: 2026-09-17
+verified: 2026-09-17
 code_anchors: [crates/agent-manager/src/isolate.rs, crates/agent-manager/src/harness/mod.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/store/harness.rs, crates/ubiq-host/src/shells.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/dock.rs]
 depends_on: [wip-agent-setup, tech-agent-manager, feat-chat, feat-workbench]
 review_cycle: monthly
@@ -154,7 +154,6 @@ its own tests, because verification had been scoped to the crates that owned the
 - Fill the agent-definition half `agent-setup.md`'s P4 leaves open. `WorkAgent` already carries
   `task`, `role` and `parent`, but nothing fills them from a real run — which is why the bench menu
   groups by availability alone (`G122`) rather than by role or team.
-- Let a conversation be renamed (`G119`). Naming is derived, and nothing can override it.
 - Give the model picker a way to say a probe failed. The list falls back to "Default" and the reason
   reaches the log alone, which is how `PATH` hid for as long as it did.
 
@@ -165,4 +164,4 @@ its own tests, because verification had been scoped to the crates that owned the
 - [`../tech/transport-contract.md`](../tech/transport-contract.md) — the conversation and account families
 - [`../features/chat.md`](../features/chat.md) — the chat surface and its composer
 - [`../features/workbench.md`](../features/workbench.md) — the agents screen and the settings overlay
-- [`../backlog.md`](../backlog.md) — G118 to G122, the gaps named above
+- [`../backlog.md`](../backlog.md) — G118, G120 to G122, the gaps named above

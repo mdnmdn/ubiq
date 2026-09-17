@@ -1274,6 +1274,19 @@ fn open_window(project: Option<ProjectId>, adopt: bool, paths: Vec<PathBuf>, cx:
     // register in between — `open_window` builds the `AppState`, which is what registers.
     let label = WindowRegistry::read(cx).next_label();
 
+    // "Open in a new window" is a move like any other: the window that holds this project lets go
+    // of what is running in it — the panes and the conversations, still running — and the new one
+    // installs them. Taken here rather than in `AppState::for_project`, because the window that
+    // has to let go must do so before `register` takes the row away from it, and the state that
+    // comes back needs the new `AppState` to exist. See `AppState::hand_off_project`.
+    let handed = project
+        .and_then(|project| WindowRegistry::read(cx).holder(project).map(|slot| slot.id))
+        .and_then(|holder| OpenWindows::get(cx, holder))
+        .and_then(|view| {
+            let project = project?;
+            view.update(cx, |state, cx| state.hand_off_project(project, cx))
+        });
+
     // Step successive windows down and across, so a new one does not land exactly on its parent.
     let offset = (cx.windows().len() as f32) * 28.0;
     let mut bounds = Bounds::centered(None, size(px(1440.), px(900.)), cx);
@@ -1292,6 +1305,9 @@ fn open_window(project: Option<ProjectId>, adopt: bool, paths: Vec<PathBuf>, cx:
             let view = cx.new(|cx| {
                 let mut state = AppState::for_project(project, label, window, cx);
                 state.adopt_on_list = adopt;
+                if let Some((project, handed)) = project.zip(handed) {
+                    state.adopt_project(project, handed, cx);
+                }
                 if !paths.is_empty() {
                     state.deliver_paths(&paths, cx);
                 }

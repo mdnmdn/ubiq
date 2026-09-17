@@ -198,6 +198,42 @@ fn keystrokes_reach_the_harness() {
     ui.send(Message::CloseWorkspace { pane_id });
 }
 
+/// Moving a project to another window moves what is running in it.
+///
+/// A project is open in one window at a time, so the interface's "take it from there" and "open in
+/// a new window" both end in `Message::AdoptProject` — and what it re-homes is the routing and
+/// nothing else. The pane is the same pseudo-terminal with the same process behind it: it answers
+/// to the window that took it, and the window that lost it closing takes nothing with it. This
+/// used to be a close, which is how moving a project between windows killed its agents and
+/// terminals.
+#[test]
+fn a_project_moved_to_another_window_keeps_its_panes_running() {
+    let (hub, first) = coordinator();
+    let (project_id, _path) = a_project(&first);
+    let pane_id = spawn_in(&first, project_id, None, "/bin/cat", &[]);
+
+    let second = hub.connect();
+    second.send(Message::AdoptProject { project_id });
+
+    // The pane answers to the second window now: its keystrokes reach the harness, and the bytes
+    // come back here rather than to the window that spawned it.
+    second.send(Message::TerminalInput {
+        pane_id,
+        bytes: b"ping\n".to_vec(),
+    });
+    wait_for_output(&second, "ping");
+
+    // And the first window going away is no longer the harness's end — it is not its to reap.
+    drop(first);
+    second.send(Message::TerminalInput {
+        pane_id,
+        bytes: b"pong\n".to_vec(),
+    });
+    wait_for_output(&second, "pong");
+
+    second.send(Message::CloseWorkspace { pane_id });
+}
+
 #[test]
 fn a_pane_stream_carries_chunks_and_ends_when_its_sender_goes() {
     let (chunks, mut output) = bus::pane_output();

@@ -22,6 +22,7 @@ use gpui_component::input::Textarea;
 use ubiq_proto::mcp::McpInfo;
 
 use crate::app::{AppState, DialogConfirm, SubmitSearch};
+use crate::state::Layer;
 use crate::state::navigator::subsequence;
 use crate::state::new_agent::{NewAgentForm, OpenList, Purpose, Target};
 use crate::state::workbench::HarnessChoice;
@@ -96,18 +97,11 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         "New agent",
         body(app, window, cx),
         footer,
-        handler(&view, |this, _, cx| {
-            // A picker's list is painted above this modal but *outside* its subtree, so a click
-            // inside the list — the filter field most of all — reads to the modal as a click
-            // outside itself. While a list is down it is the layer the click belongs to: the list
-            // dismisses itself against its own bounds, and the form under it stays up. One
-            // gesture peels one layer, which is what Escape does here too.
-            if this
-                .new_agent_form()
-                .is_some_and(|form| form.open.is_some())
-            {
-                return;
-            }
+        // A picker's list and the name prompt are both painted above this modal but *outside* its
+        // subtree, so a click inside either reads here as a click outside the form. While one is
+        // up it is the layer the click belongs to, and the form under it stays: one gesture peels
+        // one layer, which is what Escape does here too.
+        crate::ui::dismiss(&view, Layer::NewAgent, |this, _, cx| {
             this.close_new_agent(cx)
         }),
         window,

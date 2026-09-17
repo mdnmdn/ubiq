@@ -221,6 +221,20 @@ impl ViewerKind {
     pub fn takes_panel_focus(self) -> bool {
         matches!(self, ViewerKind::Image)
     }
+
+    /// The highlighter language a viewer forced onto a tab implies for the source underneath it,
+    /// when it implies one. Markdown is the case the status bar's picker exists for: choosing it
+    /// says the text *is* Markdown, not only that it should be drawn by the Markdown viewer, so
+    /// the source half must highlight as Markdown even when the extension it opened under named
+    /// something else — or nothing. The other viewers say nothing about a language — Editor keeps
+    /// whatever the extension already named, and Mermaid, Excalidraw, draw.io and Image have no
+    /// language of their own in [`FileLanguage`] to force.
+    pub fn forced_language(self) -> Option<FileLanguage> {
+        match self {
+            ViewerKind::Markdown => Some(FileLanguage::Markdown),
+            _ => None,
+        }
+    }
 }
 
 /// Which of a viewer's layouts is on screen. The one piece of per-tab state a viewer keeps, and

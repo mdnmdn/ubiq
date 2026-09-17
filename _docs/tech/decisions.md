@@ -1645,10 +1645,11 @@ whole of it is behind one checkbox, `HostSettings.auto_name_conversations`, whic
 all while `assist` is `Off`. A failure is a log line: the mechanical name is still there, so there
 is nothing to report and no state for an interface to unwind.
 
-**Cost:** a name a user did not type can change under them once per conversation, and they cannot
-type one over it — `G119` is that gap and this decision sharpens it rather than closing it. The
-naming reads the opening exchange alone, so a conversation that turns into something else keeps a
-title about where it started, and nothing re-reads it. It costs one model call per conversation
+**Cost:** a name a user did not type can change under them once per conversation. `RenameConversation`
+gives them a way to type one over it afterwards — and marks the conversation as named, the same flag
+this naming sets on itself, so it never runs back over a manual rename — but the naming itself still reads the opening
+exchange alone, so a conversation that turns into something else keeps a title about where it
+started unless the user renames it by hand, and nothing re-reads it (`G203`). It costs one model call per conversation
 where a provider is configured, which is a call the user did not ask for at the moment it is made,
 and the schema fallback runs the wrong way: an older build that drops the field turns naming back
 on rather than off. And the generated name lives only in the window that received it — nothing
@@ -3012,6 +3013,30 @@ by the `Task` call that spawned it, a `String` rather than an `AgentId`, so it h
 `WorkAgent` and no membership in `WorkProjection` — `TeamsSelection::Subagent` carries a call id
 beside the parent's `AgentId` rather than an id of its own, which is also why the enum is `Clone`
 and not `Copy`.
+
+### D141 — An overlay's outside-click and Escape read one declared rung order, not a hand-kept guard per pair
+
+A dropdown painted above a modal sits, in the render tree, outside the modal's own subtree — a
+picker inside the New-agent form, a menu inside a page. An outside-click handler on the modal reads
+a click inside that dropdown as a click outside itself, so the modal closed under the dropdown it
+was supposed to leave open, and every modal that could raise something above it needed its own
+hand-written guard checking that one case. Escape had the same problem from the other side: which
+layer a bare Escape should peel is the same question, asked at window scope.
+
+`state/overlay.rs`'s `Layer` answers both with one order — `ui::shell`'s paint order, declared
+bottom-up as an enum whose derived `Ord` is the only thing either consults. `AppState::top_layer`
+reads which rung a given piece of state is raised from, `AppState::covered` answers whether
+anything sits above a rung, and `ui::dismiss(&view, rung, …)` is what an overlay's outside-click
+handler calls instead of `ui::handler`, yielding while `covered` says something is on top.
+`AppState::cancel_dialog` reads the same order from the top for Escape, so the two gestures agree on
+what "next" means without sharing code. It replaced the hand-coded guards in the knowledge base's
+"Add source" form and the New-agent modal, among others.
+
+**Cost:** adding an overlay means adding a rung to `Layer` in paint order and an arm in `top_layer`
+— miss either and the new overlay dismisses wrong rather than not at all, since nothing checks the
+enum against the paint tree it is meant to mirror. `backlog.md`'s `G242` is the one place this is
+still duplicated by hand: `ui/shell.rs`'s `overlaid()` lists the same overlays again, for a different
+question (does a native webview need hiding), and could read `top_layer().is_some()` instead.
 
 ## Related docs
 

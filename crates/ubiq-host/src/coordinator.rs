@@ -13,7 +13,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use ubiq_proto::assist::{AssistProvider, SuggestSubject};
-use ubiq_proto::bus::{ClientId, FromClient, HostEnd, To};
+use ubiq_proto::bus::{ClientId, FromClient, HostEnd, MovingAddress, To};
 use ubiq_proto::conversation::{
     ConfigCategory, ConfigChoice, ConfigOption, ConfigValue, ConvUpdate, StopReason,
 };
@@ -225,6 +225,15 @@ struct Coordinator {
     /// Which window owns which pane, recorded when the pane is spawned. This is the whole routing
     /// table: everything a pane emits goes to its owner, and nobody else may drive it.
     owners: HashMap<PaneId, ClientId>,
+    /// The handle that re-addresses a pane's own reader and reaper, for every pane that belongs to
+    /// a project.
+    ///
+    /// `owners` decides what the coordinator sends and what it accepts, both resolved per message;
+    /// a pane's reader has neither, because it holds one mailbox for the life of the harness and
+    /// runs on its own thread. So a project moving between windows has two halves, and this is the
+    /// other one — see [`Self::adopt_project`]. A login pane has no entry: it belongs to no
+    /// project and there is nothing that could move it.
+    pane_addresses: HashMap<PaneId, MovingAddress>,
     /// Which pane each window says has focus. Exactly one per window — two attached windows have
     /// two focused panes, and neither is more focused than the other.
     focused: HashMap<ClientId, PaneId>,
@@ -864,6 +873,7 @@ impl Coordinator {
             pane_sessions: HashMap::new(),
             panes: HashMap::new(),
             owners: HashMap::new(),
+            pane_addresses: HashMap::new(),
             focused: HashMap::new(),
             conversations: HashMap::new(),
             conversation_owners: HashMap::new(),
@@ -1088,6 +1098,55 @@ impl Coordinator {
         self.web_assets.client_gone(client);
     }
 
+    /// A project has moved to another window: everything running in it is now that window's.
+    ///
+    /// Only the routing changes. No pseudo-terminal is opened or closed, no harness is signalled
+    /// and no conversation is stopped — `owners` and `conversation_owners` are the whole of what
+    /// a pane or a conversation belongs to, so re-homing them is the whole of the move. From here
+    /// the pane's bytes are addressed to `client`, and the keystrokes, resizes and closes it sends
+    /// are the ones [`Self::owns`] lets through.
+    ///
+    /// A focus the previous owner recorded goes with the pane rather than staying behind: the
+    /// window that no longer draws the pane cannot be the one typing into it, and the new owner
+    /// says where its own keyboard is with its own [`Message::Focus`].
+    fn adopt_project(&mut self, client: ClientId, project_id: ProjectId) {
+        let moved: Vec<PaneId> = self
+            .pane_projects
+            .iter()
+            .filter(|(_, owned_by_project)| **owned_by_project == project_id)
+            .map(|(pane_id, _)| *pane_id)
+            .collect();
+        for pane_id in &moved {
+            let previous = self.owners.insert(*pane_id, client);
+            if previous == Some(client) {
+                continue;
+            }
+            // The reader and the reaper hold a mailbox rather than consulting `owners`, so the
+            // bytes only follow the pane because of this.
+            if let Some(address) = self.pane_addresses.get(pane_id) {
+                address.point_at(To::Client(client));
+            }
+            if let Some(previous) = previous {
+                if self.focused.get(&previous) == Some(pane_id) {
+                    self.focused.remove(&previous);
+                }
+                tracing::info!("pane {pane_id} moved from {previous} to {client}");
+            }
+        }
+
+        let mut agents = 0usize;
+        for (owner, owned_by_project) in self.conversation_owners.values_mut() {
+            if *owned_by_project == project_id && *owner != client {
+                *owner = client;
+                agents += 1;
+            }
+        }
+        tracing::info!(
+            "{client} adopted project {project_id}: {} panes, {agents} conversations",
+            moved.len()
+        );
+    }
+
     /// Take the folders finished clones left into the catalogue.
     ///
     /// A clone's own thread cannot: [`Projects`] is this thread's, which is why a finished clone
@@ -1114,6 +1173,7 @@ impl Coordinator {
         // count below both find nothing — what it owns is the answer to whether it captured
         // anything, and this is the only moment that answer exists.
         self.login_gone(client, pane_id);
+        self.pane_addresses.remove(&pane_id);
         self.pane_sessions.remove(&pane_id);
         if let Some(project_id) = self.pane_projects.remove(&pane_id) {
             let replies = self.projects.pane_closed(project_id);
@@ -1367,6 +1427,7 @@ impl Coordinator {
                 self.answer(client, replies);
                 self.watch_project(client, project_id);
             }
+            Message::AdoptProject { project_id } => self.adopt_project(client, project_id),
             Message::RefreshProject { project_id } => {
                 let replies = self.projects.refresh(project_id);
                 self.answer(client, replies);
@@ -2322,6 +2383,9 @@ impl Coordinator {
             } => {
                 self.set_conversation_accept_all(client, agent_id, accept_all);
             }
+            Message::RenameConversation { agent_id, name } => {
+                self.rename_conversation(client, agent_id, name);
+            }
             Message::SetConversationDebugDump {
                 agent_id,
                 debug_dump,
@@ -2912,6 +2976,37 @@ impl Coordinator {
             self.host
                 .send(To::Everyone, Message::AgentChanged { project_id, agent });
         }
+    }
+
+    /// Give a conversation a new name, typed by the user over whatever it was called.
+    ///
+    /// Written to the durable row's `title` — the same field [`Self::name_job`] writes from its
+    /// own idea of one — and to the live `WorkAgent` through [`Self::publish_conversation_flags`],
+    /// the same broadcast [`Self::set_conversation_persistent`] and its two siblings use. One
+    /// field, so a rename shows up on every surface that reads a conversation's name rather than
+    /// only the one it was typed into.
+    ///
+    /// **Counts as named**, the same flag [`Self::name_conversations`] checks before ever running
+    /// the naming pass: a title the user just typed is not overwritten the moment the opening
+    /// reply lands.
+    fn rename_conversation(&mut self, client: ClientId, agent_id: AgentId, name: String) {
+        if !self.drives(client, agent_id) {
+            return;
+        }
+        let name = name.trim().to_string();
+        if name.is_empty() {
+            return;
+        }
+        let sessions = self.sessions();
+        if let Some(mut row) = conversation_record::load(&sessions, agent_id) {
+            row.title = Some(name.clone());
+            conversation_record::save(&sessions, agent_id, &row);
+        }
+        if let Some(pending) = self.pending_conversations.get_mut(&agent_id) {
+            pending.named = true;
+            pending.opening_prompt = None;
+        }
+        self.publish_conversation_flags(agent_id, |agent| agent.name = name.clone());
     }
 
     /// Answer every permission this conversation asks for, or stop.
@@ -4511,7 +4606,9 @@ impl Coordinator {
         // The owner is recorded before the pane is announced, so nothing can arrive about a pane
         // the routing table has never heard of.
         self.owners.insert(pane_id, client);
-        let mailbox = self.host.mailbox(To::Client(client));
+        // Re-addressable, because this pane's project may move to another window and the reader
+        // below outlives that. See `Coordinator::adopt_project`.
+        let (mailbox, address) = self.host.moving_mailbox(To::Client(client));
 
         if let Err(error) = pane.forward_output(pane_id, mailbox.clone(), false) {
             self.owners.remove(&pane_id);
@@ -4526,6 +4623,8 @@ impl Coordinator {
         }
         pty::reap(pane_id, child, mailbox.clone());
         self.panes.insert(pane_id, pane);
+
+        self.pane_addresses.insert(pane_id, address);
 
         // The picker's terminal count, and the confirmation it puts in front of a close, are only
         // real because of this.
@@ -4691,7 +4790,9 @@ impl Coordinator {
         tracing::info!("pane {pane_id}: started tool {name} in session {session_id} for {client}");
 
         self.owners.insert(pane_id, client);
-        let mailbox = self.host.mailbox(To::Client(client));
+        // Re-addressable for the same reason a harness pane's is: a tool runs in a project, and a
+        // project moves between windows with everything running in it.
+        let (mailbox, address) = self.host.moving_mailbox(To::Client(client));
 
         if let Err(error) = pane.forward_output(pane_id, mailbox.clone(), false) {
             self.owners.remove(&pane_id);
@@ -4706,6 +4807,7 @@ impl Coordinator {
         pty::reap(pane_id, child, mailbox.clone());
         self.panes.insert(pane_id, pane);
 
+        self.pane_addresses.insert(pane_id, address);
         self.pane_projects.insert(pane_id, project_id);
         self.pane_sessions.insert(pane_id, session_id);
         let replies = self.projects.pane_opened(project_id);

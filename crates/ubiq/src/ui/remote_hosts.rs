@@ -69,7 +69,12 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         "Remote hosts",
         body.into_any_element(),
         footer,
-        crate::ui::handler(&cx.entity(), |this, _, cx| this.close_remote_manager(cx)),
+        // The connect modal is raised from this panel's own "New connection" and painted over it.
+        crate::ui::dismiss(
+            &cx.entity(),
+            crate::state::Layer::RemoteManager,
+            |this, _, cx| this.close_remote_manager(cx),
+        ),
         window,
     )
 }

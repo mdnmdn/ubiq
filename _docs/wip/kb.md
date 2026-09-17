@@ -5,9 +5,9 @@ kind: wip
 status: current
 summary: A project's knowledge base as it stands — a per-project list of sources persisted as one TOML file, a folder read where it lies, a git repository cloned and refreshed, an internal wiki, a host-side write half (`kb/ops.rs`) behind six new messages, the `ubiq-kb` MCP server that reaches it, and the explorer's right-click menu that reaches it from the interface — and the one piece the interface has not caught up to, a save path from the document on screen.
 read_when: you are touching the knowledge base's sources, its git sync worker, its write half, its `ubiq-kb` MCP server, or its explorer panel or centre
-updated: 2026-09-16
-verified: 2026-09-16
-code_anchors: [crates/ubiq-proto/src/kb.rs, crates/ubiq-host/src/kb/mod.rs, crates/ubiq-host/src/kb/ops.rs, crates/ubiq-host/src/kb/store.rs, crates/ubiq-host/src/kb/sync.rs, crates/ubiq-host/src/mcp/kb.rs, crates/ubiq/src/state/kb.rs, crates/ubiq/src/app/kb.rs, crates/ubiq/src/ui/kb/mod.rs, crates/ubiq/src/ui/kb/source_form.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq-proto/src/messages.rs]
+updated: 2026-09-17
+verified: 2026-09-17
+code_anchors: [crates/ubiq-proto/src/kb.rs, crates/ubiq-host/src/kb/mod.rs, crates/ubiq-host/src/kb/ops.rs, crates/ubiq-host/src/kb/store.rs, crates/ubiq-host/src/kb/sync.rs, crates/ubiq-host/src/mcp/kb.rs, crates/ubiq/src/state/kb.rs, crates/ubiq/src/app/kb.rs, crates/ubiq/src/ui/kb/mod.rs, crates/ubiq/src/ui/kb/source_form.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq-proto/src/messages.rs, crates/ubiq/tests/kb.rs]
 depends_on: [tech-architecture, tech-transport, feat-workbench, tech-decisions]
 ---
 
@@ -148,6 +148,16 @@ folder, the URL/Check/branch/store block for a repository, and access. Check sen
 each takes it only if it named the query id it is still waiting on, so neither surface has to know
 the other exists. Confirm appends the source and writes the whole list; Cancel discards, and both
 take the browse session down with them.
+
+**Three layers, and one gesture peels one of them.** The settings page, this modal over it and the
+folder picker over that are all painted at the window root, so each is *outside* the bounds of the
+one under it and `on_mouse_down_out` is capture-phase: without a guard, a click inside the modal
+closes the page beneath it and a click inside the picker closes both. Each dismissal therefore
+ignores the click while a layer it raised is up — `ui::sink::project::overlay` while
+`kb_source` or `file_picker` is up, and the modal's own closure while its picker list or that
+dialog is. `kit::overlay`'s module doc is where the rule is stated. The KB nav row follows the same
+gate Tools and Remote do, in `nav` *and* in `AppState::set_sink_project_nav`: an edit dialog answers
+to it, a create one does not.
 
 **Every row of the explorer has a right-click menu**, and it is the project explorer's menu rather
 than a second one: `state/kb.rs`'s `KbMenu` carries the epoch, the source, the path and the row kind

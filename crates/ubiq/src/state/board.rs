@@ -112,6 +112,10 @@ pub struct BoardState {
     /// Whether Delete has been asked once. A task is the one thing on this panel that cannot be
     /// retyped, so it takes a second, explicit click — the picker's Forget, for the picker's reason.
     pub confirm_delete: bool,
+    /// Whether the open task draws as a centred modal instead of the side panel. A project's own
+    /// choice of *shape* rather than a second copy of the task: both draw from `selected` and
+    /// `editing`, so the toggle only changes where the report and its controls are painted.
+    pub popup: bool,
     pub form: TaskForm,
 }
 
@@ -131,6 +135,7 @@ impl Default for BoardState {
             editing: None,
             preview: false,
             confirm_delete: false,
+            popup: false,
             form: TaskForm::default(),
         }
     }
@@ -298,6 +303,12 @@ impl BoardState {
         } else {
             self.shut.push(status);
         }
+    }
+
+    /// Swap the open task between the side panel and a centred modal. Neither `selected` nor
+    /// `editing` moves: the shape changes, not what is open or what is being typed.
+    pub fn toggle_popup(&mut self) {
+        self.popup = !self.popup;
     }
 
     pub fn is_folded(&self, task: TaskId) -> bool {

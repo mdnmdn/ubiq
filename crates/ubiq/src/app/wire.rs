@@ -1310,6 +1310,11 @@ impl AppState {
                 if open.graph.selection.is_none() {
                     open.graph.selection = open.work.agents.first().map(|a| Selection::Agent(a.id));
                 }
+                // Teams draws its own narrower work and lays it out here too, the same as `graph`
+                // — the projection update every card's arrival goes through, rather than a frame
+                // discovering the count changed.
+                open.teams
+                    .relayout(&live_work(&open.work, &open.agents.live));
                 // The agents screen lays its columns out the first time it hears there is work,
                 // and only prunes after that: an arrangement the user has changed is not something
                 // a re-sent list may undo.
@@ -1329,6 +1334,8 @@ impl AppState {
                 let id = task.id;
                 open.work.apply_task(task);
                 open.graph.absorb_new(&open.work);
+                open.teams
+                    .absorb_new(&live_work(&open.work, &open.agents.live));
                 // The task that arrives is the one to select, because the interface could not know
                 // the id it was going to be given — the same mechanism `AppState::adding` uses to
                 // open the project an `AddProject` answers with.
@@ -1352,6 +1359,8 @@ impl AppState {
                 let editing = open.board.editing.is_some();
                 open.work.apply_task(task);
                 open.graph.absorb_new(&open.work);
+                open.teams
+                    .absorb_new(&live_work(&open.work, &open.agents.live));
                 // Refill the panel from what the host actually stored — it trims a title, and a
                 // field showing what was typed rather than what was kept would be a small lie. Not
                 // while a field is open: the user's text wins until they commit or discard it.
@@ -1385,8 +1394,18 @@ impl AppState {
             Message::AgentChanged { project_id, agent } => {
                 self.workbench.work_error = None;
                 let open = self.projects.get_mut(&project_id)?;
+                // A live conversation's own title follows the record's name here, so a rename
+                // reaching this window from another surface — or from the host, after
+                // `Message::RenameConversation` — is not quietly undone the next time
+                // `refresh_agent_record` runs: that function copies `conversation.title` back
+                // onto `WorkAgent::name`, and a title left stale would win the next round.
+                if let Some(conversation) = open.conversations.get_mut(&agent.id) {
+                    conversation.title = Some(agent.name.clone());
+                }
                 open.work.apply_agent(*agent);
                 open.graph.absorb_new(&open.work);
+                open.teams
+                    .absorb_new(&live_work(&open.work, &open.agents.live));
                 // An arriving agent is not put in a column: the arrangement is the user's, and the
                 // sidebar lists it on the bench with one click to bring it on. What a change *can*
                 // do is take a column's tab away, if the agent behind it has gone.
@@ -1461,6 +1480,10 @@ impl AppState {
                 // place a conversation comes into being — see `AgentsView::live`.
                 open.agents.live = open.conversations.keys().copied().collect();
                 open.agents.prune(&open.work);
+                // Teams draws only the agents this window can talk to, so its narrowed work has
+                // to wait for `agents.live` above before the arriving card is in it.
+                open.teams
+                    .absorb_new(&live_work(&open.work, &open.agents.live));
                 // Where it lands is whoever asked. A `+` or a chat header that raised the New
                 // agent form aimed the start at itself — see `AppState::aim_start` — and anything
                 // else comes on the agents screen's field rather than onto the bench: unlike an
@@ -1658,6 +1681,8 @@ impl AppState {
                 open.agents.live = open.conversations.keys().copied().collect();
                 open.agents.prune(&open.work);
                 open.graph.absorb_new(&open.work);
+                open.teams
+                    .absorb_new(&live_work(&open.work, &open.agents.live));
                 for tab in watching {
                     self.close_chat_tab_in(project, tab, cx);
                 }

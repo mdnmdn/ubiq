@@ -1,5 +1,7 @@
 use super::*;
 
+use crate::state::Layer;
+
 impl AppState {
     /// Reconcile what the window holds with what the registry says it holds.
     ///
@@ -140,6 +142,115 @@ impl AppState {
         }
         if self.active_seen == Some(project) {
             self.active_seen = None;
+        }
+        cx.notify();
+    }
+
+    /// Everything a project takes with it when it **moves** to another window: nothing is killed.
+    ///
+    /// The difference from [`Self::drop_project`] is the whole of the move. A project closed here
+    /// is going nowhere, so its harnesses have nobody left to watch them and are ended; a project
+    /// taken by another window is still on screen, in that window, and ending its harnesses would
+    /// throw away the user's running work for a gesture that only changed which window draws it.
+    /// So this lets go rather than closes: no `CloseWorkspace`, no `UnloadConversation`, and the
+    /// whole [`OpenProject`] — panes, conversations, tree, editor, furniture — is handed over
+    /// intact for the taking window to install.
+    ///
+    /// What does *not* travel is anything tied to this window: the emulators, the panels drawing
+    /// them, and the pane routing in this window's bus. The taking window builds its own, which is
+    /// why the panes a panel was drawing are named in the answer — a pane the user had detached
+    /// (`D103`) stays detached on the other side.
+    pub(super) fn hand_off_project(
+        &mut self,
+        project: ProjectId,
+        cx: &mut Context<Self>,
+    ) -> Option<HandedOffProject> {
+        // Before the project leaves, so what it is carrying is what the user was last looking at.
+        self.remember(project, cx);
+        let open = self.projects.remove(&project)?;
+
+        let mut shown = Vec::new();
+        for pane in &open.panes {
+            let kind = PanelKind::Terminal(pane.id);
+            if self.panels.contains_key(&kind) {
+                shown.push(pane.id);
+            }
+            self.terminals.remove(&pane.id);
+            // This window is not the pane's route any more; the taking window notes it as its own.
+            self.bus.forget_pane(pane.id);
+            self.tab_names.remove(&kind);
+            self.pinned_tabs.remove(&kind);
+            // Queued rather than taken out here: a panel leaves the dock through a `Window`.
+            self.pending_panels.push(PanelEdit::Close(kind));
+        }
+        // The chat tabs go with it as well. `sync_chat_panels` takes them out on the way into the
+        // next project, but a window left holding nothing enters none — and a panel drawing a
+        // conversation another window is now talking to is worse than one drawing a dead harness.
+        for tab in &open.chats {
+            let kind = PanelKind::Chat(tab.id);
+            self.tab_names.remove(&kind);
+            self.pinned_tabs.remove(&kind);
+            self.pending_panels.push(PanelEdit::Close(kind));
+        }
+        if self
+            .pending_focus
+            .is_some_and(|id| open.panes.iter().any(|pane| pane.id == id))
+        {
+            self.pending_focus = None;
+        }
+        if self.active_seen == Some(project) {
+            self.active_seen = None;
+        }
+        cx.notify();
+        Some(HandedOffProject { open, shown })
+    }
+
+    /// Install a project another window just handed over, running harnesses and all.
+    ///
+    /// The state arrives whole, so nothing is re-read from the host — no tree, no work, no Git,
+    /// no preferences. What this window has to build is what was left behind: an emulator per
+    /// pane on *this* window's bus, a panel over each one that was on screen, and the pane routing
+    /// that tells the bus which host those panes belong to.
+    ///
+    /// The emulator is a fresh one. The old window's `TerminalView` was built on that window's
+    /// keystroke writer, its resize sender and its state handle, so moving the entity would leave
+    /// every one of those pointing at a window that no longer owns the pane — and the host would
+    /// drop them, because [`Message::AdoptProject`] has just made this window the owner. The
+    /// harness is untouched and redraws into the new screen; the scrollback it had already written
+    /// does not come back, which is the one thing a move costs.
+    pub(super) fn adopt_project(
+        &mut self,
+        project: ProjectId,
+        handed: HandedOffProject,
+        cx: &mut Context<Self>,
+    ) {
+        let HandedOffProject { open, shown } = handed;
+        // Before the first keystroke or resize can reach the host from the emulators below: until
+        // the host has re-homed the panes, everything this window says about them is somebody
+        // else's pane and is dropped.
+        self.bus.send(Message::AdoptProject {
+            project_id: project,
+        });
+
+        let host = self.bus.host_of_project(project);
+        let term_font = open
+            .prefs
+            .content_font_size
+            .unwrap_or(theme::TERMINAL_FONT_SIZE);
+        let panes: Vec<(PaneId, u16, u16)> = open
+            .panes
+            .iter()
+            .map(|pane| (pane.id, pane.cols, pane.rows))
+            .collect();
+        self.projects.insert(project, open);
+
+        for (pane_id, cols, rows) in panes {
+            self.bus.note_pane(pane_id, host);
+            self.open_terminal(pane_id, cols, rows, term_font, cx);
+            if shown.contains(&pane_id) {
+                self.pending_panels
+                    .push(PanelEdit::Open(PanelKind::Terminal(pane_id)));
+            }
         }
         cx.notify();
     }
@@ -507,6 +618,76 @@ impl AppState {
         cx.notify();
     }
 
+    /// The topmost overlay the window is painting, if any.
+    ///
+    /// One arm per rung of [`Layer`], whose order *is* `ui::shell`'s paint order — so the answer
+    /// is `max`, and adding an overlay is a rung there and a pair here. See `state/overlay.rs`
+    /// for why an outside click needs this at all.
+    pub fn top_layer(&self) -> Option<Layer> {
+        let w = &self.workbench;
+        let s = &w.settings;
+        // A picker a form keeps open on its own state: painted above every modal, so it is the
+        // top rung whatever raised it — the same four `cancel_dialog` peels before anything else.
+        let dropdown = w.kb_source.as_ref().is_some_and(|form| form.open.is_some())
+            || self
+                .new_agent_form()
+                .is_some_and(|form| form.open.is_some())
+            || s.ai_form.as_ref().is_some_and(|form| form.open.is_some())
+            || s.app_form.as_ref().is_some_and(|form| form.open)
+            || self.notifications.muting.is_some();
+
+        [
+            (Layer::ProjectSettings, w.project_settings.is_some()),
+            (Layer::KbSource, w.kb_source.is_some()),
+            (Layer::Settings, s.open),
+            (Layer::Login, s.login.is_some()),
+            (Layer::NewAgent, w.new_agent.is_some()),
+            (
+                Layer::NewAgentNaming,
+                w.new_agent.as_ref().is_some_and(|form| form.naming),
+            ),
+            (Layer::ProfileForm, s.profile_form.is_some()),
+            (Layer::AccountDialog, s.dialog.is_some()),
+            (Layer::Connect, s.connect.is_some()),
+            (Layer::AppForm, s.app_form.is_some()),
+            (Layer::Connector, s.connector.is_some()),
+            (Layer::Cert, s.cert.is_some()),
+            (Layer::AiForm, s.ai_form.is_some()),
+            (Layer::AiTest, s.ai_test.is_some()),
+            (Layer::AiRemove, s.ai_remove.is_some()),
+            (Layer::SshForm, s.ssh_form.is_some()),
+            (Layer::SshRemove, s.ssh_remove.is_some()),
+            (Layer::DroneStop, s.drone_stop.is_some()),
+            (Layer::Clone, w.clone_project.is_some()),
+            (Layer::AllProjects, w.all_projects.is_some()),
+            (Layer::FileDialog, w.file_dialog.is_some()),
+            (Layer::ClosePane, w.confirm_close_pane.is_some()),
+            (Layer::EndConversation, w.confirm_end_conversation.is_some()),
+            (Layer::FilePicker, self.file_picker.is_some()),
+            (
+                Layer::Menu,
+                w.open_menu.is_some() || w.new_agent_menu.is_some(),
+            ),
+            (Layer::RemoteManager, w.remote_manager.open),
+            (Layer::RemoteConnect, w.remote_connect.is_some()),
+            (Layer::Notifications, self.notifications.open),
+            (Layer::Dropdown, dropdown),
+        ]
+        .into_iter()
+        .filter_map(|(layer, up)| up.then_some(layer))
+        .max()
+    }
+
+    /// Whether something is painted above `layer` — in which case an outside click is that
+    /// layer's, not this one's, and this one stays up.
+    ///
+    /// The rule a stacked overlay's `on_mouse_down_out` consults: capture-phase dismissal fires
+    /// on a panel's own bounds, so without this every layer below the one clicked in dismisses
+    /// itself. One gesture peels one layer, which is what Escape does here too.
+    pub fn covered(&self, layer: Layer) -> bool {
+        self.top_layer().is_some_and(|top| top > layer)
+    }
+
     /// Escape: take away the topmost thing that is up, and nothing else.
     ///
     /// **One handler, in paint order, top first.** Every overlay in the window is raised from
@@ -647,6 +828,13 @@ impl AppState {
             // Still raised from a dock panel rather than the window root — it reads the live
             // conversation — so it stays under everything above it.
             self.dismiss_conversation_info(cx);
+        } else if self
+            .board(cx)
+            .is_some_and(|board| board.popup && board.show_detail && board.selected.is_some())
+        {
+            // The tasks board's own popup, raised from its dock panel the same way — closing it
+            // is exactly what the side panel's × already does.
+            self.close_task_detail(cx);
         } else if self.sink.modal.is_some() {
             self.close_sink_modal(cx);
         } else {
@@ -1052,4 +1240,16 @@ impl Render for AppState {
         self.drain_exported_asks(cx);
         tree
     }
+}
+
+/// One project on its way from one window to another, with everything running in it still running.
+///
+/// Produced by [`AppState::hand_off_project`] and consumed by [`AppState::adopt_project`], and by
+/// nothing else: it exists only for the instant between the two, which is why it carries the state
+/// rather than a copy of it.
+pub(super) struct HandedOffProject {
+    open: OpenProject,
+    /// The panes a panel was drawing when the project left. A pane that is not here is one the
+    /// user had detached — still running, nothing showing it — and it arrives detached.
+    shown: Vec<PaneId>,
 }

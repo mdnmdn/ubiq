@@ -824,6 +824,27 @@ impl AppState {
             FileDialog::RenameTab { kind, .. } => {
                 let typed = self.file_name.read(cx).value().trim().to_string();
                 self.close_file_dialog(cx);
+                // A chat tab attached to a live agent is renaming *the agent*, not the tab: the
+                // agents column, the bench and every other surface read `WorkAgent::name`, and a
+                // tab-local override would leave every one of them showing the old name. The host
+                // owns that record, so this asks rather than writes it — the same "nothing drawn
+                // optimistically" rule `toggle_conversation_persistent` follows.
+                if let PanelKind::Chat(id) = kind {
+                    let attached = self
+                        .open_project(cx)
+                        .and_then(|open| open.chats.iter().find(|tab| tab.id == id))
+                        .and_then(|tab| tab.attached);
+                    if let Some(agent_id) = attached {
+                        if !typed.is_empty() {
+                            self.bus.send(Message::RenameConversation {
+                                agent_id,
+                                name: typed,
+                            });
+                        }
+                        cx.notify();
+                        return;
+                    }
+                }
                 if typed.is_empty() {
                     self.tab_names.remove(&kind);
                 } else {

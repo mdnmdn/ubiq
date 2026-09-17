@@ -48,8 +48,8 @@ use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::eid;
 use crate::ui::kit::{
-    UbiqIcon, card, field, ghost_button, meter, mono, pill, primary_button, section_label,
-    toggle_pill,
+    UbiqIcon, card, field, ghost_button, icon_button, meter, mono, pill, primary_button,
+    section_label, toggle_pill,
 };
 use crate::ui::work::{activity_colour, bucket_colour};
 
@@ -103,7 +103,15 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
         .min_h(px(0.))
         .child(columns(app, cx).into_any_element());
 
-    if let Some(task) = board.open_task(work) {
+    // The popup toggle is the project's own choice of *shape* for the same task: the side panel
+    // and the modal draw the same report and controls off the same `selected`/`editing` fields,
+    // so exactly one of the two is on screen at once.
+    let popup = board.popup;
+    let open_task = board.open_task(work);
+
+    if let Some(task) = open_task
+        && !popup
+    {
         body = body.child(
             div()
                 .w(px(theme::TASK_PANEL_WIDTH))
@@ -115,7 +123,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
         );
     }
 
-    div()
+    let mut root = div()
         .flex()
         .flex_col()
         .flex_1()
@@ -123,8 +131,15 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
         .min_h(px(0.))
         .bg(theme::app_bg())
         .child(toolbar(app, window, cx))
-        .child(body)
-        .into_any_element()
+        .child(body);
+
+    if let Some(task) = open_task
+        && popup
+    {
+        root = root.child(detail::popup(app, task, window, cx));
+    }
+
+    root.into_any_element()
 }
 
 /// The strip over the columns: what is being looked for, and the way to add one.
@@ -187,6 +202,12 @@ fn toolbar(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl 
                 cx.listener(|this, _, _, cx| this.clear_board_filters(cx)),
             )
         }))
+        .child(icon_button(
+            "board-popup-toggle",
+            IconName::Maximize,
+            board.popup,
+            cx.listener(|this, _, _, cx| this.toggle_board_popup(cx)),
+        ))
         .child(primary_button(
             "board-new-task",
             Some(IconName::Plus),

@@ -629,6 +629,14 @@ impl AppState {
         cx.notify();
     }
 
+    /// Swap the open task between the side panel and a centred modal.
+    pub fn toggle_board_popup(&mut self, cx: &mut Context<Self>) {
+        if let Some(board) = self.board_mut(cx) {
+            board.toggle_popup();
+        }
+        cx.notify();
+    }
+
     pub fn toggle_task_fold(&mut self, task: TaskId, cx: &mut Context<Self>) {
         if let Some(board) = self.board_mut(cx) {
             board.toggle_fold(task);

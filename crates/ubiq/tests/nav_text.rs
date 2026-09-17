@@ -14,6 +14,7 @@ use ubiq_proto::ids::{PaneId, ProjectId, SessionId, TaskId};
 use ubiq_proto::work::AgentId;
 
 use ubiq::state::orchestration::{InspectorTab, Selection};
+use ubiq::state::teams::{TeamsInspectorTab, TeamsSelection};
 
 fn project() -> ProjectId {
     ProjectId::generate()
@@ -45,6 +46,21 @@ fn views() -> Vec<View> {
         View::Graph {
             selection: Selection::Agent(AgentId::generate()),
             tab: InspectorTab::Tasks,
+        },
+        View::Teams {
+            selection: TeamsSelection::Session(SessionId::generate()),
+            tab: TeamsInspectorTab::Chat,
+        },
+        View::Teams {
+            selection: TeamsSelection::Agent(AgentId::generate()),
+            tab: TeamsInspectorTab::Tasks,
+        },
+        View::Teams {
+            selection: TeamsSelection::Subagent {
+                agent: AgentId::generate(),
+                subagent: "t751".into(),
+            },
+            tab: TeamsInspectorTab::Chat,
         },
         View::Agents {
             agent: AgentId::generate(),
@@ -169,9 +185,58 @@ fn junk_is_not_a_link() {
         format!("ubiq://{id}/tasks/{}/extra", TaskId::generate()),
         // The selection prefix is forced.
         format!("ubiq://{id}/graph/{}", SessionId::generate()),
+        // A session has no delegate: `s:` carrying a third segment is a different string, not a
+        // refinement of the session selection.
+        format!("ubiq://{id}/teams/s:{}/chat/t751", SessionId::generate()),
     ] {
         assert!(Destination::from_str(&text).is_err(), "{text} parsed");
     }
+}
+
+/// The Teams grammar, `ubiq://<project>/teams/<s|a>:<ulid>[/<chat|tasks>[/<subagent>]]` —
+/// `graph`'s shape plus the delegate segment only an agent selection may carry.
+#[test]
+fn the_teams_grammar_round_trips_and_refuses_a_delegate_on_a_session() {
+    let id = project();
+    let session = SessionId::generate();
+    let agent = AgentId::generate();
+
+    // A session selection prints and reads back with no third segment at all.
+    let dest = Destination::new(
+        id,
+        View::Teams {
+            selection: TeamsSelection::Session(session),
+            tab: TeamsInspectorTab::Chat,
+        },
+    );
+    let text = dest.to_string();
+    assert_eq!(text, format!("ubiq://{id}/teams/s:{session}/chat"));
+    assert_eq!(Destination::from_str(&text).unwrap(), dest);
+
+    // An agent selection with a delegate prints the delegate as a third segment, unsplit — a
+    // `Task` call's id is the harness's own string, and the grammar makes no promise about what
+    // is in it besides a `/`.
+    let dest = Destination::new(
+        id,
+        View::Teams {
+            selection: TeamsSelection::Subagent {
+                agent,
+                subagent: "t751".into(),
+            },
+            tab: TeamsInspectorTab::Tasks,
+        },
+    );
+    let text = dest.to_string();
+    assert_eq!(text, format!("ubiq://{id}/teams/a:{agent}/tasks/t751"));
+    assert_eq!(Destination::from_str(&text).unwrap(), dest);
+
+    // The one shape `graph`'s grammar has no equivalent for: a session cannot carry a delegate,
+    // because a delegate always names the agent that spawned it.
+    let text = format!("ubiq://{id}/teams/s:{session}/chat/t751");
+    assert!(
+        Destination::from_str(&text).is_err(),
+        "{text} parsed as a link"
+    );
 }
 
 #[test]

@@ -614,6 +614,43 @@ fn a_create_makes_one_empty_file_or_one_folder_and_never_a_parent() {
     assert!(!dir.path().join("new").exists());
 }
 
+/// A new `.excalidraw` or `.drawio` file is not empty: each web panel rejects an empty document —
+/// Excalidraw's native preview parses only JSON starting with `{`, and draw.io's embedded editor
+/// parses its `xml` as an XML document — so creating one here has to write what each application's
+/// own "new document" writes, not nothing.
+#[test]
+fn a_new_excalidraw_or_drawio_file_seeds_a_document_its_own_panel_accepts() {
+    let dir = project();
+
+    files::edit(
+        dir.path(),
+        "scene.excalidraw",
+        None,
+        PathOp::Create { dir: false },
+    )
+    .unwrap();
+    let excalidraw = fs::read_to_string(dir.path().join("scene.excalidraw")).unwrap();
+    assert!(excalidraw.starts_with('{'), "{excalidraw:?}");
+    let parsed: serde_json::Value = serde_json::from_str(&excalidraw).unwrap();
+    assert_eq!(parsed["type"], "excalidraw");
+    assert_eq!(parsed["elements"], serde_json::json!([]));
+
+    files::edit(
+        dir.path(),
+        "diagram.drawio",
+        None,
+        PathOp::Create { dir: false },
+    )
+    .unwrap();
+    let drawio = fs::read_to_string(dir.path().join("diagram.drawio")).unwrap();
+    assert!(drawio.starts_with("<mxGraphModel"), "{drawio:?}");
+    assert!(drawio.contains("<root>"));
+
+    // A plain text file is unaffected: the general case stays the empty file it always was.
+    files::edit(dir.path(), "plain.txt", None, PathOp::Create { dir: false }).unwrap();
+    assert_eq!(fs::read(dir.path().join("plain.txt")).unwrap(), b"");
+}
+
 #[test]
 fn a_move_carries_a_file_and_a_folder_with_its_children() {
     let dir = project();

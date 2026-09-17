@@ -255,17 +255,6 @@ impl AppState {
             graph.rings = counts;
         }
 
-        // A card arrives when a conversation comes into being, and nothing on the wire tells this
-        // mode that happened — so an unplaced agent is given its place here, on the frame it is
-        // first drawn, rather than left stacked on the canvas's origin with every other arrival.
-        // `absorb_new` alone, never `relayout`: an arrangement the user has pulled apart is not
-        // something an arriving card may undo.
-        if let Some((graph, work)) = self.teams_over_work(cx)
-            && graph.absorbed != work.agents.len()
-        {
-            graph.absorb_new(&work);
-            graph.absorbed = work.agents.len();
-        }
         let stranded = self
             .teams(cx)
             .is_some_and(|graph| graph.carry.is_some() && !cx.has_active_drag());

@@ -197,6 +197,24 @@ impl HostEnd {
         }
     }
 
+    /// The same sink, plus the handle that re-addresses it after it has been handed out.
+    ///
+    /// A pane's reader and its reaper are given a mailbox once and hold it for the life of the
+    /// harness, so an ordinary [`HostEnd::mailbox`] settles at spawn which window a pane answers
+    /// to — and a pane outlives that decision. A project moves between windows with everything
+    /// running in it (`Message::AdoptProject`), and this is how the bytes follow it: the
+    /// destination sits behind a handle the host keeps, the thread holding the mailbox never
+    /// learns anything changed, and the one lock it costs per chunk is the same one a broadcast
+    /// already takes.
+    pub fn moving_mailbox(&self, to: To) -> (Mailbox, MovingAddress) {
+        let sink = Arc::new(Mutex::new(self.mailbox(to).0));
+        let address = MovingAddress {
+            sink: sink.clone(),
+            clients: self.clients.clone(),
+        };
+        (Mailbox(Sink::Moving(sink)), address)
+    }
+
     /// Address one message. Never blocks, and a client that has gone is not an error the host can
     /// act on.
     pub fn send(&self, to: To, message: Message) {
@@ -219,8 +237,37 @@ pub struct Mailbox(Sink);
 enum Sink {
     One(flume::Sender<Message>),
     All(Clients),
+    /// A destination the host can change while the mailbox is in use — see
+    /// [`HostEnd::moving_mailbox`]. Never nested: what the handle writes in is always one of the
+    /// three above.
+    Moving(Arc<Mutex<Sink>>),
     /// The client had already gone when the mailbox was made.
     Gone,
+}
+
+/// The handle that re-addresses a mailbox already handed out to a thread.
+///
+/// Held by the host beside the pane it belongs to. Cloneable, and every clone points the same
+/// mailbox: there is one destination, whoever moves it.
+#[derive(Clone)]
+pub struct MovingAddress {
+    sink: Arc<Mutex<Sink>>,
+    clients: Clients,
+}
+
+impl MovingAddress {
+    /// Send what the mailbox carries somewhere else from now on. Messages already posted are on
+    /// their way to where they were addressed, which is the only ordering this promises.
+    pub fn point_at(&self, to: To) {
+        let resolved = match to {
+            To::Client(id) => match self.clients.lock().get(&id) {
+                Some(sender) => Sink::One(sender.clone()),
+                None => Sink::Gone,
+            },
+            To::Everyone => Sink::All(self.clients.clone()),
+        };
+        *self.sink.lock() = resolved;
+    }
 }
 
 impl Mailbox {
@@ -231,17 +278,24 @@ impl Mailbox {
     /// pseudo-terminal into nowhere would keep the harness alive with it.
     pub fn send(&self, message: Message) -> bool {
         tape().record(Direction::Inbound, &message);
-        match &self.0 {
-            Sink::One(sender) => sender.send(message).is_ok(),
-            // A broadcast with nobody attached is not a reason for anything to stop.
-            Sink::All(clients) => {
-                for sender in clients.lock().values() {
-                    let _ = sender.send(message.clone());
-                }
-                true
+        post(&self.0, message)
+    }
+}
+
+/// Deliver on a resolved sink. Separate from [`Mailbox::send`] so the tape records a message once,
+/// whatever the sink turns out to be.
+fn post(sink: &Sink, message: Message) -> bool {
+    match sink {
+        Sink::One(sender) => sender.send(message).is_ok(),
+        // A broadcast with nobody attached is not a reason for anything to stop.
+        Sink::All(clients) => {
+            for sender in clients.lock().values() {
+                let _ = sender.send(message.clone());
             }
-            Sink::Gone => false,
+            true
         }
+        Sink::Moving(sink) => post(&sink.lock(), message),
+        Sink::Gone => false,
     }
 }
 

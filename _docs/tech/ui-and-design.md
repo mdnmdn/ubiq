@@ -5,9 +5,9 @@ kind: tech
 status: current
 summary: The GPUI rendering model, the complete theme token set and the rule that no colour escapes it, how a palette is switched, the shape every surface, modal and dialog is drawn in, the page every primitive is looked at on, and the design assets screens are built against.
 read_when: you are building or restyling a screen, adding a colour or a size, switching or extending a palette, raising a modal or the file picker, looking at a primitive on the style reference, or looking for the wireframe a layout came from
-updated: 2026-09-16
-verified: 2026-09-16
-code_anchors: [crates/ubiq/src/theme.rs, assets/icons/icons.yaml, _tools/icons.py, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/ui/kit/ribbon.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/src/ui/kit/popover.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/src/ui/viewer/scene.rs]
+updated: 2026-09-17
+verified: 2026-09-17
+code_anchors: [crates/ubiq/src/theme.rs, assets/icons/icons.yaml, _tools/icons.py, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/state/overlay.rs, crates/ubiq/src/ui/kit/ribbon.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/src/ui/kit/popover.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/tests/dismiss.rs, crates/ubiq/src/ui/remote_hosts.rs]
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -366,14 +366,24 @@ in `ui/kit/menu.rs` stop a left mouse-down on the list itself, because a list pa
 priority over whatever raised it sits at the same screen point as a control underneath — without
 the stop, a click on a row would also land on that control.
 
-**A layer painted above a modal is outside it**, and the modal that raised the layer is what has to
-know. `on_mouse_down_out` is a capture-phase handler over the panel's own bounds, and a dropdown
-opened with `Picker::above_modal` is painted at a higher priority but tested against those bounds
-all the same — so a click in the list, its filter field included, reads as a click outside the
-modal, and no `stop_propagation` from the layer above can take it back, because capture runs back to
-front. A modal with its own dropdowns therefore ignores the outside click while one is down: the
-list dismisses itself against its own bounds and the form under it stays, which is one gesture
-peeling one layer, exactly as Escape does. `ui/new_agent.rs` is the one that reads.
+**A layer painted above a modal is outside it**, so an outside click belongs to the topmost layer
+and to nothing under it. `on_mouse_down_out` is a capture-phase handler over the panel's own
+bounds, and a layer painted above — a dropdown opened with `Picker::above_modal`, a question raised
+over a page, a picker dialog raised over that question — is tested against those bounds all the
+same. A click in it reads as a click outside every panel below, and no `stop_propagation` from
+above can take that back, because capture runs back to front. Left alone, one click peels the whole
+stack.
+
+**So a dismissal consults the order, rather than naming the layers it happens to know about.**
+`state/overlay.rs`'s `Layer` is that order — `ui::shell`'s paint order, declared bottom-up, with a
+rung for every overlay the window root paints and a top rung for any dropdown a form keeps open on
+its own state. `AppState::top_layer` reads the state each rung is raised from, `AppState::covered`
+answers "is anything above me", and an overlay something can be painted over hands its dismissal
+through `ui::dismiss(&view, rung, …)` instead of `ui::handler`, which yields while it is covered.
+One gesture peels one layer, exactly as Escape does. **Adding an overlay is a rung there and an arm
+in `top_layer`, and nothing else** — every layer below it is protected without being edited, which
+is what the hand-written guard per pair could never give (`D141`). `crates/ubiq/tests/dismiss.rs`
+asserts it.
 
 **Escape is the window's, not the modal's.** A `kit::overlay` modal is a function returning an
 element: it holds no focus, so a key never arrives at it, and a `key_context` per modal would be one

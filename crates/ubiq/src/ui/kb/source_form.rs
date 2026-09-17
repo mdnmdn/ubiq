@@ -24,6 +24,7 @@ use ubiq_proto::kb::{KbAccess, KbStore};
 use crate::app::AppState;
 use crate::state::kb::{KbKind, KbList, KbSourceForm, KbUrlCheck};
 use crate::state::navigator::subsequence;
+use crate::state::overlay::Layer;
 use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::kit::{
@@ -75,18 +76,10 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         "Add a source",
         body(app, &form, window, cx),
         footer,
-        handler(&view, |this, _, cx| {
-            // A picker's list is painted above this modal but outside its subtree, so a click
-            // inside the list reads to the modal as a click outside itself. While a list is down
-            // it is the layer the click belongs to, and one gesture peels one layer.
-            if this
-                .workbench
-                .kb_source
-                .as_ref()
-                .is_some_and(|form| form.open.is_some())
-            {
-                return;
-            }
+        // Its own pickers' lists and the folder dialog it raises are both painted over it, so an
+        // outside click while either is up is theirs: `ui::dismiss` yields to whatever sits above
+        // this rung.
+        crate::ui::dismiss(&view, Layer::KbSource, |this, _, cx| {
             this.close_kb_source_form(cx)
         }),
         window,

@@ -28,7 +28,7 @@ use crate::state::sink::{
     PROJECT_NAME, PROJECT_PATH, ProjectNav, hex_string, hsv_to_rgb,
 };
 use crate::state::workbench::ProjectSettingsMode;
-use crate::state::{RailMode, WindowRegistry};
+use crate::state::{Layer, RailMode, WindowRegistry};
 use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::kit::{
@@ -155,8 +155,17 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
 /// The same dialog, over the window, after a folder is chosen or from the titlebar's 3-dot.
 pub fn overlay(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
     let viewport = window.viewport_size();
-    let panel = dialog(app, window, cx, Form::Live)
-        .on_mouse_down_out(cx.listener(|this, _, _, cx| this.close_project_settings(cx)));
+    // The bottom rung of the window's overlay stack: everything this page raises is painted over
+    // it, and a click inside any of them is outside *this* panel's bounds. `AppState::covered`
+    // answers for all of them at once — dropping the page from under a question takes the project
+    // that question is about with it.
+    let panel =
+        dialog(app, window, cx, Form::Live).on_mouse_down_out(cx.listener(|this, _, _, cx| {
+            if this.covered(Layer::ProjectSettings) {
+                return;
+            }
+            this.close_project_settings(cx)
+        }));
 
     deferred(
         anchored().position(point(px(0.), px(0.))).child(
