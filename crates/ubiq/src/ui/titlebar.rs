@@ -43,6 +43,36 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
         // window, the other which project.
         .children(project_menu::window_badge(app, cx))
         .child(project_menu::render(app, window, cx))
+        .child(
+            icon_button(
+                "new-project",
+                IconName::Plus,
+                false,
+                cx.listener(|this, _, _, cx| this.choose_folder(None, cx)),
+            )
+            .h_full()
+            .tooltip(move |window, cx| {
+                gpui_component::tooltip::Tooltip::new("Add a project").build(window, cx)
+            }),
+        )
+        // The chevron beside it: the same three ways in the project picker's foot offers — add,
+        // clone, remote — reached without opening the picker first. The same pattern as the
+        // new-terminal `+` and its own chevron just along the strip.
+        .child(
+            icon_button(
+                "new-project-menu",
+                IconName::ChevronDown,
+                app.workbench.open_menu == Some(MenuId::NewProject),
+                cx.listener(|this, event: &ClickEvent, _, cx| {
+                    let at = (f32::from(event.position().x), f32::from(event.position().y));
+                    this.open_new_project_menu(at, cx);
+                }),
+            )
+            .h_full()
+            .tooltip(move |window, cx| {
+                gpui_component::tooltip::Tooltip::new("Open a project").build(window, cx)
+            }),
+        )
         .when(has_project, |this| {
             let (icon, label) = if temporary {
                 (IconName::Plus, "Keep this project")

@@ -175,6 +175,13 @@ pub struct AccentColors {
     pub primary: Rgba,
     pub muted: Rgba,
     pub soft: Rgba,
+    /// The highlight a selectable text surface paints behind the run the pointer dragged over —
+    /// the component library's `ThemeColor::selection`, which the markdown preview, the chat
+    /// transcript, the A2UI tree and every other non-editor selectable surface read through
+    /// `cx.theme().selection`. Translucent like `soft`, and for the same reason `D10` names for a
+    /// hand-mixed shade: a surface that paints its selection *after* its glyphs (`TextView` does,
+    /// the code editor does not) would blot the very text it is marking if this were opaque.
+    pub selection: Rgba,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -698,8 +705,12 @@ fn dress_component_library(p: &Palette, cx: &mut App) {
     t.info = p.status.info.into();
     t.info_foreground = p.text.on_accent.into();
 
-    // Selection and links.
-    t.selection = p.terminal.selection.into();
+    // Selection and links. `t.selection` is the component library's generic selection colour —
+    // read by the markdown preview, the chat transcript, the A2UI tree and the code editor alike
+    // — and must stay translucent: `TextView` paints it *after* the glyphs it highlights, so the
+    // terminal's own opaque `p.terminal.selection` (correct there, since the terminal repaints a
+    // cell's background before its glyph every frame) would blot the text out here.
+    t.selection = p.accent.selection.into();
     t.link = p.terminal.link_underline.into();
     t.link_hover = p.terminal.link_underline_hover.into();
 
@@ -796,6 +807,15 @@ pub fn accent_muted() -> Rgba {
 
 pub fn accent_soft() -> Rgba {
     Theme::current().palette.accent.soft
+}
+
+/// The highlight a selected run of text takes on a non-editor surface — `dress_component_library`
+/// hands this straight to the component library's `ThemeColor::selection`, which the markdown
+/// preview, the chat transcript, the A2UI tree and the code editor all paint through. The style
+/// reference's own swatch (`ui/sink/style.rs`) is this token's only direct call site in this
+/// crate; every screen reaches the paint through the component library instead.
+pub fn accent_selection() -> Rgba {
+    Theme::current().palette.accent.selection
 }
 
 pub fn border() -> Rgba {
@@ -972,6 +992,7 @@ const DARK: Palette = Palette {
         primary: rgba_hex(0x5b8def),
         muted: rgba_hex(0x3d5f9e),
         soft: rgba_hex_a(0x5b8def, 0.16),
+        selection: rgba_hex_a(0x5b8def, ACCENT_SELECTION_ALPHA),
     },
     border: BorderColors {
         default: rgba_hex(0x2c2c34),
@@ -1043,6 +1064,7 @@ const LIGHT: Palette = Palette {
         primary: rgba_hex(0x3b6fd4),
         muted: rgba_hex(0x5a8ad4),
         soft: rgba_hex_a(0x3b6fd4, 0.12),
+        selection: rgba_hex_a(0x3b6fd4, ACCENT_SELECTION_ALPHA),
     },
     border: BorderColors {
         default: rgba_hex(0xd4d4dc),
@@ -1172,6 +1194,7 @@ const EMBER_DARK: Palette = Palette {
         primary: rgba_hex(0xd9a05b),
         muted: rgba_hex(0x9c7440),
         soft: rgba_hex_a(0xd9a05b, 0.16),
+        selection: rgba_hex_a(0xd9a05b, ACCENT_SELECTION_ALPHA),
     },
     border: BorderColors {
         default: rgba_hex(0x3a312a),
@@ -1223,6 +1246,7 @@ const EMBER_LIGHT: Palette = Palette {
         primary: rgba_hex(0xa9702a),
         muted: rgba_hex(0xc0925a),
         soft: rgba_hex_a(0xa9702a, 0.12),
+        selection: rgba_hex_a(0xa9702a, ACCENT_SELECTION_ALPHA),
     },
     border: BorderColors {
         default: rgba_hex(0xdcd0bb),
@@ -1275,6 +1299,7 @@ const CONTRAST_DARK: Palette = Palette {
         primary: rgba_hex(0x6cb6ff),
         muted: rgba_hex(0x3d8ee0),
         soft: rgba_hex_a(0x6cb6ff, 0.24),
+        selection: rgba_hex_a(0x6cb6ff, ACCENT_SELECTION_ALPHA),
     },
     border: BorderColors {
         default: rgba_hex(0x6e6e6e),
@@ -1326,6 +1351,7 @@ const CONTRAST_LIGHT: Palette = Palette {
         primary: rgba_hex(0x0040c0),
         muted: rgba_hex(0x2a5fd0),
         soft: rgba_hex_a(0x0040c0, 0.16),
+        selection: rgba_hex_a(0x0040c0, ACCENT_SELECTION_ALPHA),
     },
     border: BorderColors {
         default: rgba_hex(0x555555),
@@ -1378,6 +1404,7 @@ const NAVY_DARK: Palette = Palette {
         primary: rgba_hex(0x5ba8f5),
         muted: rgba_hex(0x3d74b0),
         soft: rgba_hex_a(0x5ba8f5, 0.16),
+        selection: rgba_hex_a(0x5ba8f5, ACCENT_SELECTION_ALPHA),
     },
     border: BorderColors {
         default: rgba_hex(0x2a3c52),
@@ -1429,6 +1456,7 @@ const NAVY_LIGHT: Palette = Palette {
         primary: rgba_hex(0x2a6ec8),
         muted: rgba_hex(0x4a88d4),
         soft: rgba_hex_a(0x2a6ec8, 0.12),
+        selection: rgba_hex_a(0x2a6ec8, ACCENT_SELECTION_ALPHA),
     },
     border: BorderColors {
         default: rgba_hex(0xc5d0dc),
@@ -1481,6 +1509,7 @@ const VIOLET_DARK: Palette = Palette {
         primary: rgba_hex(0xb794f6),
         muted: rgba_hex(0x7a5cb8),
         soft: rgba_hex_a(0xb794f6, 0.16),
+        selection: rgba_hex_a(0xb794f6, ACCENT_SELECTION_ALPHA),
     },
     border: BorderColors {
         default: rgba_hex(0x322a42),
@@ -1532,6 +1561,7 @@ const VIOLET_LIGHT: Palette = Palette {
         primary: rgba_hex(0x7a45c8),
         muted: rgba_hex(0x9a70d8),
         soft: rgba_hex_a(0x7a45c8, 0.12),
+        selection: rgba_hex_a(0x7a45c8, ACCENT_SELECTION_ALPHA),
     },
     border: BorderColors {
         default: rgba_hex(0xd4c8e0),
@@ -1676,6 +1706,10 @@ const ACCENT_MUTED_MIX: f32 = 0.4;
 const ACCENT_LIFT: f32 = 0.22;
 /// The alpha every `_soft` token is drawn at, declared once here rather than per palette.
 const ACCENT_SOFT_ALPHA: f32 = 0.16;
+/// The alpha a selected run of text is drawn at — stronger than `_soft` because it has to read as
+/// a highlight rather than a tint, translucent enough that the glyphs underneath (or, on a surface
+/// that paints selection last, the glyphs it was drawn over) stay legible either way.
+const ACCENT_SELECTION_ALPHA: f32 = 0.35;
 /// The contrast an accent has to reach against the surface it sits on before it stops being
 /// corrected — WCAG's floor for a non-text mark.
 const ACCENT_MIN_CONTRAST: f64 = 3.0;
@@ -1707,6 +1741,7 @@ fn with_accent(mut p: Palette, seed: Rgba) -> Palette {
         primary,
         muted: mix(seed, p.surface.base, ACCENT_MUTED_MIX),
         soft: fade(seed, ACCENT_SOFT_ALPHA),
+        selection: fade(seed, ACCENT_SELECTION_ALPHA),
     };
     p.border.focus = seed;
     p.terminal.link_underline = seed;
@@ -1874,6 +1909,7 @@ mod tests {
         assert_eq!(p.border.focus, pale, "focus is the seed, unmodified");
         assert_eq!(p.terminal.link_underline, pale);
         assert_eq!(p.accent.soft.a, ACCENT_SOFT_ALPHA);
+        assert_eq!(p.accent.selection.a, ACCENT_SELECTION_ALPHA);
         assert_eq!(p.text.on_accent, BLACK, "black ink on a pale accent");
         assert_eq!(
             p.surface.base, DARK.surface.base,
@@ -1903,6 +1939,36 @@ mod tests {
             // No accent chosen means the palette's own seed, unmodified.
             let own = resolve(id, None, Density::Regular);
             assert_eq!(own.palette.border.focus, id.def().palette.accent.primary);
+        }
+    }
+
+    /// A non-editor selectable surface — `TextView` (markdown preview, chat, A2UI) — paints its
+    /// selection highlight *after* the glyphs it covers, so an opaque `t.selection` blots the
+    /// selected text out rather than marking it (the defect the screenshot in
+    /// `_docs/inbox/opaque-selection.png` shows). Every shipped palette, every shipped accent, and
+    /// the no-accent default all have to resolve to something translucent.
+    #[test]
+    fn a_selection_stays_translucent_in_every_palette() {
+        for id in ThemeId::all() {
+            let own = resolve(id, None, Density::Regular);
+            assert!(
+                own.palette.accent.selection.a > 0.0 && own.palette.accent.selection.a < 1.0,
+                "{}'s selection is not translucent: {:?}",
+                id.0,
+                own.palette.accent.selection
+            );
+
+            for accent in AccentId::all() {
+                let theme = resolve(id, Some(accent), Density::Regular);
+                assert!(
+                    theme.palette.accent.selection.a > 0.0
+                        && theme.palette.accent.selection.a < 1.0,
+                    "{} on {} is not translucent: {:?}",
+                    accent.0,
+                    id.0,
+                    theme.palette.accent.selection
+                );
+            }
         }
     }
 

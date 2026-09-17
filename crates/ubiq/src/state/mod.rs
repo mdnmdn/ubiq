@@ -91,5 +91,6 @@ pub use windows::{ProjectGroups, WindowRegistry, WindowSlot};
 pub use work::WorkProjection;
 pub use workbench::{
     AllProjectsState, FileDialog, HarnessChoice, MenuId, NewAgentMenu, NewAgentSurface, NewPaneRow,
-    OverflowRow, ProjectSettings, ProjectSettingsMode, RailMode, RowAction, WorkbenchState,
+    NewProjectRow, OverflowRow, ProjectSettings, ProjectSettingsMode, RailMode, RowAction,
+    WorkbenchState,
 };

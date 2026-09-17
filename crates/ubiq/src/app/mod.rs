@@ -66,8 +66,8 @@ use crate::state::{
     ActiveSearch, ChatId, ChatTab, EditorPaneState, ExplorerAction, ExplorerKey, ExplorerPressed,
     ExplorerState, ExplorerView, FileBody, FileDialog, FileLanguage, Follow, KbBody, KbDoc,
     KbDocKey, KbPressed, KbState, LogState, MenuId, NewAgentMenu, NewAgentSurface, NewPaneRow,
-    OpenFile, OverflowRow, PanelKind, ProjectSettings, ProjectSettingsMode, RailMode, Region,
-    SearchState, Toggle, WindowRegistry, WorkbenchState, prefs,
+    NewProjectRow, OpenFile, OverflowRow, PanelKind, ProjectSettings, ProjectSettingsMode,
+    RailMode, Region, SearchState, Toggle, WindowRegistry, WorkbenchState, prefs,
 };
 use crate::theme::{self, Mode, ThemeId};
 use crate::ui;
@@ -585,6 +585,9 @@ pub struct AppState {
     /// tells an answer to the request in flight from one to a request abandoned since — see
     /// [`AppState::receive_assist`].
     pub suggest: Option<SuggestId>,
+    /// The suggestion above, when it is a title being written for a task that was created without
+    /// one — and the task it belongs to, which the answer has to be put on.
+    pub task_naming: Option<(SuggestId, ProjectId, TaskId)>,
     /// The file picker, when one is up. It belongs to the window rather than to the screen that
     /// raised it — exactly one may be up, whichever screen asked — and the request it carries says
     /// who is owed the answer.

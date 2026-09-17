@@ -84,6 +84,7 @@ const TASK_SYNC_EVERY: Duration = Duration::from_secs(2);
 fn gather(
     subject: &SuggestSubject,
     root: Option<&std::path::Path>,
+    held: Option<String>,
     assist: &dyn Assist,
 ) -> Result<assist::Request, String> {
     match subject {
@@ -103,6 +104,16 @@ fn gather(
         // Nothing to gather: a check is about whether the provider answers at all, so its whole
         // material is the prompt the host owns.
         SuggestSubject::ProviderCheck { role, .. } => Ok(assist::subject::provider_check(*role)),
+        // The one subject whose material is not on disk here: a task's description is in the work
+        // store, which lives on the coordinator's own thread, so `suggest_job` read it there and
+        // this only has to compose it.
+        SuggestSubject::TaskTitle { .. } => {
+            let description = held.unwrap_or_default();
+            if description.trim().is_empty() {
+                return Err("that task has no description to name it from".to_string());
+            }
+            Ok(assist::subject::task_title(&description, &assist.limits()))
+        }
     }
 }
 
@@ -4341,10 +4352,14 @@ impl Coordinator {
         // user checking a key they have just typed is asking about *that* provider, not about
         // whichever one the setting points at. It is built for this one request and dropped with
         // it, which is why `self.assist` is left alone.
-        let (backend, root) = match &subject {
+        let (backend, root, held) = match &subject {
             SuggestSubject::CommitMessage { project_id } => {
                 match self.projects.record(*project_id) {
-                    Some(record) => (self.assist.clone(), Some(PathBuf::from(&record.path))),
+                    Some(record) => (
+                        self.assist.clone(),
+                        Some(PathBuf::from(&record.path)),
+                        None,
+                    ),
                     None => return fail("that project is not in the catalogue".to_string()),
                 }
             }
@@ -4356,7 +4371,23 @@ impl Coordinator {
                 (
                     assist::select(&named, &host.ai_providers, &self.ai_providers),
                     None,
+                    None,
                 )
+            }
+            // The material is a task's description, which is in the work store on this thread —
+            // so it is read here and carried, rather than handing the worker the store's lock.
+            SuggestSubject::TaskTitle {
+                project_id,
+                task_id,
+            } => {
+                if self.projects.record(*project_id).is_none() {
+                    return fail("that project is not in the catalogue".to_string());
+                }
+                let (_, tasks) = self.work.lock().tasks(*project_id);
+                let Some(task) = tasks.into_iter().find(|task| task.id == *task_id) else {
+                    return fail("no such task".to_string());
+                };
+                (self.assist.clone(), None, Some(task.description))
             }
         };
 
@@ -4371,7 +4402,7 @@ impl Coordinator {
             .name(format!("suggest-{suggest_id}"))
             .spawn(move || {
                 let chunks = mailbox.clone();
-                let answer = gather(&subject, root.as_deref(), &*backend).and_then(|request| {
+                let answer = gather(&subject, root.as_deref(), held, &*backend).and_then(|request| {
                     // A deadline, because nothing below can be interrupted from here: a model
                     // that hangs would otherwise leave the window waiting forever, and a
                     // mechanical name is better than a control that never comes back. The

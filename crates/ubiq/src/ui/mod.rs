@@ -26,6 +26,7 @@ pub mod logs;
 pub mod navigator;
 pub mod new_agent;
 pub mod new_pane_menu;
+pub mod new_project_menu;
 pub mod notifications;
 pub mod orchestration;
 pub mod outline;

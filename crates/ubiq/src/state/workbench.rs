@@ -214,6 +214,10 @@ pub enum MenuId {
     /// for it — remote connect, web export, window capture and settings. Where it opened is
     /// `WorkbenchState::overflow_menu`.
     Overflow,
+    /// The titlebar's own new-project chevron, beside the `+` next to the project picker: the same
+    /// three ways in the picker offers at its foot — add, clone, remote. Where it opened is
+    /// `WorkbenchState::new_project_menu`.
+    NewProject,
     /// The `+` menu every surface that hosts a conversation raises: *New agent*, which opens the
     /// form, and *Attach existing agent*, which lists what is already running. Where it opened,
     /// which surface asked and which of its two stages is drawn is
@@ -276,6 +280,17 @@ pub enum OverflowRow {
     WebExport,
     CaptureWindow,
     Settings,
+}
+
+/// One row of the titlebar's new-project menu, in the order it is drawn — the same three ways in
+/// as the project picker's foot (`ui::project_menu`'s `add_row`, `clone_row` and `remote_row`),
+/// reused rather than restated so the titlebar and the picker never drift apart on what "add a
+/// project" offers.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum NewProjectRow {
+    AddProject,
+    CloneProject,
+    RemoteProject,
 }
 
 /// One row of the harness menu, in the order it is drawn.
@@ -470,6 +485,9 @@ pub struct WorkbenchState {
     /// Where the titlebar's overflow chevron was clicked, which is what anchors the menu over the
     /// window. `Some` exactly while `open_menu` is `MenuId::Overflow`.
     pub overflow_menu: Option<(f32, f32)>,
+    /// Where the titlebar's new-project chevron was clicked, which is what anchors the menu over
+    /// the window. `Some` exactly while `open_menu` is `MenuId::NewProject`.
+    pub new_project_menu: Option<(f32, f32)>,
     /// The `+` menu, while it is down. `Some` exactly while `open_menu` is `MenuId::NewAgent`.
     pub new_agent_menu: Option<NewAgentMenu>,
     /// Where a conversation's three-dots menu was clicked. `Some` exactly while `open_menu` is
@@ -570,6 +588,7 @@ impl Default for WorkbenchState {
             move_unasked_until: None,
             new_pane_menu: None,
             overflow_menu: None,
+            new_project_menu: None,
             new_agent_menu: None,
             conversation_menu: None,
             confirm_end_conversation: None,
@@ -644,6 +663,16 @@ impl WorkbenchState {
         }
         rows.push(OverflowRow::Settings);
         rows
+    }
+
+    /// What the titlebar's new-project menu offers — always the same three rows, in the same
+    /// order the project picker draws them in at its foot.
+    pub fn new_project_rows(&self) -> Vec<NewProjectRow> {
+        vec![
+            NewProjectRow::AddProject,
+            NewProjectRow::CloneProject,
+            NewProjectRow::RemoteProject,
+        ]
     }
 
     /// What a harness menu offers: one row per identity signed into a harness, and one per saved

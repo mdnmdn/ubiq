@@ -7,7 +7,7 @@
 //! Each function truncates its material against the [`AssistLimits`] it is given, because the
 //! half that knows the budget is the half that must cut.
 
-use ubiq_proto::assist::{AssistLimits, ModelRole};
+use ubiq_proto::assist::{AssistLimits, ModelRole, plain_text};
 use ubiq_proto::git::{GitEntry, GitMark};
 
 use super::Request;
@@ -107,7 +107,9 @@ const NAMING_INSTRUCTIONS: &str = "\
 You name conversations between a developer and a coding assistant. Given the opening exchange of \
 one, reply with exactly two lines and nothing else. The first line is a title of at most six \
 words, capitalised as a heading, with no trailing full stop, no quotes and no prefix. The second \
-line says what the conversation is about in exactly five words, with no trailing full stop.";
+line says what the conversation is about in exactly five words, with no trailing full stop. \
+Write both lines as simple plain text: no Markdown, no formatting characters such as *, _, ` or \
+#, no emoji, no emoticons, no symbols — letters, digits, spaces and ordinary punctuation only.";
 
 const NAMING_ASKED: &str = "Asked:\n";
 
@@ -146,6 +148,41 @@ pub fn conversation_title(asked: &str, answered: &str, limits: &AssistLimits) ->
     }
 }
 
+/// What a task title may answer at most. One short line, so a model that would rather write the
+/// card as well is cut off instead of indulged.
+const TASK_TITLE_RESPONSE_TOKENS: u32 = 24;
+
+const TASK_TITLE_INSTRUCTIONS: &str = "\
+You title tasks on a developer's board. Given the description of one, reply with exactly one line \
+and nothing else: a title of at most six words, capitalised as a heading, with no trailing full \
+stop, no quotes and no prefix. Write it as simple plain text: no Markdown, no formatting \
+characters such as *, _, ` or #, no emoji, no emoticons, no symbols — letters, digits, spaces and \
+ordinary punctuation only.";
+
+const TASK_TITLE_LEAD: &str = "Description:\n";
+
+/// The prompt that titles a task from its description.
+///
+/// The board's own version of [`conversation_title`], and the same bargain: a user who wrote what
+/// the work *is* should not have to name it as well. One line rather than two — a card has no
+/// tooltip to put a summary in, and the description is already the long form.
+pub fn task_title(description: &str, limits: &AssistLimits) -> Request {
+    let budget = (limits.context_tokens.saturating_sub(TASK_TITLE_RESPONSE_TOKENS) as usize)
+        .saturating_mul(CHARS_PER_TOKEN)
+        .saturating_sub(TASK_TITLE_INSTRUCTIONS.len() + TASK_TITLE_LEAD.len());
+
+    let mut prompt = String::from(TASK_TITLE_LEAD);
+    prompt.push_str(clip(description.trim(), budget));
+
+    Request {
+        instructions: TASK_TITLE_INSTRUCTIONS.to_string(),
+        prompt,
+        max_tokens: Some(TASK_TITLE_RESPONSE_TOKENS),
+        // Naming a card is the fast model's work, the same as naming a commit.
+        role: ModelRole::Fast,
+    }
+}
+
 /// The two lines a naming answered, split into a title and its summary.
 ///
 /// The wording that asks for the format is in this module, so the reading of it belongs here too.
@@ -162,9 +199,13 @@ pub fn naming(answer: &str) -> Option<(String, Option<String>)> {
 }
 
 /// One answered line without the decoration a model adds despite being asked not to — a `Title:`
-/// label, a bullet, or quotes around the whole of it.
+/// label, a bullet, quotes around the whole of it, Markdown emphasis, or a leading emoji.
+///
+/// The prompt is the fix; this is the net under it. A title goes on a tab and into a durable row,
+/// where a stray `**` or a rocket is permanent, so the wording asks for plain text and this makes
+/// sure of it.
 fn undecorate(line: &str) -> String {
-    let line = line.trim().trim_start_matches(['-', '*', '#']).trim();
+    let line = line.trim().trim_start_matches(['-', '*', '#', '>']).trim();
     let line = match line.split_once(':') {
         Some((label, rest))
             if matches!(
@@ -176,10 +217,8 @@ fn undecorate(line: &str) -> String {
         }
         _ => line,
     };
-    line.trim()
-        .trim_matches(['"', '\'', '`'])
-        .trim()
-        .to_string()
+    let line = line.trim().trim_matches(['"', '\'', '`']).trim();
+    plain_text(line)
 }
 
 /// The first `budget` characters of `text`, cut on a character boundary.
@@ -264,9 +303,11 @@ mod tests {
         // has to survive it, or a title would be named after the question and never the answer.
         let asked = "why ".repeat(4000);
         let answered = "because the loader ran twice. ".repeat(400);
-        let request = conversation_title(&asked, &answered, &limits(200));
+        // Wide enough that the instructions themselves are not most of the window: the budget
+        // subtracts them, and this test is about how the remainder is split, not about their size.
+        let request = conversation_title(&asked, &answered, &limits(400));
         assert!(
-            request.prompt.len() < 200 * CHARS_PER_TOKEN,
+            request.prompt.len() < 400 * CHARS_PER_TOKEN,
             "the prompt overflowed its own estimate: {} chars",
             request.prompt.len()
         );
@@ -311,6 +352,34 @@ mod tests {
             naming("Fix: the loader ran twice"),
             Some(("Fix: the loader ran twice".to_string(), None))
         );
+    }
+
+    #[test]
+    fn a_naming_asks_for_plain_text() {
+        // The prompt is the primary fix, and a wording that stopped saying this would let the
+        // sanitiser be the only thing standing between a model and a tab full of Markdown.
+        let lowered = NAMING_INSTRUCTIONS.to_ascii_lowercase();
+        assert!(lowered.contains("plain text"));
+        assert!(lowered.contains("markdown"));
+        assert!(lowered.contains("emoji"));
+    }
+
+    #[test]
+    fn a_naming_drops_markdown_and_emoji_the_model_added_anyway() {
+        assert_eq!(
+            naming("\u{1f680} **Sidebar Fold**\n_adding_ a `collapsible` sidebar \u{2728}"),
+            Some((
+                "Sidebar Fold".to_string(),
+                Some("_adding_ a collapsible sidebar".to_string())
+            ))
+        );
+        // An identifier keeps its underscores: they are not emphasis in this domain.
+        assert_eq!(
+            naming("Fix name_job Thread"),
+            Some(("Fix name_job Thread".to_string(), None))
+        );
+        // A line that was nothing but decoration leaves no empty name behind.
+        assert_eq!(naming("\u{1f389} \u{2728}\nReal Title"), Some(("Real Title".to_string(), None)));
     }
 
     #[test]

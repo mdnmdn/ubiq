@@ -801,6 +801,49 @@ impl AppState {
         cx.notify();
     }
 
+    /// Open the titlebar's new-project chevron menu, anchored where it was clicked.
+    ///
+    /// The same three rows the project picker's foot offers — add, clone, remote — reached
+    /// without opening the picker first. The `+` beside it runs the first of the three directly.
+    pub fn open_new_project_menu(&mut self, at: (f32, f32), cx: &mut Context<Self>) {
+        if self.workbench.open_menu.is_some() {
+            self.close_menu(cx);
+        }
+        self.workbench.open_menu = Some(MenuId::NewProject);
+        self.workbench.new_project_menu = Some(at);
+        cx.notify();
+    }
+
+    /// Act on one row of the open new-project menu, by the row's index — the same action its
+    /// namesake row runs in the project picker (`ui::project_menu`'s `add_row`, `clone_row` and
+    /// `remote_row`).
+    pub fn pick_new_project_menu(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.workbench.open_menu = None;
+        self.workbench.new_project_menu = None;
+        match self.workbench.new_project_rows().get(index) {
+            Some(NewProjectRow::AddProject) => self.choose_folder(None, cx),
+            Some(NewProjectRow::CloneProject) => self.open_clone(None, window, cx),
+            Some(NewProjectRow::RemoteProject) => match self.preferred_remote_host() {
+                Some((host, label)) => self.open_remote_project_picker(host, label, window, cx),
+                None => self.open_remote_connect(window, cx),
+            },
+            None => {}
+        }
+        cx.notify();
+    }
+
+    /// Dismiss the new-project menu — an outside click, or a pick already taken it.
+    pub fn dismiss_new_project_menu(&mut self, cx: &mut Context<Self>) {
+        self.workbench.open_menu = None;
+        self.workbench.new_project_menu = None;
+        cx.notify();
+    }
+
     /// Open the search panel and bring it into focus.
     pub fn open_search(&mut self, _: &OpenSearch, window: &mut Window, cx: &mut Context<Self>) {
         self.reveal_search(window, cx);

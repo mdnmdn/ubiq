@@ -64,6 +64,20 @@ pub struct TaskForm {
     pub new_label: String,
 }
 
+/// The rest of a new task, waiting for the id the host is about to mint.
+///
+/// A `CreateTask` carries a title and a session and nothing else, so a card written with a
+/// description is finished in a second message once there is a task to send it to.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct PendingTask {
+    /// Sent as an `UpdateTask` the moment the task exists. Empty means there was none.
+    pub description: String,
+    /// Whether the title the card was created with is a stand-in cut from the description, and so
+    /// whether to ask for a written one. The user typed no title, and a first line is a placeholder
+    /// rather than a name.
+    pub name_it: bool,
+}
+
 /// A task under the pointer, the column a drop would put it in, and where in it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Carry {
@@ -104,6 +118,18 @@ pub struct BoardState {
     /// A `New task` the host has not answered yet. The task that arrives is the one to select,
     /// because the interface could not know the id it was going to be given.
     pub awaiting_new: bool,
+    /// A new task being written, before anything has been sent.
+    ///
+    /// `New task` opens one of these instead of creating a row: a card is made once it has a name
+    /// or a description, and never by the click that opened the form — pressing the button, looking
+    /// away and pressing it again used to leave two empty cards behind, and a board fills with them
+    /// faster than anyone deletes them.
+    /// It carries nothing of its own: what is being typed is in `form`, and which session the card
+    /// will belong to is the board's.
+    pub draft: bool,
+    /// What still has to reach the host once the task it belongs to has an id, which is the whole
+    /// of a draft that a `CreateTask` could not carry.
+    pub pending: Option<PendingTask>,
     /// Which field of the open task is being edited, if any.
     pub editing: Option<Field>,
     /// Whether the description is showing as markdown while it is being written. Inside edit mode
@@ -132,6 +158,8 @@ impl Default for BoardState {
             carry: None,
             moving: None,
             awaiting_new: false,
+            draft: false,
+            pending: None,
             editing: None,
             preview: false,
             confirm_delete: false,
@@ -280,11 +308,42 @@ impl BoardState {
     }
 
     /// The task the detail panel is about, when there is one and it is open.
+    ///
+    /// Nothing while a new task is being written: the panel has one slot, and a draft is what is
+    /// in it until it is created or given up.
     pub fn open_task<'a>(&self, work: &'a WorkProjection) -> Option<&'a TaskRecord> {
-        if !self.show_detail {
+        if !self.show_detail || self.draft {
             return None;
         }
         work.task(self.selected?)
+    }
+
+    /// Start writing a new task, or leave the one already being written alone.
+    ///
+    /// Answers whether the fields need clearing, which is the same question as whether this opened
+    /// a draft rather than returning to one — pressing `New task` twice must not throw away what
+    /// was typed between the two presses, and must not make a second card either.
+    pub fn start_draft(&mut self) -> bool {
+        if self.draft {
+            return false;
+        }
+        self.draft = true;
+        self.editing = None;
+        self.preview = false;
+        true
+    }
+
+    /// Whether a draft has enough to be a card: a title, or a description, or both.
+    ///
+    /// The whole of the rule — nothing is sent for a draft that is only a click.
+    pub fn draft_ready(&self) -> bool {
+        !self.form.title.trim().is_empty() || !self.form.description.trim().is_empty()
+    }
+
+    /// Put the draft away, whether it was created or given up.
+    pub fn stop_draft(&mut self) {
+        self.draft = false;
+        self.preview = false;
     }
 
     /// Whether a card is a drop the host has not answered yet. The card says so rather than
@@ -360,8 +419,10 @@ impl BoardState {
     ///
     /// A pure predicate rather than the refill itself, because writing into the component library's
     /// state needs a window and this has to be testable without one.
+    /// A draft never needs filling: there is no record behind it, and a refill would wipe what is
+    /// being typed on the next frame.
     pub fn needs_fill(&self, filled: Option<TaskId>) -> bool {
-        filled != self.selected
+        !self.draft && filled != self.selected
     }
 
     pub fn start_carry(&mut self, task: TaskId) {

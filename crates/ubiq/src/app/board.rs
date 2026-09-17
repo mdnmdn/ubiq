@@ -1,5 +1,6 @@
 use super::*;
 
+use crate::state::board::PendingTask;
 use ubiq_proto::messages::TaskField;
 use ubiq_proto::work::{Complexity, Kind, Label};
 
@@ -131,7 +132,13 @@ impl AppState {
         cx.notify();
     }
 
-    pub fn commit_task_title(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+    pub fn commit_task_title(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // Enter in the title of a new task is what creates it: the draft has no record to commit
+        // one field to, and its two fields are sent together or not at all.
+        if self.board(cx).is_some_and(|board| board.draft) {
+            self.create_task(window, cx);
+            return;
+        }
         let Some((_, task_id, board)) = self.open_task_form(cx) else {
             return;
         };
@@ -585,41 +592,175 @@ impl AppState {
         cx.notify();
     }
 
-    /// Ask for a task in the backlog, named by whatever is in the filter field.
+    /// Open the form for a new task, seeded by whatever is in the filter field.
     ///
     /// One field finds work and names it: what you typed to look for a card is what you meant to
     /// call it when there was none. The field is cleared, so the board is not left filtered down to
-    /// the one card that was just made.
+    /// the one card that is about to be made.
     ///
-    /// It cannot select what it asked for, because the id is the host's to mint. `awaiting_new` is
-    /// what selects the task that arrives — the same mechanism `AppState::adding` uses to open the
-    /// project an `AddProject` answers with.
+    /// **Nothing is sent from here.** A card is created by [`Self::create_task`], once it has a
+    /// name or a description — pressing this, looking away and pressing it again leaves one empty
+    /// form rather than two empty cards. Pressing it while a draft is open returns to that draft
+    /// with what was typed still in it.
     pub fn new_task(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(board) = self.board(cx) else {
+            return;
+        };
+        let typed = board.filter.trim().to_string();
+        let opened = self.board_mut(cx).is_some_and(|board| board.start_draft());
+        if !opened {
+            // Already writing one: bring the keyboard back to it and leave the draft alone.
+            let input = self.task_title_input.clone();
+            input.update(cx, |state, cx| state.focus(window, cx));
+            cx.notify();
+            return;
+        }
+        if let Some(board) = self.board_mut(cx) {
+            board.filter.clear();
+            board.form.title = typed.clone();
+            board.form.description.clear();
+        }
+        for (input, value) in [
+            (self.task_filter.clone(), String::new()),
+            (self.task_title_input.clone(), typed),
+        ] {
+            input.update(cx, |state, cx| state.set_value(&value, window, cx));
+        }
+        let description = self.task_description_input.clone();
+        description.update(cx, |state, cx| state.set_value("", window, cx));
+        let title = self.task_title_input.clone();
+        title.update(cx, |state, cx| state.focus(window, cx));
+        cx.notify();
+    }
+
+    /// Send the draft. The first and only save of a new task.
+    ///
+    /// Refused unless the draft has a title or a description, which is the rule this whole form
+    /// exists for. A `CreateTask` carries neither a description nor a generated name, so what is
+    /// left of the draft is parked in `board.pending` and finished in [`Self::settle_new_task`]
+    /// once the host has answered with an id.
+    ///
+    /// A draft with a description and no title is created under the description's first line and
+    /// then asks the host's own assistance for a written one. The stand-in matters: a model that is
+    /// switched off, unreachable or slow leaves a card named after what the user actually wrote,
+    /// never an empty one.
+    pub fn create_task(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(project_id) = self.project(cx) else {
             return;
         };
         let Some(board) = self.board(cx) else {
             return;
         };
-        let typed = board.filter.trim().to_string();
-        let title = if typed.is_empty() {
-            "New task".to_string()
+        if !board.draft || !board.draft_ready() {
+            return;
+        }
+        let typed = board.form.title.trim().to_string();
+        let description = board.form.description.clone();
+        let session = board.session;
+        let name_it = typed.is_empty();
+        let title = if name_it {
+            stand_in_title(&description)
         } else {
             typed
         };
-        let session = board.session;
+
         self.bus.send(Message::CreateTask {
             project_id,
             title,
             session,
         });
         if let Some(board) = self.board_mut(cx) {
-            board.filter.clear();
+            board.stop_draft();
             board.awaiting_new = true;
+            board.pending = Some(PendingTask {
+                description,
+                name_it,
+            });
         }
-        let input = self.task_filter.clone();
-        input.update(cx, |state, cx| state.set_value("", window, cx));
+        // The panel now reports the task that is about to arrive, so the fields go back to being
+        // the record's — `form_filled` is what makes `fill_task_form` do it.
+        self.form_filled = None;
+        self.fill_task_form(window, cx);
         cx.notify();
+    }
+
+    /// Give the draft up. Nothing was sent, so there is nothing to unwind.
+    pub fn cancel_new_task(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(board) = self.board_mut(cx) {
+            board.stop_draft();
+        }
+        self.form_filled = None;
+        self.fill_task_form(window, cx);
+        cx.notify();
+    }
+
+    /// Finish a task the host has just created: its description, and a written title if it was
+    /// made under a stand-in.
+    ///
+    /// Called from the `TaskCreated` arm, because the id is the host's to mint and neither message
+    /// could be sent before it existed.
+    pub(super) fn settle_new_task(
+        &mut self,
+        project_id: ProjectId,
+        task_id: TaskId,
+        pending: PendingTask,
+    ) {
+        if !pending.description.trim().is_empty() {
+            self.bus.send(Message::UpdateTask {
+                project_id,
+                task_id,
+                title: None,
+                description: Some(pending.description),
+                priority: None,
+            });
+        }
+        if !pending.name_it {
+            return;
+        }
+        // The same assistance that names a conversation, asked through the same pair of messages.
+        // One suggestion is in flight at a time, so an earlier one is given up rather than raced.
+        if let Some(suggest_id) = self.suggest.take() {
+            self.bus.send(Message::CancelSuggest { suggest_id });
+        }
+        let suggest_id = SuggestId::generate();
+        self.suggest = Some(suggest_id);
+        self.task_naming = Some((suggest_id, project_id, task_id));
+        self.bus.send(Message::Suggest {
+            suggest_id,
+            subject: SuggestSubject::TaskTitle {
+                project_id,
+                task_id,
+            },
+        });
+    }
+
+    /// Put a suggested title on the task that asked for it.
+    ///
+    /// Sanitised first: the prompt asks for plain text, and this is the net under the prompt — a
+    /// `**` or a rocket would otherwise be permanent, because a title is written to the record.
+    /// An answer with nothing left in it leaves the stand-in alone.
+    pub(super) fn settle_task_title(&mut self, suggest_id: SuggestId, text: &str) -> bool {
+        let Some((asked, project_id, task_id)) = self.task_naming else {
+            return false;
+        };
+        if asked != suggest_id {
+            return false;
+        }
+        self.task_naming = None;
+        let title = text
+            .lines()
+            .map(ubiq_proto::assist::plain_text)
+            .find(|line| !line.is_empty());
+        if let Some(title) = title {
+            self.bus.send(Message::UpdateTask {
+                project_id,
+                task_id,
+                title: Some(title),
+                description: None,
+                priority: None,
+            });
+        }
+        true
     }
 
     pub fn toggle_board_column(&mut self, status: Status, cx: &mut Context<Self>) {
@@ -756,4 +897,62 @@ impl AppState {
     }
 
     // ── Chat ────────────────────────────────────────────────────────
+}
+
+/// How long a title cut from a description may be before it is trimmed to a word boundary.
+const STAND_IN_TITLE: usize = 60;
+
+/// A title for a card whose writer gave it none: the first line of its description, cut short.
+///
+/// What the card is called until assistance answers with something written, and what it stays
+/// called if assistance is off or never answers. A first line is a poor title and an honest one —
+/// it is what the user typed — which is the point: no card is ever created called nothing.
+pub(super) fn stand_in_title(description: &str) -> String {
+    let first = description
+        .lines()
+        .map(|line| ubiq_proto::assist::plain_text(line))
+        .find(|line| !line.is_empty())
+        .unwrap_or_default();
+    if first.chars().count() <= STAND_IN_TITLE {
+        return first;
+    }
+    // On a word boundary, so the stand-in reads as a phrase rather than as a cut string. The ellipsis
+    // says it is not the whole of what was written.
+    let cut: String = first.chars().take(STAND_IN_TITLE).collect();
+    let kept = match cut.rsplit_once(' ') {
+        Some((head, _)) if !head.is_empty() => head.to_string(),
+        _ => cut,
+    };
+    format!("{}…", kept.trim_end_matches([',', '.', ';', ':']))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::stand_in_title;
+
+    #[test]
+    fn a_card_written_as_a_description_is_never_created_called_nothing() {
+        assert_eq!(stand_in_title("Fix the loader"), "Fix the loader");
+        // The first line, not the whole of it: a description is prose and a title is a line.
+        assert_eq!(
+            stand_in_title("\n\nFix the loader\nit runs twice on a cold start"),
+            "Fix the loader"
+        );
+        // Markdown a user typed is not part of the name.
+        assert_eq!(stand_in_title("## Fix the **loader**"), "Fix the loader");
+        // A description with nothing in it cannot reach here, and answers nothing if it does.
+        assert_eq!(stand_in_title("   \n\n"), "");
+    }
+
+    #[test]
+    fn a_long_first_line_is_cut_on_a_word() {
+        let title = stand_in_title(
+            "the project picker should remember which folder the last add came from, forever",
+        );
+        assert!(title.ends_with('…'), "{title}");
+        assert!(title.chars().count() <= 61, "{title}");
+        assert!(!title.contains("forever"));
+        // Cut between words, never through one.
+        assert!(title.trim_end_matches('…').ends_with("came"), "{title}");
+    }
 }

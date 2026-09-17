@@ -14,7 +14,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::ids::{AiProviderId, ProjectId};
+use crate::ids::{AiProviderId, ProjectId, TaskId};
 
 /// Why assistance cannot run.
 ///
@@ -298,6 +298,15 @@ pub enum SuggestSubject {
         provider_id: AiProviderId,
         role: ModelRole,
     },
+    /// A title for a task that has a description and no name of its own — a card the user wrote
+    /// the *what* of and left the heading to Ubiq.
+    ///
+    /// Ids only, like every other subject: the description is on the task the host already
+    /// stores, so the board asks about a task rather than sending its text back.
+    TaskTitle {
+        project_id: ProjectId,
+        task_id: TaskId,
+    },
 }
 
 impl SuggestSubject {
@@ -305,10 +314,44 @@ impl SuggestSubject {
     /// a check exercises whichever model the user asked about.
     pub fn role(&self) -> ModelRole {
         match self {
-            Self::CommitMessage { .. } => ModelRole::Fast,
+            Self::CommitMessage { .. } | Self::TaskTitle { .. } => ModelRole::Fast,
             Self::ProviderCheck { role, .. } => *role,
         }
     }
+}
+
+/// `text` as the simple plain text a generated name is asked to be: no Markdown markers, no emoji,
+/// and no run of whitespace left where one of them was.
+///
+/// Both halves use it. The host runs it over the two lines a conversation naming answers with, and
+/// the interface runs it over a suggested task title before that title becomes the card's — the
+/// prompt asks for plain text either way, and this is the net under the prompt.
+///
+/// `_` and `[]` survive on purpose: a name in this domain carries identifiers and paths far more
+/// often than a model emphasises a six-word heading, and `name_job` losing its underscore would be
+/// the worse mistake.
+pub fn plain_text(text: &str) -> String {
+    let stripped: String = text
+        .chars()
+        .filter(|ch| !matches!(ch, '*' | '`' | '#' | '~') && !is_pictographic(*ch))
+        .collect();
+    stripped.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Whether `ch` is an emoji, a dingbat, or one of the invisible characters that join them.
+///
+/// Ranges rather than a Unicode property table: nothing else here needs one, and these cover every
+/// pictograph a model puts in front of a title.
+fn is_pictographic(ch: char) -> bool {
+    matches!(ch as u32,
+        0x1F000..=0x1FAFF   // emoji, pictographs, symbols and tiles
+        | 0x2600..=0x27BF   // miscellaneous symbols and dingbats
+        | 0x2B00..=0x2BFF   // arrows and stars
+        | 0xFE00..=0xFE0F   // variation selectors
+        | 0x200D            // zero-width joiner
+        | 0x20E3            // combining enclosing keycap
+        | 0xE0020..=0xE007F // tag characters
+    )
 }
 
 #[cfg(test)]
@@ -380,6 +423,16 @@ mod tests {
             .role(),
             ModelRole::Smart
         );
+    }
+
+    #[test]
+    fn a_generated_name_comes_out_as_plain_text() {
+        assert_eq!(plain_text("**Sidebar Fold** \u{1f680}"), "Sidebar Fold");
+        assert_eq!(plain_text("`cache` ~~miss~~ \u{2728}fix"), "cache miss fix");
+        // An identifier keeps its underscores: they are not emphasis in this domain.
+        assert_eq!(plain_text("Fix name_job thread"), "Fix name_job thread");
+        // A line that was nothing but decoration leaves nothing behind, so a caller can tell.
+        assert_eq!(plain_text("\u{1f389} \u{2728}"), "");
     }
 
     #[test]

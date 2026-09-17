@@ -703,6 +703,8 @@ impl AppState {
                     if let Some(board) = this.board_mut(cx) {
                         board.form.title = text;
                     }
+                    // A new task's Create reads off this field, so a keystroke in it redraws.
+                    cx.notify();
                 }
                 InputEvent::PressEnter { shift: false, .. } => this.commit_task_title(window, cx),
                 _ => {}
@@ -1241,6 +1243,7 @@ impl AppState {
             logs: LogState::default(),
             search: SearchState::new(search_query.clone()),
             suggest: None,
+            task_naming: None,
             adopt_on_list: false,
             adding: false,
             adding_select: None,

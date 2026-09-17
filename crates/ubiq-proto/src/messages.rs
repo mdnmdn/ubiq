@@ -2102,7 +2102,9 @@ impl Message {
             | Message::SearchError { project_id, .. } => Some(*project_id),
             // The project is inside the subject rather than beside it, so this arm stands alone.
             Message::Suggest {
-                subject: SuggestSubject::CommitMessage { project_id },
+                subject:
+                    SuggestSubject::CommitMessage { project_id }
+                    | SuggestSubject::TaskTitle { project_id, .. },
                 ..
             } => Some(*project_id),
             Message::ProjectError { project_id, .. } => *project_id,

@@ -582,6 +582,64 @@ fn a_mark_for_a_move_comes_off_even_when_the_host_refuses_it() {
 /// that arrives is the one to select. Exactly once: the next task to arrive is somebody else's and
 /// must not move a selection the user has since made.
 #[test]
+fn pressing_new_task_twice_leaves_one_draft_and_makes_no_card() {
+    // The card this whole form exists for: `New task`, a click elsewhere, `New task` again used to
+    // leave two empty rows on the board. Nothing is sent until the draft has something in it.
+    let mut board = BoardState::default();
+
+    assert!(board.start_draft(), "the first press opens the form");
+    assert!(board.draft);
+    assert!(
+        !board.draft_ready(),
+        "an empty form is not a card, so Create does nothing"
+    );
+
+    board.form.title = "resize path".to_string();
+    assert!(
+        !board.start_draft(),
+        "the second press returns to the form rather than opening a second one"
+    );
+    assert_eq!(
+        board.form.title, "resize path",
+        "and what was typed between the two presses survives"
+    );
+    assert!(board.draft_ready(), "a title is enough to make the card");
+
+    // A description on its own is enough as well — the title is what assistance is for.
+    board.form.title = "   ".to_string();
+    assert!(!board.draft_ready());
+    board.form.description = "the pane resizes before the harness hears about it".to_string();
+    assert!(board.draft_ready());
+
+    board.stop_draft();
+    assert!(!board.draft);
+}
+
+#[test]
+fn a_draft_holds_the_panel_and_is_never_refilled_from_a_record() {
+    // Two rules at once: the panel has one slot, and a refill on the frame after a keystroke would
+    // wipe what is being typed into a form that has no record behind it.
+    let mut f = seeded();
+    let mut board = BoardState::default();
+    board.select(f.cache);
+    assert!(board.open_task(&f.work).is_some());
+
+    board.start_draft();
+    assert!(
+        board.open_task(&f.work).is_none(),
+        "the draft is what the panel is showing"
+    );
+    assert!(
+        !board.needs_fill(None),
+        "and nothing refills the fields under it"
+    );
+
+    board.stop_draft();
+    assert!(board.open_task(&f.work).is_some(), "the task comes back");
+    assert!(board.needs_fill(None), "and the fields are filled from it");
+}
+
+#[test]
 fn awaiting_a_new_task_selects_the_one_that_arrives_once() {
     let mut f = seeded();
     let mut board = BoardState {

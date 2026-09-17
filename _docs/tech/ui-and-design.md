@@ -83,7 +83,7 @@ a palette swap changes every surface consistently.
 |---|---|---|
 | Surface | `app_bg`, `pane_bg`, `surface`, `surface_raised`, `hover`, `selected`, `selected_focus`, `scrim` | The stack of backgrounds, from the window down to a selected row, deepening once the list holding that row has the keyboard — and what a modal lays over the window it took the keyboard from |
 | Text | `text`, `text_muted`, `text_faint`, `on_accent` | Primary copy, secondary copy, the faintest tier — ignored rows, timestamps, hints — and copy sitting on a filled surface |
-| Accent | `accent`, `accent_muted`, `accent_soft`, `accent_id` | The interactive colour, its subdued form, the fill behind a selected row, and which accent the window is dressed in — all three colours derived from one seed, below |
+| Accent | `accent`, `accent_muted`, `accent_soft`, `accent_selection`, `accent_id` | The interactive colour, its subdued form, the fill behind a selected row, the highlight a selected run of text takes on a non-editor surface, and which accent the window is dressed in — all four colours derived from one seed, below |
 | Terminal | `selection_background`, `link_underline`, `link_underline_hover` | Selected cells in a pane, and the underline on an OSC 8 or detected URL — brighter when the pointer is over it |
 | Border | `border`, `border_focus` | Ordinary separation, and the focused pane's edge |
 | Status | `danger`, `success`, `warning`, `info`, each with a `_soft` variant | Agent and process states, and the fills behind them — a diff line, a status chip, a state dot's ring |
@@ -106,6 +106,17 @@ something that has to sit under, over or beside a surface — a dotted ground, a
 grain of a drag trail. It is not a way to invent a shade, and it does not soften the rule above: a
 fill or a text colour that a call site wants at a fixed alpha is a `_soft` token with a value in
 both palettes, not a `fade` where it is drawn.
+
+`accent_selection` and `selection_background` look like the same idea and are not the same token,
+because the two surfaces that paint a selection highlight do it in the opposite order. The terminal
+repaints a cell's background and then its glyph every frame, so `selection_background` can be
+opaque — nothing is ever drawn over it, it is what a cell's background *is*. Every other selectable
+surface — the markdown preview, the chat transcript, the A2UI tree, the code editor — is the
+component library's `TextView` or `Input`, and at least one of them (`TextView`) paints the
+selection quad *after* the glyphs it covers, so `accent_selection` (what `dress_component_library`
+hands the library's `ThemeColor::selection`) has to stay translucent — `ACCENT_SELECTION_ALPHA` in
+`theme.rs` — or the highlight blots the very text it is marking out instead of marking it. Wiring
+`selection_background`'s opaque terminal colour into that same slot was exactly this defect.
 
 The project group is the one group whose members carry no role. A swatch means *this project* and
 nothing else, and a project keeps the same one everywhere it is drawn: its dot in the picker, the

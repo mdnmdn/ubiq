@@ -1339,9 +1339,16 @@ impl AppState {
                 // The task that arrives is the one to select, because the interface could not know
                 // the id it was going to be given — the same mechanism `AppState::adding` uses to
                 // open the project an `AddProject` answers with.
+                let mut pending = None;
                 if open.board.awaiting_new {
                     open.board.awaiting_new = false;
                     open.board.select(id);
+                    // The rest of the draft: a `CreateTask` carries a title and a session, so a
+                    // description and a title that has to be written both wait for the id.
+                    pending = open.board.pending.take();
+                }
+                if let Some(pending) = pending {
+                    self.settle_new_task(project_id, id, pending);
                 }
                 cx.notify();
             }
@@ -1428,6 +1435,7 @@ impl AppState {
                     board.stop_editing();
                     board.moving = None;
                     board.awaiting_new = false;
+                    board.pending = None;
                     board.confirm_delete = false;
                 }
                 self.form_filled = None;
@@ -2372,6 +2380,12 @@ impl AppState {
                 }
                 tracing::debug!("suggestion for {suggest_id}: {} bytes", text.len());
                 self.suggest = None;
+                // A title written for a card that was created without one goes straight onto the
+                // task; nothing draws it on the way, because there is no field open to draw it in.
+                if self.settle_task_title(suggest_id, &text) {
+                    cx.notify();
+                    return None;
+                }
                 // The whole answer replaces whatever the chunks drew. They concatenate to exactly
                 // this text, so a backend that streamed is not redrawn and one that did not gets
                 // its answer here.
@@ -2405,6 +2419,13 @@ impl AppState {
                 }
                 tracing::warn!("suggestion {suggest_id} failed: {error}");
                 self.suggest = None;
+                // A title that could not be written is not an error the user asked about: the card
+                // keeps the stand-in cut from its own description, which is what it is already
+                // showing.
+                if self.task_naming.is_some_and(|(id, _, _)| id == suggest_id) {
+                    self.task_naming = None;
+                    return None;
+                }
                 // Chunks already drawn are not a partial answer: they go with the failure.
                 if let Some(test) = &mut self.workbench.settings.ai_test
                     && test.suggest_id == Some(suggest_id)

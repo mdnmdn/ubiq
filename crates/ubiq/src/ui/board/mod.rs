@@ -109,7 +109,20 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
     let popup = board.popup;
     let open_task = board.open_task(work);
 
-    if let Some(task) = open_task
+    // A task being written fills the same slot, and only ever the side one: a draft is a form
+    // rather than a report, and `open_task` answers nothing while one is open, so the two cannot
+    // both be on screen.
+    if board.draft {
+        body = body.child(
+            div()
+                .w(px(theme::TASK_PANEL_WIDTH))
+                .flex()
+                .flex_none()
+                .border_l_1()
+                .border_color(theme::border())
+                .child(form::draft(app, window, cx)),
+        );
+    } else if let Some(task) = open_task
         && !popup
     {
         body = body.child(

@@ -847,6 +847,7 @@ impl AppState {
         self.workbench.tab_menu = None;
         self.workbench.new_pane_menu = None;
         self.workbench.overflow_menu = None;
+        self.workbench.new_project_menu = None;
         self.workbench.conversation_menu = None;
         self.sink.settings.menu = None;
         self.drop_explorer_menu(cx);

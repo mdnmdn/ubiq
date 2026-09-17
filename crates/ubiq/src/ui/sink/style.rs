@@ -83,6 +83,7 @@ fn tokens() -> AnyElement {
         ("accent", theme::accent()),
         ("accent_muted", theme::accent_muted()),
         ("accent_soft", theme::accent_soft()),
+        ("accent_selection", theme::accent_selection()),
         ("border", theme::border()),
         ("border_focus", theme::border_focus()),
         ("danger", theme::danger()),
