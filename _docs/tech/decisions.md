@@ -832,8 +832,8 @@ them.
 takes a `Program` rather than a program name — a confined run brings its whole environment, because
 the policy sanitized it. Confinement of a pane is macOS and Windows only. isol8 spawns with
 inherited stdio and a host cannot hand it a pseudo-terminal directly; on macOS the stopgap renders
-the policy and execs `sandbox-exec`, and on Windows `confined_launch` renders it into an `am-confine`
-shim process instead — the shim runs inside the pane, isol8 creates the harness from there, and the
+the policy and execs `sandbox-exec`, and on Windows `confined_launch` re-invokes the running binary
+in the pane under `isolate::CONFINE_ARG` instead — isol8 creates the harness from there, and the
 harness lands on the pane's own ConPTY, because isol8's Windows backend spawns with no
 console-creation flag and so attaches to whatever console its caller has. The seam that fixes this
 natively on unix is specified in `refs/isol8-pty-seam-update.md`; Linux has no rendered form at all,

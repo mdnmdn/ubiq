@@ -65,11 +65,13 @@ inherited stdio; combining `--isolate` with `--io structured` has no seam to
 confine through yet, so `am` refuses the combination outright rather than
 silently running it unconfined. Passthrough is unaffected: on macOS, a
 confined passthrough run execs `sandbox-exec` around the harness; on Windows
-it instead launches `am-confine`, a small shim that reads the resolved policy
-from a file and lets isol8 spawn the harness from inside the shim's own
-console — isol8's Windows backend adds no console-creation flag of its own, so
-that child simply attaches to whichever console the shim runs in, ConPTY
-included. Only Linux still has no seam: Landlock applies between `fork` and
+it instead re-invokes the running binary under `--am-confine`
+(`isolate::confine_entrypoint`), which reads the resolved policy from a file
+and lets isol8 spawn the harness from inside that process's own console — no
+second binary ships. isol8's Windows backend adds no console-creation flag of
+its own, so that child simply attaches to whichever console the re-invoked
+process runs in, ConPTY included. Only Linux still has no seam: Landlock
+applies between `fork` and
 `exec` and isol8 keeps its `SandboxChild` constructors private, so `--isolate`
 fails there until isol8 grows a rendered form; see
 `refs/isol8-pty-seam-update.md`. `am account login --isolate` takes the same

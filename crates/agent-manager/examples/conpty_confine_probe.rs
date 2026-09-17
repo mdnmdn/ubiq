@@ -1,20 +1,22 @@
-//! Does the `am-confine` shim confine a harness onto the ConPTY its caller owns?
+//! Does a confine run confine a harness onto the ConPTY its caller owns?
 //!
 //! isol8's Windows backend calls `CreateProcessW` with no console creation flag
 //! (`backends/windows.rs`: no `CREATE_NEW_CONSOLE`, no `DETACHED_PROCESS`, no
 //! `CREATE_NO_WINDOW`, a zeroed `STARTUPINFOW` with no `STARTF_USESTDHANDLES`),
 //! so the confined child attaches to its caller's console. Inside a ConPTY that
-//! console is the pseudoconsole — which is what lets a shim in the pane stand in
+//! console is the pseudoconsole — which is what lets a confiner in the pane stand in
 //! for the seam isol8 does not have.
 //!
-//! This probe is the evidence. Two runs of the same payload: one with the shim
-//! on this process's console, one with it inside a 100x30 ConPTY. The second is
+//! This probe is the evidence, and it is both halves of the mechanism: a confine
+//! run is this same binary invoked again under `CONFINE_ARG`, so the probe
+//! re-invokes itself the way `ubiq.exe` does. Two runs of the same payload: one
+//! on this process's console, one inside a 100x30 ConPTY. The second is
 //! the claim — a confined child reporting `size=100x30, redirected=False` is on
 //! a real pseudoconsole at the size the host asked for.
 //!
 //! It is also the regression test for the mismatch that cost the most to find.
 //! isol8 grants the *resolving* process's working directory read-write, and a
-//! confined child inherits its parent's, so a shim that runs anywhere else hands
+//! confined child inherits its parent's, so a confiner that runs anywhere else hands
 //! the harness a directory its own policy does not grant. The harness then dies
 //! at startup with nothing to read: `analyze_denial_log_path` promises a denial
 //! log that `isol8-winhook` never writes. `ConfinePayload::cwd` is the fix, and
@@ -23,21 +25,24 @@
 //!
 //! Run: `cargo run -p agent-manager --features pty --example conpty_confine_probe`
 
-use agent_manager::isolate::ConfinePayload;
+use agent_manager::isolate::{CONFINE_ARG, ConfinePayload, confine_entrypoint};
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 
 const COLS: u16 = 100;
 const ROWS: u16 = 30;
 
 fn main() -> anyhow::Result<()> {
+    // This example is both halves, which is the point: a confine run is the same
+    // binary invoked again, so the probe re-invokes itself exactly as `ubiq.exe`
+    // and `agent-manager.exe` do.
+    if let Some(code) = confine_entrypoint() {
+        std::process::exit(code);
+    }
+
     let state = std::env::temp_dir().join("am-confine-probe");
     std::fs::create_dir_all(&state)?;
 
-    let shim = std::env::current_exe()?
-        .parent()
-        .expect("the example has a parent directory")
-        .join("../am-confine.exe")
-        .canonicalize()?;
+    let confiner = std::env::current_exe()?;
 
     let (profile, env, cmd, cwd) = resolved()?;
     let payload = || ConfinePayload {
@@ -47,11 +52,12 @@ fn main() -> anyhow::Result<()> {
         cwd: cwd.clone(),
     };
 
-    // The control: same shim, same payload, inheriting this process's console
+    // The control: same confiner, same payload, inheriting this process's console
     // rather than a ConPTY. Whatever differs between the two runs is the
     // ConPTY's doing and not the policy's.
-    println!("=== run A: shim on this process's console ===");
-    let status = std::process::Command::new(&shim)
+    println!("=== run A: confiner on this process's console ===");
+    let status = std::process::Command::new(&confiner)
+        .arg(CONFINE_ARG)
         .arg(payload().write(&state)?)
         .status()?;
     println!("=== run A exit: {status} ===\n");
@@ -65,7 +71,8 @@ fn main() -> anyhow::Result<()> {
 
     // Deliberately no `.cwd()`: a pane that names no directory starts in the
     // user's home, and the payload's own `cwd` is what has to correct for that.
-    let mut spawn = CommandBuilder::new(&shim);
+    let mut spawn = CommandBuilder::new(&confiner);
+    spawn.arg(CONFINE_ARG);
     spawn.arg(payload().write(&state)?);
     let mut child = pair.slave.spawn_command(spawn)?;
 

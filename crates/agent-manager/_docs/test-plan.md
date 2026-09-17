@@ -119,8 +119,8 @@ real `~/.claude`:
       is a core library dependency baked into `am`. `--print-config` prints
       the resolved policy without spawning anything; a *live* confined run
       works on macOS (it execs the always-present `/usr/bin/sandbox-exec`)
-      and on Windows (it launches the `am-confine` shim, built alongside
-      `agent-manager` with no feature gate) — only Linux errors, naming the
+      and on Windows (it re-invokes the running binary under `--am-confine`,
+      no second executable) — only Linux errors, naming the
       pty seam it still needs (see T-12f/T-12g/T-12h).
 - [ ] **E3** For §13 settings: a scratch project dir with an `am.toml` you
       control (so discovery/merge tests don't depend on your real config).
@@ -425,7 +425,7 @@ actual spawn (§T-12f) execs under the policy.
 | T-12e | `<h> --isolate --io structured` (a real run, not `--print-config`) | refused before spawning the harness: error naming the `--isolate`/`--io structured` combination and `refs/isol8-pty-seam-update.md` |
 | T-12f | live, macOS: `<h> --isolate -- --version` | execs `/usr/bin/sandbox-exec` around the harness (one process, no PTY seam needed); harness output forwarded; exits with the harness's own exit code |
 | T-12g | live, Linux: `<h> --isolate -- --version` | fails before spawning the harness; the error names the pty seam (`refs/isol8-pty-seam-update.md`) |
-| T-12h | live, Windows: `<h> --isolate -- --version` | launches `am-confine` in the pane, which spawns the harness under the resolved policy; harness output forwarded on the same console (a real ConPTY, no seam needed); exits with the harness's own exit code; the `<state_dir>/confine/` payload file is gone afterward |
+| T-12h | live, Windows: `<h> --isolate -- --version` | re-invokes the running binary under `--am-confine` in the pane, which spawns the harness under the resolved policy; harness output forwarded on the same console (a real ConPTY, no seam needed); exits with the harness's own exit code; the `<state_dir>/confine/` payload file is gone afterward |
 
 ---
 

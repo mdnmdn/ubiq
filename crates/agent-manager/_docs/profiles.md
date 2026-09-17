@@ -226,11 +226,13 @@ Profile = *what config*; isolation = *what sandbox*. `isolate.rs` resolves a
 `Launch` into an isol8 policy (a `Spec` + `Context`) in-process rather than
 wrapping argv itself; a caller that owns a pseudo-terminal turns that policy
 back into a `Launch` via `confined_launch`, a pane stopgap that execs
-`sandbox-exec` on macOS, on Windows writes an `am-confine` shim launch instead
-(isol8's Windows backend spawns with no console-creation flag, so the shim's
-child attaches to the pseudo-terminal the shim itself runs in), and errors
-honestly on Linux (`refs/isol8-pty-seam-update.md` tracks the seam that would
-replace both stopgaps).
+`sandbox-exec` on macOS, on Windows re-invokes the running binary under
+`isolate::CONFINE_ARG` instead (isol8's Windows backend spawns with no
+console-creation flag, so the re-invoked child attaches to the pseudo-terminal
+it itself runs in — `confine_entrypoint()` is the embedder's hook, and no
+second binary ships), and errors honestly on Linux
+(`refs/isol8-pty-seam-update.md` tracks the seam that would replace both
+stopgaps).
 
 **`plan` names the layer stack itself, because isol8's own selection cannot reach
 the ones a build needs.** isol8 auto-selects a layer from `cmd[0]` alone, and only

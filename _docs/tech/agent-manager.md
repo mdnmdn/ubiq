@@ -7,7 +7,7 @@ summary: What the embedded harness-management library owns, what Ubiq owns, how 
 read_when: you are about to write code that launches a harness, drives one as a conversation, names a harness config path, or touches accounts, skills or MCP servers
 updated: 2026-09-17
 verified: 2026-09-17
-code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/quota.rs, crates/agent-manager/src/credentials/mod.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/bin/am-confine.rs, crates/agent-manager/src/io/mod.rs, crates/agent-manager/src/io/acp.rs, crates/agent-manager/src/io/acp_client.rs, crates/ubiq-host/src/mcp/mod.rs]
+code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/main.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/quota.rs, crates/agent-manager/src/credentials/mod.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/ubiq-app/src/lib.rs, crates/agent-manager/src/io/mod.rs, crates/agent-manager/src/io/acp.rs, crates/agent-manager/src/io/acp_client.rs, crates/ubiq-host/src/mcp/mod.rs]
 depends_on: [tech-structure]
 review_cycle: monthly
 ---
@@ -418,14 +418,17 @@ Confining a run in a terminal Ubiq owns works on macOS and Windows, not on Linux
 inherited stdio and keeps its child handle private, so no host hands it a pseudo-terminal: on macOS
 `isolate::confined_launch` renders the policy and execs `sandbox-exec` around the harness. Windows
 has no ConPTY seam either, but isol8 calls `CreateProcessW` with no console-creation flag, so its
-child attaches to the caller's console — `confined_launch` writes the resolved policy, environment,
-command and cwd to a `ConfinePayload` under `<state_dir>/confine/` and launches `am-confine`, which
-lets isol8 create the harness from inside the pane, onto the ConPTY the host already opened. The
-shim joins a `KILL_ON_JOB_CLOSE` job object first, so killing it takes the harness with it, and the
-payload's `cwd` is load-bearing: isol8 grants the *resolving* process's directory read-write and a
-confined child inherits its parent's (`G280`). Landlock has no rendered form, applying between
-`fork` and `exec`, so `confined_launch` errors on Linux; `refs/isol8-pty-seam-update.md` specifies
-the seam that replaces it on unix.
+child attaches to the caller's console — `confined_launch` writes the policy, environment, command
+and cwd to a `ConfinePayload` under `<state_dir>/confine/` and re-invokes the running binary under
+`isolate::CONFINE_ARG`, Chrome's `--type=renderer` pattern rather than a second shipped executable.
+`isolate::confine_entrypoint()` runs before any other startup work — `ubiq-app`'s `run()` right
+after `askpass()`, `agent-manager`'s own `main()` before `init_tracing()` — and answers the confine
+run's exit code, or `None` for an ordinary one. The re-entered process joins a `KILL_ON_JOB_CLOSE`
+job through the `win32job` wrapper, since `lib.rs` forbids raw `unsafe`, so killing it takes the
+harness with it, and the payload's `cwd` is load-bearing: isol8 grants the *resolving* process's
+directory read-write and a confined child inherits its parent's (`G280`). Landlock has no rendered
+form, applying between `fork` and `exec`, so `confined_launch` errors on Linux;
+`refs/isol8-pty-seam-update.md` specifies the seam that replaces it on unix.
 
 Everything an embedder can substitute is a trait: the catalog registry, the account store, the
 secret store, profiles, templates, session history, and an in-process MCP service behind the

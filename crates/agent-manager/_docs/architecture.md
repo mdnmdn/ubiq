@@ -185,7 +185,7 @@ src/
 │   ├── mod.rs        #   McpService trait for embedders    (core, P2)
 │   └── server.rs     #   HTTP server for in-process MCPs   (feature: inproc-mcp, P2)
 ├── session.rs        # session history + metadata; ls/show/resume + transcript recording (P3 ✅)
-└── isolate.rs        # RunSpec -> isol8 Spec/Context, in-process (core dep); confined_launch is a pane stopgap: sandbox-exec on macOS, an am-confine shim launch on Windows, honest error on Linux (P3 ✅)
+└── isolate.rs        # RunSpec -> isol8 Spec/Context, in-process (core dep); confined_launch is a pane stopgap: sandbox-exec on macOS, a re-invocation of the running binary under CONFINE_ARG on Windows (confine_entrypoint, no second binary), honest error on Linux (P3 ✅)
 ```
 
 Phase 1 needs `spec`, `resolve`, `settings`, `registry`, `harness` (claude),

@@ -3,8 +3,8 @@ id: inbox-isol8-upstream
 title: isol8 — what this tree owes upstream
 kind: note
 status: proposal
-summary: Three findings against isol8 v0.4.0 that belong in mdnmdn/isol8 rather than here — a denial log that is named but never written, a path-policy tie-break that silently drops a widening grant, and the missing ConPTY seam that `am-confine` exists to work around — each with the evidence that produced it and what closing it would change in Ubiq.
-read_when: you are raising an issue against isol8, reading the `am-confine` shim and wondering why it exists, or deciding whether to move the isol8 pin
+summary: Three findings against isol8 v0.4.0 that belong in mdnmdn/isol8 rather than here — a denial log that is named but never written, a path-policy tie-break that silently drops a widening grant, and the missing ConPTY seam that the confine re-invocation exists to work around — each with the evidence that produced it and what closing it would change in Ubiq.
+read_when: you are raising an issue against isol8, reading `isolate::confine_entrypoint` and wondering why it exists, or deciding whether to move the isol8 pin
 updated: 2026-09-17
 depends_on: [tech-agent-manager, backlog]
 ---
@@ -55,7 +55,7 @@ grant first, which the type does not hint at.
 the API refuses a duplicate path loudly. Any of the three is predictable; the current behaviour is
 the only one that is not.
 
-## 3. There is no ConPTY seam, and `am-confine` is the shape of its absence
+## 3. There is no ConPTY seam, and Ubiq's confine re-invocation is the shape of its absence
 
 isol8's pty seam is `cfg(unix)` at every public point: `Backend::spawn_with_stdio`
 (`crates/isol8-core/src/backends/mod.rs:63`), `Sandbox::spawn_pty`, `Sandbox::spawn_with_stdio`,
@@ -66,20 +66,22 @@ macOS answer, rendering a policy that `sandbox-exec` applies in place, has no Wi
 Ubiq works around this rather than waiting for it. isol8's Windows backend calls `CreateProcessW`
 with no console-creation flag (`backends/windows.rs:96-109`: no `CREATE_NEW_CONSOLE`, no
 `DETACHED_PROCESS`, no `CREATE_NO_WINDOW`, a zeroed `STARTUPINFOW` with no `STARTF_USESTDHANDLES`),
-so a process it spawns attaches to whatever console its caller already has. Putting the
-`am-confine` shim in the pane and letting isol8 create the harness from in there lands the harness
-on the host's own ConPTY, at the host's own size, as a real console. Measured:
-`size=100x30 redirected=False`, exit 0, against a pseudoconsole opened at exactly that size.
+so a process it spawns attaches to whatever console its caller already has. `confined_launch` puts
+the running binary back in the pane, re-invoked under `isolate::CONFINE_ARG` against a
+`ConfinePayload`, and letting isol8 create the harness from in there lands it on the host's own
+ConPTY, at the host's own size, as a real console — the Chrome `--type=renderer` multi-call
+pattern rather than a second shipped executable. Measured: `size=100x30 redirected=False`, exit 0,
+against a pseudoconsole opened at exactly that size.
 
 **What would close it.** A Windows `spawn_with_stdio` taking either explicit handles
 (`STARTF_USESTDHANDLES` with `bInheritHandles`) or a pseudoconsole
 (`STARTUPINFOEX` plus `PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE`). `refs/isol8-pty-seam-update.md`, in
 isol8's own tree, specifies the unix seam and says ConPTY is separate work.
 
-**What Ubiq would delete.** `crates/agent-manager/src/bin/am-confine.rs`, the `ConfinePayload`
-contract and its file under `<state_dir>/confine/`, the `windows-sys` dependency carried only for
-the shim's job object, and the packaging obligation in `G282`. `confined_launch` would render a
-launch on Windows the way it does on macOS, and one process per confined pane would go away.
+**What Ubiq would delete.** The `isolate::CONFINE_ARG`/`confine_entrypoint` re-invocation, the
+`ConfinePayload` contract and its file under `<state_dir>/confine/`, and the `win32job` dependency
+carried only for the confined process's job object. `confined_launch` would render a launch on
+Windows the way it does on macOS, and one process per confined pane would go away.
 
 ## The trap worth reporting even without a fix
 
@@ -97,4 +99,4 @@ failure with no diagnosis path at all. A sentence in isol8's embedding guide wou
 ## Related docs
 
 - [`tech/agent-manager.md`](../tech/agent-manager.md) — how `confined_launch` and the shim work here
-- [`backlog.md`](../backlog.md) — `G280`, `G281`, `G282`, `G283`, `G285`
+- [`backlog.md`](../backlog.md) — `G280`, `G281`, `G283`, `G285`

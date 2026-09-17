@@ -1060,11 +1060,11 @@ fn index_level_choice(current: IndexLevel, cx: &mut Context<AppState>) -> AnyEle
 /// policy. Every value here is host-owned, so each control writes the Host layer.
 ///
 /// **Confinement of terminal panes is macOS and Windows.** `confined_launch` in the harness
-/// library renders a `sandbox-exec` policy on macOS; on Windows it renders the `am-confine` shim,
-/// which runs in the pane and lets isol8 create the harness from in there, onto the ConPTY the
-/// host already opened. Linux has neither — Landlock is applied between `fork` and `exec` and has
-/// no rendered form — so the toggle is disabled there rather than offering a switch that does
-/// nothing.
+/// library renders a `sandbox-exec` policy on macOS; on Windows it renders this same binary
+/// invoked again, which runs in the pane and lets isol8 create the harness from in there, onto the
+/// ConPTY the host already opened. Linux has neither — Landlock is applied between `fork` and
+/// `exec` and has no rendered form — so the toggle is disabled there rather than offering a switch
+/// that does nothing.
 fn isolation(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     let host = &app.workbench.settings.host;
     let supported = cfg!(any(target_os = "macos", target_os = "windows"));
