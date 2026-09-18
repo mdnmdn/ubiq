@@ -3,9 +3,9 @@ id: inbox-isol8-upstream
 title: isol8 — what this tree owes upstream
 kind: note
 status: proposal
-summary: Four findings against isol8 v0.4.0 that belong in mdnmdn/isol8 rather than here — sockets denied outright on Windows because the file hook has no device exemption, a denial log that is named but never written, a path-policy tie-break that silently drops a widening grant, and the missing ConPTY seam that the confine re-invocation exists to work around — each with the evidence that produced it and what closing it would change in Ubiq.
+summary: Six findings against isol8 v0.4.0 that belong in mdnmdn/isol8 rather than here — sockets denied outright on Windows because the file hook has no device exemption, a denial log that is named but never written, a path-policy tie-break that silently drops a widening grant, the missing ConPTY seam that the confine re-invocation exists to work around, a confined shell that hangs the moment it forks, and a Windows spec that inherits a hundred macOS-shaped grants — each with the evidence that produced it and what closing it would change in Ubiq.
 read_when: you are raising an issue against isol8, reading `isolate::confine_entrypoint` and wondering why it exists, or deciding whether to move the isol8 pin
-updated: 2026-09-17
+updated: 2026-09-18
 depends_on: [tech-agent-manager, backlog]
 ---
 
@@ -16,7 +16,7 @@ Windows pane confinement was built against **isol8 v0.4.0**, pinned in
 revision is upstream `main` and the `v0.4.0` tag; no branch or pull request in the repository
 carries ConPTY work. **Nothing here asks for a pin move, and nothing here blocks Ubiq.** Windows
 confinement works today against v0.4.0 exactly as pinned — see `tech/agent-manager.md`. These are
-the four things found while building it that are isol8's to fix, collected so they can be raised
+the six things found while building it that are isol8's to fix, collected so they can be raised
 on their own schedule.
 
 ## 1. The Windows file hook denies every socket, not just unlisted paths
@@ -112,6 +112,75 @@ isol8's own tree, specifies the unix seam and says ConPTY is separate work.
 carried only for the confined process's job object. `confined_launch` would render a launch on
 Windows the way it does on macOS, and one process per confined pane would go away.
 
+## 5. A confined shell hangs the moment it forks, and no path grant reaches it
+
+`crates/agent-manager/examples/confined_shell_probe.rs` runs a battery of shells under a confine
+payload the interface actually wrote, swapping only `ConfinePayload::cmd`. Measured on Windows 11
+against isol8 rev `14a87bd5`: `cmd /c echo`, `powershell -Command` (5.1) and `bash -c 'echo ok'`
+(git bash, no fork) all pass confined, exactly as unconfined. `bash -lc 'echo ok'` (a login shell)
+and `bash -c 'echo a | cat >/dev/null'` (a pipeline, which forks) both **hang** confined and pass
+unconfined. `bash -c` alone passes only because bash `exec`s its single command without forking —
+the first case that actually forks is the first case that hangs.
+
+**This is not a missing path grant.** A run granted `C:\` read-write, `\Device` and `\??` on top of
+the pane's own policy hangs identically. Narrower probes walked the failure forward instead:
+granting `\Device\Null` read-write moves the error from `/dev/null: Permission denied` to
+`/usr/bin/cat: Permission denied` — a different denial, not a pass — and nothing tried makes the
+pipeline complete.
+
+**The mechanism is the cause.** isol8's Windows backend hooks `CreateProcessInternalW`, forces
+`CREATE_SUSPENDED` on every child it did not itself create suspended, injects its hook DLL with
+`CreateRemoteThread(LoadLibraryW)`, and waits `INFINITE` on that thread with no timeout — at every
+process-creation hop, not only the first. msys2 emulates POSIX `fork()` by cloning bash's own
+address space into a suspended child and requires the parent's and child's memory layouts to match
+at the moment it resumes; a DLL injected into that child between the clone and the resume is
+exactly the kind of change that breaks the assumption. `node -e "...execSync('bash -c echo')..."`
+spawning bash passes confined, so the second hop and the injection are not broken in general — the
+incompatibility is specific to msys2's own `fork` emulation, not to Windows process creation or to
+this hook's presence alone.
+
+**What it costs Ubiq.** A confined pane on Windows has no working POSIX shell: `bash -lc` and any
+pipeline hang rather than fail, so Claude Code's `Bash` tool run inside an isolated Windows pane
+never returns. The only workaround today is turning `isolate_agents` off for the whole machine —
+there is no per-pane escape. Tracked as `G295`.
+
+**What would close it.** Either the hook stops injecting into a process it already suspended before
+the child's own address-space setup completes — which needs isol8 to know msys2's `fork` shape
+specifically — or it exempts a process the caller marks as its own emulated fork, which is not a
+distinction Windows process creation makes on its own. Neither is a small change; this is raised so
+it is tracked rather than because a fix is obvious.
+
+## 6. A Windows confine spec inherits a hundred macOS-shaped grants
+
+A rendered Windows confine policy carries 102 grants shaped for macOS: `C:\Users\<user>\
+Library/Keychains`, `/private/var/db/mds`, `/Library/Developer/CommandLineTools/...` and their
+siblings, none of which name anything on the host they were rendered for.
+
+**Cause.** isol8's own profile files — `profiles/integrations/keychain.toml` and
+`profiles/shared/agent-common.toml` — ship their `filter = { os = ["macos"] }` line commented out,
+each followed by a note that the filter is not parsed yet. isol8 treats an absent filter as
+"matches every host", so `apply_layer_filter` does not zero these layers on Windows the way it
+zeros every other platform-scoped one. `crates/agent-manager/src/isolate.rs`'s own doc comment on
+`DEV_LAYERS` asserts the opposite — "a layer whose `filter.os` does not match this host is kept as
+an empty shell rather than dropped" — and that assumption is exactly what fails for these two
+files: the filter is not merely non-matching, it is not there to be read at all.
+
+**What it costs.** Nothing functional — Ubiq's naming logic is correct, and a grant for a path that
+does not exist on the host is inert. It is cosmetic: `isol8 --show-policies` on a confined Windows
+run reads longer and stranger than the policy that is actually enforced, which is exactly the kind
+of noise that makes a real denial harder to spot by eye.
+
+**A related but harmless rendering bug.** isol8's `home::expand_tilde` builds a grant's path with
+`Path::join` over the raw TOML tail rather than splitting it on `/`, so a `~/Library/Keychains`
+grant renders on Windows with mixed separators — `C:\Users\x\Library/Keychains` — rather than a
+clean Windows path. Harmless in practice, because the matcher normalises `/` to `\` before
+comparing, but one more sign the two commented-out filters were never exercised against a Windows
+render.
+
+**What would close it.** Uncomment the two `filter.os` lines once isol8 parses the field, or filter
+these two layers out by name on a non-macOS host the way every other platform-scoped layer already
+is. Tracked as `G296`.
+
 ## The trap worth reporting even without a fix
 
 isol8 grants the **resolving** process's working directory read-write (`overrides_layer`, from
@@ -128,4 +197,4 @@ failure with no diagnosis path at all. A sentence in isol8's embedding guide wou
 ## Related docs
 
 - [`tech/agent-manager.md`](../tech/agent-manager.md) — how `confined_launch` and the shim work here
-- [`backlog.md`](../backlog.md) — `G289`, `G281`, `G290`, `G292`
+- [`backlog.md`](../backlog.md) — `G281`, `G289`, `G290`, `G292`, `G295`, `G296`

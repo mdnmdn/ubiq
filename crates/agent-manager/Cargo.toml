@@ -128,3 +128,9 @@ required-features = ["pty"]
 [[example]]
 name = "login_confined_probe"
 required-features = ["pty"]
+
+# Diagnostic: which shells survive a confined pane. A harness spawns `pwsh`,
+# `bash` and `cmd` as children, and a policy that kills one of them reads, from
+# inside the agent, as "my shell is broken" with no denial to point at.
+[[example]]
+name = "confined_shell_probe"

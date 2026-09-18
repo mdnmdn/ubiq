@@ -585,6 +585,57 @@ fn on_macos() -> bool {
     isol8::Platform::current() == isol8::Platform::Macos
 }
 
+/// Whether this host is the one [`windows_ro_home_dirs`] describes.
+fn on_windows() -> bool {
+    isol8::Platform::current() == isol8::Platform::Windows
+}
+
+/// The per-user PowerShell configuration directories, under `Documents`.
+///
+/// PowerShell 7 reads `powershell.config.json` from `Documents\PowerShell`
+/// before it parses its own command line, and treats a file it can see but
+/// cannot open as fatal — it throws `PSInvalidOperationException: PowerShell has
+/// stopped working because of a security issue` and dies with no line run. A
+/// deny-by-default policy that names nothing under `Documents` produces exactly
+/// that, so every agent whose shell is `pwsh` loses its shell, which is how the
+/// bug is reported: "my PowerShell is broken", with no denial to point at.
+///
+/// Read-only, and only these two names: the grant is for a config file, not for
+/// the user's documents. Windows PowerShell 5.1 uses the `WindowsPowerShell`
+/// sibling and survives without it — which is why the ConPTY probes, both of
+/// which run `powershell`, never saw this.
+const WINDOWS_PWSH_CONFIG_DIRS: &[&str] = &["PowerShell", "WindowsPowerShell"];
+
+/// Where [`WINDOWS_PWSH_CONFIG_DIRS`] live, for every `Documents` this host has.
+///
+/// Two bases, because `Documents` is a known folder rather than a path: OneDrive's
+/// folder redirection moves it under `%OneDrive%` and leaves the one beside the
+/// profile in place, and PowerShell resolves the *redirected* one through the
+/// registry, which isol8 does not filter. Naming both costs one inert grant on a
+/// machine that redirects nothing and is the difference between working and not
+/// on one that does.
+///
+/// Not existence-filtered, for the same reason [`DEV_RW_HOME_ROOTS`] is not: a
+/// grant on a directory that does not exist yet is what makes its first-run
+/// creation legal.
+fn windows_ro_home_dirs(real_home: &Path) -> Vec<PathBuf> {
+    let mut bases = vec![real_home.to_path_buf()];
+    if let Some(onedrive) = std::env::var_os("OneDrive") {
+        let onedrive = PathBuf::from(onedrive);
+        if onedrive != *real_home {
+            bases.push(onedrive);
+        }
+    }
+    bases
+        .iter()
+        .flat_map(|base| {
+            WINDOWS_PWSH_CONFIG_DIRS
+                .iter()
+                .map(move |dir| base.join("Documents").join(dir))
+        })
+        .collect()
+}
+
 /// What a harness needs to draw a screen, and what the toolchains it shells
 /// out to need to work at all.
 ///
@@ -1390,6 +1441,15 @@ fn read_only_grants(run: &RunSpec, options: &IsolateOptions) -> Vec<String> {
             }
         }
     }
+    // What `pwsh` reads before it runs a line — see [`WINDOWS_PWSH_CONFIG_DIRS`].
+    if on_windows() {
+        for dir in windows_ro_home_dirs(&isol8::home::real_home()) {
+            let grant = path_string(&dir);
+            if !grants.contains(&grant) {
+                grants.push(grant);
+            }
+        }
+    }
     for extra in &options.extra_ro {
         let grant = path_string(extra);
         if !grants.contains(&grant) {
@@ -1552,10 +1612,42 @@ mod tests {
         } else {
             0
         };
+        let windows = if on_windows() {
+            windows_ro_home_dirs(&real_home()).len()
+        } else {
+            0
+        };
         assert_eq!(
             grants.len(),
-            3 + apple,
+            3 + apple + windows,
             "a Source::Files entry and a duplicate Source::Dir must not add grants: {grants:?}"
+        );
+    }
+
+    // 3b. `pwsh` reads `Documents\PowerShell\powershell.config.json` before it
+    // parses its command line and dies on a file it can see but cannot open, so
+    // a policy that names nothing there costs the agent its shell — silently,
+    // since isol8's Windows hook writes no denial log. Read-only and narrow: the
+    // two config directories, never `Documents` itself.
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn the_powershell_config_dirs_are_granted_read_only() {
+        let run = RunSpec::new("claude-code".to_string(), PathBuf::from("/work"));
+        let options = IsolateOptions::new(PathBuf::from("/state"));
+        let grants = read_only_grants(&run, &options);
+
+        let home = real_home();
+        for dir in WINDOWS_PWSH_CONFIG_DIRS {
+            let want = home.join("Documents").join(dir).display().to_string();
+            assert!(
+                grants.contains(&want),
+                "pwsh cannot start without {want}: {grants:?}"
+            );
+        }
+        let documents = home.join("Documents").display().to_string();
+        assert!(
+            !grants.contains(&documents),
+            "the grant is for a config file, not for the user's documents: {grants:?}"
         );
     }
 
@@ -1805,6 +1897,13 @@ mod tests {
         } else {
             Vec::new()
         };
+        if on_windows() {
+            want.extend(
+                windows_ro_home_dirs(&real_home())
+                    .iter()
+                    .map(|dir| dir.display().to_string()),
+            );
+        }
         want.push(toolchain.display().to_string());
         assert_eq!(grants, want);
     }
