@@ -185,6 +185,24 @@ pub fn run(boot: Boot) {
         std::process::exit(code);
     }
 
+    // The same reasoning, one process kind further: a confined pane on Windows runs
+    // this very executable again, because isol8 confines only what it creates itself
+    // and has no ConPTY seam to hand one back. It spawns the harness onto the pane's
+    // terminal and waits, so it must be decided before the console is detached, before
+    // the log, and certainly before a window.
+    if let Some(code) = agent_manager::isolate::confine_entrypoint() {
+        std::process::exit(code);
+    }
+
+    // Right after it, and before anything is started: from here on every process this one creates
+    // — a pane's harness, a conversation's confine shim, a probe — belongs to this process's life.
+    // Windows keeps no process tree of its own, so without this a closed or crashed interface
+    // leaves its agents running with nothing left to reach them through. A failure is worth saying
+    // and nothing more: the interface still works, its children just outlive it.
+    if let Err(error) = agent_manager::isolate::kill_descendants_on_exit() {
+        eprintln!("ubiq: this run's agents will outlive it: {error:#}");
+    }
+
     let args: Vec<String> = std::env::args().skip(1).collect();
     let serve = serve_bind(args.iter().cloned());
     #[cfg(windows)]
@@ -409,17 +427,94 @@ pub fn run(boot: Boot) {
 /// working from a terminal exactly as before, with its banner on stdout and its log writer on
 /// standard error — and a served run never reaches this function. A console launch from Explorer
 /// flashes once and is gone; a launch from a terminal keeps that terminal's window (it owns it)
-/// but reports nothing more into it. No new dependency: the call below is linked straight
+/// but reports nothing more into it. No new dependency: the calls below are linked straight
 /// from the system libraries every Windows process already carries.
+///
+/// **Leaving a console this process owns means leaving its handles too.** A double-click gets a
+/// console of this process's own, so freeing it destroys the object while the three standard
+/// handles still name it — and from then on every child spawned with inherited stdio is refused:
+/// the kernel is asked to hand a destroyed console to a new process and answers
+/// `STATUS_NOT_SUPPORTED`, which reaches Ubiq as `os error 50` on the confine shim a conversation
+/// starts. A launch from a terminal never shows it, because there the console belongs to the
+/// terminal and outlives the detachment — which is what made the failure look like the shim's
+/// fault rather than the boot's. So a console this process is alone in has its three handles
+/// pointed at `NUL` afterwards: a device that is always openable, reads empty, and swallows what
+/// is written to it.
+///
+/// **Only when this process is alone in it.** A shared console is the terminal's, its handles stay
+/// valid, and standard error there is the log writer's one report — see
+/// [`../../_docs/features/logs.md`]. Repointing those would silence a developer's own run to buy
+/// nothing.
 #[cfg(windows)]
 fn detach_console() {
+    use std::ffi::c_void;
+
     #[link(name = "kernel32")]
     unsafe extern "system" {
         fn FreeConsole() -> i32;
+        fn GetConsoleProcessList(list: *mut u32, count: u32) -> u32;
+        fn SetStdHandle(which: u32, handle: *mut c_void) -> i32;
+        fn CreateFileW(
+            name: *const u16,
+            access: u32,
+            share: u32,
+            security: *mut c_void,
+            disposition: u32,
+            flags: u32,
+            template: *mut c_void,
+        ) -> *mut c_void;
     }
+
+    const STD_INPUT_HANDLE: u32 = -10i32 as u32;
+    const STD_OUTPUT_HANDLE: u32 = -11i32 as u32;
+    const STD_ERROR_HANDLE: u32 = -12i32 as u32;
+    const GENERIC_READ: u32 = 0x8000_0000;
+    const GENERIC_WRITE: u32 = 0x4000_0000;
+    const FILE_SHARE_READ_WRITE: u32 = 0x0000_0003;
+    const OPEN_EXISTING: u32 = 3;
+    const INVALID_HANDLE: isize = -1;
+
+    // Asked before the console is gone, because afterwards there is nothing left to ask. One
+    // attached process is this one: the console came with the launch and dies with the detachment.
+    // Zero means the call failed, which is the no-console case and wants nothing done either.
+    let mut attached = [0u32; 2];
+    let alone = unsafe { GetConsoleProcessList(attached.as_mut_ptr(), 2) } == 1;
+
     // A failure means there was no console to leave, which is already the state wanted.
     unsafe {
         FreeConsole();
+    }
+
+    if !alone {
+        return;
+    }
+
+    // `NUL`, wide and terminated, once for all three.
+    let name: Vec<u16> = "NUL\0".encode_utf16().collect();
+    for (which, access) in [
+        (STD_INPUT_HANDLE, GENERIC_READ),
+        (STD_OUTPUT_HANDLE, GENERIC_WRITE),
+        (STD_ERROR_HANDLE, GENERIC_WRITE),
+    ] {
+        // Each handle is its own open, so closing one could never take the others with it, and all
+        // three are deliberately never closed: they are this process's standard handles for as long
+        // as it runs, and the kernel reclaims them when it ends.
+        let handle = unsafe {
+            CreateFileW(
+                name.as_ptr(),
+                access,
+                FILE_SHARE_READ_WRITE,
+                std::ptr::null_mut(),
+                OPEN_EXISTING,
+                0,
+                std::ptr::null_mut(),
+            )
+        };
+        if !handle.is_null() && handle as isize != INVALID_HANDLE {
+            unsafe {
+                SetStdHandle(which, handle);
+            }
+        }
     }
 }
 

@@ -78,6 +78,18 @@ macro_rules! harness_identity {
 }
 pub(crate) use harness_identity;
 
+/// Every harness's version/discovery probes are headless: a `--version` or `models` shell-out
+/// whose only output anyone reads is its stdout. Windows would still pop a console window for one
+/// — the embedding app frees its own console at boot (`ubiq_app::detach_console`), and a
+/// console-subsystem child with no console to inherit gets a brand-new one — so every probe spawn
+/// asks for none.
+#[cfg(windows)]
+pub(crate) fn no_window(cmd: &mut std::process::Command) {
+    use std::os::windows::process::CommandExt as _;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    cmd.creation_flags(CREATE_NO_WINDOW);
+}
+
 /// Read the secret an account's env-var *reference* names.
 ///
 /// `am`'s account store never holds secret material — only env-var NAMES, a

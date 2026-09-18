@@ -320,6 +320,7 @@ fn spawn_ssh_command(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     put_in_own_session(&mut command);
+    no_window(&mut command);
 
     command
         .spawn()
@@ -397,6 +398,19 @@ fn put_in_own_session(command: &mut Command) {
         let _ = command;
     }
 }
+
+/// `ssh`/`scp`/`taskkill` here all talk over pipes or exit codes, never a screen — the same
+/// headless shape [`spawn_ssh_command`]'s module doc opens with. Windows would still pop a console
+/// window for a console-subsystem child like these: the app has already freed its own console
+/// (`ubiq_app::detach_console`), and a child with none of its own to inherit gets a brand-new one.
+#[cfg(windows)]
+fn no_window(command: &mut Command) {
+    use std::os::windows::process::CommandExt as _;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+#[cfg(not(windows))]
+fn no_window(_command: &mut Command) {}
 
 /// The command the far machine runs. One string, because that is what `ssh` hands its login
 /// shell — so the root is single-quoted for that shell, which is the only quoting this needs.
@@ -716,6 +730,7 @@ fn scp_upload_command(
         .stdout(Stdio::null())
         .stderr(Stdio::piped());
     put_in_own_session(&mut command);
+    no_window(&mut command);
     Ok(command)
 }
 
@@ -1070,11 +1085,13 @@ impl Killer {
 
     #[cfg(windows)]
     fn kill(&self) {
-        let _ = Command::new("taskkill")
+        let mut command = Command::new("taskkill");
+        command
             .args(["/PID", &self.pid.to_string(), "/T", "/F"])
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
+            .stderr(Stdio::null());
+        no_window(&mut command);
+        let _ = command.status();
     }
 }
 

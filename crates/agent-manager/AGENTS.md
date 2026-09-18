@@ -134,7 +134,7 @@ agent-manager/
     │   ├── mod.rs         #   McpService trait for embedders (core, P2)
     │   └── server.rs      #   HTTP MCP server for in-process MCPs (feature: inproc-mcp, P2)
     ├── session.rs         # SessionStore/SessionRecorder traits + FsSessionStore; history + transcripts (core, P3)
-    ├── isolate.rs         # RunSpec -> isol8 Spec/Context in-process; confined_launch (pane stopgap: sandbox-exec on macOS, honest error elsewhere); login capture confines inherited-stdio runs incl. Windows (core, P3)
+    ├── isolate.rs         # RunSpec -> isol8 Spec/Context in-process; confined_launch execs sandbox-exec on macOS, re-invokes the running binary under CONFINE_ARG on Windows (confine_entrypoint, no second binary), errors on Linux; confined_probe_launch swaps in a different command after the policy resolves; login capture confines inherited-stdio runs incl. Windows, where WINDOWS_DEVICE_RW grants the two devices a socket needs (core, P3)
     ├── cli/               # the `am` command surface (feature: cli)
     │   ├── mod.rs         #   dispatch: reserved words vs `am <harness>`
     │   ├── run.rs         #   `am <harness> [flags] [-- passthrough]`
@@ -149,6 +149,13 @@ agent-manager/
     │   └── session.rs     #   `am session ls|show|resume` (P3)
     └── tui.rs             # ratatui front end (parked, feature: tui)
 ```
+
+There is no `src/bin/`: Windows confinement re-invokes the embedder's own binary rather than
+shipping a second one. `isolate::CONFINE_ARG` is the argv word that means "this run is a confine
+run", and `isolate::confine_entrypoint()` is what an embedder calls first, before any other
+startup — it reads a `ConfinePayload`, lets isol8 spawn the harness from inside the caller's own
+console, and returns the confine run's exit code, or `None` for an ordinary run. `crates/ubiq-app`
+and `crates/agent-manager/src/main.rs` both call it.
 
 The library in `src/lib.rs` owns all real logic; `src/main.rs` is a thin shim.
 Modules marked **(core)** build with `--no-default-features` for lib mode; `io/passthrough`
@@ -290,7 +297,7 @@ Alpha. **Phase 1 complete** for Claude Code end-to-end; **Phase 2 complete**; **
 - [x] in-process MCP (lib mode): `McpService` trait for embedders, hosted on loopback HTTP MCP endpoint
 
 **Phase 3 ✅**
-- [x] isolation (`--isolate[=profile]` / `--no-isolate` via isol8, a core library dependency, not an external binary): `src/isolate.rs` builds the policy in-process; settings `[isolate] enabled|profile|home`; confining a run in a caller-owned terminal is macOS-only (execs `sandbox-exec`) — see `refs/isol8-pty-seam-update.md`; inherited-stdio runs (`am account login --isolate`) confine on Windows too (hook DLL, isol8 v0.4.0)
+- [x] isolation (`--isolate[=profile]` / `--no-isolate` via isol8, a core library dependency, not an external binary): `src/isolate.rs` builds the policy in-process; settings `[isolate] enabled|profile|home`; confining a run in a caller-owned terminal works on macOS (execs `sandbox-exec`) and on Windows (re-invokes the running binary under `CONFINE_ARG`, since isol8 has no ConPTY seam but spawns with no console-creation flag, so the re-invoked child lands on the caller's own console) — Linux still errors, see `refs/isol8-pty-seam-update.md`; inherited-stdio runs (`am account login --isolate`) confine on Windows too (hook DLL, isol8 v0.4.0)
 - [x] session history: `am session ls|show|resume`; persistent transcripts + metadata; `--resume <id>` (harness-native)
 - [x] output adapters: `--output <events|acp|agui>` on structured runs; stateless best-effort mappers (`src/io/{acp,agui}.rs`)
 - [x] hooks: per-run hook selection (`--hooks a,b`); provisioner wires into harness-native slots (Claude/codex/opencode)

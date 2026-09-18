@@ -414,12 +414,15 @@ struct McpServerToml {
 /// stdout. Shared by [`Codex::discover_models`] and [`Codex::discover_thinking`] so the model
 /// catalog is read from a single process spawn, not two. Requires Codex ≥ 0.131.0.
 fn bundled_models() -> Result<serde_json::Value> {
-    let output = std::process::Command::new("codex")
-        .args(["debug", "models", "--bundled"])
-        .output()
-        .with_context(
-            || "running `codex debug models --bundled` (is the codex binary on PATH, ≥ 0.131.0?)",
-        )?;
+    let mut cmd = std::process::Command::new("codex");
+    cmd.args(["debug", "models", "--bundled"]);
+    // Headless model-catalog probe: nothing reads a window, and the app has already freed its own
+    // console (`ubiq_app::detach_console`), so a console-subsystem child would otherwise flash one.
+    #[cfg(windows)]
+    super::shared::no_window(&mut cmd);
+    let output = cmd.output().with_context(
+        || "running `codex debug models --bundled` (is the codex binary on PATH, ≥ 0.131.0?)",
+    )?;
     if !output.status.success() {
         anyhow::bail!(
             "`codex debug models --bundled` failed ({}): {}",

@@ -226,8 +226,13 @@ Profile = *what config*; isolation = *what sandbox*. `isolate.rs` resolves a
 `Launch` into an isol8 policy (a `Spec` + `Context`) in-process rather than
 wrapping argv itself; a caller that owns a pseudo-terminal turns that policy
 back into a `Launch` via `confined_launch`, a pane stopgap that execs
-`sandbox-exec` on macOS and errors honestly elsewhere (`refs/isol8-pty-seam-update.md` tracks the seam that will
-replace it on Linux; Windows needs a ConPTY seam of its own).
+`sandbox-exec` on macOS, on Windows re-invokes the running binary under
+`isolate::CONFINE_ARG` instead (isol8's Windows backend spawns with no
+console-creation flag, so the re-invoked child attaches to the pseudo-terminal
+it itself runs in — `confine_entrypoint()` is the embedder's hook, and no
+second binary ships), and errors honestly on Linux
+(`refs/isol8-pty-seam-update.md` tracks the seam that would replace both
+stopgaps).
 
 **`plan` names the layer stack itself, because isol8's own selection cannot reach
 the ones a build needs.** isol8 auto-selects a layer from `cmd[0]` alone, and only
@@ -310,7 +315,7 @@ read-only over `/Library/Developer/CommandLineTools`, `/Library/Developer/Toolch
 `/Applications/Xcode.app`, `/Applications/Xcode-beta.app` and the Xcode preferences plist;
 `APPLE_RW_HOME_ROOTS` read-write over `~/Library/Developer/{Xcode,CoreSimulator,
 XCTestDevices,CoreDevice}` and the Xcode/SwiftPM caches under `~/Library/Caches` and
-`~/Library`. Both are macOS-only and, like `DEV_RW_HOME_ROOTS`, not existence-filtered —
+`~/Library`. Both are macOS-only (Windows has no Xcode-shaped toolchain to grant) and, like `DEV_RW_HOME_ROOTS`, not existence-filtered —
 a cache directory Xcode creates on first use needs the grant to be created. Two things paths
 cannot express stay open: a simulator or device run also needs `com.apple.CoreSimulator*`
 mach lookups and `user-preference-read/write` on `com.apple.dt.Xcode`, neither of which any
@@ -347,13 +352,14 @@ Either way the two axes compose cleanly:
 - **A login's policy can be inspected empirically, by running something other than the login
   in it.** `login_confined`'s grants are computed from `plan.launch.program` — never from what a
   caller actually execs — so a caller may build the `Confined` from the harness's real
-  `LoginPlan`, call `confined_launch` exactly as for a real login, and then swap the argv that
-  follows `-p <policy>` for a plain shell (interactive, `-i`) before spawning it. The rendered
-  policy is untouched by the swap, so a person can run `which node`, `ls
-  ~/.local/share/mise`, etc. inside the *exact* sandbox a login would have run under — which is
-  how Ubiq's harness-settings `Shell` button was verified against a login that failed inside the
-  sandbox for reasons only reachable this way. See `crates/ubiq-host/src/agent.rs`'s
-  `shell_probe_launch`.
+  `LoginPlan` and call `isolate::confined_probe_launch(confined, argv)` in place of
+  `confined_launch`: it resolves the policy and grants the harness binary exactly as a real login
+  would, then swaps in the given command only after that resolution, so the sandbox itself is
+  untouched by the swap. Ubiq's harness-settings `Shell` button uses it to run an interactive shell
+  (`-i`) under a login's exact policy, so a person can run `which node`, `ls ~/.local/share/mise`,
+  etc. inside the *exact* sandbox a login would have run under — which is how a login that failed
+  inside the sandbox for reasons only reachable this way was diagnosed. See `isolate.rs`'s
+  `confined_probe_launch` and `crates/ubiq-host/src/agent.rs`'s call to it.
 
 ## 9. Materializing the overlay (symlink-else-copy, GC, Windows)
 

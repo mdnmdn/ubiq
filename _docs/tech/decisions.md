@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-09-17
-verified: 2026-09-17
+updated: 2026-09-18
+verified: 2026-09-18
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -748,6 +748,10 @@ and undo, which stay drawn and inert (`G84`).
 
 ### D49 — A shell pane is a login shell, and which shells exist is the host's answer
 
+**Refined for Windows by `D145`**, which replaces the fixed `locate()` call per name with an
+enumeration of the PowerShell install layout there; the fixed candidate list and its cost below
+stand as written for Unix.
+
 `pty::spawn` starts a program with no arguments that `shells::is_shell()` recognises the way a
 terminal application starts a shell: argv0 prefixed with `-` on Unix, which is what makes
 `.zprofile` and `.profile` run. The menu on the new-pane control offers a fixed candidate list the
@@ -830,12 +834,15 @@ them.
 
 **Cost:** three of them. The environment a pane starts from is no longer Ubiq's own, so `pty::spawn`
 takes a `Program` rather than a program name — a confined run brings its whole environment, because
-the policy sanitized it. Confinement of a pane is macOS-only, because isol8 spawns
-with inherited stdio and a host cannot hand it a pseudo-terminal; the seam that fixes it on unix is
-specified in `refs/isol8-pty-seam-update.md` and the stopgap renders the policy and execs
-`sandbox-exec`. Windows confines inherited-stdio runs through an embedded hook DLL (isol8 v0.4.0)
-but has no ConPTY seam, so a pane there errors rather than running unconfined. And a harness whose toolchain lives outside the project reads as broken until a
-recipe grants it — both are rows in the backlog register.
+the policy sanitized it. Confinement of a pane is macOS and Windows only. isol8 spawns with
+inherited stdio and a host cannot hand it a pseudo-terminal directly; on macOS the stopgap renders
+the policy and execs `sandbox-exec`, and on Windows `confined_launch` re-invokes the running binary
+in the pane under `isolate::CONFINE_ARG` instead — isol8 creates the harness from there, and the
+harness lands on the pane's own ConPTY, because isol8's Windows backend spawns with no
+console-creation flag and so attaches to whatever console its caller has. The seam that fixes this
+natively on unix is specified in `refs/isol8-pty-seam-update.md`; Linux has no rendered form at all,
+because Landlock applies between `fork` and `exec`. And a harness whose toolchain lives outside the
+project reads as broken until a recipe grants it — both are rows in the backlog register.
 
 ### D53 — The agent conversation is ACP-shaped, bus-transported, and keyed by agent id
 
@@ -3094,6 +3101,61 @@ it in means the only way to change where a build reports is to build it again.
 compiles its own destination in, the way a self-hosted OAuth install supplies its own client id
 under `D71`. A build with neither pair set has no destination at all, permanently, and the send
 button says so rather than offering a field to fill in.
+
+### D144 — `detach_console` repoints standard handles to `NUL`, and only when the process is alone in its console
+
+`crates/ubiq-app/src/lib.rs`'s `detach_console` frees the console a Windows launch was given, so a
+double-click is a window and nothing else. Freeing a console this process is alone in destroys the
+console object while its three standard handles still name it, and a child spawned afterwards with
+inherited stdio then asks the kernel to hand a destroyed console to a new process — refused as
+`STATUS_NOT_SUPPORTED`, `os error 50` at the call site, which is what reached Ubiq on the confine
+shim a conversation starts (`crates/agent-manager/src/io/structured.rs`'s `spawn_piped`, the one
+spawn that inherits standard error rather than piping it). `GetConsoleProcessList` says whether this
+process is alone before `FreeConsole` runs, because afterwards there is nothing left to ask; alone,
+the three standard handles are pointed at `NUL` — opened with `CreateFileW`, installed with
+`SetStdHandle`, deliberately never closed — a device that is always openable, reads empty and
+swallows what is written to it. A shared console, from a launch in a terminal, is left alone
+entirely: more than one process is attached, so freeing it destroys nothing, and standard error
+there stays the log writer's one report.
+
+**Why it looked like the confine shim's fault:** a launch from a terminal never shows the failure,
+because there the console belongs to the terminal and outlives the detachment. Only a launch that
+gave this process a console of its own — Explorer, a shortcut, the dock — reaches the broken state,
+and the first child that inherits the broken handle is the one that reports it, on the far side of
+the boot from where the actual defect sits.
+
+**Cost:** a double-clicked run's inherited standard error goes to a device that reads and reports
+nothing at all, rather than to a console that simply is not there — a diagnostic written expecting a
+console to eventually attach finds none either way, but `NUL` also swallows anything a future caller
+assumes standard error might still surface. The alone-check costs one extra system call on every
+detach, and the whole mechanism is Windows-only, matching `detach_console` itself.
+
+### D145 — Windows' shell menu enumerates the PowerShell install layout instead of one name per shell
+
+On Windows, `windows_shells()` walks every version directory under `%ProgramFiles%\PowerShell\`, the
+Store alias, whatever `pwsh.exe` `locate()` finds on `PATH`, `powershell.exe`, then `COMSPEC` —
+rather than D49's one `locate()` call per fixed name — so a machine with PowerShell 6 and 7 installed
+side by side shows a row for each, labelled with its version. `%ProgramFiles(x86)%` and `SysWOW64`
+are not read: this application does not offer the 32-bit builds. A row's version comes only from its
+install directory's name, never from the executable itself. `powershell.exe` is always labelled
+`Windows PowerShell 5.1`, hard-coded — 5.1 is the only version of Windows PowerShell shipping on any
+Windows this application supports, whatever the `v1.0` in its own install path claims.
+
+**Why:** D49's `locate()` gave one row per name, so two `pwsh.exe` builds installed side by side
+collapsed to whichever `PATH` found first, both labelled with the bare file name — nothing said which
+version a row would start. The install layout is public and stable (the MSI installer always drops a
+version directory under `%ProgramFiles%\PowerShell\`), so reading it is a bounded, one-time directory
+walk, not an open-ended scan for software — it stays inside D49's own bound, applied to a layout a
+name list does not fit. Reading the executable's own version resource would give the exact minor
+instead of just the major, but that costs an FFI call into `version.dll` in a module with no
+`unsafe` in it, to distinguish installs that differ by major or by preview without it — a cost this
+menu does not need to pay.
+
+**Cost:** a label is only as precise as its install directory's name — a hand-built or unusually
+named `pwsh.exe` reads as a bare "PowerShell" with no version, the same as one reached through `PATH`
+or the Store alias. `Windows PowerShell 5.1` is a hard-coded fact about the platform, not a read: if
+a future Windows ships a different Windows PowerShell version, the label goes stale until the
+constant is changed by hand.
 
 ## Related docs
 

@@ -5,9 +5,9 @@ kind: tech
 status: draft
 summary: What the embedded harness-management library owns, what Ubiq owns, how the application consumes it, and the rule that keeps the two from growing into each other.
 read_when: you are about to write code that launches a harness, drives one as a conversation, names a harness config path, or touches accounts, skills or MCP servers
-updated: 2026-09-17
-verified: 2026-09-17
-code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/quota.rs, crates/agent-manager/src/credentials/mod.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/mod.rs, crates/agent-manager/src/io/acp.rs, crates/agent-manager/src/io/acp_caps.rs, crates/agent-manager/src/io/acp_client.rs, crates/ubiq-host/src/mcp/mod.rs]
+updated: 2026-09-18
+verified: 2026-09-18
+code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/main.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/quota.rs, crates/agent-manager/src/credentials/mod.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/structured.rs, crates/ubiq-app/src/lib.rs, crates/agent-manager/src/io/mod.rs, crates/agent-manager/src/io/acp.rs, crates/agent-manager/src/io/acp_caps.rs, crates/agent-manager/src/io/acp_client.rs, crates/ubiq-host/src/mcp/mod.rs]
 depends_on: [tech-structure]
 review_cycle: monthly
 ---
@@ -414,13 +414,38 @@ startup sweep included, where the finish time is the sweep's own and the exit co
 All of it is best effort: a record that cannot be written is never a reason to fail a spawn or a
 close, and a run with no metadata is a plain shell pane rather than an error.
 
-Confining a run in a terminal Ubiq owns is macOS-only. isol8 spawns with inherited stdio and keeps
-its child handle private, so no host can hand it a pseudo-terminal; `isolate::confined_launch`
-renders the policy and execs `sandbox-exec`, which macOS supports and Landlock cannot. On Windows
-isol8 (v0.4.0) enforces path grants through an embedded hook DLL, but only for a process it creates
-itself — inherited stdio, no ConPTY seam — so a pane there still errors honestly while
-`am account login --isolate` is genuinely confined. The seam that replaces `confined_launch` on
-unix is specified in `refs/isol8-pty-seam-update.md`; ConPTY is separate work.
+Confining a run in a terminal Ubiq owns works on macOS and Windows, not on Linux. isol8 spawns with
+inherited stdio and keeps its child handle private, so no host hands it a pseudo-terminal: on macOS
+`isolate::confined_launch` renders the policy and execs `sandbox-exec` around the harness. Windows
+has no ConPTY seam either, but isol8 calls `CreateProcessW` with no console-creation flag, so its
+child attaches to the caller's console — `confined_launch` writes the policy, environment, command
+and cwd to a `ConfinePayload` under `<state_dir>/confine/` and re-invokes the running binary under
+`isolate::CONFINE_ARG`, Chrome's `--type=renderer` pattern rather than a second shipped executable.
+For a conversation the caller is the shim `crates/agent-manager/src/io/structured.rs`'s
+`spawn_piped` starts, and that spawn now asks Windows for `CREATE_NO_WINDOW`, so the console the
+confined harness inherits carries no window rather than popping up a freestanding one beside the
+interface for every conversation — see [`operations.md`](./operations.md) for the same flag applied
+everywhere else Ubiq spawns a console-subsystem child headlessly.
+`isolate::confine_entrypoint()` runs before any other startup work — `ubiq-app`'s `run()` right
+after `askpass()`, `agent-manager`'s own `main()` before `init_tracing()` — and answers the confine
+run's exit code, or `None` for an ordinary one. The re-entered process joins a `KILL_ON_JOB_CLOSE`
+job through the `win32job` wrapper, since `lib.rs` forbids raw `unsafe`, so killing it takes the
+harness with it, and the payload's `cwd` is load-bearing: isol8 grants the *resolving* process's
+directory read-write and a confined child inherits its parent's (`G289`).
+`isolate::kill_descendants_on_exit()` puts an *ordinary*, unconfined process in that same kind of
+job — Windows keeps no process tree, so without it a closed or crashed interface left every pane's
+harness and every conversation's confine shim running with no window left to reach them through.
+`ubiq-app`'s `run()` calls it right after `confine_entrypoint()` and before anything else starts, a
+failure worth only a line on stderr; it is the boot-time counterpart to the job a confine run joins
+for itself. Windows confinement also
+denies the network outright unless granted: isol8 checks a socket open (`\Device\Afd`) the same way
+it checks a file path, so `WINDOWS_DEVICE_RW` grants that device and `\Device\Nsi` read-write to
+every confined run and login — a capability grant, not one scoped to a host or port (`G281`).
+`isolate::confined_probe_launch` runs a different command under a login's exact policy, resolving it
+from the harness's own program before swapping in the argv — `crates/ubiq-host/src/agent.rs`'s login
+probe is the caller. Landlock has no rendered
+form, applying between `fork` and `exec`, so `confined_launch` errors on Linux;
+`refs/isol8-pty-seam-update.md` specifies the seam that replaces it on unix.
 
 Everything an embedder can substitute is a trait: the catalog registry, the account store, the
 secret store, profiles, templates, session history, and an in-process MCP service behind the

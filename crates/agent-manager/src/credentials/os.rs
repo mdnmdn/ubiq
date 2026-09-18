@@ -492,6 +492,18 @@ impl OsSecretStore {
 // Windows provider (DRAFT, untested): per-user DPAPI file in the config dir,
 // via PowerShell ConvertFrom/ConvertTo-SecureString.
 // ---------------------------------------------------------------------------
+
+/// Every PowerShell call here is a headless decrypt/encrypt of one blob, never something a user is
+/// meant to see — and the app that starts it has already freed its own console
+/// (`ubiq_app::detach_console`), so a console-subsystem child like `powershell.exe` would otherwise
+/// pop a fresh console window on screen for the instant it takes to run.
+#[cfg(target_os = "windows")]
+fn no_window(cmd: &mut std::process::Command) {
+    use std::os::windows::process::CommandExt as _;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    cmd.creation_flags(CREATE_NO_WINDOW);
+}
+
 #[cfg(target_os = "windows")]
 impl OsSecretStore {
     fn blob_path(&self, id: &CredentialId) -> PathBuf {
@@ -509,8 +521,10 @@ impl OsSecretStore {
              [Runtime.InteropServices.Marshal]::SecureStringToBSTR($s))",
             path.display()
         );
-        let out = std::process::Command::new("powershell")
-            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        let mut cmd = std::process::Command::new("powershell");
+        cmd.args(["-NoProfile", "-NonInteractive", "-Command", &script]);
+        no_window(&mut cmd);
+        let out = cmd
             .output()
             .context("running PowerShell to decrypt DPAPI blob")?;
         anyhow::ensure!(out.status.success(), "DPAPI decrypt failed");
@@ -527,9 +541,11 @@ impl OsSecretStore {
              ConvertFrom-SecureString | Set-Content '{}'",
             path.display()
         );
-        let status = std::process::Command::new("powershell")
-            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
-            .env("AM_SECRET", value)
+        let mut cmd = std::process::Command::new("powershell");
+        cmd.args(["-NoProfile", "-NonInteractive", "-Command", &script]);
+        cmd.env("AM_SECRET", value);
+        no_window(&mut cmd);
+        let status = cmd
             .status()
             .context("running PowerShell to encrypt DPAPI blob")?;
         anyhow::ensure!(status.success(), "DPAPI encrypt failed");

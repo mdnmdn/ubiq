@@ -259,7 +259,7 @@ def load_doc(path: Path) -> Doc:
 
     return Doc(
         path=path,
-        rel=str(path.relative_to(REPO)),
+        rel=path.relative_to(REPO).as_posix(),
         meta=meta,
         lines=lines,
         prose=prose,
@@ -300,7 +300,7 @@ def source_files(roots: tuple[str, ...] = SOURCE_ROOTS) -> list[str]:
     for root in roots:
         for p in walk_files(REPO / root):
             if p.suffix in SOURCE_SUFFIXES:
-                out.append(str(p.relative_to(REPO)))
+                out.append(p.relative_to(REPO).as_posix())
     return sorted(out)
 
 
@@ -310,7 +310,7 @@ _tracked: list[str] | None = None
 def all_files() -> list[str]:
     global _tracked
     if _tracked is None:
-        _tracked = [str(p.relative_to(REPO)) for p in walk_files(REPO)]
+        _tracked = [p.relative_to(REPO).as_posix() for p in walk_files(REPO)]
     return _tracked
 
 
@@ -400,7 +400,7 @@ def as_date(value) -> date | None:
 
 
 def file_age_days(path: Path) -> int:
-    committed = last_commit_date([str(path.relative_to(REPO))])
+    committed = last_commit_date([path.relative_to(REPO).as_posix()])
     if committed:
         return (date.today() - committed).days
     mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).date()
@@ -606,7 +606,7 @@ def check_l7(docs: list[Doc], report: LintReport) -> None:
         age = file_age_days(path)
         if age > INBOX_STALE_DAYS:
             report.add(
-                "L7", str(path.relative_to(REPO)), f"`inbox/` file is {age} days old — file it"
+                "L7", path.relative_to(REPO).as_posix(), f"`inbox/` file is {age} days old — file it"
             )
 
 
@@ -818,7 +818,7 @@ def tree_entries(roots: tuple[str, ...]) -> dict[str, list[tuple[str, bool]]]:
         for path in sorted(base.rglob("*")):
             if any(d in IGNORED_DIRS for d in path.parts):
                 continue
-            rel = str(path.relative_to(REPO))
+            rel = path.relative_to(REPO).as_posix()
             parent = str(Path(rel).parent)
             children.setdefault(parent, []).append((rel, path.is_dir()))
     for entries in children.values():
@@ -963,7 +963,7 @@ def run_index(check_only: bool) -> int:
                 missing.append(name)
             else:
                 updated = result
-        rel = str(path.relative_to(REPO))
+        rel = path.relative_to(REPO).as_posix()
         for name in missing:
             console.print(f"[yellow]skipped[/yellow] {rel}: no `{name}` markers")
         if updated == text:
@@ -1043,7 +1043,7 @@ def run_touched(paths: list[str]) -> int:
         if not candidate.is_absolute():
             candidate = Path.cwd() / p
         try:
-            normalized.append(str(candidate.resolve().relative_to(REPO)))
+            normalized.append(candidate.resolve().relative_to(REPO).as_posix())
         except ValueError:
             normalized.append(p)
 

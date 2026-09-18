@@ -55,6 +55,12 @@ ubiq = { path = "../ubiq" }
 ubiq-host = { path = "../ubiq-host" }
 ubiq-proto = { path = "../ubiq-proto" }
 
+# Named here for one call: `isolate::confine_entrypoint`, which decides whether this
+# run of the binary is the interface or a confined pane's harness. Windows confinement
+# re-invokes this same executable rather than shipping a second one, so the decision
+# belongs at the process entry — the one place that is already this crate's business.
+agent-manager = { path = "../agent-manager", default-features = false }
+
 anyhow = "1.0"
 tracing = "0.1"
 flume = "0.12"

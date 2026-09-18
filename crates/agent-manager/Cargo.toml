@@ -107,3 +107,24 @@ ureq = { version = "2", default-features = false, features = ["tls", "json"] }
 
 [dev-dependencies]
 tempfile = "3"
+
+# Job objects for a confine run (`isolate::confine_entrypoint`): the host kills that
+# process, and the job is what takes the harness underneath down with it. A safe
+# wrapper rather than raw `windows-sys`, because this crate is
+# `#![forbid(unsafe_code)]` and that rule outranks saving a dependency.
+[target.'cfg(windows)'.dependencies]
+win32job = "2"
+
+# Windows confinement's evidence, and its regression test: a confined child must
+# land on the caller's own ConPTY, at the caller's own size, in the directory the
+# policy was resolved against. Not a unit test because it wants a real
+# pseudoconsole and a real harness process.
+[[example]]
+name = "conpty_confine_probe"
+required-features = ["pty"]
+
+# Diagnostic: run a harness's real confined login on a pseudoconsole and stream
+# what it says, for when a login pane opens and closes before anyone can read it.
+[[example]]
+name = "login_confined_probe"
+required-features = ["pty"]

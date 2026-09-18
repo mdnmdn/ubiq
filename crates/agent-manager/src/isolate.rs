@@ -47,6 +47,24 @@ use crate::harness::Launch;
 use crate::source::Source;
 use crate::spec::{Isolation, RunSpec};
 
+/// NT device paths a confined process needs open before it can use a socket.
+///
+/// isol8's Windows hook checks every `NtCreateFile` against the policy, and it
+/// checks the object name it is handed without exempting anything that is not a
+/// file. Winsock creates a socket by opening the `Afd` device, so a policy that
+/// names only directories denies the socket itself: a confined harness cannot
+/// reach the network at all, and the symptom is whatever that harness says when
+/// a bind fails — `claude auth login` reports its OAuth callback server refusing
+/// to start.
+///
+/// Empty on every other platform. On Windows these are a capability grant rather
+/// than a path one: they say a confined run may use the network, which is what
+/// an agent is for. Filed against isol8 in `_docs/inbox/isol8-upstream.md`.
+#[cfg(target_os = "windows")]
+const WINDOWS_DEVICE_RW: &[&str] = &[r"\Device\Afd", r"\Device\Nsi"];
+#[cfg(not(target_os = "windows"))]
+const WINDOWS_DEVICE_RW: &[&str] = &[];
+
 /// Where a confined run's `$HOME` comes from.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum HomeMode {
@@ -757,6 +775,8 @@ pub fn login_confined(
 
     let mut base = isol8::Spec::new(cmd.clone());
     base.add_dirs_rw = vec![path_string(home)];
+    base.add_dirs_rw
+        .extend(WINDOWS_DEVICE_RW.iter().map(|d| (*d).to_string()));
     // A relocated toolchain root is as unreachable to a login as it is to a run — the caller
     // names it the same way, so this honours `extra_rw` the same way [`plan`] does.
     for extra in &options.extra_rw {
@@ -989,6 +1009,22 @@ pub fn describe(confined: &Confined) -> Result<isol8::DryRun> {
 /// until isol8 grows the seam (`refs/isol8-pty-seam-update.md` for unix;
 /// ConPTY is separate work).
 pub fn confined_launch(confined: &Confined) -> Result<Launch> {
+    confined_launch_running(confined, None)
+}
+
+/// The [`Launch`] that runs `argv` under `confined`'s policy instead of the
+/// harness the policy was resolved for.
+///
+/// The policy is resolved from the harness's own program first and only then is
+/// the command swapped, so a probe inspects exactly the sandbox a real run would
+/// get rather than one computed for a shell. The argv shape a confined launch
+/// takes differs per platform and belongs here — a caller asks for a different
+/// command, never for a different argument list.
+pub fn confined_probe_launch(confined: &Confined, argv: Vec<String>) -> Result<Launch> {
+    confined_launch_running(confined, Some(argv))
+}
+
+fn confined_launch_running(confined: &Confined, instead: Option<Vec<String>>) -> Result<Launch> {
     // Rendering the policy ourselves bypasses the guard `isol8::Sandbox::spawn`
     // applies, so it is applied here: a sandbox cannot nest, and the honest
     // answer is that this process cannot confine anything — not a
@@ -1002,9 +1038,16 @@ pub fn confined_launch(confined: &Confined) -> Result<Launch> {
     isol8::resolve::confine_executable(&mut effective.profile, &mut effective.cmd)
         .context("granting the harness binary to the policy that confines it")?;
 
+    // After `confine_executable`, so the policy still grants the harness binary
+    // the run was planned around and the swap changes nothing about the sandbox.
+    if let Some(argv) = instead {
+        effective.cmd = argv;
+    }
+
     let env: Vec<(String, String)> = effective.env.into_iter().collect();
 
-    if cfg!(target_os = "macos") {
+    #[cfg(target_os = "macos")]
+    {
         let policy = isol8::backends::select().render_policy(&effective.profile);
         debug!(program = %effective.cmd.first().cloned().unwrap_or_default(), via_sandbox_exec = true, "confined launch");
         let mut args = vec!["-p".to_string(), policy];
@@ -1018,20 +1061,234 @@ pub fn confined_launch(confined: &Confined) -> Result<Launch> {
         });
     }
 
-    if cfg!(target_os = "windows") {
-        return Err(anyhow!(
-            "isolating a run whose terminal the caller owns is not supported on Windows: \
-             isol8 confines a process it creates itself (suspended CreateProcessW plus the \
-             hook DLL) and offers inherited stdio only, with no ConPTY seam. Run without \
-             --isolate, or confine an inherited-stdio run (e.g. `am account login --isolate`)"
-        ));
+    #[cfg(target_os = "windows")]
+    {
+        // isol8 confines only a process it creates itself, and offers no ConPTY
+        // seam — so nothing can be rendered to an argv the caller execs. What it
+        // does do is spawn without any console creation flag, which means the
+        // confined child attaches to its caller's console. So put *this binary*
+        // in the pane, invoked again under `CONFINE_ARG`: isol8 creates the
+        // harness from in there, and it lands on the very ConPTY the caller
+        // opened. Nothing extra ships, and the process applying the policy is by
+        // construction the build that resolved it.
+        debug!(program = %effective.cmd.first().cloned().unwrap_or_default(), via_confine_shim = true, "confined launch");
+        let payload = ConfinePayload {
+            profile: effective.profile,
+            env,
+            cmd: effective.cmd,
+            cwd: confined.ctx.cwd.clone(),
+        };
+        let exe = std::env::current_exe().context("locating the running executable")?;
+        return Ok(Launch {
+            program: path_string(&exe),
+            args: vec![
+                CONFINE_ARG.to_string(),
+                path_string(&payload.write(&confined.ctx.config_dir)?),
+            ],
+            env: Vec::new(),
+            env_remove: Vec::new(),
+            env_clear: false,
+        });
     }
 
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = (env, effective);
+    }
+
+    #[allow(unreachable_code)]
     Err(anyhow!(
         "isolating a run whose descriptors the caller owns needs isol8's stdio seam, \
          which this platform has no substitute for. Run without --isolate, or see \
          refs/isol8-pty-seam-update.md"
     ))
+}
+
+/// The resolved policy a confine run applies, as it crosses from this process to
+/// the shim.
+///
+/// Resolution stays here — the shim never loads a layer, reads a config file or
+/// consults a [`Context`](isol8::Context). It receives the same three values
+/// [`isol8::backends::Backend::spawn`] takes and hands them straight over, so
+/// the policy a pane runs under is the one this module computed and nothing
+/// else.
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct ConfinePayload {
+    /// The merged, deny-first profile, with every path grant already resolved.
+    pub profile: isol8::Profile,
+    /// The sanitized environment for the confined process.
+    pub env: Vec<(String, String)>,
+    /// The command to run, program first, after profile rewrite rules.
+    pub cmd: Vec<String>,
+    /// The directory the policy was resolved against, which the shim must make
+    /// its own before spawning.
+    ///
+    /// Not a convenience. isol8 grants the resolving process's working directory
+    /// read-write (`overrides_layer`, from `Context::cwd`), and the confined
+    /// child inherits its parent's — so if the shim runs anywhere else, the
+    /// harness lands in a directory its own policy does not grant. A pane
+    /// spawned with no explicit directory starts in the user's home, which is
+    /// exactly that mismatch: the harness dies on startup with no denial to read,
+    /// because isol8's Windows hook writes no denial log.
+    pub cwd: PathBuf,
+}
+
+impl ConfinePayload {
+    /// Write the payload under `state_dir` and return the file the shim reads.
+    ///
+    /// One file per launch, named from the pid and a counter so two panes
+    /// starting at once cannot collide. The shim deletes it on read: it carries
+    /// a run's grants and environment, and nothing needs it twice.
+    pub fn write(&self, state_dir: &Path) -> Result<PathBuf> {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+
+        let dir = state_dir.join("confine");
+        std::fs::create_dir_all(&dir)
+            .with_context(|| format!("creating the confine payload dir {}", dir.display()))?;
+        let path = dir.join(format!(
+            "{}-{}.json",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let json = serde_json::to_vec(self).context("serializing the confine payload")?;
+        std::fs::write(&path, json)
+            .with_context(|| format!("writing the confine payload {}", path.display()))?;
+        Ok(path)
+    }
+
+    /// Read a payload written by [`ConfinePayload::write`] and delete the file.
+    pub fn take(path: &Path) -> Result<Self> {
+        let bytes = std::fs::read(path)
+            .with_context(|| format!("reading the confine payload {}", path.display()))?;
+        let payload =
+            serde_json::from_slice(&bytes).context("parsing the confine payload as JSON")?;
+        let _ = std::fs::remove_file(path);
+        Ok(payload)
+    }
+}
+
+/// The argv word that turns a run of this binary into a confine run.
+///
+/// Windows confinement needs a process inside the pane, and that process is this
+/// same executable invoked again rather than a second one shipped beside it —
+/// the shape Chrome's `--type=renderer` and busybox's argv dispatch use. An
+/// embedder calls [`confine_entrypoint`] before it starts anything; there is
+/// nothing to package, nothing to find on disk, and nothing to get out of step
+/// with the build that resolved the policy.
+pub const CONFINE_ARG: &str = "--am-confine";
+
+/// Handle a confine run and return its exit code, or [`None`] if this is an
+/// ordinary run of the binary.
+///
+/// Call it first, before a window, a host, a log or a config read: this process
+/// is either the interface or a pane's confined harness, and which one it is
+/// decides everything after. It reads one argument, spawns, waits, and never
+/// returns to its caller's own work.
+///
+/// ```no_run
+/// if let Some(code) = agent_manager::isolate::confine_entrypoint() {
+///     std::process::exit(code);
+/// }
+/// ```
+pub fn confine_entrypoint() -> Option<i32> {
+    let mut args = std::env::args_os().skip(1);
+    if args.next()? != CONFINE_ARG {
+        return None;
+    }
+    let Some(payload) = args.next() else {
+        eprintln!("{CONFINE_ARG} wants the path of a confine payload");
+        return Some(2);
+    };
+    match confine_run(Path::new(&payload)) {
+        Ok(code) => Some(code),
+        Err(error) => {
+            eprintln!("ubiq: {error:#}");
+            Some(1)
+        }
+    }
+}
+
+/// Apply `payload` and run the harness under it, returning its exit code.
+#[cfg(target_os = "windows")]
+fn confine_run(payload: &Path) -> Result<i32> {
+    let payload = ConfinePayload::take(payload)?;
+
+    // Both before the spawn: from here on, whatever this process creates
+    // inherits the directory the policy grants, and belongs to the job.
+    std::env::set_current_dir(&payload.cwd).with_context(|| {
+        format!(
+            "entering {} — the directory this run's policy was resolved against",
+            payload.cwd.display()
+        )
+    })?;
+    kill_on_close_job().context("putting the confined run in a kill-on-close job")?;
+
+    let env: std::collections::HashMap<String, String> = payload.env.into_iter().collect();
+    let mut child = isol8::backends::select()
+        .spawn(&payload.profile, &env, &payload.cmd)
+        .map_err(|e| anyhow!("spawning the confined harness: {e}"))?;
+    child
+        .wait()
+        .map_err(|e| anyhow!("waiting on the confined harness: {e}"))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn confine_run(_payload: &Path) -> Result<i32> {
+    Err(anyhow!(
+        "a confine run exists for Windows, where isol8 has no ConPTY seam. Everywhere \
+         else `confined_launch` renders a policy the caller execs itself."
+    ))
+}
+
+/// Make every process this one starts die with it.
+///
+/// Windows has no process tree: a harness, a confine shim or anything either of
+/// them spawns outlives the process that started it, so an interface that is
+/// closed — or that crashes — leaves its agents running with no window left to
+/// reach them through. This is the one call that fixes that for everything at
+/// once, and an embedder makes it during boot, after
+/// [`confine_entrypoint`] (a confine run wants its own job, not this one) and
+/// before any pane or conversation exists.
+///
+/// A no-op everywhere else: Unix has process groups and a parent that reaps.
+pub fn kill_descendants_on_exit() -> Result<()> {
+    #[cfg(target_os = "windows")]
+    {
+        kill_on_close_job()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Ok(())
+    }
+}
+
+/// Put this process in an unnamed job object that kills on close, keeping the
+/// handle for the life of the process.
+///
+/// The host kills a pane by terminating the process it spawned — this one — and
+/// the harness underneath would outlive it. Every descendant joins the job by
+/// inheritance, the handle closes when this process ends, and closing the last
+/// handle to such a job terminates everything still in it. Nested jobs are fine:
+/// a host that is itself in a job does not stop this one being created.
+#[cfg(target_os = "windows")]
+fn kill_on_close_job() -> Result<()> {
+    let job = win32job::Job::create().map_err(|e| anyhow!("creating a job object: {e}"))?;
+    let mut info = job
+        .query_extended_limit_info()
+        .map_err(|e| anyhow!("reading the job's limits: {e}"))?;
+    info.limit_kill_on_job_close();
+    job.set_extended_limit_info(&info)
+        .map_err(|e| anyhow!("setting kill-on-close on the job: {e}"))?;
+    job.assign_current_process()
+        .map_err(|e| anyhow!("joining the job object: {e}"))?;
+
+    // Deliberately leaked: the job must outlive this function, and the kernel
+    // closes the handle when the process ends — which is exactly the moment the
+    // job should take the harness with it. Dropping it here would close the last
+    // handle immediately and kill the run before it started.
+    std::mem::forget(job);
+    Ok(())
 }
 
 /// The command `launch` wants exec'd, as isol8 wants it: argv, program first.
@@ -1079,6 +1336,15 @@ fn read_write_grants(dir: &Path, run: &RunSpec, options: &IsolateOptions) -> Vec
 
     for path in extra {
         let grant = path_string(&path);
+        if !grants.contains(&grant) {
+            grants.push(grant);
+        }
+    }
+
+    // A run reaches the network for the same reason a login does, and on Windows
+    // that is a path grant like any other.
+    for device in WINDOWS_DEVICE_RW {
+        let grant = (*device).to_string();
         if !grants.contains(&grant) {
             grants.push(grant);
         }
@@ -1204,15 +1470,21 @@ mod tests {
             !layers.contains(&"agents/claude-code"),
             "auto-selection must be off, or the agent layer brings the keychain back: {layers:?}"
         );
-        // The capture home is the login's own $HOME and its only writable directory.
+        // The capture home is the login's own $HOME and the only directory it may
+        // write. The device grants beside it are not directories: they are what
+        // lets the login open a socket at all (see [`WINDOWS_DEVICE_RW`]), and a
+        // login that cannot reach the network cannot capture anything.
         assert_eq!(
             confined.spec.home.as_deref(),
             Some(home.path().display().to_string().as_str())
         );
-        assert_eq!(
-            confined.spec.add_dirs_rw,
-            vec![home.path().display().to_string()]
-        );
+        let directories: Vec<&String> = confined
+            .spec
+            .add_dirs_rw
+            .iter()
+            .filter(|grant| !WINDOWS_DEVICE_RW.contains(&grant.as_str()))
+            .collect();
+        assert_eq!(directories, vec![&home.path().display().to_string()]);
     }
 
     // 2. A sandboxed run must grant its ephemeral config dir and its cwd
@@ -2012,11 +2284,13 @@ mod tests {
         assert!(!confined.spec.profiles.contains(&String::new()));
     }
 
-    // Off the one platform `confined_launch` actually serves, it must fail
-    // loudly naming what it is waiting on rather than pretend to confine the
-    // run. Not run end-to-end on macOS (it would exec sandbox-exec); this
-    // only exercises the non-macOS early return.
-    #[cfg(not(target_os = "macos"))]
+    // Linux has no form to render — Landlock applies between `fork` and `exec`
+    // — so `confined_launch` must fail there loudly, naming what it waits on,
+    // rather than pretend to confine the run. macOS and Windows both serve it
+    // and are covered elsewhere: macOS by `tests/confined_bridge.rs`, Windows
+    // by `examples/conpty_confine_probe.rs`, neither of which can run here
+    // (one would exec `sandbox-exec`, the other wants a real pseudoconsole).
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     #[test]
     fn confined_launch_errors_on_platforms_without_a_native_seam() {
         let state = TempDir::new().expect("state dir");
@@ -2035,17 +2309,46 @@ mod tests {
         };
         let confined = Confined { spec, ctx };
 
-        let err = confined_launch(&confined).expect_err("non-macOS must not confine");
-        #[cfg(target_os = "windows")]
-        assert!(
-            err.to_string().contains("ConPTY"),
-            "a Windows refusal must name the missing ConPTY seam: {err}"
-        );
-        #[cfg(not(target_os = "windows"))]
+        let err = confined_launch(&confined).expect_err("Linux must not confine");
         assert!(
             err.to_string().contains("stdio seam"),
             "a Linux refusal must name the missing stdio seam: {err}"
         );
+    }
+
+    // The Windows branch renders a re-invocation of this very binary, not a
+    // second executable beside it — nothing to package, and the process that
+    // applies the policy is by construction the build that resolved it.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn confined_launch_renders_a_re_invocation_of_this_binary() {
+        let state = TempDir::new().expect("state dir");
+        let cwd = TempDir::new().expect("cwd");
+        let exe = std::env::current_exe().expect("test binary path");
+        let spec = isol8::Spec::new(vec![exe.display().to_string()]);
+        let ctx = isol8::Context {
+            real_home: cwd.path().to_path_buf(),
+            cwd: cwd.path().to_path_buf(),
+            platform: isol8::Platform::current(),
+            config_dir: state.path().to_path_buf(),
+            managed_root: state.path().join("homes"),
+        };
+        let confined = Confined { spec, ctx };
+
+        let launch = confined_launch(&confined).expect("Windows confines a pane");
+        assert_eq!(
+            PathBuf::from(&launch.program),
+            exe,
+            "the confine run is this binary again"
+        );
+        assert_eq!(launch.args.first().map(String::as_str), Some(CONFINE_ARG));
+
+        // The payload is real, carries the directory the policy was resolved
+        // against, and is the shim's to delete.
+        let payload =
+            ConfinePayload::take(Path::new(&launch.args[1])).expect("payload round-trips");
+        assert_eq!(payload.cwd, cwd.path());
+        assert!(!Path::new(&launch.args[1]).exists(), "taking it removes it");
     }
 
     // A default login on Windows resolves the Windows system layer, not the

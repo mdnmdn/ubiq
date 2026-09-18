@@ -77,8 +77,11 @@ impl Harness for Opencode {
     /// `opencode models`, one `provider/model-id` per line. We shell out to it
     /// (it uses the ambient login/config) and take each non-empty line as an id.
     fn discover_models(&self) -> Result<Vec<super::ModelInfo>> {
-        let output = std::process::Command::new("opencode")
-            .arg("models")
+        let mut cmd = std::process::Command::new("opencode");
+        cmd.arg("models");
+        #[cfg(windows)]
+        super::shared::no_window(&mut cmd);
+        let output = cmd
             .output()
             .with_context(|| "running `opencode models` (is the opencode binary on PATH?)")?;
         if !output.status.success() {
@@ -108,12 +111,16 @@ impl Harness for Opencode {
     fn discover_thinking(
         &self,
     ) -> Result<std::collections::BTreeMap<String, super::ModelThinking>> {
-        let output = std::process::Command::new("opencode")
-            .args(["models", "--verbose"])
-            .output()
-            .with_context(
-                || "running `opencode models --verbose` (is the opencode binary on PATH?)",
-            )?;
+        let mut cmd = std::process::Command::new("opencode");
+        cmd.args(["models", "--verbose"]);
+        // Both `opencode` probes above are headless: nothing reads a window, and the app has
+        // already freed its own console (`ubiq_app::detach_console`), so a console-subsystem child
+        // would otherwise flash one.
+        #[cfg(windows)]
+        super::shared::no_window(&mut cmd);
+        let output = cmd.output().with_context(
+            || "running `opencode models --verbose` (is the opencode binary on PATH?)",
+        )?;
         if !output.status.success() {
             anyhow::bail!(
                 "`opencode models --verbose` failed ({}): {}",

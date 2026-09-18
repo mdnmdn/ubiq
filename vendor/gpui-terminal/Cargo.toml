@@ -17,6 +17,9 @@ parking_lot = "0.12"
 flume = "0.12"
 ropey = "1"
 base64 = "0.22"
+# Clipboard and key routing fail silently by nature — the paste that does nothing
+# looks exactly like the key that never arrived. This is how they say which.
+tracing = "0.1"
 
 [dependencies.arboard]
 version = "3"

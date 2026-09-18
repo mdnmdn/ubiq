@@ -125,8 +125,11 @@ impl Harness for Claude {
     /// JSON-RPC off stdin the moment it starts, so probing it would hang — and it is a shim over
     /// the same binary anyway, so the installed Claude Code's version is the honest cache key.
     fn version(&self) -> Result<String> {
-        let output = Command::new("claude")
-            .arg("--version")
+        let mut cmd = Command::new("claude");
+        cmd.arg("--version");
+        #[cfg(windows)]
+        super::shared::no_window(&mut cmd);
+        let output = cmd
             .output()
             .context("running `claude --version` (is it on PATH?)")?;
         if !output.status.success() {
@@ -221,8 +224,11 @@ impl Harness for Claude {
     /// always `None`: `--help` names no default.
     fn discover_thinking(&self) -> Result<BTreeMap<String, super::ModelThinking>> {
         let models = self.discover_models()?;
-        let output = Command::new("claude")
-            .arg("--help")
+        let mut cmd = Command::new("claude");
+        cmd.arg("--help");
+        #[cfg(windows)]
+        super::shared::no_window(&mut cmd);
+        let output = cmd
             .output()
             .with_context(|| "running `claude --help` (is the claude binary on PATH?)")?;
         if !output.status.success() {
@@ -834,6 +840,8 @@ fn discover_models_via_jsonl() -> Result<Vec<ModelInfo>> {
     for key in ENV_HYGIENE {
         cmd.env_remove(key);
     }
+    #[cfg(windows)]
+    super::shared::no_window(&mut cmd);
     let mut child = cmd.spawn().with_context(
         || "spawning `claude` for model discovery via stream-json (is the claude binary on PATH?)",
     )?;

@@ -434,6 +434,16 @@ fn build_overrides(
 /// query and not an injection.
 fn build_command(found: &Found, query: &Query, start: &Path) -> Command {
     let mut command = Command::new(&found.program);
+    // A drone's own search tool runs headlessly, piped straight into this process — there is no
+    // console output for a user to read. On Windows a console-subsystem child (`rg.exe`, `grep.exe`)
+    // spawned with none of its own would otherwise flash a fresh console window, so this asks for
+    // none.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt as _;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
     match found.tool {
         Tool::Rg => {
             // `--json` is the reason `rg` is tried first: submatch byte ranges, not a whole line

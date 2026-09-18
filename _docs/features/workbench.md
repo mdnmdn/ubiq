@@ -1738,11 +1738,11 @@ hatch for a toolchain installed somewhere the policy does not expect: a path per
 until the chip is clicked, because read-only is the safer half of the choice and what a shared cache
 usually wants.
 
-**Pane confinement is macOS-only, and the section reports that rather than failing at the spawn.** A
-build with no enforcing backend draws the state chip in the warning colour and dims the toggle —
-status by colour and not by wording alone, the same as everywhere else. On Windows the chip names
-the missing ConPTY seam. A row that promised
-protection it could not deliver would be worse than the plain run it silently became.
+**Pane confinement works on macOS and Windows, and the section reports what does not rather than
+failing at the spawn.** A build with no enforcing backend — Linux today — draws the state chip in
+the warning colour and dims the toggle, status by colour and not by wording alone, the same as
+everywhere else. A row that promised protection it could not deliver would be worse than the plain
+run it silently became.
 
 **The Editor section's "Closing a tab" heading holds three settings, one per pane kind, each a
 `Hide`/`Close` choice for what that kind's × means.** `terminal_close` (a plain shell pane) and
