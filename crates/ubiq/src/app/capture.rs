@@ -48,6 +48,32 @@ impl AppState {
         if !self.capture_offered(cx) || self.project(cx).is_none() {
             return;
         }
+        self.shoot_window(window, cx, |this, png, cx| {
+            if let Some(png) = png {
+                this.open_untitled_image(png, cx);
+            }
+        });
+    }
+
+    /// Photograph this window and hand the picture to `then`, on the window's own thread.
+    ///
+    /// `None` is a capture that could not happen — the platform offers none, the setting is off,
+    /// or the frame did not decode. `then` is called either way and exactly once, because a
+    /// caller that raises something over the picture (the feedback modal) has to be raised
+    /// whether the picture arrived or not.
+    ///
+    /// A plain function pointer rather than a closure: nothing a caller would capture survives
+    /// the await, and the window it would name is `this`.
+    pub fn shoot_window(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        then: fn(&mut Self, Option<Vec<u8>>, &mut Context<Self>),
+    ) {
+        if !self.capture_offered(cx) {
+            then(self, None, cx);
+            return;
+        }
         let bounds = window.bounds();
         let scale = window.scale_factor();
         let display = window
@@ -59,21 +85,26 @@ impl AppState {
             // The receiver's type is the platform's to name, so the awaiting stays here
             // where it is inferred rather than in a helper that would have to spell it.
             let sources = match sources.await {
-                Ok(Ok(sources)) => sources,
+                Ok(Ok(sources)) => Some(sources),
                 Ok(Err(error)) => {
                     tracing::warn!("window capture failed: {error:#}");
-                    return;
+                    None
                 }
-                Err(_) => return,
+                Err(_) => None,
             };
-            let png = match decode_window_png(&sources, bounds, scale, display, &exec).await {
-                Ok(png) => png,
-                Err(error) => {
-                    tracing::warn!("window capture failed: {error}");
-                    return;
+            let png = match sources {
+                Some(sources) => {
+                    match decode_window_png(&sources, bounds, scale, display, &exec).await {
+                        Ok(png) => Some(png),
+                        Err(error) => {
+                            tracing::warn!("window capture failed: {error}");
+                            None
+                        }
+                    }
                 }
+                None => None,
             };
-            let _ = this.update(cx, |this, cx| this.open_untitled_image(png, cx));
+            let _ = this.update(cx, |this, cx| then(this, png, cx));
         })
         .detach();
     }

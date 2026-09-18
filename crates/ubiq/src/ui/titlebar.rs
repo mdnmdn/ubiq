@@ -269,6 +269,21 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                     .h_full(),
                 )
                 .child(bell(app, cx))
+                // The balloon: say something about Ubiq itself. Beside the bell because both are
+                // about the application rather than about the project — and always offered, even
+                // in a build with no destination, where the modal is what says so.
+                .child(
+                    icon_button(
+                        "feedback",
+                        UbiqIcon::BoardComment,
+                        app.workbench.feedback.is_some(),
+                        cx.listener(|this, _, window, cx| this.open_feedback(window, cx)),
+                    )
+                    .h_full()
+                    .tooltip(move |window, cx| {
+                        gpui_component::tooltip::Tooltip::new("Send feedback").build(window, cx)
+                    }),
+                )
                 .child(
                     icon_button(
                         "remote-hosts",

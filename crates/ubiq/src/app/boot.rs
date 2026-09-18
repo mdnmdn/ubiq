@@ -303,6 +303,17 @@ impl AppState {
             cx.new(|cx| InputState::new(window, cx).placeholder("https://github.com/owner/name"));
         let clone_name_input = cx.new(|cx| InputState::new(window, cx).placeholder("Folder name"));
 
+        // The feedback modal's fields. Cleared whenever the modal closes, so a second report never
+        // opens on the first one's words.
+        let feedback_title_input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("What happened, in one line\u{2026}")
+        });
+        let feedback_description = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .placeholder("What you did, what you expected, what happened instead\u{2026}")
+                .auto_grow(4, 10)
+        });
+
         // The connect modal's fields. Cleared when a flow is cancelled or captured, and kept
         // when one fails, so "Try again" is a retry rather than a re-type.
         let connect_instance_input =
@@ -1022,6 +1033,29 @@ impl AppState {
                 }
             },
         ));
+        // The feedback modal's two fields, mirrored into the form: the title because the send
+        // button is enabled by it, and the description because the report carries it.
+        subscriptions.push(cx.subscribe_in(
+            &feedback_title_input,
+            window,
+            |this, input, event: &InputEvent, _window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    let typed = input.read(cx).value().to_string();
+                    this.retitle_feedback(typed, cx);
+                }
+            },
+        ));
+        subscriptions.push(cx.subscribe_in(
+            &feedback_description,
+            window,
+            |this, input, event: &InputEvent, _window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    let typed = input.read(cx).value().to_string();
+                    this.redescribe_feedback(typed, cx);
+                }
+            },
+        ));
+
         subscriptions.push(cx.subscribe_in(
             &clone_name_input,
             window,
@@ -1127,6 +1161,8 @@ impl AppState {
             clone_filter_input.read(cx).focus_handle(cx),
             clone_url_input.read(cx).focus_handle(cx),
             clone_name_input.read(cx).focus_handle(cx),
+            feedback_title_input.read(cx).focus_handle(cx),
+            feedback_description.read(cx).focus_handle(cx),
             sink_search.read(cx).focus_handle(cx),
             sink_harness_name.read(cx).focus_handle(cx),
             sink_harness_exec.read(cx).focus_handle(cx),
@@ -1320,6 +1356,8 @@ impl AppState {
             clone_filter_input,
             clone_url_input,
             clone_name_input,
+            feedback_title_input,
+            feedback_description,
             connect_instance_input,
             connect_client_id_input,
             connect_secret_input,
@@ -1389,6 +1427,9 @@ impl AppState {
         // inferred: the interface knows neither the platform this host runs on nor what it found
         // there. Re-asked whenever the provider changes — see `set_assist_provider`.
         this.bus.send(Message::GetAssist);
+        // Whether this build has anywhere to send feedback. Asked once: the destination is
+        // compiled into the host's binary, so the answer cannot change while the process runs.
+        this.ask_feedback_offer();
 
         // A window that boots already pointed at a project never calls `activate_project`, and
         // `OpenedProject` is the only thing that tells the host a project is live — it is what

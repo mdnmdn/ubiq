@@ -678,6 +678,7 @@ impl AppState {
             (Layer::SshRemove, s.ssh_remove.is_some()),
             (Layer::DroneStop, s.drone_stop.is_some()),
             (Layer::Clone, w.clone_project.is_some()),
+            (Layer::Feedback, w.feedback.is_some()),
             (Layer::AllProjects, w.all_projects.is_some()),
             (Layer::FileDialog, w.file_dialog.is_some()),
             (Layer::ClosePane, w.confirm_close_pane.is_some()),
@@ -796,6 +797,10 @@ impl AppState {
             self.decline_paste_image(cx);
         } else if self.workbench.file_dialog.is_some() {
             self.close_file_dialog(cx);
+        } else if self.workbench.feedback.is_some() {
+            // Before the clone modal, in reverse paint order: `ui::shell` draws feedback after it,
+            // and the balloon is reachable from the titlebar with anything already up.
+            self.close_feedback(window, cx);
         } else if self.workbench.clone_project.is_some() {
             self.close_clone(cx);
         } else if self.workbench.all_projects.is_some() {

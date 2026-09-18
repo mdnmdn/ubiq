@@ -523,6 +523,9 @@ impl AppState {
         let Some(message) = self.receive_host_browse(host, message, cx) else {
             return;
         };
+        let Some(message) = self.receive_feedback(host, message, cx) else {
+            return;
+        };
         let Some(message) = self.receive_notifications(host, message, cx) else {
             return;
         };

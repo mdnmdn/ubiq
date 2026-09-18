@@ -62,6 +62,8 @@ pub enum Layer {
     DroneStop,
     /// The clone modal.
     Clone,
+    /// The feedback modal.
+    Feedback,
     /// The "All projects" modal.
     AllProjects,
     /// The file question — new, rename, save-as and the rest.
