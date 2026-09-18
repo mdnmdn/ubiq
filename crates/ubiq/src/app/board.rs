@@ -546,9 +546,18 @@ impl AppState {
 
     /// Point the panel at a task. Picking a card always opens the panel, because a selection
     /// nothing reports on is not a selection.
+    ///
+    /// This is the click with no drag behind it — [`Self::start_task_carry`] selects a card too,
+    /// for a lift, and leaves `suppress_popup` alone. Clearing it here is what "an isolated clean
+    /// click" means: only a click that arrives on its own puts the popup back in play.
     pub fn select_task(&mut self, task: TaskId, cx: &mut Context<Self>) {
+        let popup = self.board(cx).is_some_and(|board| board.popup);
         if let Some(board) = self.board_mut(cx) {
             board.select(task);
+            board.suppress_popup = false;
+        }
+        if !popup {
+            self.pending_panels.push(PanelEdit::Reveal(PanelKind::Task));
         }
         cx.notify();
     }
@@ -608,7 +617,15 @@ impl AppState {
             return;
         };
         let typed = board.filter.trim().to_string();
+        let popup = board.popup;
         let opened = self.board_mut(cx).is_some_and(|board| board.start_draft());
+        // The draft form is drawn in the same slot as the report — the docked panel in non-popup
+        // mode, a centred modal in popup mode — so bringing the panel forward is `New task`'s job
+        // exactly the way it is a card click's, and for the same reason: nothing opens the panel
+        // on its own otherwise.
+        if !popup {
+            self.pending_panels.push(PanelEdit::Reveal(PanelKind::Task));
+        }
         if !opened {
             // Already writing one: bring the keyboard back to it and leave the draft alone.
             let input = self.task_title_input.clone();
@@ -870,6 +887,10 @@ impl AppState {
     pub fn toggle_board_popup(&mut self, cx: &mut Context<Self>) {
         if let Some(board) = self.board_mut(cx) {
             board.toggle_popup();
+            // Switching the shape on is its own clean gesture — a stale suppression left over
+            // from a drag earlier in the side panel must not swallow the modal the switch just
+            // asked for.
+            board.suppress_popup = false;
         }
         cx.notify();
     }

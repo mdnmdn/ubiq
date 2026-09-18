@@ -56,6 +56,12 @@ message in `crates/ubiq-proto/src/messages.rs`. `just ui` enforces it.
 - **Status is shown by colour from the status group**, never by wording alone.
 - **A row is one line.** Use `kit::elided` — it truncates and carries the whole string as a
   tooltip, which is why it takes an element id.
+- **An icon-only or otherwise unlabelled action always carries `.tooltip(...)`.** No control's
+  meaning may live in its icon alone. Known gap: `G294` (`_docs/backlog.md`).
+- **A side panel defaults to the dock (`PanelKind`, `state/dock.rs`).** Only a panel meaningful in
+  exactly one rail mode stays out of it — brought inline by that mode's own render function instead
+  of given a `PanelKind`, so it can never be dragged loose or left on screen after the mode
+  changes.
 
 ## GPUI gotchas that bite
 

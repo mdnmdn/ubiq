@@ -126,9 +126,11 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
         && popup
         // A carry selects the card it lifts, the way a dragged agent card does, so that what
         // moves is what the panel reports — but the popup is a modal over the whole board, and a
-        // drag opening one under the pointer is the bug this guard exists to stop. The side panel
-        // needs no such guard: it was already on screen, so a drag just changes what it reports.
-        && board.carry.is_none()
+        // drag (or the drop that ends it) opening one under the pointer is the bug this guard
+        // exists to stop. `suppress_popup` outlives the carry itself, through the drop, until a
+        // click with no drag behind it puts it back — the side panel needs no such guard: it was
+        // already on screen, so a drag just changes what it reports.
+        && !board.suppress_popup
     {
         root = root.child(detail::popup(app, task, window, cx));
     }

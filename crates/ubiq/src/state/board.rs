@@ -150,6 +150,12 @@ pub struct BoardState {
     /// choice of *shape* rather than a second copy of the task: both draw from `selected` and
     /// `editing`, so the toggle only changes where the report and its controls are painted.
     pub popup: bool,
+    /// Whether a drag has picked a card up since the popup was last allowed to open. Set the
+    /// instant a carry starts and left alone while it runs or ends — a drop clears `carry`, which
+    /// used to read as the plain click that opens the modal, so the popup appeared over whatever
+    /// the pointer had just filed. Only a click with no drag behind it — [`AppState::select_task`]
+    /// — puts it back to `false`, which is what "an isolated clean click" means here.
+    pub suppress_popup: bool,
     pub form: TaskForm,
 }
 
@@ -173,6 +179,7 @@ impl Default for BoardState {
             preview: false,
             confirm_delete: false,
             popup: false,
+            suppress_popup: false,
             form: TaskForm::default(),
         }
     }
@@ -451,6 +458,9 @@ impl BoardState {
             over: None,
             before: None,
         });
+        // A lift is not a click: whatever the drop lands on, it must not read as the click that
+        // opens the popup over it.
+        self.suppress_popup = true;
     }
 
     /// Which column the pointer is over, and which card it is above. Answers whether **either**

@@ -93,10 +93,18 @@ Confirm appends the source and commits the whole list as one `SetKbSources`; Can
 
 **The explorer and the chat belong to IDE mode.** They are IDE furniture and leave together when the
 mode changes; the console, the terminals and the centre panel itself outlive a mode switch. The chat
-is written to be reused by the other screens later, but is not shared furniture today. A screen that
-wants a panel of its own brings it: the Teams and `[Teams]` screens' inspectors and tasks drawers,
-and the board's task panel, are drawn inside the centre panel rather than in the dock, which is why
-they toggle instead of dragging and go with the mode.
+is written to be reused by the other screens later, but is not shared furniture today.
+
+**A side panel defaults to the dock, and only a panel meaningful in exactly one mode stays out of
+it.** `PanelKind` (`state/dock.rs`) is the shared, draggable, per-window arrangement — `Terminal`,
+`Logs`, `Explorer`, `Chat`, `File`, `Search`, `Outline`, the Git family, `KbExplorer`,
+`AgentsExplorer` and the board's own `Task` panel all live there, so any of them can be dragged
+wherever the window is arranged that day; the board's popup flag only swaps that panel's *shape*,
+docked or modal, never whether the dock owns it. A screen that wants a panel with no meaning outside
+its own mode brings its own instead of asking for a `PanelKind`: the Teams and `[Teams]` screens'
+inspectors and tasks drawers are bespoke state toggles (`TeamsState::show_inspector` and the
+drawer's own flag) drawn inline by `teams::render`, never in the dock, which is why they toggle
+instead of dragging and vanish with the rail rather than persisting across a mode switch.
 
 **Two kinds of screen stand over the same records, and the split is the point** — `D47`. Agents is
 where the user *talks to* the agents; `[Teams]` and `Teams` are where the user *arranges* them. A
@@ -3463,7 +3471,9 @@ task: the filter text, which session's pills are on, which task is open, which c
 shut, `opened` — the columns held open against a project setting that would shut them, `shut`'s
 counterpart, since a lane that shuts itself when empty has nothing in `shut` for a click to remove —
 whether the open task draws in the docked side panel or a centred modal (`popup`,
-`toggle_popup()`), the carry, and what the panel is in the middle of doing. `set_column(status,
+`toggle_popup()`), the carry, `suppress_popup` — set the instant a carry starts and left alone
+through the drop that ends it, so the popup does not pop open over whatever a drag just filed, and
+cleared only by a click with no drag behind it — and what the panel is in the middle of doing. `set_column(status,
 shut)` puts one column into whichever of `shut`/`opened` the caller names, clearing it from the
 other, rather than one method flipping a single list blind. Both `shut` and `popup`
 survive a restart, the way the explorer's expanded folders do — carried in `ViewPrefs::board_shut`
@@ -3483,7 +3493,15 @@ through, and `end_carry()` answers the task and the column it landed in. It is t
 in `crates/ubiq/tests/board.rs`.
 
 `AppState` carries it as `board`, the filter as `task_filter`, and the panel's four fields as
-`task_title_input`, `task_description_input`, `step_title_input` and `new_step_input`. Every edit is
+`task_title_input`, `task_description_input`, `step_title_input` and `new_step_input`.
+`select_task()` — the plain click, and `navigate()`'s `View::Tasks` arm — clears `suppress_popup`
+and, in non-popup mode, queues `PanelEdit::Reveal(PanelKind::Task)` so the docked panel comes
+forward the way `reveal_search()` and the other `reveal_*` calls do; `start_task_carry()` selects
+the lifted card too but sets `suppress_popup` instead, since a lift is not the click that opens
+anything. `new_task()` queues the same reveal in non-popup mode, whether it is opening a fresh draft
+or just bringing the keyboard back to one already open, and `toggle_board_popup()` clears
+`suppress_popup` on its way through, so switching the shape to popup is never swallowed by a
+suppression a drag left behind. Every edit is
 a handler that sends and waits: `begin_task_edit()` opens a field and gives it the keyboard,
 `cancel_task_edit()` puts it away and refills it from the record, `commit_task_title()` and
 `commit_step_title()` refuse an empty title and send nothing when the value has not changed,
@@ -3508,10 +3526,11 @@ way `search_excludes` does. `toggle_board_column()` reads `lane_shut()` for the 
 state and calls `BoardState::set_column()` with its opposite, rather than inverting `shut` the way
 it used to: that is what makes a lane the project shuts itself openable by a click.
 
-`ui/board/mod.rs::render()` guards its drag-vs-popup ambiguity with `board.carry.is_none()`: a card
-drag lifts the same task a click would open, and in popup mode a drag ending over a column used to
-pop the detail modal open under the pointer, so the popup branch now checks that nothing is being
-carried before it draws. A draft in popup mode never takes the docked panel's slot either — `form::draft`
+`ui/board/mod.rs::render()` guards its drag-vs-popup ambiguity with `!board.suppress_popup`: a card
+drag lifts the same task a click would open, and in popup mode a drop ending a drag over a column
+used to pop the detail modal open under the pointer the instant the carry cleared — `suppress_popup`
+outlives the carry through that drop, so the popup branch stays shut until a click with no drag
+behind it puts it back. A draft in popup mode never takes the docked panel's slot either — `form::draft`
 splits into `draft_body()` and `draft_footer()`, shared by the docked panel and by
 `form::draft_popup()`, which wraps the same two in `kit::modal_sized` the way `detail::popup()`
 wraps the report and controls, and Escape closes it through the same `cancel_new_task()` the side

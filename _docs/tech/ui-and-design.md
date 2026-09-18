@@ -5,7 +5,7 @@ kind: tech
 status: current
 summary: The GPUI rendering model, the complete theme token set and the rule that no colour escapes it, how a palette is switched, the shape every surface, modal and dialog is drawn in, the page every primitive is looked at on, and the design assets screens are built against.
 read_when: you are building or restyling a screen, adding a colour or a size, switching or extending a palette, raising a modal or the file picker, looking at a primitive on the style reference, or looking for the wireframe a layout came from
-updated: 2026-09-17
+updated: 2026-09-18
 verified: 2026-09-18
 code_anchors: [crates/ubiq/src/theme.rs, assets/icons/icons.yaml, _tools/icons.py, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/state/overlay.rs, crates/ubiq/src/ui/kit/ribbon.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/src/ui/kit/popover.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/tests/dismiss.rs, crates/ubiq/src/ui/remote_hosts.rs]
 depends_on: [tech-architecture]
@@ -627,11 +627,18 @@ there for.
 **A row that gathers several controls this way drops their labels for tooltips, not for a second
 icon set.** The chat panel's toolbar is icon-only: the lifecycle menu and the change-agent chevron
 keep their icon and lose `ghost_button`'s inline label, the label reappearing as the same hover
-tooltip every other icon-only control in the window uses — the titlebar's panel toggles, the
-agents column tab's `×` (`Put on the bench`), the chevron's own `change agent`. Two controls that
-both add something must still read as different actions at a glance, so a row is never given the
-same icon twice with only the tooltip to tell them apart, and the dock's two `+` controls — a
+tooltip every other icon-only control in the window uses — the titlebar's `new-project` cluster,
+the agents column tab's `×` (`Put on the bench`), the chevron's own `change agent`. Two controls
+that both add something must still read as different actions at a glance, so a row is never given
+the same icon twice with only the tooltip to tell them apart, and the dock's two `+` controls — a
 terminal pane's and a chat view's — keep their own icons for exactly that reason.
+
+**No action or icon-only control is unlabelled without also being unexplained.** A button that
+draws no text — an icon-only `ghost_button`, a bare rail or dock icon, a chevron with nothing beside
+it — carries `.tooltip(...)` naming what it does; a value elided for space carries the full string
+the same way, through `kit::elided`. A control's meaning lives in a word somewhere it can be read,
+never in the icon alone. `G294` names where the tree still falls short of this — the titlebar's
+region toggles and a handful of others draw no tooltip yet.
 
 **Some surfaces are painted, not laid out.** Flexbox and `gpui-component` cover almost everything;
 what is left is geometry a box model cannot express — a dotted ground, a cubic connector between two
