@@ -1273,6 +1273,7 @@ impl AppState {
             sink: SinkState::default(),
             stats: StatsState::default(),
             web_panels: crate::state::web_panel::WebPanels::default(),
+            help: crate::state::help::Help::default(),
             notifications: NotificationsState::default(),
             file_picker: None,
             host_browse: None,

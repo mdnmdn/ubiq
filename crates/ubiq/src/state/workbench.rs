@@ -71,6 +71,15 @@ impl RailMode {
         !matches!(self, RailMode::Control | RailMode::Sink)
     }
 
+    /// The mode's own name, lowercased — what `rail.<slug>` binds a help page to.
+    ///
+    /// Taken from the variant rather than written out beside it, so a renamed mode renames its
+    /// context key instead of quietly unbinding the page that claimed the old one. The packer
+    /// reads the same variants out of this file.
+    pub fn slug(self) -> String {
+        format!("{self:?}").to_lowercase()
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             RailMode::Control => "Control",
@@ -297,6 +306,7 @@ pub enum OverflowRow {
     RemoteConnect,
     WebExport,
     CaptureWindow,
+    Help,
     Settings,
 }
 
@@ -430,6 +440,10 @@ pub struct WorkbenchState {
     /// rather than on whatever happens to be first in the list.
     pub last_start: Option<crate::state::prefs::LastStart>,
     pub open_menu: Option<MenuId>,
+    /// The panel the dock last made the displayed tab of a group. **Pushed from the dock**, where
+    /// focus is decided, the way the focused pane is — it is what gives the help ladder its
+    /// `panel.<name>` rung.
+    pub active_panel: Option<crate::state::dock::PanelKind>,
 
     /// What was typed into the project menu's search field.
     pub project_filter: String,
@@ -598,6 +612,7 @@ impl Default for WorkbenchState {
             interface_rest: Default::default(),
             last_start: None,
             open_menu: None,
+            active_panel: None,
             project_filter: String::new(),
             row_action: None,
             project_settings: None,
@@ -698,6 +713,9 @@ impl WorkbenchState {
         if has_project && capture_offered {
             rows.push(OverflowRow::CaptureWindow);
         }
+        // Always offered, project or not: help is about the application, and a window with no
+        // folder open is one of the places a reader most wants it.
+        rows.push(OverflowRow::Help);
         rows.push(OverflowRow::Settings);
         rows
     }

@@ -14,7 +14,7 @@ review_cycle: quarterly
 
 ## What Ubiq is
 
-Ubiq is a **harness multiplexer**: a desktop application that hosts several interactive AI coding
+Ubiq is a **agentic workspace**: a desktop application that hosts several interactive AI agents for any purpose
 agents side by side, each in a real terminal pane, under one window and one set of controls.
 
 Think tmux, with the panes specialised for agent harnesses rather than shells. A developer opens a

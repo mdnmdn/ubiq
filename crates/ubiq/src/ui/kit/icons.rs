@@ -74,7 +74,7 @@ pub enum UbiqIcon {
     ModeAgents,
     /// the application's own dashboard
     ModeControl,
-    /// the project's git state
+    /// the project's git state — a commit graph that branches and merges back
     ModeGit,
     /// the editor and its panels — the mode, not the terminal inside it
     ModeIde,
@@ -106,6 +106,8 @@ pub enum UbiqIcon {
     TabPin,
     /// open the project in a browser
     TitlebarBrowser,
+    /// open the manual — drawn rather than adopted, because gpui-component ships no help glyph
+    TitlebarHelp,
     /// the notification centre
     TitlebarNotifications,
     /// show or hide the bottom region
@@ -187,6 +189,7 @@ impl IconNamed for UbiqIcon {
             Self::RoleWorker => "icons/role-worker.svg",
             Self::TabPin => "icons/tab-pin.svg",
             Self::TitlebarBrowser => "icons/titlebar-browser.svg",
+            Self::TitlebarHelp => "icons/titlebar-help.svg",
             Self::TitlebarNotifications => "icons/titlebar-notifications.svg",
             Self::TitlebarPanelBottom => "icons/titlebar-panel-bottom.svg",
             Self::TitlebarPanelLeft => "icons/titlebar-panel-left.svg",
@@ -254,6 +257,7 @@ pub const ALL: &[UbiqIcon] = &[
     UbiqIcon::RoleWorker,
     UbiqIcon::TabPin,
     UbiqIcon::TitlebarBrowser,
+    UbiqIcon::TitlebarHelp,
     UbiqIcon::TitlebarNotifications,
     UbiqIcon::TitlebarPanelBottom,
     UbiqIcon::TitlebarPanelLeft,
@@ -331,6 +335,7 @@ pub fn bytes(path: &str) -> Option<&'static [u8]> {
         "icons/role-worker.svg" => ours!("role-worker"),
         "icons/tab-pin.svg" => ours!("tab-pin"),
         "icons/titlebar-browser.svg" => ours!("titlebar-browser"),
+        "icons/titlebar-help.svg" => ours!("titlebar-help"),
         "icons/titlebar-notifications.svg" => ours!("titlebar-notifications"),
         "icons/titlebar-panel-bottom.svg" => ours!("titlebar-panel-bottom"),
         "icons/titlebar-panel-left.svg" => ours!("titlebar-panel-left"),

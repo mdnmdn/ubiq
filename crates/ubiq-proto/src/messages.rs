@@ -22,6 +22,7 @@ use crate::files::{
 use crate::git::{
     self, GitChangedPath, GitCommit, GitEntry, GitNested, GitRef, GitRollup, RepoOverview,
 };
+use crate::help::HelpCatalog;
 use crate::ids::{
     AiProviderId, CloneId, ConnectId, ConnectionId, KbSourceId, NotificationId, OauthAppId, PaneId,
     ProjectId, RepoQueryId, SearchId, SessionId, SshProfileId, StepId, SuggestId, TaskId, ToolId,
@@ -2009,6 +2010,39 @@ pub enum Message {
     WebBundleFailed {
         app: String,
         error: String,
+    },
+
+    // ── Help family: UI → host ──────────────────────────────────────
+    /// Make Ubiq's own documentation available, and say where it is.
+    ///
+    /// The interface asks the first time a help panel opens; the host finds the bundle, unpacks it
+    /// once into the shared workarea and answers with the catalogue. Nothing is fetched and no
+    /// network is touched — the bundle either shipped with this build or it did not.
+    ///
+    /// **The interface names no version and no path.** Both are the host's, as they are for a web
+    /// bundle, and [`Message::HelpReady`] states what it got.
+    ///
+    /// **Idempotent.** Asking again after an answer re-answers from the catalogue already parsed.
+    /// Answered with [`Message::HelpReady`] or [`Message::HelpUnavailable`] — never with an error,
+    /// because help that is not built is a downgrade and not a fault.
+    EnsureHelp,
+
+    // ── Help family: host → UI ──────────────────────────────────────
+    /// The documentation is unpacked and readable. `root` is the absolute directory the pages sit
+    /// under, told rather than composed, and `catalog` is every page, the nav order and the
+    /// context map.
+    ///
+    /// The interface reads a page's markdown from `root` itself, on the same standing it reads a
+    /// web bundle's bytes from the path the host names.
+    HelpReady {
+        root: String,
+        catalog: Box<HelpCatalog>,
+    },
+    /// There is no documentation to show, and why — no bundle was built, or the one found could
+    /// not be read. A sentence fit to put in front of a user, who is shown the built-in page that
+    /// says how to build one rather than an error.
+    HelpUnavailable {
+        reason: String,
     },
 
     // ── Carrier family: transport only, never dispatched ────────────

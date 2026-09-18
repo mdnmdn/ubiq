@@ -39,6 +39,15 @@ use crate::ui::kit::{
     setting_row, slab, state_chip, status_dot,
 };
 
+/// The help page this screen claims — rung 1 of the context ladder (`_docs/wip/help.md` §5).
+///
+/// A screen only names a page for itself when it has no context key to be bound by, which is what
+/// an overlay raised over the window is: it is not a panel, not a view and not a rail mode. Every
+/// other screen binds itself by editing the page's `context:` list instead.
+pub fn help_page() -> Option<&'static str> {
+    Some("settings")
+}
+
 pub fn overlay(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
     let viewport = window.viewport_size();
     // Every modal this page raises — the login, the forms, the questions over them — is painted

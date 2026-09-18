@@ -280,6 +280,7 @@ fn kind_of(view: &View) -> &'static str {
         View::Agents { .. } => "Agents",
         View::Tasks { .. } => "Task",
         View::Chat { .. } => "Chat",
+        View::Help { .. } => "Help",
     }
 }
 

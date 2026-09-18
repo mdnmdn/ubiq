@@ -10,10 +10,10 @@
 use gpui::{Context, InteractiveElement, IntoElement, ParentElement, Styled, Window, div, px};
 
 use crate::app::{
-    AppState, FocusFileFilter, ImageRedo, ImageUndo, ProjectSlot1, ProjectSlot2, ProjectSlot3,
-    ProjectSlot4, ProjectSlot5, ProjectSlot6, ProjectSlot7, ProjectSlot8, ProjectSlot9, RailSlot1,
-    RailSlot2, RailSlot3, RailSlot4, RailSlot5, RailSlot6, RailSlot7, RailSlot8, RailSlot9,
-    SubmitSearch, ZoomIn, ZoomOut,
+    AppState, FocusFileFilter, ImageRedo, ImageUndo, OpenHelp, ProjectSlot1, ProjectSlot2,
+    ProjectSlot3, ProjectSlot4, ProjectSlot5, ProjectSlot6, ProjectSlot7, ProjectSlot8,
+    ProjectSlot9, RailSlot1, RailSlot2, RailSlot3, RailSlot4, RailSlot5, RailSlot6, RailSlot7,
+    RailSlot8, RailSlot9, SubmitSearch, ZoomIn, ZoomOut,
 };
 use crate::state::RailMode;
 use crate::theme;
@@ -51,6 +51,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         .on_action(cx.listener(AppState::close_active_editor))
         .on_action(cx.listener(AppState::open_search))
         .on_action(cx.listener(AppState::open_outline))
+        .on_action(cx.listener(|this, _: &OpenHelp, window, cx| this.reveal_help(window, cx)))
         .on_action(cx.listener(AppState::back))
         .on_action(cx.listener(AppState::forward))
         .on_action(cx.listener(AppState::toggle_bookmark))

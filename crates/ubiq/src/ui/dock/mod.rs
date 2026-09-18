@@ -51,8 +51,8 @@ use crate::state::git::{CHANGES_WIDTH, SIDEBAR_WIDTH};
 use crate::state::settings::TabClose;
 use crate::theme;
 use crate::ui::{
-    agents, board, chat, editor, empty, explorer, git, kb, logs, orchestration, outline, rail,
-    search, sink, stats, teams, terminal,
+    agents, board, chat, editor, empty, explorer, git, help, kb, logs, orchestration, outline,
+    rail, search, sink, stats, teams, terminal,
 };
 
 /// The version a saved layout is written under. It travels with the preferences schema, because
@@ -203,6 +203,10 @@ impl WorkbenchPanel {
             },
             PanelKind::Outline => TabInfo {
                 label: "Outline".into(),
+                ..TabInfo::default()
+            },
+            PanelKind::Help => TabInfo {
+                label: "Help".into(),
                 ..TabInfo::default()
             },
             PanelKind::Explorer => TabInfo {
@@ -449,14 +453,21 @@ impl BasePanel for WorkbenchPanel {
         let kind = self.kind.clone();
         let app = self.app.clone();
         cx.defer(move |cx| {
-            _ = app.update(cx, |app, cx| match kind.pane() {
-                Some(pane_id) => app.focus_pane(pane_id, cx),
-                None => {
-                    app.blur_panes(cx);
-                    // A file panel becoming the displayed tab is what makes its file the active
-                    // one: the dock is where that is decided, and the editor learns it from here.
-                    if let Some(key) = kind.tab_key() {
-                        app.activate_file(key, cx);
+            _ = app.update(cx, |app, cx| {
+                // Which panel is displayed is what gives contextual help its `panel.<name>` rung.
+                // Pushed from here for the reason the focused pane is: the dock is where this is
+                // decided, and the window learns it rather than asking.
+                app.note_active_panel(kind.clone());
+                match kind.pane() {
+                    Some(pane_id) => app.focus_pane(pane_id, cx),
+                    None => {
+                        app.blur_panes(cx);
+                        // A file panel becoming the displayed tab is what makes its file the
+                        // active one: the dock is where that is decided, and the editor learns it
+                        // from here.
+                        if let Some(key) = kind.tab_key() {
+                            app.activate_file(key, cx);
+                        }
                     }
                 }
             });
@@ -636,6 +647,7 @@ fn body(
         PanelKind::KbExplorer => kb::render(app, cx),
         PanelKind::Task => board::panel(app, window, cx),
         PanelKind::AgentsExplorer => agents::sidebar::render(app, cx).into_any_element(),
+        PanelKind::Help => help::render(app, window, cx),
     }
 }
 

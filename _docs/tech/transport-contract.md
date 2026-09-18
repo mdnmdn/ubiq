@@ -2140,9 +2140,45 @@ rule: 554 files finishing out of order is more events than an interface can draw
 did not match names the file it was — and whatever wanted the bundle says it is unavailable. No
 network and nothing cached is an ordinary outcome, not an error the user must act on.
 
+## The help family
+
+The eighteenth family, and the smallest of all: three variants that put Ubiq's own documentation in
+front of a user. Help content is markdown built into one archive by `_tools/helpbundle.py` outside
+the Rust build (`D146`), and the host is what finds it, unpacks it and reads its catalogue — the same
+division as the web asset family, for the same reason, minus the network.
+
+| Message | Direction | Payload | Responds with |
+|---|---|---|---|
+| `EnsureHelp` | UI → host | — | `HelpReady` or `HelpUnavailable` |
+| `HelpReady` | host → UI | `root`, `catalog` | — |
+| `HelpUnavailable` | host → UI | `reason` | — |
+
+**The interface names nothing** — no version, no path, no page. `EnsureHelp` is the only variant in
+the contract with an empty payload, because there is exactly one manual per install and the question
+is whether it is there. Resolution order, the version and the unpacked location are all the host's,
+and `HelpReady` states what it got.
+
+**`catalog` is metadata, never content.** It carries every page's `id`, `title`, `summary`,
+`keywords`, `status` and `related`, the nav order, the context map and the redirect table —
+`crates/ubiq-proto/src/help.rs` — and no page's markdown. The interface reads a page's bytes from
+under `root`, on the same standing `WebBundleReady`'s `path` gives it: told, never composed.
+
+**A page is addressed by `id`, not by path** (`D149`), throughout this family and the MCP tools
+behind it. `path` on a page record exists so the interface can find the file, and is the one field
+that may change without breaking anything that points at the page.
+
+**The ask is idempotent, and there is no progress variant.** Unpacking is local disk of a few
+megabytes with nothing to verify, so it either happens or does not; a second `EnsureHelp` after an
+answer re-answers from the catalogue already parsed, and a version already unpacked is reused
+without touching the archive again.
+
+**`HelpUnavailable` is not an error** (`D150`). No bundle built, or one that could not be read, is an
+ordinary outcome — `reason` is a sentence written to be shown to a user, and the interface draws a
+built-in page that names `just help-bundle` rather than a failure.
+
 ## The carrier family
 
-The eighteenth family, and the only one no dispatch ever sees. Four variants that establish a byte
+The nineteenth family, and the only one no dispatch ever sees. Four variants that establish a byte
 stream and keep it alive: they are read and written by the pumps on each end — `ubiq_host::carrier`
 and `spawn_pump` in `crates/ubiq/src/app/remote_connect.rs` — and swallowed there, on the same
 standing the HTTP upgrade in `crates/ubiq-host/src/remote.rs` has. A pump that delivered one of

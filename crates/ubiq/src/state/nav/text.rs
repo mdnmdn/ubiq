@@ -28,6 +28,38 @@ use crate::state::teams::{TeamsInspectorTab, TeamsSelection};
 
 const SCHEME: &str = "ubiq://";
 
+/// The project segment that means *whichever project is open*, rather than naming one.
+///
+/// Help content ships before it knows any project's ULID, so it can never write one; a page that
+/// links to `ubiq://./git` opens git mode in whatever project is on screen, and is inert when
+/// there is none. See [`parse_link`].
+const HERE: &str = ".";
+
+impl View {
+    /// The word this view is written as in a link.
+    ///
+    /// **One spelling, three readers**: the printer below writes it, [`parse_view`] reads it, and
+    /// `view.<slug>` is the context key a help page binds itself to. Renaming a view therefore
+    /// renames all three at once, which is the point of there being no second table.
+    pub fn slug(&self) -> &'static str {
+        match self {
+            View::Control => "control",
+            View::Kb => "kb",
+            View::Git => "git",
+            View::Logs => "logs",
+            View::Ide { .. } => "ide",
+            View::Explorer { .. } => "explorer",
+            View::Terminal { .. } => "terminal",
+            View::Graph { .. } => "graph",
+            View::Teams { .. } => "teams",
+            View::Agents { .. } => "agents",
+            View::Tasks { .. } => "tasks",
+            View::Chat { .. } => "chat",
+            View::Help { .. } => "help",
+        }
+    }
+}
+
 /// This text does not name a place. The only failure the form has, because every call site is an
 /// `.ok()` and none of them has anything to say about *why*.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -35,15 +67,13 @@ pub struct NotALink;
 
 impl fmt::Display for Destination {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{SCHEME}{}/", self.project)?;
+        write!(f, "{SCHEME}{}/{}", self.project, self.view.slug())?;
         match &self.view {
-            View::Control => f.write_str("control")?,
-            View::Kb => f.write_str("kb")?,
-            View::Git => f.write_str("git")?,
-            View::Logs => f.write_str("logs")?,
-            View::Ide { key } => write!(f, "ide/{}", encode(key))?,
-            View::Explorer { path } => write!(f, "explorer/{}", encode(path))?,
-            View::Terminal { pane } => write!(f, "terminal/{pane}")?,
+            View::Control | View::Kb | View::Git | View::Logs => {}
+            View::Ide { key } => write!(f, "/{}", encode(key))?,
+            View::Explorer { path } => write!(f, "/{}", encode(path))?,
+            View::Terminal { pane } => write!(f, "/{pane}")?,
+            View::Help { page } => write!(f, "/{}", encode(page))?,
             View::Graph { selection, tab } => {
                 let (kind, id) = match selection {
                     Selection::Session(id) => ("s", id.to_string()),
@@ -53,7 +83,7 @@ impl fmt::Display for Destination {
                     InspectorTab::Chat => "chat",
                     InspectorTab::Tasks => "tasks",
                 };
-                write!(f, "graph/{kind}:{id}/{tab}")?;
+                write!(f, "/{kind}:{id}/{tab}")?;
             }
             View::Teams { selection, tab } => {
                 let (kind, id) = match selection {
@@ -65,16 +95,16 @@ impl fmt::Display for Destination {
                     TeamsInspectorTab::Chat => "chat",
                     TeamsInspectorTab::Tasks => "tasks",
                 };
-                write!(f, "teams/{kind}:{id}/{tab}")?;
+                write!(f, "/{kind}:{id}/{tab}")?;
                 // The delegate comes last and takes the rest of the link, because a `Task` call's
                 // id is the harness's string and nothing here may promise what is in it.
                 if let TeamsSelection::Subagent { subagent, .. } = selection {
                     write!(f, "/{}", encode(subagent))?;
                 }
             }
-            View::Agents { agent } => write!(f, "agents/{agent}")?,
-            View::Tasks { task } => write!(f, "tasks/{task}")?,
-            View::Chat { chat } => write!(f, "chat/{chat}")?,
+            View::Agents { agent } => write!(f, "/{agent}")?,
+            View::Tasks { task } => write!(f, "/{task}")?,
+            View::Chat { chat } => write!(f, "/{chat}")?,
         }
         if let Some(locus) = &self.locus {
             write!(f, "#{}", print_locus(locus))?;
@@ -87,31 +117,42 @@ impl FromStr for Destination {
     type Err = NotALink;
 
     fn from_str(text: &str) -> Result<Self, NotALink> {
-        let rest = text.trim().strip_prefix(SCHEME).ok_or(NotALink)?;
-        // A literal `#` is always the fragment mark: one inside a path is written `%23`.
-        let (head, frag) = match rest.find('#') {
-            Some(cut) => (&rest[..cut], Some(&rest[cut + 1..])),
-            None => (rest, None),
-        };
-        let mut parts = head.splitn(3, '/');
-        let project: ProjectId = parts
-            .next()
-            .ok_or(NotALink)?
-            .parse()
-            .map_err(|_| NotALink)?;
-        let slug = parts.next().ok_or(NotALink)?;
-        let item = parts.next();
-        let view = parse_view(slug, item)?;
-        let locus = match frag {
-            Some(frag) => parse_locus(&decode(frag)?)?,
-            None => None,
-        };
-        Ok(Destination {
-            project,
-            view,
-            locus,
-        })
+        parse_link(text, None)
     }
+}
+
+/// A `ubiq://` link, read against whichever project is open.
+///
+/// Two forms, and `current` is what tells them apart. `ubiq://<project-id>/<view>` names its
+/// project and needs nothing; `ubiq://./<view>` — the project-less form — means *this view, in the
+/// current project*, and is what a help page writes, because content that shipped with the binary
+/// has never seen a project's ULID. With no project open the project-less form is [`NotALink`] and
+/// the click does nothing, which is exactly today's behaviour for anything that names no place.
+pub fn parse_link(text: &str, current: Option<ProjectId>) -> Result<Destination, NotALink> {
+    let rest = text.trim().strip_prefix(SCHEME).ok_or(NotALink)?;
+    // A literal `#` is always the fragment mark: one inside a path is written `%23`.
+    let (head, frag) = match rest.find('#') {
+        Some(cut) => (&rest[..cut], Some(&rest[cut + 1..])),
+        None => (rest, None),
+    };
+    let mut parts = head.splitn(3, '/');
+    let named = parts.next().ok_or(NotALink)?;
+    let project = match named {
+        HERE => current.ok_or(NotALink)?,
+        id => id.parse().map_err(|_| NotALink)?,
+    };
+    let slug = parts.next().ok_or(NotALink)?;
+    let item = parts.next();
+    let view = parse_view(slug, item)?;
+    let locus = match frag {
+        Some(frag) => parse_locus(&decode(frag)?)?,
+        None => None,
+    };
+    Ok(Destination {
+        project,
+        view,
+        locus,
+    })
 }
 
 /// The view a slug names, with whatever followed it — which the slug alone says how to read.
@@ -151,6 +192,11 @@ fn parse_view(slug: &str, item: Option<&str>) -> Result<View, NotALink> {
         }),
         "chat" => Ok(View::Chat {
             chat: one()?.parse::<ChatId>().map_err(|_| NotALink)?,
+        }),
+        // A page id, not a path — so one segment, and no `path_ok` to answer: what the id names
+        // is a row in the catalogue, and a page that is not in it is drawn as unwritten.
+        "help" => Ok(View::Help {
+            page: decode(one()?)?,
         }),
         "agents" => Ok(View::Agents {
             agent: one()?.parse::<AgentId>().map_err(|_| NotALink)?,
@@ -359,7 +405,9 @@ fn decode(text: &str) -> Result<String, NotALink> {
 pub fn resolve_relative(project: ProjectId, doc_path: &str, target: &str) -> Option<Destination> {
     let target = target.trim();
     if target.starts_with(SCHEME) {
-        return target.parse().ok();
+        // The document's own project is what `ubiq://./…` means here — the reader is standing in
+        // it, and it is the only project a document being read in this window could be about.
+        return parse_link(target, Some(project)).ok();
     }
     let lower = target.to_ascii_lowercase();
     // Somewhere else entirely. The caller hands these to the operating system.

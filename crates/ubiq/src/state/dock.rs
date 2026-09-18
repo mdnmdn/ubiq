@@ -162,6 +162,9 @@ pub enum PanelKind {
     /// The agents screen's list: every session, every conversation in it, and what each is doing.
     /// Agents mode's side panel — the columns are the centre, and this is what fills them.
     AgentsExplorer,
+    /// Ubiq's own documentation. **Not mode-owned**: the reader opens it to understand the screen
+    /// they are looking at, so it has to survive the rail-mode change that takes them there.
+    Help,
 }
 
 impl PanelKind {
@@ -185,7 +188,8 @@ impl PanelKind {
             | PanelKind::GitRefs
             | PanelKind::GitChanges
             | PanelKind::GitHistory
-            | PanelKind::GitDiff => PanelClass::Free,
+            | PanelKind::GitDiff
+            | PanelKind::Help => PanelClass::Free,
             PanelKind::Explorer
             | PanelKind::KbExplorer
             | PanelKind::Task
@@ -203,7 +207,7 @@ impl PanelKind {
             | PanelKind::Outline
             | PanelKind::KbExplorer
             | PanelKind::AgentsExplorer => Region::Left,
-            PanelKind::Chat(_) | PanelKind::Task => Region::Right,
+            PanelKind::Chat(_) | PanelKind::Task | PanelKind::Help => Region::Right,
             PanelKind::Centre | PanelKind::File(_) => Region::Centre,
             // Git panels default to left/right edges for IDE-like layout
             PanelKind::GitRefs => Region::Left,
@@ -259,6 +263,7 @@ impl PanelKind {
             PanelKind::KbExplorer => "ubiq.kb.explorer",
             PanelKind::Task => "ubiq.task",
             PanelKind::AgentsExplorer => "ubiq.agents.explorer",
+            PanelKind::Help => "ubiq.help",
         }
     }
 
@@ -284,6 +289,7 @@ impl PanelKind {
             "ubiq.kb.explorer" => Some(PanelKind::KbExplorer),
             "ubiq.task" => Some(PanelKind::Task),
             "ubiq.agents.explorer" => Some(PanelKind::AgentsExplorer),
+            "ubiq.help" => Some(PanelKind::Help),
             _ => None,
         }
     }
@@ -373,6 +379,10 @@ impl PanelKind {
             PanelKind::AgentsExplorer => {
                 at.has_project && matches!(at.rail_mode, Some(RailMode::Agents))
             }
+            // No clause at all: help is about the application, so it is drawn wherever the reader
+            // opened it — including in a window with no project, which is one of the places a
+            // reader most needs it.
+            PanelKind::Help => true,
         }
     }
 
@@ -417,6 +427,7 @@ impl PanelKind {
                 | PanelKind::GitChanges
                 | PanelKind::GitHistory
                 | PanelKind::GitDiff
+                | PanelKind::Help
         )
     }
 }

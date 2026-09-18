@@ -44,6 +44,8 @@
 //! - `web_assets`: the vendor bundles a web panel needs, fetched once into the shared workarea,
 //!   verified against a manifest in source, and served by the interface off its own origin (behind
 //!   `listener`)
+//! - `help`: Ubiq's own documentation — a prebuilt bundle found once and unpacked into the shared
+//!   workarea, on `web_assets`'s bundle-then-serve shape with no network in it
 //! - `kb`: a project's knowledge base — its configured sources, a git one's fetch, and the state
 //!   of each now (git fetch behind `git`, same as `repos`)
 //! - `index`: the full-text index that speeds up content search (behind `index`)
@@ -85,6 +87,7 @@ pub mod gc;
 #[cfg(feature = "git")]
 pub mod git;
 pub mod health;
+pub mod help;
 pub mod host_meta;
 pub mod host_path;
 #[cfg(feature = "index")]

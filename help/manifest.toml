@@ -1,0 +1,19 @@
+[help]
+version = "2026.09.1"
+namespace = "ubiq"
+
+[nav]
+order = [
+    "index.md",
+    "getting-started.md",
+    "concepts/",
+    "agents/",
+    "workbench/",
+    "git/",
+    "kb/",
+    "troubleshooting.md",
+]
+
+[context]
+# Overrides only — settle a context key two pages both claim. None needed yet: every key below is
+# claimed by exactly one page.

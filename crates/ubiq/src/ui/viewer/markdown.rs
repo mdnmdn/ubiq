@@ -126,6 +126,32 @@ pub fn render(
     frontmatter_open: bool,
     cx: &mut gpui::Context<AppState>,
 ) -> AnyElement {
+    let follow = on_link(
+        cx.entity(),
+        Some(crate::state::editor::from_tab_key(key).0.into()),
+    );
+    render_linked(app, key, source, font_size, frontmatter_open, follow, cx)
+}
+
+/// The same document, with a caller's own answer to a clicked link.
+///
+/// One renderer, two link policies. A file's link is resolved against the project it is read in,
+/// which is [`render`] above; a help page's is resolved against the catalogue first — an id is the
+/// documented way to name a page and resolves before any path does — which is `ui::help`. Both
+/// draw the same markdown, the same fences and the same diagrams, because there is one renderer
+/// and only the seam below differs.
+pub fn render_linked(
+    app: &AppState,
+    key: &str,
+    source: &str,
+    font_size: Option<f32>,
+    frontmatter_open: bool,
+    follow: impl Fn(&SharedString, &gpui::ClickEvent, &mut gpui::Window, &mut gpui::App)
+    + Send
+    + Sync
+    + 'static,
+    cx: &mut gpui::Context<AppState>,
+) -> AnyElement {
     let (frontmatter, body) = scan_and_publish(app, key, source);
 
     let size = font_size.unwrap_or(theme::EDITOR_FONT_SIZE);
@@ -136,10 +162,7 @@ pub fn render(
     // keeps a held key from rebuilding the document once per point.
     let document = TextView::markdown(eid2("md", key, app.md_reflow), body)
         .markdown_extensions(extensions().clone())
-        .on_link_click(on_link(
-            cx.entity(),
-            Some(crate::state::editor::from_tab_key(key).0.into()),
-        ))
+        .on_link_click(follow)
         .p_5()
         .text_size(px(size))
         .scrollable(true)

@@ -142,6 +142,7 @@ gpui::actions!(
     [
         OpenSearch,
         OpenOutline,
+        OpenHelp,
         SaveFile,
         NewFile,
         PasteClipboardImage,
@@ -602,6 +603,10 @@ pub struct AppState {
     /// rather than inside a project: the bundle is the host's, one copy for the whole process, and
     /// a session is a browser window this one opened.
     pub web_panels: WebPanels,
+    /// Ubiq's own documentation: where it stands, which page is open, and how the reader got
+    /// there. On the window rather than inside a project — help is about the application, and a
+    /// window with no project open is one of the places a reader most wants it.
+    pub help: crate::state::help::Help,
     /// The bell: the host's notification state as last broadcast, and this window's own view of
     /// it. On the window rather than inside a project for the same reason the two above are — a
     /// notification names its origin, and that origin is as often the host as a project.
@@ -1016,6 +1021,7 @@ pub use explorer::MIN_QUERY;
 pub use projects::Holds;
 mod git;
 mod graph;
+mod help;
 mod host_browse;
 pub mod host_secrets;
 mod hosts;
@@ -1132,6 +1138,9 @@ pub fn install_key_bindings(cx: &mut App) {
         gpui::KeyBinding::new("cmd--", ZoomOut, Some("Workbench")),
         gpui::KeyBinding::new("cmd-shift-f", OpenSearch, Some("Workbench")),
         gpui::KeyBinding::new("cmd-shift-o", OpenOutline, Some("Workbench")),
+        // F1 opens help for whatever the window is showing. Bare, and the same key everywhere:
+        // it is the one shortcut a reader tries without being told it exists.
+        gpui::KeyBinding::new("f1", OpenHelp, Some("Workbench")),
         gpui::KeyBinding::new("cmd-p", FocusFileFilter, Some("Workbench")),
         gpui::KeyBinding::new("ctrl-p", FocusFileFilter, Some("Workbench")),
         gpui::KeyBinding::new("ctrl--", NavBack, Some("Workbench")),
@@ -1188,6 +1197,8 @@ pub fn install_key_bindings(cx: &mut App) {
     cx.bind_keys([
         gpui::KeyBinding::new("cmd-shift-f", OpenSearch, Some("Input")),
         gpui::KeyBinding::new("cmd-shift-o", OpenOutline, Some("Input")),
+        // F1 means help with the caret in a field too, by the same device.
+        gpui::KeyBinding::new("f1", OpenHelp, Some("Input")),
         // ⌘P means "go to file" wherever the caret is, for the same reason and by the same device.
         gpui::KeyBinding::new("cmd-p", FocusFileFilter, Some("Input")),
         // ⌃- and ⌃⇧- mean back and forward with the caret in a buffer too, by the same device.

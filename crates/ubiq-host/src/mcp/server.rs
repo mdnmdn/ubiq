@@ -32,7 +32,7 @@ use ubiq_proto::bus::Voice;
 
 use super::catalogue::{self, ServerSpec};
 use super::registry::{AgentFacts, Registry};
-use super::{KbReach, WorkAccess};
+use super::{HelpReach, KbReach, WorkAccess};
 
 /// How often the serving thread wakes to check whether it should stop. Bounds shutdown latency
 /// without needing to unblock the listener.
@@ -94,6 +94,7 @@ pub fn start(
     voice: Voice,
     work: Option<WorkAccess>,
     kb: Option<KbReach>,
+    help: Option<HelpReach>,
 ) -> anyhow::Result<Serving> {
     let http = tiny_http::Server::http("127.0.0.1:0")
         .map_err(|error| anyhow::anyhow!("binding the MCP listener: {error}"))?;
@@ -107,7 +108,7 @@ pub fn start(
     let stop_thread = Arc::clone(&stop);
     let handle = std::thread::Builder::new()
         .name("ubiq-mcp".to_string())
-        .spawn(move || serve(http, registry, voice, work, kb, stop_thread))
+        .spawn(move || serve(http, registry, voice, work, kb, help, stop_thread))
         .expect("the MCP listener thread");
 
     Ok(Serving {
@@ -126,11 +127,19 @@ fn serve(
     voice: Voice,
     work: Option<WorkAccess>,
     kb: Option<KbReach>,
+    help: Option<HelpReach>,
     stop: Arc<AtomicBool>,
 ) {
     while !stop.load(Ordering::SeqCst) {
         match http.recv_timeout(POLL_INTERVAL) {
-            Ok(Some(request)) => handle(request, &registry, &voice, work.as_ref(), kb.as_ref()),
+            Ok(Some(request)) => handle(
+                request,
+                &registry,
+                &voice,
+                work.as_ref(),
+                kb.as_ref(),
+                help.as_ref(),
+            ),
             Ok(None) => continue,
             Err(_) => break,
         }
@@ -145,6 +154,7 @@ fn handle(
     voice: &Voice,
     work: Option<&WorkAccess>,
     kb: Option<&KbReach>,
+    help: Option<&HelpReach>,
 ) {
     let Some((key, server)) = route(request.url()) else {
         let _ = request.respond(not_found());
@@ -186,7 +196,7 @@ fn handle(
     let method = parsed.get("method").and_then(Value::as_str).unwrap_or("");
     let params = parsed.get("params").cloned().unwrap_or(Value::Null);
 
-    let response = match dispatch(method, params, spec, &facts, voice, work, kb) {
+    let response = match dispatch(method, params, spec, &facts, voice, work, kb, help) {
         Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
         Err((code, message)) => {
             json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}})
@@ -217,6 +227,7 @@ fn route(url: &str) -> Option<(String, String)> {
 /// A failing *tool* is not an error here: it comes back as `isError` inside a normal result,
 /// because that is the failure a model is meant to read and correct. A method this server does not
 /// implement is `-32601`, which is a client that is speaking a protocol we do not.
+#[allow(clippy::too_many_arguments)]
 fn dispatch(
     method: &str,
     params: Value,
@@ -225,6 +236,7 @@ fn dispatch(
     voice: &Voice,
     work: Option<&WorkAccess>,
     kb: Option<&KbReach>,
+    help: Option<&HelpReach>,
 ) -> Result<Value, (i64, String)> {
     match method {
         "initialize" => Ok(json!({
@@ -239,7 +251,7 @@ fn dispatch(
                 .get("arguments")
                 .cloned()
                 .unwrap_or_else(|| json!({}));
-            match super::tools::call(spec.name, name, &arguments, facts, voice, work, kb) {
+            match super::tools::call(spec.name, name, &arguments, facts, voice, work, kb, help) {
                 Ok(value) => {
                     let text = serde_json::to_string(&value).unwrap_or_default();
                     Ok(json!({
@@ -321,7 +333,7 @@ mod tests {
         let (hub, host) = bus::hub();
         let registry = Registry::new();
         registry.register(facts());
-        let serving = start(registry, host.voice(), None, None).expect("the listener binds");
+        let serving = start(registry, host.voice(), None, None, None).expect("the listener binds");
         (serving, hub, host)
     }
 
@@ -337,7 +349,7 @@ mod tests {
             everyone: host.mailbox(ubiq_proto::bus::To::Everyone),
         };
         let serving =
-            start(registry, host.voice(), Some(access), None).expect("the listener binds");
+            start(registry, host.voice(), Some(access), None, None).expect("the listener binds");
         (serving, hub, host)
     }
 
@@ -871,7 +883,8 @@ mod tests {
             kb: kb.clone(),
             everyone: host.mailbox(ubiq_proto::bus::To::Everyone),
         };
-        let serving = start(registry, host.voice(), None, Some(reach)).expect("the listener binds");
+        let serving =
+            start(registry, host.voice(), None, Some(reach), None).expect("the listener binds");
         (
             serving,
             hub,

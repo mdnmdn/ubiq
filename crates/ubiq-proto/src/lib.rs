@@ -42,6 +42,7 @@ pub mod drone;
 pub mod feedback;
 pub mod files;
 pub mod git;
+pub mod help;
 pub mod ids;
 pub mod kb;
 pub mod log;

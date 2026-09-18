@@ -3157,6 +3157,90 @@ or the Store alias. `Windows PowerShell 5.1` is a hard-coded fact about the plat
 a future Windows ships a different Windows PowerShell version, the label goes stale until the
 constant is changed by hand.
 
+### D146 — Help content is built outside the Rust build, and its bundle is never versioned
+
+`help/` is markdown in the tree; `_tools/helpbundle.py` validates it and writes one `UBIQBND1`
+archive to `target/help/help.bundle`, which `.gitignore` covers. Nothing in `cargo build` or
+any `build.rs` knows help exists, and `just bundle` / `just bundle-win` copy the file beside the
+binary only if it happens to be there.
+
+**Why:** documentation changes on a different clock from the code, and by different people. A build
+script that packs markdown makes every prose fix a Rust rebuild, and makes a clone with no content
+fail to compile. Keeping the packer a separate `uv run` script — the shape every other tool in
+`_tools/` takes — means the content can move to its own repository as a submodule with no code
+change, which is the stated next step for it.
+
+**Cost:** the bundle can be stale or absent without anything failing, so `just help-bundle` is a step
+somebody has to remember. Everything downstream is built to treat absence as ordinary (D149), which
+is what makes the forgetting cheap rather than broken.
+
+### D147 — The bundle is unpacked to disk on first open, not read in place
+
+The host extracts the archive into `<shared workarea>/help/<version>/` and everything afterwards
+reads plain files, rather than holding an open archive and inflating entries on demand the way
+`web_export/archive.rs` does for a vendor bundle.
+
+**Why:** three problems collapse into one answer. Images in a page are `![…](../img/x.png)`, and the
+image source underneath resolves a filesystem path but not an archive entry and not a doc-relative
+one — that is the same wall `G11` names for the knowledge base. Doc-relative links resolve with the
+existing `resolve_relative` and no new resolver. And the MCP server reads a file instead of sharing
+a reader handle with the interface across a crate boundary. Serving help through a web tenant would
+have solved the images alone, at the cost of a browser for content Ubiq draws natively.
+
+**Cost:** a few megabytes of disk per content version, an extraction pass on first open, and a cache
+directory that is one more thing under the config root to garbage-collect. Older version directories
+are removed after a successful extract, which bounds it at roughly one copy.
+
+### D148 — Help is its own subsystem, sharing the knowledge base's renderer and nothing else
+
+Help does not become a fourth `KbOrigin`, even though a bundled wiki is close to what
+`KbOrigin::Internal` is. It shares `ui::viewer::markdown::render` — the window's one markdown
+renderer — and has its own state, its own panel, its own MCP server and its own store.
+
+**Why:** the two differ in every property that matters operationally. A knowledge base is per
+project, user-owned, writable and catalogued; help is per install, app-owned, read-only and shipped
+with the binary. Filing the manual as a KB source would put it in a user's project catalogue with a
+"remove this source" affordance, make it sync-able, and make "which project am I reading the manual
+in" a question. Sharing the renderer is the part with actual leverage, and it is shared.
+
+**Cost:** two subsystems that look alike from a distance, and a reader who improves one — scoped
+search is the live example — has to decide whether the other should follow. `wip/kb.md` and
+`wip/help.md` each name the other for that reason.
+
+### D149 — A page is addressed by a frontmatter `id`, and the context map is derived from the pages
+
+Every help page declares `id`, and links, the MCP tools and contextual bindings all speak that id
+rather than a path. A page also declares the places it explains in a `context:` list, and the packer
+inverts those lists into the catalogue's key → id map; `manifest.toml`'s `[context]` table holds
+overrides only, and a key two pages both claim fails the build.
+
+**Why:** a manual is reorganised more often than it is rewritten, and path-addressed links break
+silently when a page moves between folders — `redirects:` then keeps even a previously pasted
+`ubiq://./help/<id>` link alive. Putting `context:` on the page rather than in a central table gives
+one editing location instead of two, keeps the binding beside the prose that justifies it, and makes
+a deleted page take its binding with it rather than leave a dangling row.
+
+**Cost:** a page's id is a name somebody has to choose well and can never change casually, and the
+the build fails on a duplicate claim rather than picking a winner. Context keys are validated for
+shape only — that they name a real `PanelKind`, `View` or `RailMode` is a check the packer does not
+yet make (`G297`).
+
+### D150 — Missing help is a downgrade at every layer, never an error
+
+No bundle answers `HelpUnavailable` with a sentence and the panel opens on a stub compiled into the
+binary; a missing page renders as unwritten; a missing context binding falls through to `index`; and
+every MCP tool answers empty with a note rather than failing. The `?` is never disabled and never
+hidden.
+
+**Why:** the state this is designed for is the normal one for a long time — a contributor who has
+never run `just help-bundle`, and a manual whose pages arrive over months. A disabled `?` teaches a
+user the feature is broken; a page that explains itself teaches them what to run. It is
+`WebBundleFailed`'s rule applied to content instead of vendor code.
+
+**Cost:** a genuinely broken bundle — corrupt, or unreadable — looks from the interface exactly like
+one that was never built. The `reason` string is the only thing that distinguishes them, which puts
+weight on it being written for a human.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce

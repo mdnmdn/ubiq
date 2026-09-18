@@ -3,7 +3,7 @@ name = "ubiq"
 version = "0.1.0"
 edition = "2024"
 license-file = "../../LICENSE"
-description = "Ubiq: GPUI-based agent harness multiplexer"
+description = "Ubiq: GPUI-based agent agentic workspace"
 publish = false
 
 [features]

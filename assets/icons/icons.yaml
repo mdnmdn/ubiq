@@ -170,7 +170,10 @@ categories:
       goal: the orchestration graph of agents working together
       source: "adopted:Network"
     mode-kb: {goal: the project's knowledge base, source: "adopted:BookOpen"}
-    mode-git: {goal: the project's git state, source: "adopted:GalleryVerticalEnd"}
+    mode-git:
+      goal: the project's git state — a commit graph that branches and merges back
+      source: custom
+      keywords: [git, commit, graph, branch, merge, history, repository]
     mode-ide:
       goal: the editor and its panels — the mode, not the terminal inside it
       keywords: [ide, editor, code, explorer]
@@ -200,6 +203,10 @@ categories:
     titlebar-theme-light: {goal: switch to the light palette, source: "adopted:Sun"}
     titlebar-theme-dark: {goal: switch to the dark palette, source: "adopted:Moon"}
     titlebar-notifications: {goal: the notification centre, source: "adopted:Bell"}
+    titlebar-help:
+      goal: open the manual — drawn rather than adopted, because gpui-component ships no help glyph
+      source: custom
+      keywords: [help, question, manual, docs, guide, support]
 
   # Collisions the inventory turned up: one variant carrying two unrelated meanings, where the
   # cheaper fix is a second icon rather than two tooltips.

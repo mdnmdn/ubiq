@@ -83,6 +83,7 @@ impl AppState {
                 self.focus_pane(*pane, cx);
             }
             View::Logs => self.pending_panels.push(PanelEdit::Reveal(PanelKind::Logs)),
+            View::Help { page } => self.reveal_help_page(&page.clone(), cx),
             View::Chat { chat } => self
                 .pending_panels
                 .push(PanelEdit::Reveal(PanelKind::Chat(*chat))),
@@ -309,7 +310,7 @@ pub fn rail_of(view: &View) -> Option<RailMode> {
         View::Teams { .. } => RailMode::Teams,
         View::Agents { .. } => RailMode::Agents,
         View::Tasks { .. } => RailMode::Tasks,
-        View::Terminal { .. } | View::Logs | View::Chat { .. } => return None,
+        View::Terminal { .. } | View::Logs | View::Chat { .. } | View::Help { .. } => return None,
     })
 }
 

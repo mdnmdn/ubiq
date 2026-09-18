@@ -21,6 +21,7 @@ pub mod explorer;
 pub mod feedback;
 pub mod file_picker;
 pub mod git;
+pub mod help;
 pub mod image_edit;
 pub mod kb;
 pub mod layout;

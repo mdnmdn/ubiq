@@ -55,6 +55,7 @@ fn label(row: OverflowRow) -> &'static str {
         OverflowRow::RemoteConnect => "Connect to a remote host",
         OverflowRow::WebExport => "Explore the project in browser",
         OverflowRow::CaptureWindow => "Capture this window",
+        OverflowRow::Help => "Help",
         OverflowRow::Settings => "Settings",
     }
 }
@@ -65,6 +66,7 @@ fn icon(row: OverflowRow) -> kit::UbiqIcon {
         OverflowRow::RemoteConnect => kit::UbiqIcon::HostRemote,
         OverflowRow::WebExport => kit::UbiqIcon::TitlebarBrowser,
         OverflowRow::CaptureWindow => kit::UbiqIcon::CaptureWindow,
+        OverflowRow::Help => kit::UbiqIcon::TitlebarHelp,
         OverflowRow::Settings => kit::UbiqIcon::TitlebarSettings,
     }
 }

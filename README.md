@@ -1,6 +1,6 @@
 # Ubiq
 
-A harness multiplexer — tmux for AI coding agents. Ubiq hosts several interactive agent CLIs side by
+An agentic workspace — tmux for AI coding agents. Ubiq hosts several interactive agent CLIs side by
 side, each in a real terminal pane, under one window and one set of controls.
 
 Every harness Ubiq hosts is a full-screen terminal program: it takes over the alternate screen,

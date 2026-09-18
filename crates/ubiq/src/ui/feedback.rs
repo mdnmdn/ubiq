@@ -25,6 +25,12 @@ use crate::ui::kit::{
 };
 use crate::ui::{handler, indexed};
 
+/// The help page this modal claims — rung 1, for the reason `ui::settings::help_page` is: a modal
+/// has no context key of its own to be bound by.
+pub fn help_page() -> Option<&'static str> {
+    Some("feedback")
+}
+
 const FEEDBACK_WIDTH: f32 = 520.0;
 /// How tall the picture is drawn. Wide enough to recognise the screen, short enough that the
 /// fields stay on the same page as it.

@@ -22,6 +22,7 @@ pub mod feedback;
 pub mod file_dialog;
 pub mod file_picker;
 pub mod git;
+pub mod help;
 pub mod kb;
 pub mod kit;
 pub mod logs;

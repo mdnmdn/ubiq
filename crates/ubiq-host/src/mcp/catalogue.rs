@@ -34,6 +34,9 @@ pub const USE_TASK: &str = "use-task";
 /// The slug of the server that reads and writes this project's knowledge base.
 pub const UBIQ_KB: &str = "ubiq-kb";
 
+/// The slug of the server that reads Ubiq's own documentation.
+pub const UBIQ_HELP: &str = "ubiq-help";
+
 /// One tool, as the catalogue holds it: what the panel shows plus what a harness needs in order
 /// to call it.
 pub struct ToolSpec {
@@ -533,6 +536,57 @@ pub const SERVERS: &[ServerSpec] = &[
                         }
                     },
                     "required": ["source"]
+                }"#,
+            },
+        ],
+    },
+    ServerSpec {
+        name: UBIQ_HELP,
+        title: "Ubiq's own documentation",
+        description: "The manual behind the '?' in Ubiq's own titlebar: read it to answer a question about how Ubiq itself works, rather than guessing. Every page has a stable id; hand one back to the user as ubiq://./help/<id> and it opens there.",
+        tools: &[
+            ToolSpec {
+                name: "list_help_pages",
+                description: "Every page of Ubiq's own manual, in the order its table of contents draws them: id, title and summary. Call this first, or when unsure which page answers a question. If this build has no documentation, the list is empty and a note says why.",
+                schema: r#"{"type": "object", "properties": {}}"#,
+            },
+            ToolSpec {
+                name: "read_help_page",
+                description: "One page's body, as Markdown with its frontmatter stripped. Accepts the page's own id or an old id/path it used to answer to.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "id": {
+                            "type": "string",
+                            "description": "A page id from list_help_pages, or a redirect it used to answer to."
+                        }
+                    },
+                    "required": ["id"]
+                }"#,
+            },
+            ToolSpec {
+                name: "search_help",
+                description: "Search the manual for a word or phrase. A hit in a page's keywords, title or summary counts for more than one in its body; each result carries the matching lines.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "A word or phrase to search for."}
+                    },
+                    "required": ["query"]
+                }"#,
+            },
+            ToolSpec {
+                name: "help_for_context",
+                description: "The page bound to a place in the interface, the same lookup the '?' in the titlebar does for the screen currently open — pass a panel name, a view or a rail mode's key.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "key": {
+                            "type": "string",
+                            "description": "A context key, e.g. 'panel.ubiq.git-changes', 'rail.git', 'view.chat', or 'index' for the landing page."
+                        }
+                    },
+                    "required": ["key"]
                 }"#,
             },
         ],

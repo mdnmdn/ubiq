@@ -1,6 +1,6 @@
 # AGENTS.md
 
-**Ubiq** — a harness multiplexer. A desktop application that hosts several interactive AI coding
+**Ubiq** — agentic workspace. A desktop application that hosts several interactive AI coding
 agents (Claude Code, Codex, Gemini CLI, opencode, Copilot CLI) side by side, each in a real terminal
 pane, under one window. Think tmux, with the panes specialised for agent harnesses. Rust throughout:
 four crates — `crates/ubiq-proto` (the contract, the bus, the log sink), `crates/ubiq-host` (the

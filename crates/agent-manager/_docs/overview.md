@@ -73,7 +73,7 @@ only *configures and launches*; the interaction is standard console.
 ### Lib mode
 
 Embed the crate (`use agent_manager::…`) inside a larger tool — for example the
-Ubiq harness multiplexer. The embedder:
+Ubiq Agentic Workspace. The embedder:
 
 - builds a `RunSpec` programmatically instead of parsing flags,
 - can register **custom in-process MCP servers** (a library callback the agent

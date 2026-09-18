@@ -284,6 +284,21 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                         gpui_component::tooltip::Tooltip::new("Send feedback").build(window, cx)
                     }),
                 )
+                // Help: the same panel F1 and the overflow row open, on the page for whatever the
+                // window is showing. **Never disabled and never hidden** — a build with no
+                // content still opens it, on the page that says how to build some.
+                .child(
+                    icon_button(
+                        "help",
+                        UbiqIcon::TitlebarHelp,
+                        false,
+                        cx.listener(|this, _, window, cx| this.reveal_help(window, cx)),
+                    )
+                    .h_full()
+                    .tooltip(move |window, cx| {
+                        gpui_component::tooltip::Tooltip::new("Help").build(window, cx)
+                    }),
+                )
                 .child(
                     icon_button(
                         "remote-hosts",

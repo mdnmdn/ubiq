@@ -11,15 +11,15 @@ default:
 # ── the application ────────────────────────────────────────────────
 
 # Run Ubiq
-dev:
+dev: help-bundle
     cargo run -p ubiq-app
 
 # Run Ubiq with debug logging
-verbose:
+verbose: help-bundle
     RUST_LOG=debug cargo run -p ubiq-app
 
 # Build the whole workspace for release
-build:
+build: help-bundle
     cargo build --workspace --release
 
 # Build the macOS application icon from the logo in assets/
@@ -27,7 +27,7 @@ icns:
     uv run _tools/icns.py
 
 # Assemble Ubiq.app in target/ — icon, binary, Info.plist
-bundle:
+bundle: help-bundle
     uv run _tools/icns.py
     cargo build -p ubiq-app --release
     rm -rf target/Ubiq.app
@@ -35,14 +35,17 @@ bundle:
     cp target/release/ubiq target/Ubiq.app/Contents/MacOS/ubiq
     cp target/AppIcon.icns target/Ubiq.app/Contents/Resources/AppIcon.icns
     cp _tools/Info.plist target/Ubiq.app/Contents/Info.plist
+    # The help bundle ships inside the .app, where `help::resolve` looks first after the override
+    cp target/help/help.bundle target/Ubiq.app/Contents/Resources/help.bundle
     @echo "Done at $(date)"
 
 # Assemble the Windows release in target/ubiq-windows-x86_64/ — the .exe
-bundle-win:
+bundle-win: help-bundle
     cargo build -p ubiq-app --release
     rm -rf target/ubiq-windows-x86_64
     mkdir -p target/ubiq-windows-x86_64
     cp target/release/ubiq.exe target/ubiq-windows-x86_64/ubiq.exe
+    cp target/help/help.bundle target/ubiq-windows-x86_64/help.bundle
 
 # ── the harness library ────────────────────────────────────────────
 
@@ -118,8 +121,8 @@ fmt:
 test:
     cargo test --workspace < /dev/null
 
-# check + clippy + test + the crate boundary + docs-lint
-verify: check clippy test host relay ui apple docs-lint
+# check + clippy + test + the crate boundary + docs-lint + help-check
+verify: check clippy test host relay ui apple docs-lint help-check
 
 # Can a confined agent build? Run unconfined for a baseline, then under
 # `am run <harness> --isolate -- bash _tools/toolchain-smoke.sh` and diff.
@@ -203,6 +206,20 @@ web-assets-drawio *ARGS:
 # Re-fetch every file in the drawio manifest and report CDN drift
 web-assets-verify-drawio:
     uv run _tools/webassets.py verify --out crates/ubiq-host/src/web_assets/manifest_drawio.rs
+
+# ── help ───────────────────────────────────────────────────────────
+
+# Validate help/ — passes trivially when it does not exist
+help-check:
+    uv run _tools/helpbundle.py check
+
+# Validate help/, then write target/help/help.bundle
+help-bundle:
+    uv run _tools/helpbundle.py bundle
+
+# Remove target/help/
+help-clean:
+    uv run _tools/helpbundle.py clean
 
 # ── the drone ──────────────────────────────────────────────────────
 

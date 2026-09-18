@@ -20,12 +20,13 @@ use ubiq_proto::bus::Voice;
 use ubiq_proto::messages::Message;
 use ubiq_proto::notifications::{Family, Level, NotificationRequest};
 
-use super::catalogue::{MANAGE_UBIQ_TASKS, PROJECT_INFO, TEST, UBIQ_KB, USE_TASK};
+use super::catalogue::{MANAGE_UBIQ_TASKS, PROJECT_INFO, TEST, UBIQ_HELP, UBIQ_KB, USE_TASK};
 use super::registry::AgentFacts;
-use super::{KbReach, WorkAccess};
+use super::{HelpReach, KbReach, WorkAccess};
 
 /// Call one tool. `server` and `tool` have already been matched against the catalogue's server;
 /// the tool has not, so an unknown one ends here as the in-band error a model sees.
+#[allow(clippy::too_many_arguments)]
 pub fn call(
     server: &str,
     tool: &str,
@@ -34,6 +35,7 @@ pub fn call(
     voice: &Voice,
     work: Option<&WorkAccess>,
     kb: Option<&KbReach>,
+    help: Option<&HelpReach>,
 ) -> Result<Value, String> {
     match (server, tool) {
         (TEST, "send_notification") => send_notification(arguments, facts, voice),
@@ -54,6 +56,11 @@ pub fn call(
             let reach = kb
                 .ok_or_else(|| "this host has no knowledge base for agents to reach".to_string())?;
             super::kb::call(tool, arguments, facts, reach)
+        }
+        (UBIQ_HELP, _) => {
+            let reach =
+                help.ok_or_else(|| "this host has no help server for agents to reach".to_string())?;
+            super::help::call(tool, arguments, reach)
         }
         _ => Err(format!("unknown tool: {server}/{tool}")),
     }

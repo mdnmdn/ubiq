@@ -8,7 +8,7 @@ use std::str::FromStr;
 
 use ubiq::state::dock::ChatId;
 use ubiq::state::editor::{Subject, tab_key};
-use ubiq::state::nav::{Destination, Locus, View, resolve_relative};
+use ubiq::state::nav::{Destination, Locus, View, parse_link, resolve_relative};
 use ubiq_proto::files::DiffBase;
 use ubiq_proto::ids::{PaneId, ProjectId, SessionId, TaskId};
 use ubiq_proto::work::AgentId;
@@ -70,6 +70,9 @@ fn views() -> Vec<View> {
         },
         View::Chat {
             chat: ChatId::generate(),
+        },
+        View::Help {
+            page: "git-changes".into(),
         },
     ]
 }
@@ -353,4 +356,49 @@ fn a_full_link_inside_a_document_wins_over_the_document() {
     let dest = resolve_relative(project(), "_docs/x.md", &written).unwrap();
     assert_eq!(dest.project, elsewhere);
     assert_eq!(dest.to_string(), written);
+}
+
+/// The project-less form: *this view, in the current project*. What a help page writes, because
+/// content compiled into the binary has never seen a project's ULID.
+#[test]
+fn the_project_less_form_takes_the_project_it_is_read_in() {
+    let here = project();
+    let dest = parse_link("ubiq://./git", Some(here)).expect("a link");
+    assert_eq!(dest.project, here);
+    assert_eq!(dest.view, View::Git);
+
+    let page = parse_link("ubiq://./help/git-changes#staging", Some(here)).expect("a link");
+    assert_eq!(
+        page.view,
+        View::Help {
+            page: "git-changes".into()
+        }
+    );
+    assert_eq!(
+        page.locus,
+        Some(Locus::Anchor {
+            slug: "staging".into()
+        })
+    );
+}
+
+/// And with no project open it is inert — the same nothing every other unrecognised target is.
+#[test]
+fn the_project_less_form_is_inert_with_no_project() {
+    assert!(parse_link("ubiq://./git", None).is_err());
+    assert!(Destination::from_str("ubiq://./git").is_err());
+}
+
+/// A document's own link to a help page resolves against the project the document is read in.
+#[test]
+fn a_document_may_link_to_a_help_page_without_naming_a_project() {
+    let here = project();
+    let dest = resolve_relative(here, "_docs/x.md", "ubiq://./help/index").unwrap();
+    assert_eq!(dest.project, here);
+    assert_eq!(
+        dest.view,
+        View::Help {
+            page: "index".into()
+        }
+    );
 }

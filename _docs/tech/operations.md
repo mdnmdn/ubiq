@@ -7,7 +7,7 @@ summary: Prerequisites, the complete command reference, what a first build costs
 read_when: you are setting the project up, running or testing it, adding a command, or an agent reports that it cannot run a tool
 updated: 2026-09-18
 verified: 2026-09-18
-code_anchors: [Justfile, crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/structured.rs, _tools/docs.py, _tools/icns.py, _tools/webassets.py, _tools/drone.py, _tools/Info.plist, _devops/scripts/bundle-version.sh, crates/ubiq-app/src/lib.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-app/build.rs, crates/ubiq-app/res/ubiq-app.rc, .github/workflows/create-release.yml, .github/workflows/release-macos.yml, .github/workflows/release-windows.yml]
+code_anchors: [Justfile, crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/structured.rs, _tools/docs.py, _tools/icns.py, _tools/webassets.py, _tools/drone.py, _tools/helpbundle.py, _tools/Info.plist, _devops/scripts/bundle-version.sh, crates/ubiq-app/src/lib.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-app/build.rs, crates/ubiq-app/res/ubiq-app.rc, .github/workflows/create-release.yml, .github/workflows/release-macos.yml, .github/workflows/release-windows.yml]
 depends_on: [tech-structure]
 review_cycle: monthly
 ---
@@ -209,6 +209,28 @@ behind every one of these four recipes; `verify` reads whichever manifest `--out
 tenant of its own. `web-assets-verify` and `web-assets-verify-drawio` are the cheap check for the one
 event worth failing on: the upstream source changing a file at the pinned version or hash underneath
 the manifest the repository is committed to.
+
+### Help content
+
+| Command | Does |
+|---|---|
+| `just help-check` | Validate `help/` — frontmatter, unique ids, links, images, context keys, nav reachability |
+| `just help-bundle` | Validate, then write `target/help/help.bundle` |
+| `just help-clean` | Remove `target/help/` |
+
+`_tools/helpbundle.py` is the one script behind all three, and it is the whole build: no `build.rs`
+and no `cargo` step knows help exists (`D146`). `help-check` is part of `just verify` and passes
+trivially when there is no `help/` tree, so a clone that has never built the content still verifies.
+`help-bundle` writes one `UBIQBND1` archive — the same format the vendor bundles use — carrying every
+page, every image and a derived `catalog.json`. `dev`, `verbose`, `build`, `bundle` and `bundle-win`
+all depend on `help-bundle`, so the archive is rebuilt before any of them runs; `bundle` and
+`bundle-win` then copy `target/help/help.bundle` beside the binary. Nothing has to be remembered —
+the recipe is the dependency, not a separate step — and a tree with no `help/` content still builds
+and runs, opening a help panel that says so rather than failing.
+
+`--out-dir DIR` overrides the default `target/help` — Studio's Justfile passes its own, because it
+compiles both binaries into a `target/` one level up from this checkout (`_docs/tech/operations.md`
+in `ubiq-studio` has the detail).
 
 ### Housekeeping
 

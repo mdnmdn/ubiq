@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use ubiq_proto::ids::{PaneId, ProjectId, TaskId};
 use ubiq_proto::work::AgentId;
 
-pub use text::{NotALink, resolve_relative};
+pub use text::{NotALink, parse_link, resolve_relative};
 
 use crate::state::dock::ChatId;
 use crate::state::orchestration::{InspectorTab, Selection};
@@ -81,6 +81,7 @@ impl Destination {
             View::Agents { .. } => "Agents".into(),
             View::Tasks { .. } => "Task".into(),
             View::Chat { .. } => "Chat".into(),
+            View::Help { page } => format!("Help: {page}"),
         }
     }
 }
@@ -127,6 +128,12 @@ pub enum View {
     /// Process-local: a chat tab's id is minted by this window and means nothing tomorrow.
     Chat {
         chat: ChatId,
+    },
+    /// One page of Ubiq's own documentation, by its id — never by its path, which is the whole
+    /// reason a help page has an id. A page this build's bundle does not hold is still a place:
+    /// the panel says the page has not been written rather than refusing the link.
+    Help {
+        page: String,
     },
 }
 

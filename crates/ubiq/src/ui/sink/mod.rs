@@ -36,6 +36,12 @@ use crate::ui::indexed;
 use crate::ui::kit::panel::tab_strip;
 use crate::ui::kit::{Tab, ghost_button, modal, modal_note, mono, primary_button};
 
+/// The help page this screen claims — rung 1. The sink is a rail mode and could be bound by
+/// `rail.sink`, but it is the third proof of the mechanism and the cheapest one to read.
+pub fn help_page() -> Option<&'static str> {
+    Some("style-reference")
+}
+
 pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> AnyElement {
     let view = cx.entity();
     let section = app.sink.section;

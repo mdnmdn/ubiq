@@ -27,6 +27,8 @@
 //!   handle
 //! - `kb`: the `ubiq-kb` server, reaching the project's knowledge base through [`crate::kb`] and
 //!   its `ops` on the same shape
+//! - `help`: the `ubiq-help` server, reaching Ubiq's own documentation through [`crate::help`] —
+//!   an agent's read of the same manual a person opens with the `?` in the titlebar
 //!
 //! The boundary this sits inside is the ordinary one: nothing here draws. A notification a tool
 //! raised goes through [`ubiq_proto::bus::Voice`] as
@@ -35,6 +37,7 @@
 //! board redraws without the coordinator answering a question.
 
 pub mod catalogue;
+mod help;
 mod kb;
 pub mod registry;
 pub mod server;
@@ -74,4 +77,15 @@ pub struct WorkAccess {
 pub struct KbReach {
     pub kb: Arc<crate::kb::Kb>,
     pub everyone: Mailbox,
+}
+
+/// How the help tools reach Ubiq's own documentation.
+///
+/// No `everyone` mailbox: nothing a help tool does changes anything a window would need to
+/// re-draw for — every tool here only reads a catalogue [`crate::help::Help`] has already
+/// resolved, on the same standing [`crate::help`]'s module doc gives for why that resolution
+/// itself needs no thread either. `Arc` for the reason [`KbReach`]'s does: the coordinator holds
+/// one clone, the listener thread another, and both must see the one cached outcome.
+pub struct HelpReach {
+    pub help: Arc<crate::help::Help>,
 }

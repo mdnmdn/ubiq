@@ -38,6 +38,7 @@ use crate::conversation_record::{self, ConversationRecord};
 use crate::files::{self, Files};
 use crate::git::{self, Git};
 use crate::health;
+use crate::help::Help;
 use crate::host_meta::{self, HostMeta};
 use crate::kb::{self, Kb};
 use crate::notifications;
@@ -161,6 +162,12 @@ struct Coordinator {
     /// in flight and nothing else — the download is a thread of its own, for the same reason a
     /// clone is.
     web_assets: WebAssets,
+    /// Ubiq's own documentation: where the bundle this build ships was found, and the catalogue
+    /// parsed out of it once. Answers every ask itself — no thread, no watcher list, unlike
+    /// [`Self::web_assets`], for the reason [`crate::help`]'s module doc gives. `Arc` because the
+    /// MCP listener's `ubiq-help` server holds the same instance on its own thread, on
+    /// [`Self::kb`]'s own footing.
+    help: Arc<Help>,
     /// The directory the host reserves for the interface, told to each window as it attaches and
     /// never composed by it. Reserved once here, because it belongs to no project and outlives
     /// every window.
@@ -751,6 +758,13 @@ impl Coordinator {
         // reads and writes the same sources a window does, and the in-flight sync states live in
         // this one object's memory.
         let kb = Arc::new(Kb::new(root.path.clone()));
+        // Reserved here rather than beside `web_assets` below: the MCP listener's `ubiq-help`
+        // server needs it started before it can be handed to `mcp::start`, on the same footing as
+        // the knowledge base above. It belongs to no project, and the interface is told a path
+        // rather than a maybe — a root that will not take the directory is still named, because
+        // what is kept there is a cache and downgrades rather than fails.
+        let shared_workarea_path = crate::projects::reserve_shared_workarea(&root.path);
+        let help = Arc::new(Help::new(std::path::PathBuf::from(&shared_workarea_path)));
         let mcp_agents = crate::mcp::Registry::new();
         let mcp = crate::mcp::start(
             mcp_agents.clone(),
@@ -763,6 +777,7 @@ impl Coordinator {
                 kb: kb.clone(),
                 everyone: host.mailbox(To::Everyone),
             }),
+            Some(crate::mcp::HelpReach { help: help.clone() }),
         )
         .inspect_err(|error| {
             tracing::warn!("Ubiq's own MCP servers are not available: {error:#}");
@@ -786,10 +801,10 @@ impl Coordinator {
         let settings = Arc::new(settings);
         let connectors = Connectors::new(settings.clone(), &root.path);
         let repos = Repos::new(settings.clone(), connectors.store());
-        // Reserved once, not per attach: it belongs to no project, and the interface is told a
-        // path rather than a maybe. A root that will not take the directory is still named — what
-        // is kept there is a cache, so the interface downgrades rather than fails.
-        let shared_workarea = crate::projects::reserve_shared_workarea(&root.path);
+        // `shared_workarea_path` was reserved above, before `mcp::start`, because `help` had to
+        // exist by then; kept under this name for every use from here on, the way `web_assets`
+        // has always been told it.
+        let shared_workarea = shared_workarea_path;
         let web_assets = WebAssets::new(std::path::PathBuf::from(&shared_workarea));
         // The provider family shares the connector family's keychain — one store, one probe of
         // whether this platform has one — and is built before the backend because it is what
@@ -873,6 +888,7 @@ impl Coordinator {
             connectors,
             repos,
             web_assets,
+            help,
             shared_workarea,
             agents,
             catalogue,
@@ -1711,6 +1727,15 @@ impl Coordinator {
             Message::EnsureWebBundle { app } => {
                 let (asker, _) = self.sinks(client);
                 self.web_assets.ensure(client, &app, asker);
+            }
+
+            // Ubiq's own documentation. Resolved and, if needed, unpacked inline — no thread and
+            // no watcher list, because this is nothing like the web bundle above: a help bundle
+            // is already local, and the answer is cached after the first ask (`crate::help`'s
+            // module doc says why).
+            Message::EnsureHelp => {
+                let (asker, _) = self.sinks(client);
+                self.help.ensure(&asker);
             }
 
             // The `ubiq` command on PATH. Every path in the exchange is the host's: the interface
