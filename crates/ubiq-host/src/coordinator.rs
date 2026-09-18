@@ -1480,6 +1480,19 @@ impl Coordinator {
             } => {
                 self.list_harness_catalogue_job(client, agent_type, account);
             }
+            // Answered inline, with no thread and no process: this is a read of what a past
+            // handshake recorded, not a probe. A harness nothing has conversed with answers
+            // `None`, which is the truth rather than a failure.
+            Message::ListAcpCapabilities { agent_type } => {
+                let capabilities = self.catalogue.acp_capabilities(&agent_type);
+                self.host.send(
+                    To::Client(client),
+                    Message::AcpCapabilities {
+                        agent_type,
+                        capabilities,
+                    },
+                );
+            }
 
             Message::ListAccounts => {
                 self.send_accounts(client);
@@ -2829,6 +2842,20 @@ impl Coordinator {
         self.publish_conversation_flags(agent_id, |agent| {
             agent.config_dir = Some(config_dir);
         });
+
+        // An ACP agent states what it can do in the `initialize` it has just answered, and there
+        // is no second way to ask: no probe, no flag, nothing to shell out to. So the handshake is
+        // the discovery, and this is the one place it is recorded — keyed on the harness, because
+        // every session behind the same harness hears the same answer. Both surfaces that show it
+        // read the record rather than a live bridge, which is what lets them show it with nothing
+        // running. `None` for every harness on a wire of its own.
+        if let Some(capabilities) = bridge.acp_capabilities() {
+            self.catalogue.set_acp_capabilities(
+                &pending.agent_type,
+                now_ms(),
+                crate::agent::acp_capabilities(capabilities),
+            );
+        }
 
         // What actually reached the harness, not what the picker merely showed — a pick the user
         // opened and then abandoned never got here, so it never overwrites what launched.

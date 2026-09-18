@@ -323,6 +323,7 @@ impl Agents {
                     command: harness.command().to_string(),
                     available,
                     chat: harness.io_support().structured,
+                    acp: harness.io_support().acp,
                     modes: harness
                         .modes()
                         .into_iter()
@@ -1842,6 +1843,55 @@ pub fn quota_of(
         .quota(&record, login.as_ref())
         .with_context(|| format!("asking {agent_type} what '{account}' has left"))?;
     Ok(quota_snapshot(snapshot))
+}
+
+/// One ACP agent's `initialize` answer, as the wire spells it.
+///
+/// Mirrors field for field; see [`quota_source`] for why the mapping is written out rather than
+/// derived. `discovered_ms` is left at zero here — the store stamps it, because the store is what
+/// knows when the record was written.
+pub fn acp_capabilities(
+    capabilities: agent_manager::io::AcpCapabilities,
+) -> ubiq_proto::acp::AcpCapabilitiesRecord {
+    use ubiq_proto::acp as wire;
+    wire::AcpCapabilitiesRecord {
+        protocol_version: capabilities.protocol_version,
+        agent: capabilities
+            .agent
+            .map(|agent| wire::AcpImplementationRecord {
+                name: agent.name,
+                title: agent.title,
+                version: agent.version,
+            }),
+        groups: capabilities
+            .groups
+            .into_iter()
+            .map(|group| wire::AcpCapabilityGroupRecord {
+                label: group.label,
+                entries: group
+                    .entries
+                    .into_iter()
+                    .map(|entry| wire::AcpCapabilityRecord {
+                        id: entry.id,
+                        label: entry.label,
+                        supported: entry.supported,
+                        description: entry.description,
+                    })
+                    .collect(),
+            })
+            .collect(),
+        auth_methods: capabilities
+            .auth_methods
+            .into_iter()
+            .map(|method| wire::AcpAuthMethodRecord {
+                id: method.id,
+                name: method.name,
+                description: method.description,
+                default: method.default,
+            })
+            .collect(),
+        discovered_ms: 0,
+    }
 }
 
 /// The library's quota source, as the wire spells it.

@@ -7,6 +7,7 @@
 //! one place — `AppState` — responsible for state and redraws.
 
 pub mod a2ui;
+pub mod acp_capabilities;
 pub mod agents;
 pub mod all_projects;
 pub mod board;

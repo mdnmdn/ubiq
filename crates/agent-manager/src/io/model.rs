@@ -1012,6 +1012,19 @@ pub trait IoBridge: Send {
     fn killer(&self) -> Option<Arc<dyn AgentKill>> {
         None
     }
+
+    /// What the agent on the other end said it can do, where this bridge speaks
+    /// ACP and has finished its handshake.
+    ///
+    /// `None` for every other bridge, and that is the honest answer rather than an
+    /// empty record: a harness with its own wire advertises nothing of the kind,
+    /// and "nothing was advertised" and "everything is unsupported" are different
+    /// statements. **The `initialize` that answers this happens once, when the
+    /// bridge is built** — reading it here costs no frame and asks the agent
+    /// nothing.
+    fn acp_capabilities(&self) -> Option<crate::io::AcpCapabilities> {
+        None
+    }
 }
 
 #[cfg(test)]

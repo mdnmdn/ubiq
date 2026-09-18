@@ -1743,6 +1743,7 @@ fn account_block(
                     .flex_col()
                     .child(harness_row(app, &id, agent_type, now_ms, cx))
                     .child(harness_quota(app, &id, agent_type, now_ms, cx))
+                    .child(harness_capabilities(app, agent_type, now_ms))
                     .into_any_element()
             })
             .collect()
@@ -1969,6 +1970,33 @@ fn harness_quota(
     ));
 
     block.child(foot).into_any_element()
+}
+
+/// What an ACP harness said it can do, under the login it was discovered through.
+///
+/// Drawn only for a harness that speaks ACP — for any other there is nothing to say that the
+/// absence of the block does not already say, and an empty section per login would be four
+/// headings answering a question nobody asked. The panel itself is shared with the conversation
+/// info modal: see [`crate::ui::acp_capabilities::panel`].
+fn harness_capabilities(app: &AppState, agent_type: &str, now_ms: i64) -> AnyElement {
+    let acp = app
+        .workbench
+        .agent_type(agent_type)
+        .is_some_and(|info| info.acp);
+    if !acp {
+        return div().into_any_element();
+    }
+
+    div()
+        .pl_2()
+        .pb_1()
+        .child(crate::ui::acp_capabilities::panel(
+            agent_type,
+            app.workbench.settings.acp_capabilities(agent_type),
+            true,
+            now_ms,
+        ))
+        .into_any_element()
 }
 
 /// One window the provider states: what it calls it, how full it is, the reading in words, and

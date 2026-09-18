@@ -761,6 +761,20 @@ impl WorkbenchState {
         rows
     }
 
+    /// One harness by the library's id, where the host still lists it. `None` for a harness that
+    /// has been uninstalled, or that this build has simply not been told about yet.
+    pub fn agent_type(&self, id: &str) -> Option<&AgentTypeInfo> {
+        self.agent_types.iter().find(|info| info.id == id)
+    }
+
+    /// One harness by its **display label**, which is all a `WorkAgent` carries: the host mints the
+    /// label from the library and hands it to the work record, so a surface reading a record rather
+    /// than a form has nothing else to match on. The inverse of what `ui::settings::harness_label`
+    /// does, and here rather than beside it because two surfaces want it.
+    pub fn agent_type_by_label(&self, label: &str) -> Option<&AgentTypeInfo> {
+        self.agent_types.iter().find(|info| info.label == label)
+    }
+
     /// Whether the explorer and the chat are on screen at all. They are IDE furniture and leave
     /// together — every other panel outlives a rail-mode switch, and the centre panel is what the
     /// mode actually selects between.
@@ -781,6 +795,7 @@ mod tests {
             command: id.to_string(),
             available,
             chat: true,
+            acp: false,
             modes: Vec::new(),
             unattended_mode: None,
             keeps_sessions: true,

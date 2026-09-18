@@ -27,6 +27,9 @@ use ubiq::state::conversation::{
 };
 use ubiq::state::{NewAgentSurface, WindowRegistry};
 use ubiq::ui::conversation::{self, ConversationView};
+use ubiq_proto::acp::{
+    AcpCapabilitiesRecord, AcpCapabilityGroupRecord, AcpCapabilityRecord, AcpImplementationRecord,
+};
 use ubiq_proto::bus::{self, FromClient, To};
 use ubiq_proto::conversation::{
     ConfigCategory, ConfigChoice, ConfigOption, ConfigValue, ConvContent, ConvUpdate,
@@ -492,6 +495,7 @@ fn the_plus_menu_offers_the_form_and_the_attach_list(cx: &mut TestAppContext) {
                 command: "claude".to_string(),
                 available: true,
                 chat: true,
+                acp: false,
                 modes: Vec::new(),
                 unattended_mode: None,
                 keeps_sessions: true,
@@ -2342,4 +2346,111 @@ fn resetting_a_composer_returns_it_to_growing_with_what_is_typed(cx: &mut TestAp
         Some(COMPOSER_ROWS_MIN + 1),
         "a reset field was dragged from the size it was reset out of"
     );
+}
+
+/// What an ACP agent said it can do is discovered, asked once, and asked only of a harness that
+/// speaks ACP at all.
+///
+/// The three claims are one test because they are one rule: the record is a harness fact the host
+/// already holds, so the window puts the question lazily and keeps the answer — and a harness with
+/// a wire of its own has no answer, which `AgentTypeInfo::acp` is the only honest way to tell from
+/// a harness nothing has conversed with yet.
+#[gpui::test]
+fn acp_capabilities_are_asked_once_and_only_of_an_acp_harness(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    fixture.host.send(
+        To::Everyone,
+        Message::AgentTypes {
+            agent_types: vec![
+                an_acp_harness("claude-code", "Claude Code", false),
+                an_acp_harness("claude-code-acp", "Claude Code (ACP)", true),
+            ],
+        },
+    );
+    cx.run_until_parked();
+    let _ = fixture.said();
+
+    fixture.state.update(cx, |state, _| {
+        state.ask_acp_capabilities("claude-code".to_string());
+        state.ask_acp_capabilities("claude-code-acp".to_string());
+        state.ask_acp_capabilities("claude-code-acp".to_string());
+    });
+    cx.run_until_parked();
+
+    let asked: Vec<String> = fixture
+        .said()
+        .into_iter()
+        .filter_map(|message| match message {
+            Message::ListAcpCapabilities { agent_type } => Some(agent_type),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        asked,
+        vec!["claude-code-acp".to_string()],
+        "the harness with its own wire was asked a question it has no answer to, or the ACP one \
+         was asked twice"
+    );
+
+    // Nothing has answered yet, which is its own reading rather than an empty list.
+    assert!(
+        fixture.state.read_with(cx, |state, _| state
+            .workbench
+            .settings
+            .acp_capabilities("claude-code-acp")
+            .is_none()),
+        "a record appeared before the host said anything"
+    );
+
+    fixture.host.send(
+        To::Everyone,
+        Message::AcpCapabilities {
+            agent_type: "claude-code-acp".to_string(),
+            capabilities: Some(AcpCapabilitiesRecord {
+                protocol_version: 1,
+                agent: Some(AcpImplementationRecord {
+                    name: "claude-code-acp".to_string(),
+                    title: Some("Claude Code".to_string()),
+                    version: Some("0.4.2".to_string()),
+                }),
+                groups: vec![AcpCapabilityGroupRecord {
+                    label: "Prompt content".to_string(),
+                    entries: vec![AcpCapabilityRecord {
+                        id: "promptCapabilities.image".to_string(),
+                        label: "Images".to_string(),
+                        supported: true,
+                        description: "A turn may carry an image.".to_string(),
+                    }],
+                }],
+                auth_methods: Vec::new(),
+                discovered_ms: 1_700_000_000_000,
+            }),
+        },
+    );
+    cx.run_until_parked();
+
+    assert_eq!(
+        fixture.state.read_with(cx, |state, _| state
+            .workbench
+            .settings
+            .acp_capabilities("claude-code-acp")
+            .map(|record| (record.protocol_version, record.groups.len()))),
+        Some((1, 1)),
+        "the answer never landed where the two surfaces read it"
+    );
+}
+
+fn an_acp_harness(id: &str, label: &str, acp: bool) -> AgentTypeInfo {
+    AgentTypeInfo {
+        id: id.to_string(),
+        label: label.to_string(),
+        command: id.to_string(),
+        available: true,
+        chat: true,
+        acp,
+        modes: Vec::new(),
+        unattended_mode: None,
+        keeps_sessions: true,
+        quota: Default::default(),
+    }
 }

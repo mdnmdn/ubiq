@@ -1,5 +1,5 @@
-//! The on-disk harness catalogue cache: model + reasoning-level answers, keyed on the harness
-//! binary's own version string.
+//! The on-disk harness catalogue cache: model + reasoning-level answers keyed on the harness
+//! binary's own version string, and the ACP capabilities an agent last stated.
 //!
 //! Modelled line for line on [`super::file::FileProjectStore`] — one TOML file, an `RwLock` live
 //! copy, a `durable: AtomicBool` degradation — with one deliberate difference: this is a cache,
@@ -11,6 +11,7 @@ use std::sync::RwLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::{Deserialize, Serialize};
+use ubiq_proto::acp::AcpCapabilitiesRecord;
 
 use crate::atomic::write_atomic;
 
@@ -55,6 +56,22 @@ struct CacheEntry {
     model: Vec<CachedModel>,
 }
 
+/// What an ACP agent on this harness said it can do, and when it said it.
+///
+/// One row per harness — not per account and not per version. An ACP agent answers `initialize`
+/// the same way whoever is signed in, and an answer from an older build is still the last true
+/// answer, so a version mismatch is not a miss here the way it is for [`CacheEntry`]. Which build
+/// answered is inside the record, stated by the agent itself.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct AcpEntry {
+    harness: String,
+    #[serde(default)]
+    discovered_ms: i64,
+    /// The record itself, in the wire's own vocabulary — the host maps the library's answer onto
+    /// it once, at capture, so nothing re-maps on the way out.
+    capabilities: AcpCapabilitiesRecord,
+}
+
 /// The model and thinking level a harness was last actually launched with — not the harness's own
 /// default, and not account-scoped (the user asked for per-harness). Empty means "no flag was
 /// passed", the same convention `crate::coordinator`'s `PendingConversation.chosen_model` and
@@ -77,6 +94,8 @@ struct HarnessCacheFile {
     entries: Vec<CacheEntry>,
     #[serde(default, rename = "last_used", skip_serializing_if = "Vec::is_empty")]
     last_used: Vec<LastUsedEntry>,
+    #[serde(default, rename = "acp", skip_serializing_if = "Vec::is_empty")]
+    acp: Vec<AcpEntry>,
 }
 
 /// The harness catalogue cache, as one TOML file under `<config_root>/cache/harness-models.toml`.
@@ -88,6 +107,8 @@ pub struct FileHarnessCache {
     /// The last model/thinking a harness actually launched with, one row per harness (not
     /// account: the user asked to remember per-harness only).
     last_used: RwLock<Vec<LastUsedEntry>>,
+    /// What each ACP harness last said it can do, one row per harness. See [`AcpEntry`].
+    acp: RwLock<Vec<AcpEntry>>,
     /// Cleared by the first failed write. A cache write failing is not worth telling anyone about
     /// twice: the answer just costs a re-probe next time, forever, until the process restarts.
     durable: AtomicBool,
@@ -101,6 +122,7 @@ impl FileHarnessCache {
             path,
             entries: RwLock::new(Vec::new()),
             last_used: RwLock::new(Vec::new()),
+            acp: RwLock::new(Vec::new()),
             durable: AtomicBool::new(true),
         };
         cache.load();
@@ -123,6 +145,10 @@ impl FileHarnessCache {
         *self.entries.write().unwrap_or_else(|e| e.into_inner()) = file
             .as_ref()
             .map(|file| file.entries.clone())
+            .unwrap_or_default();
+        *self.acp.write().unwrap_or_else(|e| e.into_inner()) = file
+            .as_ref()
+            .map(|file| file.acp.clone())
             .unwrap_or_default();
         *self.last_used.write().unwrap_or_else(|e| e.into_inner()) =
             file.map(|file| file.last_used).unwrap_or_default();
@@ -208,18 +234,67 @@ impl FileHarnessCache {
         self.flush();
     }
 
+    /// What `harness`'s ACP agent last said it can do, with the version that said it and the
+    /// moment it did folded in. `None` where no ACP handshake on this harness has ever been seen —
+    /// which is the permanent answer for a harness that speaks its own wire, and the temporary one
+    /// for an ACP harness nothing has conversed with yet.
+    pub fn acp_capabilities(&self, harness: &str) -> Option<AcpCapabilitiesRecord> {
+        self.acp
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .find(|e| e.harness == harness)
+            .map(|e| {
+                let mut record = e.capabilities.clone();
+                record.discovered_ms = e.discovered_ms;
+                record
+            })
+    }
+
+    /// Record what `harness`'s ACP agent just said, replacing whatever it said before. Called once
+    /// per ACP bridge, from the conversation pump, right after the handshake that produced it —
+    /// there is no probe that asks this question on its own.
+    pub fn set_acp_capabilities(
+        &self,
+        harness: &str,
+        discovered_ms: i64,
+        capabilities: AcpCapabilitiesRecord,
+    ) {
+        {
+            let mut acp = self.acp.write().unwrap_or_else(|e| e.into_inner());
+            match acp.iter_mut().find(|e| e.harness == harness) {
+                Some(existing) => {
+                    existing.discovered_ms = discovered_ms;
+                    existing.capabilities = capabilities;
+                }
+                None => acp.push(AcpEntry {
+                    harness: harness.to_string(),
+                    discovered_ms,
+                    capabilities,
+                }),
+            }
+        }
+        if !self.durable.load(Ordering::Relaxed) {
+            return;
+        }
+        self.flush();
+    }
+
     /// Rewrite the file from what is in memory. Failure just flips `durable` — losing this cache
     /// loses nothing but the next probe's shortcut.
     fn flush(&self) {
         let entries = self.entries.read().unwrap_or_else(|e| e.into_inner());
         let last_used = self.last_used.read().unwrap_or_else(|e| e.into_inner());
+        let acp = self.acp.read().unwrap_or_else(|e| e.into_inner());
         let file = HarnessCacheFile {
             version: HARNESS_CACHE_VERSION,
             entries: entries.clone(),
             last_used: last_used.clone(),
+            acp: acp.clone(),
         };
         drop(entries);
         drop(last_used);
+        drop(acp);
 
         let Ok(body) = toml::to_string_pretty(&file) else {
             return;
@@ -418,5 +493,64 @@ mod tests {
             reopened.last_used("claude-code"),
             Some(("sonnet".to_string(), "high".to_string()))
         );
+    }
+
+    fn one_record() -> AcpCapabilitiesRecord {
+        AcpCapabilitiesRecord {
+            protocol_version: 1,
+            agent: Some(ubiq_proto::acp::AcpImplementationRecord {
+                name: "opencode".to_string(),
+                title: None,
+                version: Some("1.18.28".to_string()),
+            }),
+            groups: vec![ubiq_proto::acp::AcpCapabilityGroupRecord {
+                label: "Sessions".to_string(),
+                entries: vec![ubiq_proto::acp::AcpCapabilityRecord {
+                    id: "loadSession".to_string(),
+                    label: "Load session".to_string(),
+                    supported: true,
+                    description: String::new(),
+                }],
+            }],
+            auth_methods: Vec::new(),
+            discovered_ms: 0,
+        }
+    }
+
+    #[test]
+    fn acp_capabilities_round_trip_through_the_file() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let cache = FileHarnessCache::new(cache_path(&dir));
+        cache.set_acp_capabilities("opencode", 1_700_000_000_000, one_record());
+
+        let reopened = FileHarnessCache::new(cache_path(&dir));
+        let got = reopened.acp_capabilities("opencode").expect("a record");
+        assert_eq!(got.protocol_version, 1);
+        assert_eq!(got.discovered_ms, 1_700_000_000_000);
+        assert_eq!(got.groups[0].entries[0].id, "loadSession");
+    }
+
+    /// The record is keyed on the harness alone, so a second handshake replaces the first rather
+    /// than accumulating a row per run.
+    #[test]
+    fn a_second_handshake_replaces_the_record() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let cache = FileHarnessCache::new(cache_path(&dir));
+        cache.set_acp_capabilities("opencode", 1, one_record());
+        let mut later = one_record();
+        later.groups[0].entries[0].supported = false;
+        cache.set_acp_capabilities("opencode", 2, later);
+
+        let got = cache.acp_capabilities("opencode").expect("a record");
+        assert_eq!(got.discovered_ms, 2);
+        assert!(!got.groups[0].entries[0].supported);
+    }
+
+    /// A harness nothing has conversed with has no record, which is the answer the wire carries.
+    #[test]
+    fn a_harness_with_no_handshake_has_no_record() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let cache = FileHarnessCache::new(cache_path(&dir));
+        assert!(cache.acp_capabilities("claude-code").is_none());
     }
 }

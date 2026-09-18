@@ -79,6 +79,7 @@ The control path. Lower volume, request-and-response.
 | `ListAgentTypes` | UI → coordinator | — | `AgentTypes` |
 | `CheckAgentCommand` | UI → coordinator | `agent_type`, `command` | `AgentCommandChecked` |
 | `ListHarnessCatalogue` | UI → coordinator | `agent_type`, `account?` | `HarnessCatalogue` |
+| `ListAcpCapabilities` | UI → coordinator | `agent_type` | `AcpCapabilities` |
 | `SessionList` | coordinator → UI | `sessions[]` | — |
 | `SessionCreated` | coordinator → UI | `session` | — |
 | `SessionAttached` | coordinator → UI | `session`, `workspaces[]` | — |
@@ -86,6 +87,7 @@ The control path. Lower volume, request-and-response.
 | `AgentTypes` | coordinator → UI | `agent_types[]` | — |
 | `AgentCommandChecked` | coordinator → UI, asking client only | `agent_type`, `ok`, `detail` | — |
 | `HarnessCatalogue` | coordinator → UI, asking client only | `agent_type`, `account?`, `models[]`, `last_model`, `last_thinking` | — |
+| `AcpCapabilities` | coordinator → UI, asking client only | `agent_type`, `capabilities?` | — |
 | `Status` | coordinator → UI | `message` | — |
 | `Error` | coordinator → UI | `message` | — |
 
@@ -261,6 +263,36 @@ along as the cache key's identity leg; the probe itself is per harness. `last_mo
 ever went out — the same convention the host's own `chosen_model` follows — and they are a
 preselection, never a promise: a model gone since simply preselects nothing. The answer goes to
 the asking client only, because a form is one window's question.
+
+**`ListAcpCapabilities` reads what an ACP agent already said; it never asks one.** An ACP agent
+states what it can do exactly once, in the `initialize` answer that opens a session, and there is
+no flag and no subcommand that asks the same question of a process not already running. So the
+handshake *is* the discovery: `AcpBridge` reads that answer into an `AcpCapabilities` the moment it
+has it, `IoBridge::acp_capabilities` is how a caller holding the bridge type-erased reaches it
+(`None` for every bridge on a wire of its own), and the coordinator records it against the harness
+id when a conversation starts. **One discovery, two readers** — the harness settings and the
+conversation info modal both read that record, and neither opens a connection of its own.
+
+The record is keyed on the harness alone, not on the account and not on the binary's version: an
+ACP agent answers `initialize` the same way whoever is signed in, and an answer from an older build
+is still the last true answer. So nothing invalidates it; `discovered_ms` says how old it is and
+the agent's own `agentInfo.version` says which build answered. A second handshake replaces it.
+
+The pair is therefore a read, answered inline with no thread and no process — the opposite of
+`ListHarnessCatalogue`, which shells out. `capabilities` is absent when no ACP handshake on this
+harness has ever been seen, which covers two different situations the host does not distinguish:
+the harness speaks its own wire, or it speaks ACP and nothing has conversed with it yet.
+**`AgentTypeInfo::acp` is what tells them apart**, and it is a fact of the harness known before
+anything is spawned — the same fact-before-process split `chat` and `quota` make. A surface reads
+it to decide whether to offer the list at all, rather than inferring it from a harness id: `-acp`
+in a name is a naming convention, and three of the five ACP harnesses do not carry it.
+
+A row inside the record is prose plus a boolean, never a parsed tree. ACP's own rule is that adding
+a capability is never a breaking change, so an agent may advertise something no build of Ubiq has
+heard of; the library lists such a key under `Other` with an empty `description` rather than
+dropping it, and a wire record of named booleans could not have carried it. What is *not* in the
+record is anything from `authMethods` beyond an id, a name and a line of prose — the domain rule
+that accounts carry credential references and never credential material holds here too.
 
 **Runnable tools are shells the user wrote.** `ListTools` names the project whose rows are wanted —
 absent for none — and the host answers `ToolsListed` with the machine-wide rows and that
@@ -1123,7 +1155,12 @@ Forty-seven records travel inside payloads.
 | `SessionInfo` | `id`, `name`, `home_folder`, `created_at` |
 | `WorkspaceInfo` | `id`, `session_id`, `project_id`, `rel_path?`, `agent_type`, `cols`, `rows`, `running`, `wait_on_exit`, `tool?` |
 | `ShellInfo` | `label`, `program`, `is_default` |
-| `AgentTypeInfo` | `id`, `label`, `command`, `available`, `chat`, `modes[]`, `unattended_mode?`, `keeps_sessions` |
+| `AgentTypeInfo` | `id`, `label`, `command`, `available`, `chat`, `acp`, `modes[]`, `unattended_mode?`, `keeps_sessions`, `quota` |
+| `AcpCapabilitiesRecord` | `protocol_version`, `agent?`, `groups[]`, `auth_methods[]`, `discovered_ms` |
+| `AcpImplementationRecord` | `name`, `title?`, `version?` |
+| `AcpCapabilityGroupRecord` | `label`, `entries[]` |
+| `AcpCapabilityRecord` | `id`, `label`, `supported`, `description` |
+| `AcpAuthMethodRecord` | `id`, `name`, `description?`, `default` |
 | `ToolDef` | `id`, `name`, `command`, `args`, `env`, `platforms[]`, `wait_on_exit`, `single_instance` |
 | `ToolRun` | `scope`, `id` |
 | `ListedTool` | `scope`, `tool`, `applicable` |
