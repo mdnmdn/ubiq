@@ -167,10 +167,25 @@ panes keep drawing — an agent working in the background stays visible — but 
 **Bytes are forwarded, never interpreted, except a closed intercept set.** Output from the harness
 goes straight into the pane's emulator; keystrokes from the focused pane go straight to the harness
 unless they are one of: platform copy (`Cmd+C` on Mac, `Ctrl+Shift+C` elsewhere), platform paste
-(`Cmd+V` / `Ctrl+Shift+V`), or a defocus chord (`Shift+Escape`, `Ctrl+Escape`, `Cmd+Escape`).
-Bare Escape is `\x1b` to the harness. Copy with no selection
-is consumed and does nothing; paste wraps the clipboard in bracketed paste. Tab and Shift+Tab reach
+(`Cmd+V` on Mac, `Ctrl+Shift+V` elsewhere and `Ctrl+V` as well on Windows), or a defocus chord
+(`Shift+Escape`, `Ctrl+Escape`, `Cmd+Escape`). Bare Escape is `\x1b` to the harness. Copy with no
+selection is consumed and does nothing. Tab and Shift+Tab reach
 the harness: the emulator's `Terminal` key context suppresses the window's focus-cycle bindings.
+
+**A paste is bracketed only when the program asked for it.** Bracketing is a request: a program
+sets DECSET 2004 so it can tell pasted text from typing, and one that never asked has no parser for
+`\x1b[200~` — wrapping its paste hands it the markers as input. `input::paste_bytes` brackets when
+the mode is set and otherwise sends the text plain, with every newline turned into the carriage
+return a console submits a line on. The same function serves the paste chord and an OS file drop.
+
+**Windows pastes on `Ctrl+V` and on the right button; nowhere else does.** `Ctrl+Shift+V` is the X11
+convention, and it exists because `Ctrl+V` is a control character readline reads as quoted-insert.
+Windows never had it — conhost, PowerShell and Windows Terminal all paste on `Ctrl+V` — so there the
+terminal takes both, and loses quoted-insert from the keyboard for it. The right button is the same
+console convention and is confined the same way: it pastes on Windows only, and only past the
+mouse-reporting check, so a program that asked for the mouse still gets the button. On macOS and
+Linux the right button reaches the emulator — mouse reporting and focus — and is otherwise the
+platform's.
 
 **`Ctrl+C` is SIGINT, except on Windows with a selection.** Windows is the one exception, because
 conhost and Windows Terminal have taught every Windows user that `Ctrl+C` copies what is selected:
@@ -325,7 +340,7 @@ stream. The palette it is given is
 [`../tech/ui-and-design.md`](../tech/ui-and-design.md)'s, including the selection and link tokens.
 
 Copy, paste, OSC 52, mouse selection, hyperlinks and file drops are the emulator's: `TerminalView`
-intercepts the copy and paste shortcuts, writes bracketed paste and OSC 52 replies to the pane's
+intercepts the copy and paste shortcuts, writes `paste_bytes` output and OSC 52 replies to the pane's
 `Write`, drives alacritty's `Term::selection`, and paints selection and link underlines in
 `vendor/gpui-terminal/src/render.rs`. The answers the harness asks the emulator for travel the
 same way back: the parser composes them and reports a `PtyWrite`, which the view writes to the
