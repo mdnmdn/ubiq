@@ -5,7 +5,7 @@ kind: meta
 status: current
 summary: Append-only ledger of documentation changes the bookkeeper may not make unilaterally, and the resolutions they received.
 read_when: you are a bookkeeper with a structural itch you may not act on yourself, or you are triaging one
-updated: 2026-09-17
+updated: 2026-09-18
 verified: 2026-09-17
 depends_on: [meta-librarian]
 review_cycle: quarterly
@@ -41,6 +41,7 @@ library (here) or changes what Ubiq does (there).
 
 | P20 | 2026-09-17 | `tech/agent-manager.md` | split | The document sat exactly at the 500-line ceiling and crossed it to 505 in the round that documented Windows pane confinement (the `am-confine` shim, the `ConfinePayload` contract, the Linux-only gap that remains). `just docs-lint` now fails on it. No natural cut announces itself the way `workbench.md`'s screens or `chat.md`'s tab-versus-view split did — the document holds just the two subjects `INDEX.md` charters it for, the boundary and how Ubiq consumes it, and the new paragraph belongs entirely to the second. Filing this rather than picking a cut myself | open |
 | P21 | 2026-09-18 | `tech/agent-manager.md` | split | Sharpens `P20`, which is now worse rather than a restatement: the document is 525 lines, further past the 500-line ceiling, in the round that added the boot-time `kill_descendants_on_exit()` job and the confine shim's `CREATE_NO_WINDOW` fix to the same Windows confinement paragraph `P20` names. Same shape `P20` already argues — no natural seam, both subjects belong to the boundary-consumption half — only heavier now. `just docs-lint` still fails on it | open |
+| P22 | 2026-09-18 | `tech/agent-manager.md` | split | Sharpens `P20`/`P21` again: the document is 549 lines in the round that documented the confined-Windows-`pwsh` fix, the `confined_shell_probe` example and the two isol8 findings it turned up (`G287`, `G288`). Same paragraph, same shape those two already argue — no seam has opened, the new material is one more increment to the Windows confinement half of "how Ubiq consumes it." Filing rather than picking a cut, same as before | open |
 
 ## Closed
 

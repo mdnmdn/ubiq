@@ -7,7 +7,7 @@ summary: What the embedded harness-management library owns, what Ubiq owns, how 
 read_when: you are about to write code that launches a harness, drives one as a conversation, names a harness config path, or touches accounts, skills or MCP servers
 updated: 2026-09-18
 verified: 2026-09-18
-code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/main.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/quota.rs, crates/agent-manager/src/credentials/mod.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/structured.rs, crates/ubiq-app/src/lib.rs, crates/agent-manager/src/io/mod.rs, crates/agent-manager/src/io/acp.rs, crates/agent-manager/src/io/acp_caps.rs, crates/agent-manager/src/io/acp_client.rs, crates/ubiq-host/src/mcp/mod.rs]
+code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/main.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/quota.rs, crates/agent-manager/src/credentials/mod.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/examples/confined_shell_probe.rs, crates/agent-manager/src/io/structured.rs, crates/ubiq-app/src/lib.rs, crates/agent-manager/src/io/mod.rs, crates/agent-manager/src/io/acp.rs, crates/agent-manager/src/io/acp_caps.rs, crates/agent-manager/src/io/acp_client.rs, crates/ubiq-host/src/mcp/mod.rs]
 depends_on: [tech-structure]
 review_cycle: monthly
 ---
@@ -441,6 +441,30 @@ for itself. Windows confinement also
 denies the network outright unless granted: isol8 checks a socket open (`\Device\Afd`) the same way
 it checks a file path, so `WINDOWS_DEVICE_RW` grants that device and `\Device\Nsi` read-write to
 every confined run and login — a capability grant, not one scoped to a host or port (`G281`).
+**A confined `pwsh` is denied before it runs a line, and the deny has no message.** PowerShell 7
+reads `Documents\PowerShell\powershell.config.json` at startup, before it parses its own command
+line; denied a file it can see but cannot open, it throws `PSInvalidOperationException` and exits
+with no line run and no denial logged anywhere isol8 writes — the two ConPTY probes that predate
+this never caught it because both run `powershell` (5.1), which uses the `WindowsPowerShell`
+sibling and does not read that file. `read_only_grants` now appends, Windows only,
+read-only grants on `Documents\PowerShell` and `Documents\WindowsPowerShell` under both the real
+home and `%OneDrive%` — folder redirection moves the known folder PowerShell resolves through the
+registry, which isol8 does not filter — narrow on purpose, since the grant is for a config file and
+never for `Documents` itself. `crates/agent-manager/examples/confined_shell_probe.rs` is what found
+it and what a future isol8 upgrade should be re-run against: it drives a confine payload the
+interface actually wrote through a battery of shells, swapping only `ConfinePayload::cmd`, with
+`PROBE_UNCONFINED=1` as the control. The same probe found a fault this crate cannot fix: a confined
+git-bash **hangs** the moment it forks — `bash -lc` and any pipeline, never `bash -c` alone, which
+`exec`s without forking — and no path grant reaches it, because the cause is isol8's Windows hook
+suspending, injecting and resuming every child it creates, which breaks msys2's own `fork`
+emulation. A confined Windows pane therefore has no working POSIX shell, so Claude Code's `Bash`
+tool run inside one never returns; the only escape today is `HostSettings.isolate_agents` off for
+the whole machine, with no per-pane override (`G301`). A third, cosmetic fault the same probe's
+policy surfaced: a rendered Windows spec carries a hundred macOS-shaped grants that isol8's own
+profile files ship with their `filter.os` commented out rather than set to `macos`, so nothing on
+this side zeroes them — inert, never functional (`G302`). All three are written up with their
+evidence in [`../inbox/isol8-upstream.md`](../inbox/isol8-upstream.md); only the first is fixed
+here.
 `isolate::confined_probe_launch` runs a different command under a login's exact policy, resolving it
 from the harness's own program before swapping in the argv — `crates/ubiq-host/src/agent.rs`'s login
 probe is the caller. Landlock has no rendered
