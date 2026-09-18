@@ -706,6 +706,10 @@ pub fn default_renew_via_launch<H: Harness + ?Sized>(
                 cmd.env(var, &dir);
             }
         }
+        // Renewal runs the harness headlessly just to let it refresh its own token, so it has no
+        // window to show — see `shared::no_window`.
+        #[cfg(windows)]
+        shared::no_window(&mut cmd);
         let status = cmd
             .status()
             .with_context(|| format!("running `{} {}`", harness.command(), renew_args.join(" ")))?;
@@ -934,8 +938,11 @@ pub trait Harness {
     /// line, trimmed — the shape every harness in the table answers.
     /// Verified: claude → "2.1.261 (Claude Code)", codex → "codex-cli 0.142.5".
     fn version(&self) -> Result<String> {
-        let output = std::process::Command::new(self.command())
-            .arg("--version")
+        let mut cmd = std::process::Command::new(self.command());
+        cmd.arg("--version");
+        #[cfg(windows)]
+        shared::no_window(&mut cmd);
+        let output = cmd
             .output()
             .with_context(|| format!("running `{} --version` (is it on PATH?)", self.command()))?;
         if !output.status.success() {

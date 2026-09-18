@@ -95,6 +95,113 @@ fn main() -> anyhow::Result<()> {
     println!("{}", String::from_utf8_lossy(&buf));
     println!("=== run B exit: {status:?} ===");
     println!("pass: run B reports size={COLS}x{ROWS}, redirected=False, exit 0");
+
+    input_round_trip(&confiner, &state, &profile, &env, &cwd)
+}
+
+/// Does a keystroke written to the pty master reach the confined child?
+///
+/// Run B proves output: the harness draws on the ConPTY the host opened. Output
+/// is only half a terminal. isol8 spawns with `bInheritHandles = FALSE` and sets
+/// no std handles, so the child takes the console's own — and whether the console
+/// hands it what the master writes is a separate fact from whether what it draws
+/// comes back, and the one a typist notices first.
+fn input_round_trip(
+    confiner: &std::path::Path,
+    state: &std::path::Path,
+    profile: &isol8::Profile,
+    env: &[(String, String)],
+    cwd: &std::path::Path,
+) -> anyhow::Result<()> {
+    // `Read-Host` reads the console the way an interactive program does.
+    // `[Console]::In.ReadLine()` does not, and a probe that fails unconfined
+    // measures nothing: that mistake once cleared the sandbox by accident.
+    let script = "$line = Read-Host; Write-Output \"TYPED:$line\"";
+    let payload = ConfinePayload {
+        profile: profile.clone(),
+        env: env.to_vec(),
+        cmd: vec![
+            "powershell".to_string(),
+            "-NoProfile".to_string(),
+            "-Command".to_string(),
+            script.to_string(),
+        ],
+        cwd: cwd.to_path_buf(),
+    };
+
+    let pair = native_pty_system().openpty(PtySize {
+        rows: ROWS,
+        cols: COLS,
+        pixel_width: 0,
+        pixel_height: 0,
+    })?;
+    // The control the whole claim rests on: the same command, the same ConPTY,
+    // spawned directly. If input does not reach an unconfined child either, this
+    // is measuring the pseudoconsole rather than the sandbox.
+    let mut spawn = if std::env::var_os("PROBE_UNCONFINED").is_some() {
+        let mut spawn = CommandBuilder::new(&payload.cmd[0]);
+        for arg in &payload.cmd[1..] {
+            spawn.arg(arg);
+        }
+        spawn
+    } else {
+        let mut spawn = CommandBuilder::new(confiner);
+        spawn.arg(CONFINE_ARG);
+        spawn.arg(payload.write(state)?);
+        spawn
+    };
+    spawn.cwd(cwd);
+    let mut child = pair.slave.spawn_command(spawn)?;
+
+    let mut reader = pair.master.try_clone_reader()?;
+    let mut writer = pair.master.take_writer()?;
+    drop(pair.slave);
+    let pump = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = std::io::Read::read_to_end(&mut reader, &mut buf);
+        buf
+    });
+
+    // The console needs the child attached and reading before anything typed at
+    // it means something.
+    std::thread::sleep(std::time::Duration::from_millis(1500));
+    // Carriage return, not newline: a console submits a line on CR, and a probe
+    // that sends only LF leaves `Read-Host` waiting forever — which reads exactly
+    // like input the sandbox swallowed.
+    std::io::Write::write_all(&mut writer, b"ubiq-typed-this\r")?;
+    std::io::Write::flush(&mut writer)?;
+
+    // Bounded: a child that never sees the input blocks in `ReadLine` forever,
+    // and a probe that hangs reports nothing at all.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break Some(status);
+        }
+        if std::time::Instant::now() >= deadline {
+            let _ = child.kill();
+            break None;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    };
+    drop(pair.master);
+    let buf = pump.join().unwrap_or_default();
+    let seen = String::from_utf8_lossy(&buf).into_owned();
+
+    println!("\n=== run C: what the confined child read from the ConPTY ===");
+    println!("{seen}");
+    match status {
+        Some(status) => println!("=== run C exit: {status:?} ==="),
+        None => println!("=== run C: still blocked in ReadLine after 10s, killed ==="),
+    }
+    println!(
+        "pass: run C echoes TYPED:ubiq-typed-this  —  {}",
+        if seen.contains("TYPED:ubiq-typed-this") {
+            "PASS"
+        } else {
+            "FAIL: input never reached the confined child"
+        }
+    );
     Ok(())
 }
 

@@ -2155,7 +2155,8 @@ pub struct AgentPicks {
 /// [`Message::SpawnWorkspace`].
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ShellInfo {
-    /// What the row says — the shell's own name, `zsh` or `pwsh`.
+    /// What the row says: the shell's own name on Unix (`zsh`), or a product name and version on
+    /// Windows (`PowerShell 7`, `Windows PowerShell 5.1`).
     pub label: String,
     pub program: String,
     /// Whether this is the one a bare click on the new-pane control already starts.

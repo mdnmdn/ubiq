@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: What a pane shows, how exactly one of them holds focus, how a resize reaches the harness, and how a pane is moved around the window's dock.
 read_when: you are changing where a pane sits, pane focus, resize, pane chrome, or how terminal bytes reach the screen
-updated: 2026-09-15
-verified: 2026-09-15
+updated: 2026-09-18
+verified: 2026-09-18
 code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/editor.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/new_pane_menu.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/tools.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/pty/mod.rs, crates/ubiq-host/src/shells.rs, vendor/gpui-terminal/src/view.rs, vendor/gpui-terminal/src/render.rs, vendor/gpui-terminal/src/input.rs, vendor/gpui-terminal/src/mouse.rs, vendor/gpui-terminal/src/clipboard.rs, vendor/gpui-terminal/src/event.rs, vendor/gpui-terminal/src/terminal.rs]
 depends_on: [tech-transport]
 review_cycle: monthly
@@ -66,10 +66,14 @@ workbench document has the menu in full.
 here.** A bare click starts `$SHELL` — the newest PowerShell on the machine on Windows
 (`pwsh.exe` where it is installed, the inbox `powershell.exe` otherwise, `COMSPEC` only where
 neither is), which is what a terminal application starting no particular program means. The chevron opens a menu of every shell the machine actually
-has, the default one marked, and picking one starts a pane running that shell instead. The list is a
-fixed set of known shells the host checked for — `zsh`, `bash`, `fish` and `sh`, or PowerShell and
-the command processor on Windows — not a launcher for anything on disk, and a shell that is not
-installed is not offered. Above the shells, and separated from them, the menu offers every agent
+has, the default one marked, and picking one starts a pane running that shell instead. On Unix the
+list is a fixed set of known names checked for — `zsh`, `bash`, `fish` and `sh`. On Windows it is a
+known install layout instead: every PowerShell version under `%ProgramFiles%\PowerShell\`, the Store
+alias, whatever `pwsh.exe` is on `PATH`, Windows PowerShell, then the command processor — so a
+machine with PowerShell 6 and 7 side by side shows a row for each, labelled with its product name and
+version (`PowerShell 7`, `PowerShell 7 (preview)`, `Windows PowerShell 5.1`, `Command Prompt`) rather
+than the executable's own file name. Either way it is not a launcher for anything on disk, and a
+shell that is not installed is not offered. Above the shells, and separated from them, the menu offers every agent
 harness the harness library knows; picking one starts a composed agent rather than a program, which
 [`sessions-and-workspaces.md`](./sessions-and-workspaces.md) describes. A harness whose binary is
 not on this machine is offered as an unavailable row rather than left out, because the row is how a
@@ -317,14 +321,20 @@ not is added to its home region first. `AppState::toggle_region()` is where open
 region starts a pane, and `pane_title()` is where a tab gets its number — a tool's name the same
 way a program does, through the same short-name rule.
 
-**`crates/ubiq-host/src/shells.rs` is the only place that knows what a shell is.** `available()`
-checks a fixed candidate list against `PATH`, the user's login shell's own `PATH` and the usual
-homes, and always includes `default_program()`, whatever it is. The other two lookups are there
-because the `PATH` Ubiq itself was launched with is exactly the one that cannot be trusted: a
+**`crates/ubiq-host/src/shells.rs` is the only place that knows what a shell is.** On Unix,
+`available()` checks a fixed candidate list against `PATH`, the user's login shell's own `PATH` and
+the usual homes, and always includes `default_program()`, whatever it is. The other two lookups are
+there because the `PATH` Ubiq itself was launched with is exactly the one that cannot be trusted: a
 harness installed under the user's home is named by neither the thin environment a desktop launcher
 hands over nor a fixed list of system directories. The login shell is asked once per process, with
 `-lic`, because the login and interactive files are where a toolchain installer writes its
-directory and a non-interactive shell never reads them.
+directory and a non-interactive shell never reads them. On Windows, `windows_shells()` walks the
+PowerShell install layout under `%ProgramFiles%\PowerShell\` instead of a name list — reading each
+version directory's major and whether it is a preview — before falling back to the Store alias, a
+bare `pwsh.exe` on `PATH`, `powershell.exe`, then `COMSPEC`; duplicates naming the same file are
+dropped by path, case-insensitively, keeping the first (most informative) label. The 32-bit builds
+under `%ProgramFiles(x86)%` and `SysWOW64` are not read. `default_program()` resolves against this
+same richer list rather than one `locate()` call per name.
 `pty::spawn` asks the same module whether the program it was handed is a shell, and `command_for()` builds a login shell when it is: `portable-pty` prefixes argv0
 with `-` only for a builder made with `new_default_prog`, which takes no program name and reads the
 shell out of `SHELL`, so that is where the chosen shell is handed to it. The coordinator answers

@@ -60,6 +60,16 @@ pub fn run(
     deadline: Duration,
 ) -> Result<(Vec<FileHit>, usize), String> {
     let mut command = Command::new(&chosen.program);
+    // A fallback search tool runs headlessly, piped straight into this process — there is no
+    // console output for a user to read. On Windows a console-subsystem child (`grep.exe`,
+    // `ag.exe`) spawned with none of its own would otherwise flash a fresh console window, so
+    // this asks for none.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt as _;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
     match chosen.tool.as_str() {
         "ag" => {
             command.arg("--numbers").arg("--nocolor").arg("--nogroup");

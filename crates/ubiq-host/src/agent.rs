@@ -1749,12 +1749,20 @@ pub(crate) fn check_command(command: &str) -> (bool, String) {
     let program = resolve_bare(&words.remove(0));
     words.push("--version".to_string());
 
-    let mut child = match std::process::Command::new(&program)
-        .args(&words)
+    let mut cmd = std::process::Command::new(&program);
+    cmd.args(&words)
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
+        .stderr(std::process::Stdio::piped());
+    // The user is only asked for a first line of output, never a screen — a console-subsystem
+    // child would otherwise flash a window on Windows, since the app that spawns it has already
+    // freed its own console (`ubiq_app::detach_console`).
+    #[cfg(windows)]
     {
+        use std::os::windows::process::CommandExt as _;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    let mut child = match cmd.spawn() {
         Ok(child) => child,
         Err(_) => return (false, "not found on PATH".to_string()),
     };

@@ -128,8 +128,13 @@ impl Harness for Copilot {
     /// out and scrape that one block rather than falling back to a curated
     /// static list. Needs no auth/network (shown in plain `--help` text).
     fn discover_models(&self) -> Result<Vec<super::ModelInfo>> {
-        let output = std::process::Command::new("copilot")
-            .args(["help", "config"])
+        let mut cmd = std::process::Command::new("copilot");
+        cmd.args(["help", "config"]);
+        // Headless help-text scrape: nothing reads a window, and the app has already freed its own
+        // console (`ubiq_app::detach_console`), so a console-subsystem child would otherwise flash one.
+        #[cfg(windows)]
+        super::shared::no_window(&mut cmd);
+        let output = cmd
             .output()
             .with_context(|| "running `copilot help config` (is the copilot binary on PATH?)")?;
         if !output.status.success() {

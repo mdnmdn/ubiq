@@ -51,7 +51,7 @@ use crate::clipboard::{Clipboard, osc52_load_reply};
 use crate::colors::ColorPalette;
 use crate::event::{GpuiEventProxy, TerminalEvent};
 use crate::input::{
-    bracketed_paste, is_copy_shortcut, is_paste_shortcut, keystroke_to_bytes, quote_path,
+    is_copy_shortcut, is_paste_shortcut, keystroke_to_bytes, paste_bytes, quote_path,
 };
 use crate::links::url_at;
 use crate::mouse::{
@@ -139,6 +139,10 @@ pub fn install_key_bindings(cx: &mut App) {
         KeyBinding::new("cmd-c", gpui::NoAction, Some(KEY_CONTEXT)),
         #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-c", gpui::NoAction, Some(KEY_CONTEXT)),
+        // Windows pastes on Ctrl+V, so the window's own Ctrl+V — an image paste,
+        // in Ubiq's case — must not take it first when a terminal has focus.
+        #[cfg(windows)]
+        KeyBinding::new("ctrl-v", gpui::NoAction, Some(KEY_CONTEXT)),
     ]);
 }
 
@@ -818,6 +822,16 @@ impl TerminalView {
     /// to the stdin writer. If a key handler is set and returns true, the event
     /// is consumed and not sent to the terminal.
     fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        // A chord the window swallows never reaches here at all, which is the one
+        // thing a paste that does nothing cannot tell you on its own.
+        if event.keystroke.key == "v" {
+            tracing::debug!(
+                keystroke = %event.keystroke,
+                paste = is_paste_shortcut(&event.keystroke),
+                "terminal key: v"
+            );
+        }
+
         if let Some(ref handler) = self.key_handler
             && handler(event, window, cx)
         {
@@ -835,12 +849,7 @@ impl TerminalView {
         }
 
         if is_paste_shortcut(&event.keystroke) {
-            if let Ok(mut clipboard) = Clipboard::new()
-                && let Ok(text) = clipboard.paste()
-                && !text.is_empty()
-            {
-                self.write_pty(&bracketed_paste(&text));
-            }
+            self.paste_from_clipboard();
             return;
         }
 
@@ -851,6 +860,33 @@ impl TerminalView {
             // is what keeps the harness from seeing both.
             if event.keystroke.modifiers.alt {
                 cx.stop_propagation();
+            }
+        }
+    }
+
+    /// Send whatever text the system clipboard holds to the program, bracketed
+    /// so it cannot be mistaken for typing.
+    ///
+    /// Shared by the paste chord and the right button: a terminal that pastes
+    /// one way and not the other is the same bug twice.
+    fn paste_from_clipboard(&self) {
+        let mut clipboard = match Clipboard::new() {
+            Ok(clipboard) => clipboard,
+            Err(error) => {
+                tracing::warn!(%error, "terminal paste: the system clipboard did not open");
+                return;
+            }
+        };
+        match clipboard.paste() {
+            Ok(text) if text.is_empty() => {
+                tracing::debug!("terminal paste: the clipboard holds no text");
+            }
+            Ok(text) => {
+                tracing::debug!(bytes = text.len(), "terminal paste");
+                self.write_pty(&paste_bytes(&text, self.state.mode()));
+            }
+            Err(error) => {
+                tracing::warn!(%error, "terminal paste: the clipboard held nothing this could read");
             }
         }
     }
@@ -916,7 +952,7 @@ impl TerminalView {
             .map(|path| quote_path(&path.as_ref().to_string_lossy()))
             .collect::<Vec<_>>()
             .join("\n");
-        self.write_pty(&bracketed_paste(&text));
+        self.write_pty(&paste_bytes(&text, self.state.mode()));
     }
 
     fn on_drop_paths(&mut self, paths: &ExternalPaths, _: &mut Window, _: &mut Context<Self>) {
@@ -930,6 +966,11 @@ impl TerminalView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        tracing::debug!(
+            button = ?event.button,
+            reporting = self.mouse_reporting(),
+            "terminal mouse down"
+        );
         window.focus(&self.focus_handle, cx);
         let point = self.cell_at(event.position);
         let mods = encode_modifiers(
@@ -946,6 +987,15 @@ impl TerminalView {
             }
             self.link_down = None;
             self.selecting = false;
+            cx.notify();
+            return;
+        }
+
+        // The console convention Windows has always had, and one PuTTY and its
+        // descendants brought everywhere else. Only past the mouse-reporting
+        // check above: a program that asked for the mouse gets the button.
+        if event.button == MouseButton::Right {
+            self.paste_from_clipboard();
             cx.notify();
             return;
         }
@@ -1387,6 +1437,7 @@ impl Render for TerminalView {
         };
         root.on_key_down(cx.listener(Self::on_key_down))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
+            .on_mouse_down(MouseButton::Right, cx.listener(Self::on_mouse_down))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
             .on_scroll_wheel(cx.listener(Self::on_scroll))

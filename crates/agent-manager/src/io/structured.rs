@@ -49,7 +49,30 @@ pub fn spawn_piped(launch: &Launch, cwd: &Path) -> Result<Child> {
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::inherit());
 
-    let child = cmd.spawn()?;
+    // A structured bridge talks over pipes, so the process it starts has no screen to show and
+    // nothing to show on one. Windows would give a console-subsystem child its own console window
+    // anyway — a freestanding terminal flashing up beside the interface, or staying up for as long
+    // as the harness runs — because the interface left its own console behind at boot
+    // (`ubiq_app::detach_console`) and a child with no console to inherit gets a new one. This says
+    // it plainly instead: create no console, and therefore no window.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt as _;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    // Naming the program is what makes a spawn failure readable: the operating system's own
+    // sentence says only that something is unsupported or missing, never what was being started —
+    // and on Windows what is being started is a confine shim whose argv names nothing familiar.
+    let child = cmd.spawn().map_err(|error| {
+        anyhow::anyhow!(
+            "spawning {} {} in {}: {error}",
+            launch.program,
+            launch.args.join(" "),
+            cwd.display()
+        )
+    })?;
     Ok(child)
 }
 
@@ -97,6 +120,14 @@ impl crate::io::AgentKill for ProcessKill {
         cmd.stdin(Stdio::null());
         cmd.stdout(Stdio::null());
         cmd.stderr(Stdio::null());
+        // `taskkill` is a console program, and a console program started by an interface that left
+        // its own console behind gets a new one — a window flashing up every time a harness is
+        // stopped. See [`spawn_piped`] for the same reasoning at greater length.
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt as _;
+            cmd.creation_flags(0x0800_0000);
+        }
         // A non-zero status is "no such process" — it has already exited, which
         // is the state the caller asked for.
         let _ = cmd.status()?;

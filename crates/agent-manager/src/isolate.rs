@@ -1234,6 +1234,28 @@ fn confine_run(_payload: &Path) -> Result<i32> {
     ))
 }
 
+/// Make every process this one starts die with it.
+///
+/// Windows has no process tree: a harness, a confine shim or anything either of
+/// them spawns outlives the process that started it, so an interface that is
+/// closed — or that crashes — leaves its agents running with no window left to
+/// reach them through. This is the one call that fixes that for everything at
+/// once, and an embedder makes it during boot, after
+/// [`confine_entrypoint`] (a confine run wants its own job, not this one) and
+/// before any pane or conversation exists.
+///
+/// A no-op everywhere else: Unix has process groups and a parent that reaps.
+pub fn kill_descendants_on_exit() -> Result<()> {
+    #[cfg(target_os = "windows")]
+    {
+        kill_on_close_job()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Ok(())
+    }
+}
+
 /// Put this process in an unnamed job object that kills on close, keeping the
 /// handle for the life of the process.
 ///

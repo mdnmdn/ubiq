@@ -5,8 +5,8 @@ kind: feature
 status: current
 summary: One sink every subsystem writes its diagnostics to, and the console panel that reads it back with a subsystem selector and a level floor.
 read_when: you are adding a log event, adding or renaming a subsystem, changing what the console shows or where it sits, or chasing why something the application did left no trace
-updated: 2026-09-14
-verified: 2026-09-14
+updated: 2026-09-18
+verified: 2026-09-18
 code_anchors: [crates/ubiq-proto/src/log.rs, crates/ubiq/src/state/logs.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/state/dock.rs, crates/ubiq-app/src/lib.rs]
 depends_on: [tech-architecture, feat-panes]
 review_cycle: monthly
@@ -61,7 +61,11 @@ harness library are collected down to debug and everything else only when it com
 `ubiq=debug,ubiq_app=debug,ubiq_host=debug,ubiq_proto=debug,agent_manager=debug,gpui_terminal=debug,warn`.
 The same filter feeds a writer on standard error, so a run from a terminal reports without the
 console being open — and a headless `--serve` run, which opens no window at all, has that writer as
-its only report. [`../tech/operations.md`](../tech/operations.md) owns the commands that set it.
+its only report. A double-clicked run has no such report at all: `detach_console` in
+`crates/ubiq-app/src/lib.rs` points its standard error at `NUL` once the launch is alone in its
+console, so that writer's output goes nowhere and the ring, read through this console panel, is the
+whole of what such a run can show. [`../tech/operations.md`](../tech/operations.md) owns the
+commands that set the filter and `detach_console`'s own mechanism.
 
 **`UBIQ_LOG_FILE` gives the diagnostics a third home that outlives the process.** The ring is
 emptied by `clear()` and gone at the next restart; standard error is gone the moment the terminal

@@ -5,9 +5,9 @@ kind: tech
 status: current
 summary: Prerequisites, the complete command reference, what a first build costs, the checks a change has to pass before it lands, and the runbook for a tool an agent cannot run.
 read_when: you are setting the project up, running or testing it, adding a command, or an agent reports that it cannot run a tool
-updated: 2026-09-16
-verified: 2026-09-16
-code_anchors: [Justfile, crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/isolate.rs, _tools/docs.py, _tools/icns.py, _tools/webassets.py, _tools/drone.py, _tools/Info.plist, _devops/scripts/bundle-version.sh, crates/ubiq-app/src/lib.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-app/build.rs, crates/ubiq-app/res/ubiq-app.rc, .github/workflows/create-release.yml, .github/workflows/release-macos.yml, .github/workflows/release-windows.yml]
+updated: 2026-09-18
+verified: 2026-09-18
+code_anchors: [Justfile, crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/structured.rs, _tools/docs.py, _tools/icns.py, _tools/webassets.py, _tools/drone.py, _tools/Info.plist, _devops/scripts/bundle-version.sh, crates/ubiq-app/src/lib.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-app/build.rs, crates/ubiq-app/res/ubiq-app.rc, .github/workflows/create-release.yml, .github/workflows/release-macos.yml, .github/workflows/release-windows.yml]
 depends_on: [tech-structure]
 review_cycle: monthly
 ---
@@ -49,12 +49,39 @@ the terminal it was started in, reports through the same log writer on standard 
 handoff — handing its arguments to a window running elsewhere would leave nothing listening — so a
 headless host and a local window can share a machine, though not usefully a config root.
 
-**On Windows a plain launch leaves its console behind.** `ubiq` with no serve flag detaches
-through `detach_console` in `crates/ubiq-app/src/lib.rs`, so a launch from Explorer or a shortcut
-is a window and nothing else; a launch from a terminal keeps that terminal's window but reports
-nothing more into it. Every `--serve` spelling stays attached, with the banner on stdout and the
-log writer on standard error. A bootstrap failure in a detached run raises a dialog (`gui_fatal`)
-rather than writing to a console that is gone. Other platforms are untouched.
+**On Windows a plain launch leaves its console behind — and destroys it, not just hides it.** `ubiq`
+with no serve flag detaches through `detach_console` in `crates/ubiq-app/src/lib.rs`, so a launch
+from Explorer or a shortcut is a window and nothing else. A double-click gives the process a console
+it alone is attached to, which `GetConsoleProcessList` confirms before anything else happens,
+because afterwards there is nothing left to ask; freeing a console this process is alone in destroys
+the object while its three standard handles still name it, and every child spawned afterwards with
+inherited stdio then asks the kernel to hand a destroyed console to a new process, which is refused
+as `STATUS_NOT_SUPPORTED` — `os error 50`, "the request is not supported", at the call site. The
+confine shim a conversation starts (`crates/agent-manager/src/io/structured.rs`'s `spawn_piped`) is
+the spawn that reaches it, because it is the one that inherits standard error rather than piping it.
+So `detach_console` points all three standard handles at `NUL` afterwards — opened with
+`CreateFileW`, installed with `SetStdHandle`, deliberately never closed — a device that is always
+openable, reads empty and swallows what is written to it. **A shared console is untouched**: a
+launch from a terminal has more than one process attached, so freeing it leaves the terminal's own
+console valid, and standard error there stays the log writer's one report — which is also why the
+failure only ever showed from a double-clicked launch, never from a terminal one, and looked like the
+confine shim's fault rather than the boot's. Every `--serve` spelling stays attached, with the
+banner on stdout and the log writer on standard error. A bootstrap failure in a detached run raises a
+dialog (`gui_fatal`) rather than writing to a console that is gone. Other platforms are untouched.
+See `D141`.
+
+**The same detachment means every console-subsystem child Ubiq spawns headlessly would otherwise
+get a console of its own — a freestanding window flashing up beside the interface, or staying up
+for as long as the child runs — because a child with no console to inherit gets Windows to create
+one.** A harness's own `--version`/model/thinking probe, the DPAPI calls behind credential storage,
+the search fallback, `ssh`/`scp` and `taskkill` in `crates/ubiq/src/app/ssh_connect.rs`, the `cmd
+/C start` shim `open_url` uses, and the confine shim a structured bridge spawns
+(`crates/agent-manager/src/io/structured.rs`'s `spawn_piped`) all ask Windows for `CREATE_NO_WINDOW`
+instead, every one of them, rather than leaving this to a process-by-process fix. `spawn_piped`'s
+spawn failure also names the program, its arguments and the working directory, because the
+operating system's own message for that shape of failure — `os error 50`, seen above — names none of
+them. See `agent-manager.md` for the confine shim's own case, where the same flag decides which
+console the confined harness inherits.
 
 `--serve` binds every interface, which is the point of the bare flag; `--serve=127.0.0.1:7420` is
 how a tunnel-only setup is spelled. `--serve`'s own value is always attached with `=`, never a

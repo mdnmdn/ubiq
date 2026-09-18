@@ -1434,6 +1434,15 @@ fn open_url(url: &str) -> std::io::Result<()> {
         // the right position.
         let mut command = std::process::Command::new("cmd");
         command.args(["/C", "start", "", url]);
+        // `cmd.exe` itself has nothing to show here — the visible result is the browser it hands
+        // off to — and the app has already freed its own console (`ubiq_app::detach_console`), so
+        // this console-subsystem shim would otherwise flash a window of its own before exiting.
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt as _;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            command.creation_flags(CREATE_NO_WINDOW);
+        }
         command
     } else {
         let cmd = if cfg!(target_os = "macos") {

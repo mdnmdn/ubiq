@@ -3604,6 +3604,7 @@ dependencies = [
  "gpui",
  "parking_lot",
  "ropey 1.6.1",
+ "tracing",
 ]
 
 [[package]]

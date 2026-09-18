@@ -133,8 +133,13 @@ impl Harness for Grok {
     /// [`parse_model_ids`], which reads the bulleted `Available models:` list and falls back to
     /// a token scan if that section is not there to read.
     fn discover_models(&self) -> Result<Vec<super::ModelInfo>> {
-        let output = std::process::Command::new(self.command())
-            .arg("models")
+        let mut cmd = std::process::Command::new(self.command());
+        cmd.arg("models");
+        // Headless model-list probe: nothing reads a window, and the app has already freed its own
+        // console (`ubiq_app::detach_console`), so a console-subsystem child would otherwise flash one.
+        #[cfg(windows)]
+        super::shared::no_window(&mut cmd);
+        let output = cmd
             .output()
             .with_context(|| "running `grok models` (is the grok binary on PATH?)")?;
         if !output.status.success() {

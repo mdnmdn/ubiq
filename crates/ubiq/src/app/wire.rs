@@ -2717,14 +2717,21 @@ impl AppState {
             return;
         };
         self.pending_editor_focus = None;
-        if let Some(terminal) = self.terminals.get(&pane_id) {
-            terminal
-                .view
-                .read(cx)
-                .focus_handle()
-                .clone()
-                .focus(window, cx);
-        }
+        let Some(terminal) = self.terminals.get(&pane_id) else {
+            // The turn is taken above whether or not there is anything to give it
+            // to, so a pane whose terminal has not arrived loses the keyboard
+            // silently. Saying so is the difference between that and a pane that
+            // was focused and still hears nothing.
+            tracing::warn!(%pane_id, "focus asked for a pane with no terminal");
+            return;
+        };
+        let handle = terminal.view.read(cx).focus_handle().clone();
+        handle.focus(window, cx);
+        tracing::debug!(
+            %pane_id,
+            focused = handle.is_focused(window),
+            "pane focused"
+        );
     }
 
     /// Give the keyboard to the editor the last active file panel asked for.

@@ -270,7 +270,15 @@ pub fn is_copy_shortcut(keystroke: &Keystroke) -> bool {
     }
 }
 
-/// Platform paste shortcut: `Cmd+V` on macOS, `Ctrl+Shift+V` elsewhere.
+/// Platform paste shortcut: `Cmd+V` on macOS, `Ctrl+Shift+V` elsewhere, and
+/// plain `Ctrl+V` on Windows as well.
+///
+/// `Ctrl+Shift+V` is the X11 terminal convention, and it exists because `Ctrl+V`
+/// is a control character a program may want: readline reads it as quoted-insert.
+/// Windows never had that convention — conhost, PowerShell and Windows Terminal
+/// all paste on `Ctrl+V` — so a terminal that insists on the chord there is
+/// silently wrong for everyone who has used a console on that platform. Windows
+/// gets both, and loses quoted-insert from the keyboard for it.
 pub fn is_paste_shortcut(keystroke: &Keystroke) -> bool {
     if keystroke.key != "v" {
         return false;
@@ -279,12 +287,16 @@ pub fn is_paste_shortcut(keystroke: &Keystroke) -> bool {
     {
         keystroke.modifiers.platform && !keystroke.modifiers.control && !keystroke.modifiers.alt
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(all(not(target_os = "macos"), not(windows)))]
     {
         keystroke.modifiers.control
             && keystroke.modifiers.shift
             && !keystroke.modifiers.alt
             && !keystroke.modifiers.platform
+    }
+    #[cfg(windows)]
+    {
+        keystroke.modifiers.control && !keystroke.modifiers.alt && !keystroke.modifiers.platform
     }
 }
 
@@ -295,6 +307,23 @@ pub fn bracketed_paste(text: &str) -> Vec<u8> {
     out.extend_from_slice(text.as_bytes());
     out.extend_from_slice(b"\x1b[201~");
     out
+}
+
+/// What a paste of `text` should put on the pty, given what the program asked for.
+///
+/// Bracketing is a request, not a courtesy: a program enables it with DECSET 2004
+/// so it can tell pasted text from typing. A program that never asked has no
+/// parser for `\x1b[200~`, so wrapping its paste hands it the escape sequences as
+/// input — the paste arrives corrupted, and the terminal looks like it dropped
+/// the keystroke.
+///
+/// Unbracketed, newlines become carriage returns: a console submits a line on CR,
+/// and a pasted `\n` reads as nothing at all.
+pub fn paste_bytes(text: &str, mode: TermMode) -> Vec<u8> {
+    if mode.contains(TermMode::BRACKETED_PASTE) {
+        return bracketed_paste(text);
+    }
+    text.replace("\r\n", "\r").replace('\n', "\r").into_bytes()
 }
 
 /// Quote a dropped OS path for a shell when it contains whitespace or metacharacters.
@@ -526,11 +555,36 @@ mod tests {
             assert!(!is_paste_shortcut(&cmd_v));
             assert!(is_paste_shortcut(&ctrl_shift_v));
         }
+
+        // Windows pastes on plain Ctrl+V as every console on that platform does,
+        // and keeps the X11 chord beside it. Elsewhere Ctrl+V stays the control
+        // character readline reads as quoted-insert.
+        let ctrl_v = Keystroke::parse("ctrl-v").unwrap();
+        #[cfg(windows)]
+        assert!(is_paste_shortcut(&ctrl_v));
+        #[cfg(not(windows))]
+        assert!(!is_paste_shortcut(&ctrl_v));
     }
 
     #[test]
     fn bracketed_paste_wraps_text() {
         assert_eq!(bracketed_paste("hi"), b"\x1b[200~hi\x1b[201~".to_vec());
+    }
+
+    #[test]
+    fn paste_brackets_only_when_the_program_asked() {
+        // DECSET 2004 set: the program parses the markers and wants them.
+        assert_eq!(
+            paste_bytes("hi", TermMode::BRACKETED_PASTE),
+            b"\x1b[200~hi\x1b[201~".to_vec()
+        );
+        // Not set: the markers would reach the program as input it cannot read,
+        // and a newline becomes the carriage return a console submits a line on.
+        assert_eq!(paste_bytes("hi", TermMode::empty()), b"hi".to_vec());
+        assert_eq!(
+            paste_bytes("one\r\ntwo\n", TermMode::empty()),
+            b"one\rtwo\r".to_vec()
+        );
     }
 
     #[test]
