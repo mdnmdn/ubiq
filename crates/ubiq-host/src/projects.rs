@@ -10,7 +10,9 @@ use std::time::{Duration, Instant};
 
 use chrono::Utc;
 use ubiq_proto::ids::ProjectId;
-use ubiq_proto::projects::{DroneChange, IndexChange, ProjectRecord, ProjectSnapshot, Scope};
+use ubiq_proto::projects::{
+    DroneChange, IndexChange, LanePref, ProjectRecord, ProjectSnapshot, Scope,
+};
 use ubiq_proto::tools::ToolDef;
 
 #[cfg(feature = "harness")]
@@ -308,6 +310,7 @@ impl Projects {
                     None,
                     None,
                     None,
+                    None,
                 );
             }
             // The path is a uniqueness key, not an identity: this is the project that is there.
@@ -335,6 +338,7 @@ impl Projects {
             index: None,
             managed_repos: Vec::new(),
             tools: Vec::new(),
+            lanes: Vec::new(),
             runs_on: None,
         };
 
@@ -362,6 +366,7 @@ impl Projects {
         index: Option<IndexChange>,
         tools: Option<Vec<ToolDef>>,
         managed_repos: Option<Vec<String>>,
+        lanes: Option<Vec<LanePref>>,
         runs_on: Option<DroneChange>,
     ) -> Vec<Reply> {
         let Some(record) = self.find(id) else {
@@ -387,6 +392,9 @@ impl Projects {
         }
         if let Some(managed_repos) = managed_repos {
             record.managed_repos = managed_repos;
+        }
+        if let Some(lanes) = lanes {
+            record.lanes = lanes;
         }
         if let Some(runs_on) = runs_on {
             record.runs_on = runs_on.resolve();
@@ -452,7 +460,7 @@ impl Projects {
 
     /// Rename, recolour, change what a project's searches skip, or change which repositories
     /// inside it the project takes on. Touches no filesystem and cannot fail beyond "no such
-    /// project": `search_excludes`, `index`, `managed_repos` and `runs_on` are display state
+    /// project": `search_excludes`, `index`, `managed_repos`, `lanes` and `runs_on` are display state
     /// exactly like the rest — `None` leaves a field as it is, `Some` replaces it. A managed path
     /// naming no repository the walk can find is kept as given; only the observation decides what
     /// it means.
@@ -469,6 +477,7 @@ impl Projects {
         index: Option<IndexChange>,
         tools: Option<Vec<ToolDef>>,
         managed_repos: Option<Vec<String>>,
+        lanes: Option<Vec<LanePref>>,
         runs_on: Option<DroneChange>,
     ) -> Vec<Reply> {
         let Some(record) = self.find(id) else {
@@ -486,6 +495,7 @@ impl Projects {
                 index,
                 tools,
                 managed_repos,
+                lanes,
                 runs_on,
             );
         }
@@ -508,6 +518,9 @@ impl Projects {
         }
         if let Some(managed_repos) = managed_repos {
             record.managed_repos = managed_repos;
+        }
+        if let Some(lanes) = lanes {
+            record.lanes = lanes;
         }
         if let Some(runs_on) = runs_on {
             record.runs_on = runs_on.resolve();

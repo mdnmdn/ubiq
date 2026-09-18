@@ -34,7 +34,7 @@ use crate::state::board::Field;
 use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::kit::{
-    Picker, PickerStyle, choice_pill, field, ghost_button, icon_button, mono, panel,
+    Picker, PickerStyle, choice_pill, field, ghost_button, icon_button, modal_sized, mono, panel,
     primary_button, removable_tag, section_label, toggle_pill,
 };
 // The kit's text-entry box, under a name that does not collide with the `Field` a control is
@@ -908,39 +908,9 @@ pub fn delete(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
 /// and then renamed by the host's own assistance — so the card is never called nothing, whatever
 /// the model does.
 pub fn draft(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
-    let Some(board) = app.board(cx) else {
+    if app.board(cx).is_none() {
         return div().into_any_element();
-    };
-    let ready = board.draft_ready();
-
-    let title_focused = app
-        .task_title_input
-        .read(cx)
-        .focus_handle(cx)
-        .is_focused(window);
-    let description_focused = app
-        .task_description_input
-        .read(cx)
-        .focus_handle(cx)
-        .is_focused(window);
-
-    let create = if ready {
-        primary_button(
-            "board-draft-create",
-            Some(IconName::Check),
-            "Create",
-            cx.listener(|this, _, window, cx| this.create_task(window, cx)),
-        )
-        .into_any_element()
-    } else {
-        ghost_button(
-            "board-draft-create",
-            None,
-            "Create",
-            cx.listener(|this, _, window, cx| this.create_task(window, cx)),
-        )
-        .into_any_element()
-    };
+    }
 
     panel()
         .child(
@@ -963,89 +933,153 @@ pub fn draft(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> Any
                     cx.listener(|this, _, window, cx| this.cancel_new_task(window, cx)),
                 )),
         )
+        .child(draft_body(app, window, cx))
+        .child(draft_footer(app, cx))
+        .into_any_element()
+}
+
+/// The same form as [`draft`], centred over the window instead of hung off the columns — what
+/// `board.popup` draws for a task being written. There is only ever one draft, so unlike
+/// [`super::detail::popup`] there is no record to read straight; the modal wraps the same body and
+/// footer the side panel does.
+pub fn draft_popup(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
+    let entity = cx.entity();
+
+    modal_sized(
+        "board-draft-modal",
+        theme::accent(),
+        theme::TASK_PANEL_WIDTH,
+        None,
+        "New task",
+        draft_body(app, window, cx),
+        draft_footer(app, cx),
+        handler(&entity, |this, window, cx| this.cancel_new_task(window, cx)),
+        window,
+    )
+}
+
+/// The two fields a draft is written in, and the hint under them saying what makes it a card.
+fn draft_body(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
+    let Some(board) = app.board(cx) else {
+        return div().into_any_element();
+    };
+    let ready = board.draft_ready();
+
+    let title_focused = app
+        .task_title_input
+        .read(cx)
+        .focus_handle(cx)
+        .is_focused(window);
+    let description_focused = app
+        .task_description_input
+        .read(cx)
+        .focus_handle(cx)
+        .is_focused(window);
+
+    div()
+        .flex_1()
+        .min_h(px(0.))
+        .p_3()
+        .flex()
+        .flex_col()
+        .gap_3()
         .child(
             div()
-                .flex_1()
-                .min_h(px(0.))
-                .p_3()
                 .flex()
                 .flex_col()
-                .gap_3()
+                .gap_1p5()
+                .child(section_label("Title"))
                 .child(
-                    div()
-                        .flex()
+                    field(theme::accent(), title_focused)
+                        .px_2()
+                        .py_1()
+                        .text_size(theme::font(Family::Chrome, Role::Title))
+                        .child(Input::new(&app.task_title_input).appearance(false)),
+                ),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_1p5()
+                .child(section_label("Description"))
+                .child(
+                    field(theme::accent(), description_focused)
+                        .id("board-draft-description")
                         .flex_col()
-                        .gap_1p5()
-                        .child(section_label("Title"))
+                        .items_stretch()
+                        .px_2()
+                        .py_1()
+                        .cursor_text()
                         .child(
-                            field(theme::accent(), title_focused)
-                                .px_2()
-                                .py_1()
-                                .text_size(theme::font(Family::Chrome, Role::Title))
-                                .child(Input::new(&app.task_title_input).appearance(false)),
-                        ),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_1p5()
-                        .child(section_label("Description"))
-                        .child(
-                            field(theme::accent(), description_focused)
-                                .id("board-draft-description")
-                                .flex_col()
-                                .items_stretch()
-                                .px_2()
-                                .py_1()
-                                .cursor_text()
-                                .child(
-                                    Textarea::new(&app.task_description_input)
-                                        .appearance(false)
-                                        .bordered(false)
-                                        .w_full()
-                                        .text_size(theme::font(Family::Chrome, Role::Body)),
-                                )
-                                .on_click(cx.listener(|this, _, window, cx| {
-                                    let input = this.task_description_input.clone();
-                                    input.update(cx, |state, cx| state.focus(window, cx));
-                                }))
-                                // ⌘⏎ creates from inside the description, the same key every other
-                                // form in the window answers to. Bare Enter stays a newline.
-                                .on_action(cx.listener(|this, _: &SubmitSearch, window, cx| {
-                                    this.create_task(window, cx);
-                                })),
-                        ),
-                )
-                .child(
-                    div()
-                        .text_size(theme::font(Family::Chrome, Role::Label))
-                        .text_color(theme::text_faint())
-                        .child(SharedString::from(if ready {
-                            "Nothing is saved until Create."
-                        } else {
-                            "A title or a description makes the card."
+                            Textarea::new(&app.task_description_input)
+                                .appearance(false)
+                                .bordered(false)
+                                .w_full()
+                                .text_size(theme::font(Family::Chrome, Role::Body)),
+                        )
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            let input = this.task_description_input.clone();
+                            input.update(cx, |state, cx| state.focus(window, cx));
+                        }))
+                        // ⌘⏎ creates from inside the description, the same key every other
+                        // form in the window answers to. Bare Enter stays a newline.
+                        .on_action(cx.listener(|this, _: &SubmitSearch, window, cx| {
+                            this.create_task(window, cx);
                         })),
                 ),
         )
         .child(
             div()
-                .px_3()
-                .py_2()
-                .flex()
-                .flex_none()
-                .items_center()
-                .gap_1p5()
-                .border_t_1()
-                .border_color(theme::border())
-                .child(create)
-                .child(ghost_button(
-                    "board-draft-cancel",
-                    None,
-                    "Cancel",
-                    cx.listener(|this, _, window, cx| this.cancel_new_task(window, cx)),
-                )),
+                .text_size(theme::font(Family::Chrome, Role::Label))
+                .text_color(theme::text_faint())
+                .child(SharedString::from(if ready {
+                    "Nothing is saved until Create."
+                } else {
+                    "A title or a description makes the card."
+                })),
         )
+        .into_any_element()
+}
+
+/// Create and Cancel, the draft's only two acts.
+fn draft_footer(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+    let ready = app.board(cx).is_some_and(|board| board.draft_ready());
+
+    let create = if ready {
+        primary_button(
+            "board-draft-create",
+            Some(IconName::Check),
+            "Create",
+            cx.listener(|this, _, window, cx| this.create_task(window, cx)),
+        )
+        .into_any_element()
+    } else {
+        ghost_button(
+            "board-draft-create",
+            None,
+            "Create",
+            cx.listener(|this, _, window, cx| this.create_task(window, cx)),
+        )
+        .into_any_element()
+    };
+
+    div()
+        .px_3()
+        .py_2()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap_1p5()
+        .border_t_1()
+        .border_color(theme::border())
+        .child(create)
+        .child(ghost_button(
+            "board-draft-cancel",
+            None,
+            "Cancel",
+            cx.listener(|this, _, window, cx| this.cancel_new_task(window, cx)),
+        ))
         .into_any_element()
 }
 

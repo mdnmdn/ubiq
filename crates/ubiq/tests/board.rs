@@ -847,15 +847,20 @@ fn shutting_a_column_and_folding_a_card_undo_themselves() {
     let mut board = BoardState::default();
 
     assert!(!board.is_shut(Status::Done));
-    board.toggle_column(Status::Done);
+    board.set_column(Status::Done, true);
     assert!(board.is_shut(Status::Done));
     assert!(
         !board.is_shut(Status::Backlog),
         "only the one that was shut"
     );
-    board.toggle_column(Status::Done);
+    board.set_column(Status::Done, false);
     assert!(!board.is_shut(Status::Done));
     assert!(board.shut.is_empty());
+    assert!(
+        board.is_held_open(Status::Done),
+        "and reopening it is a thing the board remembers, so a lane that shuts itself when \
+         empty can be looked into"
+    );
 
     assert!(!board.is_folded(f.pane));
     board.toggle_fold(f.pane);
@@ -904,7 +909,7 @@ fn the_status_bar_counts_only_the_cards_the_filters_leave_on_screen() {
     assert_eq!(board.blocked(&f.work), 1);
 
     // A shut column still counts: it is a strip, not an absence.
-    board.toggle_column(Status::Backlog);
+    board.set_column(Status::Backlog, true);
     assert_eq!(board.counts(&f.work)[0], (Status::Backlog, 2));
 
     board.session = Some(f.cold);

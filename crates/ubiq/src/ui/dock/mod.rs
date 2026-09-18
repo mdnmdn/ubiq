@@ -299,6 +299,19 @@ impl WorkbenchPanel {
                 label: "Documents".into(),
                 ..TabInfo::default()
             },
+            // One slot, two things in it: the tab says which, the way a file's tab says what it is
+            // looking at.
+            PanelKind::Task => TabInfo {
+                label: match app.board(cx).is_some_and(|board| board.draft) {
+                    true => "New task".into(),
+                    false => "Task".into(),
+                },
+                ..TabInfo::default()
+            },
+            PanelKind::AgentsExplorer => TabInfo {
+                label: "Agents".into(),
+                ..TabInfo::default()
+            },
         }
     }
 }
@@ -621,6 +634,8 @@ fn body(
         PanelKind::GitHistory => git::history::render(app, window, cx).into_any_element(),
         PanelKind::GitDiff => git::diff::render(app, cx).into_any_element(),
         PanelKind::KbExplorer => kb::render(app, cx),
+        PanelKind::Task => board::panel(app, window, cx),
+        PanelKind::AgentsExplorer => agents::sidebar::render(app, cx).into_any_element(),
     }
 }
 

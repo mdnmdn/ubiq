@@ -57,7 +57,8 @@ impl ModeLayout {
     pub fn default_for(mode: RailMode) -> Self {
         let (show_left, show_right) = match mode {
             RailMode::Git => (true, true),
-            RailMode::Kb => (true, false),
+            RailMode::Kb | RailMode::Agents => (true, false),
+            RailMode::Tasks => (false, true),
             _ => (false, false),
         };
         Self {

@@ -2,6 +2,7 @@ use super::*;
 
 use crate::state::board::PendingTask;
 use ubiq_proto::messages::TaskField;
+use ubiq_proto::projects::LanePref;
 use ubiq_proto::work::{Complexity, Kind, Label};
 
 impl AppState {
@@ -763,9 +764,104 @@ impl AppState {
         true
     }
 
+    /// What the project on screen says about one lane, which is [`LanePref::plain`] wherever there
+    /// is no record to ask — the sink's fixture board, and a folder not in the catalogue.
+    pub fn lane_pref(&self, status: Status, cx: &App) -> LanePref {
+        self.project_snapshot(cx)
+            .map(|snapshot| snapshot.record.lane(status))
+            .unwrap_or_else(|| LanePref::plain(status))
+    }
+
+    /// Whether the board draws one lane at all.
+    ///
+    /// The one reader of `hidden`, so the board and the settings page cannot come apart about what
+    /// hiding a lane means.
+    pub fn lane_drawn(&self, status: Status, cx: &App) -> bool {
+        !self.lane_pref(status, cx).hidden
+    }
+
+    /// Whether one lane draws shut: because the user shut it by hand, or because it asked to shut
+    /// itself and is empty. A lane the user has since clicked open wins over the setting.
+    ///
+    /// The count is the *filtered* one the column draws, which is deliberate: a lane holding
+    /// nothing the user can currently see is a lane holding nothing to read.
+    pub fn lane_shut(&self, status: Status, count: usize, cx: &App) -> bool {
+        let Some(board) = self.board(cx) else {
+            return false;
+        };
+        if board.is_shut(status) {
+            return true;
+        }
+        !board.is_held_open(status) && count == 0 && self.lane_pref(status, cx).collapse_when_empty
+    }
+
+    /// The count one lane draws, which is what decides whether an empty lane shuts itself.
+    fn lane_count(&self, status: Status, cx: &App) -> usize {
+        match (self.work(cx), self.board(cx)) {
+            (Some(work), Some(board)) => board.column(work, status).len(),
+            _ => 0,
+        }
+    }
+
+    /// Flip whether a lane is drawn at all.
+    pub fn toggle_lane_hidden(
+        &mut self,
+        project: ProjectId,
+        status: Status,
+        cx: &mut Context<Self>,
+    ) {
+        self.edit_lane(project, status, cx, |pref| pref.hidden = !pref.hidden);
+    }
+
+    /// Flip whether a lane shuts itself when it holds nothing.
+    pub fn toggle_lane_collapse(
+        &mut self,
+        project: ProjectId,
+        status: Status,
+        cx: &mut Context<Self>,
+    ) {
+        self.edit_lane(project, status, cx, |pref| {
+            pref.collapse_when_empty = !pref.collapse_when_empty
+        });
+    }
+
+    /// Rebuild the whole lane list with one lane changed, because the list travels whole.
+    fn edit_lane(
+        &mut self,
+        project: ProjectId,
+        status: Status,
+        cx: &mut Context<Self>,
+        change: impl Fn(&mut LanePref),
+    ) {
+        let Some(record) = WindowRegistry::read(cx)
+            .project(project)
+            .map(|snapshot| snapshot.record.clone())
+        else {
+            return;
+        };
+        let lanes: Vec<LanePref> = Status::all()
+            .into_iter()
+            .map(|lane| {
+                let mut pref = record.lane(lane);
+                if lane == status {
+                    change(&mut pref);
+                }
+                pref
+            })
+            .collect();
+        self.set_project_lanes(project, lanes, cx);
+    }
+
+    /// Shut a column, or open it — whichever is the opposite of what is on screen.
+    ///
+    /// What is on screen is `shut` *and* the project's setting, so the flip is decided here and
+    /// the state is told which state to be in rather than to invert one list. Inverting `shut`
+    /// alone is what left a lane that shuts itself when empty impossible to look into.
     pub fn toggle_board_column(&mut self, status: Status, cx: &mut Context<Self>) {
+        let count = self.lane_count(status, cx);
+        let shut = self.lane_shut(status, count, cx);
         if let Some(board) = self.board_mut(cx) {
-            board.toggle_column(status);
+            board.set_column(status, !shut);
         }
         cx.notify();
     }

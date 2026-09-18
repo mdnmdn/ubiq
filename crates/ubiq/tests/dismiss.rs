@@ -219,6 +219,7 @@ fn the_composers_picker_draws_with_the_rail_off_the_sink(cx: &mut gpui::TestAppC
             index: None,
             tools: Vec::new(),
             managed_repos: Vec::new(),
+            lanes: Vec::new(),
             runs_on: None,
         },
         health: ProjectHealth::Ok,

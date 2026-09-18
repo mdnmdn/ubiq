@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::ids::{ProjectId, SshProfileId};
 use crate::settings::DronePreset;
 use crate::tools::ToolDef;
+use crate::work::Status;
 
 /// A project as it is written down. Everything here survives a restart.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -70,6 +71,18 @@ pub struct ProjectRecord {
     /// [`Message::UpdateProject`]: crate::messages::Message::UpdateProject
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tools: Vec<ToolDef>,
+    /// How this project's task board draws each lane — which ones it draws at all, and which shut
+    /// themselves when they hold nothing. Replaced whole through [`Message::UpdateProject`], the
+    /// way `search_excludes` above is.
+    ///
+    /// Sparse: a lane the user never said anything about has no entry, and reads back as
+    /// [`LanePref::plain`]. Every lane still *exists* — a hidden one takes tasks and counts them,
+    /// it is only not drawn, because a status the board stops showing is not a status the work
+    /// stopped having.
+    ///
+    /// [`Message::UpdateProject`]: crate::messages::Message::UpdateProject
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lanes: Vec<LanePref>,
     /// The drone this project's folder lives behind, or `None` for a project that runs where Ubiq
     /// does. See [`DroneOrigin`].
     ///
@@ -78,6 +91,53 @@ pub struct ProjectRecord {
     /// meant — a local project — rather than a guess.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runs_on: Option<DroneOrigin>,
+}
+
+/// What one project has said about one lane of its task board.
+///
+/// Two independent facets rather than one three-state mode: a lane can be hidden, can shut itself
+/// when empty, or both, and hiding one is not a stronger form of collapsing it. Both default to
+/// off, which is the board every project starts with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LanePref {
+    /// Which lane this is about.
+    pub status: Status,
+    /// The board does not draw this lane. Tasks can still be in it — a filter would be a different
+    /// setting — and nothing can be dragged into it while it is hidden.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hidden: bool,
+    /// The lane draws shut, as the strip a user gets by shutting one by hand, whenever it holds no
+    /// task. It opens again the moment one lands in it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub collapse_when_empty: bool,
+}
+
+impl LanePref {
+    /// The lane nobody has said anything about: drawn, and open whether or not it holds anything.
+    pub fn plain(status: Status) -> Self {
+        Self {
+            status,
+            hidden: false,
+            collapse_when_empty: false,
+        }
+    }
+
+    /// Whether this preference says anything at all, and so whether it is worth writing down.
+    pub fn is_plain(&self) -> bool {
+        !self.hidden && !self.collapse_when_empty
+    }
+}
+
+impl ProjectRecord {
+    /// What this project says about one lane, which is [`LanePref::plain`] for a lane it has never
+    /// been asked about.
+    pub fn lane(&self, status: Status) -> LanePref {
+        self.lanes
+            .iter()
+            .copied()
+            .find(|pref| pref.status == status)
+            .unwrap_or_else(|| LanePref::plain(status))
+    }
 }
 
 /// Where a project's folder actually is, when it is not on this machine.
@@ -297,8 +357,26 @@ mod tests {
             index: None,
             managed_repos: vec![],
             tools: vec![],
+            lanes: vec![],
             runs_on: None,
         }
+    }
+
+    /// A lane never configured is drawn and never shuts itself, and says so without an entry.
+    #[test]
+    fn an_unconfigured_lane_reads_back_plain() {
+        let mut record = record();
+        record.lanes = vec![LanePref {
+            status: Status::Blocked,
+            hidden: false,
+            collapse_when_empty: true,
+        }];
+        assert_eq!(record.lane(Status::Ready), LanePref::plain(Status::Ready));
+        assert!(record.lane(Status::Blocked).collapse_when_empty);
+
+        let raw = serde_json::to_string(&record).expect("a record serialises");
+        let back: ProjectRecord = serde_json::from_str(&raw).expect("and reads back");
+        assert_eq!(back.lanes, record.lanes);
     }
 
     #[test]

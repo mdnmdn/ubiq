@@ -164,22 +164,21 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                 .flex_none()
                 .items_center()
                 .gap(px(1.))
-                // The side regions belong to the IDE and to Git: the explorer and the chat, the
-                // refs and the changes. In any other rail mode they are disabled, so their
-                // switches are not offered. The bottom region stays openable in every mode.
-                .when(app.workbench.has_side_panels(), |this| {
-                    this.child(
-                        icon_button(
-                            "toggle-left",
-                            UbiqIcon::TitlebarPanelLeft,
-                            left,
-                            cx.listener(|this, _, window, cx| {
-                                this.toggle_region(crate::state::Region::Left, window, cx)
-                            }),
-                        )
-                        .h_full(),
+                // All three switches, in every mode. Every mode now has side panels of its own —
+                // the IDE's explorer and chat, Git's refs and changes, KB's documents, the board's
+                // task, the agents list, Teams' chat — and a mode that happens to have nothing in a
+                // region still opens it onto that region's own furniture.
+                .child(
+                    icon_button(
+                        "toggle-left",
+                        UbiqIcon::TitlebarPanelLeft,
+                        left,
+                        cx.listener(|this, _, window, cx| {
+                            this.toggle_region(crate::state::Region::Left, window, cx)
+                        }),
                     )
-                })
+                    .h_full(),
+                )
                 .child(
                     icon_button(
                         "toggle-bottom",
@@ -191,19 +190,17 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                     )
                     .h_full(),
                 )
-                .when(app.workbench.has_side_panels(), |this| {
-                    this.child(
-                        icon_button(
-                            "toggle-right",
-                            UbiqIcon::TitlebarPanelRight,
-                            right,
-                            cx.listener(|this, _, window, cx| {
-                                this.toggle_region(crate::state::Region::Right, window, cx)
-                            }),
-                        )
-                        .h_full(),
+                .child(
+                    icon_button(
+                        "toggle-right",
+                        UbiqIcon::TitlebarPanelRight,
+                        right,
+                        cx.listener(|this, _, window, cx| {
+                            this.toggle_region(crate::state::Region::Right, window, cx)
+                        }),
                     )
-                })
+                    .h_full(),
+                )
                 .child(
                     div()
                         .w(px(1.))

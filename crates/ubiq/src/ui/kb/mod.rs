@@ -23,12 +23,12 @@ use ubiq_proto::kb::KbSourceState;
 use crate::app::AppState;
 use crate::state::MenuId;
 use crate::state::editor::ViewerKind;
-use crate::state::kb::{KbBody, KbRow, KbRowKind};
+use crate::state::kb::{KbBody, KbDoc, KbRow, KbRowKind};
 use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::kit::{
     ContextItem, UbiqIcon, context_menu, elided, elided_with, file_row, icon_button, kind_icon,
-    mono, panel, panel_header, primary_button, row_font, twisty,
+    mono, panel, panel_header, primary_button, row_font, row_height, twisty,
 };
 use crate::ui::viewer::markdown;
 use crate::ui::{eid2, empty};
@@ -300,6 +300,12 @@ fn retry(
 }
 
 /// The centre: the selected document, drawn by whichever renderer its extension names.
+///
+/// **Leads with a header naming the document**, unlike the IDE editor, which leans on the dock's
+/// own tab strip for that — the knowledge base has no tab strip here, so a click with nothing
+/// else to show for it (a document just created, empty, on a wiki) would otherwise look like it
+/// did nothing at all. The header is what says a click was heard even when the body has nothing
+/// to draw.
 pub fn centre(app: &AppState, _window: &mut Window, cx: &mut Context<AppState>) -> AnyElement {
     let Some(kb) = app.kb(cx) else {
         return nothing_selected();
@@ -308,28 +314,70 @@ pub fn centre(app: &AppState, _window: &mut Window, cx: &mut Context<AppState>) 
         return nothing_selected();
     };
 
-    match &doc.body {
+    let body = match &doc.body {
         KbBody::Loading => faint("Opening\u{2026}"),
         KbBody::Failed(error) => sentence(error.clone(), theme::danger()),
         KbBody::Ready(contents) => {
             if contents.is_binary {
-                return faint(format!("{} is not text.", doc.key.name()));
-            }
-            let source = String::from_utf8_lossy(&contents.bytes).into_owned();
-            // The knowledge base's own key space, so a document and an editor tab on a file of the
-            // same name are two entries in the renderer's scan cache rather than one.
-            let key = format!("kb:{}:{}", doc.key.source, doc.key.path);
-            let font_size = app.content_font_size(cx);
-            match ViewerKind::of(&doc.key.path) {
-                ViewerKind::Markdown => markdown::render(app, &key, &source, font_size, false, cx),
-                ViewerKind::Editor => plain(source, font_size),
-                // Diagrams and images are the IDE's viewers, and reaching them from here means
-                // wiring a web tenant to a document that is not an open file. Until that is done
-                // the panel says where the file is drawn rather than drawing it wrongly.
-                _ => faint(format!("{} opens in the IDE.", doc.key.name())),
+                faint(format!("{} is not text.", doc.key.name()))
+            } else {
+                let source = String::from_utf8_lossy(&contents.bytes).into_owned();
+                // The knowledge base's own key space, so a document and an editor tab on a file of
+                // the same name are two entries in the renderer's scan cache rather than one.
+                let key = format!("kb:{}:{}", doc.key.source, doc.key.path);
+                let font_size = app.content_font_size(cx);
+                match ViewerKind::of(&doc.key.path) {
+                    ViewerKind::Markdown => {
+                        markdown::render(app, &key, &source, font_size, false, cx)
+                    }
+                    ViewerKind::Editor => plain(source, font_size),
+                    // Diagrams and images are the IDE's viewers, and reaching them from here means
+                    // wiring a web tenant to a document that is not an open file. Until that is
+                    // done the panel says where the file is drawn rather than drawing it wrongly.
+                    _ => faint(format!("{} opens in the IDE.", doc.key.name())),
+                }
             }
         }
-    }
+    };
+
+    div()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_h(px(0.))
+        .child(doc_header(doc, kb))
+        .child(body)
+        .into_any_element()
+}
+
+/// The flush row naming the open document, the one thing on screen that changes the instant a
+/// click lands — a `panel_header`'s own reasoning, spelled here rather than reused because a
+/// document's title is a path, not an uppercase section name.
+fn doc_header(doc: &KbDoc, kb: &crate::state::kb::KbState) -> AnyElement {
+    let title = match kb.source(doc.key.source) {
+        Some(view) => format!("{} / {}", view.name(), doc.key.path),
+        None => doc.key.path.clone(),
+    };
+    let font_size = row_font();
+    div()
+        .h(px(row_height(font_size)))
+        .px_3()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap_2()
+        .border_b_1()
+        .border_color(theme::border())
+        .bg(theme::pane_bg())
+        .child(kind_icon(false, theme::text_muted()))
+        .child(elided_with(
+            eid2("kb-doc-title", doc.key.source, &doc.key.path),
+            doc.key.name().to_string(),
+            title,
+            theme::text(),
+            px(font_size),
+        ))
+        .into_any_element()
 }
 
 /// The centre with no document chosen: the explorer is what chooses one, so that is what it points

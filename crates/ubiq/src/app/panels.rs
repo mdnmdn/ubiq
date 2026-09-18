@@ -114,25 +114,34 @@ impl AppState {
             now_open && dock.is_empty(placement, cx)
         };
         if now_empty {
+            let mode = self.workbench.rail_mode;
+            // What a side region opened onto nothing fills with is the mode's own furniture where
+            // it has some — and a fresh chat tab where the side is the one the conversation calls
+            // home. A side that is neither is the user having dragged its panel away on purpose,
+            // and the switch leaves it be.
+            let furniture = match (mode, region) {
+                (RailMode::Git, Region::Left) => Some(PanelKind::GitRefs),
+                (RailMode::Git, Region::Right) => Some(PanelKind::GitChanges),
+                (RailMode::Kb, Region::Left) => Some(PanelKind::KbExplorer),
+                (RailMode::Tasks, Region::Right) => Some(PanelKind::Task),
+                (RailMode::Agents, Region::Left) => Some(PanelKind::AgentsExplorer),
+                _ => None,
+            };
             match region {
                 Region::Bottom => self.spawn_pane(None, Vec::new(), AgentPicks::default(), cx),
-                Region::Right if self.workbench.rail_mode == RailMode::Git => {
-                    self.pending_panels
-                        .push(PanelEdit::Open(PanelKind::GitChanges));
-                }
-                Region::Right => {
+                Region::Centre => {}
+                _ => match furniture {
+                    Some(kind) => self.pending_panels.push(PanelEdit::Open(kind)),
                     // The one place the window has to decide *which* chat tab an empty region
                     // opens onto: a fresh one, attached to nothing.
-                    if let Some(id) = self.open_chat_tab(cx) {
-                        self.pending_panels
-                            .push(PanelEdit::Open(PanelKind::Chat(id)));
+                    None if region == PanelKind::chat_home(mode) => {
+                        if let Some(id) = self.open_chat_tab(cx) {
+                            self.pending_panels
+                                .push(PanelEdit::Open(PanelKind::Chat(id)));
+                        }
                     }
-                }
-                Region::Left if self.workbench.rail_mode == RailMode::Git => {
-                    self.pending_panels
-                        .push(PanelEdit::Open(PanelKind::GitRefs));
-                }
-                Region::Left | Region::Centre => {}
+                    None => {}
+                },
             }
         }
         cx.notify();
@@ -260,7 +269,9 @@ impl AppState {
         self.pending_panels
             .iter()
             .filter_map(|edit| match edit {
-                PanelEdit::Open(kind) | PanelEdit::Reveal(kind) => Some(kind.home()),
+                PanelEdit::Open(kind) | PanelEdit::Reveal(kind) => {
+                    Some(kind.home_in(self.workbench.rail_mode))
+                }
                 PanelEdit::Close(_) => None,
             })
             .collect()
@@ -290,6 +301,18 @@ impl AppState {
     pub(super) fn queue_kb_furniture(&mut self) {
         self.pending_panels
             .push(PanelEdit::Open(PanelKind::KbExplorer));
+    }
+
+    /// The same for the two screens that gained a side panel of their own: the board's task on the
+    /// right, and the agents list on the left. One kind each, for [`Self::queue_kb_furniture`]'s
+    /// reason — a first visit to the mode has no blob naming it.
+    pub(super) fn queue_mode_furniture(&mut self, mode: RailMode) {
+        let kind = match mode {
+            RailMode::Tasks => PanelKind::Task,
+            RailMode::Agents => PanelKind::AgentsExplorer,
+            _ => return,
+        };
+        self.pending_panels.push(PanelEdit::Open(kind));
     }
 
     /// The panel for one kind, built the first time it is asked for.
@@ -395,7 +418,7 @@ impl AppState {
                     if self.is_idle_chat(&kind, cx) {
                         continue;
                     }
-                    let home = kind.home();
+                    let home = kind.home_in(self.workbench.rail_mode);
                     let panel = self.panel(kind, cx);
                     // A saved arrangement is rebuilt before this queue is drained, so a file panel
                     // can already be in the tree by the time the edit that asked for it is read.
@@ -406,7 +429,7 @@ impl AppState {
                     dock::add(&self.dock.clone(), &panel, home, window, cx);
                 }
                 PanelEdit::Reveal(kind) => {
-                    let home = kind.home();
+                    let home = kind.home_in(self.workbench.rail_mode);
                     let panel = self.panel(kind, cx);
                     dock::reveal(&self.dock.clone(), &panel, home, window, cx);
                 }
@@ -437,7 +460,7 @@ impl AppState {
         if attached {
             return false;
         }
-        let placement = dock::placement_of(Region::Right);
+        let placement = dock::placement_of(PanelKind::chat_home(self.workbench.rail_mode));
         let dock = self.dock.read(cx);
         !dock.is_dock_open(placement) && dock.is_empty(placement, cx)
     }
@@ -550,7 +573,7 @@ impl AppState {
             let restorable = !kind.is_mode_owned()
                 && (kind.pane().is_some() || kind.tab_key().is_some() || on_screen.contains(&kind));
             if restorable && !kept.contains_key(&kind) {
-                let home = kind.home();
+                let home = kind.home_in(self.workbench.rail_mode);
                 // On screen before, on screen after: a reveal also brings its region back, which
                 // an arrangement that predates the panel has closed.
                 if on_screen.contains(&kind) {

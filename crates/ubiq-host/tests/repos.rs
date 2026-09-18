@@ -31,6 +31,7 @@ fn record(id: ProjectId, path: &Path, temporary: bool) -> ProjectRecord {
         index: None,
         managed_repos: Vec::new(),
         tools: Vec::new(),
+        lanes: Vec::new(),
         runs_on: None,
     }
 }

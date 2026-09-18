@@ -40,6 +40,7 @@ fn snapshot(id: ProjectId, name: &str, runs_on: Option<DroneOrigin>) -> ProjectS
             index: None,
             tools: Vec::new(),
             managed_repos: Vec::new(),
+            lanes: Vec::new(),
             runs_on,
         },
         health: ProjectHealth::Ok,
@@ -147,7 +148,7 @@ fn the_form_says_set_local_or_nothing_at_all() {
 fn the_remote_nav_needs_a_record_to_attach_to(cx: &mut gpui::TestAppContext) {
     use gpui::AppContext as _;
 
-    assert_eq!(ProjectNav::all().len(), 6);
+    assert_eq!(ProjectNav::all().len(), 7);
     assert_eq!(ProjectNav::Remote.label(), "Remote");
     assert_eq!(ProjectNav::Kb.label(), "Knowledge base");
 

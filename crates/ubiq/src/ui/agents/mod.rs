@@ -79,15 +79,8 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         .min_w(px(0.))
         .min_h(px(0.))
         .bg(theme::app_bg())
-        .child(
-            div()
-                .w(px(theme::AGENT_SIDEBAR_WIDTH))
-                .flex()
-                .flex_none()
-                .border_r_1()
-                .border_color(theme::border())
-                .child(sidebar::render(app, cx)),
-        )
+        // The list is not here: it is [`sidebar`], drawn as the window's own left-region panel
+        // (`PanelKind::AgentsExplorer`), so it is arranged and put away like every other one.
         .child(
             div()
                 .flex()

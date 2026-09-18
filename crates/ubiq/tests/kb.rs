@@ -142,6 +142,7 @@ fn a_project() -> ProjectSnapshot {
             index: None,
             tools: Vec::new(),
             managed_repos: Vec::new(),
+            lanes: Vec::new(),
             runs_on: None,
         },
         health: ProjectHealth::Ok,
@@ -779,4 +780,81 @@ fn the_folder_chooser_browses_the_host_and_answers_the_form(cx: &mut TestAppCont
         sources_written(&fixture.said()).is_empty(),
         "a folder chosen is not a source written: Confirm is what writes one"
     );
+}
+
+/// A wiki source's file opens exactly the way a folder's or a repository's does: the click asks
+/// for the same `ReadKbFile`, and the reply lands in `kb.doc` as `Ready` — `KbOrigin::Internal`
+/// is not a special case anywhere in this path (`T-23`).
+#[gpui::test]
+fn a_wiki_sources_file_opens_like_any_other(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let id = KbSourceId::generate();
+    fixture.deliver(
+        Message::KbSourcesListed {
+            project_id: fixture.project,
+            sources: vec![KbSourceStatus {
+                source: KbSource {
+                    id,
+                    name: "Wiki".to_string(),
+                    origin: KbOrigin::Internal,
+                    filter: String::new(),
+                    access: KbAccess::ReadWrite,
+                },
+                state: KbSourceState::Ready,
+            }],
+        },
+        cx,
+    );
+    fixture.deliver(
+        Message::KbTreeListing {
+            project_id: fixture.project,
+            source: id,
+            rel_path: String::new(),
+            listings: vec![listing("", vec![file("", "notes.md")])],
+        },
+        cx,
+    );
+    let _ = fixture.said();
+
+    fixture.with(cx, |state, _, cx| {
+        state.click_kb_row(id, "notes.md".to_string(), cx)
+    });
+    let said = fixture.said();
+    assert!(
+        said.iter().any(|m| matches!(
+            m,
+            Message::ReadKbFile { source, rel_path, .. }
+                if *source == id && rel_path == "notes.md"
+        )),
+        "a click on a wiki file asks to read it, the same as any other source"
+    );
+
+    fixture.deliver(
+        Message::KbFileContents {
+            project_id: fixture.project,
+            source: id,
+            rel_path: "notes.md".to_string(),
+            contents: FileContents {
+                bytes: b"hello".to_vec(),
+                len: 5,
+                truncated: false,
+                is_binary: false,
+                version: None,
+            },
+        },
+        cx,
+    );
+    fixture.with(cx, |state, _, cx| {
+        let doc = state
+            .kb(cx)
+            .unwrap()
+            .doc
+            .as_ref()
+            .expect("a document opened");
+        assert_eq!(doc.key.path, "notes.md");
+        assert!(
+            matches!(&doc.body, KbBody::Ready(contents) if contents.bytes == b"hello"),
+            "the document drew the wiki file's contents"
+        );
+    });
 }

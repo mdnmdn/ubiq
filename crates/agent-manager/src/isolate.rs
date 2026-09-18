@@ -539,10 +539,15 @@ pub const APPLE_SDK_RO_ROOTS: &[&str] = &[
 /// The read-only half above lets the toolchain run; these let it finish. SwiftPM
 /// resolves and caches packages under both `org.swift.swiftpm` roots, and
 /// `xcodebuild` writes derived data, simulator state and its own build cache
-/// under `~/Library/Developer` and `~/Library/Caches`. Same rules as
-/// [`DEV_RW_HOME_ROOTS`]: joined absolutely against the real home so they
-/// survive a replaced one, and not existence-filtered, since the grant is what
-/// makes a cache's first-run creation legal.
+/// under `~/Library/Developer` and `~/Library/Caches`. `swiftc`/`clang` write
+/// their module cache under `~/.cache/clang`, and SwiftPM's `configuration`,
+/// `security` and `cache` entries are symlinks from `~/.swiftpm` into the
+/// `org.swift.swiftpm` roots — so the on-device assist backend's Swift bridge
+/// (`foundation-models`, built behind the `assist-apple` feature) dies on both
+/// without a grant, surfacing as `framework 'FoundationModels' not found`. Same
+/// rules as [`DEV_RW_HOME_ROOTS`]: joined absolutely against the real home so
+/// they survive a replaced one, and not existence-filtered, since the grant is
+/// what makes a cache's first-run creation legal.
 pub const APPLE_RW_HOME_ROOTS: &[&str] = &[
     "Library/Developer/Xcode",
     "Library/Developer/CoreSimulator",
@@ -551,6 +556,8 @@ pub const APPLE_RW_HOME_ROOTS: &[&str] = &[
     "Library/Caches/com.apple.dt.Xcode",
     "Library/Caches/org.swift.swiftpm",
     "Library/org.swift.swiftpm",
+    ".swiftpm",
+    ".cache/clang",
 ];
 
 /// Whether this host is the one [`APPLE_SDK_RO_ROOTS`] and

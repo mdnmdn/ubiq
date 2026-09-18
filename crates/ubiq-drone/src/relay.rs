@@ -874,6 +874,7 @@ fn record_for(root: &Root) -> ProjectRecord {
         // A drone does not know it is one: `runs_on` is the interface's own record of *where* a
         // project's folder is, and this catalogue is built on the machine the folder is already
         // on.
+        lanes: Vec::new(),
         runs_on: None,
     }
 }

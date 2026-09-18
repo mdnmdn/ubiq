@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: Editor-like chat tabs — many, movable to any dockable region, each a view onto a host-owned conversation or onto none, drawn by the composer, transcript and tool blocks the whole window shares.
 read_when: you are changing a chat tab, the control that starts or attaches a conversation, or which conversation a tab shows
-updated: 2026-09-17
-verified: 2026-09-17
+updated: 2026-09-18
+verified: 2026-09-18
 code_anchors: [crates/ubiq/src/ui/chat/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/app/projects.rs]
 depends_on: [feat-workbench]
 review_cycle: monthly
@@ -17,8 +17,9 @@ review_cycle: monthly
 ## Purpose
 
 A harness in a terminal shows what an agent is doing; a chat tab shows what it was asked and what
-it concluded, beside the code rather than in another window. It is IDE furniture and leaves with
-the mode. Unlike every other panel IDE mode draws, it comes in many instances at once: a chat tab is
+it concluded, beside the code rather than in another window. It is furniture in four modes — IDE,
+Tasks and both Teams screens, each of which is somewhere a conversation is part of the work — and is
+hidden in the rest. Unlike every other panel IDE mode draws, it comes in many instances at once: a chat tab is
 a perspective on a conversation the host owns, not a conversation of its own, so many may be open —
 each attached to a different run, or to none — and closing one ends nothing. The relation holds in
 one direction only: deleting the conversation closes every tab looking at it, because there is then
@@ -464,7 +465,10 @@ rest. Which surface drew the buttons is not on the wire, so an ask here is answe
 `crates/ubiq/src/state/dock.rs` holds `ChatId` — a locally minted counter, `Display` and `FromStr`
 so it round-trips through the dock's saved payload the way a pane's id does — and
 `PanelKind::Chat(ChatId)`'s `class` (`Free`, so it may sit anywhere), `home` (the right region),
-`closable` and `is_drawn` rules. `crates/ubiq/src/ui/dock/mod.rs`'s `chat_payload` and
+`home_in` — the mode is part of the placement policy, and on the Teams screens, whose graph and
+inspector take the centre and the right, the conversation is the left side — `closable` and
+`is_drawn` rules. `PanelKind::chat_home(mode)` is `home_in` asked without a tab in hand, for the
+window filling a side region it has not minted a tab for yet. `crates/ubiq/src/ui/dock/mod.rs`'s `chat_payload` and
 `chat_from_payload` are that round trip; a saved leaf naming an id this window did not already hold
 is dropped on restore, the way a saved terminal leaf naming a gone pane is — a chat id is not the
 host's to confirm, so an unfamiliar one is trusted no further than an unfamiliar pane id is.
@@ -521,9 +525,10 @@ dock's tree with `OpenProject::chats` — called whenever a project is entered, 
 `OpenProject::new` has seeded that project's first tab, and again at the end of `settle_layout`, so a
 restore that dropped an unfamiliar id is squared with the truth immediately. `settle_panels` skips the
 `Open` edit `sync_chat_panels` queues for that seeded tab through `AppState::is_idle_chat` — a chat
-panel attached to nothing, bound for a right region that is shut and holds nothing — so IDE mode does
-not start with an empty agent panel open, or the region it would sit in. `toggle_region` mints a
-fresh tab when the user reopens an emptied right region.
+panel attached to nothing, bound for the side region the chat calls home in the mode on screen while
+that region is shut and holds nothing — so IDE mode does not start with an empty agent panel open, or
+the region it would sit in. `toggle_region` mints a fresh tab when the user reopens that side empty
+and the mode has no furniture of its own for it.
 
 Rendering is two modules under `crates/ubiq/src/ui/chat/`: `mod.rs` resolves a tab's own attachment
 once — `attached`, read by both children below rather than asked twice — and hands it to the shared

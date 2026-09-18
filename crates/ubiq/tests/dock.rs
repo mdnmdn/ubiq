@@ -29,6 +29,8 @@ fn every_kind() -> Vec<PanelKind> {
         PanelKind::GitHistory,
         PanelKind::GitDiff,
         PanelKind::KbExplorer,
+        PanelKind::Task,
+        PanelKind::AgentsExplorer,
     ]
 }
 
@@ -43,7 +45,12 @@ fn nothing() -> Visibility {
 /// the centre or the bottom is refused and returns.
 #[test]
 fn an_edge_panel_lives_on_a_border_and_nowhere_else() {
-    for kind in [PanelKind::Explorer, PanelKind::KbExplorer] {
+    for kind in [
+        PanelKind::Explorer,
+        PanelKind::KbExplorer,
+        PanelKind::Task,
+        PanelKind::AgentsExplorer,
+    ] {
         assert!(kind.class().allows(Region::Left), "{kind:?} in the left");
         assert!(kind.class().allows(Region::Right), "{kind:?} in the right");
         assert!(
@@ -157,6 +164,72 @@ fn the_names_a_saved_layout_is_keyed_by_are_fixed() {
     assert_eq!(PanelKind::GitDiff.home(), Region::Centre);
     assert_eq!(PanelKind::KbExplorer.name(), "ubiq.kb.explorer");
     assert_eq!(PanelKind::KbExplorer.home(), Region::Left);
+    assert_eq!(PanelKind::Task.name(), "ubiq.task");
+    assert_eq!(PanelKind::Task.home(), Region::Right);
+    assert_eq!(PanelKind::AgentsExplorer.name(), "ubiq.agents.explorer");
+    assert_eq!(PanelKind::AgentsExplorer.home(), Region::Left);
+}
+
+/// **The mode is part of the placement policy.** A chat tab opens on the right everywhere but the
+/// Teams screens, whose graph and inspector take the centre and the right — there the conversation
+/// is the left side. Every other kind answers its one home whatever the mode.
+#[test]
+fn a_chat_homes_left_in_teams_and_right_everywhere_else() {
+    let chat = PanelKind::Chat(ChatId::generate());
+    for mode in [RailMode::Teams, RailMode::TeamsOld] {
+        assert_eq!(chat.home_in(mode), Region::Left, "{mode:?}");
+        assert_eq!(PanelKind::chat_home(mode), Region::Left, "{mode:?}");
+    }
+    for mode in [RailMode::Ide, RailMode::Tasks, RailMode::Git, RailMode::Kb] {
+        assert_eq!(chat.home_in(mode), Region::Right, "{mode:?}");
+        assert_eq!(PanelKind::chat_home(mode), Region::Right, "{mode:?}");
+    }
+    for kind in every_kind() {
+        if kind.chat_id().is_some() {
+            continue;
+        }
+        for mode in [RailMode::Ide, RailMode::Teams, RailMode::Tasks] {
+            assert_eq!(kind.home_in(mode), kind.home(), "{kind:?} in {mode:?}");
+        }
+    }
+}
+
+/// The board's task and the agents list are their own mode's furniture, the way the knowledge
+/// base's explorer is KB's: a project, and that mode, and nothing else draws either.
+#[test]
+fn the_board_s_task_and_the_agents_list_belong_to_their_modes() {
+    let tasks = Visibility {
+        has_project: true,
+        rail_mode: Some(RailMode::Tasks),
+        ..nothing()
+    };
+    let agents = Visibility {
+        rail_mode: Some(RailMode::Agents),
+        ..tasks
+    };
+
+    assert!(PanelKind::Task.is_drawn(tasks));
+    assert!(!PanelKind::Task.is_drawn(agents));
+    assert!(!PanelKind::Task.is_drawn(Visibility {
+        rail_mode: Some(RailMode::Tasks),
+        ..nothing()
+    }));
+
+    assert!(PanelKind::AgentsExplorer.is_drawn(agents));
+    assert!(!PanelKind::AgentsExplorer.is_drawn(tasks));
+    assert!(!PanelKind::AgentsExplorer.is_drawn(Visibility {
+        rail_mode: Some(RailMode::Agents),
+        ..nothing()
+    }));
+
+    // A conversation is furniture in three modes now, not one, and wants a project in each.
+    let chat = PanelKind::Chat(ChatId::generate());
+    assert!(chat.is_drawn(tasks));
+    assert!(chat.is_drawn(Visibility {
+        rail_mode: Some(RailMode::Teams),
+        ..tasks
+    }));
+    assert!(!chat.is_drawn(agents));
 }
 
 /// **Every file panel answers the same name**, whichever tab it is. A name is a `&'static str` and
@@ -370,6 +443,8 @@ fn a_mode_s_own_panels_say_so() {
                 | PanelKind::GitHistory
                 | PanelKind::GitDiff
                 | PanelKind::KbExplorer
+                | PanelKind::Task
+                | PanelKind::AgentsExplorer
         );
         assert_eq!(kind.is_mode_owned(), owned, "{kind:?}");
     }

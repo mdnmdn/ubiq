@@ -111,6 +111,18 @@ impl AppState {
         self.dial_project_drone(project, origin, cx);
     }
 
+    /// Activate the Nth project the rail's badges show, `slot` 1-based — `cmd-1`..`cmd-9`.
+    /// [`crate::ui::rail::visible_project_order`] says what "Nth" means: the same order and the
+    /// same shortage rule the badges themselves draw with, so the digit always lands on the
+    /// project its badge shows. A digit with no badge behind it — the badge switch is off, the
+    /// window holds one project, or the digit is past the last one — does nothing.
+    pub fn activate_project_slot(&mut self, slot: u8, window: &Window, cx: &mut Context<Self>) {
+        let order = crate::ui::rail::visible_project_order(self, window, cx);
+        if let Some(project) = order.get(usize::from(slot).saturating_sub(1)).copied() {
+            self.activate_project(project, cx);
+        }
+    }
+
     /// Point this window at a project it already holds.
     pub fn activate_project(&mut self, project: ProjectId, cx: &mut Context<Self>) {
         let id = self.window_id;
@@ -239,6 +251,7 @@ impl AppState {
             index: None,
             tools: None,
             managed_repos: None,
+            lanes: None,
             runs_on: None,
         });
         self.workbench.row_action = None;
@@ -265,6 +278,7 @@ impl AppState {
             index: Some(index),
             tools: None,
             managed_repos: None,
+            lanes: None,
             runs_on: None,
         });
         cx.notify();
@@ -299,6 +313,7 @@ impl AppState {
             index: None,
             tools: None,
             managed_repos: None,
+            lanes: None,
             runs_on: Some(change),
         });
         cx.global_mut::<WindowRegistry>().apply(snapshot);
@@ -329,6 +344,42 @@ impl AppState {
             index: None,
             tools: None,
             managed_repos: None,
+            lanes: None,
+            runs_on: None,
+        });
+        cx.global_mut::<WindowRegistry>().apply(snapshot);
+        cx.notify();
+    }
+
+    /// Write a project's whole task-board lane list, sending it at once and updating the snapshot
+    /// every window redraws from — the same immediacy `set_project_search_excludes` gives the
+    /// excludes. The board behind the dialog is redrawn from the snapshot, so a lane hidden here
+    /// leaves the board the moment it is ticked rather than at the host's echo.
+    ///
+    /// Preferences that say nothing are dropped before the list is sent: a lane the user turned on
+    /// and off again is a lane never configured, and a catalogue that wrote a row per lane per
+    /// project would be a file of defaults.
+    pub fn set_project_lanes(
+        &mut self,
+        project: ProjectId,
+        lanes: Vec<ubiq_proto::projects::LanePref>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(mut snapshot) = WindowRegistry::read(cx).project(project).cloned() else {
+            return;
+        };
+        let lanes: Vec<_> = lanes.into_iter().filter(|pref| !pref.is_plain()).collect();
+        snapshot.record.lanes = lanes.clone();
+        self.bus.send(Message::UpdateProject {
+            project_id: project,
+            name: None,
+            colour: None,
+            custom_colour: None,
+            search_excludes: None,
+            index: None,
+            tools: None,
+            managed_repos: None,
+            lanes: Some(lanes),
             runs_on: None,
         });
         cx.global_mut::<WindowRegistry>().apply(snapshot);
@@ -358,6 +409,7 @@ impl AppState {
             index: None,
             tools: Some(tools),
             managed_repos: None,
+            lanes: None,
             runs_on: None,
         });
         cx.global_mut::<WindowRegistry>().apply(snapshot);
@@ -388,6 +440,7 @@ impl AppState {
             index: None,
             tools: None,
             managed_repos: Some(repos),
+            lanes: None,
             runs_on: None,
         });
         cx.global_mut::<WindowRegistry>().apply(snapshot);

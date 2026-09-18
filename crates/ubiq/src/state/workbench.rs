@@ -60,14 +60,6 @@ impl RailMode {
         self == RailMode::Ide
     }
 
-    /// Whether this mode uses the left and right edge regions as side panels of its own.
-    ///
-    /// The IDE's explorer and chat, Git's refs and changes, and the knowledge base's explorer live
-    /// in those regions; every other mode leaves them shut and offers no switch for them.
-    pub fn has_side_panels(self) -> bool {
-        matches!(self, RailMode::Ide | RailMode::Git | RailMode::Kb)
-    }
-
     /// Whether a pane started here has an edge region to land in that the user is looking at.
     ///
     /// Every mode but two is a view onto a project, and the bottom region is where its terminals
@@ -114,6 +106,18 @@ impl RailMode {
     pub fn every() -> impl Iterator<Item = RailMode> {
         Self::groups()
             .iter()
+            .flat_map(|(_, modes)| modes.iter().copied())
+    }
+
+    /// The modes that belong to a project, in the order the rail draws them — the "PROJECT"
+    /// group, as opposed to `Control` and `Sink`, which are the "APP" group and are not about
+    /// one. This is what a digit shortcut for "the current project's mode" counts: `ctrl-1` is
+    /// the first of these that is enabled, not `Control`.
+    pub fn project_modes() -> impl Iterator<Item = RailMode> {
+        Self::groups()
+            .iter()
+            .find(|(label, _)| *label == "PROJECT")
+            .into_iter()
             .flat_map(|(_, modes)| modes.iter().copied())
     }
 
@@ -762,12 +766,6 @@ impl WorkbenchState {
     /// mode actually selects between.
     pub fn is_ide(&self) -> bool {
         self.rail_mode.is_ide()
-    }
-
-    /// Whether the titlebar offers the left and right region switches. Git's refs and changes
-    /// live in those regions the way the IDE's explorer and chat do.
-    pub fn has_side_panels(&self) -> bool {
-        self.rail_mode.has_side_panels()
     }
 }
 

@@ -252,7 +252,8 @@ The wording says which half of the problem it is, and they have opposite fixes.
 | `cannot find GOROOT`, `DOTNET_CLI_HOME not set`, `.. is not a directory` | The tool ran and could not find its own root. A variable is missing, not a grant | The `[env]` table |
 | The harness hangs on its splash screen, with no error | A denied lookup the harness blocks on, not a path | `DEV_LAYERS` in `crates/agent-manager/src/isolate.rs` |
 | A confined `swift` or `xcodebuild` is denied | isol8's `integrations/xcode` layer is in `BROKEN_LAYERS`, so the SDK and toolchain paths are named by hand | `APPLE_SDK_RO_ROOTS` / `APPLE_RW_HOME_ROOTS` in `crates/agent-manager/src/isolate.rs` |
-| `swift build` fails even with the SDK granted | SwiftPM shells out to `sandbox-exec` itself, and a sandbox cannot nest | Run it unconfined, with `--disable-sandbox` |
+| `framework 'FoundationModels' not found`, or `unable to load standard library`, from a build pulling in `foundation-models` (`assist-apple`) | The Swift/clang module cache or SwiftPM's home symlinks are denied, so `swiftc` cannot load the SDK's frameworks | `~/.cache/clang` and `~/.swiftpm` are in `APPLE_RW_HOME_ROOTS`; re-restart Ubiq |
+| `swift build` fails with `sandbox-exec: sandbox_apply: Operation not permitted` even with the SDK granted | SwiftPM shells out to `sandbox-exec` itself when it recompiles a manifest, and a sandbox cannot nest | `swift build --disable-sandbox`, or warm the SwiftPM manifest cache with an unconfined build first |
 
 Confirm the run is confined before anything else: `env | grep ISOL8_SANDBOXED` inside the pane
 prints `ISOL8_SANDBOXED=1` when it is. Ubiq also logs `confined` for the spawn.

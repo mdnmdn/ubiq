@@ -109,6 +109,14 @@ pub struct BoardState {
     pub show_detail: bool,
     /// The columns shut to a strip. A shut column still counts and still takes a drop.
     pub shut: Vec<Status>,
+    /// The columns held open against the project's "shut this lane when it is empty" setting.
+    ///
+    /// The counterpart of `shut`, and needed for the same reason it is: a lane that shuts itself
+    /// when empty is already a strip, so the click on that strip has nothing in `shut` to remove
+    /// and the lane could never be looked into. This is what that click writes instead. Both lists
+    /// are the *window's* view of the board and are never written down — the setting is the
+    /// project's, and reopening the project is what returns to it.
+    pub opened: Vec<Status>,
     /// The cards folded to their title.
     pub folded: Vec<TaskId>,
     pub carry: Option<Carry>,
@@ -154,6 +162,7 @@ impl Default for BoardState {
             selected: None,
             show_detail: true,
             shut: Vec::new(),
+            opened: Vec::new(),
             folded: Vec::new(),
             carry: None,
             moving: None,
@@ -356,11 +365,22 @@ impl BoardState {
         self.shut.contains(&status)
     }
 
-    pub fn toggle_column(&mut self, status: Status) {
-        if let Some(ix) = self.shut.iter().position(|s| *s == status) {
-            self.shut.remove(ix);
-        } else {
-            self.shut.push(status);
+    /// Whether the user has asked for this column against a setting that would shut it.
+    pub fn is_held_open(&self, status: Status) -> bool {
+        self.opened.contains(&status)
+    }
+
+    /// Put a column in one of the two states, saying which rather than flipping.
+    ///
+    /// The caller is the one that can see the column: whether it is on screen as a strip is the
+    /// project's setting and the column's count as well as `shut`, and only the app layer holds
+    /// all three. Setting one list always clears the other — the two are answers to one question.
+    pub fn set_column(&mut self, status: Status, shut: bool) {
+        self.shut.retain(|s| *s != status);
+        self.opened.retain(|s| *s != status);
+        match shut {
+            true => self.shut.push(status),
+            false => self.opened.push(status),
         }
     }
 

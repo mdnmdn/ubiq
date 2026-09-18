@@ -1408,6 +1408,7 @@ impl Coordinator {
                 index,
                 tools,
                 managed_repos,
+                lanes,
                 runs_on,
             } => {
                 let managed_changed = managed_repos.is_some();
@@ -1420,6 +1421,7 @@ impl Coordinator {
                     index,
                     tools,
                     managed_repos,
+                    lanes,
                     runs_on,
                 );
                 self.answer(client, replies);

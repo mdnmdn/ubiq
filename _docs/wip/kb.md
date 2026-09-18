@@ -5,8 +5,8 @@ kind: wip
 status: current
 summary: A project's knowledge base as it stands — a per-project list of sources persisted as one TOML file, a folder read where it lies, a git repository cloned and refreshed, an internal wiki, a host-side write half (`kb/ops.rs`) behind six new messages, the `ubiq-kb` MCP server that reaches it, and the explorer's right-click menu that reaches it from the interface — and the one piece the interface has not caught up to, a save path from the document on screen.
 read_when: you are touching the knowledge base's sources, its git sync worker, its write half, its `ubiq-kb` MCP server, or its explorer panel or centre
-updated: 2026-09-17
-verified: 2026-09-17
+updated: 2026-09-18
+verified: 2026-09-18
 code_anchors: [crates/ubiq-proto/src/kb.rs, crates/ubiq-host/src/kb/mod.rs, crates/ubiq-host/src/kb/ops.rs, crates/ubiq-host/src/kb/store.rs, crates/ubiq-host/src/kb/sync.rs, crates/ubiq-host/src/mcp/kb.rs, crates/ubiq/src/state/kb.rs, crates/ubiq/src/app/kb.rs, crates/ubiq/src/ui/kb/mod.rs, crates/ubiq/src/ui/kb/source_form.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq-proto/src/messages.rs, crates/ubiq/tests/kb.rs]
 depends_on: [tech-architecture, tech-transport, feat-workbench, tech-decisions]
 ---
@@ -125,10 +125,14 @@ Add and Locate, which have not moved.
 `crates/ubiq/src/ui/kb/mod.rs` draws two things: the left panel, a multi-source explorer that
 borrows `ui::kit::files`'s row, twisty and kind-icon exactly as `ui/explorer.rs` does, with a
 source's own row carrying its origin as a tooltip and a state word — `pending`, a syncing detail, or
-`failed` with a retry control — that `Ready` never draws; and the centre, which hands markdown to
-the one markdown renderer the window has, falls back to plain text for anything `ViewerKind::Editor`
-claims, and says "opens in the IDE" for a diagram or an image, because reaching those from here
-means wiring a web tenant to a document that is not an open file (`G11`).
+`failed` with a retry control — that `Ready` never draws; and the centre, which leads with a flush
+header naming the open document — the IDE editor leans on the dock's own tab strip for that, and the
+knowledge base has no tab strip here, so a click against a document with nothing else to show for
+it (a wiki's file, just created and still empty) would otherwise look like it did nothing at all
+(`T-23`) — then hands markdown to the one markdown renderer the window has, falls back to plain text
+for anything `ViewerKind::Editor` claims, and says "opens in the IDE" for a diagram or an image,
+because reaching those from here means wiring a web tenant to a document that is not an open file
+(`G11`).
 `crates/ubiq/src/ui/sink/project.rs`'s `kb` function is the third surface: an inline section in the
 project settings dialog, drawn only for a project with a live record — the sink's fixture page and
 the create form have no project for a source to belong to — listing each source with its filter

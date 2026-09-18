@@ -30,7 +30,7 @@ use crate::mcp::McpInfo;
 use crate::notifications::{
     Level, MuteFor, MuteScope, Notification, NotificationRequest, Notifications,
 };
-use crate::projects::{DroneChange, IndexChange, ProjectSnapshot, Scope};
+use crate::projects::{DroneChange, IndexChange, LanePref, ProjectSnapshot, Scope};
 use crate::quota::{QuotaSnapshot, QuotaSource};
 use crate::repos::{CloneError, CloneRequest, CloneStage, RemoteRepo, RepoSource};
 use crate::search::{self, Batch, Query, Source};
@@ -719,6 +719,10 @@ pub enum Message {
         /// kept as it was given — a repository behind a branch switch is still the user's answer.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         managed_repos: Option<Vec<String>>,
+        /// The project's own task-board lane preferences. Absent leaves them as they are; `Some`
+        /// replaces the whole list.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lanes: Option<Vec<LanePref>>,
         /// What to do with the drone this project's folder lives behind. Absent leaves it as it
         /// is; see [`DroneChange`] for why this is not an `Option<Option<_>>`.
         #[serde(default, skip_serializing_if = "Option::is_none")]

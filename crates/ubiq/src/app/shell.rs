@@ -299,6 +299,9 @@ impl AppState {
         if view.rail_mode == RailMode::Kb && saved.layout.is_none() {
             self.queue_kb_furniture();
         }
+        if saved.layout.is_none() {
+            self.queue_mode_furniture(view.rail_mode);
+        }
         self.reset_furniture = true;
         self.sync_file_panels(project);
         self.sync_chat_panels(project);
@@ -467,6 +470,19 @@ impl AppState {
 
     // ── Panes ───────────────────────────────────────────────────────
 
+    /// Activate the Nth rail mode enabled for the current project, `slot` 1-based —
+    /// `ctrl-1`..`ctrl-9`. The order is [`RailMode::project_modes`]'s, so `ctrl-1` is IDE, the
+    /// first mode of that group, then the rest in rail order. `Control` and `Sink` are not in
+    /// that group, so no digit reaches them. A digit past the last enabled mode is a no-op.
+    pub fn activate_rail_mode_slot(&mut self, slot: u8, cx: &mut Context<Self>) {
+        let mode = RailMode::project_modes()
+            .filter(|mode| self.mode_enabled(*mode, cx))
+            .nth(usize::from(slot).saturating_sub(1));
+        if let Some(mode) = mode {
+            self.set_rail_mode(mode, cx);
+        }
+    }
+
     pub fn set_rail_mode(&mut self, mode: RailMode, cx: &mut Context<Self>) {
         if mode == self.workbench.rail_mode {
             return;
@@ -506,6 +522,9 @@ impl AppState {
             // The KB explorer is the same kind of furniture, and the configuration behind it is
             // asked for here rather than on every frame: the first visit to the mode is when a
             // blank explorer needs an answer, not every redraw of it.
+            if saved.layout.is_none() {
+                self.queue_mode_furniture(mode);
+            }
             if mode == RailMode::Kb {
                 if saved.layout.is_none() {
                     self.queue_kb_furniture();
@@ -828,6 +847,13 @@ impl AppState {
             // Still raised from a dock panel rather than the window root — it reads the live
             // conversation — so it stays under everything above it.
             self.dismiss_conversation_info(cx);
+        } else if self
+            .board(cx)
+            .is_some_and(|board| board.popup && board.draft)
+        {
+            // The new-task draft form, raised as a modal the same way — closing it is exactly what
+            // the modal's × already does.
+            self.cancel_new_task(window, cx);
         } else if self
             .board(cx)
             .is_some_and(|board| board.popup && board.show_detail && board.selected.is_some())

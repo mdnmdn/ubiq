@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: The window's shell — the activity rail and its modes, the dock of movable panels the user arranges around the centre, the file explorer and editor a project owns, the Git screen of refs, history and uncommitted changes, the agents screen of parallel columns, the Teams and `[Teams]` graphs and the tasks board the rail's other built modes hold, the kitchen sink the application tests itself against, the file picker any screen raises to choose a path, the empty state a window with no project shows, and the status bar that reports on all of it.
 read_when: you are changing the window layout, a rail mode, where a panel may sit or when it is drawn, the explorer, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, capturing the window or annotating a capture, saving a file, the Git screen's refs, history, change lists or diff, the agents screen's columns, what a tab drag means or what the bench is, the Teams or `[Teams]` screen's graph, how it arranges itself, its inspector or its tasks, the tasks board's columns, cards or task panel, the kitchen sink's pages or fixtures, the file picker a screen raises to choose a path, cloning a project, application settings, vim mode, or the status bar
-updated: 2026-09-17
-verified: 2026-09-17
+updated: 2026-09-18
+verified: 2026-09-18
 code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/teams.rs, crates/ubiq/src/state/teams.rs, crates/ubiq/src/ui/teams/mod.rs, crates/ubiq/src/ui/teams/graph.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/src/ui/teams/inspector.rs, crates/ubiq/src/ui/teams/tasks.rs, crates/ubiq/tests/teams.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/src/ui/new_project_menu.rs, crates/ubiq/tests/new_project.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/tests/image_gestures.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/app/sink.rs, crates/ubiq/src/state/a2ui.rs, crates/ubiq/src/state/a2ui/value.rs, crates/ubiq/src/state/a2ui/eval.rs, crates/ubiq/src/state/a2ui/action.rs, crates/ubiq/src/state/a2ui/live.rs, crates/ubiq/src/state/a2ui/svg.rs, crates/ubiq/src/state/a2ui/path.rs, crates/ubiq/src/state/a2ui/ubiq-catalog.json, crates/ubiq/src/ui/a2ui.rs, crates/ubiq/src/ui/a2ui/registry.rs, crates/ubiq/src/ui/a2ui/svg.rs, crates/ubiq/src/ui/a2ui/path.rs, crates/ubiq/src/ui/sink/a2ui.rs, crates/ubiq/tests/a2ui.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/sink/script.rs, crates/ubiq/src/state/script.rs, crates/ubiq/tests/script.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/stats.rs, crates/ubiq/src/ui/stats.rs, crates/ubiq/src/app/stats.rs, crates/ubiq/tests/stats.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/src/ui/git/repo_selector.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/app/new_agent.rs, crates/ubiq/src/ui/new_agent.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/app/graph.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/ui/web_view.rs, crates/ubiq/src/ui/viewer/web.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/state/web_panel.rs, crates/ubiq/src/app/explorer.rs, crates/ubiq/src/state/explorer/menu.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/app/board.rs, crates/ubiq/tests/prefs.rs, crates/ubiq/tests/viewer_kind.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
@@ -41,7 +41,12 @@ no badge at all. The modes have precedence: the rail fits as many whole badges a
 under them allows and drops the least recently opened — the active project is the one that survives
 when there is room for a single badge, and a window too short for even one shows none. **The order
 never moves**: badges stay in the order the window holds them, whichever of them the rail had to
-leave out. The switch is Appearance settings, on by default.
+leave out. The switch is Appearance settings, on by default. **`cmd-1`..`cmd-9` jump straight to the
+Nth badge**, in that same order, including the least-recently-opened trim — a badge the rail had no
+room for is a digit that does nothing. **`ctrl-1`..`ctrl-9` jump to the Nth mode in the `PROJECT`
+group** — `IDE`, `Git`, `Agents`, `Teams`, `[Teams]`, `KB`, `Tasks`, counting only the ones the
+project has not hidden — never the `APP` group above it. Either chord is a no-op past the last
+badge or the last enabled mode.
 
 **Every mode is built.** What the rail selects between is the centre. Git fills it with the
 repository, Agents with the parallel columns, Teams and `[Teams]` each with a graph, Tasks with the
@@ -1139,9 +1144,18 @@ path can be scrolled and selected instead of overflowing, and the home directory
 abbreviated form). Documentation and Integrations are drawn and disabled. Save writes the name and
 colour through `UpdateProject`.
 
+**Tasks says which lanes this project's board draws.** Every one of the seven statuses is listed —
+hidden ones included, since a page that dropped them would be a page with no way back — with two
+independent switches each: whether the lane is drawn at all, and whether it shuts itself to a strip
+while it holds nothing. Both are the project's, written onto the record through `UpdateProject` on
+the click, the way the index pill and the search excludes are. A hidden lane still holds whatever
+work is in it: hiding is about the board, not about the tasks, and nothing is moved or deleted.
+A lane that shuts itself when empty still opens on a click — the board keeps that answer for the
+window in `BoardState::opened`, the counterpart of `shut`, and neither list is written down.
+
 **Remote says where the project's folder actually is** — here, or behind a drone on another machine.
-It is the dialog's third nav item, enabled on the same terms as Tools: both attach to a record, and
-a folder not yet in the catalogue has nothing to pin. On-a-drone asks for a saved SSH profile, the
+It is the dialog's fourth nav item, enabled on the same terms as Tools and Tasks: all three attach
+to a record, and a folder not yet in the catalogue has nothing to pin. On-a-drone asks for a saved SSH profile, the
 folder on *that* machine, and the drone's lifetime — the same three presets the connect modal
 offers. Saving writes the record and stops: **nothing dials from here.** The drone is launched, or
 an already-attached one adopted, when the project is next opened, which is the moment there is
@@ -1307,11 +1321,14 @@ bottom-left of the window.
 
 **Every area in the dock is a panel.** One per pane for the terminals, one per open file in IDE
 mode, one per open chat tab — see the chat document — and one each for the explorer, the log
-console — which is [`logs.md`](./logs.md) — the outline, and the centre.
+console — which is [`logs.md`](./logs.md) — the outline, and the centre. A mode with side furniture
+of its own adds to that list: Git's four, the knowledge base's documents explorer, the board's task
+(`PanelKind::Task`, the report or the form for whatever the columns select) and the agents list
+(`PanelKind::AgentsExplorer`).
 
 **Placement is a property of the kind of panel, not a special case.** The explorer sits in the left
 or the right region and nowhere else, because an explorer squeezed into the bottom is a sixty-pixel
-tree. A terminal, the console, a chat tab and the outline may sit in any region at all — a chat
+tree — and the board's task and the agents list answer the same class for the same reason. A terminal, the console, a chat tab and the outline may sit in any region at all — a chat
 tab moves to any dockable region the same way a terminal already could. The centre panel takes the
 centre. A panel
 dropped where its class forbids is moved back to its home region on the same edit, so the drop reads
@@ -1322,8 +1339,10 @@ as refused rather than half-taken. A file takes the centre, like the centre pane
 "docked above the editor" is a split at the top of the centre rather than a region of its own.
 
 **A panel with nothing to show is hidden, not removed.** It keeps its place in the tree and its tab
-slot, and comes back where it was left. The explorer and every chat tab leave with IDE mode, a chat
-tab also wanting a project; a terminal is hidden while its project is not the one on screen, so its
+slot, and comes back where it was left. The explorer leaves with IDE mode; a chat tab is drawn in
+IDE, Tasks and the two Teams modes and wants a project in each of them, because a conversation about
+nothing is a fiction; the board's task wants Tasks mode and a project, and the agents list wants
+Agents mode and a project, the way the documents explorer wants KB's; a terminal is hidden while its project is not the one on screen, so its
 harness goes on running and keeps its scrollback; a file panel is hidden while its tab is not one the
 project on screen holds. The console is always drawn, and **the centre panel steps aside in IDE mode
 for as long as a file is open** — the same machinery, which is what brings it back where it was left
@@ -1338,13 +1357,17 @@ being the only thing left.
 **The titlebar's switches open and close the dock's edge regions**, and read the dock rather than a
 flag beside it. A region the user empties — closing its last panel, or dragging it out to another
 region — is closed the same way the switch would: the switch reads it as closed because it *is*
-closed, not merely because it looks it. The
-left and right switches are drawn only in IDE mode, because the side regions are IDE furniture and
-hide in place in every other mode; the bottom switch is offered in every rail mode. **No region opens
+closed, not merely because it looks it. **All three switches are drawn in every rail mode**: every
+mode has side furniture of its own now — the IDE's explorer and chat, Git's refs and changes, KB's
+documents, the board's task, the agents list, Teams' chat — so a switch that was hidden would be a
+region the user could not ask for. **No region opens
 by default, in any mode** — `D94`. A mode or a project never arranged before opens on the centre
 alone: no explorer, no chat, no pane region. Each comes back the moment it is asked for, and stays
 remembered from then on, the same posture the pane region has always taken. **Opening an
-edge region with nothing in it fills it**: the bottom starts a pane, a fresh chat tab opens in the right, and a
+edge region with nothing in it fills it with that mode's own furniture**: the bottom starts a pane;
+Git's left and right open onto the refs and the changes, KB's left onto the documents, Tasks' right
+onto the task and Agents' left onto the list; and a side that is the *chat's* home in the mode on
+screen — the right everywhere but Teams, where it is the left — opens onto a fresh chat tab. A
 switch that gave the user a bar of nothing would not have answered what was asked. The left is the
 exception, not because it opens by default but because it is never genuinely empty: the explorer
 panel is already in the tree the moment IDE mode is entered, so opening a closed left reveals it
@@ -2749,7 +2772,7 @@ saying no file is open, because the files are panels of their own:
 | Add KB source form | `ui/kb/source_form.rs` | A modal over the whole window, above the project settings overlay that raises it | `MODAL_WIDTH`; its body scrolls inside it | `WorkbenchState::kb_source`, one `KbSourceForm` |
 | File picker | `ui/file_picker.rs` | Over the whole window, wherever it was raised | `DEFAULT_WIDTH` by `DEFAULT_HEIGHT`, resized from its corner grip and floored at `MIN_WIDTH`/`MIN_HEIGHT` | `AppState::file_picker`, and the window's `picker_filter` |
 | Stats screen | `ui/stats.rs` | The centre panel in Control mode, project or no project | Fills it; its page strip takes the tab strip's own height, and its table scrolls both ways | `StatsState`, on the window rather than on a project |
-| KB document | `ui/kb/` | The centre panel in `KB` mode | Fills it; the document scrolls | `KbState::doc`, the one document the explorer selected |
+| KB document | `ui/kb/` | The centre panel in `KB` mode | A flush header naming the document, then the body fills the rest and scrolls | `KbState::doc`, the one document the explorer selected |
 | Empty page | `ui/empty.rs` | The centre panel with no project open, and every rail mode with no screen | Fills it | `RailMode`, or nothing at all |
 
 Two rules hold across the three tables. **The chrome does not move and the panels do** — the
@@ -3418,17 +3441,23 @@ and an arriving message, a project switch and a jump from another screen have no
 carries the column its `+` was clicked in, because a row of columns has one each and only one menu
 may be open. `open_task_chat()` reveals an agent and switches to Agents mode, and it is the one way
 out of a task now that the board's panel no longer offers the graph.
-`ui/agents/mod.rs` is the frame — the sidebar, the header strip, the row of columns and the drop
-strip at the end — `sidebar.rs` is the list, and `column.rs` is one column, from its tab strip to its
-composer.
+`ui/agents/mod.rs` is the frame — the header strip, the row of columns and the drop strip at the end
+— and `column.rs` is one column, from its tab strip to its composer. `sidebar.rs` is the list, and it
+is no longer inside that frame: it is `PanelKind::AgentsExplorer`, the window's own left-region
+panel, drawn in Agents mode with a project and arranged, resized and put away like every other one.
 
 `state/board.rs` is the board's view of the same projection, and holds nothing that is a fact about a
 task: the filter text, which session's pills are on, which task is open, which columns and cards are
-shut, whether the open task draws in the side panel or a centred modal (`popup`,
-`toggle_popup()`), the carry, and what the panel is in the middle of doing. Both `shut` and `popup`
+shut, `opened` — the columns held open against a project setting that would shut them, `shut`'s
+counterpart, since a lane that shuts itself when empty has nothing in `shut` for a click to remove —
+whether the open task draws in the docked side panel or a centred modal (`popup`,
+`toggle_popup()`), the carry, and what the panel is in the middle of doing. `set_column(status,
+shut)` puts one column into whichever of `shut`/`opened` the caller names, clearing it from the
+other, rather than one method flipping a single list blind. Both `shut` and `popup`
 survive a restart, the way the explorer's expanded folders do — carried in `ViewPrefs::board_shut`
 and `board_popup`, gathered by `AppState::remember()` and put back once by `restore_files()`, since
-neither is a fact the host reports back. `Field` names the one field open — the
+neither is a fact the host reports back; `opened` does not, since it only ever answers a setting the
+project record already carries. `Field` names the one field open — the
 title, the description, a step by its id rather than its place in the list, or the field that names
 the next one — and `TaskForm` is what was typed into them. `moving` is a drop the host has not
 answered, read back by `is_moving()`; `awaiting_new` is a `CreateTask` whose id is not known;
@@ -3455,9 +3484,37 @@ the markdown for the source. `new_task()` is where the filter field becomes a ti
 asked for; `drop_task()` is the column's own drop handler, because the column is the drop target
 here; `settle_board()`, beside `settle_graph()` in `render`, puts down a carry whose drag ended
 outside every column. `ui/board/mod.rs` is the toolbar, the columns and the cards, and its
-`status_colour()` is the one place a column becomes a colour.
+`status_colour()` is the one place a column becomes a colour. `ui/board/mod.rs::columns()` filters
+`Status::all()` down to what `AppState::lane_drawn()` says the project draws before building a
+single column, so a hidden lane is never in the tree at all. `app/board.rs::lane_pref()` is the one
+place that reads a `LanePref` off the open project's `ProjectSnapshot` — `LanePref::plain` for the
+sink's fixture board and a folder outside the catalogue — `lane_drawn()` and `lane_shut()` answer
+the column's two questions off it, and `toggle_lane_hidden()`/`toggle_lane_collapse()` are the
+settings page's two switches, both routed through `edit_lane()`, which rebuilds the whole `lanes`
+list with one entry changed and sends it through `set_project_lanes()` — the list travels whole, the
+way `search_excludes` does. `toggle_board_column()` reads `lane_shut()` for the column's current
+state and calls `BoardState::set_column()` with its opposite, rather than inverting `shut` the way
+it used to: that is what makes a lane the project shuts itself openable by a click.
 
-`ui/board/detail.rs` is the report and `ui/board/form.rs` the controls, drawn into the same column.
+`ui/board/mod.rs::render()` guards its drag-vs-popup ambiguity with `board.carry.is_none()`: a card
+drag lifts the same task a click would open, and in popup mode a drag ending over a column used to
+pop the detail modal open under the pointer, so the popup branch now checks that nothing is being
+carried before it draws. A draft in popup mode never takes the docked panel's slot either — `form::draft`
+splits into `draft_body()` and `draft_footer()`, shared by the docked panel and by
+`form::draft_popup()`, which wraps the same two in `kit::modal_sized` the way `detail::popup()`
+wraps the report and controls, and Escape closes it through the same `cancel_new_task()` the side
+panel's Cancel button calls.
+
+**The task is a dock panel, in the window's right region.** `PanelKind::Task` is its kind, homed
+right, drawn in Tasks mode with a project, and `ui/board/mod.rs::panel()` is its body: the form while
+a draft is open, the report while a task is selected, and an empty page otherwise — one slot, because
+a draft makes `open_task()` answer nothing. `popup` is the shape toggle over the same bodies rather
+than a second copy of the task: with it on, both draw as a modal over the columns and the docked
+panel says where they went, so the toggle back is always in reach. A first visit to the mode opens
+the right region onto it, through `AppState::queue_mode_furniture()` and
+`prefs::ModeLayout::default_for`, exactly the way Git's and KB's furniture arrives.
+
+`ui/board/detail.rs` is the report and `ui/board/form.rs` the controls, drawn into the same panel.
 The form is not an area of its own and has no row in the table above: the rule about adding an area
 is about something that occupies new space, and this fills the panel that has a row and a
 `TASK_PANEL_WIDTH` of its own. It is a second file for the reason `ui/chat/sidebar.rs` sits apart
@@ -3470,7 +3527,7 @@ said. The description's textarea answers `SubmitSearch` (⌘⏎, ⌃⏎ off macO
 `commit_task_description()` — the same "confirm this form from inside a field" device
 `ui::new_agent::confirmable()` uses, so bare Enter stays a newline. `detail::popup()` is `render()`'s
 report and controls again, wrapped in `kit::modal_sized` instead of the panel's own chrome — what
-`ui/board/mod.rs::render()` draws in place of the side panel while `BoardState::popup` is on; both
+`ui/board/mod.rs::render()` draws over the columns while `BoardState::popup` is on; both
 read the same `selected`/`editing`, so the toggle only moves where the task is drawn.
 
 Projects, the file tree, a file's bytes, the panes, the work, the chat's conversations and the
@@ -3719,8 +3776,10 @@ equivalent of the active tab's ×), `cmd-=` and `cmd-shift-=` (zoom in), `cmd--`
 prompt blocks the turn and the chat composer holds the keyboard while it is up), and `cmd-v`/`ctrl-v`
 (`PasteClipboardImage` → the clipboard's image as an untitled picture, in `Workbench` only so a
 field's own paste wins the tie — and a focused terminal wins it too, since `gpui-terminal` nulls
-both paste chords in its own deeper `Terminal` context and the image goes to the harness instead)
-in the `Workbench` key context, then the file picker's, the navigator's and
+both paste chords in its own deeper `Terminal` context and the image goes to the harness instead),
+and `cmd-1`..`cmd-9`/`ctrl-1`..`ctrl-9` (`ProjectSlot1..9`/`RailSlot1..9` →
+`AppState::activate_project_slot`/`activate_rail_mode_slot`, eighteen actions and bindings for the
+digit shortcuts) in the `Workbench` key context, then the file picker's, the navigator's and
 the explorer's keys — each bound for the surface and for the field inside it, after the component
 library's own so they win — and the binary calls it beside its own quit binding.
 
@@ -3774,8 +3833,8 @@ field's, instead of landing in the middle of the centred row and covering the te
 | The console's tab is closed | It leaves the arrangement, and the new-pane menu's `Logs` row is what brings it back |
 | The user empties a region by closing its last panel or dragging it out | The region closes itself; the titlebar's switch for it reads as closed |
 | A project's saved arrangement leaves an edge region open with nothing in it | The region is collapsed as the restore settles, the same as one the user just emptied |
-| The user opens an empty right region from the titlebar | A fresh chat tab, attached to nothing, opens in it |
-| The user opens an empty left region from the titlebar | It stays open and empty — the explorer left it on purpose |
+| The user opens an empty side region from the titlebar | It fills with the mode's own furniture for that side — Git's refs or changes, KB's documents, Tasks' task, Agents' list — or, where the side is the chat's home in that mode, with a fresh chat tab attached to nothing |
+| The user opens an empty side region a mode has no furniture for | It stays open and empty — whatever was there was dragged away on purpose |
 | A panel is dropped in a region its class forbids | It is moved back to its home region on the same edit, so the drop reads as refused |
 | A saved arrangement is from another version, or is unreadable | It is discarded whole and the window opens on the default arrangement |
 | A saved arrangement names a pane the window still holds | The pane comes back where it was — its group, its split and its tab position |

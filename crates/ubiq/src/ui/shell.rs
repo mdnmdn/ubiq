@@ -9,7 +9,12 @@
 
 use gpui::{Context, InteractiveElement, IntoElement, ParentElement, Styled, Window, div, px};
 
-use crate::app::{AppState, FocusFileFilter, ImageRedo, ImageUndo, SubmitSearch, ZoomIn, ZoomOut};
+use crate::app::{
+    AppState, FocusFileFilter, ImageRedo, ImageUndo, ProjectSlot1, ProjectSlot2, ProjectSlot3,
+    ProjectSlot4, ProjectSlot5, ProjectSlot6, ProjectSlot7, ProjectSlot8, ProjectSlot9, RailSlot1,
+    RailSlot2, RailSlot3, RailSlot4, RailSlot5, RailSlot6, RailSlot7, RailSlot8, RailSlot9,
+    SubmitSearch, ZoomIn, ZoomOut,
+};
 use crate::state::RailMode;
 use crate::theme;
 use crate::ui::sink::project as project_settings;
@@ -76,6 +81,44 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         .on_action(cx.listener(AppState::cancel_dialog))
         .on_action(cx.listener(|this, _: &ZoomIn, _, cx| this.nudge_content_font_size(1, cx)))
         .on_action(cx.listener(|this, _: &ZoomOut, _, cx| this.nudge_content_font_size(-1, cx)))
+        // ⌘1..⌘9 jump to the Nth project the rail's badges show; ⌃1..⌃9 jump to the Nth rail
+        // mode enabled for the current project. Both no-op past the last one.
+        .on_action(cx.listener(|this, _: &ProjectSlot1, window, cx| {
+            this.activate_project_slot(1, window, cx)
+        }))
+        .on_action(cx.listener(|this, _: &ProjectSlot2, window, cx| {
+            this.activate_project_slot(2, window, cx)
+        }))
+        .on_action(cx.listener(|this, _: &ProjectSlot3, window, cx| {
+            this.activate_project_slot(3, window, cx)
+        }))
+        .on_action(cx.listener(|this, _: &ProjectSlot4, window, cx| {
+            this.activate_project_slot(4, window, cx)
+        }))
+        .on_action(cx.listener(|this, _: &ProjectSlot5, window, cx| {
+            this.activate_project_slot(5, window, cx)
+        }))
+        .on_action(cx.listener(|this, _: &ProjectSlot6, window, cx| {
+            this.activate_project_slot(6, window, cx)
+        }))
+        .on_action(cx.listener(|this, _: &ProjectSlot7, window, cx| {
+            this.activate_project_slot(7, window, cx)
+        }))
+        .on_action(cx.listener(|this, _: &ProjectSlot8, window, cx| {
+            this.activate_project_slot(8, window, cx)
+        }))
+        .on_action(cx.listener(|this, _: &ProjectSlot9, window, cx| {
+            this.activate_project_slot(9, window, cx)
+        }))
+        .on_action(cx.listener(|this, _: &RailSlot1, _, cx| this.activate_rail_mode_slot(1, cx)))
+        .on_action(cx.listener(|this, _: &RailSlot2, _, cx| this.activate_rail_mode_slot(2, cx)))
+        .on_action(cx.listener(|this, _: &RailSlot3, _, cx| this.activate_rail_mode_slot(3, cx)))
+        .on_action(cx.listener(|this, _: &RailSlot4, _, cx| this.activate_rail_mode_slot(4, cx)))
+        .on_action(cx.listener(|this, _: &RailSlot5, _, cx| this.activate_rail_mode_slot(5, cx)))
+        .on_action(cx.listener(|this, _: &RailSlot6, _, cx| this.activate_rail_mode_slot(6, cx)))
+        .on_action(cx.listener(|this, _: &RailSlot7, _, cx| this.activate_rail_mode_slot(7, cx)))
+        .on_action(cx.listener(|this, _: &RailSlot8, _, cx| this.activate_rail_mode_slot(8, cx)))
+        .on_action(cx.listener(|this, _: &RailSlot9, _, cx| this.activate_rail_mode_slot(9, cx)))
         .bg(theme::app_bg())
         .text_color(theme::text())
         // The window wears its project's colour down its whole left edge.

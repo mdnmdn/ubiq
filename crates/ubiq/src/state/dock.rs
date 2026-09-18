@@ -152,6 +152,16 @@ pub enum PanelKind {
     /// The knowledge base's explorer: one row per configured root, and the documents under each.
     /// KB mode's only side panel — the centre is the document it selects.
     KbExplorer,
+    /// The board's one task: the report for whatever is selected, or the form for one being
+    /// written. Tasks mode's side panel — the columns are the centre, and this is what they select.
+    ///
+    /// **One panel for both**, because they are one slot: a draft answers `open_task` as nothing,
+    /// so the form and the report can never be on screen together. `BoardState::popup` pops the
+    /// same body out of this panel into a modal; it is a choice of shape, not a second panel.
+    Task,
+    /// The agents screen's list: every session, every conversation in it, and what each is doing.
+    /// Agents mode's side panel — the columns are the centre, and this is what fills them.
+    AgentsExplorer,
 }
 
 impl PanelKind {
@@ -176,7 +186,10 @@ impl PanelKind {
             | PanelKind::GitChanges
             | PanelKind::GitHistory
             | PanelKind::GitDiff => PanelClass::Free,
-            PanelKind::Explorer | PanelKind::KbExplorer => PanelClass::Edge,
+            PanelKind::Explorer
+            | PanelKind::KbExplorer
+            | PanelKind::Task
+            | PanelKind::AgentsExplorer => PanelClass::Edge,
             PanelKind::Centre | PanelKind::File(_) => PanelClass::Centre,
         }
     }
@@ -186,14 +199,40 @@ impl PanelKind {
     pub fn home(&self) -> Region {
         match self {
             PanelKind::Terminal(_) | PanelKind::Logs | PanelKind::Search => Region::Bottom,
-            PanelKind::Explorer | PanelKind::Outline | PanelKind::KbExplorer => Region::Left,
-            PanelKind::Chat(_) => Region::Right,
+            PanelKind::Explorer
+            | PanelKind::Outline
+            | PanelKind::KbExplorer
+            | PanelKind::AgentsExplorer => Region::Left,
+            PanelKind::Chat(_) | PanelKind::Task => Region::Right,
             PanelKind::Centre | PanelKind::File(_) => Region::Centre,
             // Git panels default to left/right edges for IDE-like layout
             PanelKind::GitRefs => Region::Left,
             PanelKind::GitChanges => Region::Right,
             PanelKind::GitHistory => Region::Centre,
             PanelKind::GitDiff => Region::Centre,
+        }
+    }
+
+    /// [`Self::home`], asked about one rail mode. **The mode is part of the placement policy**, not
+    /// a branch at the site that opens a panel: Tasks has the task in its right region, so a chat
+    /// there goes where it always goes, while Teams draws the graph and its inspector across the
+    /// centre and the right and the chat belongs on the left.
+    ///
+    /// Everything else answers the same in every mode, which is why this delegates rather than
+    /// repeating the table.
+    pub fn home_in(&self, mode: RailMode) -> Region {
+        match self {
+            PanelKind::Chat(_) => Self::chat_home(mode),
+            _ => self.home(),
+        }
+    }
+
+    /// [`Self::home_in`] for a chat tab, asked without one in hand — what a window filling an
+    /// emptied side region needs to know *before* it has minted the tab to put there.
+    pub fn chat_home(mode: RailMode) -> Region {
+        match mode {
+            RailMode::Teams | RailMode::TeamsOld => Region::Left,
+            _ => Region::Right,
         }
     }
 
@@ -218,6 +257,8 @@ impl PanelKind {
             PanelKind::GitHistory => "ubiq.git.history",
             PanelKind::GitDiff => "ubiq.git.diff",
             PanelKind::KbExplorer => "ubiq.kb.explorer",
+            PanelKind::Task => "ubiq.task",
+            PanelKind::AgentsExplorer => "ubiq.agents.explorer",
         }
     }
 
@@ -241,6 +282,8 @@ impl PanelKind {
             "ubiq.git.history" => Some(PanelKind::GitHistory),
             "ubiq.git.diff" => Some(PanelKind::GitDiff),
             "ubiq.kb.explorer" => Some(PanelKind::KbExplorer),
+            "ubiq.task" => Some(PanelKind::Task),
+            "ubiq.agents.explorer" => Some(PanelKind::AgentsExplorer),
             _ => None,
         }
     }
@@ -287,7 +330,17 @@ impl PanelKind {
     pub fn is_drawn(&self, at: Visibility) -> bool {
         match self {
             PanelKind::Explorer => at.is_ide,
-            PanelKind::Chat(_) => at.is_ide && at.has_project,
+            // A conversation is furniture in three modes now, not one: the IDE's chat, the board's
+            // (a task is discussed with the agent doing it) and the Teams screen's. It still wants
+            // a project everywhere — a conversation about nothing is a fiction.
+            PanelKind::Chat(_) => {
+                at.has_project
+                    && (at.is_ide
+                        || matches!(
+                            at.rail_mode,
+                            Some(RailMode::Tasks | RailMode::Teams | RailMode::TeamsOld)
+                        ))
+            }
             PanelKind::Terminal(_) => at.pane_on_screen,
             PanelKind::Logs => true,
             // In Git the history and the diff are the centre, so this panel — the mode page —
@@ -313,6 +366,13 @@ impl PanelKind {
             // The same rule one mode along: the knowledge base's explorer is KB's own furniture,
             // and a project is what it lists.
             PanelKind::KbExplorer => at.has_project && matches!(at.rail_mode, Some(RailMode::Kb)),
+            // And again for the two screens that gained a side panel of their own: the board's
+            // task and the agents list are their mode's furniture, and a project is what either
+            // is about.
+            PanelKind::Task => at.has_project && matches!(at.rail_mode, Some(RailMode::Tasks)),
+            PanelKind::AgentsExplorer => {
+                at.has_project && matches!(at.rail_mode, Some(RailMode::Agents))
+            }
         }
     }
 
@@ -326,13 +386,18 @@ impl PanelKind {
 
     /// Whether this panel belongs to a rail mode rather than to the window.
     ///
-    /// Git's four and the knowledge base's explorer travel with their own mode's saved
+    /// Git's four, the knowledge base's explorer, the board's task and the agents list travel with
+    /// their own mode's saved
     /// arrangement. Putting one back into another mode's tree would open that mode's edges for a
     /// panel it hides — so leftover restore skips them, and a first visit to the mode asks for
     /// them again. A second mode with side panels of its own is a name in this list, not a second
     /// branch in the restore.
     pub fn is_mode_owned(&self) -> bool {
-        self.is_git() || matches!(self, PanelKind::KbExplorer)
+        self.is_git()
+            || matches!(
+                self,
+                PanelKind::KbExplorer | PanelKind::Task | PanelKind::AgentsExplorer
+            )
     }
 
     /// Whether the panel's tab offers a close. A terminal's close kills its harness, a file's

@@ -160,7 +160,29 @@ gpui::actions!(
         AllowPermission,
         RejectPermission,
         ImageUndo,
-        ImageRedo
+        ImageRedo,
+        // The Nth project the rail's badges show, `cmd-1`..`cmd-9` — see
+        // `AppState::activate_project_slot`.
+        ProjectSlot1,
+        ProjectSlot2,
+        ProjectSlot3,
+        ProjectSlot4,
+        ProjectSlot5,
+        ProjectSlot6,
+        ProjectSlot7,
+        ProjectSlot8,
+        ProjectSlot9,
+        // The Nth rail mode enabled for the current project, `ctrl-1`..`ctrl-9` — see
+        // `AppState::activate_rail_mode_slot`.
+        RailSlot1,
+        RailSlot2,
+        RailSlot3,
+        RailSlot4,
+        RailSlot5,
+        RailSlot6,
+        RailSlot7,
+        RailSlot8,
+        RailSlot9
     ]
 );
 
@@ -1123,6 +1145,27 @@ pub fn install_key_bindings(cx: &mut App) {
         // when no dialog is up — `AppState::confirm_dialog` says why that matters.
         gpui::KeyBinding::new("enter", DialogConfirm, Some("Workbench")),
         gpui::KeyBinding::new("escape", DialogCancel, Some("Workbench")),
+        // ⌘1..⌘9 jump to the Nth project the rail's badges show; ⌃1..⌃9 jump to the Nth rail mode
+        // enabled for the current project. `AppState::activate_project_slot` and
+        // `activate_rail_mode_slot` say what "Nth" means for each.
+        gpui::KeyBinding::new("cmd-1", ProjectSlot1, Some("Workbench")),
+        gpui::KeyBinding::new("cmd-2", ProjectSlot2, Some("Workbench")),
+        gpui::KeyBinding::new("cmd-3", ProjectSlot3, Some("Workbench")),
+        gpui::KeyBinding::new("cmd-4", ProjectSlot4, Some("Workbench")),
+        gpui::KeyBinding::new("cmd-5", ProjectSlot5, Some("Workbench")),
+        gpui::KeyBinding::new("cmd-6", ProjectSlot6, Some("Workbench")),
+        gpui::KeyBinding::new("cmd-7", ProjectSlot7, Some("Workbench")),
+        gpui::KeyBinding::new("cmd-8", ProjectSlot8, Some("Workbench")),
+        gpui::KeyBinding::new("cmd-9", ProjectSlot9, Some("Workbench")),
+        gpui::KeyBinding::new("ctrl-1", RailSlot1, Some("Workbench")),
+        gpui::KeyBinding::new("ctrl-2", RailSlot2, Some("Workbench")),
+        gpui::KeyBinding::new("ctrl-3", RailSlot3, Some("Workbench")),
+        gpui::KeyBinding::new("ctrl-4", RailSlot4, Some("Workbench")),
+        gpui::KeyBinding::new("ctrl-5", RailSlot5, Some("Workbench")),
+        gpui::KeyBinding::new("ctrl-6", RailSlot6, Some("Workbench")),
+        gpui::KeyBinding::new("ctrl-7", RailSlot7, Some("Workbench")),
+        gpui::KeyBinding::new("ctrl-8", RailSlot8, Some("Workbench")),
+        gpui::KeyBinding::new("ctrl-9", RailSlot9, Some("Workbench")),
     ]);
     // ⌘⇧F means project search wherever the caret is, including inside a field.
     //

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use gpui::prelude::FluentBuilder as _;
 
 use gpui::{
-    AnyElement, Context, ElementId, Image, ImageFormat, ImageSource, InteractiveElement,
+    AnyElement, App, Context, ElementId, Image, ImageFormat, ImageSource, InteractiveElement,
     IntoElement, ParentElement, SharedString, StatefulInteractiveElement, Styled, Window, div, img,
     px,
 };
@@ -15,6 +15,7 @@ use crate::app::AppState;
 use crate::state::{RailMode, WindowRegistry};
 use crate::theme;
 use crate::ui::kit::{UbiqIcon, section_label};
+use ubiq_proto::ids::ProjectId;
 
 /// The mark's two files: the white logo reads on a dark swatch, the blue on a light one. They are
 /// the only assets Ubiq ships, so they are baked in next to the code that draws them.
@@ -95,7 +96,6 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
     let active = app.workbench.rail_mode;
 
     let mut groups = Vec::new();
-    let mut spent = 0.0;
     for (label, modes) in RailMode::groups() {
         let mut items = Vec::new();
         for mode in *modes {
@@ -108,7 +108,6 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
         if items.is_empty() {
             continue;
         }
-        spent += GROUP_HEIGHT + ITEM_HEIGHT * items.len() as f32;
         groups.push(
             div()
                 .w(px(item_width()))
@@ -127,13 +126,9 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
     }
 
     // The modes come first, always: the badges take whatever whole ones are left over, and none
-    // when the window is too short for even one.
-    let room = f32::from(window.viewport_size().height)
-        - theme::titlebar_height()
-        - theme::status_bar_height();
-    // The last badge keeps a pixel off the bottom edge as well.
-    let fits = ((room - spent - 1.) / badge_height()).floor().max(0.) as usize;
-
+    // when the window is too short for even one. `project_badges` asks `project_badge_capacity`
+    // the same question again rather than being handed the answer, so it stays the single place
+    // that decides which badges are on screen.
     div()
         .w(px(theme::rail_width()))
         .flex()
@@ -151,22 +146,42 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                 .flex_col()
                 .items_center()
                 .pb(px(1.))
-                .children(project_badges(app, fits, cx)),
+                .children(project_badges(app, window, cx)),
         )
 }
 
-/// The projects this window holds, at the bottom of the rail.
-///
-/// A reminder rather than a picker: the badge is the project's colour and its initial, the name is
-/// the tooltip, and the one the window is pointed at wears a ring inside its own edge. Off by
-/// default is not offered — the switch lives in appearance settings, and off means this returns
-/// nothing at all.
-///
-/// **The order never moves.** Badges are drawn in the order the window holds them, whatever the
-/// rail has room for; a shortage drops the least recently opened, so the ones that remain stay
-/// where the user last saw them.
-fn project_badges(app: &AppState, fits: usize, cx: &mut Context<AppState>) -> Vec<AnyElement> {
-    if !app.workbench.settings.ui.rail_projects || fits == 0 {
+/// How many project badges fit under the rail's mode list, for the window's current height — the
+/// same arithmetic `render` builds `groups` with. Its own function so the digit shortcuts in
+/// `app::projects::activate_project_slot` can ask the identical question without building any
+/// elements.
+fn project_badge_capacity(app: &AppState, window: &Window, cx: &App) -> usize {
+    let spent: f32 = RailMode::groups()
+        .iter()
+        .map(|(_, modes)| {
+            modes
+                .iter()
+                .filter(|mode| app.mode_enabled(**mode, cx))
+                .count()
+        })
+        .filter(|count| *count > 0)
+        .map(|count| GROUP_HEIGHT + ITEM_HEIGHT * count as f32)
+        .sum();
+    let room = f32::from(window.viewport_size().height)
+        - theme::titlebar_height()
+        - theme::status_bar_height();
+    // The last badge keeps a pixel off the bottom edge as well.
+    ((room - spent - 1.) / badge_height()).floor().max(0.) as usize
+}
+
+/// The project ids `project_badges` draws, in that order — after the same least-recently-opened
+/// trim. Shared with `app::projects::activate_project_slot` so `cmd-1`..`cmd-9` always lands on
+/// the project the matching badge shows, including when the window is too short to show them all.
+pub fn visible_project_order(app: &AppState, window: &Window, cx: &App) -> Vec<ProjectId> {
+    if !app.workbench.settings.ui.rail_projects {
+        return Vec::new();
+    }
+    let fits = project_badge_capacity(app, window, cx);
+    if fits == 0 {
         return Vec::new();
     }
     // One project is nothing to pick between, so the badge would only repeat the mark above it.
@@ -188,7 +203,31 @@ fn project_badges(app: &AppState, fits: usize, cx: &mut Context<AppState>) -> Ve
 
     slot.projects
         .iter()
+        .copied()
         .filter(|id| keep.contains(id))
+        .collect()
+}
+
+/// The projects this window holds, at the bottom of the rail.
+///
+/// A reminder rather than a picker: the badge is the project's colour and its initial, the name is
+/// the tooltip, and the one the window is pointed at wears a ring inside its own edge. Off by
+/// default is not offered — the switch lives in appearance settings, and off means this returns
+/// nothing at all.
+///
+/// **The order never moves.** Badges are drawn in the order the window holds them, whatever the
+/// rail has room for; a shortage drops the least recently opened, so the ones that remain stay
+/// where the user last saw them.
+fn project_badges(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> Vec<AnyElement> {
+    let order = visible_project_order(app, window, cx);
+    if order.is_empty() {
+        return Vec::new();
+    }
+    let registry = WindowRegistry::read(cx);
+    let active = app.window_slot(cx).and_then(|slot| slot.active_project());
+
+    order
+        .iter()
         .filter_map(|id| registry.project(*id))
         .map(|p| {
             (

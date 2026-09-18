@@ -19,6 +19,7 @@ use ubiq_proto::ids::ProjectId;
 use ubiq_proto::kb::KbSourceState;
 use ubiq_proto::projects::{IndexChange, IndexLevel};
 use ubiq_proto::settings::DronePreset;
+use ubiq_proto::work::Status;
 
 use crate::app::AppState;
 use crate::state::git::head_label;
@@ -31,9 +32,10 @@ use crate::state::workbench::ProjectSettingsMode;
 use crate::state::{Layer, RailMode, WindowRegistry};
 use crate::theme;
 use crate::theme::{Family, Role};
+use crate::ui::board::status_colour;
 use crate::ui::kit::{
     UbiqIcon, check_box, choice_pill, elided, ghost_button, heading, icon_button, mono, nav_item,
-    primary_button, setting_row,
+    primary_button, setting_row, toggle_pill,
 };
 use crate::ui::rail::mode_icon;
 use crate::ui::sink::style::{framed_active, input_on, textarea_on};
@@ -326,13 +328,13 @@ fn nav(app: &AppState, form: Form, cx: &mut Context<AppState>) -> AnyElement {
         .iter()
         .copied()
         .map(|item| {
-            // Remote and the knowledge base are on Tools' footing exactly: all three attach to a
-            // record, and a folder with no record yet has nothing to pin.
+            // Tasks, Remote and the knowledge base are on Tools' footing exactly: all four attach
+            // to a record, and a folder with no record yet has nothing to pin.
             let enabled = form == Form::Sink
                 || item == ProjectNav::General
                 || (matches!(
                     item,
-                    ProjectNav::Tools | ProjectNav::Remote | ProjectNav::Kb
+                    ProjectNav::Tools | ProjectNav::Tasks | ProjectNav::Remote | ProjectNav::Kb
                 ) && live_record);
             // The one count that is a live fact rather than fixture copy: it is how many sources
             // the section below lists.
@@ -371,6 +373,9 @@ fn project_icon(item: ProjectNav) -> Icon {
     match item {
         ProjectNav::General => Icon::new(IconName::Settings),
         ProjectNav::Tools => Icon::new(IconName::Play),
+        // The rail's own Tasks mark, so the row that configures the board and the rail that opens
+        // it read as the same thing — `Kb` below takes its icon for the same reason.
+        ProjectNav::Tasks => Icon::new(UbiqIcon::ModeTasks),
         // Borrowed, not drawn. `Network` is already Integrations', and the question this panel
         // asks is *which machine*, which is the globe's.
         ProjectNav::Remote => Icon::new(IconName::Globe),
@@ -395,6 +400,7 @@ fn body(app: &AppState, window: &Window, cx: &mut Context<AppState>, form: Form)
     let content = match nav {
         ProjectNav::General => general(app, window, cx, form),
         ProjectNav::Tools => project_tools(app, cx, form),
+        ProjectNav::Tasks => tasks(app, cx, form),
         ProjectNav::Remote => remote(app, cx, form),
         ProjectNav::Kb => kb(app, form, window, cx),
         ProjectNav::Documentation => documentation(),
@@ -1412,6 +1418,137 @@ fn remote(app: &AppState, cx: &mut Context<AppState>, form: Form) -> AnyElement 
             "Save",
             cx.listener(move |this, _, _, cx| this.save_project_drone(project, cx)),
         )))
+        .into_any_element()
+}
+
+/// The task board's lanes: every one of them, with what this project has said about it.
+///
+/// Every lane is listed, hidden ones included — a page that dropped the lanes it had hidden would
+/// be a page with no way back. The two switches are independent facets rather than a mode: a lane
+/// can be hidden, can shut itself when it is empty, or both.
+///
+/// Sent on the click, the same rule `index_row`'s pills follow — see `AppState::set_project_lanes`.
+/// A lane preference hangs off a record, so the Sink form and the Create mode draw the explanation
+/// instead: there is no project for a lane to belong to yet.
+fn tasks(app: &AppState, cx: &mut Context<AppState>, form: Form) -> AnyElement {
+    let heading_block = heading(
+        "Tasks",
+        "Which lanes this project's board draws, and which of them get out of the way when they \
+         are empty.",
+    );
+
+    let Some(project) = form_project(app, form, cx) else {
+        return div()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .child(heading_block)
+            .child(
+                div()
+                    .text_size(theme::font(Family::Chrome, Role::Label))
+                    .text_color(theme::text_faint())
+                    .child("Lanes belong to a project in the catalogue — name this folder first.")
+                    .into_any_element(),
+            )
+            .into_any_element();
+    };
+
+    let Some(record) = WindowRegistry::read(cx)
+        .project(project)
+        .map(|snapshot| snapshot.record.clone())
+    else {
+        return div().child(heading_block).into_any_element();
+    };
+
+    let rows: Vec<AnyElement> = Status::all()
+        .into_iter()
+        .map(|status| {
+            let pref = record.lane(status);
+            let key = status as u32;
+            let name = status.label();
+            let mut title: String = name.to_string();
+            if let Some(first) = title.get_mut(0..1) {
+                first.make_ascii_uppercase();
+            }
+
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap_6()
+                .py_2p5()
+                .border_b_1()
+                .border_color(theme::border())
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .flex_1()
+                        .min_w(px(0.))
+                        .child(
+                            div()
+                                .size(px(7.))
+                                .flex_none()
+                                .rounded_full()
+                                .bg(status_colour(status)),
+                        )
+                        .child(
+                            div()
+                                .text_size(theme::font(Family::Chrome, Role::Body))
+                                .text_color(if pref.hidden {
+                                    theme::text_faint()
+                                } else {
+                                    theme::text()
+                                })
+                                .child(SharedString::from(title)),
+                        ),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_none()
+                        .items_center()
+                        .gap_1p5()
+                        .child(toggle_pill(
+                            ("project-lane-shown", key),
+                            "Shown",
+                            theme::accent(),
+                            !pref.hidden,
+                            cx.listener(move |this, _, _, cx| {
+                                this.toggle_lane_hidden(project, status, cx)
+                            }),
+                        ))
+                        .child(toggle_pill(
+                            ("project-lane-collapse", key),
+                            "Shut when empty",
+                            theme::accent(),
+                            pref.collapse_when_empty,
+                            cx.listener(move |this, _, _, cx| {
+                                this.toggle_lane_collapse(project, status, cx)
+                            }),
+                        )),
+                )
+                .into_any_element()
+        })
+        .collect();
+
+    div()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child(heading_block)
+        .children(rows)
+        .child(
+            div()
+                .pt_2()
+                .text_size(theme::font(Family::Chrome, Role::Meta))
+                .text_color(theme::text_muted())
+                .child(
+                    "A hidden lane still holds whatever work is in it. Nothing is deleted and \
+                     nothing is moved — the board simply stops drawing it.",
+                ),
+        )
         .into_any_element()
 }
 

@@ -47,6 +47,7 @@ use crate::state::work;
 use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::eid;
+use crate::ui::empty;
 use crate::ui::kit::{
     UbiqIcon, card, field, ghost_button, icon_button, meter, mono, pill, primary_button,
     section_label, toggle_pill,
@@ -97,44 +98,17 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
         return div().into_any_element();
     };
 
-    let mut body = div()
+    let body = div()
         .flex()
         .flex_1()
         .min_h(px(0.))
         .child(columns(app, cx).into_any_element());
 
-    // The popup toggle is the project's own choice of *shape* for the same task: the side panel
-    // and the modal draw the same report and controls off the same `selected`/`editing` fields,
-    // so exactly one of the two is on screen at once.
+    // The popup toggle is the project's own choice of *shape* for the same task: the docked panel
+    // ([`panel`], in the window's right region) and the modal draw the same report and controls off
+    // the same `selected`/`editing` fields, so exactly one of the two is on screen at once.
     let popup = board.popup;
     let open_task = board.open_task(work);
-
-    // A task being written fills the same slot, and only ever the side one: a draft is a form
-    // rather than a report, and `open_task` answers nothing while one is open, so the two cannot
-    // both be on screen.
-    if board.draft {
-        body = body.child(
-            div()
-                .w(px(theme::TASK_PANEL_WIDTH))
-                .flex()
-                .flex_none()
-                .border_l_1()
-                .border_color(theme::border())
-                .child(form::draft(app, window, cx)),
-        );
-    } else if let Some(task) = open_task
-        && !popup
-    {
-        body = body.child(
-            div()
-                .w(px(theme::TASK_PANEL_WIDTH))
-                .flex()
-                .flex_none()
-                .border_l_1()
-                .border_color(theme::border())
-                .child(detail::render(app, task, window, cx)),
-        );
-    }
 
     let mut root = div()
         .flex()
@@ -146,13 +120,56 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
         .child(toolbar(app, window, cx))
         .child(body);
 
-    if let Some(task) = open_task
+    if board.draft && popup {
+        root = root.child(form::draft_popup(app, window, cx));
+    } else if let Some(task) = open_task
         && popup
+        // A carry selects the card it lifts, the way a dragged agent card does, so that what
+        // moves is what the panel reports — but the popup is a modal over the whole board, and a
+        // drag opening one under the pointer is the bug this guard exists to stop. The side panel
+        // needs no such guard: it was already on screen, so a drag just changes what it reports.
+        && board.carry.is_none()
     {
         root = root.child(detail::popup(app, task, window, cx));
     }
 
     root.into_any_element()
+}
+
+/// The board's side panel, drawn in the window's right region: the task being written, the task
+/// selected, or the page saying neither.
+///
+/// One slot for the two, because a draft answers `open_task` as nothing — the form and the report
+/// can never both be on screen. `board.popup` is the *shape* toggle over the same bodies: with it
+/// on, both draw as a modal over the columns ([`render`]) and this panel says where they went
+/// rather than emptying, so the toggle back is always in reach.
+pub fn panel(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
+    let (Some(work), Some(board)) = (app.work(cx), app.board(cx)) else {
+        return div().into_any_element();
+    };
+
+    if board.popup {
+        return empty::empty_page(
+            "Shown as a popup",
+            "The task is drawn over the columns. The toolbar's popup switch brings it back here.",
+            IconName::WindowRestore,
+            None,
+        )
+        .into_any_element();
+    }
+    if board.draft {
+        return form::draft(app, window, cx);
+    }
+    match board.open_task(work) {
+        Some(task) => detail::render(app, task, window, cx).into_any_element(),
+        None => empty::empty_page(
+            "No task open",
+            "Pick a card to report on it, or add one with New task.",
+            UbiqIcon::ModeTasks,
+            None,
+        )
+        .into_any_element(),
+    }
 }
 
 /// The strip over the columns: what is being looked for, and the way to add one.
@@ -253,6 +270,12 @@ fn filter_field(app: &AppState, window: &Window, cx: &App) -> impl IntoElement {
 }
 
 fn columns(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
+    // Which lanes there are is settled before any of them is built: `column` takes the context
+    // mutably, so the question cannot be asked inside the same iterator that answers it.
+    let drawn: Vec<Status> = Status::all()
+        .into_iter()
+        .filter(|status| app.lane_drawn(*status, cx))
+        .collect();
     div()
         .id("board-columns")
         .flex()
@@ -262,11 +285,10 @@ fn columns(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         .p_3()
         .gap_2()
         .overflow_x_scroll()
-        .children(
-            Status::all()
-                .into_iter()
-                .map(|status| column(app, status, cx)),
-        )
+        // A lane the project has hidden is not drawn at all. It still holds whatever work is in
+        // it — hiding is about the board, not about the tasks — which is why nothing is filtered
+        // here beyond the column itself.
+        .children(drawn.into_iter().map(|status| column(app, status, cx)))
 }
 
 fn column(app: &AppState, status: Status, cx: &mut Context<AppState>) -> AnyElement {
@@ -275,7 +297,8 @@ fn column(app: &AppState, status: Status, cx: &mut Context<AppState>) -> AnyElem
     };
     let tasks = board.column(work, status);
     let count = tasks.len();
-    let shut = board.is_shut(status);
+    // Shut by hand, or shut because the project asked this lane to shut itself when it is empty.
+    let shut = app.lane_shut(status, count, cx);
     let lit = board.carry.is_some_and(|carry| carry.over == Some(status));
     let colour = status_colour(status);
     // The three ids on a column key off the enum's discriminant rather than an id: a column is one
