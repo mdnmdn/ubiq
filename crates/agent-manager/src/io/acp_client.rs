@@ -2902,7 +2902,7 @@ fn emit(tx: &mpsc::Sender<Option<Framed>>, ev: AgentEvent, raw: Option<Arc<str>>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::io::{Content, PlanStatus, ToolCall, ToolCallUpdate, ToolContent, ToolStatus};
+    use crate::io::{Content, PlanStatus, ToolCallUpdate, ToolContent, ToolStatus};
 
     fn parse(json: &str) -> Value {
         serde_json::from_str(json).unwrap()
