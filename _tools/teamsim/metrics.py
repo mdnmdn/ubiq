@@ -90,12 +90,30 @@ def measure(arr: Arrangement) -> dict:
     ink = sum(r[2] * r[3] for r in rects)
     lengths = [_length(c.a, c.b) for c in arr.conns]
 
-    moved = [
-        _length(card.at, arr.before[card.agent.id])
-        for card in arr.cards
-        if card.agent.id in arr.before
-    ]
-    still = sum(1 for d in moved if d < 0.5)
+    if arr.growth:
+        # Grown a block at a time: displacement is what each arrival cost the blocks already
+        # there, summed over the growth, which is the number "only adjustments" has to be small in.
+        moves = arr.growth["moves"]
+        pairs = arr.growth["pairs"]
+        displaced = {
+            "moved_mean": round(sum(moves) / len(moves), 1) if moves else 0.0,
+            "moved_max": round(max(moves), 1) if moves else 0.0,
+            "unmoved": round(arr.growth["still"] / pairs, 3) if pairs else 1.0,
+            "order_kept": arr.growth["order_kept"],
+        }
+    else:
+        # Laid out from scratch: displacement is how far it threw the arrangement that existed.
+        moved = [
+            _length(card.at, arr.before[card.agent.id])
+            for card in arr.cards
+            if card.agent.id in arr.before
+        ]
+        displaced = {
+            "moved_mean": round(sum(moved) / len(moved), 1) if moved else 0.0,
+            "moved_max": round(max(moved), 1) if moved else 0.0,
+            "unmoved": round(sum(1 for d in moved if d < 0.5) / len(moved), 3) if moved else 1.0,
+            "order_kept": reading_order(arr) == arr.before_order,
+        }
 
     return {
         "scenario": arr.scenario.name,
@@ -114,11 +132,8 @@ def measure(arr: Arrangement) -> dict:
         "crossings": crossings(arr),
         "link_max": round(max(lengths), 1) if lengths else 0.0,
         "link_mean": round(sum(lengths) / len(lengths), 1) if lengths else 0.0,
-        "moved_mean": round(sum(moved) / len(moved), 1) if moved else 0.0,
-        "moved_max": round(max(moved), 1) if moved else 0.0,
-        "unmoved": round(still / len(moved), 3) if moved else 1.0,
-        "order_kept": reading_order(arr) == arr.before_order,
-        "passes": arr.passes,
+        **displaced,
+        "arrivals": arr.passes if arr.growth else 0,
     }
 
 

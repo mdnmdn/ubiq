@@ -1,0 +1,62 @@
+{
+  "format": "ubiq.teamsim/1",
+  "name": "many-tasks",
+  "note": "nine containers of mixed shape in one session, hand-arranged into four tidy columns",
+  "viewport": { "w": 1600, "h": 1000 },
+  "sessions": [
+    { "id": "s1", "name": "release cut", "branch": "release/0.9", "worktree": false }
+  ],
+  "tasks": [
+    { "id": "t1", "session": "s1", "title": "Bump the manifests", "shape": "direct" },
+    { "id": "t2", "session": "s1", "title": "Sign the bundle", "shape": "direct" },
+    { "id": "t3", "session": "s1", "title": "Smoke the harnesses", "shape": "coordinated" },
+    { "id": "t4", "session": "s1", "title": "Walk the upgrade", "shape": "chain" },
+    { "id": "t5", "session": "s1", "title": "Refresh the icons", "shape": "direct" },
+    { "id": "t6", "session": "s1", "title": "Re-lint the docs", "shape": "direct" },
+    { "id": "t7", "session": "s1", "title": "Sweep the panels", "shape": "coordinated" },
+    { "id": "t8", "session": "s1", "title": "Tag the release", "shape": "direct" },
+    { "id": "t9", "session": "s1", "title": "Write the notes", "shape": "direct" }
+  ],
+  "agents": [
+    { "id": "a1", "session": "s1", "task": "t1", "parent": null, "name": "bump", "role": "patcher", "harness": "claude-code", "activity": "writing", "subagents": [] },
+    { "id": "a2", "session": "s1", "task": "t1", "parent": null, "name": "lockfile", "role": "patcher", "harness": "codex", "activity": "tools", "subagents": [] },
+
+    { "id": "a3", "session": "s1", "task": "t2", "parent": null, "name": "notary", "role": "implementer", "harness": "claude-code", "activity": "waiting", "subagents": [] },
+
+    { "id": "a4", "session": "s1", "task": "t3", "parent": null, "name": "smoke lead", "role": "coordinator", "harness": "claude-code", "activity": "tools", "subagents": [] },
+    { "id": "a5", "session": "s1", "task": "t3", "parent": "a4", "name": "codex leg", "role": "tester", "harness": "codex", "activity": "tools", "subagents": [] },
+    { "id": "a6", "session": "s1", "task": "t3", "parent": "a4", "name": "gemini leg", "role": "tester", "harness": "gemini-cli", "activity": "tools",
+      "subagents": [ { "id": "d1", "name": "launch" }, { "id": "d2", "name": "resume" } ] },
+
+    { "id": "a7", "session": "s1", "task": "t4", "parent": null, "name": "read state", "role": "indexer", "harness": "claude-code", "activity": "tools", "subagents": [] },
+    { "id": "a8", "session": "s1", "task": "t4", "parent": "a7", "name": "migrate", "role": "implementer", "harness": "claude-code", "activity": "writing", "subagents": [] },
+    { "id": "a9", "session": "s1", "task": "t4", "parent": "a8", "name": "replay", "role": "tester", "harness": "opencode", "activity": "tools", "subagents": [] },
+    { "id": "a10", "session": "s1", "task": "t4", "parent": "a9", "name": "confirm", "role": "reviewer", "harness": "copilot-cli", "activity": "thinking", "subagents": [] },
+
+    { "id": "a11", "session": "s1", "task": "t5", "parent": null, "name": "nib", "role": "implementer", "harness": "claude-code", "activity": "writing", "subagents": [] },
+
+    { "id": "a12", "session": "s1", "task": "t6", "parent": null, "name": "linter", "role": "reviewer", "harness": "codex", "activity": "tools", "subagents": [] },
+    { "id": "a13", "session": "s1", "task": "t6", "parent": null, "name": "indexer", "role": "indexer", "harness": "claude-code", "activity": "tools", "subagents": [] },
+
+    { "id": "a14", "session": "s1", "task": "t7", "parent": null, "name": "panels lead", "role": "coordinator", "harness": "claude-code", "activity": "thinking", "subagents": [] },
+    { "id": "a15", "session": "s1", "task": "t7", "parent": "a14", "name": "excalidraw", "role": "implementer", "harness": "gemini-cli", "activity": "writing", "subagents": [] },
+    { "id": "a16", "session": "s1", "task": "t7", "parent": "a14", "name": "drawio", "role": "implementer", "harness": "opencode", "activity": "writing", "subagents": [] },
+
+    { "id": "a17", "session": "s1", "task": "t8", "parent": null, "name": "tagger", "role": "implementer", "harness": "copilot-cli", "activity": "idle", "subagents": [] },
+
+    { "id": "a18", "session": "s1", "task": "t9", "parent": null, "name": "scribe", "role": "implementer", "harness": "claude-code", "activity": "writing", "subagents": [] },
+    { "id": "a19", "session": "s1", "task": "t9", "parent": null, "name": "editor", "role": "reviewer", "harness": "claude-code", "activity": "thinking", "subagents": [] }
+  ],
+  "links": [
+    { "from": "a1", "to": "a17", "kind": "handoff" },
+    { "from": "a12", "to": "a18", "kind": "watch" }
+  ],
+  "positions": {
+    "tasks": {
+      "t1": [46, 72], "t6": [46, 338], "t9": [46, 604],
+      "t3": [706, 72], "t7": [706, 756],
+      "t4": [1366, 72],
+      "t2": [1730, 72], "t5": [1730, 338], "t8": [1730, 604]
+    }
+  }
+}

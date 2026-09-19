@@ -43,5 +43,9 @@ yarn-error.log*
 assets/icons/preview/
 
 graphify-out/
+
+# Rendered arrangements from `just teamsim`
+_tools/teamsim/out/
+__pycache__/
 # Local reference copies (working home dirs, vendored sources) — never committed
 /refs/

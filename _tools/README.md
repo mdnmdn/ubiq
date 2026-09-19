@@ -12,6 +12,7 @@ path or a flag.
 | `excalidraw.py` | `just diagram` | Converts, validates and renders the compact diagram format the wireframes are authored in |
 | `icons.py` | `just icons-check`, `icons-sheet`, `icons-variants`, `icons-adopt`, `icons-audit`, `icons-dupes` | Keeps the icon set in `assets/icons/` coherent: the registry against the files, the SVG spec, and the review sheets an agent looks at while drawing one — written to the ignored `assets/icons/preview/` |
 | `webassets.py` | `just web-assets`, `web-assets-verify`, `web-assets-drawio`, `web-assets-verify-drawio` | Snapshots a web-panel tenant's offline mirror and writes the expected SHA-256 of every file as generated Rust the host verifies downloads against — Excalidraw's own `dist/prod` plus its transitive `+esm` closure from jsDelivr's npm CDN (`--tenant excalidraw`, the default), or draw.io's `src/main/webapp/` from jsDelivr's GitHub CDN (`--tenant drawio`) |
+| `teamsim/teamsim.py` | `just teamsim` | Renders the teams graph's block-positioning algorithms as PNGs — a port of `crates/ubiq/src/state/layout.rs` plus the incremental `adaptive` arrangement, the readability metrics, and the scenarios in `_tools/teamsim/scenarios/` that are also the sink's presets |
 | `icns.py` | `just icns`, `just bundle` | Builds the macOS application icon from the logo in `assets/` — the ten representations an `.iconset` needs — through `iconutil` |
 
 What the check ids mean and what to do about each is in `_docs/_meta/librarian.md`. The diagram

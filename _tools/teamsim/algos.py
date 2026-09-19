@@ -8,9 +8,12 @@ PNG can be trusted to show what the app does.
 The arrangements express themselves through `ALGOS`, one entry each: how cards sit inside one
 container (`inside`), where a card's delegates go inside its own fence (`ring`), and how the
 containers of a session are packed (`pack`). A new arrangement is one dict entry plus three small
-functions. An arrangement may also carry a `refine`, which is what `adaptive` is: it starts from the
-arrangement that exists — the scenario's hand-placed `positions`, otherwise `flow` — and moves as
-little as it can.
+functions.
+
+An arrangement may also carry a `grow`, which is what `adaptive` is: it never lays a session out at
+all. It places one arriving block at a time against the arrangement already on screen, and no
+placed block moves unless the arriving one would overlap it — then by the smallest delta that
+clears it, and only for the blocks actually in the way.
 """
 
 from __future__ import annotations
@@ -638,6 +641,7 @@ class Placed:
     agent: Agent
     offset: Point
     slots: list[Point] = field(default_factory=list)
+    depth: int = 0
     at: Point = (0.0, 0.0)
     subs: list[tuple[str, str, Point]] = field(default_factory=list)
     ring: Optional[Rect] = None
@@ -675,8 +679,11 @@ class Arrangement:
     conns: list[Conn] = field(default_factory=list)
     bbox: Rect = (0.0, 0.0, 0.0, 0.0)
     band: dict[str, float] = field(default_factory=dict)  # a session's top, per session id
+    lines: dict[tuple[str, int], list[float]] = field(default_factory=dict)
     before: dict[str, Point] = field(default_factory=dict)
     before_order: list[str] = field(default_factory=list)
+    frames: list["Arrangement"] = field(default_factory=list)
+    growth: Optional[dict] = None
     passes: int = 0
 
 
@@ -696,16 +703,17 @@ def _union(boxes: Iterable[Rect]) -> Rect:
 
 
 def content_rect(card: Placed) -> Rect:
-    """What one card reserves: itself, and its delegates without the ring's own padding.
+    """What one card reserves — and the ring's padding is reserved at the bottom only.
 
-    For the default one-per-row ring this is exactly `CARD_HEIGHT + ring_drop(n)` tall, which is
-    what the Rust packers leave room for — so the drawn picture and the reserved space agree, and a
-    reflowed ring reserves what it actually takes.
+    `CARD_HEIGHT + ring_drop(n)` is the fence's bottom edge, pad included, but nothing reserves the
+    pad the fence wears on its left, right and top: those are simply absorbed by the container's
+    `GROUP_PAD`, which is wider. Reading it the same way here is what makes this rect exactly the
+    box the Rust packers leave room for, whatever shape the ring is in.
     """
     rect = (card.at[0], card.at[1], CARD_WIDTH, CARD_HEIGHT)
     if card.ring:
         x, y, w, h = card.ring
-        rect = _union([rect, (x + RING_PAD, y + RING_PAD, w - RING_PAD * 2.0, h - RING_PAD * 2.0)])
+        rect = _union([rect, (x + RING_PAD, y + RING_PAD, w - RING_PAD * 2.0, h - RING_PAD)])
     return rect
 
 
@@ -722,7 +730,7 @@ class Algo:
     inside: Callable[[str, Sequence[Agent], Rings], Contents]
     ring: Callable[[int], list[Point]]
     pack: Callable[[Sequence[Size], Sequence[Optional[int]]], Packing]
-    refine: Optional[Callable[["Arrangement"], int]] = None
+    grow: Optional[Callable[["Arrangement"], int]] = None
 
 
 def algo_of(name: "str | Algo") -> Algo:
@@ -738,42 +746,46 @@ def layout_auto(scenario: Scenario, algo: "str | Algo") -> Arrangement:
     """The whole arrangement, ready to draw.
 
     A from-scratch arrangement is `Layout::auto` and ignores the scenario's `positions`. One with a
-    `refine` starts from the input arrangement — the positions where they exist, `flow` otherwise —
-    and adjusts it. Either way the input is kept, because that is what displacement is measured
+    `grow` is built up a block at a time in arrival order instead. Either way the arrangement that
+    already existed is kept, because that is what a from-scratch tidy's displacement is measured
     against.
     """
     algo = algo_of(algo)
-    entry = _input(scenario)
 
-    if algo.refine:
-        out = copy.deepcopy(entry)
-        object.__setattr__(out, "algo", algo)
-        out.passes = algo.refine(out)
+    if algo.grow:
+        out = Arrangement(scenario=scenario, algo=algo)
+        out.passes = algo.grow(out)
     else:
         out = _build(scenario, algo)
-    _finish(out)
+        _finish(out)
 
+    entry = _input(scenario)
     out.before = {card.agent.id: card.at for card in entry.cards}
     out.before_order = _reading_order(entry)
     return out
 
 
 def _input(scenario: Scenario) -> Arrangement:
-    """The arrangement that already exists: `flow`, with whatever a human moved laid over it."""
+    """The arrangement a from-scratch tidy displaces: `flow`, with whatever a human moved over it."""
     entry = _build(scenario, ALGOS["flow"])
-    placed = scenario.positions
+    apply_positions(entry)
+    _finish(entry)
+    return entry
+
+
+def apply_positions(out: Arrangement) -> None:
+    """Lay the scenario's hand-placed positions over whatever the arrangement worked out."""
+    placed = out.scenario.positions
     for task, origin in placed.tasks.items():
-        if task in entry.origins:
-            entry.origins[task] = origin
-    for card in entry.cards:
+        if task in out.origins:
+            out.origins[task] = origin
+    for card in out.cards:
         if card.agent.id in placed.agents:
             card.offset = placed.agents[card.agent.id]
         for ix, (sid, _) in enumerate(card.agent.subagents):
             moved = placed.subagents.get(f"{card.agent.id}/{sid}")
             if moved is not None and ix < len(card.slots):
                 card.slots[ix] = moved
-    _finish(entry)
-    return entry
 
 
 def _build(scenario: Scenario, algo: Algo) -> Arrangement:
@@ -935,71 +947,20 @@ def _reading_order(out: Arrangement) -> list[str]:
     ]
 
 
-# ── adaptive: start from what is there and adjust ─────────────────────────────
+# ── adaptive: the incremental arrangement ─────────────────────────────────────
+#
+# Nothing here lays a session out. A block arrives, finds a place against what is already on
+# screen, and pushes only what it overlaps — by the smallest delta that clears it. A session is
+# never re-packed, and the ripple is capped: no block moves twice for one arrival.
 
-PASSES = 8
-GAIN = 0.01  # the balance improvement a pass has to earn to be worth another
-
-
-def adaptive(out: Arrangement) -> int:
-    """Bounded local passes over the arrangement that exists. Answers how many it took."""
-    from metrics import balance
-
-    reflow_rings(out)
-    _finish(out)
-    best = balance(out)
-
-    passes = 0
-    for _ in range(PASSES):
-        passes += 1
-        moved = gravity(out)
-        moved = spill(out) or moved
-        _finish(out)
-        now = balance(out)
-        if not moved or best - now < GAIN:
-            break
-        best = now
-    return passes
-
-
-def reflow_rings(out: Arrangement) -> bool:
-    """Fold a card's tower of delegates into the free space beside it. The card does not move."""
-    changed = False
-    for card in out.cards:
-        count = len(card.subs)
-        if count < 4 or card.ring is None:
-            continue
-        room = _room_right(out, card)
-        fits = 1 + max(int((room + SUB_GAP) // (SUB_WIDTH + SUB_GAP)), 0)
-        cols = min(break_at(count), max(fits, 1))
-        if cols <= 1:
-            continue
-        card.slots = [
-            (
-                (ix % cols) * (SUB_WIDTH + SUB_GAP),
-                CARD_HEIGHT + SUB_DROP + (ix // cols) * (SUB_HEIGHT + SUB_GAP),
-            )
-            for ix in range(count)
-        ]
-        changed = True
-    return changed
-
-
-def _room_right(out: Arrangement, card: Placed) -> float:
-    """Clear space to the right of a card's ring, before the next thing drawn in that band."""
-    band = (card.at[1] + CARD_HEIGHT, card.ring[1] + card.ring[3])
-    right = card.at[0] + CARD_WIDTH
-    limit = math.inf
-    for other in out.cards:
-        if other is card or other.agent.session != card.agent.session:
-            continue
-        rect = content_rect(other)
-        if rect[0] + rect[2] <= right + EPS:
-            continue
-        if rect[1] + rect[3] <= band[0] + EPS or rect[1] >= band[1] - EPS:
-            continue
-        limit = min(limit, rect[0] - CARD_GAP_X)
-    return limit - right
+#: How many cards a row band takes before it wraps onto a second line inside the same band.
+WRAP = max(
+    1,
+    int(
+        (LAYOUT_WIDTH - LAYOUT_MARGIN * 2.0 - GROUP_PAD * 2.0 + CARD_GAP_X)
+        // (CARD_WIDTH + CARD_GAP_X)
+    ),
+)
 
 
 def _drawn(out: Arrangement, session: str) -> list[TaskBox]:
@@ -1021,84 +982,275 @@ def _apart(a: Rect, b: Rect, gap: float) -> bool:
     )
 
 
-def _shift(out: Arrangement, box: TaskBox, to: Point) -> None:
-    """Move one container, which moves its cards with it and nothing else."""
-    at = box.rect
-    out.origins[box.task.id] = (
-        out.origins[box.task.id][0] + to[0] - at[0],
-        out.origins[box.task.id][1] + to[1] - at[1],
+def _close(a: Rect, b: Rect, gx: float, gy: float) -> bool:
+    return not (
+        a[0] + a[2] + gx <= b[0] + EPS
+        or b[0] + b[2] + gx <= a[0] + EPS
+        or a[1] + a[3] + gy <= b[1] + EPS
+        or b[1] + b[3] + gy <= a[1] + EPS
     )
+
+
+def _away(at: Rect, other: Rect, gx: float, gy: float) -> Point:
+    """The smallest delta that clears `other` of `at`, in the direction it already lies."""
+    down = at[1] + at[3] + gy - other[1]
+    up = other[1] + other[3] + gy - at[1]
+    right = at[0] + at[2] + gx - other[0]
+    left = other[0] + other[2] + gx - at[0]
+    dy = down if other[1] + other[3] / 2.0 >= at[1] + at[3] / 2.0 else -up
+    dx = right if other[0] + other[2] / 2.0 >= at[0] + at[2] / 2.0 else -left
+    return (0.0, dy) if abs(dy) <= abs(dx) else (dx, 0.0)
+
+
+def _move(out: Arrangement, box: TaskBox, dx: float, dy: float) -> None:
+    """Move one container, which moves its cards with it and nothing else."""
+    x, y = out.origins[box.task.id]
+    out.origins[box.task.id] = (x + dx, y + dy)
     _finish(out)
 
 
-def gravity(out: Arrangement) -> bool:
-    """Pull each container straight up into the free space above it, keeping its x."""
-    changed = False
-    for session in out.band:
-        for box in sorted(_drawn(out, session), key=lambda b: (b.rect[1], b.rect[0])):
-            rect = box.rect
-            limit = out.band[session]
-            for other in _drawn(out, session):
-                if other is box:
-                    continue
-                o = other.rect
-                if o[0] >= rect[0] + rect[2] - EPS or o[0] + o[2] <= rect[0] + EPS:
-                    continue
-                if o[1] + o[3] <= rect[1] + EPS:
-                    limit = max(limit, o[1] + o[3] + TASK_GAP)
-            for o in _loose(out, session):
-                if o[0] >= rect[0] + rect[2] - EPS or o[0] + o[2] <= rect[0] + EPS:
-                    continue
-                if o[1] + o[3] <= rect[1] + EPS:
-                    limit = max(limit, o[1] + o[3] + TASK_GAP)
-            if rect[1] - limit > 1.0:
-                _shift(out, box, (rect[0], limit))
-                changed = True
-    return changed
-
-
-def spill(out: Arrangement) -> bool:
-    """Move a container that runs past the viewport's height into free space in a higher band."""
-    from metrics import balance
-
-    _, vh = out.scenario.viewport
-    for session in out.band:
-        drawn = _drawn(out, session)
-        if len(drawn) < 2:
-            continue
-        held = _union([b.rect for b in drawn])
-        if held[3] <= vh:
-            continue
-        box = max(drawn, key=lambda b: b.rect[1] + b.rect[3])
-        rect = box.rect
-        others = [b.rect for b in drawn if b is not box] + _loose(out, session)
-
-        was = balance(out)
-        best: Optional[tuple[float, Point]] = None
-        for band in sorted({round(o[1], 1) for o in others}):
-            if band >= rect[1] - EPS:
+def _push(out: Arrangement, session: str, rect: Rect, skip: set[str]) -> None:
+    """Push the containers `rect` overlaps clear of it. Each moves once, so the ripple ends."""
+    queue: list[Rect] = [rect]
+    while queue:
+        at = queue.pop(0)
+        for box in _drawn(out, session):
+            if box.task.id in skip or not _close(at, box.rect, TASK_GAP - EPS, TASK_GAP - EPS):
                 continue
-            x = max(
-                (
-                    o[0] + o[2] + TASK_GAP
-                    for o in others
-                    if o[1] < band + rect[3] - EPS and o[1] + o[3] > band + EPS
-                ),
-                default=rect[0],
-            )
-            to = (x, band)
-            moved = (to[0], to[1], rect[2], rect[3])
-            if any(not _apart(moved, o, TASK_GAP - EPS) for o in others):
+            dx, dy = _away(at, box.rect, TASK_GAP, TASK_GAP)
+            skip.add(box.task.id)
+            _move(out, box, dx, dy)
+            queue.append(box.rect)
+
+
+def _push_cards(out: Arrangement, task: str, rect: Rect, skip: set[str]) -> None:
+    """The same, for the cards inside one container: only what the grown block now overlaps."""
+    queue: list[Rect] = [rect]
+    while queue:
+        at = queue.pop(0)
+        for card in out.cards:
+            if card.agent.task != task or card.agent.id in skip:
                 continue
-            _shift(out, box, to)
-            now = balance(out)
-            if best is None or now < best[0]:
-                best = (now, to)
-            _shift(out, box, (rect[0], rect[1]))
-        if best and was - best[0] > GAIN:
-            _shift(out, box, best[1])
-            return True
-    return False
+            held = content_rect(card)
+            if not _close(at, held, CARD_GAP_X - EPS, CARD_GAP_Y - EPS):
+                continue
+            dx, dy = _away(at, held, CARD_GAP_X, CARD_GAP_Y)
+            skip.add(card.agent.id)
+            card.offset = (card.offset[0] + dx, card.offset[1] + dy)
+            _finish(out)
+            queue.append(content_rect(card))
+
+
+def _arrivals(scenario: Scenario) -> list[tuple]:
+    """A scenario read as a history: the blocks in the order they turned up."""
+    tasks = {t.id: t for t in scenario.tasks}
+    events: list[tuple] = []
+    seen_s: set[str] = set()
+    seen_t: set[str] = set()
+
+    def session(sid: Optional[str]) -> None:
+        if sid and sid not in seen_s:
+            seen_s.add(sid)
+            events.append(("session", sid))
+
+    for agent in scenario.agents:
+        session(agent.session)
+        if agent.task and agent.task in tasks and agent.task not in seen_t:
+            seen_t.add(agent.task)
+            events.append(("task", tasks[agent.task]))
+        events.append(("agent", agent))
+        for sub in agent.subagents:
+            events.append(("sub", agent, sub))
+    for task in scenario.tasks:
+        if task.id not in seen_t:
+            session(task.session)
+            seen_t.add(task.id)
+            events.append(("task", task))
+    return events
+
+
+def grow(out: Arrangement) -> int:
+    """Place every block in arrival order. Answers how many arrived, and keeps a few frames."""
+    events = _arrivals(out.scenario)
+    marks = {len(events) // 3, 2 * len(events) // 3}
+    stats: dict = {"arrivals": 0, "moves": [], "pairs": 0, "still": 0, "order_kept": True}
+
+    for ix, event in enumerate(events):
+        was = {card.agent.id: card.at for card in out.cards}
+        order = _reading_order(out)
+
+        kind = event[0]
+        if kind == "session":
+            _arrive_session(out, event[1])
+        elif kind == "task":
+            out.tasks.append(TaskBox(task=event[1]))
+        elif kind == "agent":
+            _arrive_agent(out, event[1])
+        else:
+            _arrive_sub(out, event[1], event[2])
+        # A human's own placement wins over whatever the arrangement worked out for it.
+        apply_positions(out)
+        _finish(out)
+
+        stats["arrivals"] += 1
+        for card in out.cards:
+            if card.agent.id not in was:
+                continue
+            stats["pairs"] += 1
+            gone = math.hypot(card.at[0] - was[card.agent.id][0], card.at[1] - was[card.agent.id][1])
+            if gone < 0.5:
+                stats["still"] += 1
+            else:
+                stats["moves"].append(gone)
+        kept = [t for t in _reading_order(out) if t in order]
+        if kept != order:
+            stats["order_kept"] = False
+        if ix in marks and ix > 0:
+            out.frames.append(_snap(out))
+
+    out.growth = stats
+    return stats["arrivals"]
+
+
+def _snap(out: Arrangement) -> Arrangement:
+    """A frame of the growth, for the contact sheet."""
+    frames, out.frames = out.frames, []
+    shot = copy.deepcopy(out)
+    out.frames = frames
+    return shot
+
+
+def _arrive_session(out: Arrangement, session: str) -> None:
+    """A new session goes below the last one."""
+    if session in out.band:
+        return
+    bottom = [b.rect[1] + b.rect[3] for b in out.tasks if b.rect]
+    bottom += [content_rect(c)[1] + content_rect(c)[3] for c in out.cards]
+    out.band[session] = LAYOUT_MARGIN if not bottom else max(bottom) + GROUP_PAD + TASK_GAP
+
+
+def _arrive_agent(out: Arrangement, agent: Agent) -> None:
+    """A new agent on a task: the row for its depth, at the first free x inside the container."""
+    if agent.task is None:
+        _arrive_loose(out, agent)
+        return
+    box = next((b for b in out.tasks if b.task.id == agent.task), None)
+    if box is None:
+        return
+    depth = _depth_now(out, agent)
+    if box.task.id not in out.origins:
+        out.origins[box.task.id] = _first_fit(out, box, agent)
+    card = Placed(agent=agent, offset=_slot_in(out, box.task.id, depth), depth=depth)
+    out.cards.append(card)
+    _finish(out)
+    if box.rect:
+        _push(out, agent.session, box.rect, {box.task.id})
+
+
+def _arrive_sub(out: Arrangement, agent: Agent, sub: tuple[str, str]) -> None:
+    """A new delegate: the first free slot in its parent's ring, in whatever shape is in force."""
+    card = next((c for c in out.cards if c.agent.id == agent.id), None)
+    if card is None:
+        return
+    count = len(card.slots) + 1
+    card.slots.append(out.algo.ring(count)[count - 1])
+    _finish(out)
+    if agent.task:
+        _push_cards(out, agent.task, content_rect(card), {agent.id})
+        box = next((b for b in out.tasks if b.task.id == agent.task and b.rect), None)
+        if box:
+            _push(out, agent.session, box.rect, {box.task.id})
+    else:
+        _push(out, agent.session, content_rect(card), set())
+
+
+def _arrive_loose(out: Arrangement, agent: Agent) -> None:
+    """An agent nobody gave work to: the next free place in the block along the session's top."""
+    session = agent.session
+    up = next(
+        (c for c in out.cards if c.agent.id == agent.parent and not c.agent.task),
+        None,
+    )
+    depth = up.depth + 1 if up else 0
+    y = out.band.get(session, LAYOUT_MARGIN) + depth * (CARD_HEIGHT + CARD_GAP_Y)
+    mates = _loose(out, session)
+    x = LAYOUT_MARGIN
+    while any(_close((x, y, CARD_WIDTH, CARD_HEIGHT), o, CARD_GAP_X - EPS, CARD_GAP_Y - EPS) for o in mates):
+        x += CARD_WIDTH + CARD_GAP_X
+    card = Placed(agent=agent, offset=(x, y), depth=depth)
+    out.cards.append(card)
+    _finish(out)
+    _push(out, session, content_rect(card), set())
+
+
+def _depth_now(out: Arrangement, agent: Agent) -> int:
+    """How deep the arriving card is, read off the cards already in its container."""
+    up = next(
+        (c for c in out.cards if c.agent.id == agent.parent and c.agent.task == agent.task),
+        None,
+    )
+    return up.depth + 1 if up else 0
+
+
+def _slot_in(out: Arrangement, task: str, depth: int) -> Point:
+    """The first free x in a container's depth band, wrapping to a new line in the same band."""
+    line = out.lines.get((task, depth))
+    if line and line[2] < WRAP:
+        offset = (line[1], line[0])
+        line[1] += CARD_WIDTH + CARD_GAP_X
+        line[2] += 1
+        return offset
+    bottoms = [
+        card.offset[1] + (content_rect(card)[1] + content_rect(card)[3] - card.at[1])
+        for card in out.cards
+        if card.agent.task == task
+    ]
+    y = max(bottoms) + CARD_GAP_Y if bottoms else 0.0
+    out.lines[(task, depth)] = [y, CARD_WIDTH + CARD_GAP_X, 1]
+    return (0.0, y)
+
+
+def _first_fit(out: Arrangement, box: TaskBox, agent: Agent) -> Point:
+    """A new container, first-fit into the gaps this session already has.
+
+    A gap in the same reading band as its parent task wins, then one near it, then the reading end.
+    Nothing already placed moves to make the gap.
+    """
+    session = box.task.session or agent.session
+    size = (CARD_WIDTH + GROUP_PAD * 2.0, CARD_HEIGHT + GROUP_PAD * 2.0 + GROUP_LABEL)
+    others = [b.rect for b in _drawn(out, session)] + _loose(out, session)
+    top = out.band.get(session, LAYOUT_MARGIN)
+    if not others:
+        return (LAYOUT_MARGIN + GROUP_PAD, top + GROUP_PAD + GROUP_LABEL)
+
+    near: Optional[Point] = None
+    if agent.parent:
+        up = next((c for c in out.cards if c.agent.id == agent.parent), None)
+        if up is not None and up.agent.task:
+            held = next((b for b in out.tasks if b.task.id == up.agent.task and b.rect), None)
+            if held and held.rect:
+                near = (held.rect[0], held.rect[1])
+    anchor = near or (LAYOUT_MARGIN, top)
+
+    end = max(o[1] + o[3] for o in others) + TASK_GAP
+    bands = sorted({round(o[1], 1) for o in others} | {end})
+    xs = sorted({LAYOUT_MARGIN} | {o[0] + o[2] + TASK_GAP for o in others} | {anchor[0]})
+
+    best: Optional[tuple[tuple, Point]] = None
+    for y in bands:
+        if y < top - EPS:
+            continue
+        for x in xs:
+            if x + size[0] > LAYOUT_WIDTH - LAYOUT_MARGIN + EPS:
+                continue
+            rect = (x, y, size[0], size[1])
+            if any(_close(rect, o, TASK_GAP - EPS, TASK_GAP - EPS) for o in others):
+                continue
+            cost = (abs(y - anchor[1]), abs(x - anchor[0]), y, x)
+            if best is None or cost < best[0]:
+                best = (cost, (x, y))
+    x, y = best[1] if best else (LAYOUT_MARGIN, end)
+    return (x + GROUP_PAD, y + GROUP_PAD + GROUP_LABEL)
 
 
 ALGOS: dict[str, Algo] = {
@@ -1137,10 +1289,10 @@ ALGOS: dict[str, Algo] = {
     "adaptive": Algo(
         "adaptive",
         "Adaptive",
-        "keeps the arrangement you have and only adjusts it",
+        "places each arriving block into the arrangement already on screen",
         inside_stack,
         ring_rows,
         pack_flow,
-        refine=adaptive,
+        grow=grow,
     ),
 }

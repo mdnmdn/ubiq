@@ -1,0 +1,32 @@
+{
+  "format": "ubiq.teamsim/1",
+  "name": "wide-coordination",
+  "note": "a lead over nine workers, four of them carrying delegates — the row that drags the canvas wide",
+  "viewport": { "w": 1600, "h": 1000 },
+  "sessions": [
+    { "id": "s1", "name": "docs sweep", "branch": "chore/docs", "worktree": false }
+  ],
+  "tasks": [
+    { "id": "t1", "session": "s1", "title": "Relint the library", "shape": "coordinated" }
+  ],
+  "agents": [
+    { "id": "a1", "session": "s1", "task": "t1", "parent": null, "name": "lead", "role": "coordinator", "harness": "claude-code", "activity": "tools", "subagents": [] },
+    { "id": "a2", "session": "s1", "task": "t1", "parent": "a1", "name": "frontmatter", "role": "patcher", "harness": "codex", "activity": "writing",
+      "subagents": [ { "id": "d1", "name": "scan meta" }, { "id": "d2", "name": "fix rows" } ] },
+    { "id": "a3", "session": "s1", "task": "t1", "parent": "a1", "name": "anchors", "role": "indexer", "harness": "claude-code", "activity": "tools",
+      "subagents": [ { "id": "d3", "name": "map code" }, { "id": "d4", "name": "map docs" }, { "id": "d5", "name": "diff" } ] },
+    { "id": "a4", "session": "s1", "task": "t1", "parent": "a1", "name": "backlog", "role": "implementer", "harness": "gemini-cli", "activity": "writing", "subagents": [] },
+    { "id": "a5", "session": "s1", "task": "t1", "parent": "a1", "name": "decisions", "role": "reviewer", "harness": "claude-code", "activity": "thinking",
+      "subagents": [ { "id": "d6", "name": "read D" }, { "id": "d7", "name": "read G" }, { "id": "d8", "name": "cross" }, { "id": "d9", "name": "write" } ] },
+    { "id": "a6", "session": "s1", "task": "t1", "parent": "a1", "name": "glossary", "role": "patcher", "harness": "opencode", "activity": "writing", "subagents": [] },
+    { "id": "a7", "session": "s1", "task": "t1", "parent": "a1", "name": "diagrams", "role": "implementer", "harness": "claude-code", "activity": "tools",
+      "subagents": [ { "id": "d10", "name": "render" }, { "id": "d11", "name": "review" } ] },
+    { "id": "a8", "session": "s1", "task": "t1", "parent": "a1", "name": "skills", "role": "reviewer", "harness": "codex", "activity": "thinking", "subagents": [] },
+    { "id": "a9", "session": "s1", "task": "t1", "parent": "a1", "name": "index", "role": "indexer", "harness": "claude-code", "activity": "tools", "subagents": [] },
+    { "id": "a10", "session": "s1", "task": "t1", "parent": "a1", "name": "lint", "role": "tester", "harness": "copilot-cli", "activity": "waiting", "subagents": [] }
+  ],
+  "links": [
+    { "from": "a3", "to": "a9", "kind": "handoff" },
+    { "from": "a5", "to": "a4", "kind": "handoff" }
+  ]
+}
