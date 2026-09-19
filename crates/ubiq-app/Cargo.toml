@@ -17,28 +17,33 @@ name = "ubiq"
 path = "src/main.rs"
 
 [features]
-# On by default: an on-device model is part of the application, not an extra. It is a feature
-# rather than a plain dependency so that `--no-default-features` builds a complete Ubiq without
-# a Swift toolchain or a macOS 26 SDK — the host then answers with its stub backend, which
-# reports assistance unavailable, and every call site already reads correctly against that.
-default = ["assist-apple", "quickjs"]
+# `assist-apple` is deliberately *not* here, and it is the only shipped feature that is not.
+# Compiling it means compiling a Swift bridge, which means a Swift toolchain and the macOS 26 SDK
+# on the machine and a minute of `swiftc` in the build — a cost `just check`, `just clippy` and
+# `just test` pay on every run for a backend none of them exercises, and a hard failure on a
+# machine that has neither. So the recipes that produce a *running* Ubiq — `dev`, `verbose`,
+# `build`, `bundle`, `bundle-win` — name it, `just assist` type-checks it, and the developer loop
+# builds the same application with the host's stub backend, which reports assistance unavailable
+# and which every call site already reads correctly against.
+default = ["quickjs"]
 
 # Forwarded to the host, which owns the backend; the interface never names one. `ubiq-host` does
 # not default it, so switching it off here is enough to switch it off everywhere.
 #
-# **On everywhere and effective only on macOS**, which is deliberate and not an oversight. The
-# flag reaches every platform, and on each one that is not macOS it resolves to nothing: the host
-# declares `foundation-models` under `[target.'cfg(target_os = "macos")'.dependencies]`, and gates
-# the backend module on `all(target_os = "macos", feature = "assist-apple")`. So a Linux or
-# Windows build carries the name and not the crate, and never asks for a Swift toolchain.
-# `just apple` is what holds that true, by resolving the tree for three triples.
+# **Asked for everywhere and effective only on macOS**, which is deliberate and not an oversight.
+# The recipes that name it name it on every platform, and on each one that is not macOS it
+# resolves to nothing: the host declares `foundation-models` under
+# `[target.'cfg(target_os = "macos")'.dependencies]`, and gates the backend module on
+# `all(target_os = "macos", feature = "assist-apple")`. So a Linux or Windows build carries the
+# name and not the crate, and never asks for a Swift toolchain. `just apple` is what holds that
+# true, by resolving the tree for three triples.
 #
-# The alternative — dropping it from `default` and enabling it per-target, with
+# The alternative — enabling it per-target, with
 # `[target.'cfg(target_os = "macos")'.dependencies] ubiq-host = { features = [...] }` — would say
-# the same thing one line earlier and cost the escape hatch. Cargo features are additive: a
-# feature a target dependency turns on cannot be turned off again, so `--no-default-features`
-# would stop building a Ubiq that runs on a Mac without the Swift toolchain and the macOS 26 SDK.
-# That build is the one `just check` covers on its second line, and it is worth more than the
+# the same thing without a recipe having to name it, and cost the escape hatch. Cargo features
+# are additive: a feature a target dependency turns on cannot be turned off again, so there would
+# be no way left to build a Ubiq that runs on a Mac without the Swift toolchain and the macOS 26
+# SDK. That build is what the whole developer loop now runs on, and it is worth more than the
 # tidier manifest.
 assist-apple = ["ubiq-host/assist-apple"]
 

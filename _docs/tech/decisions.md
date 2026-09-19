@@ -6,7 +6,7 @@ status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
 updated: 2026-09-19
-verified: 2026-09-18
+verified: 2026-09-19
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -2644,9 +2644,10 @@ backend.
 ### D127 — QuickJS is compiled into the interface behind a feature the binary defaults on
 
 The kitchen sink's script page evaluates JavaScript through `rquickjs`, declared optional in
-`crates/ubiq/Cargo.toml` and turned on by `crates/ubiq-app`'s `default` — the same shape
-`assist-apple` takes, and for the same reason: the one manifest that names both halves is the one
-place a build is made smaller. `crates/ubiq/src/state/script.rs` is the whole of the surface —
+`crates/ubiq/Cargo.toml` and turned on by `crates/ubiq-app`'s `default` — the one manifest that
+names both halves is the one place a build is made smaller. `assist-apple` used to take the same
+shape; it is off in `default`, because compiling it means a Swift toolchain and the macOS 26 SDK, a
+cost `quickjs` does not carry. `crates/ubiq/src/state/script.rs` is the whole of the surface —
 `available()`, `engine_name()`, and `eval(run: Run)` / `eval_timed(run, block_ms, total_ms)`
 returning a `ScriptOutcome`, plus the `validate` and `transpile` that `D128` puts in front of them —
 and the page is drawn whether or not anything is behind it. `D129` is the capability model a `Run`

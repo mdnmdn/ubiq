@@ -115,7 +115,7 @@ pub fn indexed(
 pub fn hsv(
     view: &Entity<AppState>,
     f: impl Fn(&mut AppState, f32, f32, f32, &mut Window, &mut Context<AppState>) + 'static,
-) -> std::rc::Rc<dyn Fn(f32, f32, f32, &mut Window, &mut App)> {
+) -> kit::HsvAction {
     let view = view.clone();
     std::rc::Rc::new(move |hue, sat, val, window, cx| {
         view.update(cx, |this, cx| f(this, hue, sat, val, window, cx));

@@ -6,7 +6,7 @@ status: current
 summary: Prerequisites, the complete command reference, what a first build costs, the checks a change has to pass before it lands, and the runbook for a tool an agent cannot run.
 read_when: you are setting the project up, running or testing it, adding a command, or an agent reports that it cannot run a tool
 updated: 2026-09-19
-verified: 2026-09-18
+verified: 2026-09-19
 code_anchors: [Justfile, crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/structured.rs, _tools/docs.py, _tools/icns.py, _tools/webassets.py, _tools/drone.py, _tools/helpbundle.py, _tools/Info.plist, _devops/scripts/bundle-version.sh, crates/ubiq-app/src/lib.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-app/build.rs, crates/ubiq-app/res/ubiq-app.rc, .github/workflows/create-release.yml, .github/workflows/release-macos.yml, .github/workflows/release-windows.yml]
 depends_on: [tech-structure]
 review_cycle: monthly
@@ -141,6 +141,7 @@ sentence naming `just drone-build`, which is what a machine with no cross toolch
 |---|---|
 | `just apple` | Prove the on-device model backend is macOS-only: `foundation-models` is in `ubiq-app`'s tree for a Darwin triple and in neither a Linux nor a Windows one. Resolution answers it, so it runs anywhere without either toolchain installed |
 | `just check` | Type-check the workspace, tests and examples included |
+| `just assist` | Type-check `ubiq-app` with `assist-apple` on — the on-device backend `check` skips |
 | `just clippy` | Lint, warnings as errors |
 | `just fmt` | Format |
 | `just test` | Test the workspace with stdin closed |
@@ -150,6 +151,13 @@ sentence naming `just drone-build`, which is what a machine with no cross toolch
 and an interactive stdin makes them hang rather than fail, which is the worse of the two outcomes.
 The application's own tests drive the coordinator over the bus and start real processes in
 pseudo-terminals for the same reason; they need no display.
+
+`assist-apple` is off in `ubiq-app`'s `default`, so `check`, `clippy`, `test` and `verify` build the
+host's stub assist backend and never touch `foundation-models` or its Swift bridge. `just assist`
+type-checks the on-device backend on its own, deliberately outside `verify`, because compiling it
+costs a Swift toolchain, the macOS 26 SDK and a minute of `swiftc` for a backend no test exercises.
+`just dev`, `just verbose`, `just build`, `just bundle` and `just bundle-win` name the feature
+explicitly, so a running or bundled Ubiq carries the real backend.
 
 ### Packaging
 
@@ -301,7 +309,7 @@ The wording says which half of the problem it is, and they have opposite fixes.
 | `cannot find GOROOT`, `DOTNET_CLI_HOME not set`, `.. is not a directory` | The tool ran and could not find its own root. A variable is missing, not a grant | The `[env]` table |
 | The harness hangs on its splash screen, with no error | A denied lookup the harness blocks on, not a path | `DEV_LAYERS` in `crates/agent-manager/src/isolate.rs` |
 | A confined `swift` or `xcodebuild` is denied | isol8's `integrations/xcode` layer is in `BROKEN_LAYERS`, so the SDK and toolchain paths are named by hand | `APPLE_SDK_RO_ROOTS` / `APPLE_RW_HOME_ROOTS` in `crates/agent-manager/src/isolate.rs` |
-| `framework 'FoundationModels' not found`, or `unable to load standard library`, from a build pulling in `foundation-models` (`assist-apple`) | The Swift/clang module cache or SwiftPM's home symlinks are denied, so `swiftc` cannot load the SDK's frameworks | `~/.cache/clang` and `~/.swiftpm` are in `APPLE_RW_HOME_ROOTS`; re-restart Ubiq |
+| `framework 'FoundationModels' not found`, or `unable to load standard library`, from a build pulling in `foundation-models` (`assist-apple`) — `just dev`, `just verbose`, `just build`, `just bundle`, `just bundle-win`, `just apple` or `just assist` | The Swift/clang module cache or SwiftPM's home symlinks are denied, so `swiftc` cannot load the SDK's frameworks | `~/.cache/clang` and `~/.swiftpm` are in `APPLE_RW_HOME_ROOTS`; re-restart Ubiq |
 | `swift build` fails with `sandbox-exec: sandbox_apply: Operation not permitted` even with the SDK granted | SwiftPM shells out to `sandbox-exec` itself when it recompiles a manifest, and a sandbox cannot nest | `swift build --disable-sandbox`, or warm the SwiftPM manifest cache with an unconfined build first |
 
 Confirm the run is confined before anything else: `env | grep ISOL8_SANDBOXED` inside the pane

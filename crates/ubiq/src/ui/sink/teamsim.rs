@@ -603,7 +603,7 @@ fn agent_block(
             .gap(px(5.0 * zoom))
             .children((!row.harness.is_empty()).then(|| {
                 Icon::new(harness_icon(&row.harness))
-                    .with_size(px(12.0 * zoom))
+                    .with_size(theme::icon_sm() * zoom)
                     .flex_none()
                     .text_color(theme::text_muted())
             }))

@@ -37,6 +37,11 @@ const CELL: f32 = 12.0;
 /// `prefix` namespaces every cell's element id, so two pickers can be on screen at once.
 /// `hex` is the caller's field — the caller owns it, prints the current colour into it and reads
 /// what was typed back out, exactly as it does for every other kit control that takes one.
+// Eight, and every one of them is a separate fact about the surface being drawn: three for the
+// colour as the picker holds it, one for the colour as the caller sees it, two for the hex field
+// and its focus, one for the id namespace and one for the pick. A struct would name the same
+// eight at the call site and add a type to read past.
+#[allow(clippy::too_many_arguments)]
 pub fn colour_picker(
     prefix: &str,
     hue: f32,

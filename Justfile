@@ -12,15 +12,15 @@ default:
 
 # Run Ubiq
 dev: help-bundle
-    cargo run -p ubiq-app
+    cargo run -p ubiq-app --features assist-apple
 
 # Run Ubiq with debug logging
 verbose: help-bundle
-    RUST_LOG=debug cargo run -p ubiq-app
+    RUST_LOG=debug cargo run -p ubiq-app --features assist-apple
 
 # Build the whole workspace for release
 build: help-bundle
-    cargo build --workspace --release
+    cargo build --workspace --release --features ubiq-app/assist-apple
 
 # Build the macOS application icon from the logo in assets/
 icns:
@@ -29,7 +29,7 @@ icns:
 # Assemble Ubiq.app in target/ — icon, binary, Info.plist
 bundle: help-bundle
     uv run _tools/icns.py
-    cargo build -p ubiq-app --release
+    cargo build -p ubiq-app --release --features assist-apple
     rm -rf target/Ubiq.app
     mkdir -p target/Ubiq.app/Contents/MacOS target/Ubiq.app/Contents/Resources
     cp target/release/ubiq target/Ubiq.app/Contents/MacOS/ubiq
@@ -41,7 +41,7 @@ bundle: help-bundle
 
 # Assemble the Windows release in target/ubiq-windows-x86_64/ — the .exe
 bundle-win: help-bundle
-    cargo build -p ubiq-app --release
+    cargo build -p ubiq-app --release --features assist-apple
     rm -rf target/ubiq-windows-x86_64
     mkdir -p target/ubiq-windows-x86_64
     cp target/release/ubiq.exe target/ubiq-windows-x86_64/ubiq.exe
@@ -96,11 +96,13 @@ ui:
 # nobody on that platform asked for. Resolution alone answers this, so neither toolchain has to
 # be installed to run it.
 apple:
-    @cargo tree -p ubiq-app -e normal,build --target aarch64-apple-darwin --prefix none \
+    @cargo tree -p ubiq-app -e normal,build --features assist-apple \
+        --target aarch64-apple-darwin --prefix none \
         | grep -q '^foundation-models' \
         || { echo "the on-device backend is gone: foundation-models is not in the macOS tree"; exit 1; }
     @for triple in x86_64-unknown-linux-gnu x86_64-pc-windows-msvc; do \
-        ! cargo tree -p ubiq-app -e normal,build --target $triple --prefix none \
+        ! cargo tree -p ubiq-app -e normal,build --features assist-apple \
+            --target $triple --prefix none \
             | grep -q '^foundation-models' \
             || { echo "foundation-models reached the $triple tree: the backend is not macOS-only"; exit 1; }; \
     done
@@ -108,10 +110,17 @@ apple:
 # Type-check everything, tests and examples included
 check:
     cargo check --workspace --all-targets
-    # And with no on-device model backend. `assist-apple` is on by default and needs a Swift
-    # toolchain and the macOS 26 SDK; a build without it answers every suggestion from the stub
-    # backend, and every call site has to read correctly against that.
+    # And with nothing on. The developer loop already runs without `assist-apple`; this is what
+    # covers `quickjs` off too, where the script facade reports itself unavailable.
     cargo check -p ubiq-app --no-default-features --all-targets
+
+# Not in `verify`: `assist-apple` compiles a Swift bridge, so it wants a Swift toolchain and the
+# macOS 26 SDK, and it costs a minute of `swiftc` for a backend no test exercises. The developer
+# loop builds the host's stub in its place; `just dev` is what runs the real thing.
+#
+# Type-check the on-device model backend — needs a Swift toolchain and the macOS 26 SDK
+assist:
+    cargo check -p ubiq-app --features assist-apple --all-targets
 
 # Lint, warnings are errors
 clippy:
