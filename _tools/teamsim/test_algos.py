@@ -10,7 +10,10 @@ not push.
 
 from __future__ import annotations
 
+import hashlib
 import itertools
+import json
+import math
 from pathlib import Path
 
 from algos import (
@@ -20,12 +23,15 @@ from algos import (
     CARD_HEIGHT,
     CARD_WIDTH,
     EPS,
+    GRID_ROWS,
     LAYOUT_MARGIN,
     LAYOUT_WIDTH,
     RING_PAD,
+    SUB_NARROW,
     SUB_WIDTH,
     TASK_GAP,
     Agent,
+    Placed,
     Scenario,
     Session,
     Task,
@@ -33,6 +39,8 @@ from algos import (
     _drawn,
     _finish,
     _union,
+    card_box,
+    card_lead,
     content_rect,
     fence,
     layout_auto,
@@ -41,7 +49,11 @@ from algos import (
     pack_shelf,
     pack_skyline,
     pack_tree,
+    ring_box,
     ring_drop,
+    ring_grid,
+    ring_radial,
+    ring_rows,
     row_width,
     rings_of,
     sub_slot,
@@ -279,9 +291,13 @@ def scenarios():
 
 
 def test_the_reserved_space_is_the_space_that_gets_drawn():
-    """What the packers left room for is what the picture takes: the fence agrees with `ring_drop`."""
+    """What the packers left room for is what the picture takes, under every ring shape.
+
+    The four production arrangements answer it through `ring_drop`; the new ones answer it through
+    the union of their own slots. Either way a container's frame is the size the packer was given.
+    """
     for scen in scenarios():
-        for key in ("flow", "packed", "tree", "columns"):
+        for key in ("flow", "packed", "tree", "columns", "multiline", "radial"):
             out = layout_auto(scen, key)
             for box in out.tasks:
                 if not box.rect:
@@ -290,6 +306,114 @@ def test_the_reserved_space_is_the_space_that_gets_drawn():
                     f"{scen.name}/{key}: {box.task.id} reserved {box.size} and drew "
                     f"{(box.rect[2], box.rect[3])}"
                 )
+
+
+#: Every position the four production arrangements work out, over every scenario, as one hash each.
+#: Taken from the tree before the viewport work went in, and what makes "unchanged" checkable rather
+#: than asserted. A change here is either a port fix — then update the hash and say why — or a
+#: regression in the arrangements this spike promised not to touch.
+PRODUCTION = {
+    "flow": "86392e3e945c4cc7",
+    "packed": "e4dfc10c70234138",
+    "tree": "32e686e261efcf70",
+    "columns": "a9b39300f4814927",
+}
+
+
+def digest(key: str) -> str:
+    blob = []
+    for scen in scenarios():
+        out = layout_auto(scen, key)
+        blob.append(
+            [
+                scen.name,
+                sorted((k, round(v[0], 3), round(v[1], 3)) for k, v in out.origins.items()),
+                [
+                    (
+                        card.agent.id,
+                        round(card.at[0], 3),
+                        round(card.at[1], 3),
+                        [(round(x, 3), round(y, 3)) for _, _, (x, y) in card.subs],
+                    )
+                    for card in out.cards
+                ],
+                [
+                    (
+                        box.task.id,
+                        None if not box.rect else [round(v, 3) for v in box.rect],
+                        [round(v, 3) for v in box.size],
+                    )
+                    for box in out.tasks
+                ],
+                [round(v, 3) for v in out.bbox],
+            ]
+        )
+    return hashlib.sha256(json.dumps(blob, sort_keys=True).encode()).hexdigest()[:16]
+
+
+def test_the_production_arrangements_are_unchanged():
+    """**The four `Layout::auto` arrangements are what nothing here may quietly change.**"""
+    for key, want in PRODUCTION.items():
+        assert digest(key) == want, f"{key} moved something: {digest(key)} is not {want}"
+
+
+def test_a_grid_ring_stays_as_wide_as_its_card_until_it_has_to_widen():
+    assert ring_grid(0) == []
+    for count in range(1, GRID_ROWS * 2 + 1):
+        box = ring_box(ring_grid(count), SUB_NARROW)
+        assert abs(box[2] - CARD_WIDTH) < EPS, f"{count} delegates widened the fence: {box}"
+        rows = math.ceil(count / 2.0)
+        assert len(ring_grid(count)) == count and rows <= GRID_ROWS
+    wide = ring_box(ring_grid(GRID_ROWS * 2 + 1), SUB_NARROW)
+    assert wide[2] > CARD_WIDTH, f"past {GRID_ROWS} rows it takes a third column: {wide}"
+
+
+def test_a_grid_ring_is_shorter_than_the_stack_it_replaces():
+    for count in (2, 4, 6, 8):
+        grid = ring_box(ring_grid(count), SUB_NARROW)[3]
+        rows = CARD_HEIGHT + ring_drop(count)
+        assert grid < rows * 0.75, f"{count} delegates: grid {grid} against the stack's {rows}"
+
+
+def test_a_radial_ring_clears_the_card_and_both_connectors():
+    card = (0.0, 0.0, CARD_WIDTH, CARD_HEIGHT)
+    for count in range(1, 13):
+        slots = ring_radial(count)
+        assert len(slots) == count
+        for at in slots:
+            held = (at[0], at[1], SUB_NARROW[0], SUB_NARROW[1])
+            assert not overlaps(((held[0], held[1]), (held[2], held[3])), ((card[0], card[1]), (card[2], card[3])), 0.0), (
+                f"{count} delegates: one sits on the card at {at}"
+            )
+            middle = CARD_WIDTH / 2.0
+            assert not (at[0] < middle - EPS and at[0] + SUB_NARROW[0] > middle + EPS), (
+                f"{count} delegates: {at} sits on the connector's line up and down from the card"
+            )
+
+
+def test_a_radial_ring_is_shorter_than_it_is_wide():
+    for count in range(2, 9):
+        box = ring_box(ring_radial(count), SUB_NARROW)
+        assert box[2] > box[3], f"{count} delegates came out taller than wide: {box}"
+
+
+def test_the_new_rings_reserve_what_they_draw():
+    """The same promise the containers make, at one card: `card_box` is the fence's own box."""
+    for ring, sub in ((ring_grid, SUB_NARROW), (ring_radial, SUB_NARROW), (ring_rows, None)):
+        for count in range(0, 13):
+            rings = {"a": count}
+            box = card_box("a", rings, ring, sub or (CARD_WIDTH, 96.0))
+            lead = card_lead("a", rings, ring, sub or (CARD_WIDTH, 96.0))
+            slots = ring(count)
+            card = Placed(agent=Agent(id="a", session="s", task=None, parent=None), offset=(0.0, 0.0))
+            card.at = lead
+            card.subs = [("s", "s", (lead[0] + at[0], lead[1] + at[1])) for at in slots]
+            card.ring = fence(card.at, [s[2] for s in card.subs], sub or (CARD_WIDTH, 96.0))
+            drew = content_rect(card)
+            assert abs(drew[0]) < EPS and abs(drew[1]) < EPS, f"{ring.__name__}/{count}: {drew}"
+            assert abs(drew[2] - box[0]) < EPS and abs(drew[3] - box[1]) < EPS, (
+                f"{ring.__name__}/{count}: reserved {box} and drew {(drew[2], drew[3])}"
+            )
 
 
 def test_containers_never_overlap():

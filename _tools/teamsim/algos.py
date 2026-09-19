@@ -49,6 +49,37 @@ SUB_DROP = 16.0
 
 EPS = 0.01
 
+# ── the constants the spike added ─────────────────────────────────────────────
+#
+# A delegate drawn full card width is what makes every arrangement a tower: six of them under one
+# card is ~650pt of height nothing else can use. The narrow box is the same delegate at a size two
+# of them fit across a card, which is the shape the rest of this file is built to reserve room for.
+
+SUB_NARROW_WIDTH = (CARD_WIDTH - SUB_GAP) / 2.0  # 126 — two across a card, exactly
+SUB_NARROW_HEIGHT = 72.0
+
+#: What a delegate box measures under each ring shape.
+SUB_BOX = (SUB_WIDTH, SUB_HEIGHT)
+SUB_NARROW = (SUB_NARROW_WIDTH, SUB_NARROW_HEIGHT)
+
+#: How many rows two columns may reach before a grid ring widens to three.
+GRID_ROWS = 4
+
+#: The clear sector at the top **and** the bottom of a radial ring, in degrees either side of the
+#: vertical, kept free because that is where a card's connectors arrive and leave. The delegates
+#: take the two side flanks, which is also why the fence comes out wide and short.
+RADIAL_CLEAR = 30.0
+#: The breathing room between the card and its first radial ring, and between the two rings.
+RADIAL_GAP = 12.0
+#: The most delegates one radial ring is ever asked to seat, however much room the arithmetic finds.
+RADIAL_SEATS = 10
+
+#: The viewport an arrangement is read in when the scenario does not say otherwise.
+VIEW_ASPECT = 1.6
+#: How much wider than the bare area sum a viewport-aware shelf's first guess runs, for the ragged
+#: end of every row. It is only a candidate — `pack_view_shelf` scores it against the others.
+SHELF_SLACK = 1.15
+
 Point = tuple[float, float]
 Size = tuple[float, float]
 Rect = tuple[float, float, float, float]
@@ -185,6 +216,12 @@ def load(path: Path) -> Scenario:
     )
 
 
+def aspect_of(scenario: Scenario) -> float:
+    """The shape of the screen this arrangement is read on — `w / h`, and 1.6 by default."""
+    w, h = scenario.viewport
+    return (w / h) if h > 0.0 else VIEW_ASPECT
+
+
 def rings_of(agents: Sequence[Agent]) -> Rings:
     """How many delegates each card is drawing. A card with none is not in the map."""
     return {a.id: len(a.subagents) for a in agents if a.subagents}
@@ -206,17 +243,17 @@ def ring_drop(count: int) -> float:
     return SUB_DROP + rows * SUB_HEIGHT + (rows - 1.0) * SUB_GAP + RING_PAD
 
 
-def fence(at: Point, subs: Sequence[Point]) -> Optional[Rect]:
+def fence(at: Point, subs: Sequence[Point], sub: Size = SUB_BOX) -> Optional[Rect]:
     """The fence round a card and its delegates, in the caller's frame. `None` when it has none."""
     if not subs:
         return None
     x0, y0 = at
     x1, y1 = at[0] + CARD_WIDTH, at[1] + CARD_HEIGHT
-    for sub in subs:
-        x0 = min(x0, sub[0])
-        y0 = min(y0, sub[1])
-        x1 = max(x1, sub[0] + SUB_WIDTH)
-        y1 = max(y1, sub[1] + SUB_HEIGHT)
+    for slot in subs:
+        x0 = min(x0, slot[0])
+        y0 = min(y0, slot[1])
+        x1 = max(x1, slot[0] + sub[0])
+        y1 = max(y1, slot[1] + sub[1])
     return (x0 - RING_PAD, y0 - RING_PAD, (x1 - x0) + RING_PAD * 2.0, (y1 - y0) + RING_PAD * 2.0)
 
 
@@ -225,7 +262,172 @@ def ring_rows(count: int) -> list[Point]:
     return [sub_slot(ix) for ix in range(count)]
 
 
+def grid_cols(count: int) -> int:
+    """How many columns a grid ring takes. Two, until two would run past `GRID_ROWS` rows."""
+    if count <= 0:
+        return 1
+    return 2 if math.ceil(count / 2.0) <= GRID_ROWS else 3
+
+
+def ring_grid(count: int) -> list[Point]:
+    """Narrow delegates in a grid under the card, centred on it.
+
+    Two columns of `SUB_NARROW_WIDTH` come to exactly `CARD_WIDTH`, so the usual ring is as wide as
+    its card and a third the height of the one-per-row stack. A ring that would run deeper than
+    `GRID_ROWS` widens to three columns instead of growing down — width is the cheap axis.
+    """
+    if count <= 0:
+        return []
+    cols = grid_cols(count)
+    span = cols * SUB_NARROW_WIDTH + (cols - 1) * SUB_GAP
+    left = (CARD_WIDTH - span) / 2.0
+    top = CARD_HEIGHT + SUB_DROP
+
+    out: list[Point] = []
+    for ix in range(count):
+        row, col = divmod(ix, cols)
+        wide = min(cols, count - row * cols)  # a short last row is centred in the grid
+        inset = (span - (wide * SUB_NARROW_WIDTH + (wide - 1) * SUB_GAP)) / 2.0
+        out.append(
+            (
+                left + inset + col * (SUB_NARROW_WIDTH + SUB_GAP),
+                top + row * (SUB_NARROW_HEIGHT + SUB_GAP),
+            )
+        )
+    return out
+
+
+def _radial_slot(turn: float, depth: int) -> Point:
+    """One delegate on the ray `turn` degrees clockwise from straight up, hugging the card.
+
+    Not an ellipse: the box is pushed out along the ray only as far as it takes to clear the card's
+    **rectangle**, grown by the box and the gap. A ring of these follows the card's own outline, so
+    nothing sits on the card and the ring stays as tight as the card is.
+    """
+    rad = math.radians(turn)
+    dx, dy = math.sin(rad), -math.cos(rad)
+    wide = (CARD_WIDTH + SUB_NARROW_WIDTH) / 2.0 + RADIAL_GAP + depth * (SUB_NARROW_WIDTH + SUB_GAP)
+    tall = (CARD_HEIGHT + SUB_NARROW_HEIGHT) / 2.0 + RADIAL_GAP + depth * (SUB_NARROW_HEIGHT + SUB_GAP)
+    out = min(
+        wide / abs(dx) if abs(dx) > 1e-9 else math.inf,
+        tall / abs(dy) if abs(dy) > 1e-9 else math.inf,
+    )
+    return (
+        CARD_WIDTH / 2.0 + out * dx - SUB_NARROW_WIDTH / 2.0,
+        CARD_HEIGHT / 2.0 + out * dy - SUB_NARROW_HEIGHT / 2.0,
+    )
+
+
+def _radial_flank(seats: int, depth: int, left: bool) -> list[Point]:
+    """One side's delegates, spread evenly down the flank between the two clear sectors."""
+    if seats <= 0:
+        return []
+    lo, hi = RADIAL_CLEAR, 180.0 - RADIAL_CLEAR
+    if left:
+        lo, hi = 180.0 + RADIAL_CLEAR, 360.0 - RADIAL_CLEAR
+    step = (hi - lo) / seats
+    return [_radial_slot(lo + (ix + 0.5) * step, depth) for ix in range(seats)]
+
+
+def _radial_ring(seats: int, depth: int) -> list[Point]:
+    """One whole ring, its delegates shared between the right flank and the left."""
+    right = (seats + 1) // 2
+    return _radial_flank(right, depth, False) + _radial_flank(seats - right, depth, True)
+
+
+def _apart_enough(slots: Sequence[Point]) -> bool:
+    for i in range(len(slots)):
+        for j in range(i + 1, len(slots)):
+            a, b = slots[i], slots[j]
+            gap_x = max(a[0], b[0]) - min(a[0], b[0]) - SUB_NARROW_WIDTH
+            gap_y = max(a[1], b[1]) - min(a[1], b[1]) - SUB_NARROW_HEIGHT
+            if max(gap_x, gap_y) < SUB_GAP - EPS:
+                return False
+    return True
+
+
+def _radial_room(depth: int) -> int:
+    """How many delegates ring `depth` seats while they stay a readable `SUB_GAP` apart."""
+    room = 1
+    for seats in range(2, RADIAL_SEATS + 1):
+        if not _apart_enough(_radial_ring(seats, depth)):
+            break
+        room = seats
+    return room
+
+
+def radial_rings(count: int) -> list[int]:
+    """How the delegates split between the rings: one, until a readable spacing runs out."""
+    if count <= 0:
+        return []
+    inner = _radial_room(0)
+    if count <= inner:
+        return [count]
+    # Past one ring, share them out evenly rather than filling the inner one — an even constellation
+    # reads as one card's delegates, a full inner ring with two strays hanging off it does not.
+    share = min(inner, (count + 1) // 2)
+    return [share, count - share]
+
+
+def ring_radial(count: int) -> list[Point]:
+    """Narrow delegates round the card rather than under it, on its two side flanks.
+
+    The sectors straight up and straight down are left clear, because that is where the card's
+    connectors arrive and leave — a delegate never sits on one. What is left is the two flanks, so
+    the fence comes out wide and short, which is the trade a rectangular viewport wants: width is
+    cheap, height is not. Past one ring's worth, a second opens outside the first.
+    """
+    out: list[Point] = []
+    for depth, seats in enumerate(radial_rings(count)):
+        out += _radial_ring(seats, depth)
+    return out
+
+
 # ── what a card and a row take up ─────────────────────────────────────────────
+
+
+def ring_pad(held: Rect, card: Rect) -> Rect:
+    """`RING_PAD` added on each side the delegates actually push past the card, and nowhere else.
+
+    A one-per-row ring only ever passes the card downwards, so this is the bottom-only pad the Rust
+    reserves today, arithmetic for arithmetic. A ring that reaches sideways gets its pad there too,
+    which is what keeps one card's fence from touching its neighbour's.
+    """
+    left = RING_PAD if held[0] < card[0] - EPS else 0.0
+    top = RING_PAD if held[1] < card[1] - EPS else 0.0
+    right = RING_PAD if held[0] + held[2] > card[0] + card[2] + EPS else 0.0
+    bottom = RING_PAD if held[1] + held[3] > card[1] + card[3] + EPS else 0.0
+    return (held[0] - left, held[1] - top, held[2] + left + right, held[3] + top + bottom)
+
+
+def ring_box(slots: Sequence[Point], sub: Size = SUB_BOX) -> Rect:
+    """The room a card and its delegates take, in the card's own frame.
+
+    The union of the card and the delegate boxes, padded by `ring_pad` — the same reading as
+    `content_rect`, so what a packer reserves is exactly what the picture draws, whatever shape the
+    ring is in.
+    """
+    card = (0.0, 0.0, CARD_WIDTH, CARD_HEIGHT)
+    if not slots:
+        return card
+    held = _union([card] + [(s[0], s[1], sub[0], sub[1]) for s in slots])
+    return _union([card, ring_pad(held, card)])
+
+
+def card_box(agent: str, rings: Rings, ring: Callable[[int], list[Point]], sub: Size = SUB_BOX) -> Size:
+    """What one card reserves, in **both** axes — the fix a ring wider than its card needs.
+
+    Derived from the ring function's own slots, so a new ring shape is reserved for by every packer
+    and every `inside` the moment it exists, with nothing else to change.
+    """
+    held = ring_box(ring(rings.get(agent, 0)), sub)
+    return (held[2], held[3])
+
+
+def card_lead(agent: str, rings: Rings, ring: Callable[[int], list[Point]], sub: Size = SUB_BOX) -> Point:
+    """Where the card itself sits inside that box. `(0, 0)` unless the ring reaches past it."""
+    held = ring_box(ring(rings.get(agent, 0)), sub)
+    return (-held[0], -held[1])
 
 
 def card_extent(agent: str, rings: Rings) -> float:
@@ -240,9 +442,35 @@ def row_width(cards: int) -> float:
     return cards * CARD_WIDTH + max(cards - 1, 0) * CARD_GAP_X
 
 
+def row_span(row: Sequence[str], boxes: dict[str, Size]) -> float:
+    """How wide a row of cards is once each one is as wide as its own ring."""
+    if not row:
+        return 0.0
+    return sum(boxes[a][0] for a in row) + CARD_GAP_X * (len(row) - 1)
+
+
 def break_at(cards: int) -> int:
     """How many cards a wrapped row takes before it folds: the side of the smallest square."""
     return int(max(math.ceil(math.sqrt(cards)), 1))
+
+
+def break_to(cards: int, box: Size, target: float) -> int:
+    """How many cards a row takes before it folds, so the block it makes reads at `target`.
+
+    The wrap `packed` uses aims at a square, because nothing told it the screen is a rectangle.
+    This one is told.
+    """
+    if cards <= 1:
+        return 1
+    best, mark = 1, math.inf
+    for per in range(1, cards + 1):
+        lines = math.ceil(cards / per)
+        wide = per * box[0] + (per - 1) * CARD_GAP_X
+        tall = lines * box[1] + (lines - 1) * CARD_GAP_Y
+        off = abs(math.log((wide / tall) / target)) if tall > 0.0 else math.inf
+        if off < mark - 1e-9:
+            best, mark = per, off
+    return best
 
 
 # ── one container's contents ──────────────────────────────────────────────────
@@ -286,83 +514,122 @@ def depth_of(agent: str, parents: dict[str, str]) -> int:
     return depth
 
 
-def stack(members: Sequence[Agent], rings: Rings) -> Contents:
-    """Roots on the top row, their children on the next. One row per hand-off depth."""
-    rows = rows_by_depth(members)
-    if not rows:
-        return Contents()
+def _boxes(members: Sequence[Agent], rings: Rings, ring, sub: Size) -> dict[str, Size]:
+    return {m.id: card_box(m.id, rings, ring, sub) for m in members}
 
-    width = max((row_width(len(row)) for row in rows), default=0.0)
 
+def _leads(members: Sequence[Agent], rings: Rings, ring, sub: Size) -> dict[str, Point]:
+    return {m.id: card_lead(m.id, rings, ring, sub) for m in members}
+
+
+def _lay(
+    chunks: Sequence[Sequence[str]],
+    boxes: dict[str, Size],
+    leads: dict[str, Point],
+    width: float,
+) -> Contents:
+    """Rows of cards, each centred in `width`, each as tall and as wide as its own ring needs."""
     cards: list[tuple[str, Point]] = []
     y = 0.0
     height = 0.0
-    for row in rows:
-        start = (width - row_width(len(row))) / 2.0
-        for ix, agent in enumerate(row):
-            cards.append((agent, (start + ix * (CARD_WIDTH + CARD_GAP_X), y)))
-        tall = row_extent(row, rings)
+    for chunk in chunks:
+        x = (width - row_span(chunk, boxes)) / 2.0
+        for agent in chunk:
+            cards.append((agent, (x + leads[agent][0], y + leads[agent][1])))
+            x += boxes[agent][0] + CARD_GAP_X
+        tall = max((boxes[a][1] for a in chunk), default=0.0)
         height = y + tall
         y += tall + CARD_GAP_Y
     return Contents(cards, width, height)
 
 
-def stack_wrapped(members: Sequence[Agent], rings: Rings) -> Contents:
+def stack(members: Sequence[Agent], rings: Rings, ring=ring_rows, sub: Size = SUB_BOX) -> Contents:
+    """Roots on the top row, their children on the next. One row per hand-off depth."""
+    rows = rows_by_depth(members)
+    if not rows:
+        return Contents()
+    boxes = _boxes(members, rings, ring, sub)
+    width = max((row_span(row, boxes) for row in rows), default=0.0)
+    return _lay(rows, boxes, _leads(members, rings, ring, sub), width)
+
+
+def _chunks(rows: Sequence[Sequence[str]], per_line: Sequence[int]) -> list[list[str]]:
+    out: list[list[str]] = []
+    for row, per in zip(rows, per_line):
+        out += [list(row[at : at + per]) for at in range(0, len(row), per)]
+    return out
+
+
+def stack_wrapped(
+    members: Sequence[Agent], rings: Rings, ring=ring_rows, sub: Size = SUB_BOX
+) -> Contents:
     """The same depth rows, each folded into a near-square block instead of one long line."""
     rows = rows_by_depth(members)
     if not rows:
         return Contents()
-
-    per_line = [break_at(len(row)) for row in rows]
-    width = max((row_width(n) for n in per_line), default=0.0)
-
-    cards: list[tuple[str, Point]] = []
-    y = 0.0
-    height = 0.0
-    for row, per in zip(rows, per_line):
-        for start_ix in range(0, len(row), per):
-            chunk = row[start_ix : start_ix + per]
-            start = (width - row_width(len(chunk))) / 2.0
-            for ix, agent in enumerate(chunk):
-                cards.append((agent, (start + ix * (CARD_WIDTH + CARD_GAP_X), y)))
-            tall = row_extent(chunk, rings)
-            height = y + tall
-            y += tall + CARD_GAP_Y
-    return Contents(cards, width, height)
+    boxes = _boxes(members, rings, ring, sub)
+    chunks = _chunks(rows, [break_at(len(row)) for row in rows])
+    width = max((row_span(c, boxes) for c in chunks), default=0.0)
+    return _lay(chunks, boxes, _leads(members, rings, ring, sub), width)
 
 
-def column(members: Sequence[Agent], rings: Rings) -> Contents:
+def stack_aspect(
+    members: Sequence[Agent],
+    rings: Rings,
+    ring=ring_rows,
+    sub: Size = SUB_BOX,
+    target: float = VIEW_ASPECT,
+) -> Contents:
+    """The same depth rows, folded to the shape of the screen rather than to a square."""
+    rows = rows_by_depth(members)
+    if not rows:
+        return Contents()
+    boxes = _boxes(members, rings, ring, sub)
+    per_line = [
+        break_to(len(row), max((boxes[a] for a in row), key=lambda b: b[0] * b[1]), target)
+        for row in rows
+    ]
+    chunks = _chunks(rows, per_line)
+    width = max((row_span(c, boxes) for c in chunks), default=0.0)
+    return _lay(chunks, boxes, _leads(members, rings, ring, sub), width)
+
+
+def column(members: Sequence[Agent], rings: Rings, ring=ring_rows, sub: Size = SUB_BOX) -> Contents:
     """One card per row, in spawn order."""
     rows = rows_by_depth(members)
     if not rows:
         return Contents()
-
-    cards: list[tuple[str, Point]] = []
-    y = 0.0
-    height = 0.0
-    for row in rows:
-        for agent in row:
-            cards.append((agent, (0.0, y)))
-            tall = card_extent(agent, rings)
-            height = y + tall
-            y += tall + CARD_GAP_Y
-    return Contents(cards, CARD_WIDTH, height)
+    boxes = _boxes(members, rings, ring, sub)
+    width = max((b[0] for b in boxes.values()), default=CARD_WIDTH)
+    return _lay([[a] for row in rows for a in row], boxes, _leads(members, rings, ring, sub), width)
 
 
 def _members(task: str, agents: Sequence[Agent]) -> list[Agent]:
     return [a for a in agents if a.task == task]
 
 
-def inside_stack(task: str, agents: Sequence[Agent], rings: Rings) -> Contents:
-    return stack(_members(task, agents), rings)
+def inside_stack(
+    task: str, agents, rings: Rings, ring=ring_rows, sub: Size = SUB_BOX, target: float = 1.0
+) -> Contents:
+    return stack(_members(task, agents), rings, ring, sub)
 
 
-def inside_wrapped(task: str, agents: Sequence[Agent], rings: Rings) -> Contents:
-    return stack_wrapped(_members(task, agents), rings)
+def inside_wrapped(
+    task: str, agents, rings: Rings, ring=ring_rows, sub: Size = SUB_BOX, target: float = 1.0
+) -> Contents:
+    return stack_wrapped(_members(task, agents), rings, ring, sub)
 
 
-def inside_column(task: str, agents: Sequence[Agent], rings: Rings) -> Contents:
-    return column(_members(task, agents), rings)
+def inside_column(
+    task: str, agents, rings: Rings, ring=ring_rows, sub: Size = SUB_BOX, target: float = 1.0
+) -> Contents:
+    return column(_members(task, agents), rings, ring, sub)
+
+
+def inside_aspect(
+    task: str, agents, rings: Rings, ring=ring_rows, sub: Size = SUB_BOX, target: float = VIEW_ASPECT
+) -> Contents:
+    return stack_aspect(_members(task, agents), rings, ring, sub, target)
 
 
 # ── the packers ───────────────────────────────────────────────────────────────
@@ -427,8 +694,16 @@ def raise_fence(sky: list[Point], x: float, w: float, top: float) -> None:
     sky[:] = out
 
 
-def pack_skyline(sizes: Sequence[Size], width: float, gap: float) -> Packing:
-    """Best-fit skyline packing into a container `width`. Positions come back in `sizes` order."""
+def pack_skyline(sizes: Sequence[Size], width: float, gap: float, commit: bool = False) -> Packing:
+    """Best-fit skyline packing into a container `width`. Positions come back in `sizes` order.
+
+    The rule that picks between free slots is the greedy "smallest bounding box so far", which is
+    the Rust's. It has one failure the spike found: a set of boxes of much the same width stacks
+    into a single column whatever `width` it is given, because starting a second column always grows
+    the box more than another row does. `commit` says the container width is a decision already
+    taken, so a slot is judged on the **height** it costs — which is what makes sweeping widths in
+    `pack_best` mean anything. The four production arrangements do not pass it.
+    """
     order = sorted(range(len(sizes)), key=lambda ix: (-longest(sizes[ix]), ix))
 
     room = width + gap
@@ -444,7 +719,8 @@ def pack_skyline(sizes: Sequence[Size], width: float, gap: float) -> Packing:
             if x + w > room + EPS:
                 continue
             y = ledge(sky, x, w)
-            grown = max(extent[0], x + w - gap) * max(extent[1], y + h - gap)
+            wide = width if commit else max(extent[0], x + w - gap)
+            grown = wide * max(extent[1], y + h - gap)
             if best is None or (
                 grown < best[0] - EPS
                 or (
@@ -464,32 +740,56 @@ def pack_skyline(sizes: Sequence[Size], width: float, gap: float) -> Packing:
     return at, (extent[0], extent[1])
 
 
-def score(extent: Size, content: float) -> float:
-    """How bad a packing is — smaller is better."""
-    OFF_SQUARE = 0.35
+def score(extent: Size, content: float, target: float = 1.0) -> float:
+    """How bad a packing is — smaller is better.
+
+    `target` is the aspect the packing is wanted at: `1.0` is the square the Rust asks for today,
+    and a viewport's `w / h` is what a screen actually is. The penalty is the distance from that
+    shape either way, so a ribbon and a tower are both punished, and a rectangle is not.
+    """
+    OFF_TARGET = 0.35
     WASTED = 0.5
 
     area = extent[0] * extent[1]
     if area <= 0.0:
         return 0.0
-    aspect = max(extent[0] / extent[1], extent[1] / extent[0])
+    ratio = (extent[0] / extent[1]) / target
+    off = max(ratio, 1.0 / ratio)
     waste = min(max((area - content) / area, 0.0), 1.0)
-    return area * (1.0 + OFF_SQUARE * (aspect - 1.0) + WASTED * waste)
+    return area * (1.0 + OFF_TARGET * (off - 1.0) + WASTED * waste)
 
 
-def pack_best(sizes: Sequence[Size], gap: float) -> Packing:
-    """Pack against a handful of container widths and keep the best-scoring result."""
+def pack_best(
+    sizes: Sequence[Size], gap: float, target: float = 1.0, commit: bool = False
+) -> Packing:
+    """Pack against a handful of container widths and keep the best-scoring result.
+
+    The widths tried hang off the side of the `target`-shaped rectangle of the same area, so asking
+    for a 1.6:1 screen tries wider containers than asking for a square — and `target = 1.0` is the
+    square, arithmetic for arithmetic.
+    """
     content = sum(w * h for w, h in sizes)
     widest = max((s[0] for s in sizes), default=0.0)
-    side = math.sqrt(content)
+    side = math.sqrt(content * target)
 
     best: Optional[tuple[Packing, float]] = None
     for ratio in (0.7, 1.0, 1.4, 1.9):
-        packed = pack_skyline(sizes, max(side * ratio, widest), gap)
-        marked = score(packed[1], content)
+        packed = pack_skyline(sizes, max(side * ratio, widest), gap, commit)
+        marked = score(packed[1], content, target)
         if best is None or marked < best[1]:
             best = (packed, marked)
     return best[0] if best else ([], (0.0, 0.0))
+
+
+def shelf_width(sizes: Sequence[Size], target: float) -> float:
+    """How wide a shelf has to be for what it holds to come out at `target`.
+
+    The side of the `target`-shaped rectangle of the same area, loosened by `SHELF_SLACK` because a
+    shelf wastes the ragged end of every row, and never narrower than the widest box on it.
+    """
+    content = sum(w * h for w, h in sizes)
+    widest = max((s[0] for s in sizes), default=0.0)
+    return max(math.sqrt(content * target) * SHELF_SLACK, widest)
 
 
 def brood(children: Sequence[int], span: Sequence[float], gap: float) -> float:
@@ -618,17 +918,61 @@ def task_forest(tasks: Sequence[Task], agents: Sequence[Agent]) -> list[Optional
     return parents
 
 
-def pack_flow(sizes: Sequence[Size], parents: Sequence[Optional[int]]) -> Packing:
+def pack_flow(
+    sizes: Sequence[Size], parents: Sequence[Optional[int]], target: float = 1.0
+) -> Packing:
     return pack_shelf(sizes, LAYOUT_WIDTH - LAYOUT_MARGIN, TASK_GAP)
 
 
-def pack_packed(sizes: Sequence[Size], parents: Sequence[Optional[int]]) -> Packing:
+def pack_packed(
+    sizes: Sequence[Size], parents: Sequence[Optional[int]], target: float = 1.0
+) -> Packing:
     return without_empties(sizes, lambda kept: pack_best(kept, TASK_GAP))
 
 
-def pack_forest(sizes: Sequence[Size], parents: Sequence[Optional[int]]) -> Packing:
+def pack_forest(
+    sizes: Sequence[Size], parents: Sequence[Optional[int]], target: float = 1.0
+) -> Packing:
     kept_parents = remap(sizes, parents)
     return without_empties(sizes, lambda kept: pack_tree(kept, kept_parents, TASK_GAP))
+
+
+def pack_view_shelf(
+    sizes: Sequence[Size], parents: Sequence[Optional[int]], target: float = VIEW_ASPECT
+) -> Packing:
+    """A shelf as wide as the screen wants, which keeps record order and still fills a rectangle.
+
+    The widths worth trying are the ones that actually change where the rows break — the running
+    total of the boxes in record order — plus `shelf_width`'s area-derived guess. `score` against
+    the target picks between them, which is the same judgement `pack_best` makes and saves inventing
+    a slack constant that would be right for one scenario and wrong for the next.
+    """
+    kept = [s for s in sizes if s[0] > 0.0 or s[1] > 0.0]
+    if not kept:
+        return pack_shelf(sizes, LAYOUT_WIDTH - LAYOUT_MARGIN, TASK_GAP)
+    content = sum(w * h for w, h in kept)
+    widest = max(s[0] for s in kept)
+
+    widths = {widest, shelf_width(kept, target)}
+    run = -TASK_GAP
+    for w, _ in kept:
+        run += w + TASK_GAP
+        widths.add(max(run, widest))
+
+    best: Optional[tuple[Packing, float]] = None
+    for width in sorted(widths):
+        packed = pack_shelf(sizes, width, TASK_GAP)
+        marked = score(packed[1], content, target)
+        if best is None or marked < best[1]:
+            best = (packed, marked)
+    return best[0] if best else pack_shelf(sizes, widest, TASK_GAP)
+
+
+def pack_view_best(
+    sizes: Sequence[Size], parents: Sequence[Optional[int]], target: float = VIEW_ASPECT
+) -> Packing:
+    """The tightest fit, aimed at the screen's rectangle instead of at a square."""
+    return without_empties(sizes, lambda kept: pack_best(kept, TASK_GAP, target, commit=True))
 
 
 # ── the whole arrangement ─────────────────────────────────────────────────────
@@ -703,17 +1047,18 @@ def _union(boxes: Iterable[Rect]) -> Rect:
 
 
 def content_rect(card: Placed) -> Rect:
-    """What one card reserves — and the ring's padding is reserved at the bottom only.
+    """What one card takes up on the canvas, the same reading `ring_box` reserves by.
 
-    `CARD_HEIGHT + ring_drop(n)` is the fence's bottom edge, pad included, but nothing reserves the
-    pad the fence wears on its left, right and top: those are simply absorbed by the container's
-    `GROUP_PAD`, which is wider. Reading it the same way here is what makes this rect exactly the
-    box the Rust packers leave room for, whatever shape the ring is in.
+    `card.ring` is the fence: the union of the card and its delegates with `RING_PAD` all round.
+    Inset it back to that bare union and re-pad it with `ring_pad`, and the answer is
+    `CARD_HEIGHT + ring_drop(n)` for the one-per-row ring the Rust has today — and the right box
+    for a ring that reaches sideways, which is the whole point of the change.
     """
     rect = (card.at[0], card.at[1], CARD_WIDTH, CARD_HEIGHT)
     if card.ring:
         x, y, w, h = card.ring
-        rect = _union([rect, (x + RING_PAD, y + RING_PAD, w - RING_PAD * 2.0, h - RING_PAD)])
+        held = (x + RING_PAD, y + RING_PAD, w - RING_PAD * 2.0, h - RING_PAD * 2.0)
+        rect = _union([rect, ring_pad(held, rect)])
     return rect
 
 
@@ -727,10 +1072,12 @@ class Algo:
     key: str
     label: str
     hint: str
-    inside: Callable[[str, Sequence[Agent], Rings], Contents]
+    inside: Callable[..., Contents]
     ring: Callable[[int], list[Point]]
-    pack: Callable[[Sequence[Size], Sequence[Optional[int]]], Packing]
+    pack: Callable[..., Packing]
     grow: Optional[Callable[["Arrangement"], int]] = None
+    #: What one delegate box measures under this arrangement's ring shape.
+    sub: Size = SUB_BOX
 
 
 def algo_of(name: "str | Algo") -> Algo:
@@ -821,14 +1168,15 @@ def _arrange(
     by_id = {a.id: a for a in agents}
 
     loose = [a for a in agents if a.session == session and a.task is None]
-    block = stack(loose, rings)
+    block = stack(loose, rings, algo.ring, algo.sub)
     if block.cards:
         for agent, offset in block.cards:
             _card(out, by_id[agent], (LAYOUT_MARGIN + offset[0], y + offset[1]), algo)
         y += block.height + TASK_GAP
 
     boxes = [t for t in tasks if t.session == session]
-    contents = [algo.inside(t.id, agents, rings) for t in boxes]
+    target = aspect_of(out.scenario)
+    contents = [algo.inside(t.id, agents, rings, algo.ring, algo.sub, target) for t in boxes]
     sizes: list[Size] = [
         (0.0, 0.0)
         if not c.cards
@@ -837,7 +1185,7 @@ def _arrange(
     ]
 
     parents = task_forest(boxes, agents) if algo.key == "tree" else [None] * len(boxes)
-    at, extent = algo.pack(sizes, parents)
+    at, extent = algo.pack(sizes, parents, target)
 
     for ix, task in enumerate(boxes):
         origin = (
@@ -867,7 +1215,7 @@ def _finish(out: Arrangement) -> None:
             (sid, name, (card.at[0] + slot[0], card.at[1] + slot[1]))
             for (sid, name), slot in zip(card.agent.subagents, card.slots)
         ]
-        card.ring = fence(card.at, [s[2] for s in card.subs])
+        card.ring = fence(card.at, [s[2] for s in card.subs], out.algo.sub)
 
     inside: dict[str, list[Rect]] = {}
     for card in out.cards:
@@ -953,14 +1301,21 @@ def _reading_order(out: Arrangement) -> list[str]:
 # screen, and pushes only what it overlaps — by the smallest delta that clears it. A session is
 # never re-packed, and the ripple is capped: no block moves twice for one arrival.
 
-#: How many cards a row band takes before it wraps onto a second line inside the same band.
-WRAP = max(
-    1,
-    int(
-        (LAYOUT_WIDTH - LAYOUT_MARGIN * 2.0 - GROUP_PAD * 2.0 + CARD_GAP_X)
-        // (CARD_WIDTH + CARD_GAP_X)
-    ),
-)
+def room_of(scenario: Scenario) -> float:
+    """How wide the canvas is worth filling: the screen, and never narrower than `LAYOUT_WIDTH`."""
+    return max(scenario.viewport[0], LAYOUT_WIDTH)
+
+
+def wrap_at(room: float) -> int:
+    """How many cards a row band takes before it wraps onto a second line inside the same band."""
+    return max(
+        1,
+        int((room - LAYOUT_MARGIN * 2.0 - GROUP_PAD * 2.0 + CARD_GAP_X) // (CARD_WIDTH + CARD_GAP_X)),
+    )
+
+
+#: The wrap on the canvas `LAYOUT_WIDTH` describes — what the arithmetic answers with no screen.
+WRAP = wrap_at(LAYOUT_WIDTH)
 
 
 def _drawn(out: Arrangement, session: str) -> list[TaskBox]:
@@ -1153,7 +1508,9 @@ def _arrive_sub(out: Arrangement, agent: Agent, sub: tuple[str, str]) -> None:
     if card is None:
         return
     count = len(card.slots) + 1
-    card.slots.append(out.algo.ring(count)[count - 1])
+    # The ring re-flows over the card it belongs to — a grid gains a row, a radial ring re-spaces.
+    # Nothing outside this card moves for it; that is still `_push_cards`' business below.
+    card.slots = out.algo.ring(count)
     _finish(out)
     if agent.task:
         _push_cards(out, agent.task, content_rect(card), {agent.id})
@@ -1195,7 +1552,7 @@ def _depth_now(out: Arrangement, agent: Agent) -> int:
 def _slot_in(out: Arrangement, task: str, depth: int) -> Point:
     """The first free x in a container's depth band, wrapping to a new line in the same band."""
     line = out.lines.get((task, depth))
-    if line and line[2] < WRAP:
+    if line and line[2] < wrap_at(room_of(out.scenario)):
         offset = (line[1], line[0])
         line[1] += CARD_WIDTH + CARD_GAP_X
         line[2] += 1
@@ -1241,7 +1598,7 @@ def _first_fit(out: Arrangement, box: TaskBox, agent: Agent) -> Point:
         if y < top - EPS:
             continue
         for x in xs:
-            if x + size[0] > LAYOUT_WIDTH - LAYOUT_MARGIN + EPS:
+            if x + size[0] > room_of(out.scenario) - LAYOUT_MARGIN + EPS:
                 continue
             rect = (x, y, size[0], size[1])
             if any(_close(rect, o, TASK_GAP - EPS, TASK_GAP - EPS) for o in others):
@@ -1291,8 +1648,27 @@ ALGOS: dict[str, Algo] = {
         "Adaptive",
         "places each arriving block into the arrangement already on screen",
         inside_stack,
-        ring_rows,
+        ring_grid,
         pack_flow,
         grow=grow,
+        sub=SUB_NARROW,
+    ),
+    "multiline": Algo(
+        "multiline",
+        "Multiline",
+        "delegates in a grid under their card, everything folded to the screen's shape",
+        inside_aspect,
+        ring_grid,
+        pack_view_shelf,
+        sub=SUB_NARROW,
+    ),
+    "radial": Algo(
+        "radial",
+        "Radial",
+        "delegates round their card, packed against the screen's rectangle",
+        inside_aspect,
+        ring_radial,
+        pack_view_best,
+        sub=SUB_NARROW,
     ),
 }

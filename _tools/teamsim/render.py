@@ -17,8 +17,6 @@ from algos import (
     CARD_WIDTH,
     GROUP_LABEL,
     RING_PAD,
-    SUB_HEIGHT,
-    SUB_WIDTH,
     Arrangement,
     Rect,
 )
@@ -155,7 +153,7 @@ def render(arr: Arrangement, stats: dict, max_w: int = 1600, max_h: int = 1180) 
         if card.ring:
             _dash_rect(draw, (px(card.ring[0]), py(card.ring[1]), card.ring[2] * scale, card.ring[3] * scale), RING_LINE)
         for _, name, at in card.subs:
-            rect = (at[0], at[1], SUB_WIDTH, SUB_HEIGHT)
+            rect = (at[0], at[1], *arr.algo.sub)
             draw.rounded_rectangle(
                 box(rect), radius=max(1, int(5 * scale)), fill=SUB_FILL, outline=SUB_LINE, width=1
             )
