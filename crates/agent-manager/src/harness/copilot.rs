@@ -130,6 +130,7 @@ impl Harness for Copilot {
     fn discover_models(&self) -> Result<Vec<super::ModelInfo>> {
         let mut cmd = std::process::Command::new("copilot");
         cmd.args(["help", "config"]);
+        cmd.current_dir(super::shared::probe_cwd());
         // Headless help-text scrape: nothing reads a window, and the app has already freed its own
         // console (`ubiq_app::detach_console`), so a console-subsystem child would otherwise flash one.
         #[cfg(windows)]

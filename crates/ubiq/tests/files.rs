@@ -618,6 +618,136 @@ fn an_untitled_buffer_asks_where_to_be_saved(cx: &mut TestAppContext) {
     );
 }
 
+/// Every `WriteProjectFile` the window has said, in order.
+fn writes(said: &[Message]) -> Vec<Message> {
+    said.iter()
+        .filter(|message| matches!(message, Message::WriteProjectFile { .. }))
+        .cloned()
+        .collect()
+}
+
+/// Save an untitled buffer onto `docs/notes.md` and have the host refuse it as taken.
+fn save_onto_a_taken_path(fixture: &Fixture, cx: &mut TestAppContext) {
+    fixture.with(cx, |state, window, cx| {
+        state.new_untitled_file(&ubiq::app::NewFile, window, cx)
+    });
+    fixture.with(cx, |state, window, cx| {
+        state.save_active_file(&ubiq::app::SaveFile, window, cx)
+    });
+    fixture.confirm("docs/notes.md", cx);
+    let _ = fixture.said();
+    fixture.deliver(
+        Message::ProjectFileError {
+            project_id: fixture.project,
+            rel_path: "docs/notes.md".to_string(),
+            error: ubiq_proto::files::FileError::Conflict,
+        },
+        cx,
+    );
+}
+
+/// A save onto a path that is taken asks, rather than failing where nobody can see it.
+///
+/// The write names no version, so the host refuses it as a creation that landed on something.
+/// That refusal used to reach the user as the colour of a dot the next keystroke cleared.
+#[gpui::test]
+fn a_save_onto_a_path_that_is_taken_asks_before_it_overwrites(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let _ = fixture.said();
+    save_onto_a_taken_path(&fixture, cx);
+
+    assert_eq!(
+        fixture.dialog(cx),
+        Some(FileDialog::OverwriteFile {
+            key: "docs/notes.md".to_string()
+        }),
+        "a create that landed on something is the one refusal with a question in it"
+    );
+    assert_eq!(
+        open_paths(&fixture, cx),
+        vec!["docs/notes.md".to_string()],
+        "and nothing was dropped on the way"
+    );
+
+    // Answered yes: the same bytes again, this time allowed to land on what is there.
+    fixture.with(cx, |state, window, cx| {
+        state.confirm_file_dialog(window, cx)
+    });
+    let written = writes(&fixture.said());
+    assert!(
+        matches!(
+            written.as_slice(),
+            [Message::WriteProjectFile {
+                rel_path,
+                expected: None,
+                overwrite: true,
+                ..
+            }] if rel_path == "docs/notes.md"
+        ),
+        "only a confirmed overwrite ever carries the flag: {written:?}"
+    );
+    assert_eq!(fixture.dialog(cx), None, "and the question is answered");
+}
+
+/// A refused save leaves the tab savable, and a second refusal is said out loud.
+///
+/// The tab was retargeted on the click, so after a refusal it is no longer untitled and still has
+/// no version — which is what used to make it unsavable for the rest of the session: every later
+/// ⌘S sent nothing and said nothing, which is the bug as the user met it.
+#[gpui::test]
+fn a_refused_save_can_be_taken_again_and_never_loses_the_edits(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let _ = fixture.said();
+    save_onto_a_taken_path(&fixture, cx);
+
+    // Not overwriting: the question is dismissed, and the keystroke taken again.
+    fixture.with(cx, |state, _, cx| state.close_file_dialog(cx));
+    let _ = fixture.said();
+    fixture.with(cx, |state, window, cx| {
+        state.save_active_file(&ubiq::app::SaveFile, window, cx)
+    });
+    let written = writes(&fixture.said());
+    assert!(
+        matches!(
+            written.as_slice(),
+            [Message::WriteProjectFile {
+                rel_path,
+                expected: None,
+                overwrite: false,
+                ..
+            }] if rel_path == "docs/notes.md"
+        ),
+        "a buffer that was never read from disk is written as a creation: {written:?}"
+    );
+
+    // A refusal with nothing to ask about is reported instead, and the buffer keeps everything.
+    fixture.deliver(
+        Message::ProjectFileError {
+            project_id: fixture.project,
+            rel_path: "docs/notes.md".to_string(),
+            error: ubiq_proto::files::FileError::Denied("read-only".to_string()),
+        },
+        cx,
+    );
+    assert!(
+        matches!(
+            fixture.dialog(cx),
+            Some(FileDialog::SaveFailed { ref key, .. }) if key == "docs/notes.md"
+        ),
+        "a save that did not happen says so"
+    );
+    let state = fixture.with(cx, |state, _, cx| {
+        state
+            .file("docs/notes.md", cx)
+            .map(|file| matches!(file.save, ubiq::state::SaveState::Failed(_)))
+    });
+    assert_eq!(
+        state,
+        Some(true),
+        "the tab is still open and still holds an unwritten buffer"
+    );
+}
+
 /// A dirty tab asks before it is dropped, and the answer is the dialog's — the same one Enter and
 /// Escape already reach. The window's own close counts what would go with it, per project.
 #[gpui::test]

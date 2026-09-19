@@ -314,27 +314,37 @@ pub fn centre(app: &AppState, _window: &mut Window, cx: &mut Context<AppState>) 
         return nothing_selected();
     };
 
-    let body = match &doc.body {
-        KbBody::Loading => faint("Opening\u{2026}"),
-        KbBody::Failed(error) => sentence(error.clone(), theme::danger()),
-        KbBody::Ready(contents) => {
-            if contents.is_binary {
-                faint(format!("{} is not text.", doc.key.name()))
-            } else {
-                let source = String::from_utf8_lossy(&contents.bytes).into_owned();
-                // The knowledge base's own key space, so a document and an editor tab on a file of
-                // the same name are two entries in the renderer's scan cache rather than one.
-                let key = format!("kb:{}:{}", doc.key.source, doc.key.path);
-                let font_size = app.content_font_size(cx);
-                match ViewerKind::of(&doc.key.path) {
-                    ViewerKind::Markdown => {
-                        markdown::render(app, &key, &source, font_size, false, cx)
+    let body = if let Some(edit) = &doc.edit {
+        // A writable source got a buffer in `attach_kb_docs`, once a `Window` was in reach — see
+        // `KbDoc::edit`. Its presence is exactly `KbSource::is_writable` read one frame earlier,
+        // so drawing it here rather than the read-only renderer is the one place editability is
+        // decided; a read-only source never has one to draw.
+        crate::ui::viewer::buffer(&edit.buffer, app.content_font_size(cx))
+    } else {
+        match &doc.body {
+            KbBody::Loading => faint("Opening\u{2026}"),
+            KbBody::Failed(error) => sentence(error.clone(), theme::danger()),
+            KbBody::Ready(contents) => {
+                if contents.is_binary {
+                    faint(format!("{} is not text.", doc.key.name()))
+                } else {
+                    let source = String::from_utf8_lossy(&contents.bytes).into_owned();
+                    // The knowledge base's own key space, so a document and an editor tab on a
+                    // file of the same name are two entries in the renderer's scan cache rather
+                    // than one.
+                    let key = format!("kb:{}:{}", doc.key.source, doc.key.path);
+                    let font_size = app.content_font_size(cx);
+                    match ViewerKind::of(&doc.key.path) {
+                        ViewerKind::Markdown => {
+                            markdown::render(app, &key, &source, font_size, false, cx)
+                        }
+                        ViewerKind::Editor => plain(source, font_size),
+                        // Diagrams and images are the IDE's viewers, and reaching them from here
+                        // means wiring a web tenant to a document that is not an open file. Until
+                        // that is done the panel says where the file is drawn rather than drawing
+                        // it wrongly.
+                        _ => faint(format!("{} opens in the IDE.", doc.key.name())),
                     }
-                    ViewerKind::Editor => plain(source, font_size),
-                    // Diagrams and images are the IDE's viewers, and reaching them from here means
-                    // wiring a web tenant to a document that is not an open file. Until that is
-                    // done the panel says where the file is drawn rather than drawing it wrongly.
-                    _ => faint(format!("{} opens in the IDE.", doc.key.name())),
                 }
             }
         }
@@ -345,7 +355,7 @@ pub fn centre(app: &AppState, _window: &mut Window, cx: &mut Context<AppState>) 
         .flex_col()
         .flex_1()
         .min_h(px(0.))
-        .child(doc_header(doc, kb))
+        .child(doc_header(doc, kb, cx))
         .child(body)
         .into_any_element()
 }
@@ -353,13 +363,17 @@ pub fn centre(app: &AppState, _window: &mut Window, cx: &mut Context<AppState>) 
 /// The flush row naming the open document, the one thing on screen that changes the instant a
 /// click lands — a `panel_header`'s own reasoning, spelled here rather than reused because a
 /// document's title is a path, not an uppercase section name.
-fn doc_header(doc: &KbDoc, kb: &crate::state::kb::KbState) -> AnyElement {
+fn doc_header(
+    doc: &KbDoc,
+    kb: &crate::state::kb::KbState,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
     let title = match kb.source(doc.key.source) {
         Some(view) => format!("{} / {}", view.name(), doc.key.path),
         None => doc.key.path.clone(),
     };
     let font_size = row_font();
-    div()
+    let mut row = div()
         .h(px(row_height(font_size)))
         .px_3()
         .flex()
@@ -376,8 +390,42 @@ fn doc_header(doc: &KbDoc, kb: &crate::state::kb::KbState) -> AnyElement {
             title,
             theme::text(),
             px(font_size),
-        ))
-        .into_any_element()
+        ));
+    if let Some(edit) = &doc.edit {
+        row = row.child(save_control(edit, cx));
+    }
+    row.into_any_element()
+}
+
+/// What the header says on the writable side: nothing while there is nothing unsaved, a save
+/// control once there is, and a failure the write answered with — kept beside the button rather
+/// than replacing the document, on `KbFileError`'s own rule that a failed write leaves the buffer
+/// exactly as the user left it.
+fn save_control(edit: &crate::state::kb::KbEdit, cx: &mut Context<AppState>) -> AnyElement {
+    use crate::state::kb::KbSaveState;
+
+    let button = match &edit.save {
+        KbSaveState::Saving => faint("Saving\u{2026}"),
+        _ if edit.is_dirty() => primary_button(
+            "kb-save",
+            None,
+            "Save",
+            cx.listener(|this, _, _, cx| this.save_kb_doc(cx)),
+        )
+        .into_any_element(),
+        _ => div().into_any_element(),
+    };
+
+    let mut row = div().flex().flex_none().items_center().gap_2();
+    if let KbSaveState::Failed(reason) = &edit.save {
+        row = row.child(
+            div()
+                .text_size(px(row_font()))
+                .text_color(theme::danger())
+                .child(reason.clone()),
+        );
+    }
+    row.child(button).into_any_element()
 }
 
 /// The centre with no document chosen: the explorer is what chooses one, so that is what it points

@@ -60,6 +60,7 @@ impl AppState {
                     open.kb.doc = Some(KbDoc {
                         key: key.clone(),
                         body: KbBody::Loading,
+                        edit: None,
                     });
                     self.bus.send(Message::ReadKbFile {
                         project_id: project,
@@ -86,6 +87,121 @@ impl AppState {
         self.bus.send(Message::SyncKbSource {
             project_id: project,
             source,
+        });
+    }
+
+    /// Turn everything the host answered since the last frame into an editable buffer, over a
+    /// writable source — `app/editor.rs`'s `attach_arrived_files`, said again for the knowledge
+    /// base because an `EditorState` needs a `Window` and `KbFileContents` does not carry one.
+    ///
+    /// A read-only source, or a binary or already-loading document, gets no buffer: `edit` stays
+    /// `None`, and the centre panel draws the document as a viewer rather than a buffer purely by
+    /// matching on it — the one place `KbSource::is_writable` is read to decide whether a document
+    /// can be typed into.
+    pub(super) fn attach_kb_docs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        for arrival in std::mem::take(&mut self.pending_kb_docs) {
+            self.attach_kb_doc(arrival, window, cx);
+        }
+    }
+
+    fn attach_kb_doc(&mut self, arrival: KbArrival, window: &mut Window, cx: &mut Context<Self>) {
+        let KbArrival { project_id, key } = arrival;
+        let Some(open) = self.projects.get(&project_id) else {
+            return;
+        };
+        let writable = open
+            .kb
+            .source(key.source)
+            .is_some_and(|view| view.status.source.is_writable());
+        if !writable {
+            return;
+        }
+        let Some(doc) = &open.kb.doc else {
+            return;
+        };
+        // A reply for a document the user has clicked past by the time the frame runs is not
+        // built for — the same guard `KbFileContents` itself applies to whether it draws at all.
+        if doc.key != key || doc.edit.is_some() {
+            return;
+        }
+        let KbBody::Ready(contents) = &doc.body else {
+            return;
+        };
+        if contents.is_binary {
+            return;
+        }
+        // A diagram or an image is not drawn here at all yet — the centre says "opens in the
+        // IDE" for it — so a buffer over its bytes would be typed into and never shown.
+        if !matches!(
+            crate::state::editor::ViewerKind::of(&key.path),
+            crate::state::editor::ViewerKind::Editor | crate::state::editor::ViewerKind::Markdown
+        ) {
+            return;
+        }
+        let text = String::from_utf8_lossy(&contents.bytes).into_owned();
+        let language = FileLanguage::of(&key.path);
+        let buffer = cx.new(|cx| {
+            EditorState::new(window, cx)
+                .language(ui::editor::highlighter_language(language))
+                .line_number(true)
+                .soft_wrap(true)
+                .default_value(text.clone())
+        });
+
+        let watched = key.clone();
+        let change = cx.subscribe_in(
+            &buffer,
+            window,
+            move |this, buffer, event: &InputEvent, _window, cx| {
+                if !matches!(event, InputEvent::Change) {
+                    return;
+                }
+                let typed = buffer.read(cx).value().to_string();
+                if let Some(open) = this.projects.get_mut(&project_id)
+                    && let Some(doc) = &mut open.kb.doc
+                    && doc.key == watched
+                    && let Some(edit) = &mut doc.edit
+                {
+                    edit.refresh_dirty(&typed);
+                }
+                cx.notify();
+            },
+        );
+
+        if let Some(open) = self.projects.get_mut(&project_id)
+            && let Some(doc) = &mut open.kb.doc
+            && doc.key == key
+        {
+            doc.edit = Some(KbEdit::new(buffer, text, change));
+        }
+    }
+
+    /// Write the buffer behind the open document back through `WriteKbFile`. A no-op with nothing
+    /// typed since the last save, or with a save already in flight — the button that calls this is
+    /// hidden either way, but a stray keybinding must not send a second write racing the first.
+    pub fn save_kb_doc(&mut self, cx: &mut Context<Self>) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        let Some(open) = self.projects.get_mut(&project) else {
+            return;
+        };
+        let Some(doc) = &mut open.kb.doc else {
+            return;
+        };
+        let Some(edit) = &mut doc.edit else {
+            return;
+        };
+        if !edit.is_dirty() || matches!(edit.save, KbSaveState::Saving) {
+            return;
+        }
+        let contents = edit.buffer.read(cx).value().to_string();
+        edit.save = KbSaveState::Saving;
+        self.bus.send(Message::WriteKbFile {
+            project_id: project,
+            source: doc.key.source,
+            rel_path: doc.key.path.clone(),
+            contents,
         });
     }
 

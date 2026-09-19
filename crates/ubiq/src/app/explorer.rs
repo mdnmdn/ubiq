@@ -802,6 +802,18 @@ impl AppState {
                 self.force_close_tab(&key, cx);
                 return;
             }
+            // Nothing to answer: the modal exists so a save that did not happen is said out loud,
+            // and its button only takes it away. The buffer keeps the edits either way.
+            FileDialog::SaveFailed { .. } => {
+                self.close_file_dialog(cx);
+                return;
+            }
+            // The path was taken and the user said write over it anyway.
+            FileDialog::OverwriteFile { key } => {
+                self.close_file_dialog(cx);
+                self.overwrite_file(&key, cx);
+                return;
+            }
             // The one project's close, answered: the modal goes, and the close is taken again
             // with the question already asked.
             FileDialog::CloseProject { project } => {
@@ -939,6 +951,8 @@ impl AppState {
             }
             // Answered above, before the project was looked up.
             FileDialog::DiscardChanges { .. }
+            | FileDialog::SaveFailed { .. }
+            | FileDialog::OverwriteFile { .. }
             | FileDialog::CloseWindow { .. }
             | FileDialog::CloseProject { .. }
             | FileDialog::RenameTab { .. } => {}

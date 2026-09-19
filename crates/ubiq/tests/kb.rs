@@ -16,9 +16,11 @@ use gpui::{AppContext as _, Entity, TestAppContext, WindowHandle};
 use gpui_component::Root;
 use ubiq::app::{AppState, BusHub};
 use ubiq::state::sink::ProjectNav;
-use ubiq::state::{KbAction, KbBody, KbKind, KbMenuRow, WindowRegistry, kb_menu_entries};
+use ubiq::state::{
+    KbAction, KbBody, KbKind, KbMenuRow, KbSaveState, WindowRegistry, kb_menu_entries,
+};
 use ubiq_proto::bus::{self, FromClient, To};
-use ubiq_proto::files::{DirEntry, DirListing, EntryKind, FileContents, HostDirEntry};
+use ubiq_proto::files::{DirEntry, DirListing, EntryKind, FileContents, FileError, HostDirEntry};
 use ubiq_proto::ids::{KbSourceId, ProjectId, RepoQueryId};
 use ubiq_proto::kb::{KbAccess, KbOrigin, KbSource, KbSourceState, KbSourceStatus, KbStore};
 use ubiq_proto::messages::Message;
@@ -855,6 +857,246 @@ fn a_wiki_sources_file_opens_like_any_other(cx: &mut TestAppContext) {
         assert!(
             matches!(&doc.body, KbBody::Ready(contents) if contents.bytes == b"hello"),
             "the document drew the wiki file's contents"
+        );
+    });
+}
+
+/// One source list naming a read-write source and a read-only one, side by side — a single
+/// `KbSourcesListed` neither test below has to repeat.
+fn a_writable_and_a_read_only_source() -> (KbSourceId, KbSourceId, Vec<KbSourceStatus>) {
+    let writable = KbSourceId::generate();
+    let read_only = KbSourceId::generate();
+    let sources = vec![
+        KbSourceStatus {
+            source: KbSource {
+                id: writable,
+                name: "rw".to_string(),
+                origin: KbOrigin::Folder {
+                    path: "/rw".to_string(),
+                },
+                filter: String::new(),
+                access: KbAccess::ReadWrite,
+            },
+            state: KbSourceState::Ready,
+        },
+        KbSourceStatus {
+            source: KbSource {
+                id: read_only,
+                name: "ro".to_string(),
+                origin: KbOrigin::Folder {
+                    path: "/ro".to_string(),
+                },
+                filter: String::new(),
+                access: KbAccess::ReadOnly,
+            },
+            state: KbSourceState::Ready,
+        },
+    ];
+    (writable, read_only, sources)
+}
+
+fn a_text_reply(project: ProjectId, source: KbSourceId, rel_path: &str, text: &str) -> Message {
+    Message::KbFileContents {
+        project_id: project,
+        source,
+        rel_path: rel_path.to_string(),
+        contents: FileContents {
+            bytes: text.as_bytes().to_vec(),
+            len: text.len() as u64,
+            truncated: false,
+            is_binary: false,
+            version: None,
+        },
+    }
+}
+
+/// A document from a read-write source gets a buffer the user can type into; the same document
+/// from a read-only source never does. `KbSource::is_writable` is read in exactly one place,
+/// `attach_kb_docs`, to decide it — before this, the centre drew every document the same way
+/// whatever a source's access said, which is what left a read-write source's files uneditable
+/// (`T-29`).
+#[gpui::test]
+fn a_writable_sources_document_opens_editable_and_a_read_only_ones_does_not(
+    cx: &mut TestAppContext,
+) {
+    let fixture = Fixture::open(cx);
+    let (writable, read_only, sources) = a_writable_and_a_read_only_source();
+    fixture.deliver(
+        Message::KbSourcesListed {
+            project_id: fixture.project,
+            sources,
+        },
+        cx,
+    );
+    for source in [writable, read_only] {
+        fixture.deliver(
+            Message::KbTreeListing {
+                project_id: fixture.project,
+                source,
+                rel_path: String::new(),
+                listings: vec![listing("", vec![file("", "notes.md")])],
+            },
+            cx,
+        );
+    }
+
+    fixture.with(cx, |state, _, cx| {
+        state.click_kb_row(writable, "notes.md".to_string(), cx)
+    });
+    fixture.deliver(
+        a_text_reply(fixture.project, writable, "notes.md", "hello"),
+        cx,
+    );
+    fixture.with(cx, |state, _, cx| {
+        let doc = state
+            .kb(cx)
+            .unwrap()
+            .doc
+            .as_ref()
+            .expect("a document opened");
+        let edit = doc
+            .edit
+            .as_ref()
+            .expect("a read-write source's document must be editable");
+        assert_eq!(edit.buffer.read(cx).value(), "hello");
+    });
+
+    fixture.with(cx, |state, _, cx| {
+        state.click_kb_row(read_only, "notes.md".to_string(), cx)
+    });
+    fixture.deliver(
+        a_text_reply(fixture.project, read_only, "notes.md", "hello"),
+        cx,
+    );
+    fixture.with(cx, |state, _, cx| {
+        let doc = state
+            .kb(cx)
+            .unwrap()
+            .doc
+            .as_ref()
+            .expect("a document opened");
+        assert!(
+            doc.edit.is_none(),
+            "a read-only source's document must stay a viewer, never a buffer"
+        );
+    });
+}
+
+/// A dirty buffer over a writable source asks the host with `WriteKbFile`; a clean one asks for
+/// nothing. A refusal leaves the buffer exactly as typed rather than discarding the document —
+/// `KbFileError` otherwise reads as "the document is gone", which is right for a failed *read*
+/// and wrong for a failed *write* — and `KbChanged` for the file's own directory is what confirms
+/// the write and clears dirty (`T-29`).
+#[gpui::test]
+fn a_dirty_writable_document_saves_and_a_refusal_keeps_the_buffer(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let source = KbSourceId::generate();
+    fixture.deliver(
+        Message::KbSourcesListed {
+            project_id: fixture.project,
+            sources: vec![KbSourceStatus {
+                source: KbSource {
+                    id: source,
+                    name: "rw".to_string(),
+                    origin: KbOrigin::Folder {
+                        path: "/rw".to_string(),
+                    },
+                    filter: String::new(),
+                    access: KbAccess::ReadWrite,
+                },
+                state: KbSourceState::Ready,
+            }],
+        },
+        cx,
+    );
+    fixture.deliver(
+        Message::KbTreeListing {
+            project_id: fixture.project,
+            source,
+            rel_path: String::new(),
+            listings: vec![listing("", vec![file("", "notes.md")])],
+        },
+        cx,
+    );
+    fixture.with(cx, |state, _, cx| {
+        state.click_kb_row(source, "notes.md".to_string(), cx)
+    });
+    fixture.deliver(
+        a_text_reply(fixture.project, source, "notes.md", "hello"),
+        cx,
+    );
+    let _ = fixture.said();
+
+    // Nothing typed yet: a save asks for nothing.
+    fixture.with(cx, |state, _, cx| state.save_kb_doc(cx));
+    assert!(
+        fixture.said().is_empty(),
+        "a clean buffer has nothing to write"
+    );
+
+    // Marked dirty directly, on `an_unsaved_tab_is_asked_about_before_it_closes`'s own precedent
+    // for the file editor: what is under test is the save wiring, not the widget's keystroke path.
+    fixture.with(cx, |state, _, cx| {
+        let doc = state.kb_mut(cx).unwrap().doc.as_mut().expect("open");
+        doc.edit
+            .as_mut()
+            .expect("editable")
+            .refresh_dirty("changed");
+    });
+    fixture.with(cx, |state, _, cx| state.save_kb_doc(cx));
+    let said = fixture.said();
+    assert!(
+        said.iter().any(|m| matches!(
+            m,
+            Message::WriteKbFile { source: s, rel_path, .. }
+                if *s == source && rel_path == "notes.md"
+        )),
+        "a dirty buffer over a writable source is written back: {said:?}"
+    );
+
+    // The host refuses it. The document, and what was typed, must both survive: only the save's
+    // own state is allowed to change.
+    fixture.deliver(
+        Message::KbFileError {
+            project_id: fixture.project,
+            source,
+            rel_path: "notes.md".to_string(),
+            error: FileError::Refused("this knowledge-base source is read-only".to_string()),
+        },
+        cx,
+    );
+    fixture.with(cx, |state, _, cx| {
+        let doc = state.kb(cx).unwrap().doc.as_ref().expect("still open");
+        assert_eq!(
+            doc.key.path, "notes.md",
+            "a refused save must not discard the document"
+        );
+        let edit = doc
+            .edit
+            .as_ref()
+            .expect("the buffer must survive a refused save");
+        assert!(matches!(&edit.save, KbSaveState::Failed(_)));
+        assert!(edit.is_dirty(), "what was typed is still unsaved");
+    });
+
+    // Retried, and this time the host confirms with `KbChanged` for the file's own directory.
+    fixture.with(cx, |state, _, cx| state.save_kb_doc(cx));
+    let _ = fixture.said();
+    fixture.deliver(
+        Message::KbChanged {
+            project_id: fixture.project,
+            source,
+            rel_path: String::new(),
+        },
+        cx,
+    );
+    fixture.with(cx, |state, _, cx| {
+        let doc = state.kb(cx).unwrap().doc.as_ref().expect("still open");
+        let edit = doc.edit.as_ref().expect("still editable");
+        assert!(matches!(edit.save, KbSaveState::Idle));
+        assert!(
+            !edit.is_dirty(),
+            "a `KbChanged` for the file's own directory confirms the save"
         );
     });
 }

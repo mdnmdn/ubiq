@@ -79,6 +79,7 @@ impl Harness for Opencode {
     fn discover_models(&self) -> Result<Vec<super::ModelInfo>> {
         let mut cmd = std::process::Command::new("opencode");
         cmd.arg("models");
+        cmd.current_dir(super::shared::probe_cwd());
         #[cfg(windows)]
         super::shared::no_window(&mut cmd);
         let output = cmd
@@ -113,6 +114,7 @@ impl Harness for Opencode {
     ) -> Result<std::collections::BTreeMap<String, super::ModelThinking>> {
         let mut cmd = std::process::Command::new("opencode");
         cmd.args(["models", "--verbose"]);
+        cmd.current_dir(super::shared::probe_cwd());
         // Both `opencode` probes above are headless: nothing reads a window, and the app has
         // already freed its own console (`ubiq_app::detach_console`), so a console-subsystem child
         // would otherwise flash one.

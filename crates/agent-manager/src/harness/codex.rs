@@ -416,6 +416,7 @@ struct McpServerToml {
 fn bundled_models() -> Result<serde_json::Value> {
     let mut cmd = std::process::Command::new("codex");
     cmd.args(["debug", "models", "--bundled"]);
+    cmd.current_dir(super::shared::probe_cwd());
     // Headless model-catalog probe: nothing reads a window, and the app has already freed its own
     // console (`ubiq_app::detach_console`), so a console-subsystem child would otherwise flash one.
     #[cfg(windows)]

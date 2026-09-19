@@ -65,9 +65,10 @@ use crate::state::work::WorkProjection;
 use crate::state::{
     ActiveSearch, ChatId, ChatTab, EditorPaneState, ExplorerAction, ExplorerKey, ExplorerPressed,
     ExplorerState, ExplorerView, FileBody, FileDialog, FileLanguage, Follow, KbBody, KbDoc,
-    KbDocKey, KbPressed, KbState, LogState, MenuId, NewAgentMenu, NewAgentSurface, NewPaneRow,
-    NewProjectRow, OpenFile, OverflowRow, PanelKind, ProjectSettings, ProjectSettingsMode,
-    RailMode, Region, SearchState, Toggle, WindowRegistry, WorkbenchState, prefs,
+    KbDocKey, KbEdit, KbPressed, KbSaveState, KbState, LogState, MenuId, NewAgentMenu,
+    NewAgentSurface, NewPaneRow, NewProjectRow, OpenFile, OverflowRow, PanelKind, ProjectSettings,
+    ProjectSettingsMode, RailMode, Region, SearchState, Toggle, WindowRegistry, WorkbenchState,
+    kb_parent_path, prefs,
 };
 use crate::theme::{self, Mode, ThemeId};
 use crate::ui;
@@ -476,6 +477,14 @@ struct FileArrival {
     contents: FileContents,
 }
 
+/// A knowledge-base document that reached `KbBody::Ready`, waiting for the frame that can build
+/// its editable buffer — `FileArrival`'s reasoning, said again because an `EditorState` needs a
+/// `Window` a `KbFileContents` message does not carry.
+struct KbArrival {
+    project_id: ProjectId,
+    key: KbDocKey,
+}
+
 pub struct AppState {
     /// Which window this state belongs to. It is the key into the process-wide
     /// [`WindowRegistry`], and the only thing that tells two windows apart.
@@ -645,6 +654,9 @@ pub struct AppState {
     adding_select: Option<String>,
     /// Contents the host sent that still need a window to become buffers. Drained in `render`.
     pending_files: Vec<FileArrival>,
+    /// Knowledge-base documents that reached `KbBody::Ready` and still need a window to become an
+    /// editable buffer, over a writable source. Drained in `render`, beside `pending_files`.
+    pending_kb_docs: Vec<KbArrival>,
 
     /// Every diagram this window has drawn, by content key — the cache's memory tier. **Behind a
     /// cell because a viewer meets it mid-frame**: the element tree is built from `&AppState`, and
@@ -1298,8 +1310,15 @@ pub fn boot_theme() -> ThemeId {
 ///
 /// The project comes with it: a project is open in one window at a time, so the new window takes it
 /// from whichever window held it, and that window is left showing nothing.
+///
+/// Deferred a turn, and that is not a nicety. Every caller is a click inside the window that holds
+/// the project — the project menu's "open in a new window", the all-projects screen's — so that
+/// window's `AppState` is leased for the duration of the listener, and the hand-off in
+/// [`open_window`] updates the very same entity: `cannot update ubiq::app::AppState while it is
+/// already being updated`, which is a panic, not a warning. The defer runs once the update that
+/// asked has finished and the lease is back.
 pub fn open_project_window(project: Option<ProjectId>, cx: &mut App) {
-    open_window(project, false, Vec::new(), cx)
+    cx.defer(move |cx| open_window(project, false, Vec::new(), cx));
 }
 
 /// The first window, which takes a project from the first catalogue that arrives.

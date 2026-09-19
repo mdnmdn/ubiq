@@ -940,6 +940,7 @@ pub trait Harness {
     fn version(&self) -> Result<String> {
         let mut cmd = std::process::Command::new(self.command());
         cmd.arg("--version");
+        cmd.current_dir(shared::probe_cwd());
         #[cfg(windows)]
         shared::no_window(&mut cmd);
         let output = cmd

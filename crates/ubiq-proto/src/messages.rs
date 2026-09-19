@@ -942,8 +942,8 @@ pub enum Message {
     ///
     /// The interface sends the buffer it holds, never a patch, and names the version it read so a
     /// write cannot land on somebody else's change. `expected` absent means it is creating a file
-    /// that must not already exist. No folder is ever created — the mirror of
-    /// [`Message::AddProject`] never creating one.
+    /// that must not already exist, unless `overwrite` says the interface asked and the user said
+    /// yes. No folder is ever created — the mirror of [`Message::AddProject`] never creating one.
     WriteProjectFile {
         project_id: ProjectId,
         rel_path: String,
@@ -951,6 +951,15 @@ pub enum Message {
         #[serde(with = "serde_bytes")]
         bytes: Vec<u8>,
         expected: Option<FileVersion>,
+        /// Write over whatever is already there, when `expected` is absent.
+        ///
+        /// `expected: None` alone means *create, and refuse if anything is there* — the contract does
+        /// not hand out a forced overwrite for free. This is the interface saying it asked the user
+        /// and they said yes, which is the only thing that buys one. It is meaningless beside an
+        /// `expected` and refused there rather than ignored, because a field the host silently drops
+        /// is a wiring mistake the interface cannot see.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        overwrite: bool,
     },
     /// Compare a file against a version-control base. The host computes the hunks; the interface
     /// draws rows and holds no diff library. `old` and `new` are the two commit ids when `base`

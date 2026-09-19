@@ -178,7 +178,7 @@ fn drawn(
 /// The file's own buffer. Never a copy of it: the source half of a split is the same entity the
 /// source layout draws, so a toggle costs nothing and loses no undo history. It draws at the
 /// project's point size, or the default when the project has no preference.
-fn buffer(state: &Entity<EditorState>, font_size: Option<f32>) -> AnyElement {
+pub(crate) fn buffer(state: &Entity<EditorState>, font_size: Option<f32>) -> AnyElement {
     let mut editor = Editor::new(state).h(relative(1.)).p_0().border_0();
     if let Some(size) = font_size {
         editor = editor.text_size(px(size));

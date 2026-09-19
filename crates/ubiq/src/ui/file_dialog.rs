@@ -87,7 +87,9 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         Some(FileDialog::SaveAs { .. }) => prompt_modal(
             "app-file-save-as",
             "Save as",
-            Some("Where in the project this buffer is written. Nothing there is overwritten."),
+            Some(
+                "Where in the project this buffer is written. If a file is already there, you are asked before anything is written over.",
+            ),
             "Path",
             &app.file_name,
             "Save",
@@ -226,6 +228,45 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 "Unsaved changes",
                 &format!("{name} has changes that were never written. Close it anyway?"),
                 "Discard",
+                true,
+                crate::ui::handler(&view, |this, window, cx| {
+                    this.confirm_file_dialog(window, cx)
+                }),
+                crate::ui::handler(&view, |this, _, cx| this.close_file_dialog(cx)),
+                window,
+            )
+        }
+        // A save that did not happen. Said, rather than left to a dot on the tab — and it says the
+        // edits are still here, because the first thing the user wants to know is whether they
+        // lost anything.
+        Some(FileDialog::SaveFailed { key, reason }) => {
+            let name = app
+                .file(&key, cx)
+                .map_or_else(|| key.clone(), |file| file.name.clone());
+            confirm_modal(
+                "app-file-save-failed",
+                "Not saved",
+                &format!("{name} was not written: {reason}. Your edits are still in the tab."),
+                "OK",
+                false,
+                crate::ui::handler(&view, |this, window, cx| {
+                    this.confirm_file_dialog(window, cx)
+                }),
+                crate::ui::handler(&view, |this, _, cx| this.close_file_dialog(cx)),
+                window,
+            )
+        }
+        // The one place Ubiq offers to write over a file. Danger-styled, like the delete: the
+        // bytes that are there go, and only this click says so.
+        Some(FileDialog::OverwriteFile { key }) => {
+            let path = app
+                .file(&key, cx)
+                .map_or_else(|| key.clone(), |file| file.path.clone());
+            confirm_modal(
+                "app-file-overwrite",
+                "File already exists",
+                &format!("{path} already holds a file. Write over it?"),
+                "Overwrite",
                 true,
                 crate::ui::handler(&view, |this, window, cx| {
                     this.confirm_file_dialog(window, cx)

@@ -69,6 +69,12 @@ gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "
 ] }
 gpui-component-assets = { git = "https://github.com/longbridge/gpui-component", rev = "df1d07b212e21217b1168e1728293b3e0c48e5a3" }
 
+# The same Markdown parser gpui-component's text view runs, named directly so the fence scan in
+# `ui/viewer/markdown.rs` produces the *same* fence body the view's block parser is handed — a
+# hand-rolled second scanner drifted from it by a trailing newline and the diagram cache never hit.
+# Cargo unifies this with gpui-component's own copy, so it is one parser, not two.
+markdown = "1.0"
+
 # Terminal emulator component
 gpui-terminal = { path = "../../vendor/gpui-terminal" }
 

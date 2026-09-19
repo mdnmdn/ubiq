@@ -3,10 +3,10 @@ id: wip-kb
 title: The knowledge base — sources, the write half, and what is next
 kind: wip
 status: current
-summary: A project's knowledge base as it stands — a per-project list of sources persisted as one TOML file, a folder read where it lies, a git repository cloned and refreshed, an internal wiki, a host-side write half (`kb/ops.rs`) behind six new messages, the `ubiq-kb` MCP server that reaches it, and the explorer's right-click menu that reaches it from the interface — and the one piece the interface has not caught up to, a save path from the document on screen.
+summary: A project's knowledge base as it stands — a per-project list of sources persisted as one TOML file, a folder read where it lies, a git repository cloned and refreshed, an internal wiki, a host-side write half (`kb/ops.rs`) behind six new messages, the `ubiq-kb` MCP server that reaches it, the explorer's right-click menu that reaches it from the interface, and the centre's own save path — a document over a writable source draws as a buffer rather than a viewer, and its header's `Save` button writes it back through `WriteKbFile`.
 read_when: you are touching the knowledge base's sources, its git sync worker, its write half, its `ubiq-kb` MCP server, or its explorer panel or centre
-updated: 2026-09-18
-verified: 2026-09-18
+updated: 2026-09-19
+verified: 2026-09-19
 code_anchors: [crates/ubiq-proto/src/kb.rs, crates/ubiq-host/src/kb/mod.rs, crates/ubiq-host/src/kb/ops.rs, crates/ubiq-host/src/kb/store.rs, crates/ubiq-host/src/kb/sync.rs, crates/ubiq-host/src/mcp/kb.rs, crates/ubiq/src/state/kb.rs, crates/ubiq/src/app/kb.rs, crates/ubiq/src/ui/kb/mod.rs, crates/ubiq/src/ui/kb/source_form.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq-proto/src/messages.rs, crates/ubiq/tests/kb.rs]
 depends_on: [tech-architecture, tech-transport, feat-workbench, tech-decisions]
 ---
@@ -129,10 +129,23 @@ source's own row carrying its origin as a tooltip and a state word — `pending`
 header naming the open document — the IDE editor leans on the dock's own tab strip for that, and the
 knowledge base has no tab strip here, so a click against a document with nothing else to show for
 it (a wiki's file, just created and still empty) would otherwise look like it did nothing at all
-(`T-23`) — then hands markdown to the one markdown renderer the window has, falls back to plain text
-for anything `ViewerKind::Editor` claims, and says "opens in the IDE" for a diagram or an image,
-because reaching those from here means wiring a web tenant to a document that is not an open file
-(`G11`).
+(`T-23`) — then draws the body. Over a source `KbSource::is_writable` calls read-only, or for a
+diagram or an image whatever the source, that body is a viewer: markdown hands to the one markdown
+renderer the window has, `ViewerKind::Editor` falls back to plain text, and a diagram or an image
+says "opens in the IDE", because reaching those from here means wiring a web tenant to a document
+that is not an open file (`G11`). Over a **writable** source, for `ViewerKind::Markdown` and
+`ViewerKind::Editor` only, the body is instead a buffer: `KbDoc::edit`, built by `app/kb.rs`'s
+`attach_kb_docs` the frame after `body` reaches `KbBody::Ready` — an `EditorState` needs a `Window`,
+which `KbFileContents` does not carry, so the arrival queues in `AppState::pending_kb_docs` exactly
+as `pending_files` queues a project file's, and is drained in `render` beside it. `is_writable` is
+read in this one place to decide whether a document can be typed into at all; nothing else in the
+centre asks it. The header's trailing control follows the buffer: a `Save` button once the buffer
+disagrees with the text last confirmed on disk, `Saving…` while `WriteKbFile` is in flight, and the
+refusal's reason beside the button — never in place of the document — when the host answers with
+`KbFileError` while a save was in flight, so a write that lands on a source flipped read-only under
+the user does not cost them what they typed. Confirmation is the `KbChanged` naming the file's own
+parent directory that `WriteKbFile`'s own success already sends for the explorer's re-list; the
+document mid-save is found by that same parent, and clearing dirty here costs no second round trip.
 `crates/ubiq/src/ui/sink/project.rs`'s `kb` function is the third surface: an inline section in the
 project settings dialog, drawn only for a project with a live record — the sink's fixture page and
 the create form have no project for a source to belong to — listing each source with its filter
@@ -203,9 +216,10 @@ visible**: on the document on screen when it names that document, and otherwise 
 row, because a create, a rename or a delete that failed has no document to fail in and a gesture that
 silently did nothing is the one failure mode the panel must not have.
 
-**The centre has not caught up to the write half yet.** A document is drawn, never edited: there is
-no save path through `WriteKbFile` from the KB panel, so the write half is reached from the explorer's
-menu and from the `ubiq-kb` MCP server, and not from the document itself.
+**The centre reaches the write half too, now** (`T-29`): a document over a writable source is
+edited and saved from the panel itself, on top of the explorer's menu and the `ubiq-kb` MCP server,
+which is what the centre used to draw before this — a read-only viewer whatever `is_writable` said,
+because nothing between a click and the screen ever read it.
 
 The wire is the Kb family in `crates/ubiq-proto/src/messages.rs`: UI → host is `KbSources`,
 `SetKbSources`, `KbTree`, `ReadKbFile`, `SyncKbSource`, `WriteKbFile`, `CreateKbEntry`,
@@ -230,13 +244,6 @@ reasonable person could later reverse about writing into a project folder for th
 for a checkout Ubiq did not ask permission to commit. Nothing in the tree builds `KbStore::Project`
 yet; the gap is `G269`.
 
-## What is being built now
-
-- **The centre's save path.** `WriteKbFile` is answered by the host and reached by the MCP server,
-  and by nothing the user can press: a document opens read-only whatever `KbSource::is_writable`
-  says. The explorer's write affordances that stood beside this in the list are built and are
-  described under **What is built**, as are the settings modal and the `ubiq-kb` MCP server.
-
 ## Next steps
 
 1. **Search scoped to the knowledge base.** The search panel searches a project's files only, and a
@@ -256,6 +263,13 @@ yet; the gap is `G269`.
    assistant reads before answering. It cannot live inside the document's own folder for a read-only
    source, since nothing may write there; where it lives instead — a sidecar under the source's own
    record, most likely — is undecided.
+6. **`Cmd/Ctrl-S` over the centre.** Saving a document today is the header's `Save` button only —
+   the IDE editor's own `SaveFile` keybinding is bound at `"Workbench"` and dispatches to its own
+   active-file lookup, and reaching the KB panel from it means the same binding asking which of the
+   two panels has focus first.
+7. **A writable markdown document's buffer is source, not the rendered preview** — `ViewLayout`'s
+   `Source`/`Preview`/`Split` choice, which the IDE editor's markdown tabs already offer, is not
+   wired into the centre; editing a wiki page today means editing its raw text.
 
 ## Related docs
 

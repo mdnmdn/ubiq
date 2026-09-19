@@ -267,12 +267,15 @@ pub fn contents(
 /// `expected` present is an overwrite that must land on exactly the file that was read.
 /// `expected` absent is a creation, and is refused if anything is already there — the only safe
 /// meaning it can have, because the alternative reading is a forced overwrite the contract would be
-/// handing out for free.
+/// handing out for free — unless `overwrite` is set, which is the interface saying it asked the
+/// user and they said yes. `overwrite` beside an `expected` names no version and is refused rather
+/// than ignored.
 pub fn save(
     root: &Path,
     rel_path: &str,
     bytes: &[u8],
     expected: Option<FileVersion>,
+    overwrite: bool,
 ) -> Result<FileVersion, FileError> {
     // First, so containment is settled before a single byte is written.
     let file = path::resolve_for_write(root, rel_path)?;
@@ -284,6 +287,11 @@ pub fn save(
     };
 
     let mode = match (&expected, &current) {
+        (Some(_), _) if overwrite => {
+            return Err(FileError::Refused(
+                "an overwrite names no version".to_string(),
+            ));
+        }
         (Some(expected), Some(stat)) => {
             if version_of(stat.clone()) != *expected {
                 return Err(FileError::Conflict);
@@ -293,6 +301,7 @@ pub fn save(
         // A save is not a resurrection: the tab is stale, and saying so is more use than silently
         // recreating a file somebody deleted.
         (Some(_), None) => return Err(FileError::Missing),
+        (None, Some(stat)) if overwrite => Some(stat.permissions()),
         (None, Some(_)) => return Err(FileError::Conflict),
         (None, None) => None,
     };
@@ -497,6 +506,7 @@ pub enum Request {
         rel_path: String,
         bytes: Vec<u8>,
         expected: Option<FileVersion>,
+        overwrite: bool,
     },
     Diff {
         rel_path: String,
@@ -635,7 +645,8 @@ fn file_answer(project_id: ProjectId, root: &Path, request: &Request) -> Message
             rel_path,
             bytes,
             expected,
-        } => match save(root, rel_path, bytes, *expected) {
+            overwrite,
+        } => match save(root, rel_path, bytes, *expected, *overwrite) {
             Ok(version) => Message::ProjectFileWritten {
                 project_id,
                 rel_path: rel_path.clone(),

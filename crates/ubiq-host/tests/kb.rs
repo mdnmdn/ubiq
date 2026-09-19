@@ -219,6 +219,7 @@ fn a_write_family_request_against_a_kb_source_is_refused() {
                 rel_path: "new.md".to_string(),
                 bytes: b"nope".to_vec(),
                 expected: None,
+                overwrite: false,
             },
         },
         reply_to: mailbox,

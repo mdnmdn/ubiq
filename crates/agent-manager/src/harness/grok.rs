@@ -135,6 +135,7 @@ impl Harness for Grok {
     fn discover_models(&self) -> Result<Vec<super::ModelInfo>> {
         let mut cmd = std::process::Command::new(self.command());
         cmd.arg("models");
+        cmd.current_dir(super::shared::probe_cwd());
         // Headless model-list probe: nothing reads a window, and the app has already freed its own
         // console (`ubiq_app::detach_console`), so a console-subsystem child would otherwise flash one.
         #[cfg(windows)]

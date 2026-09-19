@@ -267,6 +267,7 @@ mod tests {
                 rel_path: "src/main.rs".into(),
                 bytes: b"fn main() {}".to_vec(),
                 expected: None,
+                overwrite: false,
             },
             Message::ProjectAdded {
                 project: snapshot(),

@@ -471,7 +471,10 @@ impl AppState {
             self.ask_save_as(key, window, cx);
             return;
         }
-        if !file.savable() {
+        // A buffer that cannot be written says why, rather than swallowing the keystroke.
+        if let Some(refusal) = file.save_refusal() {
+            let (key, refusal) = (file.key(), refusal.to_string());
+            self.refuse_save(key, refusal, cx);
             return;
         }
         // A capture writes its flatten, not text.
@@ -494,6 +497,7 @@ impl AppState {
             rel_path,
             bytes: text.into_bytes(),
             expected,
+            overwrite: false,
         });
         cx.notify();
     }
@@ -1044,8 +1048,9 @@ impl AppState {
 
     /// Write the active file back.
     ///
-    /// Nothing happens with no project, no active file, bytes that never arrived, or a read the
-    /// host cut short: writing a prefix back would shorten the file.
+    /// Nothing happens with no project and no active file. Every other way this can decline —
+    /// bytes that never arrived, a read the host cut short, a guest file — says so in a modal
+    /// instead, because a ⌘S that quietly does nothing is indistinguishable from a save.
     pub fn save_active_file(&mut self, _: &SaveFile, window: &mut Window, cx: &mut Context<Self>) {
         let Some(project) = self.project(cx) else {
             return;
@@ -1062,7 +1067,10 @@ impl AppState {
             self.ask_save_as(key, window, cx);
             return;
         }
-        if !file.savable() {
+        // A buffer that cannot be written says why, rather than swallowing the keystroke.
+        if let Some(refusal) = file.save_refusal() {
+            let (key, refusal) = (file.key(), refusal.to_string());
+            self.refuse_save(key, refusal, cx);
             return;
         }
         // A capture writes its flatten, not text.
@@ -1087,6 +1095,7 @@ impl AppState {
             rel_path,
             bytes: text.into_bytes(),
             expected,
+            overwrite: false,
         });
         cx.notify();
     }
@@ -1279,6 +1288,7 @@ impl AppState {
             rel_path,
             bytes: png,
             expected,
+            overwrite: false,
         });
         cx.notify();
     }
@@ -1299,22 +1309,7 @@ impl AppState {
         let Some(at) = index_of_key(&open.editor, key) else {
             return;
         };
-        // A body is not always a string: text sends its buffer, an unedited capture its raw
-        // bytes, an annotated one its flatten. PNG only, in every image case. The in-flight
-        // text travels with a text save so the acknowledgement rebases against what was
-        // written; an image save carries none, and its `saved` just clears dirty.
-        let (bytes, saving): (Option<Vec<u8>>, String) = match &open.editor.open[at].body {
-            FileBody::Bytes(raw) => (Some(raw.clone()), String::new()),
-            FileBody::ImageEdit(edit) => (edit.flatten(), String::new()),
-            FileBody::Text { .. } => match open.editor.open[at]
-                .buffer()
-                .map(|buffer| buffer.read(cx).value().to_string())
-            {
-                Some(text) => (Some(text.clone().into_bytes()), text),
-                None => (None, String::new()),
-            },
-            _ => (None, String::new()),
-        };
+        let (bytes, saving) = save_payload(&open.editor.open[at], cx);
         let Some(bytes) = bytes else {
             if let Some(open) = self.projects.get_mut(&project)
                 && let Some(file) = open.editor.find_key_mut(key)
@@ -1335,7 +1330,61 @@ impl AppState {
             rel_path: path,
             bytes,
             expected: None,
+            overwrite: false,
         });
+        cx.notify();
+    }
+
+    /// Write over the file a save landed on, now that the user has been asked and said yes.
+    ///
+    /// The same bytes the refused write carried, sent again with `overwrite` — which is the host's
+    /// name for *the interface asked*. The tab already points at the path, so nothing is
+    /// retargeted here; only the flag is different.
+    pub(super) fn overwrite_file(&mut self, key: &str, cx: &mut Context<Self>) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        let Some(open) = self.projects.get(&project) else {
+            return;
+        };
+        let Some(at) = index_of_key(&open.editor, key) else {
+            return;
+        };
+        let path = open.editor.open[at].path.clone();
+        let (bytes, saving) = save_payload(&open.editor.open[at], cx);
+        let Some(bytes) = bytes else {
+            let name = open.editor.open[at].name.clone();
+            self.refuse_save(key.to_string(), format!("{name} has no bytes to write"), cx);
+            return;
+        };
+        if let Some(open) = self.projects.get_mut(&project)
+            && let Some(file) = open.editor.find_key_mut(key)
+        {
+            file.mark_saving(saving);
+        }
+        self.bus.send(Message::WriteProjectFile {
+            project_id: project,
+            rel_path: path,
+            bytes,
+            expected: None,
+            overwrite: true,
+        });
+        cx.notify();
+    }
+
+    /// Say a save did not happen, and why.
+    ///
+    /// The buffer is untouched and stays dirty — losing the edits is the one outcome that is never
+    /// acceptable — and the modal is what the user gets instead of a keystroke that did nothing
+    /// and said nothing.
+    pub(super) fn refuse_save(&mut self, key: String, reason: String, cx: &mut Context<Self>) {
+        if let Some(project) = self.project(cx)
+            && let Some(open) = self.projects.get_mut(&project)
+            && let Some(file) = open.editor.find_key_mut(&key)
+        {
+            file.save_failed(reason.clone());
+        }
+        self.workbench.file_dialog = Some(FileDialog::SaveFailed { key, reason });
         cx.notify();
     }
 
@@ -1528,4 +1577,25 @@ impl AppState {
     // bus from this screen is the one thing that is not about arrangement — what the user typed at
     // an agent, which `steer_column` sends. Every handler is guarded on the window holding a
     // project, because the screen is a view of one project's work.
+}
+
+/// The bytes one tab writes, and the in-flight text its acknowledgement rebases against.
+///
+/// A body is not always a string: text sends its buffer, an unedited capture its raw bytes, an
+/// annotated one its flatten. PNG only, in every image case. The in-flight text travels with a
+/// text save so the acknowledgement rebases against what was actually written; an image save
+/// carries none, and its `saved` just clears dirty.
+fn save_payload(file: &OpenFile, cx: &App) -> (Option<Vec<u8>>, String) {
+    match &file.body {
+        FileBody::Bytes(raw) => (Some(raw.clone()), String::new()),
+        FileBody::ImageEdit(edit) => (edit.flatten(), String::new()),
+        FileBody::Text { .. } => match file
+            .buffer()
+            .map(|buffer| buffer.read(cx).value().to_string())
+        {
+            Some(text) => (Some(text.clone().into_bytes()), text),
+            None => (None, String::new()),
+        },
+        _ => (None, String::new()),
+    }
 }

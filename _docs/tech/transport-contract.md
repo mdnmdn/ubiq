@@ -5,8 +5,8 @@ kind: tech
 status: draft
 summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, quota, profile, command-line, host browse, connector, repository, assist, notification, web asset and carrier families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
-updated: 2026-09-18
-verified: 2026-09-18
+updated: 2026-09-19
+verified: 2026-09-19
 code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/feedback.rs, crates/ubiq-host/src/feedback/mod.rs, crates/ubiq-host/src/feedback/api.rs, crates/ubiq-host/src/feedback/issues.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq-drone/src/search.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
@@ -432,7 +432,7 @@ answer arrives after the click that asked for it and the window may have changed
 |---|---|---|---|
 | `ProjectTree` | UI → host | `project_id`, `rel_path`, `depth` | `ProjectTreeListing` or `ProjectFileError` |
 | `ReadProjectFile` | UI → host | `project_id`, `rel_path`, `max_bytes?` | `ProjectFileContents` or `ProjectFileError` |
-| `WriteProjectFile` | UI → host | `project_id`, `rel_path`, `bytes`, `expected?` | `ProjectFileWritten` or `ProjectFileError` |
+| `WriteProjectFile` | UI → host | `project_id`, `rel_path`, `bytes`, `expected?`, `overwrite` | `ProjectFileWritten` or `ProjectFileError` |
 | `DiffProjectFile` | UI → host | `project_id`, `rel_path`, `base` | `ProjectFileDiffed` or `ProjectFileError` |
 | `EditProjectPath` | UI → host | `project_id`, `rel_path`, `to?`, `op` | `ProjectPathEdited` or `ProjectFileError` |
 | `ProjectTreeListing` | host → UI | `project_id`, `rel_path`, `listings[]` | — |
@@ -479,9 +479,13 @@ start, not a verdict on encoding.
 
 **A save names the version it read.** `expected` is the `FileVersion` that came back with the
 contents, and a mismatch is refused as `Conflict` with the file untouched — which is what stops a
-save landing on a change an agent made in a pane. `expected` absent means creating a file, and is
-refused if anything is already there. No folder is ever created, the mirror of `AddProject` never
-creating one, and the write is atomic and keeps the file's permissions.
+save landing on a change an agent made in a pane. `expected` absent means creating a file, refused
+if anything is already there, unless `overwrite` is set. `overwrite` is the interface saying it
+asked the user and they said yes: beside an absent `expected` it lets a version-less write land on
+an existing file, keeping that file's permissions; beside a present `expected` it is refused rather
+than ignored, since a field the host silently dropped is a wiring mistake the interface cannot see.
+No folder is ever created, the mirror of `AddProject` never creating one, and the write is atomic
+and keeps the file's permissions.
 
 **A truncated read cannot be saved**, and mechanically rather than by the interface remembering:
 `FileContents.version` is absent when `truncated`, so there is no version to name, and a write naming

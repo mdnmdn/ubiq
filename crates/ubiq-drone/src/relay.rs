@@ -585,11 +585,13 @@ impl Relay {
                 rel_path,
                 bytes,
                 expected,
+                overwrite,
             } => {
                 let request = files::Request::Write {
                     rel_path: rel_path.clone(),
                     bytes,
                     expected,
+                    overwrite,
                 };
                 self.file_job(host, client, project_id, &rel_path, request);
             }

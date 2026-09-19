@@ -1286,6 +1286,7 @@ impl AppState {
             adding: false,
             adding_select: None,
             pending_files: Vec::new(),
+            pending_kb_docs: Vec::new(),
             diagrams: RefCell::new(HashMap::new()),
             diagram_asks: RefCell::new(Vec::new()),
             exported_asks: RefCell::new(Vec::new()),

@@ -42,6 +42,21 @@ impl Format {
     }
 }
 
+impl Fence {
+    /// The one place a code block becomes a fence.
+    ///
+    /// **Both sides call this**: the scan that publishes a diagram's resolution and the block
+    /// parser that later asks for it. The map between them is keyed on `source`, so the two
+    /// strings have to be the same byte for byte — which they are only because neither side
+    /// derives its own.
+    fn of(code: &markdown_ast::Code) -> Option<Self> {
+        Some(Fence {
+            format: Format::of(code.lang.as_deref().unwrap_or(""))?,
+            source: code.value.clone(),
+        })
+    }
+}
+
 /// What a fence carries from the parse to the drawing.
 ///
 /// Typed data rather than an element, because **the parser runs on a background task** and is
@@ -97,7 +112,9 @@ fn scan_and_publish(app: &AppState, key: &str, source: &str) -> (Option<String>,
                 Scanned {
                     len,
                     hash,
-                    fences: fences(source),
+                    // The body, not the source: the body is what the text view parses, and a
+                    // fence has to be scanned out of the same string to be keyed the same way.
+                    fences: fences(body),
                     frontmatter: fm.map(str::to_string),
                     body: SharedString::from(body.to_string()),
                 },
@@ -288,14 +305,11 @@ fn extensions() -> &'static MarkdownExtensions {
                 let markdown_ast::Node::Code(code) = node else {
                     return None;
                 };
-                let format = Format::of(code.lang.as_deref().unwrap_or(""))?;
-                let fence = Fence {
-                    format,
-                    source: code.value.clone(),
-                };
+                let fence = Fence::of(code)?;
                 // The text representation is the source, so copying a document out of the view
                 // still carries what the diagram was written as.
-                Some(MarkdownNode::new(FENCE, fence).text(code.value.clone()))
+                let text = fence.source.clone();
+                Some(MarkdownNode::new(FENCE, fence).text(text))
             })
             .block_renderer(FENCE, |node, _, _| {
                 let Some(fence) = node.data::<Fence>() else {
@@ -311,37 +325,145 @@ fn extensions() -> &'static MarkdownExtensions {
 
 /// The fenced blocks a document holds that a diagram renderer draws.
 ///
-/// Scanned rather than parsed: the text view's own parse runs on a background task and the answer
-/// is needed in this frame, and all this needs of a fence is its tag and its text. Every fence is
-/// tracked so that a diagram tag inside a code block is not mistaken for one.
+/// **Parsed, not scanned.** This runs ahead of the text view's own parse, in this frame, because a
+/// fence's picture has to be resolved before the block renderer that draws it asks for one — but it
+/// runs the *same* parser over the *same* string, so the body it publishes is the body the block
+/// parser will be handed. A hand-rolled scanner stood here and reconstructed each body line by
+/// line: it ended every fence with a newline the AST does not carry, kept the indentation the AST
+/// strips, and kept the `\r` of a CRLF line the AST drops — so the key it published never matched
+/// the key the renderer looked up, and every fence drew an ellipsis forever.
+///
+/// The options are [`markdown::ParseOptions::gfm`] because that is what `MarkdownExtensions`
+/// resolves to for a view with no MDX enabled, which is every view here.
 fn fences(source: &str) -> Vec<Fence> {
+    let Ok(ast) = markdown::to_mdast(source, &markdown::ParseOptions::gfm()) else {
+        return Vec::new();
+    };
     let mut found = Vec::new();
-    let mut open: Option<(Option<Format>, String)> = None;
+    collect(&ast, &mut found);
+    found
+}
 
-    for line in source.lines() {
-        let trimmed = line.trim_start();
-        match open.take() {
-            None => {
-                if let Some(tag) = trimmed.strip_prefix("```") {
-                    open = Some((Format::of(tag), String::new()));
-                }
+/// Every fence in a subtree, in document order.
+fn collect(node: &markdown_ast::Node, found: &mut Vec<Fence>) {
+    if let markdown_ast::Node::Code(code) = node
+        && let Some(fence) = Fence::of(code)
+    {
+        found.push(fence);
+    }
+    if let Some(children) = node.children() {
+        for child in children {
+            collect(child, found);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every `Code` node the block parser would be offered, as the view's own parse produces them.
+    fn ast_code_values(source: &str) -> Vec<(Option<String>, String)> {
+        fn walk(node: &markdown_ast::Node, out: &mut Vec<(Option<String>, String)>) {
+            if let markdown_ast::Node::Code(code) = node {
+                out.push((code.lang.clone(), code.value.clone()));
             }
-            Some((format, mut body)) => {
-                if trimmed.starts_with("```") {
-                    if let Some(format) = format {
-                        found.push(Fence {
-                            format,
-                            source: body,
-                        });
-                    }
-                } else {
-                    body.push_str(line);
-                    body.push('\n');
-                    open = Some((format, body));
+            if let Some(children) = node.children() {
+                for child in children {
+                    walk(child, out);
                 }
             }
         }
+        let ast = markdown::to_mdast(source, &markdown::ParseOptions::gfm()).expect("parses");
+        let mut out = Vec::new();
+        walk(&ast, &mut out);
+        out
     }
 
-    found
+    /// The regression: the published key and the looked-up key are one string.
+    ///
+    /// Each of these once differed — a trailing newline, an indent, a `\r` — and a difference of
+    /// one byte is a cache miss, which is a fence that draws nothing.
+    #[test]
+    fn published_fence_body_is_the_ast_body() {
+        let documents = [
+            (
+                "plain",
+                "# T\n\n```mermaid\ngraph TD;\nA-->B;\n```\n\ntail\n",
+            ),
+            (
+                "trailing blank line",
+                "```mermaid\ngraph TD;\nA-->B;\n\n```\n",
+            ),
+            (
+                "indented",
+                "- item\n\n  ```mermaid\n  graph TD;\n  A-->B;\n  ```\n",
+            ),
+            (
+                "crlf",
+                "# T\r\n\r\n```mermaid\r\ngraph TD;\r\nA-->B;\r\n```\r\n",
+            ),
+            (
+                "two fences",
+                "```mermaid\nA\n```\n\ntext\n\n```mermaid\nB\n```\n",
+            ),
+        ];
+        for (name, source) in documents {
+            let scanned: Vec<String> = fences(source).iter().map(|f| f.source.clone()).collect();
+            let parsed: Vec<String> = ast_code_values(source)
+                .into_iter()
+                .filter(|(lang, _)| Format::of(lang.as_deref().unwrap_or("")).is_some())
+                .map(|(_, value)| value)
+                .collect();
+            assert_eq!(
+                scanned, parsed,
+                "{name}: published {scanned:?} vs AST {parsed:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn scanner_finds_tagged_fences_only() {
+        let source = concat!(
+            "```rust\nfn main() {}\n```\n\n",
+            "```mermaid\ngraph TD;\nA-->B;\n```\n\n",
+            "```excalidraw\n{}\n```\n\n",
+            "```\nplain\n```\n",
+        );
+        let found = fences(source);
+        assert_eq!(found.len(), 2);
+        assert!(found[0].format == Format::Mermaid);
+        assert_eq!(found[0].source, "graph TD;\nA-->B;");
+        assert!(found[1].format == Format::Excalidraw);
+        assert_eq!(found[1].source, "{}");
+    }
+
+    /// A fence nested in a list or a blockquote is still a fence, and the AST reaches it.
+    #[test]
+    fn scanner_reaches_nested_fences() {
+        let source = "- item\n\n  ```mermaid\n  graph TD;\n  A-->B;\n  ```\n\n> ```mermaid\n> flowchart LR\n> ```\n";
+        let found = fences(source);
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0].source, "graph TD;\nA-->B;");
+        assert_eq!(found[1].source, "flowchart LR");
+    }
+
+    /// A fence that would be drawn is published out of the *body*, so frontmatter never shifts it.
+    #[test]
+    fn frontmatter_is_split_before_the_fences_are_read() {
+        let source = "---\ntitle: x\n---\n\n```mermaid\ngraph TD;\nA-->B;\n```\n";
+        let (fm, body) = split_frontmatter(source);
+        assert_eq!(fm, Some("title: x"));
+        let found = fences(body);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].source, "graph TD;\nA-->B;");
+    }
+
+    /// A tag that names no renderer is not a fence, whatever its body says.
+    #[test]
+    fn untagged_and_unknown_fences_are_not_diagrams() {
+        assert!(fences("```\ngraph TD;\n```\n").is_empty());
+        assert!(fences("```mermaidx\ngraph TD;\n```\n").is_empty());
+        assert_eq!(fences("``` mermaid \ngraph TD;\n```\n").len(), 1);
+    }
 }

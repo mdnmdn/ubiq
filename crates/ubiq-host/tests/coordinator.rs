@@ -628,6 +628,7 @@ fn a_read_and_a_save_round_trip_over_the_bus() {
 "
         .to_vec(),
         expected: Some(version),
+        overwrite: false,
     });
     let written = expect_written(&ui);
     assert_ne!(written, version, "the version has to move with the file");
@@ -646,6 +647,7 @@ fn a_read_and_a_save_round_trip_over_the_bus() {
 "
         .to_vec(),
         expected: Some(version),
+        overwrite: false,
     });
     loop {
         match ui.from_host().recv_timeout(PATIENCE) {

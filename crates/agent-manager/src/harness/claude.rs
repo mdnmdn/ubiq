@@ -127,6 +127,7 @@ impl Harness for Claude {
     fn version(&self) -> Result<String> {
         let mut cmd = Command::new("claude");
         cmd.arg("--version");
+        cmd.current_dir(super::shared::probe_cwd());
         #[cfg(windows)]
         super::shared::no_window(&mut cmd);
         let output = cmd
@@ -226,6 +227,7 @@ impl Harness for Claude {
         let models = self.discover_models()?;
         let mut cmd = Command::new("claude");
         cmd.arg("--help");
+        cmd.current_dir(super::shared::probe_cwd());
         #[cfg(windows)]
         super::shared::no_window(&mut cmd);
         let output = cmd
@@ -840,6 +842,10 @@ fn discover_models_via_jsonl() -> Result<Vec<ModelInfo>> {
     for key in ENV_HYGIENE {
         cmd.env_remove(key);
     }
+    // A real session's cwd is `RunSpec::cwd`, a project folder the caller chose. This is a
+    // probe, not a session, so it runs in agent-manager's own scratch dir instead of whatever
+    // folder the embedding app happens to be running from — see `shared::probe_cwd`.
+    cmd.current_dir(super::shared::probe_cwd());
     #[cfg(windows)]
     super::shared::no_window(&mut cmd);
     let mut child = cmd.spawn().with_context(

@@ -353,7 +353,7 @@ fn a_save_replaces_the_contents_and_answers_the_new_version() {
     let dir = project();
     let read = files::contents(dir.path(), "top.txt", None).unwrap();
 
-    let version = files::save(dir.path(), "top.txt", b"rewritten\n", read.version).unwrap();
+    let version = files::save(dir.path(), "top.txt", b"rewritten\n", read.version, false).unwrap();
     assert_eq!(
         fs::read(dir.path().join("top.txt")).unwrap(),
         b"rewritten\n"
@@ -368,8 +368,16 @@ fn a_save_leaves_no_temporary_file_beside_it() {
         .unwrap()
         .version;
     for n in 0..5 {
-        version =
-            Some(files::save(dir.path(), "top.txt", format!("{n}\n").as_bytes(), version).unwrap());
+        version = Some(
+            files::save(
+                dir.path(),
+                "top.txt",
+                format!("{n}\n").as_bytes(),
+                version,
+                false,
+            )
+            .unwrap(),
+        );
     }
 
     let litter: Vec<String> = fs::read_dir(dir.path())
@@ -390,7 +398,7 @@ fn a_save_with_a_stale_version_is_a_conflict_and_the_file_is_untouched() {
     };
 
     assert_eq!(
-        files::save(dir.path(), "top.txt", b"clobbered\n", Some(stale)).unwrap_err(),
+        files::save(dir.path(), "top.txt", b"clobbered\n", Some(stale), false).unwrap_err(),
         FileError::Conflict
     );
     assert_eq!(fs::read(dir.path().join("top.txt")).unwrap(), b"top\n");
@@ -400,14 +408,32 @@ fn a_save_with_a_stale_version_is_a_conflict_and_the_file_is_untouched() {
 fn a_save_naming_no_version_creates_a_file_and_refuses_an_existing_one() {
     let dir = project();
 
-    files::save(dir.path(), "sub/new.txt", b"new\n", None).unwrap();
+    files::save(dir.path(), "sub/new.txt", b"new\n", None, false).unwrap();
     assert_eq!(fs::read(dir.path().join("sub/new.txt")).unwrap(), b"new\n");
 
     // The only safe meaning of "no version" is creation; a forced overwrite is not on offer.
     assert_eq!(
-        files::save(dir.path(), "top.txt", b"clobbered\n", None).unwrap_err(),
+        files::save(dir.path(), "top.txt", b"clobbered\n", None, false).unwrap_err(),
         FileError::Conflict
     );
+    assert_eq!(fs::read(dir.path().join("top.txt")).unwrap(), b"top\n");
+}
+
+#[test]
+fn an_overwrite_naming_no_version_replaces_an_existing_file() {
+    let dir = project();
+
+    files::save(dir.path(), "top.txt", b"replaced\n", None, true).unwrap();
+    assert_eq!(fs::read(dir.path().join("top.txt")).unwrap(), b"replaced\n");
+}
+
+#[test]
+fn an_overwrite_beside_a_version_is_refused() {
+    let dir = project();
+    let read = files::contents(dir.path(), "top.txt", None).unwrap();
+
+    let error = files::save(dir.path(), "top.txt", b"clobbered\n", read.version, true).unwrap_err();
+    assert!(matches!(error, FileError::Refused(_)), "answered {error:?}");
     assert_eq!(fs::read(dir.path().join("top.txt")).unwrap(), b"top\n");
 }
 
@@ -418,7 +444,7 @@ fn a_save_onto_a_file_that_went_away_is_missing_rather_than_a_resurrection() {
     fs::remove_file(dir.path().join("top.txt")).unwrap();
 
     assert_eq!(
-        files::save(dir.path(), "top.txt", b"back\n", read.version).unwrap_err(),
+        files::save(dir.path(), "top.txt", b"back\n", read.version, false).unwrap_err(),
         FileError::Missing
     );
     assert!(!dir.path().join("top.txt").exists());
@@ -434,7 +460,14 @@ fn a_save_keeps_the_file_executable() {
     fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
 
     let read = files::contents(dir.path(), "run.sh", None).unwrap();
-    files::save(dir.path(), "run.sh", b"#!/bin/sh\nfalse\n", read.version).unwrap();
+    files::save(
+        dir.path(),
+        "run.sh",
+        b"#!/bin/sh\nfalse\n",
+        read.version,
+        false,
+    )
+    .unwrap();
 
     let mode = fs::metadata(&script).unwrap().permissions().mode() & 0o777;
     assert_eq!(
@@ -453,7 +486,7 @@ fn a_save_never_writes_through_a_symlink_out_of_the_root() {
     fs::write(&victim, b"untouched\n").unwrap();
     std::os::unix::fs::symlink(&victim, dir.path().join("link")).unwrap();
 
-    let error = files::save(dir.path(), "link", b"clobbered\n", None).unwrap_err();
+    let error = files::save(dir.path(), "link", b"clobbered\n", None, false).unwrap_err();
     assert!(refused(&error), "answered {error:?}");
     assert_eq!(fs::read(&victim).unwrap(), b"untouched\n");
 }
@@ -466,7 +499,7 @@ fn a_save_into_a_folder_that_went_away_is_refused() {
     fs::remove_dir(&root).unwrap();
 
     assert_eq!(
-        files::save(&root, "file.txt", b"x", None).unwrap_err(),
+        files::save(&root, "file.txt", b"x", None, false).unwrap_err(),
         FileError::Missing
     );
 }
@@ -475,7 +508,7 @@ fn a_save_into_a_folder_that_went_away_is_refused() {
 fn a_save_never_creates_a_folder() {
     let dir = project();
     assert_eq!(
-        files::save(dir.path(), "new/dir/file.txt", b"x", None).unwrap_err(),
+        files::save(dir.path(), "new/dir/file.txt", b"x", None, false).unwrap_err(),
         FileError::Missing
     );
     assert!(

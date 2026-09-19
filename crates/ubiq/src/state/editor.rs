@@ -721,6 +721,40 @@ impl OpenFile {
         }
     }
 
+    /// Why a save on this tab would not be honest, when it would not.
+    ///
+    /// [`Self::savable`] answers the same question as a bool, for the surfaces that only need to
+    /// enable a control. This one answers it as a sentence, because a save keystroke that
+    /// silently returns is the whole of the bug it was written for: the user pressed ⌘S, nothing
+    /// was written, and nothing said so.
+    ///
+    /// A buffer that is version-less but whole is deliberately *not* refused here. It was never
+    /// read from disk, so its save is a creation — which is what lets a tab whose save-as was
+    /// refused be saved again instead of being stuck unsavable for the rest of the session.
+    pub fn save_refusal(&self) -> Option<&'static str> {
+        if self.guest {
+            return Some("it was dropped in from outside every open project, and is read-only");
+        }
+        match &self.body {
+            FileBody::Text {
+                truncated: true, ..
+            } => Some(
+                "it was too large to read whole, and writing back the part that was read would shorten it",
+            ),
+            FileBody::Text { .. } | FileBody::Bytes(_) | FileBody::ImageEdit(_) => None,
+            FileBody::Loading => Some("its bytes have not arrived yet"),
+            FileBody::Diff(_) => Some("a diff is a comparison, not a file"),
+            FileBody::Binary => Some("the editor does not hold its bytes"),
+            FileBody::Failed(_) => Some("it could not be read"),
+        }
+    }
+
+    /// Whether a write for this tab is in flight. What tells a refused save apart from a refused
+    /// read of the same path: only the first has an answer worth putting in front of the user.
+    pub fn is_saving(&self) -> bool {
+        matches!(self.save, SaveState::Saving(_))
+    }
+
     /// The buffer, for the one module that draws it.
     pub fn buffer(&self) -> Option<&Entity<EditorState>> {
         match &self.body {

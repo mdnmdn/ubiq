@@ -15,6 +15,8 @@
 
 use std::sync::Arc;
 
+use gpui::{Entity, Subscription};
+use gpui_component::input::EditorState;
 use ubiq_proto::files::{DirListing, EntryKind, FileContents};
 use ubiq_proto::ids::{KbSourceId, RepoQueryId};
 use ubiq_proto::kb::{KbAccess, KbOrigin, KbSource, KbSourceState, KbSourceStatus, KbStore};
@@ -119,12 +121,75 @@ impl KbDocKey {
 pub struct KbDoc {
     pub key: KbDocKey,
     pub body: KbBody,
+    /// A buffer to type into, built the moment `body` becomes [`KbBody::Ready`] over a writable,
+    /// non-binary source — `app/kb.rs`'s `attach_kb_docs`, on `attach_arrived_files`'s reasoning:
+    /// an `EditorState` needs a `Window` and `KbFileContents` does not carry one. `None` for a
+    /// read-only source, a binary file, or a document the window has not yet had a frame to build
+    /// it in — the one and only place a source's `is_writable` is read to decide whether a
+    /// document can be typed into, so a read-only source stays read-only by never getting one.
+    pub edit: Option<KbEdit>,
 }
 
 pub enum KbBody {
     Loading,
     Ready(FileContents),
     Failed(String),
+}
+
+/// The editable half of an open document, present only over a writable source.
+pub struct KbEdit {
+    pub buffer: Entity<EditorState>,
+    /// Exactly the text last confirmed on disk, so dirty is a comparison against a fact — the
+    /// buffer's own change event keeps `dirty` current without a per-frame comparison.
+    baseline: String,
+    dirty: bool,
+    pub save: KbSaveState,
+    /// Held only to live as long as the document does.
+    _change: Subscription,
+}
+
+impl KbEdit {
+    pub fn new(buffer: Entity<EditorState>, baseline: String, change: Subscription) -> Self {
+        Self {
+            buffer,
+            baseline,
+            dirty: false,
+            save: KbSaveState::Idle,
+            _change: change,
+        }
+    }
+
+    pub fn is_dirty(&self) -> bool {
+        self.dirty
+    }
+
+    /// Called from the buffer's own change subscription, with what it holds now.
+    pub fn refresh_dirty(&mut self, current: &str) {
+        self.dirty = current != self.baseline;
+    }
+
+    /// A save landed: what was sent is now the fact on disk.
+    pub fn saved(&mut self, current: String) {
+        self.baseline = current;
+        self.dirty = false;
+        self.save = KbSaveState::Idle;
+    }
+}
+
+/// Where a document's save has got to.
+pub enum KbSaveState {
+    Idle,
+    Saving,
+    Failed(String),
+}
+
+/// The directory a path lives in, `ProjectPathEdited`'s own reasoning said for the knowledge
+/// base: empty for a top-level path, the one place `KbChanged`'s `rel_path` is matched against a
+/// document that might be mid-save.
+pub fn kb_parent_path(path: &str) -> &str {
+    path.rsplit_once('/')
+        .map(|(parent, _)| parent)
+        .unwrap_or("")
 }
 
 /// One row of the flattened tree the panel draws.

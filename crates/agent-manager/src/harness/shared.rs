@@ -90,6 +90,42 @@ pub(crate) fn no_window(cmd: &mut std::process::Command) {
     cmd.creation_flags(CREATE_NO_WINDOW);
 }
 
+/// Where a version/discovery probe's `cwd` sits: `~/.config/agent-manager/probe` — sibling to
+/// `runs/`, `accounts/`, `catalog/` under [`crate::settings::default_config_dir`] — created on
+/// first use. Overridable by `AM_PROBE_DIR`, mirroring `AM_RUNS`.
+///
+/// A probe is never handed the caller's own `cwd`. Left to inherit it, a `claude --version` or a
+/// `claude -p "/model"` shell-out starts life *inside* whatever folder the embedding app happens
+/// to be running from — typically the user's home directory for a GUI app — and two things follow
+/// from that: on macOS, the OS treats the child's mere presence there as this process touching a
+/// TCC-protected folder and prompts for access; and a harness that reads its ambient cwd (project
+/// config, `.git`, `CLAUDE.md`) picks up whatever unrelated project sits there. Neither is a
+/// concern for a real session: [`crate::spec::RunSpec::cwd`] is the project folder a caller
+/// chose on purpose, and this function is never consulted on that path.
+///
+/// Falls back to the OS temp dir on the rare host with no resolvable home, and again if the
+/// directory cannot be created — a `cwd` that does not exist fails the spawn itself with `ENOENT`,
+/// so an unwritable config dir would take every probe down with it rather than costing a prompt.
+pub(crate) fn probe_cwd() -> std::path::PathBuf {
+    probe_cwd_from(std::env::var("AM_PROBE_DIR").ok().filter(|s| !s.is_empty()))
+}
+
+/// [`probe_cwd`]'s body, taking the `AM_PROBE_DIR` reading as a parameter so a test can supply one
+/// without `std::env::set_var` — `unsafe` as of edition 2024, and this crate forbids unsafe code
+/// (`#![forbid(unsafe_code)]` in `lib.rs`).
+fn probe_cwd_from(explicit: Option<String>) -> std::path::PathBuf {
+    let dir = explicit
+        .map(std::path::PathBuf::from)
+        .or_else(|| crate::settings::default_config_dir().map(|d| d.join("probe")))
+        .unwrap_or_else(std::env::temp_dir);
+    if std::fs::create_dir_all(&dir).is_ok() {
+        return dir;
+    }
+    let fallback = std::env::temp_dir();
+    let _ = std::fs::create_dir_all(&fallback);
+    fallback
+}
+
 /// Read the secret an account's env-var *reference* names.
 ///
 /// `am`'s account store never holds secret material — only env-var NAMES, a
@@ -181,3 +217,26 @@ macro_rules! harness_conformance_tests {
 }
 #[cfg(test)]
 pub(crate) use harness_conformance_tests;
+
+#[cfg(test)]
+mod probe_cwd_tests {
+    use super::probe_cwd_from;
+
+    /// The scratch dir is created on demand at the given root, never left for the caller to
+    /// create — a probe must not fail just because nothing has run one yet.
+    #[test]
+    fn probe_cwd_is_created_on_demand() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path().join("does-not-exist-yet");
+
+        let dir = probe_cwd_from(Some(root.display().to_string()));
+
+        assert_eq!(dir, root);
+        assert!(dir.is_dir(), "probe_cwd should create the scratch dir");
+        assert_ne!(
+            dir,
+            std::env::current_dir().unwrap(),
+            "probe cwd must never be the ambient process cwd"
+        );
+    }
+}

@@ -1245,9 +1245,13 @@ impl AppState {
                 // the selection this key still names gets it.
                 if open.kb.selected.as_ref() == Some(&key) {
                     open.kb.doc = Some(KbDoc {
-                        key,
+                        key: key.clone(),
                         body: KbBody::Ready(contents),
+                        // Built in `attach_kb_docs`, which needs a `Window` this message does not
+                        // carry — queued exactly as `ProjectFileContents` queues `pending_files`.
+                        edit: None,
                     });
+                    self.pending_kb_docs.push(KbArrival { project_id, key });
                     cx.notify();
                 }
             }
@@ -1265,10 +1269,25 @@ impl AppState {
                 // listing, or a write, create, rename or delete that has no document behind it —
                 // lands on the source's own row, because a gesture that silently did nothing is
                 // the one failure mode the panel must not have.
-                if !key.path.is_empty() && open.kb.selected.as_ref() == Some(&key) {
+                let mid_save = matches!(
+                    &open.kb.doc,
+                    Some(doc) if doc.key == key
+                        && matches!(doc.edit.as_ref().map(|edit| &edit.save), Some(KbSaveState::Saving))
+                );
+                if mid_save {
+                    // A save that was refused leaves the buffer exactly as the user left it — the
+                    // one place a `KbFileError` must not read as "the document is gone", since
+                    // what it names here is a write, not the read that put the document on screen.
+                    if let Some(doc) = &mut open.kb.doc
+                        && let Some(edit) = &mut doc.edit
+                    {
+                        edit.save = KbSaveState::Failed(reason);
+                    }
+                } else if !key.path.is_empty() && open.kb.selected.as_ref() == Some(&key) {
                     open.kb.doc = Some(KbDoc {
                         key,
                         body: KbBody::Failed(reason),
+                        edit: None,
                     });
                 } else {
                     open.kb.set_error(source, Some(reason));
@@ -1285,6 +1304,19 @@ impl AppState {
                 rel_path,
             } => {
                 let open = self.projects.get_mut(&project_id)?;
+                // A write this window made lands here too, since `WriteKbFile` answers with
+                // `KbChanged` naming the parent directory rather than with anything of its own —
+                // the document mid-save is found by that same parent, and the save it was
+                // carrying is the one thing this arm confirms rather than merely re-lists.
+                if let Some(doc) = &mut open.kb.doc
+                    && doc.key.source == source
+                    && kb_parent_path(&doc.key.path) == rel_path
+                    && let Some(edit) = &mut doc.edit
+                    && matches!(edit.save, KbSaveState::Saving)
+                {
+                    let current = edit.buffer.read(cx).value().to_string();
+                    edit.saved(current);
+                }
                 if open.kb.mark_unlisted(source, &rel_path) {
                     open.kb.mark_loading(source, &rel_path);
                     self.bus.send(Message::KbTree {
@@ -2649,6 +2681,12 @@ impl AppState {
     /// A tab waiting for bytes says why instead of sitting empty; a folder waiting for a listing
     /// stops spinning. A folder or a file that has gone is the cue to look at the project's own
     /// health again — the worker that answered does not know the catalogue and cannot say.
+    ///
+    /// A refused *write* is the one that gets a modal. The buffer still holds the edits, and the
+    /// dot on the tab was never able to say that the file on disk is not what is on screen — the
+    /// next keystroke even cleared it. Where the refusal has an answer to offer, the modal asks it
+    /// instead of reporting: a write that named no version and landed on something already there
+    /// means the path is taken, which only the user can settle.
     fn file_failed(
         &mut self,
         project: ProjectId,
@@ -2659,6 +2697,7 @@ impl AppState {
         let reason = describe(&error);
         tracing::warn!("{project} {rel_path}: {reason}");
 
+        let mut question = None;
         if let Some(open) = self.projects.get_mut(&project) {
             open.explorer.set_loading(&rel_path, false);
             open.wanted.retain(|wanted| wanted != &rel_path);
@@ -2668,9 +2707,28 @@ impl AppState {
                     true => file.set_failed(reason.clone()),
                     // A write failed against a buffer the user still has: it is untouched, and
                     // still dirty.
-                    false => file.save_failed(reason.clone()),
+                    false => {
+                        // Only a write this tab actually had in flight is worth a modal: a
+                        // refused read or diff on the same path is not the user's ⌘S.
+                        if file.is_saving() {
+                            let key = file.key();
+                            // No version to name means the write was a creation, so a conflict
+                            // means the path is taken — the one refusal with a question in it.
+                            question = Some(match (&error, file.version()) {
+                                (FileError::Conflict, None) => FileDialog::OverwriteFile { key },
+                                _ => FileDialog::SaveFailed {
+                                    key,
+                                    reason: reason.clone(),
+                                },
+                            });
+                        }
+                        file.save_failed(reason.clone());
+                    }
                 }
             }
+        }
+        if let Some(dialog) = question {
+            self.workbench.file_dialog = Some(dialog);
         }
 
         if matches!(error, FileError::Missing | FileError::Denied(_)) {

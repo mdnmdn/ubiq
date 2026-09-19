@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: What a pane shows, how exactly one of them holds focus, how a resize reaches the harness, and how a pane is moved around the window's dock.
 read_when: you are changing where a pane sits, pane focus, resize, pane chrome, or how terminal bytes reach the screen
-updated: 2026-09-18
-verified: 2026-09-18
+updated: 2026-09-19
+verified: 2026-09-19
 code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/editor.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/new_pane_menu.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/tools.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/tests/coordinator.rs, crates/ubiq-host/src/pty/mod.rs, crates/ubiq-host/src/shells.rs, vendor/gpui-terminal/src/view.rs, vendor/gpui-terminal/src/render.rs, vendor/gpui-terminal/src/input.rs, vendor/gpui-terminal/src/mouse.rs, vendor/gpui-terminal/src/clipboard.rs, vendor/gpui-terminal/src/event.rs, vendor/gpui-terminal/src/terminal.rs]
 depends_on: [tech-transport]
 review_cycle: monthly
@@ -122,7 +122,10 @@ reader and reaper hold — `HostEnd::moving_mailbox`, because those two run on t
 and hold one destination for the life of the harness. What the move costs is the scrollback: the
 emulator is rebuilt on the taking window's bus, since the old one's keystroke writer, resize sender
 and state handle all point at a window that no longer owns the pane. The harness is untouched and
-redraws into the new screen (`G280`).
+redraws into the new screen (`G280`). "Open in a new window" waits a turn before it opens one
+(`cx.defer` in `open_project_window`): the menu item is drawn by the window that holds the project,
+so its `AppState` is leased for the length of the click, and the hand-off has to reach that same
+entity.
 
 **A pane exists because the coordinator says it does.** Asking for one is a request; the panel and
 its emulator are drawn on the answer. A harness that fails to start produces an error against a pane

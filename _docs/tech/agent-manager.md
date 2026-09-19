@@ -5,8 +5,8 @@ kind: tech
 status: draft
 summary: What the embedded harness-management library owns, what Ubiq owns, how the application consumes it, and the rule that keeps the two from growing into each other.
 read_when: you are about to write code that launches a harness, drives one as a conversation, names a harness config path, or touches accounts, skills or MCP servers
-updated: 2026-09-18
-verified: 2026-09-18
+updated: 2026-09-19
+verified: 2026-09-19
 code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/main.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/quota.rs, crates/agent-manager/src/credentials/mod.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/examples/confined_shell_probe.rs, crates/agent-manager/src/io/structured.rs, crates/ubiq-app/src/lib.rs, crates/agent-manager/src/io/mod.rs, crates/agent-manager/src/io/acp.rs, crates/agent-manager/src/io/acp_caps.rs, crates/agent-manager/src/io/acp_client.rs, crates/ubiq-host/src/mcp/mod.rs]
 depends_on: [tech-structure]
 review_cycle: monthly
@@ -84,6 +84,15 @@ has no path separator), and the rest is prepended to the arguments the library a
 entry for a harness resolves exactly as before, and `crates/agent-manager` is unchanged either way:
 which binary a harness is called is still the library's fact, an override is a fact about this
 machine.
+
+**A probe never runs in the caller's own folder.** Every version and discovery shell-out —
+`Harness::version`, `claude --help`, the `stream-json` model probe, `codex debug models`,
+`opencode models` — runs with its working directory set to `shared::probe_cwd()`, a scratch folder
+beside `runs/` under the library's config dir (`AM_PROBE_DIR` overrides it, as `AM_RUNS` does for
+runs), created on first use. Inheriting the embedding app's cwd meant probing from the user's home
+directory, which is a TCC prompt on macOS and a harness reading someone else's `.git`, project
+config or `CLAUDE.md`. A real session is unaffected: its cwd is `RunSpec::cwd`, the project folder
+the caller chose.
 
 **Ubiq does not build the `RunSpec` itself — `resolve` does.** `agent.rs` calls
 `agent_manager::resolve::resolve` with a `RunFlags` naming only the harness and the folder, and
