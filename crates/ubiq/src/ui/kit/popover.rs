@@ -11,11 +11,12 @@
 //! the same toggle discipline the menus follow.
 
 use gpui::{
-    AnyElement, ElementId, InteractiveElement, IntoElement, ParentElement as _, Pixels,
-    Styled as _, anchored, deferred, div, px,
+    AnyElement, ElementId, InteractiveElement, IntoElement, MouseButton, ParentElement as _,
+    Pixels, Styled as _, anchored, deferred, div, px,
 };
 
 use crate::theme;
+use crate::ui::kit::Action;
 use crate::ui::kit::menu::{MENU_ANCHOR_UP, MENU_LAYER};
 
 /// A list in a floating panel above its trigger. `id` names the deferred layer this element sits
@@ -23,12 +24,15 @@ use crate::ui::kit::menu::{MENU_ANCHOR_UP, MENU_LAYER};
 /// narrowest the panel will draw; `children` are the rows, already laid out in the order they go.
 /// `debug` is the `debug_selector` the panel answers to, when the caller wants its tests to find
 /// it by name — the dropdowns this panel mirrors do without, the tests of a conversation screen
-/// name their own.
+/// name their own. `on_dismiss` is what an outside click calls, for a panel whose trigger is not
+/// itself the thing clicked away from; `None` leaves the panel up until its own state is cleared,
+/// which is what a panel drawn *inside* its trigger wants.
 #[allow(clippy::too_many_arguments)]
 pub fn popover(
     id: ElementId,
     min_width: Pixels,
     debug: Option<&'static str>,
+    on_dismiss: Option<Action>,
     children: impl IntoIterator<Item = AnyElement>,
 ) -> AnyElement {
     let mut panel = div()
@@ -45,6 +49,13 @@ pub fn popover(
         .shadow_lg();
     if let Some(name) = debug {
         panel = panel.debug_selector(move || name.into());
+    }
+    if let Some(dismiss) = on_dismiss {
+        // Same contract the context panel's: this layer is painted above whatever raised it, so a
+        // click inside it must not also reach the control underneath.
+        panel = panel
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_mouse_down_out(move |_, window, cx| dismiss(window, cx));
     }
     deferred(
         anchored()

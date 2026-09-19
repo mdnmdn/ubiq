@@ -4,7 +4,7 @@ use ubiq::state::RailMode;
 use ubiq::state::editor::{Subject, from_tab_key, tab_key};
 use ubiq::state::nav::{Bookmark, Destination, Locus, View};
 use ubiq::state::prefs::{self, InterfacePrefs, ModeLayout, ViewPrefs};
-use ubiq::theme::{AccentId, Density, ThemeId};
+use ubiq::theme::{AccentId, ThemeId};
 use ubiq_proto::files::DiffBase;
 use ubiq_proto::ids::ProjectId;
 use ubiq_proto::work::AgentId;
@@ -159,32 +159,40 @@ fn the_interface_blob_carries_the_palette() {
         schema: prefs::SCHEMA,
         theme: ThemeId::LIGHT,
         accent: Some(AccentId("green")),
-        density: Density::Comfortable,
-        chrome_font_size: None,
-        conversation_font_size: None,
+        ui_scale: 1.15,
+        text_ratio: 0.9,
+        content_trim: 1.0,
+        chrome_trim: 1.0,
+        conversation_trim: 1.0,
+        size_presets: Vec::new(),
+        custom_themes: Vec::new(),
         last_start: None,
         rest: Default::default(),
     };
     let back: InterfacePrefs = prefs::decode(&prefs::encode(&prefs_in)).expect("decodes");
     assert_eq!(back.theme, ThemeId::LIGHT);
     assert_eq!(back.accent, Some(AccentId("green")));
-    assert_eq!(back.density, Density::Comfortable);
+    assert_eq!(back.ui_scale, 1.15);
+    assert_eq!(back.text_ratio, 0.9);
 
     // The accent is an axis added after the first release: a blob without it reads as the
     // palette's own seed rather than being discarded.
     let older = format!(r#"{{"schema":{},"theme":"Light"}}"#, prefs::SCHEMA);
     let back: InterfacePrefs = prefs::decode(&older).expect("a blob without the field decodes");
     assert_eq!(back.accent, None);
-    assert_eq!(back.density, Density::Regular);
-    // The two interface-scoped text bases arrived the same way and read the same way: absent is
-    // the family's own default, not a discarded blob.
-    assert_eq!(back.chrome_font_size, None);
-    assert_eq!(back.conversation_font_size, None);
+    // The size axis reads the same way: absent is 1.0, the window every constant declares, not a
+    // discarded blob.
+    assert_eq!(back.ui_scale, 1.0);
+    assert_eq!(back.text_ratio, 1.0);
+    assert_eq!(back.content_trim, 1.0);
+    assert_eq!(back.chrome_trim, 1.0);
+    assert_eq!(back.conversation_trim, 1.0);
 }
 
-/// The content family's base is the project's, and it was written as `ui_font_size` before the
-/// three families were named. A blob already on disk keeps its zoom rather than opening at the
-/// default, which is what the serde alias buys and why the schema did not move.
+/// `ViewPrefs::content_font_size` is parsed and ignored since `D151` moved the content family to
+/// the interface, and it was written as `ui_font_size` before the three families were named. Both
+/// still read, because a blob on disk is what the `4 -> 5` upgrade takes the interface's content
+/// trim from.
 #[test]
 fn a_projects_zoom_survives_the_content_font_rename() {
     let older = format!(
@@ -213,9 +221,13 @@ fn the_interface_blob_carries_the_last_start() {
         schema: prefs::SCHEMA,
         theme: ThemeId::DARK,
         accent: None,
-        density: Density::Regular,
-        chrome_font_size: None,
-        conversation_font_size: None,
+        ui_scale: 1.0,
+        text_ratio: 1.0,
+        content_trim: 1.0,
+        chrome_trim: 1.0,
+        conversation_trim: 1.0,
+        size_presets: Vec::new(),
+        custom_themes: Vec::new(),
         last_start: Some(prefs::LastStart {
             agent_type: "claude-code".to_string(),
             account: Some("mdn".to_string()),
@@ -247,11 +259,16 @@ fn the_interface_blob_carries_the_last_start() {
 
 /// The schema moved when a remembered file became a tab key rather than a path, when the saved
 /// arrangement gained one panel per open file, and when `rail_mode: "Agents"` stopped naming the
-/// graph and started naming the columns. All three are fields an older build already wrote, so a
-/// blob from before a move is discarded whole rather than read as though it meant this.
+/// graph and started naming the columns. All three are fields an older build already wrote, and
+/// none of them is a value a migration could recover, so a blob from before them is discarded
+/// whole rather than read as though it meant this.
+///
+/// `4 -> 5` is the exception and the reason [`prefs::decode`] has an upgrade path at all: it moved
+/// appearance the *user* chose, which a default cannot rescue — so it is upgraded, and the schema
+/// it lands on is this build's.
 #[test]
-fn a_blob_from_a_previous_schema_is_discarded() {
-    for schema in 1..prefs::SCHEMA {
+fn a_blob_from_a_previous_schema_is_discarded_unless_it_has_an_upgrade_arm() {
+    for schema in 1..4 {
         let before = format!(
             r#"{{"schema":{schema},"rail_mode":"Ide","show_left":true,"show_bottom":true,
                  "show_right":true,"open_files":["justfile"],"active_file":"justfile"}}"#
@@ -261,6 +278,15 @@ fn a_blob_from_a_previous_schema_is_discarded() {
             "schema {schema} is not this build's and must be discarded"
         );
     }
+
+    let four = r#"{"schema":4,"rail_mode":"Ide","open_files":["justfile"]}"#;
+    let back: ViewPrefs = prefs::decode(four).expect("schema 4 is upgraded, not discarded");
+    assert_eq!(back.schema, prefs::SCHEMA);
+    assert_eq!(back.open_files, vec!["justfile".to_string()]);
+
+    // And a schema this build has never heard of is still thrown away.
+    let future = format!(r#"{{"schema":{},"rail_mode":"Ide"}}"#, prefs::SCHEMA + 1);
+    assert!(prefs::decode::<ViewPrefs>(&future).is_none());
 }
 
 /// The mode the graph screen answers to. `Agents` is still a name the blob carries and it now

@@ -3,8 +3,10 @@
 //! Every colour in the UI comes from an accessor here. A literal colour anywhere else is a defect
 //! — see `_docs/tech/ui-and-design.md`, which owns the token set.
 
-use gpui::{App, Pixels, Rgba, px};
+use gpui::{App, Pixels, Rgba, SharedString, px};
 use std::cell::RefCell;
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Mutex;
 
 // ── Design constants ────────────────────────────────────────────────
 
@@ -18,43 +20,46 @@ pub const MONO_FONT: &str = "Cascadia Mono";
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub const MONO_FONT: &str = "DejaVu Sans Mono";
 
-// The grid half of the table. These are the sizes density scales, so each is a function rather
-// than a `pub const`: a factor cannot apply to a const. Everything below the "Dragged regions"
-// heading stays a const and does not move — see the note there.
+// **Every pixel dimension here is a `pub const` base plus a `scaled()` accessor**, and a call site
+// reads the accessor. The base is the size at `ui_scale = 1.0`; the accessor is that size in the
+// window the user actually has. The two exceptions are [`hairline`] — a rule must not blur — and
+// [`MODAL_MAX_HEIGHT`], which is a ratio rather than a length.
 
 /// The width of the coloured edge that marks a surface. Ubiq's surfaces are square; the left
 /// border is what identifies them.
-const ACCENT_EDGE: f32 = 2.0;
+pub const ACCENT_EDGE: f32 = 2.0;
 
 pub fn accent_edge() -> f32 {
     scaled(ACCENT_EDGE)
 }
 
-/// The terminal body: type size, the inset its output is drawn inside, and how many lines of
-/// scrollback an emulator keeps.
-pub const TERMINAL_FONT_SIZE: f32 = 13.0;
-const TERMINAL_PADDING: f32 = 8.0;
+/// A drawn rule: one device pixel, at every scale. A border that grows blurs rather than reads,
+/// so this is the one length the UI scale does not touch.
+pub fn hairline() -> f32 {
+    1.0
+}
+
+/// The terminal body: the inset its output is drawn inside, and how many lines of scrollback an
+/// emulator keeps. Its type size is the content family's base — see [`content_base`].
+pub const TERMINAL_PADDING: f32 = 8.0;
 pub const TERMINAL_SCROLLBACK: usize = 10_000;
 
-/// The inset a pane's output is drawn inside. Density reaches the pseudo-terminal through this:
-/// the emulator re-measures its cell grid from the bounds minus the padding, and its resize
+/// The inset a pane's output is drawn inside. The UI scale reaches the pseudo-terminal through
+/// this: the emulator re-measures its cell grid from the bounds minus the padding, and its resize
 /// callback is what tells the harness.
 pub fn terminal_padding() -> f32 {
     scaled(TERMINAL_PADDING)
 }
 
-/// The base point size a file editor draws its text at, and the anchor a project's zoom nudges.
-/// The component library draws editors at the theme's mono size (13px); this is Ubiq's own name
-/// for that floor so a per-project font size has a known start rather than an ever-tallied one.
-pub const EDITOR_FONT_SIZE: f32 = 13.0;
-/// The range a project's editor zoom is allowed to live in, in whole points.
+/// The range the status bar's px ladder is allowed to offer, in whole points. A size chosen there
+/// is divided by [`TEXT_BASE`] into the content trim, which has a clamp of its own.
 pub const EDITOR_FONT_MIN: f32 = 8.0;
 pub const EDITOR_FONT_MAX: f32 = 36.0;
 
-/// Chrome heights, in pixels, at `Density::Regular`.
-const TITLEBAR_HEIGHT: f32 = 34.0;
-const STATUS_BAR_HEIGHT: f32 = 30.0;
-const RAIL_WIDTH: f32 = 56.0;
+/// Chrome heights, in pixels, at `ui_scale = 1.0`.
+pub const TITLEBAR_HEIGHT: f32 = 34.0;
+pub const STATUS_BAR_HEIGHT: f32 = 30.0;
+pub const RAIL_WIDTH: f32 = 56.0;
 
 pub fn titlebar_height() -> f32 {
     scaled(TITLEBAR_HEIGHT)
@@ -68,11 +73,32 @@ pub fn rail_width() -> f32 {
     scaled(RAIL_WIDTH)
 }
 
+/// The three icon sizes. The component library's `Size` enum is discrete and does not move, so an
+/// icon drawn at a size of its own is `Size::Size(theme::icon_*())` and never a literal — `just ui`
+/// rejects the literal the same way it rejects a literal type size.
+pub const ICON_SM: f32 = 11.0;
+pub const ICON_MD: f32 = 14.0;
+pub const ICON_LG: f32 = 18.0;
+
+pub fn icon_sm() -> Pixels {
+    px(scaled(ICON_SM))
+}
+
+pub fn icon_md() -> Pixels {
+    px(scaled(ICON_MD))
+}
+
+pub fn icon_lg() -> Pixels {
+    px(scaled(ICON_LG))
+}
+
 // ── Dragged regions ─────────────────────────────────────────────────
 //
-// Density does **not** touch anything from here to the end of the table. These are what a *fresh*
-// window opens at; what the user then drags is remembered per project inside the arrangement blob,
-// so scaling them would fight a value the user already set.
+// Everything from here to the end of the table is the size a **fresh** window opens a region at.
+// What the user then drags is remembered per project inside the arrangement blob, so the *default*
+// scales — the accessor below — and the *stored* value does not. Scaling the blob would fight a
+// size the user already set; freezing the default would leave a 300px explorer beside a window
+// drawn 40% larger.
 
 /// The size each of the dock's three edge regions opens at, in pixels. What a drag will not pass
 /// is the dock's own, so a region is one number rather than a triple; what the user drags one to
@@ -81,11 +107,35 @@ pub const EXPLORER_WIDTH: f32 = 300.0;
 pub const CHAT_WIDTH: f32 = 420.0;
 pub const DOCK_HEIGHT: f32 = 300.0;
 
+pub fn explorer_width() -> f32 {
+    scaled(EXPLORER_WIDTH)
+}
+
+pub fn chat_width() -> f32 {
+    scaled(CHAT_WIDTH)
+}
+
+pub fn dock_height() -> f32 {
+    scaled(DOCK_HEIGHT)
+}
+
 /// The orchestration screen: the inspector beside the graph, the tasks drawer under it, and the
 /// pitch of the graph's dotted ground at 100% zoom.
 pub const INSPECTOR_WIDTH: f32 = 420.0;
 pub const TASKS_HEIGHT: f32 = 220.0;
 pub const GRAPH_DOT_PITCH: f32 = 28.0;
+
+pub fn inspector_width() -> f32 {
+    scaled(INSPECTOR_WIDTH)
+}
+
+pub fn tasks_height() -> f32 {
+    scaled(TASKS_HEIGHT)
+}
+
+pub fn graph_dot_pitch() -> f32 {
+    scaled(GRAPH_DOT_PITCH)
+}
 
 /// The agents screen: the sidebar listing every agent, and the strip that drops a dragged tab into
 /// a column of its own. The columns themselves share the row and are sized by
@@ -94,10 +144,26 @@ pub const GRAPH_DOT_PITCH: f32 = 28.0;
 pub const AGENT_SIDEBAR_WIDTH: f32 = 300.0;
 pub const NEW_COLUMN_STRIP: f32 = 28.0;
 
+pub fn agent_sidebar_width() -> f32 {
+    scaled(AGENT_SIDEBAR_WIDTH)
+}
+
+pub fn new_column_strip() -> f32 {
+    scaled(NEW_COLUMN_STRIP)
+}
+
 /// The start control on an empty chat panel: about three times a chrome `kit::icon_button`,
 /// because it is the page's whole subject rather than one control among a row of them.
 pub const EMPTY_START_SIZE: f32 = 90.0;
 pub const EMPTY_START_ICON: f32 = 48.0;
+
+pub fn empty_start_size() -> f32 {
+    scaled(EMPTY_START_SIZE)
+}
+
+pub fn empty_start_icon() -> Pixels {
+    px(scaled(EMPTY_START_ICON))
+}
 
 /// An A2UI surface's two sizes. The catalog carries no width, no height and no padding — it names
 /// a discrete `variant` per component and leaves the measurements to the renderer — so these are
@@ -111,10 +177,43 @@ pub const A2UI_IMAGE_LARGE: f32 = 240.0;
 pub const A2UI_IMAGE_HEADER_H: f32 = 120.0;
 pub const A2UI_SVG_MAX: f32 = 320.0;
 
+pub fn a2ui_image_icon() -> f32 {
+    scaled(A2UI_IMAGE_ICON)
+}
+
+pub fn a2ui_image_avatar() -> f32 {
+    scaled(A2UI_IMAGE_AVATAR)
+}
+
+pub fn a2ui_image_small() -> f32 {
+    scaled(A2UI_IMAGE_SMALL)
+}
+
+pub fn a2ui_image_medium() -> f32 {
+    scaled(A2UI_IMAGE_MEDIUM)
+}
+
+pub fn a2ui_image_large() -> f32 {
+    scaled(A2UI_IMAGE_LARGE)
+}
+
+pub fn a2ui_image_header_h() -> f32 {
+    scaled(A2UI_IMAGE_HEADER_H)
+}
+
+pub fn a2ui_svg_max() -> f32 {
+    scaled(A2UI_SVG_MAX)
+}
+
 /// A modal: how wide it is drawn, and the most of the window's height it may take before its body
 /// scrolls inside it. A modal is one question, so it is one width rather than a per-caller size.
 pub const MODAL_WIDTH: f32 = 460.0;
+/// A ratio rather than a length, so nothing scales it.
 pub const MODAL_MAX_HEIGHT: f32 = 0.8;
+
+pub fn modal_width() -> f32 {
+    scaled(MODAL_WIDTH)
+}
 
 /// The one modal that is not one question: a running harness login for a full-screen TUI
 /// (`opencode auth login`, bare `grok`). Those measure the box they are given and redraw for it,
@@ -127,15 +226,69 @@ pub const MODAL_MAX_HEIGHT: f32 = 0.8;
 pub const LOGIN_MODAL_WIDTH: f32 = 960.0;
 pub const LOGIN_MODAL_HEIGHT: f32 = 720.0;
 
+pub fn login_modal_width() -> f32 {
+    scaled(LOGIN_MODAL_WIDTH)
+}
+
+pub fn login_modal_height() -> f32 {
+    scaled(LOGIN_MODAL_HEIGHT)
+}
+
 /// Application settings: a page overlay with a nav, not a one-question modal. Fixed size so
 /// switching sections does not resize the panel. Same width as project settings.
 pub const SETTINGS_WIDTH: f32 = 820.0;
 pub const SETTINGS_HEIGHT: f32 = 560.0;
 
+pub fn settings_width() -> f32 {
+    scaled(SETTINGS_WIDTH)
+}
+
+pub fn settings_height() -> f32 {
+    scaled(SETTINGS_HEIGHT)
+}
+
+/// The theme editor: a modal, not a settings row. It carries a token list, a colour picker and a
+/// specimen of every token beside each other, none of which fits in the 820×560 settings panel's
+/// right-hand column — so it is its own fixed-size surface, narrower than the page it is raised
+/// from so the page still reads as what it came out of.
+pub const THEME_EDITOR_WIDTH: f32 = 720.0;
+pub const THEME_EDITOR_HEIGHT: f32 = 520.0;
+/// The token list down the editor's left side, and the live specimen strip under both.
+pub const THEME_TOKEN_LIST_WIDTH: f32 = 200.0;
+pub const THEME_SPECIMEN_HEIGHT: f32 = 150.0;
+
+pub fn theme_specimen_height() -> f32 {
+    scaled(THEME_SPECIMEN_HEIGHT)
+}
+
+pub fn theme_editor_width() -> f32 {
+    scaled(THEME_EDITOR_WIDTH)
+}
+
+pub fn theme_editor_height() -> f32 {
+    scaled(THEME_EDITOR_HEIGHT)
+}
+
+pub fn theme_token_list_width() -> f32 {
+    scaled(THEME_TOKEN_LIST_WIDTH)
+}
+
 /// The tasks board: a column's width open and shut, and the panel the selected task opens in.
 pub const COLUMN_WIDTH: f32 = 320.0;
 pub const COLUMN_SHUT: f32 = 44.0;
 pub const TASK_PANEL_WIDTH: f32 = 420.0;
+
+pub fn column_width() -> f32 {
+    scaled(COLUMN_WIDTH)
+}
+
+pub fn column_shut() -> f32 {
+    scaled(COLUMN_SHUT)
+}
+
+pub fn task_panel_width() -> f32 {
+    scaled(TASK_PANEL_WIDTH)
+}
 
 // ── Palette groups ──────────────────────────────────────────────────
 
@@ -252,47 +405,10 @@ pub enum Mode {
     Light,
 }
 
-/// How tight the grid is drawn: one factor over the grid constants, and nothing else.
-///
-/// It is resolved into the [`Theme`] like the palette and the accent are, so a call site reads a
-/// scaled size the same way it reads a colour and no call site computes a factor of its own.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum Density {
-    Compact,
-    #[default]
-    Regular,
-    Comfortable,
-}
-
-impl Density {
-    pub const ALL: [Density; 3] = [Density::Compact, Density::Regular, Density::Comfortable];
-
-    pub fn factor(self) -> f32 {
-        match self {
-            Density::Compact => 0.9,
-            Density::Regular => 1.0,
-            Density::Comfortable => 1.15,
-        }
-    }
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Density::Compact => "Compact",
-            Density::Regular => "Regular",
-            Density::Comfortable => "Comfortable",
-        }
-    }
-}
-
-/// The current density.
-pub fn density() -> Density {
-    Theme::current().density
-}
-
-/// A grid constant at the current density, rounded to whole pixels — a chrome row that is a
-/// fraction of a pixel tall is a seam in the rule under it.
-fn scaled(base: f32) -> f32 {
-    (base * Theme::current().density.factor()).round()
+/// A dimension at the current UI scale, rounded to whole pixels — a chrome row that is a fraction
+/// of a pixel tall is a seam in the rule under it — and never to nothing.
+pub fn scaled(base: f32) -> f32 {
+    (base * ui_scale()).round().max(1.0)
 }
 
 // ── The type scale ──────────────────────────────────────────────────
@@ -310,13 +426,36 @@ pub enum Family {
     /// Titlebar, status bar, rail, tabs, menus, modals, settings, pickers, notifications,
     /// dialogs. Furniture: growing it reflows the window, so it moves on its own and rarely.
     Chrome,
-    /// Editor, viewer, explorer tree, search results, terminal panes. **Per project** — a zoom
-    /// travels with the project it was chosen for, and the panes are sized in whole points
-    /// because a terminal is a cell grid.
+    /// Editor, viewer, explorer tree, search results, terminal panes. One setting for all of
+    /// Ubiq, like every other appearance value: a zoom is a property of the person, not of the
+    /// folder they opened (`D151`).
     Content,
     /// The chat transcript, tool blocks, the composer, the agents columns and their sidebar. Read
     /// as prose, at a size that has nothing to do with the size code is read at.
     Conversation,
+}
+
+impl Family {
+    pub const ALL: [Family; 3] = [Family::Chrome, Family::Content, Family::Conversation];
+
+    /// What this family reads at relative to [`TEXT_BASE`]. Chrome and conversation sit a shade
+    /// under content — the two values that were hand-written as `12.5` beside content's `13.0`
+    /// before the families were one derivation.
+    pub fn ratio(self) -> f32 {
+        match self {
+            Family::Chrome => 0.96,
+            Family::Content => 1.00,
+            Family::Conversation => 0.96,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Family::Chrome => "Chrome",
+            Family::Content => "Content",
+            Family::Conversation => "Conversation",
+        }
+    }
 }
 
 /// A named step on a family's scale, as a ratio over its base.
@@ -335,15 +474,20 @@ pub enum Role {
     Meta,
     /// A badge, a chip, a superscript.
     Micro,
+    /// Running text one notch under the family's base — a secondary line in a result row, a raw
+    /// frontmatter block, the caption under a heading. It is the `- 0.5` / `- 1.0` the call sites
+    /// used to write by hand, named once.
+    Dense,
 }
 
 impl Role {
-    pub const ALL: [Role; 5] = [
+    pub const ALL: [Role; 6] = [
         Role::Title,
         Role::Body,
         Role::Label,
         Role::Meta,
         Role::Micro,
+        Role::Dense,
     ];
 
     pub fn ratio(self) -> f32 {
@@ -353,15 +497,22 @@ impl Role {
             Role::Label => 0.92,
             Role::Meta => 0.85,
             Role::Micro => 0.80,
+            Role::Dense => 0.96,
         }
     }
 }
 
-/// What [`Family::Chrome`] and [`Family::Conversation`] draw [`Role::Body`] at. Interface-scoped:
-/// both are written into `InterfacePrefs`. `Family::Content`'s base is [`EDITOR_FONT_SIZE`] and is
-/// the project's, which is why it is not a constant pair with these.
-pub const CHROME_FONT_SIZE: f32 = 12.5;
-pub const CONVERSATION_FONT_SIZE: f32 = 12.5;
+/// The one number every type size in the window is derived from: what [`Family::Content`] draws
+/// [`Role::Body`] at when both axes stand at 1.0. Chrome and conversation are [`Family::ratio`]
+/// under it.
+pub const TEXT_BASE: f32 = 13.0;
+
+/// The window's rem size at `ui_scale = 1.0` — the value `gpui-component` has used since before
+/// Ubiq ever wrote one, so `S = 1` is a no-op. GPUI's whole Tailwind spacing scale (`p_3`, `gap_2`,
+/// `h_8`) expands to `rems(...)`, and `gpui_component::Root` sets the window's rem size from
+/// `Theme::font_size` on every paint, so writing this is what makes several hundred hand-placed
+/// spacings follow the UI scale with no call-site change at all (`D153`).
+pub const REM_BASE: f32 = 16.0;
 
 /// A one-off display size: the device-login user code, which is a number to be read off a screen
 /// and typed into a phone rather than a heading. It is named here rather than left as a literal at
@@ -372,46 +523,105 @@ pub fn font_display() -> Pixels {
     px(DISPLAY_FONT_SIZE)
 }
 
-/// The three base sizes, one per family — the whole of the text axis.
+/// The size axis: two sliders and the three trims over them (`D151`).
+///
+/// **`ui_scale` moves every dimension** — the window's rem size, every constant above, the icon
+/// sizes, the terminal inset, and the type bases through [`TEXT_BASE`]. At `text_ratio = 1` every
+/// proportion is held exactly, so the result is the current window seen at a different distance.
+/// **`text_ratio` moves type only**, on top of it: denser or airier text inside the same
+/// furniture, which is the only thing that changes a proportion.
+///
+/// The three trims are a per-family nudge for a reader who wants a transcript larger than the
+/// chrome around it. `content_trim` is the one `cmd-=` moves.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct TextScale {
-    pub chrome: f32,
-    pub content: f32,
-    pub conversation: f32,
+pub struct Metrics {
+    pub ui_scale: f32,
+    pub text_ratio: f32,
+    pub content_trim: f32,
+    pub chrome_trim: f32,
+    pub conversation_trim: f32,
 }
 
-impl Default for TextScale {
+/// What each axis is allowed to be. Clamped in the setters, never at a call site, so nothing
+/// downstream has to know a range exists.
+pub const UI_SCALE_MIN: f32 = 0.80;
+pub const UI_SCALE_MAX: f32 = 1.40;
+pub const TEXT_RATIO_MIN: f32 = 0.85;
+pub const TEXT_RATIO_MAX: f32 = 1.20;
+pub const TRIM_MIN: f32 = 0.70;
+pub const TRIM_MAX: f32 = 1.60;
+
+/// The step both axis sliders snap to, and the stop counts that follow from it.
+///
+/// `kit::slider_state` quantises to multiples of the step measured **from zero**, not from `min`,
+/// so a range whose ends are not themselves multiples of the step reaches them by the clamp
+/// instead of by the ladder. `0.05` divides all four ends — 0.80, 1.40, 0.85, 1.20 — and divides
+/// `1.0`, so the default is a stop on both axes and both ends are reachable.
+pub const SIZE_STEP: f32 = 0.05;
+
+/// The number of stops each axis offers, `(max - min) / SIZE_STEP + 1`. Written out rather than
+/// computed, because `kit::slider_state` takes a count and a `const fn` over floats would not be
+/// clearer than the two numbers with their arithmetic beside them.
+pub const UI_SCALE_STOPS: usize = 13; // (1.40 - 0.80) / 0.05 + 1
+pub const TEXT_RATIO_STOPS: usize = 8; // (1.20 - 0.85) / 0.05 + 1
+
+impl Default for Metrics {
     fn default() -> Self {
         Self {
-            chrome: CHROME_FONT_SIZE,
-            content: EDITOR_FONT_SIZE,
-            conversation: CONVERSATION_FONT_SIZE,
+            ui_scale: 1.0,
+            text_ratio: 1.0,
+            content_trim: 1.0,
+            chrome_trim: 1.0,
+            conversation_trim: 1.0,
         }
     }
 }
 
-impl TextScale {
-    pub fn base(&self, family: Family) -> f32 {
-        match family {
-            Family::Chrome => self.chrome,
-            Family::Content => self.content,
-            Family::Conversation => self.conversation,
+impl Metrics {
+    /// This value with every axis inside its range. A number arriving from a blob, a slider or a
+    /// migration passes through here before it is stored.
+    pub fn clamped(self) -> Self {
+        Self {
+            ui_scale: clamp_or(self.ui_scale, UI_SCALE_MIN, UI_SCALE_MAX),
+            text_ratio: clamp_or(self.text_ratio, TEXT_RATIO_MIN, TEXT_RATIO_MAX),
+            content_trim: clamp_or(self.content_trim, TRIM_MIN, TRIM_MAX),
+            chrome_trim: clamp_or(self.chrome_trim, TRIM_MIN, TRIM_MAX),
+            conversation_trim: clamp_or(self.conversation_trim, TRIM_MIN, TRIM_MAX),
         }
+    }
+
+    pub fn trim(&self, family: Family) -> f32 {
+        match family {
+            Family::Chrome => self.chrome_trim,
+            Family::Content => self.content_trim,
+            Family::Conversation => self.conversation_trim,
+        }
+    }
+}
+
+/// A value inside its range, with a NaN — which no clamp answers — reading as the default 1.0.
+fn clamp_or(value: f32, min: f32, max: f32) -> f32 {
+    if value.is_finite() {
+        value.clamp(min, max)
+    } else {
+        1.0
     }
 }
 
 thread_local! {
-    /// The text axis. Its own cell rather than a field on the resolved [`Theme`], because it is
-    /// the one axis with nothing to resolve: a base size is a number the user set, not something
-    /// derived from the palette in hand. Keeping it here is also what stops switching palette,
-    /// accent or density from undoing it — there is no resolution for it to be dropped by.
+    /// The size axis. Its own cell rather than a field on the resolved [`Theme`], because it is
+    /// the one axis with nothing to resolve: a scale is a number the user set, not something
+    /// derived from the palette in hand. Keeping it here is also what stops switching palette or
+    /// accent from undoing it — there is no resolution for it to be dropped by.
     // Already `const`: allowed because the lint fires on this toolchain regardless.
     #[allow(clippy::missing_const_for_thread_local)]
-    static TEXT: std::cell::Cell<TextScale> = const {
-        std::cell::Cell::new(TextScale {
-            chrome: CHROME_FONT_SIZE,
-            content: EDITOR_FONT_SIZE,
-            conversation: CONVERSATION_FONT_SIZE,
+    static TEXT: std::cell::Cell<Metrics> = const {
+        std::cell::Cell::new(Metrics {
+            ui_scale: 1.0,
+            text_ratio: 1.0,
+            content_trim: 1.0,
+            chrome_trim: 1.0,
+            conversation_trim: 1.0,
         })
     };
 }
@@ -421,18 +631,80 @@ thread_local! {
 /// Rounded to the nearest half point, which is the grid the hand-picked sizes this replaced were
 /// already on — a run at a third of a point renders unevenly for no gain.
 pub fn font(family: Family, role: Role) -> Pixels {
-    let base = text_scale().base(family);
-    px((base * role.ratio() * 2.0).round() / 2.0)
+    let m = TEXT.get();
+    let base =
+        TEXT_BASE * m.ui_scale * m.text_ratio * family.ratio() * m.trim(family) * role.ratio();
+    px((base * 2.0).round() / 2.0)
 }
 
-/// The three bases as they stand.
-pub fn text_scale() -> TextScale {
+/// The content family's base size in points — what a terminal emulator and a code editor are
+/// opened at, and what the status bar's px ladder reads back.
+pub fn content_base() -> f32 {
+    f32::from(font(Family::Content, Role::Body))
+}
+
+/// The axes as they stand.
+pub fn metrics() -> Metrics {
     TEXT.get()
 }
 
-/// Set the three bases, leaving the palette, the accent and the density as they stand.
-pub fn set_text_scale(scale: TextScale) {
-    TEXT.set(scale);
+/// Set the axes, leaving the palette and the accent as they stand. Clamped here so no caller has
+/// to be.
+pub fn set_metrics(metrics: Metrics) {
+    TEXT.set(metrics.clamped());
+}
+
+pub fn ui_scale() -> f32 {
+    TEXT.get().ui_scale
+}
+
+pub fn text_ratio() -> f32 {
+    TEXT.get().text_ratio
+}
+
+pub fn content_trim() -> f32 {
+    TEXT.get().content_trim
+}
+
+pub fn chrome_trim() -> f32 {
+    TEXT.get().chrome_trim
+}
+
+pub fn conversation_trim() -> f32 {
+    TEXT.get().conversation_trim
+}
+
+pub fn set_ui_scale(value: f32) {
+    set_metrics(Metrics {
+        ui_scale: value,
+        ..TEXT.get()
+    });
+}
+
+pub fn set_text_ratio(value: f32) {
+    set_metrics(Metrics {
+        text_ratio: value,
+        ..TEXT.get()
+    });
+}
+
+/// Set one family's trim. One setter rather than three, so a caller names the family it means.
+pub fn set_trim(family: Family, value: f32) {
+    let current = TEXT.get();
+    set_metrics(match family {
+        Family::Chrome => Metrics {
+            chrome_trim: value,
+            ..current
+        },
+        Family::Content => Metrics {
+            content_trim: value,
+            ..current
+        },
+        Family::Conversation => Metrics {
+            conversation_trim: value,
+            ..current
+        },
+    });
 }
 
 /// A palette in the registry: its key, what to call it, its ground, the slug of the palette the
@@ -454,8 +726,36 @@ pub struct PaletteDef {
 ///
 /// Not an enum: palettes are registry rows, so a family is an entry in [`PALETTES`] rather than a
 /// variant and a match arm in every file that reads one.
+///
+/// **A custom theme's slug is interned rather than owned** (`D152`). The built-ins are
+/// compile-time `&'static str`s and this stays a `Copy` newtype over one, so `ThemeId::DARK` is
+/// still a `const` and the hundred call sites that pass an id around by value are untouched; a
+/// runtime slug — always `custom-…` — is leaked once into [`intern`] the first time it is read
+/// and every later mention resolves to the same pointer. What that costs is a few dozen bytes per
+/// distinct custom theme the process ever sees, which is bounded by how many a person authors.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ThemeId(pub &'static str);
+
+/// What every custom theme's id starts with. It is also how an id says which kind it is without
+/// a lookup — [`ThemeId::is_custom`] — which is what lets a slug from a blob be recognised before
+/// the custom list has arrived from the host.
+pub const CUSTOM_PREFIX: &str = "custom-";
+
+/// The process's interned runtime slugs.
+///
+/// A `Mutex<BTreeSet>` rather than a thread-local because a leak is per-process and interning the
+/// same slug twice on two threads would defeat the point. Touched when a slug is parsed or a theme
+/// is minted, never on a paint path.
+fn intern(slug: &str) -> &'static str {
+    static INTERNED: Mutex<BTreeSet<&'static str>> = Mutex::new(BTreeSet::new());
+    let mut set = INTERNED.lock().unwrap_or_else(|p| p.into_inner());
+    if let Some(found) = set.get(slug) {
+        return found;
+    }
+    let leaked: &'static str = Box::leak(slug.to_owned().into_boxed_str());
+    set.insert(leaked);
+    leaked
+}
 
 /// An accent in the registry: its key, what to call it, and the one hue it is.
 ///
@@ -535,8 +835,6 @@ pub struct Theme {
     pub mode: Mode,
     /// The accent this palette was resolved with. `None` is the palette's own seed.
     pub accent: Option<AccentId>,
-    /// How tight the grid constants are drawn.
-    pub density: Density,
 }
 
 impl Theme {
@@ -562,15 +860,53 @@ impl ThemeId {
         PALETTES.iter().map(|p| ThemeId(p.slug))
     }
 
-    /// The slug, as it is written to prefs.
+    /// The slug, as it is written to prefs. A custom theme's is its own; a built-in's is pinned to
+    /// its registry row, so an id from anywhere still writes something that reads back.
     pub fn slug(self) -> &'static str {
-        self.def().slug
+        if self.is_known_custom() {
+            self.0
+        } else {
+            self.def().slug
+        }
     }
 
-    pub fn name(self) -> &'static str {
-        self.def().name
+    /// Whether this id names a custom theme rather than a registry row. A slug, not a lookup: an
+    /// id read from a blob has to answer this before the custom list has arrived.
+    pub fn is_custom(self) -> bool {
+        self.0.starts_with(CUSTOM_PREFIX)
     }
 
+    /// Whether it names a custom theme the window actually holds. A custom slug whose theme was
+    /// deleted — or which belongs to a config root this window never read — answers `false` and
+    /// resolves as its fallback, which is what stops a dangling slug painting nothing.
+    pub fn is_known_custom(self) -> bool {
+        self.is_custom() && custom_theme(self).is_some()
+    }
+
+    /// The built-in this id resolves through: itself, or the palette a custom theme forks. A
+    /// custom theme whose base is missing — or, defensively, is itself custom — falls back to the
+    /// default rather than recursing.
+    pub fn base(self) -> ThemeId {
+        match custom_theme(self) {
+            Some(custom) if !custom.base.is_custom() => custom.base,
+            Some(_) => ThemeId::DARK,
+            None => self,
+        }
+    }
+
+    /// What to call it. A `SharedString` rather than a `&'static str` because a custom theme's
+    /// name is a runtime string the author can change — the one place the registry's
+    /// compile-time shape does not reach.
+    pub fn name(self) -> SharedString {
+        match custom_theme(self) {
+            Some(custom) => custom.name.into(),
+            None => self.def().name.into(),
+        }
+    }
+
+    /// The ground. A custom theme's is its base's: the component library and the syntax
+    /// highlighter know only these two, and an override map that lightens a dark fork does not
+    /// make it a light palette.
     pub fn mode(self) -> Mode {
         self.def().mode
     }
@@ -580,29 +916,39 @@ impl ThemeId {
         ThemeId(self.def().counterpart).resolved()
     }
 
-    /// The registry row, falling back to the first entry so an id from anywhere still resolves.
+    /// The registry row this id is drawn from — its own, or the one its fork names. Falls back to
+    /// the first entry so an id from anywhere still resolves.
     fn def(self) -> &'static PaletteDef {
+        let slug = self.base().0;
         PALETTES
             .iter()
-            .find(|p| p.slug == self.0)
+            .find(|p| p.slug == slug)
             .unwrap_or(&PALETTES[0])
     }
 
-    /// This id with its slug pinned to a registry row.
+    /// This id with its slug pinned to a registry row, or left as it is when it is a custom
+    /// theme's — which is what prefs has to write for the fork to be found again.
     fn resolved(self) -> ThemeId {
-        ThemeId(self.def().slug)
+        if self.is_custom() {
+            self
+        } else {
+            ThemeId(self.def().slug)
+        }
     }
 
     /// A slug read from anywhere outside the build. Case-insensitive, which is also how the old
-    /// `"Dark"`/`"Light"` enum spellings still read as `dark`/`light`; anything unknown falls back
-    /// to the default rather than failing the whole blob.
+    /// `"Dark"`/`"Light"` enum spellings still read as `dark`/`light`; a `custom-…` slug is
+    /// interned and kept whether or not the custom list has arrived yet, and anything else unknown
+    /// falls back to the default rather than failing the whole blob.
     fn from_slug(s: &str) -> ThemeId {
         let key = s.to_ascii_lowercase();
-        PALETTES
-            .iter()
-            .find(|p| p.slug == key)
-            .map(|p| ThemeId(p.slug))
-            .unwrap_or(ThemeId::DARK)
+        if let Some(found) = PALETTES.iter().find(|p| p.slug == key) {
+            return ThemeId(found.slug);
+        }
+        if key.starts_with(CUSTOM_PREFIX) {
+            return ThemeId(intern(&key));
+        }
+        ThemeId::DARK
     }
 }
 
@@ -619,6 +965,300 @@ impl<'de> serde::Deserialize<'de> for ThemeId {
     }
 }
 
+// ── Custom themes ───────────────────────────────────────────────────
+//
+// `D152`: a custom theme is a **fork of a built-in palette plus a sparse override map**, never a
+// full palette. [`PaletteDef`] is deliberately shaped to refuse a partial palette — a family
+// cannot ship one missing a token — and that invariant is worth keeping for the built-ins, so an
+// author supplies one colour or sixteen and the other thirty-odd stay coherent with whatever they
+// forked.
+
+/// One author-made theme, as it travels in `preferences.toml`.
+///
+/// Resolution is `palette_for(base)` → the overrides → [`with_accent`], which is what
+/// [`resolve`] does. The map is keyed by the token names in [`EDITABLE_TOKENS`] and its values are
+/// packed `0x00RRGGBB` — the alpha a token is drawn at belongs to the palette, not to the author,
+/// so a translucent token keeps its base's alpha whatever colour is written over it.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CustomTheme {
+    pub id: String,
+    pub name: String,
+    /// The built-in it forks. A fork of a fork is not expressible: the whole point of the shape is
+    /// that the far side of the arrow is complete by construction.
+    pub base: ThemeId,
+    #[serde(default)]
+    pub overrides: BTreeMap<String, u32>,
+}
+
+impl CustomTheme {
+    /// This theme's id as the rest of the window names one.
+    pub fn theme_id(&self) -> ThemeId {
+        ThemeId(intern(&self.id))
+    }
+}
+
+/// An id for a theme about to exist.
+///
+/// A ULID in shape and in ordering — the mint time, then a counter that separates two themes made
+/// inside one millisecond — without `crates/ubiq` taking a dependency on `ulid` for the one place
+/// it would use it. A theme id is not a protocol id: nothing sorts it, nothing indexes it, and the
+/// only thing asked of it is that it is unique and recognisable.
+pub fn new_custom_id() -> String {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| since.as_millis())
+        .unwrap_or(0);
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("{CUSTOM_PREFIX}{millis:x}{n:04x}")
+}
+
+thread_local! {
+    /// The custom themes this window holds, pushed from `AppState` whenever the interface's
+    /// preferences change. Beside [`CURRENT`] rather than in `state/` because resolving a palette
+    /// is this file's job and a fork is a palette: `resolve` would otherwise have to be handed a
+    /// list by every one of its callers.
+    static CUSTOM: RefCell<Vec<CustomTheme>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Hand the window its custom themes. Replaces the list outright — it is a preference blob's
+/// worth of rows, not an accumulation.
+pub fn set_custom_themes(themes: Vec<CustomTheme>) {
+    CUSTOM.with(|c| *c.borrow_mut() = themes);
+}
+
+/// The custom themes as they stand, in the order they were authored.
+pub fn custom_themes() -> Vec<CustomTheme> {
+    CUSTOM.with(|c| c.borrow().clone())
+}
+
+/// One of them, by id. `None` for a built-in, and for a custom slug nothing answers to — a theme
+/// deleted while it was the active one, which resolves as its base instead.
+pub fn custom_theme(id: ThemeId) -> Option<CustomTheme> {
+    if !id.is_custom() {
+        return None;
+    }
+    CUSTOM.with(|c| c.borrow().iter().find(|t| t.id == id.0).cloned())
+}
+
+/// Which group of the editable set a token belongs to — the grouping this file already uses.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TokenGroup {
+    Ground,
+    Ink,
+    Border,
+    Accent,
+}
+
+impl TokenGroup {
+    pub const ALL: [TokenGroup; 4] = [
+        TokenGroup::Ground,
+        TokenGroup::Ink,
+        TokenGroup::Border,
+        TokenGroup::Accent,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            TokenGroup::Ground => "Grounds",
+            TokenGroup::Ink => "Ink",
+            TokenGroup::Border => "Borders",
+            TokenGroup::Accent => "Accent",
+        }
+    }
+}
+
+/// One token an author may write.
+pub struct TokenSpec {
+    /// The key in a [`CustomTheme`]'s override map.
+    pub key: &'static str,
+    pub label: &'static str,
+    pub group: TokenGroup,
+    /// The token this one is *read against*, for the ink that has a surface under it. The editor
+    /// warns — never blocks — when the pair falls under [`TEXT_MIN_CONTRAST`].
+    pub against: Option<&'static str>,
+}
+
+/// **Grounds and ink only.** The eight surfaces, the four text colours, the two borders and the
+/// accent seed — fifteen of the thirty-six tokens. Status, ribbon, terminal and project-swatch
+/// tokens inherit from the fork: they encode meaning rather than taste, and `D19` already keeps
+/// project swatches outside the accent axis for the same reason.
+pub static EDITABLE_TOKENS: &[TokenSpec] = &[
+    TokenSpec {
+        key: "surface.app_bg",
+        label: "App background",
+        group: TokenGroup::Ground,
+        against: None,
+    },
+    TokenSpec {
+        key: "surface.pane_bg",
+        label: "Pane background",
+        group: TokenGroup::Ground,
+        against: None,
+    },
+    TokenSpec {
+        key: "surface.base",
+        label: "Surface",
+        group: TokenGroup::Ground,
+        against: None,
+    },
+    TokenSpec {
+        key: "surface.raised",
+        label: "Raised surface",
+        group: TokenGroup::Ground,
+        against: None,
+    },
+    TokenSpec {
+        key: "surface.hover",
+        label: "Hover",
+        group: TokenGroup::Ground,
+        against: None,
+    },
+    TokenSpec {
+        key: "surface.selected",
+        label: "Selected",
+        group: TokenGroup::Ground,
+        against: None,
+    },
+    TokenSpec {
+        key: "surface.selected_focus",
+        label: "Selected, focused",
+        group: TokenGroup::Ground,
+        against: None,
+    },
+    TokenSpec {
+        key: "surface.scrim",
+        label: "Scrim",
+        group: TokenGroup::Ground,
+        against: None,
+    },
+    TokenSpec {
+        key: "text.primary",
+        label: "Text",
+        group: TokenGroup::Ink,
+        against: Some("surface.base"),
+    },
+    TokenSpec {
+        key: "text.muted",
+        label: "Text, muted",
+        group: TokenGroup::Ink,
+        against: Some("surface.base"),
+    },
+    TokenSpec {
+        key: "text.faint",
+        label: "Text, faint",
+        group: TokenGroup::Ink,
+        against: Some("surface.base"),
+    },
+    TokenSpec {
+        key: "text.on_accent",
+        label: "Text on accent",
+        group: TokenGroup::Ink,
+        against: Some("accent.primary"),
+    },
+    TokenSpec {
+        key: "border.default",
+        label: "Border",
+        group: TokenGroup::Border,
+        against: None,
+    },
+    TokenSpec {
+        key: "border.focus",
+        label: "Focus ring",
+        group: TokenGroup::Border,
+        against: None,
+    },
+    TokenSpec {
+        key: "accent.primary",
+        label: "Accent seed",
+        group: TokenGroup::Accent,
+        against: None,
+    },
+];
+
+/// The spec for a key, if the build still knows it. A blob may carry a token a later build
+/// renamed; it is ignored rather than dropped, because `rest` is not where it lives.
+pub fn token_spec(key: &str) -> Option<&'static TokenSpec> {
+    EDITABLE_TOKENS.iter().find(|spec| spec.key == key)
+}
+
+/// What a palette draws a token at. The one reader of the editable set, so the editor never
+/// reaches into `Palette`'s fields itself.
+pub fn token_colour(p: &Palette, key: &str) -> Rgba {
+    match key {
+        "surface.app_bg" => p.surface.app_bg,
+        "surface.pane_bg" => p.surface.pane_bg,
+        "surface.base" => p.surface.base,
+        "surface.raised" => p.surface.raised,
+        "surface.hover" => p.surface.hover,
+        "surface.selected" => p.surface.selected,
+        "surface.selected_focus" => p.surface.selected_focus,
+        "surface.scrim" => p.surface.scrim,
+        "text.primary" => p.text.primary,
+        "text.muted" => p.text.muted,
+        "text.faint" => p.text.faint,
+        "text.on_accent" => p.text.on_accent,
+        "border.default" => p.border.default,
+        "border.focus" => p.border.focus,
+        _ => p.accent.primary,
+    }
+}
+
+/// Write one token, keeping the alpha the palette declared. An override is a hue, not a
+/// transparency: the scrim is the token this matters to, and how far a palette dims by is its own
+/// decision rather than the author's.
+fn set_token(p: &mut Palette, key: &str, rgb: u32) {
+    let slot: &mut Rgba = match key {
+        "surface.app_bg" => &mut p.surface.app_bg,
+        "surface.pane_bg" => &mut p.surface.pane_bg,
+        "surface.base" => &mut p.surface.base,
+        "surface.raised" => &mut p.surface.raised,
+        "surface.hover" => &mut p.surface.hover,
+        "surface.selected" => &mut p.surface.selected,
+        "surface.selected_focus" => &mut p.surface.selected_focus,
+        "surface.scrim" => &mut p.surface.scrim,
+        "text.primary" => &mut p.text.primary,
+        "text.muted" => &mut p.text.muted,
+        "text.faint" => &mut p.text.faint,
+        "text.on_accent" => &mut p.text.on_accent,
+        "border.default" => &mut p.border.default,
+        "border.focus" => &mut p.border.focus,
+        "accent.primary" => &mut p.accent.primary,
+        _ => return,
+    };
+    *slot = Rgba {
+        a: slot.a,
+        ..rgba_of(rgb)
+    };
+}
+
+/// Every override, over a forked palette. Run **before** [`with_accent`], so the derivation reads
+/// the ground the author wrote rather than the one they replaced.
+fn apply_overrides(p: &mut Palette, overrides: &BTreeMap<String, u32>) {
+    for (key, rgb) in overrides {
+        set_token(p, key, *rgb);
+    }
+}
+
+/// The overrides [`with_accent`] would otherwise have written over, put back.
+///
+/// `text.on_accent` and `border.focus` are consequences of the seed for a built-in, which is what
+/// keeps a palette coherent when the accent axis moves it. An author who names one of them means
+/// it, so an override is final: it is applied again on the far side of the derivation.
+fn reapply_derived(p: &mut Palette, overrides: &BTreeMap<String, u32>) {
+    for key in ["text.on_accent", "border.focus"] {
+        if let Some(rgb) = overrides.get(key) {
+            set_token(p, key, *rgb);
+        }
+    }
+}
+
+/// The contrast a text token has to reach against the surface it is read on — WCAG's floor for
+/// body text. The editor **warns** at it and never blocks: a theme is taste, and a warning that
+/// cannot be overridden is a control that lies about who is deciding.
+pub const TEXT_MIN_CONTRAST: f64 = 4.5;
+
 thread_local! {
     static CURRENT: RefCell<Theme> = RefCell::new(palette_for(ThemeId::DARK));
 }
@@ -630,22 +1270,16 @@ thread_local! {
 /// The library resolves its own palette from the mode first; then the tokens below overwrite the
 /// ones that have a counterpart here, so the two cannot drift and a third family is expressible.
 pub fn set_mode(id: ThemeId, cx: &mut App) {
-    set_theme(id, Theme::current().accent, Theme::current().density, cx);
+    set_theme(id, Theme::current().accent, cx);
 }
 
-/// Switch density, leaving the palette and the accent as they stand.
-pub fn set_density(density: Density, cx: &mut App) {
-    let current = Theme::current();
-    set_theme(current.id, current.accent, density, cx);
-}
-
-/// Switch palette, accent and density together.
+/// Switch palette and accent together.
 ///
-/// The one place the axes are resolved into the `Theme` every accessor reads, so no call site
-/// outside this file learns that any of them is separable. [`set_mode`] and [`set_density`] are
-/// this with the other axes left as they stand.
-pub fn set_theme(id: ThemeId, accent: Option<AccentId>, density: Density, cx: &mut App) {
-    let theme = resolve(id, accent, density);
+/// The one place the two are resolved into the `Theme` every accessor reads, so no call site
+/// outside this file learns that either is separable. [`set_mode`] is this with the accent left as
+/// it stands.
+pub fn set_theme(id: ThemeId, accent: Option<AccentId>, cx: &mut App) {
+    let theme = resolve(id, accent);
     Theme::set(theme);
     let mode = match theme.mode {
         Mode::Dark => gpui_component::ThemeMode::Dark,
@@ -655,12 +1289,38 @@ pub fn set_theme(id: ThemeId, accent: Option<AccentId>, density: Density, cx: &m
     dress_component_library(&theme.palette, cx);
 }
 
+/// Hand the component library the palette and the scale as they stand.
+///
+/// Called when the **UI scale** moves as well as when the palette does: the library's `font_size`
+/// *is* the window's rem size, so a scale that does not reach it leaves every `p_3` and `gap_2`
+/// where it was.
+pub fn redress(cx: &mut App) {
+    dress_component_library(&Theme::current().palette, cx);
+}
+
 /// Hand the component library Ubiq's palette.
 ///
 /// Only the fields that plainly correspond are written; the rest stay as the library resolved them
 /// from the mode. `sync_base` is what pushes the result down to the layer that paints scrollbars
 /// and resize handles without going through the widget set.
 fn dress_component_library(p: &Palette, cx: &mut App) {
+    // The rem bridge (`D153`). `gpui_component::Root` calls `window.set_rem_size(font_size)` on
+    // every paint, and GPUI's whole Tailwind spacing scale — `p_3`, `gap_2`, `h_8` — expands to
+    // `rems(...)`, so this one number is what makes several hundred hand-placed spacings follow
+    // the UI scale. The library's mono size is the content family's base, which is what its
+    // editors and its code blocks measure in.
+    let theme = gpui_component::Theme::global_mut(cx);
+    theme.font_size = px(REM_BASE * ui_scale());
+    theme.mono_font_size = px(content_base());
+
+    // There are no radii — a corner radius is a defect in the same way a literal colour is, and
+    // that has to be true of the widgets we do not draw as well as the ones we do. The library
+    // reads this one number for every corner it rounds, including the ones it would otherwise
+    // keep round whatever the theme says: `radius_full` answers zero here rather than a pill, so
+    // a slider thumb, an avatar and a badge dot square off with everything else.
+    theme.radius = px(0.);
+    theme.radius_lg = px(0.);
+
     // Through `DerefMut`, so `t.list` names `ThemeColor`'s row colour rather than the `Theme`
     // field of the same name that holds the list's geometry.
     let t: &mut gpui_component::ThemeColor = gpui_component::Theme::global_mut(cx);
@@ -945,6 +1605,52 @@ pub fn rgba_of(rgb: u32) -> Rgba {
         b: (rgb & 0xff) as f32 / 255.0,
         a: 1.0,
     }
+}
+
+/// Pack an HSV triple — each component 0…1 — into `0x00RRGGBB`.
+///
+/// Here rather than beside the picker that drives it because both the form's state and
+/// `kit::colour_picker` need the same maths, and `state/` and `ui/kit/` may name this file and not
+/// each other. It is colour, so this is the file.
+pub fn hsv_to_rgb(hue: f32, sat: f32, val: f32) -> u32 {
+    let hue = hue.rem_euclid(1.0) * 6.0;
+    let sat = sat.clamp(0.0, 1.0);
+    let val = val.clamp(0.0, 1.0);
+    let chroma = val * sat;
+    let x = chroma * (1.0 - (hue % 2.0 - 1.0).abs());
+    let m = val - chroma;
+    let (r, g, b) = match hue as i32 {
+        0 => (chroma, x, 0.0),
+        1 => (x, chroma, 0.0),
+        2 => (0.0, chroma, x),
+        3 => (0.0, x, chroma),
+        4 => (x, 0.0, chroma),
+        _ => (chroma, 0.0, x),
+    };
+    let byte = |channel: f32| ((channel + m).clamp(0.0, 1.0) * 255.0).round() as u32;
+    (byte(r) << 16) | (byte(g) << 8) | byte(b)
+}
+
+/// The inverse: where a packed colour sits on the picker's three axes.
+pub fn rgb_to_hsv(rgb: u32) -> (f32, f32, f32) {
+    let r = ((rgb >> 16) & 0xff) as f32 / 255.0;
+    let g = ((rgb >> 8) & 0xff) as f32 / 255.0;
+    let b = (rgb & 0xff) as f32 / 255.0;
+    let max = r.max(g).max(b);
+    let min = r.min(g).min(b);
+    let delta = max - min;
+    let hue = if delta < 1e-6 {
+        0.0
+    } else if (max - r).abs() < 1e-6 {
+        (g - b) / delta
+    } else if (max - g).abs() < 1e-6 {
+        (b - r) / delta + 2.0
+    } else {
+        (r - g) / delta + 4.0
+    };
+    let hue = (hue / 6.0).rem_euclid(1.0);
+    let sat = if max < 1e-6 { 0.0 } else { delta / max };
+    (hue, sat, max)
 }
 
 /// Whether a tint is dark enough that a white mark reads on it.
@@ -1719,15 +2425,29 @@ const BLACK: Rgba = rgba_hex(0x000000);
 
 /// Resolve a palette and an accent into the theme every accessor reads. `None` is the palette's
 /// own seed, which is the `accent.primary` its definition declares.
-pub fn resolve(id: ThemeId, accent: Option<AccentId>, density: Density) -> Theme {
+/// A custom theme is the same three steps with its override map folded in: the fork, the
+/// overrides, then the accent derived over the result (`D152`).
+pub fn resolve(id: ThemeId, accent: Option<AccentId>) -> Theme {
     let def = id.def();
-    let seed = accent.map_or(def.palette.accent.primary, AccentId::seed);
+    let custom = custom_theme(id);
+    let mut palette = def.palette;
+    if let Some(custom) = &custom {
+        apply_overrides(&mut palette, &custom.overrides);
+    }
+    let seed = accent.map_or(palette.accent.primary, AccentId::seed);
+    let mut palette = with_accent(palette, seed);
+    if let Some(custom) = &custom {
+        reapply_derived(&mut palette, &custom.overrides);
+    }
     Theme {
-        id: ThemeId(def.slug),
+        id: if custom.is_some() {
+            id
+        } else {
+            ThemeId(def.slug)
+        },
         mode: def.mode,
-        palette: with_accent(def.palette, seed),
+        palette,
         accent,
-        density,
     }
 }
 
@@ -1770,7 +2490,10 @@ fn readable_on(seed: Rgba, ground: Rgba) -> Rgba {
 }
 
 /// WCAG contrast ratio between two colours, either way round.
-fn contrast(a: Rgba, b: Rgba) -> f64 {
+///
+/// Public because the theme editor asks the same question of a pair an author wrote that the
+/// accent axis asks of a seed — see [`TEXT_MIN_CONTRAST`].
+pub fn contrast(a: Rgba, b: Rgba) -> f64 {
     let (a, b) = (relative_luminance(a), relative_luminance(b));
     (a.max(b) + 0.05) / (a.min(b) + 0.05)
 }
@@ -1788,7 +2511,7 @@ fn mix(a: Rgba, b: Rgba, t: f32) -> Rgba {
 
 /// The palette on its own accent — what a window boots on and what the toggle lands on.
 pub fn palette_for(id: ThemeId) -> Theme {
-    resolve(id, None, Density::Regular)
+    resolve(id, None)
 }
 
 /// A fully transparent fill. Used where a 1px border has to occupy its slot on every row so a
@@ -1833,6 +2556,71 @@ const fn rgba_hex_a(hex: u32, a: f32) -> Rgba {
 mod tests {
     use super::*;
 
+    /// `D152`: a fork plus a sparse map. What the author wrote is theirs, what they did not stays
+    /// the base's — including the tokens outside the editable set, which is the half of the claim
+    /// a screenshot would not catch.
+    #[test]
+    fn a_custom_theme_is_its_base_plus_what_was_written() {
+        let mut overrides = BTreeMap::new();
+        overrides.insert("surface.base".to_string(), 0x102030);
+        overrides.insert("text.primary".to_string(), 0xfefefe);
+        set_custom_themes(vec![CustomTheme {
+            id: "custom-test".to_string(),
+            name: "Test".to_string(),
+            base: ThemeId::LIGHT,
+            overrides,
+        }]);
+
+        let id = ThemeId("custom-test");
+        let theme = resolve(id, None);
+        let base = palette_for(ThemeId::LIGHT).palette;
+
+        assert_eq!(theme.id, id, "a fork keeps its own id");
+        assert_eq!(theme.mode, Mode::Light, "a fork keeps its base's ground");
+        assert_eq!(theme.palette.surface.base, rgba_of(0x102030));
+        assert_eq!(theme.palette.text.primary, rgba_of(0xfefefe));
+        // Untouched by the map, so still the base's: a ground it did not name, and the status and
+        // project tokens the editable set deliberately excludes.
+        assert_eq!(theme.palette.surface.raised, base.surface.raised);
+        assert_eq!(theme.palette.status.danger, base.status.danger);
+        assert_eq!(theme.palette.project.swatches, base.project.swatches);
+
+        set_custom_themes(Vec::new());
+    }
+
+    /// The scrim is the token an override could quietly make opaque. A colour is a hue, not a
+    /// transparency: the palette keeps saying how far it dims by.
+    #[test]
+    fn an_override_keeps_the_alpha_the_palette_declared() {
+        let mut overrides = BTreeMap::new();
+        overrides.insert("surface.scrim".to_string(), 0x00ff00);
+        set_custom_themes(vec![CustomTheme {
+            id: "custom-scrim".to_string(),
+            name: "Scrim".to_string(),
+            base: ThemeId::DARK,
+            overrides,
+        }]);
+
+        let scrim = resolve(ThemeId("custom-scrim"), None).palette.surface.scrim;
+        assert_eq!(scrim.g, 1.0);
+        assert_eq!(scrim.a, palette_for(ThemeId::DARK).palette.surface.scrim.a);
+
+        set_custom_themes(Vec::new());
+    }
+
+    /// A theme deleted while it was worn, or a blob from another config root: the slug still
+    /// parses — it has to, or the blob would be thrown away whole — and resolves as the default
+    /// rather than as nothing.
+    #[test]
+    fn a_slug_naming_no_custom_theme_falls_back() {
+        set_custom_themes(Vec::new());
+        let id = ThemeId::from_slug("custom-gone");
+        assert!(id.is_custom(), "the slug is kept, not rewritten");
+        assert!(!id.is_known_custom());
+        assert_eq!(id.base(), id, "nothing to fork from");
+        assert_eq!(resolve(id, None).palette.surface.base, DARK.surface.base);
+    }
+
     /// Every family is a closed pair: the toggle from any palette lands on a registered slug of
     /// the other ground and comes straight back. A typo in a `counterpart` would otherwise show up
     /// only as a click that silently falls back to `dark`.
@@ -1851,7 +2639,7 @@ mod tests {
     #[test]
     fn each_ground_lists_distinct_family_names() {
         for mode in [Mode::Dark, Mode::Light] {
-            let mut names: Vec<&str> = ThemeId::all()
+            let mut names: Vec<SharedString> = ThemeId::all()
                 .filter(|id| id.mode() == mode)
                 .map(ThemeId::name)
                 .collect();
@@ -1873,7 +2661,7 @@ mod tests {
     #[test]
     fn how_full_a_plan_reads_turns_at_seventy_five_and_ninety() {
         for id in [ThemeId::DARK, ThemeId::LIGHT] {
-            Theme::set(resolve(id, None, Density::default()));
+            Theme::set(resolve(id, None));
             assert_eq!(usage_tone(0), success());
             assert_eq!(usage_tone(74), success());
             assert_eq!(usage_tone(75), warning());
@@ -1926,7 +2714,7 @@ mod tests {
         // Every shipped accent resolves on every shipped palette.
         for id in ThemeId::all() {
             for accent in AccentId::all() {
-                let theme = resolve(id, Some(accent), Density::Regular);
+                let theme = resolve(id, Some(accent));
                 assert_eq!(theme.accent, Some(accent));
                 assert!(
                     contrast(theme.palette.accent.primary, theme.palette.surface.base)
@@ -1937,7 +2725,7 @@ mod tests {
                 );
             }
             // No accent chosen means the palette's own seed, unmodified.
-            let own = resolve(id, None, Density::Regular);
+            let own = resolve(id, None);
             assert_eq!(own.palette.border.focus, id.def().palette.accent.primary);
         }
     }
@@ -1950,7 +2738,7 @@ mod tests {
     #[test]
     fn a_selection_stays_translucent_in_every_palette() {
         for id in ThemeId::all() {
-            let own = resolve(id, None, Density::Regular);
+            let own = resolve(id, None);
             assert!(
                 own.palette.accent.selection.a > 0.0 && own.palette.accent.selection.a < 1.0,
                 "{}'s selection is not translucent: {:?}",
@@ -1959,7 +2747,7 @@ mod tests {
             );
 
             for accent in AccentId::all() {
-                let theme = resolve(id, Some(accent), Density::Regular);
+                let theme = resolve(id, Some(accent));
                 assert!(
                     theme.palette.accent.selection.a > 0.0
                         && theme.palette.accent.selection.a < 1.0,
@@ -1984,64 +2772,98 @@ mod tests {
         assert_eq!(AccentId::from_slug("no-such-accent"), AccentId("blue"));
     }
 
-    /// Density is one factor over the grid constants, and over nothing else: a dragged region is
-    /// what a fresh window opens at and what the user then drags, so it does not move.
+    /// The UI scale moves every dimension, the *default* size of a dragged region included — and
+    /// the region's **stored** size, the one the user dragged to and the arrangement blob carries,
+    /// is untouched. The constant is that stored base; the accessor is what a fresh window opens
+    /// at (`D151`).
     #[test]
-    fn density_scales_the_grid_and_not_the_dragged_regions() {
-        Theme::set(resolve(ThemeId::DARK, None, Density::Regular));
+    fn the_ui_scale_moves_a_dragged_regions_default_and_not_its_stored_size() {
+        set_metrics(Metrics::default());
         assert_eq!(titlebar_height(), TITLEBAR_HEIGHT);
+        assert_eq!(explorer_width(), EXPLORER_WIDTH);
 
-        Theme::set(resolve(ThemeId::DARK, None, Density::Compact));
+        set_ui_scale(0.9);
         assert_eq!(titlebar_height(), (TITLEBAR_HEIGHT * 0.9).round());
-        assert_eq!(EXPLORER_WIDTH, 300.0, "a dragged region is not scaled");
+        assert_eq!(explorer_width(), (EXPLORER_WIDTH * 0.9).round());
+        assert_eq!(EXPLORER_WIDTH, 300.0, "the stored base is not scaled");
 
-        Theme::set(resolve(ThemeId::DARK, None, Density::Comfortable));
-        assert_eq!(titlebar_height(), (TITLEBAR_HEIGHT * 1.15).round());
+        set_ui_scale(1.15);
         assert!(titlebar_height() > TITLEBAR_HEIGHT);
-        assert_eq!(EXPLORER_WIDTH, 300.0, "a dragged region is not scaled");
+        assert_eq!(explorer_width(), (EXPLORER_WIDTH * 1.15).round());
+        assert_eq!(EXPLORER_WIDTH, 300.0, "the stored base is not scaled");
 
-        Theme::set(resolve(ThemeId::DARK, None, Density::Regular));
+        // A hairline is the one length that does not move: a rule must not blur.
+        assert_eq!(hairline(), 1.0);
+
+        set_metrics(Metrics::default());
     }
 
-    /// Three families, three independent bases, and a role's ratio applied to its own family's
-    /// base and to nobody else's.
+    /// Every axis is clamped where it is stored, so nothing downstream has to know a range exists.
     #[test]
-    fn each_family_scales_from_its_own_base() {
-        Theme::set(resolve(ThemeId::DARK, None, Density::Regular));
-        set_text_scale(TextScale::default());
+    fn an_axis_is_clamped_in_the_setter() {
+        set_ui_scale(9.0);
+        assert_eq!(ui_scale(), UI_SCALE_MAX);
+        set_ui_scale(0.1);
+        assert_eq!(ui_scale(), UI_SCALE_MIN);
+        set_text_ratio(f32::NAN);
+        assert_eq!(text_ratio(), 1.0);
+        set_trim(Family::Content, 99.0);
+        assert_eq!(content_trim(), TRIM_MAX);
+        set_metrics(Metrics::default());
+    }
 
-        // The defaults land where the hand-picked sizes they replaced were.
+    /// One base, two axes and a ratio per family and per role — and the defaults land exactly
+    /// where the hand-picked sizes they replaced were.
+    #[test]
+    fn every_size_derives_from_one_base() {
+        Theme::set(resolve(ThemeId::DARK, None));
+        set_metrics(Metrics::default());
+
         assert_eq!(font(Family::Content, Role::Body), px(13.0));
         assert_eq!(font(Family::Content, Role::Meta), px(11.0));
         assert_eq!(font(Family::Chrome, Role::Body), px(12.5));
         assert_eq!(font(Family::Conversation, Role::Body), px(12.5));
+        assert_eq!(content_base(), 13.0);
 
-        // One family moves and the other two do not.
-        set_text_scale(TextScale {
-            chrome: 12.5,
-            content: 20.0,
-            conversation: 16.0,
-        });
+        // A trim moves one family and leaves the other two where they were.
+        set_trim(Family::Content, 20.0 / TEXT_BASE);
         assert_eq!(font(Family::Content, Role::Body), px(20.0));
-        assert_eq!(font(Family::Conversation, Role::Body), px(16.0));
         assert_eq!(font(Family::Chrome, Role::Body), px(12.5));
+        assert_eq!(font(Family::Conversation, Role::Body), px(12.5));
+        set_metrics(Metrics::default());
 
-        // A ratio is over the family's own base, to the nearest half point.
-        for family in [Family::Chrome, Family::Content, Family::Conversation] {
-            let base = text_scale().base(family);
+        // The text ratio moves type and nothing else; the UI scale moves both — at
+        // `text_ratio = 1` every proportion is held, which is the whole claim of `D151`.
+        set_text_ratio(1.2);
+        assert_eq!(titlebar_height(), TITLEBAR_HEIGHT, "type only");
+        set_metrics(Metrics::default());
+        set_ui_scale(1.2);
+        assert_eq!(font(Family::Content, Role::Body), px(15.5));
+        assert!(titlebar_height() > TITLEBAR_HEIGHT);
+
+        // The derivation, to the nearest half point, for every family and every role.
+        for family in Family::ALL {
             for role in Role::ALL {
-                let want = (base * role.ratio() * 2.0).round() / 2.0;
+                let m = metrics();
+                let want = (TEXT_BASE
+                    * m.ui_scale
+                    * m.text_ratio
+                    * family.ratio()
+                    * m.trim(family)
+                    * role.ratio()
+                    * 2.0)
+                    .round()
+                    / 2.0;
                 assert_eq!(font(family, role), px(want), "{family:?} {role:?}");
             }
         }
 
-        // The scale survives a palette switch, and a density switch, because it is an axis of its
-        // own with nothing to resolve — see the `TEXT` cell.
-        Theme::set(resolve(ThemeId::LIGHT, None, Density::Comfortable));
-        assert_eq!(font(Family::Content, Role::Body), px(20.0));
-        assert_eq!(font(Family::Conversation, Role::Body), px(16.0));
+        // The scale survives a palette switch, because it is an axis of its own with nothing to
+        // resolve — see the `TEXT` cell.
+        Theme::set(resolve(ThemeId::LIGHT, None));
+        assert_eq!(ui_scale(), 1.2);
 
-        set_text_scale(TextScale::default());
-        Theme::set(resolve(ThemeId::DARK, None, Density::Regular));
+        set_metrics(Metrics::default());
+        Theme::set(resolve(ThemeId::DARK, None));
     }
 }

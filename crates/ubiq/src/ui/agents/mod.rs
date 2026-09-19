@@ -308,7 +308,7 @@ fn new_column_strip(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
 
     let mut strip = div()
         .id("agents-new-column")
-        .w(px(theme::NEW_COLUMN_STRIP))
+        .w(px(theme::new_column_strip()))
         .flex()
         .flex_none()
         .flex_col()

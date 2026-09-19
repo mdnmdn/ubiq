@@ -8,9 +8,9 @@
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, Bounds, Context, ElementId, Entity, FontWeight, InteractiveElement, IntoElement,
+    AnyElement, Context, ElementId, Entity, FontWeight, InteractiveElement, IntoElement,
     ParentElement, Rgba, SharedString, Stateful, StatefulInteractiveElement, Styled, Window,
-    anchored, canvas, deferred, div, fill, point, px, relative, size,
+    anchored, deferred, div, point, px, relative,
 };
 use gpui_component::input::{Input, InputState, Textarea, TextareaState};
 use gpui_component::{Icon, IconName, Sizable as _, Size};
@@ -26,13 +26,14 @@ use crate::state::git::head_label;
 use crate::state::settings::ToolEditScope;
 use crate::state::sink::{
     ColourField, PROJECT_ABOUT, PROJECT_ABOUT_LIMIT, PROJECT_BRANCH, PROJECT_COLOUR, PROJECT_MARK,
-    PROJECT_NAME, PROJECT_PATH, ProjectNav, hex_string, hsv_to_rgb,
+    PROJECT_NAME, PROJECT_PATH, ProjectNav, hex_string,
 };
 use crate::state::workbench::ProjectSettingsMode;
 use crate::state::{Layer, RailMode, WindowRegistry};
 use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::board::status_colour;
+use crate::ui::hsv;
 use crate::ui::kit::{
     UbiqIcon, check_box, choice_pill, elided, ghost_button, heading, icon_button, mono, nav_item,
     primary_button, setting_row, toggle_pill,
@@ -1128,11 +1129,10 @@ fn modes_block(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         .into_any_element()
 }
 
-const SV_COLS: usize = 16;
-const SV_ROWS: usize = 10;
-const HUE_STEPS: usize = 24;
-const CELL: f32 = 12.0;
-
+/// The kit's HSV surface, wired to whichever copy of the form is being drawn.
+///
+/// The control itself is `kit::colour_picker` — project settings is its first caller and the theme
+/// editor is the second, which is why it is no longer written here.
 fn colour_picker(
     app: &AppState,
     window: &Window,
@@ -1140,133 +1140,20 @@ fn colour_picker(
     form: Form,
 ) -> AnyElement {
     let picked = colour_of(app, form);
-    let hue = picked.hue;
-    let sat = picked.sat;
-    let val = picked.val;
-    let current = current_rgba(app, form);
-    let prefix = form.prefix();
     let hex_input = form_hex(app, form);
-
-    let rows: Vec<AnyElement> = (0..SV_ROWS)
-        .map(|row| {
-            let cells: Vec<AnyElement> = (0..SV_COLS)
-                .map(|col| {
-                    let s = col as f32 / (SV_COLS - 1) as f32;
-                    let v = 1.0 - row as f32 / (SV_ROWS - 1) as f32;
-                    div()
-                        .id(ElementId::Name(format!("{prefix}-sv-{col}-{row}").into()))
-                        .size(px(CELL))
-                        .flex_none()
-                        .cursor_pointer()
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            let hue = this.colour_field().hue;
-                            this.set_sink_project_hsv(hue, s, v, window, cx)
-                        }))
-                        .into_any_element()
-                })
-                .collect();
-            div().flex().flex_none().children(cells).into_any_element()
-        })
-        .collect();
-
-    let hues: Vec<AnyElement> = (0..HUE_STEPS)
-        .map(|step| {
-            let h = step as f32 / (HUE_STEPS - 1) as f32;
-            div()
-                .id(ElementId::Name(format!("{prefix}-hue-{step}").into()))
-                .w(px(CELL))
-                .h(px(14.))
-                .flex_none()
-                .cursor_pointer()
-                .bg(theme::rgba_of(hsv_to_rgb(h, 1.0, 1.0)))
-                .when((h - hue).abs() < 0.5 / HUE_STEPS as f32, |this| {
-                    this.border_1().border_color(theme::text())
-                })
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    let field = this.colour_field();
-                    let (sat, val) = (field.sat, field.val);
-                    this.set_sink_project_hsv(h, sat, val, window, cx)
-                }))
-                .into_any_element()
-        })
-        .collect();
-
-    div()
-        .flex()
-        .flex_col()
-        .gap_2()
-        .pt_1()
-        .child(
-            div()
-                .flex()
-                .gap_3()
-                .child(
-                    div()
-                        .relative()
-                        .w(px(CELL * SV_COLS as f32))
-                        .h(px(CELL * SV_ROWS as f32))
-                        .child(sv_plane(hue))
-                        .child(div().absolute().inset_0().flex().flex_col().children(rows))
-                        .child(sv_mark(sat, val)),
-                )
-                .child(
-                    div()
-                        .w(px(36.))
-                        .h(px(CELL * SV_ROWS as f32))
-                        .flex_none()
-                        .bg(current)
-                        .border_1()
-                        .border_color(theme::border()),
-                ),
-        )
-        .child(div().flex().children(hues))
-        .child(
-            framed_active(theme::border(), input_on(hex_input, window, cx))
-                .w(px(140.))
-                .h(px(30.))
-                .items_center()
-                .child(Input::new(hex_input).appearance(false)),
-        )
-        .into_any_element()
-}
-
-fn sv_plane(hue: f32) -> impl IntoElement {
-    canvas(
-        |_, _, _| {},
-        move |bounds: Bounds<gpui::Pixels>, _, window, _| {
-            let w = f32::from(bounds.size.width).max(1.0);
-            let h = f32::from(bounds.size.height).max(1.0);
-            let step = 4.0;
-            let mut y = 0.0;
-            while y < h {
-                let mut x = 0.0;
-                while x < w {
-                    let sat = (x / w).clamp(0.0, 1.0);
-                    let val = 1.0 - (y / h).clamp(0.0, 1.0);
-                    window.paint_quad(fill(
-                        Bounds::new(
-                            bounds.origin + point(px(x), px(y)),
-                            size(px(step), px(step)),
-                        ),
-                        theme::rgba_of(hsv_to_rgb(hue, sat, val)),
-                    ));
-                    x += step;
-                }
-                y += step;
-            }
-        },
+    let view = cx.entity();
+    crate::ui::kit::colour_picker(
+        form.prefix(),
+        picked.hue,
+        picked.sat,
+        picked.val,
+        current_rgba(app, form),
+        hex_input,
+        input_on(hex_input, window, cx),
+        hsv(&view, |this, hue, sat, val, window, cx| {
+            this.set_sink_project_hsv(hue, sat, val, window, cx)
+        }),
     )
-    .size_full()
-}
-
-fn sv_mark(sat: f32, val: f32) -> impl IntoElement {
-    div()
-        .absolute()
-        .left(px((sat * (SV_COLS as f32 - 1.0) * CELL).round()))
-        .top(px(((1.0 - val) * (SV_ROWS as f32 - 1.0) * CELL).round()))
-        .size(px(CELL))
-        .border_1()
-        .border_color(theme::text())
 }
 
 fn current_rgba(app: &AppState, form: Form) -> Rgba {

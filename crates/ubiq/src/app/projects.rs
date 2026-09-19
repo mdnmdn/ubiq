@@ -901,32 +901,55 @@ impl AppState {
 
         match scope {
             Scope::Interface => {
-                if let Some(prefs) = prefs::decode::<prefs::InterfacePrefs>(&blob) {
+                if let Some((prefs, upgraded)) =
+                    prefs::decode_upgraded::<prefs::InterfacePrefs>(&blob)
+                {
                     self.workbench.interface_rest = prefs.rest;
                     self.workbench.last_start = prefs.last_start;
-                    // The two interface-scoped text bases. The content family's is the project's
-                    // and is pushed in by `ui::shell` for whichever project the window shows.
-                    let scale = theme::text_scale();
-                    theme::set_text_scale(theme::TextScale {
-                        chrome: prefs.chrome_font_size.unwrap_or(theme::CHROME_FONT_SIZE),
-                        conversation: prefs
-                            .conversation_font_size
-                            .unwrap_or(theme::CONVERSATION_FONT_SIZE),
-                        ..scale
+                    self.workbench.size_presets = prefs.size_presets;
+                    // The whole size axis, the content family's included — one setting for all of
+                    // Ubiq, so nothing here is per project any more (`D151`).
+                    theme::set_metrics(theme::Metrics {
+                        ui_scale: prefs.ui_scale,
+                        text_ratio: prefs.text_ratio,
+                        content_trim: prefs.content_trim,
+                        chrome_trim: prefs.chrome_trim,
+                        conversation_trim: prefs.conversation_trim,
                     });
-                    if prefs.theme != self.workbench.theme_id
-                        || prefs.accent != theme::accent_id()
-                        || prefs.density != theme::density()
-                    {
-                        self.workbench.theme_id = prefs.theme;
-                        theme::set_theme(prefs.theme, prefs.accent, prefs.density, cx);
-                    }
+                    // An upgraded blob is still owed the content size, which used to live in each
+                    // project's `view.toml`. The first project answer to arrive supplies it.
+                    self.content_trim_pending = upgraded;
+                    self.workbench.theme_id = prefs.theme;
+                    // Before the palette is put on: `theme::resolve` reads the custom list, so a
+                    // blob naming a fork has to have handed that list over first — and a slug
+                    // naming a theme this config root no longer holds falls back here rather than
+                    // painting the default under a dead name (`D152`).
+                    self.adopt_custom_themes(prefs.custom_themes);
+                    // The palette, the accent *and* the scale reach the component library here:
+                    // its `font_size` is the window's rem size (`D153`), so a blob carrying a
+                    // scale that never reached it would leave every spacing where it was.
+                    theme::set_theme(self.workbench.theme_id, prefs.accent, cx);
+                    self.redress_terminals(cx);
                 }
             }
             Scope::Project(id) => {
                 let Some(view) = prefs::decode::<prefs::ViewPrefs>(&blob) else {
                     return;
                 };
+                // The one awkward step of the `4 → 5` migration: the content size was written
+                // once per project and is becoming a single interface value, so the upgrade has
+                // to pick one. It takes the most recently opened project's — the first answer to
+                // arrive after the upgraded interface blob — and leaves the per-project field
+                // parsed and ignored. A user who had genuinely different sizes per project loses
+                // that distinction, which is the point of the correction.
+                if self.content_trim_pending {
+                    self.content_trim_pending = false;
+                    if let Some(size) = view.content_font_size {
+                        theme::set_trim(theme::Family::Content, size / theme::TEXT_BASE);
+                        self.remember_interface();
+                        self.redress_terminals(cx);
+                    }
+                }
                 // An answer for a project this window holds without showing still has to reach
                 // it: a project's furniture is its own, whether or not anyone is looking at it.
                 let showing = self.project(cx) == Some(id);

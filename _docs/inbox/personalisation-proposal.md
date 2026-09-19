@@ -100,9 +100,12 @@ The two sliders are a day's work; making them *accurate* is the proposal.
 
 ## 3. The control — a size popover, replacing the px dropdown
 
-The status bar's `font_size_dropdown` and its `10 … 32 px` ladder go. In its place, an icon-only
-trigger opens an anchored panel (`kit::context_panel`, not a modal — no scrim, dismissed by
-outside click) holding four things, in this order:
+The status bar's px dropdown and its `10 … 32 px` ladder go. In its place, an icon-only
+trigger opens an anchored panel — `kit::popover`, not a modal: no scrim, dismissed by outside
+click, and peeled by Escape as the menu it is (`MenuId::Size`) rather than through a rung of its
+own. `kit::popover` rather than `kit::context_panel`, which takes menu rows and cannot host a
+slider; it is the kit's arbitrary-content anchored surface and has the same chrome. The panel
+holds four things, in this order:
 
 1. **The presets**, a row of `kit::choice_pill`. The lit one is the active preset, or none is lit
    and the trigger's tooltip reads *Custom*.
@@ -113,9 +116,16 @@ outside click) holding four things, in this order:
    **Reset**, which returns both axes to 1.0.
 
 **A preset is a name and the two numbers, and nothing else.** `SizePreset { name, ui_scale,
-text_ratio }` in `InterfacePrefs.size_presets: Vec<SizePreset>`. Resisting the urge to let a preset
-also carry a palette is what keeps the popover one idea; a user who wants both saved is asking for
-a workspace, which is a different document.
+text_ratio }` in `InterfacePrefs.size_presets: Vec<SizePreset>`, `serde(default)` and so no schema
+bump. Resisting the urge to let a preset also carry a palette is what keeps the popover one idea; a
+user who wants both saved is asking for a workspace, which is a different document.
+
+**The four built-ins are code, not seeded rows** — `BUILT_IN_SIZE_PRESETS`, Compact 0.90 /
+Regular 1.0 / Comfortable 1.15 / Large 1.30, each at `text_ratio` 1.0 — so a build that retunes one
+moves it for everybody, and a saved preset of the same name takes that built-in's place rather than
+sitting beside it. Compact is `0.90` because that is what `Density::Compact` migrates to: the
+preset and the migration naming one number is what keeps an upgrading user on a stop instead of
+between two.
 
 Two new things the kit owes this:
 
@@ -123,24 +133,31 @@ Two new things the kit owes this:
   `kit::stepper` is discrete. `gpui-component` ships `Slider` and `SliderState`, unused, and
   adopting it is exactly the case `component-reuse-proposal.md` argues for: real drag, keyboard
   and accessibility behaviour Ubiq would otherwise write. The kit wrapper adds the palette, the
-  leading and trailing icon slots, and `.step()` so the value snaps to a ladder of nine stops
-  rather than landing on 1.0374. The two `Entity<SliderState>` handles live on `AppState` with
-  their subscriptions — the widget's state *is* the model, which is the stated exception to the
-  no-component-types-in-`state/` rule.
+  leading and trailing icon slots, and `.step()` so the value snaps to a ladder rather than
+  landing on 1.0374. **The step is `0.05` on both axes** — thirteen stops over the UI scale and
+  eight over the text ratio — because the library quantises to multiples of the step measured from
+  *zero*, and `0.05` divides all four ends (0.80, 1.40, 0.85, 1.20) as well as the `1.0` default:
+  both ends are reachable by the ladder rather than by the clamp, and the default is a stop. The
+  two `Entity<SliderState>` handles live on `AppState` with their subscriptions — the widget's
+  state *is* the model, which is the stated exception to the no-component-types-in-`state/` rule.
 - **Four icons** — small interface, large interface, small glyph, large glyph — drawn through the
   `ubiq-icons` loop and added to the registry. The sliders are otherwise unlabelled controls,
   and every one of those carries a tooltip.
 
-`MenuId::FontSize` becomes `MenuId::Size`. `nearest_font_index()` goes with the ladder.
+`MenuId::FontSize` becomes `MenuId::Size`, and the helper that found the nearest ladder entry goes
+with the ladder — as does `AppState`'s setter for an outright point size, which had no other
+caller. `AppState::nudge_content_trim` is what is left of the zoom.
 
 ## 4. Settings — Appearance splits, and gains a theme editor
 
 Appearance is already ten rows in a fixed 820×560 panel. It splits:
 
-- **Size** (new nav section) — the *same* `kit` sliders and preset pills the popover renders, plus
-  what does not belong in a popover: the preset list with rename and delete, the three per-family
-  trims for a user who wants conversation text larger than chrome, the content trim, and Reset. The chrome/conversation `BASE_SIZES` pill ladders and the density
-  pills are removed; the read-only "Content text size" row becomes the trim.
+- **Size** (new nav section) — the *same* `kit` sliders and preset pills the popover renders,
+  built in `ui/size.rs` so neither surface owns a copy, plus what does not belong in a popover:
+  the preset list with rename and delete, and the three per-family trims for a user who wants
+  conversation text larger than chrome — the content trim among them, which is what the read-only
+  "Content text size" row became. Reset returns the two axes to 1.0 and leaves the trims where
+  they are: they are a different preference from the axis above them.
 - **Appearance** — palette, ground, accent, and a new **Themes** row: the author-made themes as
   pills beside the built-ins, an edit affordance on each, and **New theme…**.
 
@@ -229,6 +246,23 @@ discovering.
 - **P4 — `kit::colour_picker`**, `CustomTheme`, and the theme editor.
 
 P4 is independent of P1–P3 and can be dropped or deferred without stranding them.
+
+### Progress
+
+| Phase | Work | State |
+|---|---|---|
+| P1 | scale layer, rem bridge, migration, call-site sweep | done — `D151`, `D153`, `G304` recorded |
+| P2a | `kit::slider` and its specimen | done — `kit::Slider`, `kit::slider_state`, the library's radius squared |
+| P2b | the four slider-end icons | done — `size-interface-small/large`, `size-text-small/large` |
+| P3 | size popover, presets, Size settings section | done — `MenuId::Size`, `SizePreset`, and `ui/size.rs` drawing both surfaces from one place |
+| P4a | `kit::colour_picker` promoted out of `ui/sink/project.rs` | done — project settings is its first caller, with a specimen on the style reference |
+| P4b | `CustomTheme` and the theme editor | done — `D152`, `theme::EDITABLE_TOKENS`, and an interned `custom-…` slug that leaves `ThemeId` `Copy` |
+
+`just check` and `just verify` cannot run in the current environment: `foundation-models`, a
+pre-existing optional dependency of `ubiq-host` behind `assist-apple`, builds a Swift bridge whose
+`swift build` invokes `sandbox-exec`, which is denied. No manifest in this change touches it. The
+standing substitute gate is `cargo check -p ubiq-studio --all-targets` from the Studio root, which
+does compile crate `ubiq`, plus `just ui`, `just host`, `just fmt` and `just docs-lint`.
 
 ## 8. Decisions and gaps this would add
 

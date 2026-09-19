@@ -31,12 +31,13 @@ use crate::state::sink::{CHOICES, FACETS, MENU_ITEMS, SinkModal};
 use crate::theme;
 use crate::ui::kit::{
     ContextItem, Picker, PickerStyle, RIBBON_SIZE, RibbonCorner, Tab, badge, card, check_box,
-    choice_pill, context_panel, disclosure, file_row, filter_bar, ghost_button, hint_row,
-    icon_button, kind_icon, label_hint, meter, mono, panel_header, pill, primary_button,
+    choice_pill, colour_picker, context_panel, disclosure, file_row, filter_bar, ghost_button,
+    hint_row, icon_button, kind_icon, label_hint, meter, mono, panel_header, pill, primary_button,
     progress_ring, progress_ring_pair, removable_tag, ribbon, row_font, section_label, slab,
     state_chip, status_dot, stepper, tab_strip, toggle_pill, view_switch,
 };
-use crate::ui::{handler, indexed};
+use crate::ui::kit::{Slider, UbiqIcon};
+use crate::ui::{handler, hsv, indexed};
 
 pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
     div()
@@ -54,6 +55,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
         .child(controls(app, cx))
         .child(ribbons())
         .child(files(app, cx))
+        .child(colour(app, window, cx))
         .child(fields(app, window, cx))
         .child(modals(cx))
         .child(notifications(cx))
@@ -66,7 +68,10 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
 ///
 /// Grouped exactly as `theme.rs` groups them, because the grouping is the claim: a token names what
 /// a colour is *for*, and two tokens in one group are two roles rather than two shades.
-fn tokens() -> AnyElement {
+///
+/// This page's own group **and** the theme editor's live specimen strip — one renderer, so what an
+/// author is shown while writing a theme is literally what the reference shows of it.
+pub fn tokens() -> AnyElement {
     let mut swatches: Vec<(&'static str, Rgba)> = vec![
         ("app_bg", theme::app_bg()),
         ("pane_bg", theme::pane_bg()),
@@ -602,10 +607,29 @@ fn controls(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
             stepper(
                 "sink-stepper",
                 format!("{}%", sink.level),
-                cx.listener(|this, _, _, cx| this.nudge_sink(-10, cx)),
-                cx.listener(|this, _, _, cx| this.nudge_sink(10, cx)),
+                cx.listener(|this, _, window, cx| {
+                    this.nudge_sink(-10, cx);
+                    this.sync_sink_slider(window, cx);
+                }),
+                cx.listener(|this, _, window, cx| {
+                    this.nudge_sink(10, cx);
+                    this.sync_sink_slider(window, cx);
+                }),
             )
             .into_any_element(),
+        ),
+        // The only continuous control in the kit, and the only one here that writes the value
+        // rather than reading it. Its ladder is the stepper's: eleven stops, ten apart.
+        labelled(
+            "slider",
+            div()
+                .w(px(200.))
+                .child(
+                    Slider::new("sink-slider", &app.sink_slider, "The sink's level")
+                        .leading(UbiqIcon::SizeInterfaceSmall)
+                        .trailing(UbiqIcon::SizeInterfaceLarge),
+                )
+                .into_any_element(),
         ),
         labelled(
             "meter",
@@ -777,6 +801,39 @@ fn bucket_colour(index: usize) -> Rgba {
 ///
 /// A field is a library widget in a Ubiq container: the widget draws no border of its own —
 /// `appearance(false)` — and the container is the surface, with the coloured edge on its boundary.
+/// The HSV surface, on the sink project's own colour field.
+///
+/// The swatch grid is the one place on this page where a colour is not a token: what the picker
+/// draws is the colour being chosen, which is content in the same sense a scene's stroke is. Its
+/// chrome — the cursor box, the preview's border, the hex field — is tokens, and that is what this
+/// specimen is here to show.
+fn colour(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
+    let picked = app.sink.project.colour;
+    let hex = app.sink_project_hex.clone();
+    let view = cx.entity();
+    group(
+        "Colour",
+        "One control, two callers: project settings picks a project's tint with it and the theme \
+         editor picks a token's value. It reports a hue, a saturation and a value; what they mean \
+         is the caller's.",
+        vec![labelled(
+            "colour_picker",
+            colour_picker(
+                "sink-colour",
+                picked.hue,
+                picked.sat,
+                picked.val,
+                theme::project_tint(false, picked.swatch, picked.custom),
+                &hex,
+                input_on(&hex, window, cx),
+                hsv(&view, |this, hue, sat, val, window, cx| {
+                    this.set_sink_project_hsv(hue, sat, val, window, cx)
+                }),
+            ),
+        )],
+    )
+}
+
 fn fields(app: &AppState, window: &Window, cx: &App) -> AnyElement {
     group(
         "Fields",

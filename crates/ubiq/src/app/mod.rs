@@ -83,6 +83,7 @@ use gpui_component::dock::{DockArea, DockEvent, PanelId};
 use gpui_component::input::{
     EditorState, InputEvent, InputState, TabSize, TextDecoration, TextareaState,
 };
+use gpui_component::slider::{SliderEvent, SliderState};
 use gpui_terminal::TerminalView;
 use ubiq_proto::assist::{
     AiProviderDraft, AiProviderKind, AssistProvider, ModelRole, SuggestSubject,
@@ -132,6 +133,9 @@ const MOVE_UNASKED: Duration = Duration::from_secs(10 * 60);
 /// How long after the last zoom a Markdown preview is rebuilt. The rebuild throws away a parsed
 /// document, so a held zoom key must not do it once per point.
 const REFLOW_DEBOUNCE: Duration = Duration::from_millis(500);
+
+/// What one press of `cmd-=` or `cmd--` moves the content family's trim by.
+const CONTENT_TRIM_STEP: f32 = 0.05;
 
 /// How long after the last edit the outline is rebuilt. The rebuild parses the whole buffer a
 /// second time, so a held key must not do it once per character.
@@ -864,6 +868,31 @@ pub struct AppState {
     pub sink_input: Entity<InputState>,
     pub sink_textarea: Entity<TextareaState>,
     pub sink_modal_input: Entity<InputState>,
+    /// The style reference's `kit::slider` specimen, over the same level the stepper nudges and
+    /// the meter draws. A component-library state on the window is the stated exception to the
+    /// rule about `state/`: a slider's position *is* its model, so there is nothing else to hold.
+    pub sink_slider: Entity<SliderState>,
+    /// The two size axes, as the sliders the popover and the Size settings section both draw.
+    ///
+    /// One state per axis for the *window*, not one per call site: the popover and the settings
+    /// page draw the same control, and two states would be one axis in two places. Held here for
+    /// the same reason `sink_slider` is — a slider's position is its model.
+    ///
+    /// Seeded at boot and re-seeded whenever a surface that draws them is opened
+    /// ([`AppState::sync_size_sliders`]), because the stored metrics arrive from the host after
+    /// the window is built.
+    pub ui_scale_slider: Entity<SliderState>,
+    pub text_ratio_slider: Entity<SliderState>,
+    /// What a size preset is being named. One field for Save and for rename alike — only one
+    /// prompt is up at a time, and both ask the same question.
+    pub size_name_input: Entity<InputState>,
+    /// What a custom theme is being called. One field for **New theme…** and for the editor's
+    /// rename alike — only one prompt is up at a time, and both ask the same question.
+    pub theme_name_input: Entity<InputState>,
+    /// The hex the theme editor's colour picker prints into and reads back out. Its own field
+    /// rather than the project form's: two pickers can be on screen at once, and one field in two
+    /// places is one of them answering for the other.
+    pub theme_hex_input: Entity<InputState>,
     /// What the login modal names the identity it is about to capture. Its own field
     /// rather than a shared one, for the reason every other pair here is split: two
     /// states drawn at once would be one field in two places.
@@ -991,6 +1020,15 @@ pub struct AppState {
     /// The zoom that asked for the last reflow, so a debounce that lost the race does not rebuild
     /// a preview the user has already zoomed past.
     md_reflow_gen: u64,
+    /// The size change that asked for the last terminal re-dress and blob write. A change to the
+    /// UI scale or a trim rebuilds every emulator config, which re-measures the cell grid and
+    /// emits `TerminalResize` to the harness — so it settles first. The same device as
+    /// `md_reflow_gen`; see [`AppState::settle_metrics`].
+    metrics_gen: u64,
+    /// Whether an upgraded interface blob is still owed the content size that used to live in a
+    /// project's `view.toml`. Taken from the first project preference answer to arrive — the most
+    /// recently opened project, which is the one the window came up on — and then cleared.
+    pub(crate) content_trim_pending: bool,
     /// The definitions in the file on screen, for the outline panel. One list rather than one per
     /// tab: the panel only ever draws the active file, and a tab switch reparses once — which is
     /// what a cache miss would cost anyway.
@@ -1031,6 +1069,7 @@ mod explorer;
 mod feedback;
 pub use explorer::MIN_QUERY;
 pub use projects::Holds;
+pub use size::size_name_valid;
 mod git;
 mod graph;
 mod help;
@@ -1056,8 +1095,11 @@ mod remote_hosts;
 mod settings;
 mod shell;
 mod sink;
+mod size;
 pub mod ssh_connect;
 mod stats;
+mod themes;
+pub use themes::theme_name_valid;
 mod vim;
 mod web_panel;
 mod wire;

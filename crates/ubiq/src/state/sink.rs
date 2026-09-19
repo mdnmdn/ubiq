@@ -735,45 +735,9 @@ pub fn rgb_from_channels(r: f32, g: f32, b: f32) -> u32 {
     (byte(r) << 16) | (byte(g) << 8) | byte(b)
 }
 
-pub fn hsv_to_rgb(hue: f32, sat: f32, val: f32) -> u32 {
-    let hue = hue.rem_euclid(1.0) * 6.0;
-    let sat = sat.clamp(0.0, 1.0);
-    let val = val.clamp(0.0, 1.0);
-    let chroma = val * sat;
-    let x = chroma * (1.0 - (hue % 2.0 - 1.0).abs());
-    let m = val - chroma;
-    let (r, g, b) = match hue as i32 {
-        0 => (chroma, x, 0.0),
-        1 => (x, chroma, 0.0),
-        2 => (0.0, chroma, x),
-        3 => (0.0, x, chroma),
-        4 => (x, 0.0, chroma),
-        _ => (chroma, 0.0, x),
-    };
-    let byte = |channel: f32| ((channel + m).clamp(0.0, 1.0) * 255.0).round() as u32;
-    (byte(r) << 16) | (byte(g) << 8) | byte(b)
-}
-
-pub fn rgb_to_hsv(rgb: u32) -> (f32, f32, f32) {
-    let r = ((rgb >> 16) & 0xff) as f32 / 255.0;
-    let g = ((rgb >> 8) & 0xff) as f32 / 255.0;
-    let b = (rgb & 0xff) as f32 / 255.0;
-    let max = r.max(g).max(b);
-    let min = r.min(g).min(b);
-    let delta = max - min;
-    let hue = if delta < 1e-6 {
-        0.0
-    } else if (max - r).abs() < 1e-6 {
-        (g - b) / delta
-    } else if (max - g).abs() < 1e-6 {
-        (b - r) / delta + 2.0
-    } else {
-        (r - g) / delta + 4.0
-    };
-    let hue = (hue / 6.0).rem_euclid(1.0);
-    let sat = if max < 1e-6 { 0.0 } else { delta / max };
-    (hue, sat, max)
-}
+/// The HSV conversions live in [`crate::theme`], beside `rgba_of`: `kit::colour_picker` needs the
+/// same maths this form does, and the kit names no module under `state/`.
+pub use crate::theme::{hsv_to_rgb, rgb_to_hsv};
 
 // ── The file picker's page ──────────────────────────────────────────
 

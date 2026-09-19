@@ -22,7 +22,6 @@ use crate::app::AppState;
 use crate::state::ChatId;
 use crate::state::conversation::Conversation;
 use crate::theme;
-use crate::theme::{EMPTY_START_ICON, EMPTY_START_SIZE};
 use crate::ui::conversation::{self, ConversationView};
 use crate::ui::kit::panel;
 
@@ -98,7 +97,7 @@ fn body(
             .child(
                 div()
                     .id("chat-empty-start")
-                    .size(px(EMPTY_START_SIZE))
+                    .size(px(theme::empty_start_size()))
                     .flex()
                     .flex_none()
                     .items_center()
@@ -107,7 +106,7 @@ fn body(
                     .hover(|this| this.bg(theme::hover()))
                     .child(
                         Icon::new(IconName::Play)
-                            .with_size(px(EMPTY_START_ICON))
+                            .with_size(theme::empty_start_icon())
                             .text_color(theme::text_muted()),
                     )
                     .on_click(cx.listener(move |this, _, window, cx| {

@@ -136,7 +136,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         .w(px(extent.0 * zoom))
         .h(px(extent.1 * zoom))
         .child(canvas::dot_grid(
-            theme::GRAPH_DOT_PITCH * zoom,
+            theme::graph_dot_pitch() * zoom,
             point(0.0, 0.0),
         ));
 

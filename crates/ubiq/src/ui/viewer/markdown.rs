@@ -139,7 +139,6 @@ pub fn render(
     app: &AppState,
     key: &str,
     source: &str,
-    font_size: Option<f32>,
     frontmatter_open: bool,
     cx: &mut gpui::Context<AppState>,
 ) -> AnyElement {
@@ -147,7 +146,7 @@ pub fn render(
         cx.entity(),
         Some(crate::state::editor::from_tab_key(key).0.into()),
     );
-    render_linked(app, key, source, font_size, frontmatter_open, follow, cx)
+    render_linked(app, key, source, frontmatter_open, follow, cx)
 }
 
 /// The same document, with a caller's own answer to a clicked link.
@@ -161,7 +160,6 @@ pub fn render_linked(
     app: &AppState,
     key: &str,
     source: &str,
-    font_size: Option<f32>,
     frontmatter_open: bool,
     follow: impl Fn(&SharedString, &gpui::ClickEvent, &mut gpui::Window, &mut gpui::App)
     + Send
@@ -171,8 +169,6 @@ pub fn render_linked(
 ) -> AnyElement {
     let (frontmatter, body) = scan_and_publish(app, key, source);
 
-    let size = font_size.unwrap_or(theme::EDITOR_FONT_SIZE);
-
     // Keyed on the settled point size as well as the file: the text view keeps the height it
     // measured each block at and only reconsiders when its width changes, so a zoom needs a new
     // state to reflow at all. `md_reflow` moves half a second after the last zoom, which is what
@@ -181,7 +177,7 @@ pub fn render_linked(
         .markdown_extensions(extensions().clone())
         .on_link_click(follow)
         .p_5()
-        .text_size(px(size))
+        .text_size(theme::font(theme::Family::Content, theme::Role::Body))
         .scrollable(true)
         .selectable(true);
 
@@ -198,7 +194,7 @@ pub fn render_linked(
         .min_w(px(0.))
         .min_h(px(0.))
         .overflow_hidden()
-        .child(frontmatter_bar(key, &raw_yaml, frontmatter_open, size, cx))
+        .child(frontmatter_bar(key, &raw_yaml, frontmatter_open, cx))
         .child(
             div()
                 .flex()
@@ -261,12 +257,11 @@ fn frontmatter_bar(
     key: &str,
     raw_yaml: &str,
     open: bool,
-    font_size: f32,
     cx: &mut gpui::Context<AppState>,
 ) -> AnyElement {
     let key = key.to_string();
-    let summary =
-        mono(frontmatter_summary(raw_yaml), theme::text_faint()).text_size(px(font_size - 1.5));
+    let summary = mono(frontmatter_summary(raw_yaml), theme::text_faint())
+        .text_size(theme::font(theme::Family::Content, theme::Role::Dense));
 
     div()
         .flex()
@@ -286,7 +281,8 @@ fn frontmatter_bar(
                 .border_b_1()
                 .border_color(theme::border())
                 .child(
-                    mono(raw_yaml.to_string(), theme::text_muted()).text_size(px(font_size - 1.0)),
+                    mono(raw_yaml.to_string(), theme::text_muted())
+                        .text_size(theme::font(theme::Family::Content, theme::Role::Dense)),
                 )
         }))
         .into_any_element()

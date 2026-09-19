@@ -94,5 +94,5 @@ pub use work::WorkProjection;
 pub use workbench::{
     AllProjectsState, FileDialog, HarnessChoice, MenuId, NewAgentMenu, NewAgentSurface, NewPaneRow,
     NewProjectRow, OverflowRow, ProjectSettings, ProjectSettingsMode, RailMode, RowAction,
-    WorkbenchState,
+    SizePrompt, ThemeEditor, ThemePrompt, WorkbenchState,
 };

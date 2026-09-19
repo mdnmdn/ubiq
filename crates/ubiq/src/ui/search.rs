@@ -127,9 +127,9 @@ fn results(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     let Some(project) = app.project(cx) else {
         return div().into_any_element();
     };
-    // The results read against the tree and the editor, so they follow the same project font size,
-    // and a row is as tall as that size asks for.
-    let font = app.content_font_size_or_default(cx) - 0.5;
+    // The results read against the tree and the editor, so they draw at the content family's
+    // dense size, and a row is as tall as that size asks for.
+    let font = f32::from(theme::font(theme::Family::Content, theme::Role::Dense));
     let row = row_height(font);
 
     for file in &app.search.results {
@@ -152,14 +152,14 @@ fn results(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                 .gap_2()
                 .child(
                     mono(file.rel_path.clone(), theme::accent())
-                        .text_size(px(font))
+                        .text_size(theme::font(theme::Family::Content, theme::Role::Body))
                         .flex_1()
                         .min_w(px(0.))
                         .truncate(),
                 )
                 .child(
                     mono(format!("{}", file.hits.len()), theme::text_faint())
-                        .text_size(px(font - 1.))
+                        .text_size(theme::font(theme::Family::Content, theme::Role::Dense))
                         .flex_none(),
                 )
                 .into_any_element(),
@@ -213,7 +213,7 @@ fn results(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                             .flex_1()
                             .min_w(px(0.))
                             .font_family(theme::MONO_FONT)
-                            .text_size(px(font))
+                            .text_size(theme::font(theme::Family::Content, theme::Role::Body))
                             // The line is the row: a shorter line box would draw a match's
                             // highlight offset from the glyphs it marks, and a taller one grows
                             // the row, since a flex item's content is its minimum size.
@@ -238,7 +238,8 @@ fn results(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                     .flex_none()
                     .items_center()
                     .child(
-                        mono("+ more hits truncated", theme::text_faint()).text_size(px(font - 1.)),
+                        mono("+ more hits truncated", theme::text_faint())
+                            .text_size(theme::font(theme::Family::Content, theme::Role::Dense)),
                     )
                     .into_any_element(),
             );

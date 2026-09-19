@@ -992,12 +992,15 @@ fn missing(id: &str) -> AnyElement {
 /// The box an `Image` of each catalog variant occupies.
 fn image_box(variant: Option<&str>) -> (f32, Option<f32>) {
     match variant {
-        Some("icon") => (theme::A2UI_IMAGE_ICON, Some(theme::A2UI_IMAGE_ICON)),
-        Some("avatar") => (theme::A2UI_IMAGE_AVATAR, Some(theme::A2UI_IMAGE_AVATAR)),
-        Some("smallFeature") => (theme::A2UI_IMAGE_SMALL, None),
-        Some("largeFeature") => (theme::A2UI_IMAGE_LARGE, None),
-        Some("header") => (theme::A2UI_IMAGE_LARGE, Some(theme::A2UI_IMAGE_HEADER_H)),
-        _ => (theme::A2UI_IMAGE_MEDIUM, None),
+        Some("icon") => (theme::a2ui_image_icon(), Some(theme::a2ui_image_icon())),
+        Some("avatar") => (theme::a2ui_image_avatar(), Some(theme::a2ui_image_avatar())),
+        Some("smallFeature") => (theme::a2ui_image_small(), None),
+        Some("largeFeature") => (theme::a2ui_image_large(), None),
+        Some("header") => (
+            theme::a2ui_image_large(),
+            Some(theme::a2ui_image_header_h()),
+        ),
+        _ => (theme::a2ui_image_medium(), None),
     }
 }
 

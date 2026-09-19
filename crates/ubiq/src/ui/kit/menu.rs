@@ -569,7 +569,7 @@ pub fn context_panel(
             // glyphs is that strip again with the names hidden behind a hover.
             if let Some(icon) = item.icon {
                 row = row.gap_2().child(
-                    icon.with_size(Size::Size(px(14.)))
+                    icon.with_size(Size::Size(theme::icon_md()))
                         .text_color(theme::text_muted()),
                 );
             }

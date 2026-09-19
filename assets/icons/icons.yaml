@@ -258,3 +258,22 @@ categories:
     annotate-text:
       goal: place a line of text on the picture
       keywords: [text, label, caption, type, letter]
+
+  # The size popover's two sliders (`personalisation-proposal.md` §3) — an interface slider and a
+  # text slider, each flanked by a small icon at the low end and a large one at the high end. Each
+  # pair is one motif at two weights, never two drawings: the contrast between them is the whole
+  # message, so the small variant is redrawn with fewer, heavier strokes rather than a scaled-down
+  # copy of the large one.
+  size:
+    size-interface-small:
+      goal: the UI-scale slider's low end — a compact interface, tightly packed regions
+      keywords: [ui scale, density, compact, small, interface, layout, window]
+    size-interface-large:
+      goal: the UI-scale slider's high end — a roomy interface, fewer and larger regions
+      keywords: [ui scale, density, comfortable, large, interface, layout, window]
+    size-text-small:
+      goal: the text-ratio slider's low end — a small letterform
+      keywords: [text ratio, font size, small, type, letter, glyph]
+    size-text-large:
+      goal: the text-ratio slider's high end — a large letterform
+      keywords: [text ratio, font size, large, type, letter, glyph]

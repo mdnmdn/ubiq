@@ -254,10 +254,15 @@ fn flipping_an_appearance_control_writes_the_interface_blob(cx: &mut TestAppCont
     fixture.state.update(cx, |state, cx| {
         state.set_palette(ubiq::theme::ThemeId("ember-dark"), cx);
         state.set_accent(Some(ubiq::theme::AccentId("teal")), cx);
-        state.set_density(ubiq::theme::Density::Compact, cx);
-        state.set_chrome_font_size(13.5, cx);
-        state.set_conversation_font_size(15.0, cx);
+        state.set_ui_scale(0.9, cx);
+        state.set_text_ratio(1.1, cx);
+        state.set_trim(ubiq::theme::Family::Conversation, 1.2, cx);
     });
+    // A size change settles before it is written: re-dressing every emulator emits a
+    // `TerminalResize` per pane, so a slider drag must not send two hundred of them. The clock has
+    // to be walked past the debounce for the blob to land.
+    cx.executor()
+        .advance_clock(std::time::Duration::from_secs(1));
     cx.run_until_parked();
 
     let written = fixture
@@ -276,9 +281,9 @@ fn flipping_an_appearance_control_writes_the_interface_blob(cx: &mut TestAppCont
 
     assert_eq!(sent.theme.slug(), "ember-dark");
     assert_eq!(sent.accent, Some(ubiq::theme::AccentId("teal")));
-    assert_eq!(sent.density, ubiq::theme::Density::Compact);
-    assert_eq!(sent.chrome_font_size, Some(13.5));
-    assert_eq!(sent.conversation_font_size, Some(15.0));
+    assert_eq!(sent.ui_scale, 0.9);
+    assert_eq!(sent.text_ratio, 1.1);
+    assert_eq!(sent.conversation_trim, 1.2);
 }
 
 /// Naming is on by default and that default costs nothing, because it runs through the provider

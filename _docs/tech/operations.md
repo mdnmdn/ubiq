@@ -5,7 +5,7 @@ kind: tech
 status: current
 summary: Prerequisites, the complete command reference, what a first build costs, the checks a change has to pass before it lands, and the runbook for a tool an agent cannot run.
 read_when: you are setting the project up, running or testing it, adding a command, or an agent reports that it cannot run a tool
-updated: 2026-09-18
+updated: 2026-09-19
 verified: 2026-09-18
 code_anchors: [Justfile, crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/structured.rs, _tools/docs.py, _tools/icns.py, _tools/webassets.py, _tools/drone.py, _tools/helpbundle.py, _tools/Info.plist, _devops/scripts/bundle-version.sh, crates/ubiq-app/src/lib.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-app/build.rs, crates/ubiq-app/res/ubiq-app.rc, .github/workflows/create-release.yml, .github/workflows/release-macos.yml, .github/workflows/release-windows.yml]
 depends_on: [tech-structure]
@@ -115,7 +115,7 @@ everything else only when it complains. What the console does with the records i
 |---|---|
 | `just am <args>` | Run the `am` CLI — `just am claude --print-config` provisions a run and prints what it would launch, without launching it |
 | `just host` | Build the host and prove no drawing crate reaches its dependency tree |
-| `just ui` | Build the interface and prove it never names the host, and never names a type size of its own — a literal `text_size(px(N))` outside `theme.rs` fails it |
+| `just ui` | Build the interface and prove it never names the host, and never names a size of its own — a literal `text_size(px(N))` or a literal icon size (`with_size(px(N))`, `Size::Size(px(N))`) outside `theme.rs` fails it |
 | `just core` | Build the library the way Ubiq consumes it, with default features off. **This is the check that matters** — it fails the moment a CLI or terminal type leaks into the core |
 | `just relay` | Build `ubiq-host` with `--no-default-features` — the lean core a headless drone links: `pty`, `files`, `browse`, `watch`, `search`, `projects`, `health`, `config`, `store` minus the usage meter, `host_meta`, `links`, `environment` — and prove none of `git`, `index`, `harness`, `listener` or `desktop` reached its tree by grepping `cargo tree` for the crates each one gates: `git2`, `tantivy`, `rusqlite`, `agent-manager`, `isol8`, `notify-rust`, `trash`, `ureq`, `rustls`, `tiny_http`, `gpui` |
 

@@ -310,9 +310,9 @@ fn column(app: &AppState, status: Status, cx: &mut Context<AppState>) -> AnyElem
     let mut root = div()
         .id(("board-column", key))
         .w(px(if shut {
-            theme::COLUMN_SHUT
+            theme::column_shut()
         } else {
-            theme::COLUMN_WIDTH
+            theme::column_width()
         }))
         .flex()
         .when(shut, |this| this.flex_none())

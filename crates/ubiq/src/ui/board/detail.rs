@@ -89,7 +89,7 @@ pub fn popup(
     modal_sized(
         "board-task-modal",
         colour,
-        theme::TASK_PANEL_WIDTH,
+        theme::task_panel_width(),
         None,
         &title,
         body(app, task, window, cx),

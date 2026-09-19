@@ -793,7 +793,7 @@ fn default_ide_layout(
             dock,
             Region::Left,
             DockLayout::tabs().panel_view(explorer, cx),
-            px(theme::EXPLORER_WIDTH),
+            px(theme::explorer_width()),
             window,
             cx,
         );
@@ -801,7 +801,7 @@ fn default_ide_layout(
             dock,
             Region::Right,
             DockLayout::tabs(),
-            px(theme::CHAT_WIDTH),
+            px(theme::chat_width()),
             window,
             cx,
         );
@@ -809,7 +809,7 @@ fn default_ide_layout(
             dock,
             Region::Bottom,
             DockLayout::tabs(),
-            px(theme::DOCK_HEIGHT),
+            px(theme::dock_height()),
             window,
             cx,
         );
@@ -865,7 +865,7 @@ fn default_git_layout(
             dock,
             Region::Bottom,
             DockLayout::tabs(),
-            px(theme::DOCK_HEIGHT),
+            px(theme::dock_height()),
             window,
             cx,
         );
@@ -901,7 +901,7 @@ fn default_kb_layout(
             dock,
             Region::Left,
             DockLayout::tabs().panel_view(explorer, cx),
-            px(theme::EXPLORER_WIDTH),
+            px(theme::explorer_width()),
             window,
             cx,
         );
@@ -909,7 +909,7 @@ fn default_kb_layout(
             dock,
             Region::Right,
             DockLayout::tabs(),
-            px(theme::CHAT_WIDTH),
+            px(theme::chat_width()),
             window,
             cx,
         );
@@ -917,7 +917,7 @@ fn default_kb_layout(
             dock,
             Region::Bottom,
             DockLayout::tabs(),
-            px(theme::DOCK_HEIGHT),
+            px(theme::dock_height()),
             window,
             cx,
         );

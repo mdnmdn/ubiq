@@ -2853,11 +2853,7 @@ impl AppState {
         }
         let showing = self.project(cx) == Some(project);
 
-        let term_font = self
-            .projects
-            .get(&project)
-            .and_then(|open| open.prefs.content_font_size)
-            .unwrap_or(theme::TERMINAL_FONT_SIZE);
+        let term_font = theme::content_base();
         self.open_terminal(pane_id, workspace.cols, workspace.rows, term_font, cx);
 
         if let Some(open) = self.projects.get_mut(&project) {

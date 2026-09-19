@@ -282,15 +282,8 @@ fn page_body(
         .current()
         .map(|page| folder_of(&page.path))
         .unwrap_or_default();
-    let document = viewer::markdown::render_linked(
-        app,
-        key,
-        source,
-        None,
-        false,
-        follow(cx.entity(), base),
-        cx,
-    );
+    let document =
+        viewer::markdown::render_linked(app, key, source, false, follow(cx.entity(), base), cx);
     let mut column = div().flex().flex_col().flex_1().min_h(px(0.));
     if let Some(note) = note {
         column = column.child(draft_note(note));

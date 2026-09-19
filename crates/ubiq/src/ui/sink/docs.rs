@@ -81,7 +81,7 @@ fn body(app: &AppState, doc: &'static SinkDoc, cx: &mut Context<AppState>) -> An
     // The buffer rather than the constant: an edit in the source half has to reach the preview.
     let source = state.read(cx).value().to_string();
     let mut drawn = || match doc.viewer() {
-        ViewerKind::Markdown => viewer::markdown::render(app, doc.key, &source, None, false, cx),
+        ViewerKind::Markdown => viewer::markdown::render(app, doc.key, &source, false, cx),
         ViewerKind::Mermaid => viewer::diagram::render(app, doc.key, &source, cx),
         ViewerKind::Excalidraw => viewer::scene::live(app, doc.key, &source, cx),
         // The sink has no draw.io fixture: the picture only exists once a panel has exported it.

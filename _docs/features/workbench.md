@@ -7,7 +7,7 @@ summary: The window's shell — the activity rail and its modes, the dock of mov
 read_when: you are changing the window layout, a rail mode, where a panel may sit or when it is drawn, the explorer, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, capturing the window or annotating a capture, saving a file, the Git screen's refs, history, change lists or diff, the agents screen's columns, what a tab drag means or what the bench is, the Teams or `[Teams]` screen's graph, how it arranges itself, its inspector or its tasks, the tasks board's columns, cards or task panel, the kitchen sink's pages or fixtures, the file picker a screen raises to choose a path, cloning a project, application settings, vim mode, or the status bar
 updated: 2026-09-19
 verified: 2026-09-19
-code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/teams.rs, crates/ubiq/src/state/teams.rs, crates/ubiq/src/ui/teams/mod.rs, crates/ubiq/src/ui/teams/graph.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/src/ui/teams/inspector.rs, crates/ubiq/src/ui/teams/tasks.rs, crates/ubiq/tests/teams.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/src/ui/new_project_menu.rs, crates/ubiq/tests/new_project.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/feedback.rs, crates/ubiq/src/state/feedback.rs, crates/ubiq/src/ui/feedback.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/tests/image_gestures.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/app/sink.rs, crates/ubiq/src/state/a2ui.rs, crates/ubiq/src/state/a2ui/value.rs, crates/ubiq/src/state/a2ui/eval.rs, crates/ubiq/src/state/a2ui/action.rs, crates/ubiq/src/state/a2ui/live.rs, crates/ubiq/src/state/a2ui/svg.rs, crates/ubiq/src/state/a2ui/path.rs, crates/ubiq/src/state/a2ui/ubiq-catalog.json, crates/ubiq/src/ui/a2ui.rs, crates/ubiq/src/ui/a2ui/registry.rs, crates/ubiq/src/ui/a2ui/svg.rs, crates/ubiq/src/ui/a2ui/path.rs, crates/ubiq/src/ui/sink/a2ui.rs, crates/ubiq/tests/a2ui.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/sink/script.rs, crates/ubiq/src/state/script.rs, crates/ubiq/tests/script.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/stats.rs, crates/ubiq/src/ui/stats.rs, crates/ubiq/src/app/stats.rs, crates/ubiq/tests/stats.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/src/ui/git/repo_selector.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/app/new_agent.rs, crates/ubiq/src/ui/new_agent.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/app/graph.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/ui/web_view.rs, crates/ubiq/src/ui/viewer/web.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/state/web_panel.rs, crates/ubiq/src/app/explorer.rs, crates/ubiq/src/state/explorer/menu.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/app/board.rs, crates/ubiq/tests/prefs.rs, crates/ubiq/tests/viewer_kind.rs]
+code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/teams.rs, crates/ubiq/src/state/teams.rs, crates/ubiq/src/ui/teams/mod.rs, crates/ubiq/src/ui/teams/graph.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/src/ui/teams/inspector.rs, crates/ubiq/src/ui/teams/tasks.rs, crates/ubiq/tests/teams.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/src/ui/new_project_menu.rs, crates/ubiq/tests/new_project.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/feedback.rs, crates/ubiq/src/state/feedback.rs, crates/ubiq/src/ui/feedback.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/tests/image_gestures.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/app/sink.rs, crates/ubiq/src/state/a2ui.rs, crates/ubiq/src/state/a2ui/value.rs, crates/ubiq/src/state/a2ui/eval.rs, crates/ubiq/src/state/a2ui/action.rs, crates/ubiq/src/state/a2ui/live.rs, crates/ubiq/src/state/a2ui/svg.rs, crates/ubiq/src/state/a2ui/path.rs, crates/ubiq/src/state/a2ui/ubiq-catalog.json, crates/ubiq/src/ui/a2ui.rs, crates/ubiq/src/ui/a2ui/registry.rs, crates/ubiq/src/ui/a2ui/svg.rs, crates/ubiq/src/ui/a2ui/path.rs, crates/ubiq/src/ui/sink/a2ui.rs, crates/ubiq/tests/a2ui.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/sink/script.rs, crates/ubiq/src/state/script.rs, crates/ubiq/tests/script.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/stats.rs, crates/ubiq/src/ui/stats.rs, crates/ubiq/src/app/stats.rs, crates/ubiq/tests/stats.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/src/ui/git/repo_selector.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/app/new_agent.rs, crates/ubiq/src/ui/new_agent.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/app/graph.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/ui/web_view.rs, crates/ubiq/src/ui/viewer/web.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/state/web_panel.rs, crates/ubiq/src/app/explorer.rs, crates/ubiq/src/state/explorer/menu.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/app/board.rs, crates/ubiq/tests/prefs.rs, crates/ubiq/tests/viewer_kind.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
 ---
@@ -1572,16 +1572,20 @@ something about Ubiq itself rather than about a project.
 **Application settings is a page overlay, not a one-question modal.** It is `SETTINGS_WIDTH` by
 `SETTINGS_HEIGHT`, clamped to the viewport, with a left nav and a scrolling body; switching
 sections does not resize the panel. Toggles persist as they are flipped — there is no Save. Opening
-it dismisses project settings, and the reverse. Thirteen sections ship: **Appearance** (the four theme
-axes, then three switches: the palette family as one pill per family — labelled by the member whose
-ground is in use, so picking one keeps the ground; the ground itself, the same flip the titlebar
-offers, within the family; the accent as a row of swatches, the palette's own first and then the six
-the build ships, each named on its hover; the chrome and conversation base sizes as a ladder of
-pills, with the content family's shown read-only beside a note saying it belongs to the project and
-is set from the status bar's font-size dropdown; and density as its three choices — followed by
+it dismisses project settings, and the reverse. Fourteen sections ship: **Appearance** (the palette
+family as one pill per family — labelled by the member whose ground is in use, so picking one keeps
+the ground; the ground itself, the same flip the titlebar offers, within the family; the accent as a
+row of swatches, the palette's own first and then the six the build ships, each named on its
+hover; then **Themes**, the themes the user authored as pills beside the built-ins, each with an
+edit affordance, and **New theme…** — followed by
 whether the rail carries the open-project badges, whether
 the titlebar's capture control and its keystroke are offered at all, and whether a conversation
-footer draws a second ring comparing cached tokens to the total — off by default), **File
+footer draws a second ring comparing cached tokens to the total — off by default), **Size** (the
+same preset pills, `ui_scale` slider and `text_ratio` slider the status bar's size popover draws,
+built from the one shared `crates/ubiq/src/ui/size.rs`; the saved-preset list, with Rename and
+Delete beside each user-saved preset and neither offered on a built-in nobody has saved over; a
+trim pill ladder each for **Chrome text**, **Conversation text** and **Content text**; and Reset,
+which returns both sliders to 1.0 and leaves the three trims alone), **File
 explorer** (whether a
 single click opens a preview tab, and the two folders a clone lands in — the default project folder
 and the ephemeral folder, each with a chooser and a clear button, and each showing the host's own
@@ -1610,6 +1614,24 @@ every project inherits, edited at machine scope), and
 **Command line** (the `ubiq`
 command on the shell's `PATH`). The kitchen sink still draws the larger
 fixture nav; that page is how the furniture is looked at, not how the application is configured.
+
+**The theme editor is a modal over that page, not more rows in it.** Appearance is a fixed panel
+with a nav down its left, so a token list beside a colour picker above a live specimen does not fit
+in what is left; the editor is a `kit::modal_sized` at `THEME_EDITOR_WIDTH` by
+`THEME_EDITOR_HEIGHT`, raised by **New theme…** and by a theme pill's edit affordance, painted at
+the window root, and peeled by Escape one rung above the settings page. Its left column is the
+editable set grouped as `theme.rs` groups it — Grounds, Ink, Borders, Accent — with a dot on every
+token the author has written and no dot on the ones inherited from the fork; its right is
+`kit::colour_picker`, the same control project settings uses, with **Inherit from the base** under
+it for a token being given back. Under both is the style reference's own token strip, so what an
+author is shown is what the window is painting. **Editing a theme wears it**: there is no draft and
+no Save, the change is in force and written down as it is made, which is also why a theme is edited
+in the palette it *is* rather than against somebody else's ground. Naming is `kit::prompt_modal`,
+raised for **New theme…** and for Rename alike. Delete sits in the editor's footer, and a theme
+deleted while it is worn falls back to the palette it forked rather than leaving the window naming
+something that no longer exists. Nothing here imports or exports a theme file, follows the system
+appearance, or is per project — a theme is a property of the person, like every other appearance
+value (`D151`, `D152`).
 
 **An account is a home, drawn as one block per identity, with a harness line under it for each
 one it can start.** That is the whole of what the interface knows about an identity: no
@@ -2069,7 +2091,7 @@ single click that merely brings the tab to the front does not promote it. A prev
 italics with a faint background so it reads as tentative at a glance.
 
 **Every open file in a project wraps together.** Whether the file editors soft-wrap long lines is a
-project's preference, written into the same view prefs as its font size, and one flip brings every
+project's preference, written into its view prefs, and one flip brings every
 already-open buffer into line rather than waiting for a reopen. A buffer with no wrap preference
 uses its editor's own default, which is to wrap.
 
@@ -2322,13 +2344,15 @@ The menu is the window's one open
 menu, painted at the window root because the dock's skin cannot name `AppState`, and it is dismissed
 by a click outside it or by escape.
 
-**A project's text size is one knob, and the status bar holds it.** A dropdown at the status bar's
-right scales the file editor, the viewer, the terminal panes, the search results and the explorer
-tree together — the theme's content family, whose base is the project's — `FONT_SIZES`, a
-hand-picked ladder of point sizes rather than every integer, because a size is chosen by eye. The
-size is remembered with the project, so a zoom survives a restart. `cmd-=` and `cmd-shift-=` zoom in
-and `cmd--` zoom out by whole points, within the range the chrome admits; the dropdown shows the
-nearest ladder entry when a nudge lands between them.
+**The status bar's right holds the size popover, an icon-only trigger whose tooltip names the
+active preset — `Size — <preset>` or `Size — Custom`.** Clicking it opens `ui::size::panel`, an
+anchored menu rather than a modal — no scrim, dismissed by an outside click or by Escape through
+`MenuId::Size` — holding a row of preset pills, the interface slider over `ui_scale`, the text
+slider over `text_ratio`, and a `Save preset…` / `Reset` pair of `kit::ghost_button`s; no number and
+no unit appears anywhere in it. It works with no project open. `cmd-=` and `cmd-shift-=` nudge the
+content family's own trim up and `cmd--` down, by ±0.05 within the range the chrome admits,
+independently of the popover — the content trim pill ladder is one of the three the Size settings
+section draws instead.
 
 **An explorer row is sized from its text, not from a constant.** The row's height and the tree's
 per-level indent are both derived from the size the row draws at — `kit::row_height()` and
@@ -2459,7 +2483,8 @@ inverse computed from a mode. Which family, which accent and how tight the grid 
 interface rather than to any one project: all three are written into `InterfacePrefs` as they change
 and are what a second window opens in, and so are the chrome and conversation text bases
 (`chrome_font_size`, `conversation_font_size`). The project keeps one size of its own, the content
-family's, which is the status bar's ladder. The token set, the palette registry and the four axes
+family's, nudged by `cmd-=` / `cmd-shift-=` / `cmd--` and set from the Size settings section's
+content trim pills. The token set, the palette registry and the four axes
 belong to the UI and design document, linked below.
 
 **The kitchen sink is the application's own test bench, and the one screen with nothing behind it.**
@@ -2484,7 +2509,7 @@ site gets one.** Each specimen carries the name a call site reaches it by, so a 
 wrong in one palette, a control whose off state reads as absent, or a surface whose coloured edge
 floats inside its container shows up here before it shows up on a screen. Its controls are wired to
 real state, because a control that cannot hold a value is not being tested — one value drives the
-stepper, the meter and the ring — and nothing they hold means anything. The typography specimen is
+stepper, the slider, the meter and the ring — and nothing they hold means anything. The typography specimen is
 the same idea one axis over: five roles down, the three surface families across, each run at what
 `theme::font` answers for it, so a base moved in the interface prefs is looked at rather than
 computed.
@@ -2640,15 +2665,17 @@ a declared panel replayed rather than resumed.
 
 **The settings pages are layouts, not a settings screen.** Application settings is a left nav of
 kit rows — Appearance, Harnesses, Agent defaults, and the three quieter destinations — and a body
-of the same controls the style reference already draws: `choice_pill` for a pinned theme or a
-density, `check_box` for a boolean, `stepper` and `meter` for a number, `card` for a permission
+of the same controls the style reference already draws: `choice_pill` for a pinned theme or an
+interface size, `check_box` for a boolean, `stepper` and `meter` for a number, `card` for a permission
 mode, `Picker` for a dropdown, `slab` for a harness that opens. Project settings is that same
 furniture in the shape of a dialog: a coloured left edge, a nav, a form. On the sink, Cancel puts
 the fixture back and Save writes nothing, because the sink has no project behind it. Over the
 workbench the same dialog is the create and edit surface: only General is enabled, the path is
 immutable, Create sends `AddProject`, and Save sends `UpdateProject`. Its colour row is a strip of
-swatches plus a picker — saturation/value, a hue bar, and a `#RRGGBB` field — so a custom colour is
-chosen rather than only indexed. A field that holds the keyboard is underlined on its bottom edge
+swatches plus `kit::colour_picker` — saturation/value, a hue bar, and a `#RRGGBB` field — so a
+custom colour is chosen rather than only indexed. The picker is the kit's, not this dialog's: it
+reports a hue, a saturation and a value, and this form is the one that turns them into the
+project's `custom` tint. A field that holds the keyboard is underlined on its bottom edge
 as well as marked on the left.
 
 **The picker page raises the file picker in each of the shapes a screen can ask for one.** The picker
@@ -2901,12 +2928,11 @@ Accessors read through the active project and tolerate its absence: `open_projec
 `editor()`, `work()`, `agents()`, `graph()`, `board()`, `panes()` and `focused_pane()` each answer
 for a window with no project without a caller having to check, and `work_mut()`, `agents_mut()`,
 `graph_mut()` and `board_mut()` are the writing twins of the four over the work. `drop_project()` writes the project's blob, parks a copy against a
-reopen in the same session, kills its panes and unloads every conversation whose harness is up. `content_font_size_or_default()` is the project's
-live text size (or `theme::EDITOR_FONT_SIZE`), and `set_content_font_size()` and
-`nudge_content_font_size()` are
-the two ways it changes — the former reconfiguring every already-open emulator through
-`ui::terminal::config()` as well as writing the value down, so a zoom reaches panes that are on
-screen. `toggle_editor_wrap()` flips a project's wrap and brings every open buffer into line, and
+reopen in the same session, kills its panes and unloads every conversation whose harness is up. The content family's live text
+size is `theme::content_base()`, a trim over `theme::TEXT_BASE` held in `InterfacePrefs`, not the
+project; `nudge_content_trim()` is how it changes, reconfiguring every already-open emulator in
+every project the window holds through `redress_terminals()`, debounced behind `settle_metrics`, so
+a zoom reaches panes that are on screen with no project open required. `toggle_editor_wrap()` flips a project's wrap and brings every open buffer into line, and
 `remember()` writes the explorer's filter down with the rest of the view prefs, alongside a
 project's untitled buffers as `prefs::Scratch` entries — by display name and the buffer's own text,
 an untitled image capture dropped rather than carried — and its pinned files' tab keys;
@@ -3018,8 +3044,9 @@ way the host does.
 mode in the `ViewPrefs::modes` map, each carrying that mode's region flags and a dock blob of its
 own, beside the files and folders a project reopens with, its untitled buffers (`scratch:
 Vec<Scratch>`, a display name and the buffer's text) and pinned files (`pinned_files`), the point
-size its text is read at (`content_font_size`, carrying `alias = "ui_font_size"` so a blob written
-under the older name keeps its zoom), whether its editors wrap (`editor_wrap`) and the text in
+size field kept for a downgrade's sake (`content_font_size`, parsed and ignored — it is where the
+`4 -> 5` migration takes `InterfacePrefs.content_trim` from, the value of the most recently opened
+project), whether its editors wrap (`editor_wrap`) and the text in
 its explorer's filter (`file_filter`) — each new field `#[serde(default)]`, so a field costs the
 schema nothing, `scratch` and `pinned_files` included. `ModeLayout::default_for` is what a mode with
 no entry opens on: every region flag `false`, in every mode, because no region is furniture — `D94`.
@@ -3153,7 +3180,7 @@ and the new-pane menu, for the same reason: the titlebar draws the chevron but d
 menu offers.
 
 The rest is one module per area: `rail.rs`, `titlebar.rs`, `project_menu.rs`, `status_bar.rs`,
-`explorer.rs`, `editor.rs`, `terminal.rs`, `empty.rs`, `chat/`, `agents/`, `orchestration/`, `teams/`
+`size.rs`, `explorer.rs`, `editor.rs`, `terminal.rs`, `empty.rs`, `chat/`, `agents/`, `orchestration/`, `teams/`
 and `board/`, with `work.rs` beside them for the one thing all four of the last draw. The project picker is
 its own module rather than a `Picker`, because a project row carries actions and a confirmation and
 is not just a value. The clone modal is `ui/clone.rs` on `kit::modal_sized`, over `state/clone.rs`
@@ -3290,8 +3317,10 @@ the component's undo stack is not reachable, so those two go back out as its own
 
 State types live under `crates/ubiq/src/state/`: `workbench.rs` for the rail mode, the open menu, the
 project settings dialog, the application settings overlay, what was typed into the picker's and the
-explorer's filters, and the menus that came later — `MenuId::FontSize` for the status bar's
-text-size dropdown, `MenuId::ViewerKind` for the file-kind chip beside it, `MenuId::Tab` with the tab's `PanelKind` and anchor in
+explorer's filters, and the menus that came later — `MenuId::Size` for the status bar's size
+popover, `WorkbenchState::size_presets` for the pill row it and the Size settings section share and
+`WorkbenchState::size_prompt` for the `SizePrompt::Save` / `Rename { name }` naming question both
+raise, `MenuId::ViewerKind` for the file-kind chip beside it, `MenuId::Tab` with the tab's `PanelKind` and anchor in
 `WorkbenchState::tab_menu` for a tab's right-click, `MenuId::NewPane` with its anchor
 in `WorkbenchState::new_pane_menu` and its rows in `WorkbenchState::shells` for the new-pane
 control's chevron, and `MenuId::Overflow` with its anchor in `WorkbenchState::overflow_menu` and its

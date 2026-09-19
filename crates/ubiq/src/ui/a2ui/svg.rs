@@ -58,10 +58,10 @@ pub fn draw(ext: &ExtCtx) -> AnyElement {
 /// picture smaller than the box is left alone rather than blown up.
 fn fit(width: f32, height: f32) -> (f32, f32) {
     let longest = width.max(height);
-    if longest <= theme::A2UI_SVG_MAX || longest <= 0.0 {
+    if longest <= theme::a2ui_svg_max() || longest <= 0.0 {
         return (width, height);
     }
-    let scale = theme::A2UI_SVG_MAX / longest;
+    let scale = theme::a2ui_svg_max() / longest;
     (width * scale, height * scale)
 }
 

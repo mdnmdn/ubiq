@@ -67,7 +67,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
     if graph.show_inspector {
         body = body.child(
             div()
-                .w(px(theme::INSPECTOR_WIDTH))
+                .w(px(theme::inspector_width()))
                 .flex()
                 .flex_none()
                 .border_l_1()

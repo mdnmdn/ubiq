@@ -111,10 +111,7 @@ fn drawn(
     // own lands here and gets the highlighted buffer.
     let key = file.key();
 
-    // The viewer needs the project's editor chrome — the point size its files draw at — which is
-    // a preference of the project it sits in. `None` means the default.
-    let font_size = app.content_font_size(cx);
-    let buf = || buffer(state, font_size);
+    let buf = || buffer(state);
 
     // A viewer with no source/preview toggle draws one thing only. The editor is the general
     // case; an image's bytes are its body. The buffer is only cloned out in the branches that
@@ -131,7 +128,7 @@ fn drawn(
             | ViewerKind::Excalidraw
             | ViewerKind::Drawio => {
                 let source = state.read(cx).value().to_string();
-                markdown::render(app, &key, &source, font_size, file.frontmatter_open, cx)
+                markdown::render(app, &key, &source, file.frontmatter_open, cx)
             }
         };
     }
@@ -139,7 +136,7 @@ fn drawn(
     let mut preview = || match file.viewer {
         ViewerKind::Markdown => {
             let source = state.read(cx).value().to_string();
-            markdown::render(app, &key, &source, font_size, file.frontmatter_open, cx)
+            markdown::render(app, &key, &source, file.frontmatter_open, cx)
         }
         ViewerKind::Mermaid => {
             let source = state.read(cx).value().to_string();
@@ -177,13 +174,14 @@ fn drawn(
 
 /// The file's own buffer. Never a copy of it: the source half of a split is the same entity the
 /// source layout draws, so a toggle costs nothing and loses no undo history. It draws at the
-/// project's point size, or the default when the project has no preference.
-pub(crate) fn buffer(state: &Entity<EditorState>, font_size: Option<f32>) -> AnyElement {
-    let mut editor = Editor::new(state).h(relative(1.)).p_0().border_0();
-    if let Some(size) = font_size {
-        editor = editor.text_size(px(size));
-    }
-    editor.into_any_element()
+/// content family's body size, which already carries the user's zoom.
+pub(crate) fn buffer(state: &Entity<EditorState>) -> AnyElement {
+    Editor::new(state)
+        .h(relative(1.))
+        .p_0()
+        .border_0()
+        .text_size(theme::font(theme::Family::Content, theme::Role::Body))
+        .into_any_element()
 }
 
 /// One side of a split, each taking half and neither pushing the other out.

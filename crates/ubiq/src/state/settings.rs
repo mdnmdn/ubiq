@@ -37,6 +37,10 @@ pub const SCHEMA: u32 = 1;
 pub enum SettingsSection {
     #[default]
     Appearance,
+    /// The two size axes, the presets that name a point on them, and the per-family trims.
+    /// Its own section rather than more rows under Appearance: the axes are half the page on
+    /// their own, and the preset list has nowhere else to live (`D151`).
+    Size,
     FileExplorer,
     Editor,
     Search,
@@ -55,6 +59,7 @@ impl SettingsSection {
     pub fn all() -> &'static [SettingsSection] {
         &[
             SettingsSection::Appearance,
+            SettingsSection::Size,
             SettingsSection::FileExplorer,
             SettingsSection::Editor,
             SettingsSection::Search,
@@ -73,6 +78,7 @@ impl SettingsSection {
     pub fn label(self) -> &'static str {
         match self {
             SettingsSection::Appearance => "Appearance",
+            SettingsSection::Size => "Size",
             SettingsSection::FileExplorer => "File explorer",
             SettingsSection::Editor => "Editor",
             SettingsSection::Search => "Search",

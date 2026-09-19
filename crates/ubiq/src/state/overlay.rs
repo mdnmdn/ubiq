@@ -68,6 +68,15 @@ pub enum Layer {
     AllProjects,
     /// The file question — new, rename, save-as and the rest.
     FileDialog,
+    /// The size preset's name prompt. Above the settings page because the Size section raises it,
+    /// and it is drawn at the window root because the status bar's popover raises the same one.
+    SizeNaming,
+    /// The theme editor. Above the settings page because the Appearance section raises it, and
+    /// drawn at the window root for the same reason the size prompt is.
+    ThemeEditor,
+    /// The theme's name prompt — **New theme…**, and the editor's Rename. Above the editor,
+    /// because the editor is one of the two places that raises it.
+    ThemeNaming,
     /// The terminal tab's Close confirm.
     ClosePane,
     /// The chat tab's Close confirm.

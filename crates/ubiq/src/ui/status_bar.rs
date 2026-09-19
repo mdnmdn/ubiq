@@ -9,7 +9,7 @@
 //! that is not one prints nothing git-related.
 
 use gpui::{
-    Anchor, App, Context, Focusable, InteractiveElement, IntoElement, ParentElement,
+    Anchor, App, Context, Focusable, InteractiveElement, IntoElement, ParentElement, SharedString,
     StatefulInteractiveElement, Styled, Window, div, px,
 };
 
@@ -23,9 +23,9 @@ use crate::state::vim::VimMode;
 use crate::state::{MenuId, RailMode};
 use crate::theme;
 use crate::ui::board::status_colour;
-use crate::ui::kit::{Picker, PickerStyle, mono};
+use crate::ui::kit::{Picker, PickerStyle, UbiqIcon, icon_button, mono};
 use crate::ui::work::bucket_colour;
-use crate::ui::{handler, indexed};
+use crate::ui::{handler, indexed, size};
 use crate::version;
 
 /// The bundle version, at the left edge of the strip's right-justified half. Fixed at build time
@@ -252,7 +252,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
         .child(div().flex_1().min_w(px(0.)))
         .children(git_readout(app, cx))
         .child(vim_chip(app, cx))
-        .child(font_size_dropdown(app, cx))
+        .child(size_control(app, cx))
         .child(version_label())
         .child(made_with_love())
 }
@@ -317,55 +317,29 @@ fn viewer_picker(
     Some(picker.into_any_element())
 }
 
-/// Every text size the status bar's dropdown offers, in points. A hand-picked ladder rather than
-/// every integer: a font size is chosen by eye, and the spread of sizes the same knob wants on an
-/// editor, a terminal and a tree is the ladder rather than a grid.
-const FONT_SIZES: &[f32] = &[
-    10.0, 11.0, 12.0, 13.0, 14.0, 16.0, 18.0, 20.0, 24.0, 28.0, 32.0,
-];
+/// The size control, at the bottom-right of the strip — an icon and the panel it opens.
+///
+/// **It replaced a dropdown that said `13 px`.** That control named a point size, changed four
+/// unrelated surfaces with it and moved nothing they sat in; what is here moves the two axes
+/// everything follows, and says so with two icons and a track rather than a number (`D151`).
+/// Icon-only, so the tooltip is not optional: it names the preset the axes spell, or *Custom*.
+fn size_control(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
+    let open = size::is_open(app);
+    let tip: SharedString = size::trigger_tooltip(app).into();
 
-/// The text-size dropdown, at the bottom-right of the strip. A project's text size scales the
-/// editor, the terminal panes and the explorer tree together, and it is remembered with the
-/// project, so the dropdown is where the whole window's zoom lives. The nearest ladder entry is
-/// shown when a nudge-landed size is not one of the ladder's.
-fn font_size_dropdown(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
-    let view = cx.entity();
-    let current = app.content_font_size_or_default(cx);
-    let index = nearest_font_index(current);
-
-    Picker::new("font-size", format!("{current:.0}\u{2009}px"))
-        .items(
-            FONT_SIZES
-                .iter()
-                .map(|n| format!("{n:.0}"))
-                .collect::<Vec<_>>(),
-        )
-        .selected(index)
-        .open(app.workbench.open_menu == Some(MenuId::FontSize))
-        .anchor(Anchor::BottomLeft)
-        .on_toggle(handler(&view, |this, _, cx| {
-            this.open_menu(MenuId::FontSize, cx)
-        }))
-        .on_pick(indexed(&view, |this, index, _, cx| {
-            this.set_content_font_size(FONT_SIZES[index], cx)
-        }))
-        .on_dismiss(handler(&view, |this, _, cx| this.close_menu(cx)))
-        .into_any_element()
-}
-
-/// The ladder entry nearest a size, for the trigger's `selected` mark. Only meaningful when the
-/// current size is a nudge-landed value that is not itself on the ladder.
-fn nearest_font_index(size: f32) -> usize {
-    let mut best = 0;
-    let mut best_delta = f32::INFINITY;
-    for (i, &candidate) in FONT_SIZES.iter().enumerate() {
-        let delta = (candidate - size).abs();
-        if delta < best_delta {
-            best_delta = delta;
-            best = i;
-        }
+    let mut trigger = icon_button(
+        "size-control",
+        UbiqIcon::SizeTextLarge,
+        open,
+        cx.listener(|this, _, window, cx| this.open_size_menu(window, cx)),
+    )
+    .tooltip(move |window, cx| {
+        gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx)
+    });
+    if open {
+        trigger = trigger.child(size::panel(app, cx));
     }
-    best
+    trigger
 }
 
 /// Branch, tracking, working-tree totals — or nothing, when the project is not a repository.

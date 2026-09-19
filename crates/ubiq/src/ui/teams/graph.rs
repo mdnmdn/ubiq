@@ -194,7 +194,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         .w(px((extent.0 * zoom).max(f32::from(viewport.width))))
         .h(px((extent.1 * zoom).max(f32::from(viewport.height))))
         .child(canvas::dot_grid(
-            theme::GRAPH_DOT_PITCH * zoom,
+            theme::graph_dot_pitch() * zoom,
             point(0.0, 0.0),
         ));
 
@@ -639,7 +639,7 @@ fn agent_card(
                 .gap(px(5.0 * zoom))
                 .children((!agent.harness.is_empty()).then(|| {
                     Icon::new(harness_icon(&agent.harness))
-                        .with_size(px(12.0 * zoom))
+                        .with_size(theme::icon_sm() * zoom)
                         .flex_none()
                         .text_color(theme::text_muted())
                 }))

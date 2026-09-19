@@ -211,10 +211,10 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
     let rows: Vec<AnyElement> = drawn
         .iter()
         .map(|row| {
-            // The tree scales with the project's font size, the same knob as the editor and the
-            // terminal, so a zoom dresses the whole project's workspace at once. The tree is the
-            // densest surface, so it sits a half point under the editor's floor.
-            let font = app.content_font_size_or_default(cx) - 0.5;
+            // The tree scales with the content family, the same knob as the editor and the
+            // terminal, so a zoom dresses every surface code is read on at once. The tree is the
+            // densest of them, which is what `Role::Dense` names.
+            let font = f32::from(theme::font(theme::Family::Content, theme::Role::Dense));
             let lit = drop_onto.as_deref() == Some(row.path.as_str());
             line(row, tree, selected.as_deref(), font, lit, on_tree, cx)
         })
@@ -620,7 +620,7 @@ fn bookmarks_section(app: &AppState, cx: &mut Context<AppState>) -> Option<AnyEl
     }
     let open = app.workbench.bookmarks_open;
     let count = marks.len().to_string();
-    let font = app.content_font_size_or_default(cx) - 0.5;
+    let font = f32::from(theme::font(theme::Family::Content, theme::Role::Dense));
 
     let rows: Vec<AnyElement> = marks
         .into_iter()

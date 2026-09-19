@@ -68,6 +68,8 @@ this far: a pane is an ID, a title, and an emulator reading one end of the bus.
 | `git.rs` | The Git screen |
 | `graph.rs`, `board.rs` | Orchestration and the tasks board |
 | `settings.rs` | Application and project settings, connectors, accounts, AI providers |
+| `size.rs` | The two size axes as the window acts on them: the active preset, the saved list, the name prompt, and `sync_size_sliders` |
+| `themes.rs` | Author-made themes as the window acts on them: the fork, the token being written, the hex field, the name prompt, and the delete that falls back to the base (`D152`) |
 | `stats.rs` | The Control screen |
 | `sink.rs` | The kitchen sink |
 | `vim.rs` | What turns a keystroke into an edit on whichever input has focus |
@@ -85,7 +87,9 @@ process, a path on disk or a file descriptor.
 | `shell.rs` | The skeleton: titlebar, rail, dock, status bar |
 | `titlebar.rs` | What is open, where it lives, the switches for the dock's three edge regions, and the back/forward controls (their own helper, because `icon_button` has no room for a control with nowhere to go — `text_faint()` and inert at the history's end) |
 | `rail.rs` | The activity rail: destinations, grouped, exactly one active |
-| `status_bar.rs` | The bottom strip — open file and caret, or the agents screen's column fill, or the graph's selection |
+| `status_bar.rs` | The bottom strip — open file and caret, or the agents screen's column fill, or the graph's selection. Its size control is the icon-only trigger for the size popover |
+| `size.rs` | The size controls, drawn once and used twice: the preset pills, the two axis sliders, the popover the status bar opens, the preset list the Size settings section draws, and the name prompt both raise. **No number, no unit and no `px` in any of it** |
+| `themes.rs` | The Appearance section's Themes row, the theme editor modal (token list, `kit::colour_picker`, the live `sink::style::tokens()` specimen, the contrast warning) and the name prompt |
 | `ribbon.rs` | Which ribbons the shell draws — build-channel `alpha`/`beta`, Git `experimental` — on `kit::ribbon` |
 | `dock/mod.rs` | The window's arrangement and `WorkbenchPanel`, the adapter that makes a screen area a panel — a weak `AppState` handle plus a panel kind, its render a `match` delegating to the same free functions |
 | `dock/skin.rs` | Ubiq's appearance for the library's dock: tab strip, displayed-tab mark, panel dots, close affordance, drop indicator, resize strips. Ubiq writes no drag, no drop geometry, no layout serialisation |

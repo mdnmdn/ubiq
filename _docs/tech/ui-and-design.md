@@ -5,9 +5,9 @@ kind: tech
 status: current
 summary: The GPUI rendering model, the complete theme token set and the rule that no colour escapes it, how a palette is switched, the shape every surface, modal and dialog is drawn in, the page every primitive is looked at on, and the design assets screens are built against.
 read_when: you are building or restyling a screen, adding a colour or a size, switching or extending a palette, raising a modal or the file picker, looking at a primitive on the style reference, or looking for the wireframe a layout came from
-updated: 2026-09-18
+updated: 2026-09-19
 verified: 2026-09-19
-code_anchors: [crates/ubiq/src/theme.rs, assets/icons/icons.yaml, _tools/icons.py, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/state/overlay.rs, crates/ubiq/src/ui/kit/ribbon.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/src/ui/kit/popover.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/tests/dismiss.rs, crates/ubiq/src/ui/remote_hosts.rs]
+code_anchors: [crates/ubiq/src/theme.rs, assets/icons/icons.yaml, _tools/icons.py, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/colour.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/state/overlay.rs, crates/ubiq/src/ui/kit/ribbon.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/src/ui/kit/popover.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/tests/dismiss.rs, crates/ubiq/src/ui/remote_hosts.rs]
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -147,6 +147,20 @@ family the user chose** — a warm dark reaches the warm light, not the built-in
 blob holding `"Dark"` or `"Light"` reads as `dark` and `light`; an unknown slug falls back to the
 default rather than discarding the blob.
 
+**A user's own theme is a fork of one of those rows plus a sparse override map** (`D152`).
+`CustomTheme { id, name, base, overrides }` lives in `InterfacePrefs.custom_themes` and resolves as
+`palette_for(base)` → the overrides → `with_accent`, so an author supplies one colour or sixteen and
+the rest stay the fork's. The editable set is **grounds and ink** — the eight surfaces, the four
+text colours, the two borders and the accent seed, which is `theme::EDITABLE_TOKENS`; status,
+ribbon, terminal and project-swatch tokens inherit, because they carry meaning rather than taste. An
+override is a hue and not a transparency: the alpha stays the palette's, which is what keeps the
+scrim a scrim. A custom id is `custom-…` and is **interned** rather than owned, so `ThemeId` stays a
+`Copy` newtype over a `&'static str` and the built-ins stay compile-time; `ThemeId::base` is the
+built-in an id resolves through, and a slug naming a theme this config root does not hold resolves
+to that base rather than to a dangling row. The registry itself takes no runtime entries —
+`ThemeId::all` is still the ten built-ins — and `theme::set_custom_themes` is what hands the window
+its list, pushed from `AppState` whenever the interface's preferences change.
+
 **An accent is one seed, and the six hued tokens derive from it.** `ACCENTS` holds one `AccentDef`
 — slug, name, one `Rgba` — per accent, and `theme::with_accent` resolves it against the palette in
 hand: `accent` is the seed pushed away from `surface.base` until it clears WCAG's contrast floor for
@@ -161,45 +175,92 @@ same, so they keep their per-palette literals.
 
 **A type size is a family and a role, never a number.** `theme::font(Family, Role)` is the one place
 a size in the interface comes from: a size is owned the way a colour is, which is `D10`'s rule on a
-second axis. Three families each carry a base of their own, because the three are read
-differently and resize for different reasons: `Family::Chrome` is the furniture — titlebar, status
-bar, rail, tabs, menus, modals, settings, pickers, notifications, dialogs; `Family::Content` is what
-code is read at — editor, viewer, explorer tree, search results, terminal panes; `Family::Conversation`
-is prose — the transcript, tool blocks, the composer, the agents columns and their sidebar. Five
-roles are ratios over the base — `Role::Title` 1.15, `Body` 1.00, `Label` 0.92, `Meta` 0.85, `Micro`
-0.80 — and the product is rounded to the nearest half point, the grid the hand-picked sizes it
-replaced sat on. A fourth family would be arguing about where a boundary falls; these three fall on
-boundaries the code draws for other reasons. **The function is `font`, not `text`**, because `theme::text()` is
-the primary text *colour* — the one name collision in the file worth knowing before reading it.
+second axis. Three families, because the three are read differently and resize for different
+reasons: `Family::Chrome` is the furniture — titlebar, status bar, rail, tabs, menus, modals,
+settings, pickers, notifications, dialogs; `Family::Content` is what code is read at — editor,
+viewer, explorer tree, search results, terminal panes; `Family::Conversation` is prose — the
+transcript, tool blocks, the composer, the agents columns and their sidebar. Each is a ratio over
+one base rather than a base of its own: `TEXT_BASE` 13.0, `Family::ratio()` Chrome 0.96, Content
+1.00, Conversation 0.96 — the three numbers that reproduce the hand-picked 12.5 / 13.0 / 12.5 the
+scale replaced. Six roles are ratios over that — `Role::Title` 1.15, `Body` 1.00, `Dense` 0.96,
+`Label` 0.92, `Meta` 0.85, `Micro` 0.80 — and the product is rounded to the nearest half point, the
+grid those hand-picked sizes sat on. `Role::Dense` names the `- 0.5` / `- 1.0` the densest content
+surfaces would otherwise write by hand: the explorer tree, a search result's second line, a raw
+frontmatter block. A fourth family would be arguing about where a boundary falls; these three fall
+on boundaries the code draws for other reasons. **The function is `font`, not `text`**, because
+`theme::text()` is the primary text *colour* — the one name collision in the file worth knowing
+before reading it.
+
+**Sizing is two axes and nothing else (`D151`).** `theme::Metrics` holds them: **`ui_scale`**
+(0.80–1.40) moves every dimension — the window's rem size, every constant in the table below, the
+icon sizes, the terminal inset, and the type bases through `TEXT_BASE` — and **`text_ratio`**
+(0.85–1.20) moves type only, on top of it. Beside them sit three per-family trims (0.70–1.60), for
+a reader who wants a transcript larger than the chrome around it. The whole derivation is two
+lines:
+
+```rust
+pub fn scaled(base: f32) -> f32 { (base * ui_scale()).round().max(1.0) }
+pub fn font(family: Family, role: Role) -> Pixels {
+    let base = TEXT_BASE * ui_scale() * text_ratio() * family.ratio() * trim(family) * role.ratio();
+    px((base * 2.0).round() / 2.0)
+}
+```
+
+At `text_ratio = 1` every proportion is held exactly, so the result is the same window seen at a
+different distance; `text_ratio` is the only thing that changes a proportion, which is what the
+second axis is for. Every axis is clamped **in the setter** — `theme::set_ui_scale`,
+`set_text_ratio`, `set_trim`, or `set_metrics` for all five — so no call site learns a range
+exists. `Density` is gone: its three steps are `ui_scale` 0.9 / 1.0 / 1.15, and the three names
+survive as three of the Size section's four built-in presets — Compact, Regular and Comfortable —
+alongside a fourth, Large, at 1.30.
 
 **The rule is held mechanically, the way the crate boundary is.** `just ui` rejects
-`text_size(px(<digit>` anywhere under `crates/ubiq/src`, beside the check that the interface never
-names the host. The digit is load-bearing: `text_size(px(font))`, where the size is computed from
-the project's zoom, is what `ui/explorer.rs`, `ui/search.rs` and `ui/outline.rs` legitimately do,
-and a bare `text_size(px(` would reject those.
+`text_size(px(<digit>` anywhere under `crates/ubiq/src`, and a literal icon size
+(`with_size(px(<digit>`, `Size::Size(px(<digit>`) beside it, next to the check that the interface
+never names the host. The digit is load-bearing: `text_size(px(font))`, where the size came out of
+`theme::font`, is legitimate and a bare `text_size(px(` would reject it.
 
-**Two of the three bases belong to the interface, the third to the project.**
-`InterfacePrefs.chrome_font_size` and `InterfacePrefs.conversation_font_size` are `Option<f32>`
-(`serde(default)`, so no schema bump), written by `AppState::remember_interface` and read back by
-`apply_preferences` through `theme::set_text_scale`, defaulting to `CHROME_FONT_SIZE` and
-`CONVERSATION_FONT_SIZE`. The content base is `ViewPrefs.content_font_size`, per project
-(`serde(default, alias = "ui_font_size")`, so a blob written under the older name keeps its zoom),
-reached through `AppState::content_font_size`, `content_font_size_or_default`, `set_content_font_size`
-and `nudge_content_font_size` — the status bar's eleven-entry ladder and the `EDITOR_FONT_MIN` /
-`EDITOR_FONT_MAX` clamp are that family and only that family. Because the theme is one process-wide
-thread-local while that base is a *project's*, `ui::shell::render` pushes the showing project's size
-into the scale at the top of every window's render, so two windows on two projects each draw at
-their own size instead of at the last one set.
+**Every appearance value belongs to the interface, and none to a project.** All five axes are
+`InterfacePrefs` fields (`ui_scale`, `text_ratio`, `content_trim`, `chrome_trim`,
+`conversation_trim`, each `serde(default)` at 1.0), written by `AppState::remember_interface` and
+read back by `apply_preferences` through `theme::set_metrics`. `D151` moved the content family's size here too: `ViewPrefs.content_font_size` is parsed and
+ignored, `ui::shell::render` pushes nothing into the scale at the top of a paint, and `⌘=` / `⌘-`
+(`AppState::nudge_content_trim`) move `content_trim` by ±0.05, which works with no project open. The
+status bar's control is the size popover — an icon-only trigger opening `ui::size::panel` — and it
+names no point size at all; the content family's own trim pills live in the Size settings section
+instead. `EDITOR_FONT_MIN` and `EDITOR_FONT_MAX` remain in `theme.rs` with no caller.
 
-**Switching goes through `theme::set_theme`, never through `Theme::set`.** It takes three of the four
-axes — palette, accent, density — resolves them into the one `Theme` every accessor reads, and dresses
-the component library; `theme::set_mode` and `theme::set_density` are that call with the other axes
-left as they stand. The text scale is the fourth and is deliberately not an argument, and not a
-field on `Theme` either: it is the one axis with nothing to resolve, because a base size is a
-number the user set rather than something derived from the palette in hand. So it lives in a
-thread-local cell of its own beside the theme's, read through `theme::text_scale` and set through
-`theme::set_text_scale`, which is what makes a palette, accent or density switch structurally
-unable to undo a size the user chose — there is no resolution for it to be dropped by. Two theme systems are live at once: Ubiq's tokens, and the component library's
+**A `SizePreset` is a name and the two numbers, nothing else.** `SizePreset { name, ui_scale,
+text_ratio }` never carries a palette or an accent — those ride their own axes in `InterfacePrefs`.
+Four ship as code rather than as stored rows — `BUILT_IN_SIZE_PRESETS`: Compact (`ui_scale` 0.90),
+Regular (1.0), Comfortable (1.15) and Large (1.30), all at `text_ratio` 1.0; Compact sits at 0.90 so
+it agrees with the `4 → 5` migration's `Density::Compact`. `InterfacePrefs.size_presets: Vec<SizePreset>`
+holds what the user has saved, `#[serde(default)]` so the schema stays at 5 with no bump; `all_size_presets()`
+puts a saved preset with a built-in's name in that built-in's place rather than beside it, so saving
+replaces by name rather than appending. `SIZE_STEP` (0.05) is the quantisation step both sliders
+share, chosen because it divides all four range ends — 0.80 and 1.40 for `ui_scale`, 0.85 and 1.20
+for `text_ratio` — and divides 1.0, so both ends of both axes are reachable and the default is
+itself a stop; `UI_SCALE_STOPS` (13) and `TEXT_RATIO_STOPS` (8) are the ladders each axis quantises
+to, measured from zero.
+
+**The window's rem size is the UI scale (`D153`).** `theme::dress_component_library` writes
+`gpui_component::Theme::font_size = px(REM_BASE * ui_scale())` (`REM_BASE` 16.0, the value in force
+before Ubiq ever wrote one) and `mono_font_size` from the content base. `gpui_component::Root` calls
+`window.set_rem_size(cx.theme().font_size)` on every paint, and GPUI's whole Tailwind spacing scale
+— `p_3`, `gap_2`, `w_4`, `h_8` — expands to `rems(...)`, so that one number is what makes several
+hundred hand-placed spacings and every library internal measured in rems follow the scale with no
+call-site change. It is why a scale change calls `theme::redress`, not just `cx.notify()`. The cost
+is `D153`'s: Ubiq inherits the library's spacing judgement wholesale.
+
+**Switching goes through `theme::set_theme`, never through `Theme::set`.** It takes the two colour
+axes — palette and accent — resolves them into the one `Theme` every accessor reads, and dresses the
+component library; `theme::set_mode` is that call with the accent left as it stands. The size axis
+is deliberately not an argument, and not a field on `Theme` either: it is the axis with nothing to
+resolve, because a scale is a number the user set rather than something derived from the palette in
+hand. So it lives in a thread-local cell of its own beside the theme's, read through
+`theme::metrics` and set through `theme::set_metrics`, which is what makes a palette or accent
+switch structurally unable to undo a size the user chose — there is no resolution for it to be
+dropped by. Two theme systems are live at once: Ubiq's tokens, and the component library's
 own theme, which is what colours the editor, the textarea, the scrollbars and the markdown view.
 `set_theme` moves both — `Theme::change` first, from the palette's `Mode`, then
 `theme::dress_component_library` writes Ubiq's tokens into the library's `ThemeColor` through
@@ -207,12 +268,12 @@ own theme, which is what colours the editor, the textarea, the scrollbars and th
 handles. Only the fields that plainly correspond are written, and the two easy to mistake are the
 library's `accent`, which is its hover ground, and `primary`, which is the brand colour Ubiq's
 `accent` maps to. The theme is process-wide, so a second window opens in the palette, accent and
-density the first is in, and switching in either switches both.
+size axis the first is in, and switching in either switches both.
 
 A pane's emulator is the one surface that does not read a token when it draws: it is built with a
-copy of the palette, so `AppState`'s `toggle_theme`, `set_accent` and `set_density` each push a
-rebuilt configuration into every open emulator through `redress_terminals` as well as switching the
-theme. Any component given a palette rather than reading one has to be walked the same way.
+copy of the palette, so `AppState`'s `toggle_theme`, `set_accent`, `set_ui_scale` and `set_trim`
+each push a rebuilt configuration into every open emulator through `redress_terminals` as well as
+switching the theme. Any component given a palette rather than reading one has to be walked the same way.
 
 `theme.rs` also owns the constants that are not colours, for the same reason it owns the colours:
 restyling the shell should be one file to visit.
@@ -221,11 +282,16 @@ restyling the shell should be one file to visit.
 |---|---|
 | `MONO_FONT` | The family for code, paths, counts and every mono label — the mono that ships with the OS (`Menlo`, `Cascadia Mono`, `DejaVu Sans Mono`), so the text system resolves it instead of falling back to a proportional face |
 | `ACCENT_EDGE` | The width of the coloured left border that identifies a surface |
-| `TERMINAL_FONT_SIZE`, `TERMINAL_PADDING`, `TERMINAL_SCROLLBACK` | The terminal body: its type size, the inset its output is drawn inside, and how many lines an emulator keeps |
-| `CHROME_FONT_SIZE`, `CONVERSATION_FONT_SIZE` | What the chrome and conversation families draw `Role::Body` at when the interface prefs name no base of their own. Both are interface-scoped, which is why they are a pair and the content family's base is not with them |
-| `EDITOR_FONT_SIZE`, `EDITOR_FONT_MIN`, `EDITOR_FONT_MAX` | The content family's base point size and the range a project's zoom is allowed to live in — the one size the editor, the viewer, the terminal panes, the search results and the explorer tree are all read at |
+| `TERMINAL_PADDING`, `TERMINAL_SCROLLBACK` | The terminal body: the inset its output is drawn inside, and how many lines an emulator keeps. Its type size is the content family's, read through `theme::content_base()` |
+| `TEXT_BASE` | The one number every type size derives from: what `Family::Content` draws `Role::Body` at with both axes at 1.0. Chrome and conversation are `Family::ratio()` under it |
+| `REM_BASE` | The window's rem size at `ui_scale = 1.0`, handed to the component library — `D153`, and what makes GPUI's rem-relative spacing scale follow the UI scale |
+| `UI_SCALE_MIN`/`MAX`, `TEXT_RATIO_MIN`/`MAX`, `TRIM_MIN`/`MAX` | What each axis is allowed to be. Clamped in the setters, never at a call site |
+| `SIZE_STEP` | The quantisation step, 0.05, both size sliders share — chosen because it divides every range end and 1.0 too, so a stop sits on the default |
+| `UI_SCALE_STOPS`, `TEXT_RATIO_STOPS` | The ladder each axis quantises to — 13 and 8 — measured from zero |
+| `EDITOR_FONT_MIN`, `EDITOR_FONT_MAX` | Left with no caller: the status bar's control is the size popover, which offers no point size for them to bound |
+| `ICON_SM`, `ICON_MD`, `ICON_LG` | The three icon sizes, read through `theme::icon_sm/md/lg()` and fed to the component library's `Size::Size(px)`. Its own `Size` enum is discrete and does not scale, which is why these exist |
 | `DISPLAY_FONT_SIZE` | The one size off the scale, private and read through `theme::font_display()`: the device-login user code, a number to be read off a screen and typed into a phone rather than a heading |
-| `TITLEBAR_HEIGHT`, `STATUS_BAR_HEIGHT`, `RAIL_WIDTH` | The chrome the user cannot drag: read at the current density, and sized by nothing else |
+| `TITLEBAR_HEIGHT`, `STATUS_BAR_HEIGHT`, `RAIL_WIDTH` | The chrome the user cannot drag |
 | `EXPLORER_WIDTH`, `CHAT_WIDTH`, `DOCK_HEIGHT` | The size each of the dock's three edge regions opens at. What the user drags one to is remembered per project, inside the arrangement blob, and is what a restored window opens on |
 | `INSPECTOR_WIDTH`, `TASKS_HEIGHT`, `GRAPH_DOT_PITCH` | The orchestration screen: the inspector beside its graph, the tasks drawer under it, and the pitch of the dotted ground at 100% zoom |
 | `AGENT_SIDEBAR_WIDTH`, `NEW_COLUMN_STRIP` | The agents screen: the sidebar that lists every agent, and the strip past the last column that a dragged tab is split off into. How narrow a column itself may get is `state::agents::COLUMN_MIN_WIDTH` instead, because that is a fact about a conversation rather than about this window |
@@ -236,20 +302,31 @@ restyling the shell should be one file to visit.
 | `A2UI_IMAGE_ICON`, `A2UI_IMAGE_AVATAR`, `A2UI_IMAGE_SMALL`, `A2UI_IMAGE_MEDIUM`, `A2UI_IMAGE_LARGE`, `A2UI_IMAGE_HEADER_H` | The six sizes an A2UI `Image` variant maps onto. The catalog names the variant and this file decides how big it is, because a payload Ubiq did not write must not be able to state a size |
 | `A2UI_SVG_MAX` | The box an agent-authored picture is fitted into, aspect preserved — the ceiling on how much of a surface one drawing may take |
 
-The table splits in two. **The grid half follows the density factor** — `ACCENT_EDGE`,
-`TERMINAL_PADDING`, `TITLEBAR_HEIGHT`, `STATUS_BAR_HEIGHT`, `RAIL_WIDTH` and `kit::row_height` /
-`kit::row_indent`. Those five are private consts read through `theme::accent_edge()`,
-`theme::terminal_padding()`, `theme::titlebar_height()`, `theme::status_bar_height()` and
-`theme::rail_width()`, because a factor cannot apply to a const; `Density { Compact 0.9, Regular
-1.0, Comfortable 1.15 }` is resolved into the `Theme` alongside the palette and the accent, so a
-call site reads a scaled size exactly the way it reads a colour. `AppState::set_density` flips it,
-persists it in `InterfacePrefs.density` (`serde(default)`, so no schema bump) and re-dresses every
-open emulator — the new `TERMINAL_PADDING` changes the cell grid, and the emulator's own
-re-measurement fires the resize that tells the harness.
+**Every pixel constant in the table is a `pub const` base with a `scaled()` accessor beside it**,
+and a call site reads the accessor: `theme::accent_edge()`, `theme::titlebar_height()`,
+`theme::explorer_width()`, `theme::settings_width()`, and so on through the whole list. The const
+is the size at `ui_scale = 1.0`; the accessor is that size in the window the user actually has, and
+`scaled` rounds to whole pixels (a chrome row a fraction of a pixel tall is a seam in the rule
+under it) and never to nothing. Two exceptions: `theme::hairline()` returns 1.0 at every scale,
+because a rule that grows blurs rather than reads, and `MODAL_MAX_HEIGHT` is a ratio rather than a
+length.
 
-**Everything from `EXPLORER_WIDTH` down does not scale.** Those are what a *fresh* window opens at;
-the drag is remembered per project inside the arrangement blob, so scaling them would fight a value
-the user set.
+**The dragged-region rule is re-stated, not broken.** Everything from `EXPLORER_WIDTH` down is what
+a *fresh* window opens a region at; what the user then drags is remembered per project inside the
+arrangement blob. So the **default** scales — the accessor — and the **stored** value does not:
+scaling the blob would fight a size the user set by hand, and freezing the default would leave a
+300px explorer beside a window drawn 40% larger. `theme.rs`'s test asserts exactly that pair.
+
+`kit::row_height` / `kit::row_indent` follow `theme::ui_scale()` directly, being computed from a
+font size rather than a constant.
+
+A change to `ui_scale` or to a trim re-dresses every open emulator — the new `TERMINAL_PADDING` and
+point size change the cell grid, and the emulator's own re-measurement fires the resize that tells
+the harness — and re-dresses the component library, because its `font_size` is the window's rem
+size. Both, and the `SetPreferences` write, are **debounced** behind `AppState::settle_metrics`, on
+`schedule_markdown_reflow`'s generation-token device: a slider drag must not send the harness two
+hundred resizes. The walk covers every project this window holds, not the showing one, because the
+content size belongs to the interface.
 
 The Git screen's own four — `SIDEBAR_WIDTH`, `CHANGES_WIDTH`, `DIFF_HEIGHT` and the graph's
 `LANE_PITCH` — are in `state::git` rather than here, on the same reasoning `COLUMN_MIN_WIDTH` is in
@@ -269,7 +346,9 @@ library's buttons and scrollbars: not a literal, and so not an exception to the 
 
 Adding a colour means adding a token to its group, giving it a value in **every** palette in the
 registry, and using the accessor — unless it is an accent-hued one, which is a derivation in
-`with_accent` instead, since a hue written out per palette is the thing the accent axis removed.
+`with_accent` instead, since a hue written out per palette is the thing the accent axis removed. It
+does **not** mean a row in `EDITABLE_TOKENS`: what a theme author may write is grounds and ink, and
+a new status or terminal token inherits from the fork like the rest of its group (`D152`).
 Adding a group means a role none of the seven covers, which is rare enough to be worth
 arguing about in [`decisions.md`](./decisions.md) — `Project` carries `D19`, and `Terminal` is the
 selection and link colours a pane's emulator paints.
@@ -282,8 +361,8 @@ across split panes, is still designed ahead of the code. That is listed as a gap
 [`../backlog.md`](../backlog.md) rather than quietly resolved by the drawing, because a specimen is
 evidence a token has a value, not evidence anything uses it.
 
-The type scale is looked at the same way: `typography()` on the style reference draws the five roles
-across the three families, one column each, so a base moved in the interface prefs is read off the
+The type scale is looked at the same way: `typography()` on the style reference draws every role
+across the three families, one column each, so an axis moved in the interface prefs is read off the
 page rather than reasoned about.
 
 ## Conventions for a screen
@@ -325,6 +404,12 @@ page rather than reasoned about.
 coloured border on the left is what says what a surface is — accent for the thing the user is
 acting in, the status colour for something being reported, the project colour for the window
 itself. `ACCENT_EDGE` in `theme.rs` is its width, and `ui::kit::slab` is the shape.
+
+**The widgets Ubiq does not draw are square too.** `theme::dress_component_library` writes
+`Theme::radius` and `Theme::radius_lg` as zero, which is the one number every corner the component
+library rounds comes from — including the ones it would otherwise keep round whatever the theme
+said, since its `radius_full()` answers zero rather than a pill when the base radius is. A slider
+thumb, an avatar and a badge dot square off with everything else because of it.
 
 This replaces the more usual "box with a border all the way round". A GPUI element has one
 `border_color` for all four sides, so a grey box with one coloured edge is two elements; one edge
@@ -511,10 +596,10 @@ rows is scanned by its left edge — so nothing in a row, a footer or a card hea
 line.
 
 **A file row is sized from its text.** `kit::file_row` derives its height (`kit::row_height`) and
-the tree indent (`kit::row_indent`) from the size it draws at — so the explorer's zoom changes the
-tree's density. A surface no project zoom reaches — the file picker, the ref list — passes
-`kit::row_font()`, which is the chrome family's `Body`: a dialog's rows are furniture, and the
-project's zoom is not theirs to follow.
+the tree indent (`kit::row_indent`) from the size it draws at, over `theme::ui_scale()` — so the
+content zoom changes how tight the tree is. A surface the content family does not reach — the file
+picker, the ref list — passes `kit::row_font()`, which is the chrome family's `Body`: a dialog's
+rows are furniture, and the content zoom is not theirs to follow.
 
 ## How a screen is put together
 
@@ -526,8 +611,8 @@ text entry sits in, the state dot, the pill, the state chip, the removable tag w
 and whose label does something when clicked, the toggle pill for an independent facet and the choice
 pill for one value of a set, the tick box a row is chosen with where several may be, the elided run
 that says the whole of itself on hover, the filled button a screen's single obvious action is drawn
-as, the stepper, the flat meter, the disclosure bar, the section label, the panel header, the shared
-tab strip, the progress ring, the painted layers in `canvas.rs`, the file-list chrome the picker and
+as, the stepper, the flat meter, the slider, the disclosure bar, the section label, the panel header, the shared
+tab strip, the progress ring, the colour picker, the painted layers in `canvas.rs`, the file-list chrome the picker and
 the explorer share in `files.rs`, and the one dropdown mechanism every menu in the window uses —
 plus the context menu a right-click, or a control that has no room for a trigger, raises at the
 pointer: that same panel, opened at a point rather than under a chip. A diagonal ribbon — a word
@@ -560,6 +645,45 @@ trigger, `Chip` the small filled one a composer's config controls wear, and `Fie
 given, the value truncating rather than pushing the chevron off the end. A column of pickers in a
 form reads as a column that way rather than as a ragged edge, and a picker among text inputs reads
 as something to click rather than as a line of text.
+
+**The colour picker is the kit's, and it is the one place the no-literal-colour rule bends.**
+`kit::colour_picker` in `ui/kit/colour.rs` is a 16×10 saturation/value plane over a painted wash, a
+24-step hue strip, a preview block and the caller's `#RRGGBB` field. It is told a hue, a saturation
+and a value and it reports the three back — what they colour is the caller's business, which is how
+project settings and the theme editor share one control. The swatches it generates are *content*,
+the same way a scene's stroke and the sixteen ANSI colours are: they are the thing being picked.
+Its chrome is not — the cursor box, the preview's border and the hex field are tokens, and the
+chrome's sizes go through `theme::scaled()`. The HSV↔RGB maths sits in `theme.rs` beside `rgba_of`,
+because `state/` and `ui/kit/` may both name that file and may not name each other.
+`gpui-component`'s own `ColorPicker` stays where it is, on the image editor's stroke: a popover of
+featured swatches is a different control from a full HSV surface.
+
+**The slider is the library's, skinned.** `kit::Slider` in `ui/kit/slider.rs` wraps
+`gpui_component::slider` rather than drawing a track of its own: the drag, the pointer capture, the
+keyboard and the accessibility role come with it, and none of them is worth rewriting for a
+palette. What the kit adds is the palette — the track's fill through the library's `background` and
+the thumb through its `text`, which is how a widget we do not draw gets Ubiq's tokens — a leading
+and a trailing icon slot, and a mandatory tooltip, taken by `Slider::new` because a slider carries
+no number and no unit and is therefore always an unlabelled control. The icons are the scale:
+`size-interface-small` at one end and `size-interface-large` at the other says what the axis means
+more directly than a label would, and they draw at `theme::icon_sm()` like every other inline glyph.
+
+`kit::slider_state(min, max, stops, value)` is the other half, and the reason the control exists in
+this shape. It quantises the axis to a ladder — nine or eleven stops across the range — so a drag
+lands on a value the user can return to rather than on 1.0374. The library rounds to multiples of
+the step measured from zero rather than from `min`, so a range whose `min` is not itself a multiple
+reaches its ends by the clamp; choose the three numbers so the step divides them. The
+`Entity<SliderState>` lives on `AppState` with its subscription on `_subscriptions`, which is the
+stated exception to the no-component-library-type rule: a slider's position *is* its model, and
+there is no second copy of it to keep in `state/`. `SliderEvent::Change` is what a caller listens
+to — `Release` only answers when the pointer is let go, which is a control that lags. The two
+sliders that carry the size axes are `AppState::ui_scale_slider` and `text_ratio_slider`, and
+`ui/size.rs` is the one place both the status bar's size popover and the Size settings section
+build their controls from, so the two surfaces never drift from each other.
+`AppState::sync_size_sliders` puts the sliders back on the stored axes whenever a surface that
+draws them opens — the popover's trigger, the settings nav, a preset pick, a reset — because the
+metrics arrive from the host after the window is built and the message path carries no
+`&mut Window` to push them in directly.
 
 **A dense form's notes live on a hint mark, not under the row.** `kit::label_hint(id, label, hint)`
 draws the label with an `Info` mark beside it and the words on the mark's hover, and

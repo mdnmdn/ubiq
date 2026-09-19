@@ -420,7 +420,7 @@ impl TabGroupRenderer for Skin {
                 if info.pinned {
                     tab = tab.child(
                         Icon::new(crate::ui::kit::UbiqIcon::TabPin)
-                            .with_size(Size::Size(px(10.)))
+                            .with_size(Size::Size(theme::icon_sm()))
                             .text_color(theme::accent()),
                     );
                 }

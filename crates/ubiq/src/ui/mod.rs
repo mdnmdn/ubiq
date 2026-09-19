@@ -44,11 +44,13 @@ pub mod search;
 pub mod settings;
 pub mod shell;
 pub mod sink;
+pub mod size;
 pub mod stats;
 pub mod status_bar;
 pub mod tab_menu;
 pub mod teams;
 pub mod terminal;
+pub mod themes;
 pub mod titlebar;
 pub mod tools;
 pub mod viewer;
@@ -107,6 +109,17 @@ pub fn indexed(
     move |index, window, cx| {
         view.update(cx, |this, cx| f(this, index, window, cx));
     }
+}
+
+/// The same, for `kit::colour_picker`'s pick: a hue, a saturation and a value.
+pub fn hsv(
+    view: &Entity<AppState>,
+    f: impl Fn(&mut AppState, f32, f32, f32, &mut Window, &mut Context<AppState>) + 'static,
+) -> std::rc::Rc<dyn Fn(f32, f32, f32, &mut Window, &mut App)> {
+    let view = view.clone();
+    std::rc::Rc::new(move |hue, sat, val, window, cx| {
+        view.update(cx, |this, cx| f(this, hue, sat, val, window, cx));
+    })
 }
 
 /// An element id for a row keyed by a ULID. A ULID is not a `u64`, so the tuple form the rest of

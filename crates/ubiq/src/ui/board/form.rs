@@ -948,7 +948,7 @@ pub fn draft_popup(app: &AppState, window: &Window, cx: &mut Context<AppState>) 
     modal_sized(
         "board-draft-modal",
         theme::accent(),
-        theme::TASK_PANEL_WIDTH,
+        theme::task_panel_width(),
         None,
         "New task",
         draft_body(app, window, cx),

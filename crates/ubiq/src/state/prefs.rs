@@ -2,15 +2,19 @@
 //!
 //! The host stores this as an opaque string it never parses, so **the interface owns the schema
 //! and the interface versions it**. A blob that fails to parse, or that carries a schema this
-//! build does not know, is discarded and the window opens on defaults — the host could not
-//! validate it, and there is nothing here worth a migration.
+//! build has no arm for, is discarded and the window opens on defaults — the host could not
+//! validate it, and most of what is here is furniture a default rebuilds.
+//!
+//! **A schema step that moves a value the user set is upgraded instead**, in [`decode`]: throwing
+//! away an appearance the user chose is not a default the window can rebuild. `4 → 5` is the first
+//! such arm — see [`upgrade_four_to_five`].
 
 use serde::{Serialize, de::DeserializeOwned};
 
 use ubiq_proto::work::Status;
 
 use crate::state::RailMode;
-use crate::theme::{AccentId, Density, ThemeId};
+use crate::theme::{AccentId, ThemeId};
 
 /// The shape this build writes and understands. Bump it and older blobs are discarded.
 ///
@@ -29,7 +33,13 @@ use crate::theme::{AccentId, Density, ThemeId};
 /// for the new `Teams` mode beside it. Same screen, same arrangement, but the serialised tag
 /// changed — `rail_mode: "Orchestration"` names nothing this build reads, so a blob written
 /// before this change is discarded rather than opening on defaults with the wrong mode recorded.
-pub const SCHEMA: u32 = 4;
+///
+/// It moved to `5` when sizing became two axes (`D151`): `density`, `chrome_font_size` and
+/// `conversation_font_size` are gone, and `ViewPrefs::content_font_size` stopped being the
+/// project's. Existing fields changing meaning is exactly the case a default cannot rescue — and
+/// it is also the first schema step **upgraded rather than discarded**, because throwing this blob
+/// away would silently reset every user's appearance. See [`upgrade_four_to_five`].
+pub const SCHEMA: u32 = 5;
 
 /// One rail mode's arrangement of one project's window: which edge regions were on screen, and the
 /// dock blob that restores it.
@@ -97,6 +107,70 @@ pub struct LastStart {
     pub max_subagents: Option<u8>,
 }
 
+/// A named point on the two size axes, and nothing else.
+///
+/// **A preset is a name and the two numbers.** Not a palette, not an accent, not a trim: letting
+/// it carry those would make the size popover two ideas, and a user who wants an appearance saved
+/// whole is asking for a workspace, which is a different feature (`D151`).
+#[derive(Clone, Debug, PartialEq, Serialize, serde::Deserialize)]
+pub struct SizePreset {
+    pub name: String,
+    pub ui_scale: f32,
+    pub text_ratio: f32,
+}
+
+/// The presets every build ships, in the order they are offered.
+///
+/// The three names `Density` was retired into are here — Compact, Regular, Comfortable — so
+/// nothing disappeared from the user's vocabulary when the enum went (`D151`), plus the Large the
+/// old five-constant factor could never reach. **`Compact` is `0.90`, the value
+/// `Density::Compact` migrates to**, so a blob upgraded from schema 4 lands *on* a preset rather
+/// than between two of them; every value here is a multiple of the slider's `0.05` step for the
+/// same reason.
+pub const BUILT_IN_SIZE_PRESETS: &[(&str, f32, f32)] = &[
+    ("Compact", 0.90, 1.0),
+    ("Regular", 1.0, 1.0),
+    ("Comfortable", 1.15, 1.0),
+    ("Large", 1.30, 1.0),
+];
+
+/// Whether a name is one of the built-ins. A built-in cannot be deleted, and a saved preset that
+/// shadows one replaces it in place rather than sitting beside it.
+pub fn is_built_in_preset(name: &str) -> bool {
+    BUILT_IN_SIZE_PRESETS
+        .iter()
+        .any(|(built_in, _, _)| built_in.eq_ignore_ascii_case(name))
+}
+
+/// Every preset on offer: the built-ins in their own order, then whatever the user saved.
+///
+/// A saved preset whose name matches a built-in **takes that built-in's place and its position**,
+/// rather than appearing twice under one name — the same rule saving follows, and the reason
+/// `save_size_preset` replaces by name.
+pub fn all_size_presets(saved: &[SizePreset]) -> Vec<SizePreset> {
+    let mut all: Vec<SizePreset> = BUILT_IN_SIZE_PRESETS
+        .iter()
+        .map(|&(name, ui_scale, text_ratio)| {
+            saved
+                .iter()
+                .find(|preset| preset.name.eq_ignore_ascii_case(name))
+                .cloned()
+                .unwrap_or(SizePreset {
+                    name: name.to_string(),
+                    ui_scale,
+                    text_ratio,
+                })
+        })
+        .collect();
+    all.extend(
+        saved
+            .iter()
+            .filter(|preset| !is_built_in_preset(&preset.name))
+            .cloned(),
+    );
+    all
+}
+
 /// What belongs to the whole interface rather than to any one project.
 #[derive(Clone, Debug, PartialEq, Serialize, serde::Deserialize)]
 pub struct InterfacePrefs {
@@ -107,26 +181,39 @@ pub struct InterfacePrefs {
     /// after the first release.
     #[serde(default)]
     pub accent: Option<AccentId>,
-    /// How tight the grid is drawn. `Regular` — and a blob written before this field existed — is
-    /// the size every constant declares, so no schema bump.
-    #[serde(default)]
-    pub density: Density,
-    /// The base point size the chrome is drawn at — titlebar, status bar, rail, tabs, menus,
-    /// modals, settings, pickers. `None` — and a blob written before this field existed — is
-    /// [`crate::theme::CHROME_FONT_SIZE`], so no schema bump.
+    /// The size axis — [`crate::theme::Metrics`], written out flat.
     ///
-    /// Interface-scoped, not the project's: the chrome is the window's furniture, and growing it
-    /// reflows the window rather than one project's reading.
-    #[serde(default)]
-    pub chrome_font_size: Option<f32>,
-    /// The base point size a conversation is drawn at — the transcript, the tool blocks, the
-    /// composer, the agents columns. `None` is [`crate::theme::CONVERSATION_FONT_SIZE`].
+    /// `ui_scale` moves every dimension in the window and `text_ratio` moves type within it; the
+    /// three trims nudge one family against the others. All five default to `1.0`, which is the
+    /// window every constant declares. **All five are interface-scoped**, the content trim
+    /// included: appearance is a property of the person, not of the folder they opened (`D151`).
+    #[serde(default = "one")]
+    pub ui_scale: f32,
+    #[serde(default = "one")]
+    pub text_ratio: f32,
+    #[serde(default = "one")]
+    pub content_trim: f32,
+    #[serde(default = "one")]
+    pub chrome_trim: f32,
+    #[serde(default = "one")]
+    pub conversation_trim: f32,
+    /// The size presets the user saved, in the order they were made. The built-ins are code
+    /// ([`BUILT_IN_SIZE_PRESETS`]) rather than seeded rows, so a build that retunes one moves it
+    /// for everybody; an entry here whose name matches a built-in replaces it.
     ///
-    /// Its own axis rather than the content family's: a transcript is read as prose, at a size
-    /// that has nothing to do with the size code is read at. The content family is the third and
-    /// stays per project — see [`ViewPrefs::content_font_size`].
+    /// **No schema bump for it** — `#[serde(default)]` like every field added after the first
+    /// release, and `rest` carries it back out for a build that does not name it.
     #[serde(default)]
-    pub conversation_font_size: Option<f32>,
+    pub size_presets: Vec<SizePreset>,
+    /// The themes the user authored, in the order they were made. Each is a fork of a built-in
+    /// palette plus a sparse override map (`D152`), so a theme travels in `preferences.toml` with
+    /// everything else the interface remembers and needs no new store, no new message and no host
+    /// change.
+    ///
+    /// **No schema bump for it**, for the same reason `size_presets` needed none:
+    /// `#[serde(default)]`, and `rest` carries it back out for a build that does not name it.
+    #[serde(default)]
+    pub custom_themes: Vec<crate::theme::CustomTheme>,
     /// What the last conversation was started on, so the next empty tab opens on it. `default`
     /// like every field added after the first release — see [`ViewPrefs`].
     #[serde(default)]
@@ -147,13 +234,22 @@ impl Default for InterfacePrefs {
             schema: SCHEMA,
             theme: ThemeId::DARK,
             accent: None,
-            density: Density::Regular,
-            chrome_font_size: None,
-            conversation_font_size: None,
+            ui_scale: 1.0,
+            text_ratio: 1.0,
+            content_trim: 1.0,
+            chrome_trim: 1.0,
+            conversation_trim: 1.0,
+            size_presets: Vec::new(),
+            custom_themes: Vec::new(),
             last_start: None,
             rest: Default::default(),
         }
     }
+}
+
+/// The default every size axis takes: the window every constant declares.
+fn one() -> f32 {
+    1.0
 }
 
 /// An untitled tab's text, kept by name rather than by path: nothing on disk is what makes it
@@ -238,13 +334,14 @@ pub struct ViewPrefs {
     /// have to be re-typed. Absent means the field was empty.
     #[serde(default)]
     pub file_filter: String,
-    /// The base point size the **content** family is drawn at — editors, the viewer, terminal
-    /// panes, the explorer tree and search results together — so a zoom survives a restart.
-    /// `None` is [`crate::theme::EDITOR_FONT_SIZE`].
+    /// **Parsed and ignored.** The base point size the content family used to be drawn at, when
+    /// that size was the project's rather than the interface's. It is now
+    /// `InterfacePrefs::content_trim` and one setting for all of Ubiq (`D151`); what is left here
+    /// is read once, by [`crate::app::AppState::apply_preferences`], to seed that trim from the
+    /// most recently opened project — and then written back out untouched, so a downgrade still
+    /// finds the zoom it left. It goes at the next schema step.
     ///
-    /// The one text family that is the project's rather than the interface's: a zoom travels with
-    /// the project it was chosen for. Written as `ui_font_size` before the three families were
-    /// named, which is the alias — a blob already on disk keeps its zoom, so no schema bump.
+    /// Written as `ui_font_size` before the three families were named, which is the alias.
     #[serde(default, alias = "ui_font_size")]
     pub content_font_size: Option<f32>,
     /// Whether every file editor in this project soft-wraps long lines. `None` is the editor's own
@@ -321,32 +418,213 @@ impl Default for ViewPrefs {
 /// Read a blob back, or nothing at all.
 ///
 /// The schema is probed before anything else is trusted, so a blob from a newer build is discarded
-/// whole rather than half-applied.
+/// whole rather than half-applied. **An older one is upgraded rather than discarded** where an arm
+/// exists: a schema step that moves fields a user has set — which `4 → 5` is — would otherwise
+/// reset every user's appearance silently.
 pub fn decode<T: DeserializeOwned>(blob: &str) -> Option<T> {
-    #[derive(serde::Deserialize)]
-    struct JustTheSchema {
-        schema: u32,
-    }
+    decode_upgraded(blob).map(|(value, _)| value)
+}
 
-    match serde_json::from_str::<JustTheSchema>(blob) {
-        Ok(JustTheSchema { schema }) if schema == SCHEMA => {}
-        Ok(JustTheSchema { schema }) => {
+/// [`decode`], and whether the blob had to be upgraded on the way in.
+///
+/// The one caller that needs the second half is the interface scope: an upgraded blob is what says
+/// the content size has still to be taken off a project's `view.toml` and folded into the
+/// interface's trim.
+pub fn decode_upgraded<T: DeserializeOwned>(blob: &str) -> Option<(T, bool)> {
+    let mut value: serde_json::Value = serde_json::from_str(blob)
+        .inspect_err(|error| tracing::debug!("discarding unreadable view state: {error}"))
+        .ok()?;
+
+    let schema = value.get("schema").and_then(serde_json::Value::as_u64);
+    let upgraded = match schema {
+        Some(schema) if schema as u32 == SCHEMA => false,
+        Some(4) => {
+            upgrade_four_to_five(&mut value);
+            true
+        }
+        Some(schema) => {
             tracing::debug!("discarding view state written for schema {schema}");
             return None;
         }
-        Err(error) => {
-            tracing::debug!("discarding unreadable view state: {error}");
+        None => {
+            tracing::debug!("discarding view state with no schema");
             return None;
         }
-    }
+    };
 
-    serde_json::from_str(blob)
+    serde_json::from_value(value)
         .inspect_err(|error| tracing::debug!("discarding view state: {error}"))
         .ok()
+        .map(|value| (value, upgraded))
+}
+
+/// The one migration arm: three appearance fields become the two size axes and a trim.
+///
+/// It rewrites the JSON before serde sees it, and **removes** what it consumed — a key left behind
+/// would be swept into `rest` and written back out forever. A `ViewPrefs` blob at schema 4 carries
+/// none of these keys and falls through untouched, which is what makes one arm serve both scopes.
+fn upgrade_four_to_five(value: &mut serde_json::Value) {
+    let Some(map) = value.as_object_mut() else {
+        return;
+    };
+    map.insert("schema".into(), SCHEMA.into());
+
+    // `Density::Compact | Regular | Comfortable` were 0.9 / 1.0 / 1.15 over five constants; they
+    // are the same three numbers over every dimension now.
+    if let Some(density) = map.remove("density") {
+        let ui_scale = match density.as_str() {
+            Some("Compact") => 0.9,
+            Some("Comfortable") => 1.15,
+            _ => 1.0,
+        };
+        map.insert("ui_scale".into(), ui_scale.into());
+    }
+
+    // The chrome base *was* the text axis for the whole window, so it is the text ratio: what the
+    // user chose, over what the chrome family would draw at ratio 1.
+    if let Some(size) = map.remove("chrome_font_size").and_then(|v| v.as_f64()) {
+        let ratio = size / (crate::theme::TEXT_BASE * crate::theme::Family::Chrome.ratio()) as f64;
+        map.insert("text_ratio".into(), ratio.into());
+    }
+
+    // The conversation base was its own, so it folds into its own family's trim — over the size
+    // that family now draws at, the text ratio above included.
+    let text_ratio = map
+        .get("text_ratio")
+        .and_then(serde_json::Value::as_f64)
+        .unwrap_or(1.0);
+    if let Some(size) = map
+        .remove("conversation_font_size")
+        .and_then(|v| v.as_f64())
+    {
+        let base = (crate::theme::TEXT_BASE * crate::theme::Family::Conversation.ratio()) as f64
+            * text_ratio;
+        map.insert("conversation_trim".into(), (size / base).into());
+    }
 }
 
 /// Write one out. Infallible in practice; an unserialisable value becomes an empty blob, which
 /// decodes to nothing and opens on defaults.
 pub fn encode<T: Serialize>(value: &T) -> String {
     serde_json::to_string(value).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A schema-4 interface blob is **upgraded, not discarded**: the three appearance fields it
+    /// carries become the two size axes and a trim, the keys they were written under are gone so
+    /// `rest` cannot resurrect them, and everything else the blob said survives.
+    #[test]
+    fn a_schema_four_interface_blob_is_upgraded() {
+        let blob = r#"{
+            "schema": 4,
+            "theme": "ember-dark",
+            "accent": "blue",
+            "density": "Comfortable",
+            "chrome_font_size": 15.0,
+            "conversation_font_size": 15.0,
+            "something_newer": 7
+        }"#;
+
+        let (prefs, upgraded) =
+            decode_upgraded::<InterfacePrefs>(blob).expect("a schema-4 blob upgrades");
+        assert!(upgraded, "the caller is told a migration ran");
+        assert_eq!(prefs.schema, SCHEMA);
+        assert_eq!(prefs.theme, crate::theme::ThemeId("ember-dark"));
+        assert_eq!(prefs.ui_scale, 1.15, "Comfortable is 1.15");
+
+        // 15px of chrome, where the chrome family draws at 13 × 0.96.
+        let want = 15.0 / (crate::theme::TEXT_BASE * crate::theme::Family::Chrome.ratio());
+        assert!((prefs.text_ratio - want).abs() < 1e-5);
+        // The conversation was at the same size as the chrome, so its own trim is 1.
+        assert!((prefs.conversation_trim - 1.0).abs() < 1e-5);
+        assert_eq!(
+            prefs.content_trim, 1.0,
+            "no content size in an interface blob"
+        );
+
+        // The keys the migration consumed do not come back through `rest`.
+        assert!(!prefs.rest.contains_key("density"));
+        assert!(!prefs.rest.contains_key("chrome_font_size"));
+        assert!(
+            prefs.rest.contains_key("something_newer"),
+            "the rest is kept"
+        );
+    }
+
+    /// A schema-4 *project* blob carries none of those keys and falls through the same arm
+    /// untouched — which is what lets one arm serve both scopes. Its content size survives for
+    /// `apply_preferences` to fold into the interface's trim.
+    #[test]
+    fn a_schema_four_view_blob_keeps_its_content_size() {
+        let blob = r#"{"schema": 4, "rail_mode": "Ide", "content_font_size": 16.0}"#;
+        let (view, upgraded) = decode_upgraded::<ViewPrefs>(blob).expect("upgrades");
+        assert!(upgraded);
+        assert_eq!(view.schema, SCHEMA);
+        assert_eq!(view.content_font_size, Some(16.0));
+    }
+
+    /// A saved preset replaces the built-in it is named after, in that built-in's place, and one
+    /// with a name of its own is offered after all four.
+    #[test]
+    fn a_saved_preset_shadows_the_built_in_it_names() {
+        let saved = vec![
+            SizePreset {
+                name: "Reading".into(),
+                ui_scale: 1.2,
+                text_ratio: 1.15,
+            },
+            SizePreset {
+                name: "Compact".into(),
+                ui_scale: 0.85,
+                text_ratio: 0.9,
+            },
+        ];
+        let all = all_size_presets(&saved);
+        let names: Vec<&str> = all.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(
+            names,
+            ["Compact", "Regular", "Comfortable", "Large", "Reading"]
+        );
+        assert_eq!(all[0].ui_scale, 0.85, "the saved one wins its own name");
+        assert_eq!(all[1].ui_scale, 1.0);
+    }
+
+    /// The built-in Compact and the `4 → 5` migration's `Density::Compact` are the same number, so
+    /// an upgrading user lands *on* a preset rather than between two stops.
+    #[test]
+    fn compact_agrees_with_the_migration() {
+        let blob = r#"{"schema": 4, "theme": "dark", "density": "Compact"}"#;
+        let prefs = decode::<InterfacePrefs>(blob).expect("upgrades");
+        let compact = all_size_presets(&[])
+            .into_iter()
+            .find(|p| p.name == "Compact")
+            .expect("built in");
+        assert_eq!(prefs.ui_scale, compact.ui_scale);
+    }
+
+    /// A blob from a schema this build knows nothing about is still discarded whole.
+    #[test]
+    fn an_unknown_schema_is_discarded() {
+        assert!(decode::<InterfacePrefs>(r#"{"schema": 99}"#).is_none());
+        assert!(decode::<InterfacePrefs>("not json").is_none());
+        assert!(decode::<InterfacePrefs>("{}").is_none());
+    }
+
+    /// A blob this build wrote round-trips with no migration.
+    #[test]
+    fn a_current_blob_round_trips() {
+        let prefs = InterfacePrefs {
+            ui_scale: 1.15,
+            text_ratio: 0.9,
+            content_trim: 1.2,
+            ..Default::default()
+        };
+        let (back, upgraded) =
+            decode_upgraded::<InterfacePrefs>(&encode(&prefs)).expect("round-trips");
+        assert!(!upgraded);
+        assert_eq!(back, prefs);
+    }
 }

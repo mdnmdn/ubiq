@@ -93,6 +93,7 @@ message in `crates/ubiq-proto/src/messages.rs`. `just ui` enforces it.
 | Dialog | `ui/file_picker.rs` | A modal with work in it: corner-grip resize clamped to `state/file_picker.rs`'s four sizes, drag tracked on the full-window layer, outside-click dismissal is the caller's choice. |
 | Page overlay | `ui/settings.rs`, project settings | `SETTINGS_WIDTH`×`SETTINGS_HEIGHT`, a nav, does not resize; switching sections must not change the panel size. Furniture from `ui/kit/settings.rs`. |
 | Anchored list | `ui/navigator.rs`, `kit::menu` | **Not** a modal: `anchored()` with no `.position()`, child of its trigger, no scrim, no outside-click dismiss. Key context and handlers go on the **field**, not the panel. |
+| Anchored panel | `kit::popover`, `ui/size.rs` | The same anchored surface holding **controls** rather than rows. A `MenuId` is what opens it, so Escape already peels it and it takes no `Layer` rung; `on_dismiss` is its outside click. |
 
 **Escape is the window's, not the modal's.** `AppState::cancel_dialog` in `app/shell.rs` reads
 the paint order top-down and peels **one** layer. A modal raised in `ui::shell` without a rung in

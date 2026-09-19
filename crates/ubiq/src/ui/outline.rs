@@ -250,8 +250,8 @@ pub fn render(app: &AppState, _window: &Window, cx: &mut Context<AppState>) -> A
 
     let project = app.project(cx);
     let key = tab_key(&file.path, Subject::File);
-    // The list follows the project's own text size, the way the search results and the tree do.
-    let font = app.content_font_size_or_default(cx) - 0.5;
+    // The list follows the content family's dense size, the way the search results and the tree do.
+    let font = f32::from(theme::font(theme::Family::Content, theme::Role::Dense));
     let row = row_height(font);
     // The definition the caret is in, so the row the user is standing in is lit.
     let here = app
@@ -290,20 +290,29 @@ pub fn render(app: &AppState, _window: &Window, cx: &mut Context<AppState>) -> A
                                 .gap_2()
                                 .child(
                                     mono(def.kind.sigil(), theme::text_faint())
-                                        .text_size(px(font - 1.))
+                                        .text_size(theme::font(
+                                            theme::Family::Content,
+                                            theme::Role::Dense,
+                                        ))
                                         .flex_none()
                                         .w(px(font * 2.2)),
                                 )
                                 .child(
                                     mono(def.name.clone(), theme::text())
-                                        .text_size(px(font))
+                                        .text_size(theme::font(
+                                            theme::Family::Content,
+                                            theme::Role::Body,
+                                        ))
                                         .flex_1()
                                         .min_w(px(0.))
                                         .truncate(),
                                 )
                                 .child(
                                     mono(format!("{line}"), theme::text_faint())
-                                        .text_size(px(font - 1.))
+                                        .text_size(theme::font(
+                                            theme::Family::Content,
+                                            theme::Role::Dense,
+                                        ))
                                         .flex_none(),
                                 )
                                 .into_any_element(),

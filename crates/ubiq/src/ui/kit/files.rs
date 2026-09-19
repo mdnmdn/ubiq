@@ -35,9 +35,9 @@ pub fn row_font() -> f32 {
 /// font, so a row that kept a fixed height would leave a gap around small text and clip large
 /// text. The floor keeps the twisty and the kind icon from touching the edges; the ceiling stops
 /// the tree turning into a list of buttons at the top of the range.
-/// The row is a grid, so it also follows the density factor — `theme::density`.
+/// The row is a grid, so it also follows the UI scale — `theme::ui_scale`.
 pub fn row_height(font_size: f32) -> f32 {
-    (font_size * 1.7 * theme::density().factor())
+    (font_size * 1.7 * theme::ui_scale())
         .round()
         .clamp(18.0, 52.0)
 }
@@ -45,7 +45,7 @@ pub fn row_height(font_size: f32) -> f32 {
 /// How far each level of the tree indents, at a given text size. It scales with the row for the
 /// same reason the height does — an indent is read against the text beside it.
 pub fn row_indent(font_size: f32) -> f32 {
-    (font_size * 0.85 * theme::density().factor())
+    (font_size * 0.85 * theme::ui_scale())
         .round()
         .clamp(8.0, 24.0)
 }

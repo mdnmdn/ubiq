@@ -5,7 +5,7 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-09-18
+updated: 2026-09-19
 verified: 2026-09-18
 depends_on: [tech-architecture]
 review_cycle: quarterly
@@ -3240,6 +3240,83 @@ user the feature is broken; a page that explains itself teaches them what to run
 **Cost:** a genuinely broken bundle — corrupt, or unreadable — looks from the interface exactly like
 one that was never built. The `reason` string is the only thing that distinguishes them, which puts
 weight on it being written for a human.
+
+### D151 — Sizing is two axes, a UI scale over every dimension and a text ratio over type within it
+
+`theme::Metrics` carries `ui_scale` (0.80–1.40) and `text_ratio` (0.85–1.20), plus a trim per type
+family. Every pixel constant in `theme.rs` becomes `scaled(base)`, every type size becomes
+`TEXT_BASE × ui_scale × text_ratio × family.ratio() × trim × role.ratio()`, and the window's rem
+size joins them (`D153`). `Density` is retired *into* the first axis — its three steps are
+`ui_scale` 0.9 / 1.0 / 1.15 and its three names survive as pill labels. The content family's size
+stops being per project: it leaves `ViewPrefs` for `InterfacePrefs.content_trim`, so `⌘=` works
+with no project open and the same window no longer draws the same editor at two sizes depending on
+which project is adopted.
+
+**Why:** there were four unrelated sizing mechanisms and no relationship between them — a density
+factor over five constants, three independent type bases, a per-project content size reachable only
+from a status-bar px dropdown, and twenty-six frozen layout constants — so growing the text did not
+grow the boxes around it. Raising chrome text grew the glyphs inside a titlebar that did not move.
+A user who wanted "everything bigger" had to find three controls and still could not get it. Two
+axes compose because one of them is defined as *not* changing a proportion and the other as
+changing exactly one. And appearance is a property of the person, not of the folder they opened:
+the palette and the accent are process-wide, and the content size was the last appearance value
+that was not.
+
+**Cost:** one stored number moves two hundred call sites at once, so a bad rounding rule is
+visible everywhere rather than in one panel. And a user who had genuinely different content sizes
+per project loses that distinction — the migration takes the most recently opened project's value
+and writes it into the interface.
+
+### D153 — The window's rem size is the UI scale
+
+`theme::dress_component_library` writes `gpui_component::Theme::font_size = px(REM_BASE × ui_scale)`
+and `mono_font_size` from the content base. `gpui_component::Root` calls
+`window.set_rem_size(cx.theme().font_size)` on every paint, so that one number becomes the window's
+rem.
+
+**Why:** GPUI's whole Tailwind-shaped spacing scale is rem-relative — every `p_3`, `gap_2`, `w_4`
+and `h_8` expands to `rems(...)` in `gpui_macros` — and Ubiq never wrote the number, so it sat at
+16px from the first release. Writing it is how several hundred hand-placed spacings, and every
+`gpui-component` internal measured in rems, start scaling with no call-site change at all. Any
+other route would mean touching every one of those call sites, which is exactly the change `D151`
+exists to avoid needing.
+
+**Cost:** Ubiq inherits `gpui-component`'s spacing judgement wholesale, and a library upgrade that
+re-tunes a rem value moves Ubiq's layout. Rem is also a length, so it cannot carry a type-only
+ratio: the library's own text — input fields, the dock's tab labels, the table — follows the UI
+scale but not the text ratio (`G304`).
+
+### D152 — A custom theme is a fork of a built-in palette plus a sparse override map
+
+`CustomTheme { id, name, base: ThemeId, overrides: BTreeMap<String, u32> }` lives in
+`InterfacePrefs.custom_themes` and resolves as `palette_for(base)` → the overrides → `with_accent`.
+An author writes one colour or sixteen; the other thirty-odd stay the fork's. The editable set is
+**grounds and ink** — the eight surfaces, the four text colours, the two borders and the accent
+seed, listed in `theme::EDITABLE_TOKENS` — and status, ribbon, terminal and project-swatch tokens
+are deliberately outside it: they encode meaning rather than taste, which is the same line `D19`
+draws around project swatches. A value is a hue and never a transparency, so an override keeps the
+alpha the palette declared; the scrim is the token that matters to.
+
+The id is where this meets `D96`. `ThemeId` stays `ThemeId(&'static str)` — `Copy`, `const` for the
+built-ins, resolved against `PALETTES` — and a runtime `custom-…` slug is **interned**: leaked once
+into a process-wide set and thereafter the same pointer. An owned or `Arc<str>` id would have been
+the other answer, and would have cost the `Copy` newtype, `ThemeId::DARK` as a constant, and an edit
+at every call site that passes an id by value.
+
+**Why:** `PaletteDef` is deliberately shaped to refuse a partial palette — the tokens are one
+`Palette` value rather than a builder, so a family cannot ship one missing a token — and that
+invariant is worth keeping for the built-ins. A fork is how an author gets a complete palette
+without being asked for thirty-six decisions, and a sparse map is what makes *inherit* the absence
+of a key rather than a copy of the base's colour. It costs no new store, no new message and no host
+change: a theme travels in `preferences.toml` with everything else the interface remembers, under a
+`#[serde(default)]` field, so the schema stays at 5.
+
+**Cost:** a forked theme drifts when its base palette is retuned — a build that moves the built-in
+moves every theme that inherited that token, which is the intent and is still a surprise the first
+time it happens — and an author cannot build one from nothing, so a palette unlike every built-in is
+not expressible. Interning leaks a slug per distinct custom theme the process ever reads, bounded by
+how many a person authors. And a custom theme's ground is its base's: an override map that lightens
+a dark fork still tells the component library and the highlighter *dark*.
 
 ## Related docs
 

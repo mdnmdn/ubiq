@@ -64,7 +64,7 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
     if graph.tasks_open {
         root = root.child(
             div()
-                .h(px(theme::TASKS_HEIGHT))
+                .h(px(theme::tasks_height()))
                 .flex()
                 .flex_none()
                 .bg(theme::pane_bg())

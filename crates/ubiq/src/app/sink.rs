@@ -189,6 +189,24 @@ impl AppState {
         cx.notify();
     }
 
+    /// What the style page's slider drags: the same level the stepper nudges, so the two controls
+    /// and the meter between them are one value read three ways.
+    pub fn set_sink_level(&mut self, level: f32, cx: &mut Context<Self>) {
+        self.sink.level = level.round().clamp(0.0, 100.0) as u8;
+        cx.notify();
+    }
+
+    /// Move the slider's thumb to whatever the level now is.
+    ///
+    /// The slider owns its own position — that is what adopting the library's state buys — so a
+    /// nudge from the stepper beside it has to be pushed in, or the page would show one value in
+    /// two places and disagree with itself.
+    pub fn sync_sink_slider(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let level = self.sink.level as f32;
+        let slider = self.sink_slider.clone();
+        slider.update(cx, |state, cx| state.set_value(level, window, cx));
+    }
+
     pub fn toggle_sink_disclosure(&mut self, cx: &mut Context<Self>) {
         self.sink.disclosed = !self.sink.disclosed;
         cx.notify();

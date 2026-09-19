@@ -83,6 +83,10 @@ ui:
     # computed from the project's zoom, is legitimate — hence the digit.
     @! grep -rqE 'text_size\(px\([0-9]' crates/ubiq/src \
         || { echo "a literal type size outside theme.rs — use theme::font(Family, Role)"; exit 1; }
+    # The same rule for icons. The component library's `Size` enum is discrete and does not follow
+    # the UI scale, so an icon drawn at a size of its own is `Size::Size(theme::icon_*())`.
+    @! grep -rqE '(with_size\(px\(|Size::Size\(px\()[0-9]' crates/ubiq/src \
+        || { echo "a literal icon size outside theme.rs — use theme::icon_sm/icon_md/icon_lg"; exit 1; }
 
 # ── checks ─────────────────────────────────────────────────────────
 

@@ -24,15 +24,9 @@ use crate::ui::{
 };
 
 pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> impl IntoElement {
-    // The content family's base is the *project's*, and the theme is one thread-local shared by
-    // every window on the thread — so it is pushed in here, at the top of the window that is about
-    // to draw, rather than written once when a zoom changes. Two windows on two projects then each
-    // draw at their own size instead of at the last one set.
-    theme::set_text_scale(theme::TextScale {
-        content: app.content_font_size_or_default(cx),
-        ..theme::text_scale()
-    });
-
+    // Nothing about size is pushed in here any more. Appearance is one setting for all of Ubiq
+    // (`D151`), so the thread-local the theme already is carries the whole of it, written when a
+    // size changes rather than at the top of every paint.
     div()
         .id("workbench-root")
         .flex()
@@ -80,8 +74,8 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         // the explorer's Escape and every field's Enter are untouched.
         .on_action(cx.listener(AppState::confirm_dialog))
         .on_action(cx.listener(AppState::cancel_dialog))
-        .on_action(cx.listener(|this, _: &ZoomIn, _, cx| this.nudge_content_font_size(1, cx)))
-        .on_action(cx.listener(|this, _: &ZoomOut, _, cx| this.nudge_content_font_size(-1, cx)))
+        .on_action(cx.listener(|this, _: &ZoomIn, _, cx| this.nudge_content_trim(1, cx)))
+        .on_action(cx.listener(|this, _: &ZoomOut, _, cx| this.nudge_content_trim(-1, cx)))
         // ⌘1..⌘9 jump to the Nth project the rail's badges show; ⌃1..⌃9 jump to the Nth rail
         // mode enabled for the current project. Both no-op past the last one.
         .on_action(cx.listener(|this, _: &ProjectSlot1, window, cx| {
@@ -349,6 +343,30 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .as_ref()
                 .map(|_| crate::ui::file_dialog::render(app, window, cx)),
         )
+        // The size preset's name prompt. At the window root because two places raise the same
+        // one — the status bar's popover and the Size settings section — and neither is where it
+        // is drawn.
+        .children(
+            app.workbench
+                .size_prompt
+                .as_ref()
+                .map(|_| crate::ui::size::name_prompt(app, window, cx)),
+        )
+        // The theme editor, then the name prompt over it. At the window root for the reason the
+        // size prompt is: the Appearance section raises the editor, the editor and the Themes row
+        // both raise the prompt, and neither is where either is drawn.
+        .children(
+            app.workbench
+                .theme_editor
+                .as_ref()
+                .map(|_| crate::ui::themes::editor(app, window, cx)),
+        )
+        .children(
+            app.workbench
+                .theme_prompt
+                .as_ref()
+                .map(|_| crate::ui::themes::name_prompt(app, window, cx)),
+        )
         // The terminal tab's Close, asked before it is done. Painted at the window root rather
         // than from the pane it names, because the answer is what takes that pane off the screen
         // — a question drawn inside the thing it is about to destroy has nowhere to be.
@@ -528,6 +546,9 @@ fn overlaid(app: &AppState) -> bool {
         || workbench.clone_project.is_some()
         || workbench.all_projects.is_some()
         || workbench.file_dialog.is_some()
+        || workbench.size_prompt.is_some()
+        || workbench.theme_editor.is_some()
+        || workbench.theme_prompt.is_some()
         || workbench.confirm_close_pane.is_some()
         || workbench.confirm_end_conversation.is_some()
         || workbench.remote_manager.open

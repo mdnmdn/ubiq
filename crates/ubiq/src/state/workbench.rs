@@ -191,6 +191,43 @@ pub struct AllProjectsState {
     pub filter: String,
 }
 
+/// Which question the size-preset name prompt is asking.
+///
+/// Both arms are answered by `kit::prompt_modal` over the same field, which is why one state
+/// carries both rather than a prompt per screen — naming is never hand-rolled.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SizePrompt {
+    /// Save the axes as they stand under a new name. A name already in use replaces that preset
+    /// rather than adding a second one under it.
+    Save,
+    /// Rename a saved preset. Only reachable from the Size settings section — a popover is not
+    /// where a list is maintained.
+    Rename { name: String },
+}
+
+/// The theme editor, while it is up: which theme is being written and which of its tokens the
+/// colour picker is pointed at.
+///
+/// **Editing a theme wears it.** There is no draft: the editor writes straight through to the
+/// theme in `custom_themes` and the window re-resolves, which is what makes the specimen strip a
+/// specimen of the window rather than a second renderer's idea of one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ThemeEditor {
+    pub theme: ThemeId,
+    /// A key in `theme::EDITABLE_TOKENS`.
+    pub token: &'static str,
+}
+
+/// Which question the theme name prompt is asking. Beside [`SizePrompt`] and for its reason:
+/// naming is `kit::prompt_modal`, never a hand-rolled field.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ThemePrompt {
+    /// Name a theme about to be forked from `base`. It does not exist until this is answered.
+    New { base: ThemeId },
+    /// Rename one that does.
+    Rename { theme: ThemeId },
+}
+
 /// Every menu in the window. Exactly one may be open, so the shell keeps a single `Option`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum MenuId {
@@ -228,8 +265,10 @@ pub enum MenuId {
     /// The KB explorer's right-click menu. Which row is on `KbState::menu`. Its own id rather than
     /// `Explorer` reused, because the two panels can both be on screen and only one menu is open.
     Kb,
-    /// The status bar's text-size dropdown. It offers the whole point range the chrome admits.
-    FontSize,
+    /// The status bar's size popover: the presets, the two axis sliders, and Save/Reset. An
+    /// anchored panel rather than a modal — it is a menu, peeled by the same Escape and the same
+    /// outside click every other menu is, and it carries no number anywhere.
+    Size,
     /// A tab's right-click menu — a file, a terminal or a chat tab. Which panel it opened on, and
     /// where, is `WorkbenchState::tab_menu`.
     Tab,
@@ -447,6 +486,23 @@ pub struct WorkbenchState {
     /// written whenever one starts, so an empty chat tab opens on the last thing that worked
     /// rather than on whatever happens to be first in the list.
     pub last_start: Option<crate::state::prefs::LastStart>,
+    /// The size presets the user saved. The built-ins are not in it — they are code, so a build
+    /// that retunes one moves it for everybody. See `state/prefs.rs`.
+    pub size_presets: Vec<crate::state::prefs::SizePreset>,
+    /// The name a preset is being asked for, while the prompt is up. Raised from the size popover
+    /// (Save preset…) and from the Size settings section (rename), which is why it is the
+    /// window's rather than either screen's.
+    pub size_prompt: Option<SizePrompt>,
+    /// The themes the user authored. The window's copy of what `theme::set_custom_themes` was
+    /// handed — this is what `remember_interface` writes and what the Themes row draws, and the
+    /// thread-local beside the palette is what *resolves* one. See `state/prefs.rs`.
+    pub custom_themes: Vec<crate::theme::CustomTheme>,
+    /// The theme editor, while it is up. Raised from the Appearance section, and painted at the
+    /// window root over it the same way every other modal the settings page raises is.
+    pub theme_editor: Option<ThemeEditor>,
+    /// What a theme is being named, while the prompt is up. Raised by **New theme…** and by the
+    /// editor's Rename, which is why it is the window's rather than either surface's.
+    pub theme_prompt: Option<ThemePrompt>,
     pub open_menu: Option<MenuId>,
     /// The panel the dock last made the displayed tab of a group. **Pushed from the dock**, where
     /// focus is decided, the way the focused pane is — it is what gives the help ladder its
@@ -619,6 +675,11 @@ impl Default for WorkbenchState {
             theme_id: ThemeId::DARK,
             interface_rest: Default::default(),
             last_start: None,
+            size_presets: Vec::new(),
+            size_prompt: None,
+            custom_themes: Vec::new(),
+            theme_editor: None,
+            theme_prompt: None,
             open_menu: None,
             active_panel: None,
             project_filter: String::new(),

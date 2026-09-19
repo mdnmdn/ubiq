@@ -52,7 +52,7 @@ pub fn status_chip(status: AgentStatus, zoom: f32) -> impl IntoElement {
         .gap(px(5. * zoom))
         .child(
             status_icon(status)
-                .with_size(px(11. * zoom))
+                .with_size(theme::icon_sm() * zoom)
                 .flex_none()
                 .text_color(colour),
         )
@@ -87,7 +87,7 @@ pub fn delegate_mark(status: DelegateStatus, zoom: f32) -> Option<impl IntoEleme
     let icon = delegate_icon(status)?;
     Some(
         div().flex().flex_none().child(
-            icon.with_size(px(10. * zoom))
+            icon.with_size(theme::icon_sm() * zoom)
                 .flex_none()
                 .text_color(delegate_colour(status)),
         ),
@@ -105,7 +105,7 @@ pub fn delegate_chip(status: DelegateStatus, zoom: f32) -> impl IntoElement {
         .px(px(6. * zoom))
         .gap(px(5. * zoom))
         .children(delegate_icon(status).map(|icon| {
-            icon.with_size(px(11. * zoom))
+            icon.with_size(theme::icon_sm() * zoom)
                 .flex_none()
                 .text_color(colour)
         }))

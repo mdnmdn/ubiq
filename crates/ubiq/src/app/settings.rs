@@ -17,15 +17,20 @@ impl AppState {
 
     /// Write down what belongs to the interface as a whole.
     pub fn remember_interface(&mut self) {
+        let metrics = theme::metrics();
         let prefs = prefs::InterfacePrefs {
             schema: prefs::SCHEMA,
             theme: self.workbench.theme_id,
             accent: theme::accent_id(),
-            density: theme::density(),
-            // Two of the three text bases. The third is the content family's, which is the
-            // project's and travels in `ViewPrefs`.
-            chrome_font_size: Some(theme::text_scale().chrome),
-            conversation_font_size: Some(theme::text_scale().conversation),
+            // The whole size axis, the content family's included: appearance is one setting for
+            // all of Ubiq (`D151`).
+            ui_scale: metrics.ui_scale,
+            text_ratio: metrics.text_ratio,
+            content_trim: metrics.content_trim,
+            chrome_trim: metrics.chrome_trim,
+            conversation_trim: metrics.conversation_trim,
+            size_presets: self.workbench.size_presets.clone(),
+            custom_themes: self.workbench.custom_themes.clone(),
             last_start: self.workbench.last_start.clone(),
             // Whatever the blob carried that this build does not name, put back as it was found.
             rest: self.workbench.interface_rest.clone(),
@@ -1171,7 +1176,7 @@ impl AppState {
             .as_ref()
             .is_some_and(|login| login.probe);
 
-        self.open_terminal(pane_id, cols, rows, theme::TERMINAL_FONT_SIZE, cx);
+        self.open_terminal(pane_id, cols, rows, theme::content_base(), cx);
         self.workbench.settings.login = Some(LoginState {
             account,
             step: LoginStep::Running { pane: pane_id },

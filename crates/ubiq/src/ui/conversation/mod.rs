@@ -3343,7 +3343,9 @@ fn activity_chip(
     };
     chip = chip.on_click(on_click);
     if open {
-        chip = chip.child(popover(panel_id, px(240.), Some(panel_debug), rows));
+        // Drawn inside its own trigger, which already owns the click that closes it, so it takes
+        // no dismissal of its own.
+        chip = chip.child(popover(panel_id, px(240.), Some(panel_debug), None, rows));
     }
     chip.into_any_element()
 }

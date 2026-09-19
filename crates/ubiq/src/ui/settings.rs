@@ -38,6 +38,7 @@ use crate::ui::kit::{
     modal_sized, mono, nav_item, primary_button, prompt_modal, removable_tag, section_label,
     setting_row, slab, state_chip, status_dot,
 };
+use crate::ui::size;
 
 /// The help page this screen claims — rung 1 of the context ladder (`_docs/wip/help.md` §5).
 ///
@@ -87,8 +88,8 @@ fn dialog(
 
     div()
         .id("app-settings-dialog")
-        .w(px(theme::SETTINGS_WIDTH))
-        .h(px(theme::SETTINGS_HEIGHT))
+        .w(px(theme::settings_width()))
+        .h(px(theme::settings_height()))
         .max_w(viewport.width)
         .max_h(viewport.height)
         .flex()
@@ -147,7 +148,13 @@ fn nav(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                 None,
                 item == current,
                 true,
-                cx.listener(move |this, _, _, cx| this.set_settings_nav(item, cx)),
+                cx.listener(move |this, _, window, cx| {
+                    this.set_settings_nav(item, cx);
+                    // The Size section draws the same two sliders the popover does, and their
+                    // state is the window's; arriving at the section is what puts them back on
+                    // the axes. See `AppState::sync_size_sliders`.
+                    this.sync_size_sliders(window, cx);
+                }),
             )
         })
         .collect();
@@ -171,6 +178,7 @@ fn nav(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
 fn nav_icon(item: SettingsSection) -> Icon {
     match item {
         SettingsSection::Appearance => IconName::Palette.into(),
+        SettingsSection::Size => UbiqIcon::SizeInterfaceLarge.into(),
         SettingsSection::FileExplorer => IconName::Folder.into(),
         SettingsSection::Editor => IconName::File.into(),
         SettingsSection::Search => IconName::Search.into(),
@@ -192,6 +200,7 @@ fn nav_icon(item: SettingsSection) -> Icon {
 fn body(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     let content = match app.workbench.settings.nav {
         SettingsSection::Appearance => appearance(app, cx),
+        SettingsSection::Size => size_section(app, cx),
         SettingsSection::FileExplorer => file_explorer(app, cx),
         SettingsSection::Editor => editor(app, cx),
         SettingsSection::Search => search(app, cx),
@@ -220,22 +229,27 @@ fn body(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         .into_any_element()
 }
 
-/// The base sizes the chrome and the conversation families are offered, in points.
+/// The trims one family is offered, as ratios over what it would otherwise draw at.
 ///
-/// A hand-picked ladder rather than every half point, the same bargain the status bar's content
-/// ladder makes: a base size is chosen by eye. Both families' defaults are on it, so a window that
-/// has never been touched shows a lit pill rather than nothing.
-const BASE_SIZES: &[f32] = &[11.0, 11.5, 12.5, 13.5, 15.0, 17.0];
+/// A hand-picked ladder rather than a slider, which is P2's: a trim is a preference most users
+/// will never touch, and three continuous controls is a worse settings page. `1.0` is on it, so a
+/// family that has never been nudged shows a lit pill rather than nothing.
+const TRIMS: &[(f32, &str)] = &[
+    (0.85, "Smaller"),
+    (0.92, "Small"),
+    (1.0, "Default"),
+    (1.1, "Large"),
+    (1.25, "Larger"),
+];
 
 fn appearance(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     let palette = app.workbench.theme_id;
-    let scale = theme::text_scale();
 
     column(vec![
         heading(
             "Appearance",
-            "The palette and the accent it is dressed in, how big each surface family's text is, \
-             how tight the grid is drawn, and what the window's own chrome shows.",
+            "The palette and the accent it is dressed in, and what the window's own chrome \
+             shows. How big any of it is drawn is the Size section below.",
         ),
         setting_row(
             "Palette",
@@ -255,39 +269,11 @@ fn appearance(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
             accent_choice(palette, cx),
         ),
         setting_row(
-            "Chrome text size",
-            "The base size of the titlebar, the status bar, the rail, tabs, menus, modals, \
-             settings and pickers. Growing it reflows the window.",
-            size_choice("chrome", scale.chrome, cx, |this, size, cx| {
-                this.set_chrome_font_size(size, cx)
-            }),
-        ),
-        setting_row(
-            "Conversation text size",
-            "The base size of the transcript, the tool blocks, the composer and the agents \
-             columns \u{2014} read as prose, at a size that has nothing to do with the size code \
-             is read at.",
-            size_choice("conversation", scale.conversation, cx, |this, size, cx| {
-                this.set_conversation_font_size(size, cx)
-            }),
-        ),
-        setting_row(
-            "Content text size",
-            "The editor, the viewer, the explorer tree, search results and the terminal panes. \
-             This one belongs to the project rather than to the interface, so it is set from the \
-             font-size dropdown at the right of the status bar and travels with the project it was \
-             chosen for.",
-            mono(
-                format!("{:.0}\u{2009}px", app.content_font_size_or_default(cx)),
-                theme::text_faint(),
-            )
-            .into_any_element(),
-        ),
-        setting_row(
-            "Density",
-            "How tight the grid is drawn \u{2014} chrome rows, the rail, tree indents and the \
-             padding inside a pane. Regions you have dragged to a size keep it.",
-            density_choice(cx),
+            "Themes",
+            "Themes you made, beside the palettes above. One is a fork of a built-in plus the \
+             colours you changed \u{2014} everything else follows the palette it came from, so a \
+             build that retunes that palette moves your theme with it.",
+            crate::ui::themes::themes_row(app, cx),
         ),
         setting_row(
             "Open projects in the rail",
@@ -447,43 +433,100 @@ fn accent_swatch(
         .into_any_element()
 }
 
-/// One family's base size, as the ladder in [`BASE_SIZES`]. The nearest half point counts as the
-/// entry, so a size written by another build still lights a pill.
-fn size_choice(
-    family: &'static str,
-    current: f32,
-    cx: &mut Context<AppState>,
-    set: impl Fn(&mut AppState, f32, &mut Context<AppState>) + Copy + 'static,
-) -> AnyElement {
-    pill_row(
-        BASE_SIZES
-            .iter()
-            .copied()
-            .map(|size| {
-                choice_pill(
-                    ElementId::Name(format!("app-settings-{family}-size-{size}").into()),
-                    format!("{size}"),
-                    (current - size).abs() < 0.25,
-                    cx.listener(move |this, _, _, cx| set(this, size, cx)),
-                )
-                .into_any_element()
-            })
-            .collect(),
-    )
+/// How near a stored value has to be to a ladder stop to light its pill. A value nudged by
+/// `⌘=` or written by another build lands between stops and lights nothing, which is honest.
+const PILL_EPSILON: f32 = 0.005;
+
+/// The Size section: the two axes, the presets that name a point on them, and the per-family
+/// trims a popover has no room for.
+///
+/// **Every control here is the one the status-bar popover draws** — `ui::size` builds both, so a
+/// change to either lands in one place. What is extra is what does not belong in a popover: the
+/// preset list with rename and delete, and the three trims. Those stay pills (§5 of the
+/// proposal): three more continuous controls for a preference most users never touch is a worse
+/// page, and a trim is a nudge rather than an axis.
+fn size_section(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+    let metrics = theme::metrics();
+
+    column(vec![
+        heading(
+            "Size",
+            "Two axes and nothing else: how big the whole window is drawn, and how big text is \
+             drawn inside it. A preset names a point on both.",
+        ),
+        setting_row(
+            "Preset",
+            "The four the build ships, plus whatever you have saved. Saving is on the size \
+             control at the right of the status bar; a preset carries the two sizes and nothing \
+             else \u{2014} not the palette, not the accent.",
+            size::preset_pills(app, "app-settings-size", cx),
+        ),
+        setting_row(
+            "Interface size",
+            "Every chrome row, the rail, the padding inside a pane, every icon, and the text \
+             with them. Every proportion is held, so this is the same window at a different \
+             distance. Regions you have dragged to a size keep it.",
+            size::settings_slider(size::interface_slider(app, "app-settings-ui-scale")),
+        ),
+        setting_row(
+            "Text size",
+            "How big text is drawn inside that window \u{2014} denser or airier type in the same \
+             furniture. The one control here that changes a proportion.",
+            size::settings_slider(size::text_slider(app, "app-settings-text-ratio")),
+        ),
+        setting_row(
+            "Saved presets",
+            "Rename or forget one. The four the build ships cannot be deleted; saving over one \
+             replaces it for you, and forgetting what you saved brings it back.",
+            size::preset_list(app, cx),
+        ),
+        setting_row(
+            "Chrome text",
+            "The titlebar, the status bar, the rail, tabs, menus, modals, settings and pickers, \
+             nudged against the other two families. Growing it reflows the window.",
+            trim_choice(theme::Family::Chrome, metrics.chrome_trim, cx),
+        ),
+        setting_row(
+            "Conversation text",
+            "The transcript, the tool blocks, the composer and the agents columns \u{2014} read \
+             as prose, at a size that has nothing to do with the size code is read at.",
+            trim_choice(theme::Family::Conversation, metrics.conversation_trim, cx),
+        ),
+        setting_row(
+            "Content text",
+            "The editor, the viewer, the explorer tree, search results and the terminal panes. \
+             One setting for all of Ubiq rather than the project's, and the same value \
+             \u{2318}= / \u{2318}- move.",
+            trim_choice(theme::Family::Content, metrics.content_trim, cx),
+        ),
+        setting_row(
+            "Reset",
+            "Both axes back to the size every constant declares. The three trims above are a \
+             different preference and stay where you put them.",
+            ghost_button(
+                "app-settings-size-reset",
+                None,
+                "Reset",
+                cx.listener(|this, _, window, cx| this.reset_size(window, cx)),
+            )
+            .into_any_element(),
+        ),
+    ])
 }
 
-/// The three densities, one lit.
-fn density_choice(cx: &mut Context<AppState>) -> AnyElement {
-    let current = theme::density();
+/// One family's trim, as the ladder in [`TRIMS`], one lit.
+fn trim_choice(family: theme::Family, current: f32, cx: &mut Context<AppState>) -> AnyElement {
+    let key = family.name();
     pill_row(
-        theme::Density::ALL
-            .into_iter()
-            .map(|density| {
+        TRIMS
+            .iter()
+            .copied()
+            .map(|(trim, label)| {
                 choice_pill(
-                    ElementId::Name(format!("app-settings-density-{}", density.name()).into()),
-                    density.name(),
-                    density == current,
-                    cx.listener(move |this, _, _, cx| this.set_density(density, cx)),
+                    ElementId::Name(format!("app-settings-{key}-trim-{label}").into()),
+                    label,
+                    (current - trim).abs() < PILL_EPSILON,
+                    cx.listener(move |this, _, _, cx| this.set_trim(family, trim, cx)),
                 )
                 .into_any_element()
             })
@@ -2317,8 +2360,8 @@ pub fn login(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) ->
         modal_sized(
             "app-settings-login",
             theme::accent(),
-            theme::LOGIN_MODAL_WIDTH,
-            Some(theme::LOGIN_MODAL_HEIGHT),
+            theme::login_modal_width(),
+            Some(theme::login_modal_height()),
             title,
             body,
             footer,

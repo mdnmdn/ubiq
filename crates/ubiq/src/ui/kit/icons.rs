@@ -102,6 +102,14 @@ pub enum UbiqIcon {
     RoleVerifier,
     /// a node whose role has no icon of its own — the honest fallback
     RoleWorker,
+    /// the UI-scale slider's high end — a roomy interface, fewer and larger regions
+    SizeInterfaceLarge,
+    /// the UI-scale slider's low end — a compact interface, tightly packed regions
+    SizeInterfaceSmall,
+    /// the text-ratio slider's high end — a large letterform
+    SizeTextLarge,
+    /// the text-ratio slider's low end — a small letterform
+    SizeTextSmall,
     /// a tab protected from close, drawn before its label
     TabPin,
     /// open the project in a browser
@@ -187,6 +195,10 @@ impl IconNamed for UbiqIcon {
             Self::RoleManager => "icons/role-manager.svg",
             Self::RoleVerifier => "icons/role-verifier.svg",
             Self::RoleWorker => "icons/role-worker.svg",
+            Self::SizeInterfaceLarge => "icons/size-interface-large.svg",
+            Self::SizeInterfaceSmall => "icons/size-interface-small.svg",
+            Self::SizeTextLarge => "icons/size-text-large.svg",
+            Self::SizeTextSmall => "icons/size-text-small.svg",
             Self::TabPin => "icons/tab-pin.svg",
             Self::TitlebarBrowser => "icons/titlebar-browser.svg",
             Self::TitlebarHelp => "icons/titlebar-help.svg",
@@ -255,6 +267,10 @@ pub const ALL: &[UbiqIcon] = &[
     UbiqIcon::RoleManager,
     UbiqIcon::RoleVerifier,
     UbiqIcon::RoleWorker,
+    UbiqIcon::SizeInterfaceLarge,
+    UbiqIcon::SizeInterfaceSmall,
+    UbiqIcon::SizeTextLarge,
+    UbiqIcon::SizeTextSmall,
     UbiqIcon::TabPin,
     UbiqIcon::TitlebarBrowser,
     UbiqIcon::TitlebarHelp,
@@ -333,6 +349,10 @@ pub fn bytes(path: &str) -> Option<&'static [u8]> {
         "icons/role-manager.svg" => ours!("role-manager"),
         "icons/role-verifier.svg" => ours!("role-verifier"),
         "icons/role-worker.svg" => ours!("role-worker"),
+        "icons/size-interface-large.svg" => ours!("size-interface-large"),
+        "icons/size-interface-small.svg" => ours!("size-interface-small"),
+        "icons/size-text-large.svg" => ours!("size-text-large"),
+        "icons/size-text-small.svg" => ours!("size-text-small"),
         "icons/tab-pin.svg" => ours!("tab-pin"),
         "icons/titlebar-browser.svg" => ours!("titlebar-browser"),
         "icons/titlebar-help.svg" => ours!("titlebar-help"),

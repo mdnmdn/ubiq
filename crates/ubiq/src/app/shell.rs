@@ -233,10 +233,7 @@ impl AppState {
         });
 
         let host = self.bus.host_of_project(project);
-        let term_font = open
-            .prefs
-            .content_font_size
-            .unwrap_or(theme::TERMINAL_FONT_SIZE);
+        let term_font = theme::content_base();
         let panes: Vec<(PaneId, u16, u16)> = open
             .panes
             .iter()
@@ -570,57 +567,59 @@ impl AppState {
     /// Dress the palette in another accent, or in the palette's own seed with `None`. The accent
     /// is an axis of its own: the ground does not move.
     pub fn set_accent(&mut self, accent: Option<theme::AccentId>, cx: &mut Context<Self>) {
-        theme::set_theme(self.workbench.theme_id, accent, theme::density(), cx);
+        theme::set_theme(self.workbench.theme_id, accent, cx);
         self.remember_interface();
         self.redress_terminals(cx);
         cx.notify();
     }
 
-    /// Tighten or loosen the grid. Density is an axis of its own: the palette does not move.
+    /// Move the **UI scale** — the axis every dimension in the window follows, the window's rem
+    /// size included (`D151`, `D153`). The palette does not move.
     ///
-    /// `TERMINAL_PADDING` follows the factor, so every open emulator has to be re-dressed with the
-    /// new inset — and that is also how the harness learns: the emulator re-measures its cell grid
-    /// from its bounds minus the padding on the next paint and fires the resize callback that
+    /// The component library has to be re-dressed, not only re-painted: its `font_size` *is* the
+    /// rem size, and every `p_3` and `gap_2` in the tree expands to `rems(...)`.
+    /// `TERMINAL_PADDING` follows the scale too, so every open emulator has to be re-dressed with
+    /// the new inset — and that is also how the harness learns: the emulator re-measures its cell
+    /// grid from its bounds minus the padding on the next paint and fires the resize callback that
     /// sends `TerminalResize`, the same path a window resize takes. A pane redrawn at a new inset
-    /// without that is the classic corruption bug.
-    pub fn set_density(&mut self, density: theme::Density, cx: &mut Context<Self>) {
-        if density == theme::density() {
+    /// without that is the classic corruption bug. That walk is debounced, because a slider drag
+    /// must not send the harness two hundred resizes — see [`Self::settle_metrics`].
+    pub fn set_ui_scale(&mut self, scale: f32, cx: &mut Context<Self>) {
+        if (scale - theme::ui_scale()).abs() < f32::EPSILON {
             return;
         }
-        theme::set_density(density, cx);
-        self.remember_interface();
-        self.redress_terminals(cx);
+        theme::set_ui_scale(scale);
+        theme::redress(cx);
+        self.settle_metrics(cx);
         cx.notify();
     }
 
-    /// Set the base size the chrome is drawn at — titlebar, status bar, rail, tabs, menus, modals,
-    /// settings, pickers. Interface-scoped: growing it reflows the window, which the next paint
-    /// does on its own because every chrome size is read through `theme::font`.
-    pub fn set_chrome_font_size(&mut self, size: f32, cx: &mut Context<Self>) {
-        theme::set_text_scale(theme::TextScale {
-            chrome: size,
-            ..theme::text_scale()
-        });
-        self.remember_interface();
+    /// Move the **text ratio** — type only, on top of the UI scale. The furniture stays put, so
+    /// nothing outside the type scale has to be told; the emulators still do, because a pane's
+    /// cell grid is measured from its point size.
+    pub fn set_text_ratio(&mut self, ratio: f32, cx: &mut Context<Self>) {
+        theme::set_text_ratio(ratio);
+        self.settle_metrics(cx);
         cx.notify();
     }
 
-    /// Set the base size a conversation is drawn at — the transcript, the tool blocks, the
-    /// composer, the agents columns. The transcript's row-height cache keys on the size it
-    /// measured at, so the rows re-measure themselves on the next frame.
-    pub fn set_conversation_font_size(&mut self, size: f32, cx: &mut Context<Self>) {
-        theme::set_text_scale(theme::TextScale {
-            conversation: size,
-            ..theme::text_scale()
-        });
-        self.remember_interface();
+    /// Nudge one family against the other two. The chrome's reflows the window, the
+    /// conversation's re-measures the transcript's row heights on the next frame, and the
+    /// content's is what `cmd-=` moves — see [`Self::nudge_content_trim`].
+    pub fn set_trim(&mut self, family: theme::Family, trim: f32, cx: &mut Context<Self>) {
+        theme::set_trim(family, trim);
+        self.settle_metrics(cx);
         cx.notify();
     }
 
     /// Every open emulator holds its own copy of the palette, so a colour switch has to reach it —
-    /// the same walk `set_content_font_size` does for type size.
-    fn redress_terminals(&mut self, cx: &mut Context<Self>) {
-        let font = self.content_font_size_or_default(cx);
+    /// the same walk a size change does.
+    ///
+    /// **Every project's panes, not the active project's.** The content size is one setting for
+    /// all of Ubiq now, so a pane in a project this window holds without showing is drawn at the
+    /// same size as the one on screen.
+    pub(super) fn redress_terminals(&mut self, cx: &mut Context<Self>) {
+        let font = theme::content_base();
         let views: Vec<_> = self.terminals.values().map(|t| t.view.clone()).collect();
         for view in views {
             view.update(cx, |view, cx| {
@@ -628,6 +627,30 @@ impl AppState {
                 view.update_config(ui::terminal::config(cols as u16, rows as u16, font), cx);
             });
         }
+    }
+
+    /// Let a size change settle, then pay for it once.
+    ///
+    /// Re-dressing the emulators rebuilds every config, re-measures every cell grid and emits a
+    /// `TerminalResize` per pane; writing the blob is a message to the host. Neither belongs on a
+    /// slider's every frame, so both wait out [`REFLOW_DEBOUNCE`] behind a generation token — the
+    /// device [`Self::schedule_markdown_reflow`] already uses, and the Markdown reflow rides along
+    /// on the same settle.
+    fn settle_metrics(&mut self, cx: &mut Context<Self>) {
+        self.metrics_gen = self.metrics_gen.wrapping_add(1);
+        let token = self.metrics_gen;
+        self.schedule_markdown_reflow(cx);
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(REFLOW_DEBOUNCE).await;
+            let _ = this.update(cx, |this, cx| {
+                if token == this.metrics_gen {
+                    this.redress_terminals(cx);
+                    this.remember_interface();
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
     }
 
     pub fn open_menu(&mut self, menu: MenuId, cx: &mut Context<Self>) {
@@ -682,6 +705,9 @@ impl AppState {
             (Layer::Feedback, w.feedback.is_some()),
             (Layer::AllProjects, w.all_projects.is_some()),
             (Layer::FileDialog, w.file_dialog.is_some()),
+            (Layer::SizeNaming, w.size_prompt.is_some()),
+            (Layer::ThemeEditor, w.theme_editor.is_some()),
+            (Layer::ThemeNaming, w.theme_prompt.is_some()),
             (Layer::ClosePane, w.confirm_close_pane.is_some()),
             (Layer::EndConversation, w.confirm_end_conversation.is_some()),
             (Layer::FilePicker, self.file_picker.is_some()),
@@ -793,6 +819,16 @@ impl AppState {
             self.dismiss_end_conversation_confirm(cx);
         } else if self.workbench.confirm_close_pane.is_some() {
             self.dismiss_close_pane_confirm(cx);
+        } else if self.workbench.theme_prompt.is_some() {
+            // The theme's two surfaces, in reverse paint order: the name prompt is drawn over the
+            // editor — and is raised *by* it — so Escape takes the prompt and leaves the editor.
+            self.close_theme_prompt(cx);
+        } else if self.workbench.theme_editor.is_some() {
+            self.close_theme_editor(cx);
+        } else if self.workbench.size_prompt.is_some() {
+            // Above the file question in paint order, so Escape takes the name prompt first. The
+            // popover that raised it is a menu and was already peeled at the top of this function.
+            self.close_size_prompt(cx);
         } else if matches!(self.workbench.file_dialog, Some(FileDialog::PasteImage)) {
             // Escape takes the text file: the keystroke's own meaning.
             self.decline_paste_image(cx);
@@ -948,55 +984,6 @@ impl AppState {
             .unwrap_or_else(|| "No project".to_string())
     }
 
-    /// The point size the active project's text is drawn at — editors, terminal panes and the
-    /// explorer tree together — or `None` for the interface default. `None` stays `None`, so each
-    /// surface falls back to its own default rather than a value coalesced upstream.
-    pub fn content_font_size(&self, cx: &App) -> Option<f32> {
-        let id = self.project(cx)?;
-        self.projects
-            .get(&id)
-            .and_then(|open| open.prefs.content_font_size)
-    }
-
-    /// The active project's text size as a live value, or the interface default when the project
-    /// has not chosen one. This is the value the chrome mutates, so `None` is not allowed through to
-    /// it.
-    pub fn content_font_size_or_default(&self, cx: &App) -> f32 {
-        self.content_font_size(cx)
-            .unwrap_or(theme::EDITOR_FONT_SIZE)
-    }
-
-    /// Set the active project's text size outright — the status bar's dropdown hands a choice in,
-    /// rather than a nudge — within the range the chrome admits, and write it down as the
-    /// project's own. Emulators already open are dressed to match, since a zoom has to reach a
-    /// pane that is on screen, not wait for a restart.
-    pub fn set_content_font_size(&mut self, size: f32, cx: &mut Context<Self>) {
-        let Some(id) = self.project(cx) else {
-            return;
-        };
-        let size = size.clamp(theme::EDITOR_FONT_MIN, theme::EDITOR_FONT_MAX);
-        if let Some(open) = self.projects.get_mut(&id) {
-            open.prefs.content_font_size = Some(size);
-        }
-        let panes: Vec<_> = self
-            .projects
-            .get(&id)
-            .into_iter()
-            .flat_map(|open| open.panes.iter())
-            .filter_map(|pane| self.terminals.get(&pane.id).map(|t| &t.view))
-            .cloned()
-            .collect();
-        for view in panes {
-            view.update(cx, |view, cx| {
-                let (cols, rows) = view.dimensions();
-                view.update_config(ui::terminal::config(cols as u16, rows as u16, size), cx);
-            });
-        }
-        self.schedule_markdown_reflow(cx);
-        self.remember(id, cx);
-        cx.notify();
-    }
-
     /// Rebuild the Markdown previews once the zoom stops moving. See [`AppState::md_reflow`].
     fn schedule_markdown_reflow(&mut self, cx: &mut Context<Self>) {
         self.md_reflow_gen = self.md_reflow_gen.wrapping_add(1);
@@ -1013,16 +1000,15 @@ impl AppState {
         .detach();
     }
 
-    /// Nudge the active project's text size up or down by one point, within the range the chrome
-    /// admits, and write the result down as the project's own. A zoom is a preference of the
-    /// project, so it travels with a project and survives a restart, and it dresses the editor,
-    /// the terminal panes and the explorer tree together.
-    pub fn nudge_content_font_size(&mut self, direction: i8, cx: &mut Context<Self>) {
-        let current = self.content_font_size_or_default(cx);
-        self.set_content_font_size(
-            (current + direction as f32).clamp(theme::EDITOR_FONT_MIN, theme::EDITOR_FONT_MAX),
-            cx,
-        );
+    /// `cmd-=` and `cmd--`: nudge the content family's trim up or down.
+    ///
+    /// A step of the trim rather than a whole point, because the trim is a ratio over
+    /// [`theme::TEXT_BASE`] and a point is not a fixed fraction of it once the UI scale has moved.
+    /// It dresses the editor, the viewer, the terminal panes, the explorer tree and search results
+    /// together, in every project — the zoom is the person's, not the folder's (`D151`).
+    pub fn nudge_content_trim(&mut self, direction: i8, cx: &mut Context<Self>) {
+        let next = theme::content_trim() + direction as f32 * CONTENT_TRIM_STEP;
+        self.set_trim(theme::Family::Content, next, cx);
     }
 
     /// Whether the active project's file editors soft-wrap long lines. `None` is the editor's own

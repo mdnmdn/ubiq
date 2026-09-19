@@ -54,7 +54,7 @@ use crate::ui::kit::settings::label_block;
 /// `edge` is what the modal is about — `theme::accent()` for a question, `theme::danger()` for
 /// something irreversible — because the edge is what identifies a surface in this interface.
 ///
-/// [`MODAL_WIDTH`](theme::MODAL_WIDTH), body scrolling inside a hugged height — the shape every
+/// [`theme::modal_width()`], body scrolling inside a hugged height — the shape every
 /// modal but a running harness login wants. See [`modal_sized`] for the other one.
 pub fn modal(
     id: &'static str,
@@ -68,7 +68,7 @@ pub fn modal(
     modal_sized(
         id,
         edge,
-        theme::MODAL_WIDTH,
+        theme::modal_width(),
         None,
         title,
         body,

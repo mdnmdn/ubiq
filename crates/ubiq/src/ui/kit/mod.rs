@@ -37,6 +37,7 @@ pub fn harness_icon(harness: &str) -> UbiqIcon {
 }
 
 pub mod canvas;
+pub mod colour;
 pub mod controls;
 pub mod files;
 pub mod icons;
@@ -46,7 +47,9 @@ pub mod panel;
 pub mod popover;
 mod ribbon;
 pub mod settings;
+pub mod slider;
 
+pub use colour::{HsvAction, colour_picker};
 pub use controls::{
     badge, card, check_box, choice_pill, disclosure, elided, elided_with, field, ghost_button,
     icon_button, meter, mono, pill, primary_button, progress_ring, progress_ring_in,
@@ -63,3 +66,4 @@ pub use panel::{Tab, panel, panel_header, tab_strip};
 pub use popover::popover;
 pub use ribbon::{RIBBON_SIZE, Ribbon, RibbonCorner, ribbon};
 pub use settings::{column, heading, hint_row, label_block, label_hint, nav_item, setting_row};
+pub use slider::{Slider, slider_state};

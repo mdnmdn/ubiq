@@ -244,10 +244,12 @@ box sizing is `tech/ui-and-design.md`'s to state, not this one's.
 **Geometry is measured in cells, not pixels.** The conversion happens once, in the UI, where the
 font metrics are known. Everything downstream speaks columns and rows.
 
-**A pane's text scales with its project.** The terminal font size is the active project's — the same
-value the file editor and the explorer tree are drawn at — and an emulator already open is dressed to
-match when it changes rather than waiting for a restart. A zoom that only reached the next pane to
-open would not be a zoom, so `AppState::set_content_font_size()` reconfigures every emulator it holds.
+**A pane's text scales with the content family, one setting for all of Ubiq.** The terminal font
+size is `theme::content_base()` — the same base the file editor and the explorer tree are drawn at
+— and an emulator already open is dressed to match when it changes rather than waiting for a
+restart. A zoom that only reached the next pane to open would not be a zoom, so
+`AppState::set_content_font_size()` reconfigures every emulator in every project the window holds,
+debounced behind `AppState::settle_metrics`. See `tech/ui-and-design.md` and `D151`.
 
 **A pane starts at 80×24 and is told the truth a frame later.** The harness has to be started before
 the emulator has been given any bounds to measure, so it begins at the conventional size and is
@@ -332,8 +334,9 @@ terminal may sit in, and the tab, its dot, its Hide and its Close, belong to the
 **The panel's body is the emulator.** `crates/ubiq/src/ui/terminal.rs` draws it: `pane()` takes a
 pane ID and draws that pane's `TerminalView`, or the line a panel whose emulator has gone shows, and
 `config()` is the `TerminalConfig` every emulator is built with — taking the font size alongside the
-geometry, so a pane's text follows its project's own (`AppState::set_content_font_size()` rebuilds it
-from a fresh `config()` when the size changes). The pane is named rather than found
+geometry, so a pane's text follows the content family's global base, `theme::content_base()`
+(`AppState::set_content_font_size()` rebuilds it from a fresh `config()` when the size changes). The
+pane is named rather than found
 through focus, because every pane has a panel of its own and which of them the user is typing into
 is the dock's answer. The view comes from the
 vendored `gpui-terminal`, which parses the bytes with `alacritty_terminal` and draws the screen. It

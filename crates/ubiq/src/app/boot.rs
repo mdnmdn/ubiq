@@ -273,6 +273,39 @@ impl AppState {
 
         let sink_modal_input = cx.new(|cx| InputState::new(window, cx).placeholder("Session name"));
 
+        // The style page's own state, built here rather than in the literal below so the slider
+        // specimen can start on the level the stepper and the meter already report.
+        let sink = SinkState::default();
+        // Eleven stops over the level, so the slider's ladder is the stepper's ±10 and the two
+        // controls beside each other on that page cannot land between one another's values.
+        let sink_slider =
+            cx.new(|_| crate::ui::kit::slider_state(0.0, 100.0, 11, sink.level as f32));
+
+        // The two size axes. Seeded from the axes as they stand — defaults here, because the
+        // stored metrics arrive from the host after the window is built; `sync_size_sliders`
+        // re-seeds them whenever a surface that draws them opens.
+        let ui_scale_slider = cx.new(|_| {
+            crate::ui::kit::slider_state(
+                theme::UI_SCALE_MIN,
+                theme::UI_SCALE_MAX,
+                theme::UI_SCALE_STOPS,
+                theme::ui_scale(),
+            )
+        });
+        let text_ratio_slider = cx.new(|_| {
+            crate::ui::kit::slider_state(
+                theme::TEXT_RATIO_MIN,
+                theme::TEXT_RATIO_MAX,
+                theme::TEXT_RATIO_STOPS,
+                theme::text_ratio(),
+            )
+        });
+        let size_name_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Reading, Projector\u{2026}"));
+        let theme_name_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Midnight, Paper\u{2026}"));
+        let theme_hex_input = cx.new(|cx| InputState::new(window, cx).placeholder("#RRGGBB"));
+
         let login_account_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("work, personal\u{2026}"));
         // Placeholder reseeded with the picked harness's own command whenever one is picked.
@@ -838,6 +871,44 @@ impl AppState {
             },
         ));
 
+        // The style page's slider. `Change` rather than `Release`, because a control that only
+        // answers when the pointer is let go is exactly the lag this page exists to catch.
+        subscriptions.push(cx.subscribe_in(
+            &sink_slider,
+            window,
+            |this, _slider, event: &SliderEvent, _window, cx| {
+                let SliderEvent::Change(value) = event else {
+                    return;
+                };
+                this.set_sink_level(value.end(), cx);
+            },
+        ));
+
+        // The two size axes. `Change` rather than `Release`, so the window grows under the
+        // pointer — the drag is the preview, which is the point of a slider over a ladder. What
+        // a drag must *not* do on every frame is re-dress the emulators or write the blob, and
+        // `AppState::settle_metrics` is what holds both off until the value stops moving.
+        subscriptions.push(cx.subscribe_in(
+            &ui_scale_slider,
+            window,
+            |this, _slider, event: &SliderEvent, _window, cx| {
+                let SliderEvent::Change(value) = event else {
+                    return;
+                };
+                this.set_ui_scale(value.end(), cx);
+            },
+        ));
+        subscriptions.push(cx.subscribe_in(
+            &text_ratio_slider,
+            window,
+            |this, _slider, event: &SliderEvent, _window, cx| {
+                let SliderEvent::Change(value) = event else {
+                    return;
+                };
+                this.set_text_ratio(value.end(), cx);
+            },
+        ));
+
         // The titlebar's field is the same contract, one level up: Enter is the only thing it
         // does, and what it does is hand off to the search panel — see `submit_header_search`.
         subscriptions.push(cx.subscribe_in(
@@ -1078,6 +1149,16 @@ impl AppState {
         ));
 
         subscriptions.push(cx.subscribe_in(
+            &theme_hex_input,
+            window,
+            |this, _, event: &InputEvent, _window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    this.apply_theme_hex(cx);
+                }
+            },
+        ));
+
+        subscriptions.push(cx.subscribe_in(
             &project_form_hex,
             window,
             |this, _, event: &InputEvent, _window, cx| {
@@ -1171,6 +1252,8 @@ impl AppState {
             sink_project_name.read(cx).focus_handle(cx),
             sink_project_about.read(cx).focus_handle(cx),
             sink_project_hex.read(cx).focus_handle(cx),
+            theme_name_input.read(cx).focus_handle(cx),
+            theme_hex_input.read(cx).focus_handle(cx),
             rename_input.read(cx).focus_handle(cx),
             project_form_about.read(cx).focus_handle(cx),
             project_form_hex.read(cx).focus_handle(cx),
@@ -1270,7 +1353,7 @@ impl AppState {
             workbench: WorkbenchState::default(),
             pending_chat_attach: None,
             pending_chat_open: false,
-            sink: SinkState::default(),
+            sink,
             stats: StatsState::default(),
             web_panels: crate::state::web_panel::WebPanels::default(),
             help: crate::state::help::Help::default(),
@@ -1350,6 +1433,12 @@ impl AppState {
             sink_input,
             sink_textarea,
             sink_modal_input,
+            sink_slider,
+            ui_scale_slider,
+            text_ratio_slider,
+            size_name_input,
+            theme_name_input,
+            theme_hex_input,
             login_account_input,
             login_command_input,
             profile_id_input,
@@ -1402,6 +1491,8 @@ impl AppState {
             explorer_filter_gen: 0,
             md_reflow: 0,
             md_reflow_gen: 0,
+            metrics_gen: 0,
+            content_trim_pending: false,
             outline: Vec::new(),
             outline_key: String::new(),
             outline_gen: 0,
