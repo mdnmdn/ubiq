@@ -58,3 +58,26 @@ this spike is about.
 Every file in `_tools/teamsim/scenarios/` is a preset. The Rust sink embeds them with `include_str!`,
 so adding a scenario there makes it selectable in the sink with no other change than the row in
 `crates/ubiq/src/ui/sink/teamsim.rs`'s preset table.
+
+## Hand-placed positions
+
+A scenario may carry the positions a human dragged things to. They are what makes a saved scenario
+reproduce a picture rather than only a graph, and they are the input the `adaptive` arrangement
+starts from.
+
+```json
+{
+  "positions": {
+    "tasks":     { "t1": [120, 240] },
+    "agents":    { "a1": [0, 0], "a7": [296, 184] },
+    "subagents": { "a1/d2": [0, 156] }
+  }
+}
+```
+
+Every entry is optional and every coordinate is a point at 100% zoom, in the same frame the layout
+uses: a task's is its container's origin on the canvas, an agent's is its offset inside its task
+(or its absolute position when it has no task), and a delegate's is its offset inside the card that
+spawned it, keyed `<agent id>/<subagent id>`. Anything the map does not name is placed by the
+arrangement. An arrangement that runs from scratch ignores the whole block; `adaptive` reads it and
+moves as little as it can.
