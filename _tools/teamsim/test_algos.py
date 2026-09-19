@@ -59,6 +59,7 @@ from algos import (
     sub_slot,
     task_forest,
 )
+from shapes import families_of, ring_fan, ring_hex, ring_organic
 
 HERE = Path(__file__).parent
 _next = itertools.count(1)
@@ -414,6 +415,132 @@ def test_the_new_rings_reserve_what_they_draw():
             assert abs(drew[2] - box[0]) < EPS and abs(drew[3] - box[1]) < EPS, (
                 f"{ring.__name__}/{count}: reserved {box} and drew {(drew[2], drew[3])}"
             )
+
+
+def test_the_new_rings_reserve_what_they_draw_too():
+    """The same promise, at the five new rings' own delegate shapes."""
+    for ring, sub in ((ring_fan, SUB_NARROW), (ring_organic, SUB_NARROW), (ring_hex, SUB_NARROW)):
+        for count in range(0, 13):
+            rings = {"a": count}
+            box = card_box("a", rings, ring, sub)
+            lead = card_lead("a", rings, ring, sub)
+            slots = ring(count)
+            card = Placed(agent=Agent(id="a", session="s", task=None, parent=None), offset=(0.0, 0.0))
+            card.at = lead
+            card.subs = [("s", "s", (lead[0] + at[0], lead[1] + at[1])) for at in slots]
+            card.ring = fence(card.at, [s[2] for s in card.subs], sub)
+            drew = content_rect(card)
+            assert abs(drew[0]) < EPS and abs(drew[1]) < EPS, f"{ring.__name__}/{count}: {drew}"
+            assert abs(drew[2] - box[0]) < EPS and abs(drew[3] - box[1]) < EPS, (
+                f"{ring.__name__}/{count}: reserved {box} and drew {(drew[2], drew[3])}"
+            )
+
+
+def test_every_shape_grows_downwards():
+    """The five new arrangements' own contract: a card never sits above its parent's card.
+
+    A connector leaves the bottom of a card and arrives at the top of the next one, so a child seated
+    above its parent would draw a line backwards through the canvas.
+    """
+
+    def centre_y(card):
+        return card.at[1] + CARD_HEIGHT / 2.0
+
+    for key in ("organic", "multiradial", "spider", "hex", "islands"):
+        for scen in scenarios():
+            out = layout_auto(scen, key)
+            by_id = {c.agent.id: c for c in out.cards}
+            for card in out.cards:
+                parent = by_id.get(card.agent.parent)
+                if parent is None or parent.agent.task != card.agent.task:
+                    continue
+                assert centre_y(card) >= centre_y(parent) - EPS, (
+                    f"{scen.name}/{key}: {card.agent.id} sits above its parent {parent.agent.id}"
+                )
+
+
+def test_no_two_delegates_of_a_card_overlap():
+    """A card's own delegates, whichever ring drew them, never sit on one another."""
+    for scen in scenarios():
+        for key in ALGOS:
+            out = layout_auto(scen, key)
+            sub = out.algo.sub
+            for card in out.cards:
+                subs = card.subs
+                for i in range(len(subs)):
+                    for j in range(i + 1, len(subs)):
+                        a, b = subs[i][2], subs[j][2]
+                        assert not overlaps((a, sub), (b, sub), 0.0), (
+                            f"{scen.name}/{key}: {card.agent.id}'s delegates {i} and {j} overlap"
+                        )
+
+
+def test_islands_are_further_apart_than_containers():
+    """Under `islands`, two containers from different families sit further apart than two from one.
+
+    `kitchen`'s `s2` session is a forest of one two-task family (`t6`, `t7`, linked by a spawner) and
+    three lone tasks — the one scenario/session where `families_of` finds more than one group with
+    a same-family pair to compare against. (Every other scenario's sessions either form a single
+    family or split into all-singleton groups with nothing to compare a same-family gap to; only
+    `kitchen`'s `s2` has both a multi-task family and other groups beside it.)
+    """
+    scen = next(s for s in scenarios() if s.name == "kitchen")
+    session = "s2"
+    boxes = [t for t in scen.tasks if t.session == session]
+    parents = task_forest(boxes, scen.agents)
+    groups = families_of(len(boxes), parents)
+    assert len(groups) > 1, "kitchen/s2 no longer forms more than one family"
+
+    out = layout_auto(scen, "islands")
+    rect_of = {
+        box.task.id: (box.origin[0], box.origin[1], box.size[0], box.size[1])
+        for box in out.tasks
+        if box.task.session == session and box.size != (0.0, 0.0)
+    }
+    group_of = {boxes[ix].id: g for g, members in enumerate(groups) for ix in members}
+
+    def gap(a, b):
+        ax, ay, aw, ah = a
+        bx, by, bw, bh = b
+        dx = max(bx - (ax + aw), ax - (bx + bw), 0.0)
+        dy = max(by - (ay + ah), ay - (by + bh), 0.0)
+        return max(dx, dy)
+
+    same: list[float] = []
+    diff: list[float] = []
+    ids = list(rect_of)
+    for i in range(len(ids)):
+        for j in range(i + 1, len(ids)):
+            a, b = ids[i], ids[j]
+            bucket = same if group_of[a] == group_of[b] else diff
+            bucket.append(gap(rect_of[a], rect_of[b]))
+
+    assert same, "kitchen/s2 has no same-family pair to compare against"
+    assert diff, "kitchen/s2 has no cross-family pair to compare against"
+    assert min(diff) >= max(same) - EPS, (
+        f"a cross-family gap {min(diff)} is smaller than a same-family gap {max(same)}"
+    )
+
+
+def test_a_card_never_sits_on_another_in_the_same_container():
+    """The five new arrangements' own cards, drawn in one container, never sit on one another."""
+    for key in ("organic", "multiradial", "spider", "hex", "islands"):
+        for scen in scenarios():
+            out = layout_auto(scen, key)
+            by_task: dict[str, list] = {}
+            for card in out.cards:
+                if card.agent.task:
+                    by_task.setdefault(card.agent.task, []).append(card)
+            for task, cards in by_task.items():
+                for i in range(len(cards)):
+                    for j in range(i + 1, len(cards)):
+                        a, b = content_rect(cards[i]), content_rect(cards[j])
+                        assert not overlaps(
+                            ((a[0], a[1]), (a[2], a[3])), ((b[0], b[1]), (b[2], b[3])), 0.0
+                        ), (
+                            f"{scen.name}/{key}/{task}: {cards[i].agent.id} and "
+                            f"{cards[j].agent.id} overlap"
+                        )
 
 
 def test_containers_never_overlap():

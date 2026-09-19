@@ -1078,6 +1078,8 @@ class Algo:
     grow: Optional[Callable[["Arrangement"], int]] = None
     #: What one delegate box measures under this arrangement's ring shape.
     sub: Size = SUB_BOX
+    #: Whether the packer is handed which container hangs under which. Most do not read it.
+    forest: bool = False
 
 
 def algo_of(name: "str | Algo") -> Algo:
@@ -1184,7 +1186,8 @@ def _arrange(
         for c in contents
     ]
 
-    parents = task_forest(boxes, agents) if algo.key == "tree" else [None] * len(boxes)
+    wants_forest = algo.forest or algo.key == "tree"
+    parents = task_forest(boxes, agents) if wants_forest else [None] * len(boxes)
     at, extent = algo.pack(sizes, parents, target)
 
     for ix, task in enumerate(boxes):
@@ -1672,3 +1675,17 @@ ALGOS: dict[str, Algo] = {
         sub=SUB_NARROW,
     ),
 }
+
+
+def _shapes() -> None:
+    """The arrangements with no counterpart in `layout.rs` live in `shapes.py`, and join here.
+
+    Imported at the bottom rather than at the top because `shapes.py` reads this file's constants
+    and helpers — this is the port, and nothing that is not in the Rust is written above this line.
+    The import is for its effect: `shapes.py` adds its own rows to `ALGOS`, so that whichever of the
+    two modules is imported first, the registry is whole by the time anyone reads it.
+    """
+    import shapes  # noqa: F401
+
+
+_shapes()

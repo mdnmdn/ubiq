@@ -3,11 +3,11 @@ id: wip-teams-layout-spike
 title: Teams block positioning
 kind: wip
 status: current
-summary: Why the teams graph grows into a tower nobody can read in a rectangular viewport, what the two halves of the spike measured — a Python tool that renders an arrangement and scores it, and a teamsim section of the kitchen sink that drives the production arrangements from the same scenario file — and what the measurements say to change.
+summary: Why the teams graph grows into a tower nobody can read in a rectangular viewport, what the two halves of the spike measured — a Python tool that renders an arrangement and scores it, and a teamsim section of the kitchen sink that drives the production arrangements from the same scenario file — what the measurements say to change, and what five further shapes (organic, multiradial, spider, hex, islands) came out at.
 read_when: you are changing how the teams graph arranges its blocks, adding an arrangement, or picking up what this spike left open
 updated: 2026-09-19
 verified: 2026-09-19
-code_anchors: [crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/teamsim.rs, crates/ubiq/src/ui/sink/teamsim.rs, crates/ubiq/src/ui/kit/blocks.rs, crates/ubiq/src/ui/teams/graph.rs, _tools/teamsim/algos.py, _tools/teamsim/FORMAT.md]
+code_anchors: [crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/teamsim.rs, crates/ubiq/src/ui/sink/teamsim.rs, crates/ubiq/src/ui/kit/blocks.rs, crates/ubiq/src/ui/teams/graph.rs, _tools/teamsim/algos.py, _tools/teamsim/shapes.py, _tools/teamsim/FORMAT.md]
 depends_on: [feat-workbench, tech-ui]
 ---
 
@@ -82,6 +82,49 @@ clears it, and only for the blocks in the way.** A session is never re-packed.
 positions for unseen keys alone. The measurement that matters is that it keeps displacement at
 exactly zero and the containers' reading order intact, because an arrangement that wins on shape by
 reshuffling what the user arranged has failed whatever its numbers say.
+
+## Five more shapes, and the one that won
+
+The round after the grid ring asked a different question: what if the arrangement is not a stack at
+all? [`_tools/teamsim/shapes.py`](../../_tools/teamsim/shapes.py) holds five answers, kept out of
+`algos.py` so that file stays readable as the port. They all grow **downwards**, because a connector
+leaves the bottom of a card and arrives at the top of the next one, so a shape that seats a child
+above its parent draws a line backwards whatever else it wins — the radial ones are half shapes, the
+downward sector rather than the full turn.
+
+`organic` sprays a parent's children under it, bowed at the ends and nudged off their seats.
+`multiradial` makes every parent its own hub, its children on downward arcs round it. `spider` is one
+hub per container with the cards on concentric arcs and the spokes running out to them. `hex` puts
+the cards on a honeycomb, a row per hand-off depth, every other row half a cell over. `islands`
+assumes no root at all: it groups cards, and containers, by what they are *connected to*, and packs
+each group as its own island.
+
+Summed over the seven scenarios, in screen-heights of scrolling:
+
+| | `islands` | `multiline` | `hex` | `radial` | `adaptive` | `organic` | `multiradial` | `spider` |
+|---|---|---|---|---|---|---|---|---|
+| Σ screens tall | **8.77** | 9.41 | 10.05 | 10.21 | 10.23 | 10.81 | 12.01 | 12.18 |
+
+**`islands` is the shortest arrangement measured anywhere in this spike**, and it gets there without
+a new ring shape, a new score or a tuned constant — all it does is stop pretending the graph has one
+root. `pack_islands` reads the same container forest `tree` reads, as *components* rather than as a
+tree: on a graph that is a tree it packs the one component and behaves like `tree`, and on the
+ordinary case — a sweep of unrelated tasks — it does not degenerate into the ribbon `G304` describes.
+That makes it a strictly better default than `pack_forest`, and it is the one of the five worth
+carrying into `layout.rs`.
+
+`hex` comes third and reads the cleanest of the five at a glance; its whole advantage is the stagger,
+a card sitting between the two above it rather than under one. The three tree-growing shapes are the
+same verdict `radial` got, for the same reason: beautiful for one hub and its workers, hard to follow
+the moment two hubs sit side by side, and expensive in canvas — `spider` spends 1.96 screen-widths on
+`wide-coordination` at a `fill` of 0.09, because nine cards on one arc need a radius that seats nine
+cards and nothing is inside it.
+
+Two things the round taught that were not about any one shape. A shape that spreads still has to
+fold: the first cut put a whole brood on one arc and `wide-coordination` came out two screens wide
+under `organic` and `hex` both, which `break_to` — the fold the grid ring already uses — halves. And
+jitter needs a floor: `ring_organic`'s nudge put two delegates exactly on top of each other, visible
+in the PNG and invisible in every number the tool collects. That is the argument for the renderer.
 
 ## What this spike did not fix
 

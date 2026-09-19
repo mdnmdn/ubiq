@@ -8,6 +8,10 @@ names, the same arithmetic — plus `adaptive`, the incremental arrangement this
 out. `--selftest` runs the Rust file's own tests, ported, and is the evidence a picture can be
 trusted to show what the app does.
 
+`shapes.py` is the other half: the arrangements with **no** counterpart in the Rust yet. They are
+kept out of `algos.py` so that file stays readable as the port, and they register themselves into
+`ALGOS` at the bottom of it.
+
 ## Running it
 
 ```
@@ -46,6 +50,23 @@ and then by the smallest delta that clears it, and only for the blocks in the wa
 `positions` are honoured the same way: whatever a human dragged wins over what the arrangement
 worked out.
 
+And the five in `shapes.py`, none of which is in `layout.rs`. Every one of them grows **downwards**:
+a connector leaves the bottom of a card and arrives at the top of the next one, so the radial shapes
+here are half shapes — the downward sector, never the full turn.
+
+| Key | One container's cards | A card's delegates |
+|---|---|---|
+| `organic` | children sprayed under their parent, bowed at the ends, then pushed apart | a jittered fan |
+| `multiradial` | every parent its own hub: children on downward arcs round it | a fan arc |
+| `spider` | one hub per container, cards on concentric downward arcs, spokes to the parent | a fan arc |
+| `hex` | cards on a honeycomb, a row per hand-off depth, rows half a cell over | a staggered grid |
+| `islands` | disjoint families packed as separate islands, no root assumed | a grid |
+
+All five pack their containers with `pack_islands`, which is the other thing this round added: the
+container forest read as **components** rather than as a tree, each component packed on its own and
+the components packed against the screen. It is what an arrangement needs when there is no single
+parent node — which is the ordinary case, not the exception.
+
 ## The metrics
 
 Printed as a table, stamped into each image's caption, and written to `out/metrics.json`.
@@ -78,6 +99,9 @@ not any more, which is what let the other two shapes exist at all.
 | `ring_rows` | `flow`, `packed`, `tree`, `columns` | 264 × 806 — one full-width delegate per row |
 | `ring_grid` | `multiline`, `adaptive` | 264 × 410 — two narrow columns, exactly card-wide |
 | `ring_radial` | `radial` | 568 × 336 — narrow boxes on the card's two flanks |
+| `ring_fan` | `multiradial`, `spider` | 844 × 322 — two downward arcs, the outer one outside the inner |
+| `ring_organic` | `organic` | 844 × 332 — the same arcs, off their seats |
+| `ring_hex` | `hex` | 430 × 410 — rows of three and two, staggered half a cell |
 
 `ring_grid` takes `SUB_NARROW_WIDTH = (CARD_WIDTH - SUB_GAP) / 2` and `SUB_NARROW_HEIGHT = 72`, two
 to a row, so the fence is exactly as wide as the card. It widens to three columns rather than run
@@ -86,6 +110,14 @@ straight down clear, because that is where a card's connectors arrive and leave,
 delegates down the two side flanks; past one ring's worth a second opens outside it. Each slot is
 pushed out along its ray only as far as it takes to clear the card's **rectangle**, so the ring
 follows the card's outline instead of ballooning into an ellipse.
+
+`ring_fan` is `ring_radial` turned the other way up: it takes the **bottom** sector and leaves the
+flanks, because under `multiradial` and `spider` a card's children are already out to the sides and
+the room below it is the room nobody else wants. At 844 × 322 for six it is the widest ring here and
+the shortest, which is the trade this whole spike is built on — a narrower `FAN_SPREAD` buys back
+width and spends height, and height is the axis that scrolls. `ring_organic` is the same arcs with a
+seeded nudge, backed off until nothing touches: two delegates drawn one over the other read as one
+card with a shadow, which is not organic, it is broken.
 
 `ring_pad` is what keeps the reserved box honest: `RING_PAD` goes on each side the delegates actually
 push past the card, and nowhere else. A one-per-row ring only ever passes the card downwards, so it
@@ -134,12 +166,59 @@ Whitespace was chosen over density throughout. `deep-delegation`/`multiline` fil
 screen and leaves the rest empty; that is the right answer against the 3.13 screens of scrolling the
 same graph took before.
 
+## What the five shapes concluded
+
+Summed over the seven scenarios, in screen-heights of scrolling — the number the whole spike is
+about — and screen-widths beside it, because a shape that buys height with width has to show the
+bill:
+
+| | `islands` | `multiline` | `hex` | `radial` | `adaptive` | `organic` | `multiradial` | `spider` |
+|---|---|---|---|---|---|---|---|---|
+| Σ screens tall | **8.77** | 9.41 | 10.05 | 10.21 | 10.23 | 10.81 | 12.01 | 12.18 |
+| Σ screens wide | 5.61 | 5.34 | 6.13 | 5.74 | 5.07 | 5.91 | 6.29 | 6.50 |
+| Σ crossings | 13 | 15 | 14 | 21 | 8 | 19 | 20 | 19 |
+
+1. **Grouping by what is connected beats every tidy measured.** `islands` is the shortest
+   arrangement in the corpus — shorter than `multiline`, which won the round before it — and it wins
+   without a new ring shape, a new score or a tuned constant. All it does is stop pretending the
+   graph has one root. Two unrelated pieces of work are two islands, and the gap between them is
+   what says so; a column of containers says nothing at all.
+2. **A honeycomb is worth its stagger and nothing else.** `hex` comes third, reads the cleanest of
+   the five at a glance (2 crossings on `wide-coordination`, against the spray's 3 and the web's 5),
+   and its whole advantage is that a card sits between the two above it rather than under one. A
+   honeycomb of *rectangles* cannot interlock vertically, so the rows are a full box apart — the
+   hexagonal part of a hex grid is the offset, not the packing.
+3. **The pretty shapes cost canvas, and the bill is width.** `spider` is a genuine web — one hub,
+   spokes fanning out, every one of them pointing down the page — and on `wide-coordination` it is
+   1.96 screens wide at `fill` 0.09. Nine cards on one arc need a radius that seats nine cards, and
+   nothing is inside it. `multiradial` is the same trade, milder, because a crowded hub opens a
+   second arc rather than pushing the first one out. Both are one-hub shapes: beautiful for a lead
+   and its workers, hard to read the moment two hubs sit side by side. The same verdict `radial`
+   got, for the same reason.
+4. **A fan has to be allowed to fold.** The first cut put a whole brood on one arc and
+   `wide-coordination` came out 3359pt wide under `organic` and 4048 under `hex` — two screens of
+   sideways scrolling to show nine workers. `break_to`, the fold the grid ring already uses, halves
+   both. A shape that spreads is not an excuse to skip the fold.
+5. **Jitter needs a floor.** `ring_organic`'s nudge put two delegates on top of each other on
+   `anchors` and `decisions` — visible in the PNG, invisible in every number the tool collects, and
+   nothing in the metrics would ever have caught it. The tool renders pictures for a reason.
+
+**`islands` is the one to carry into `layout.rs`.** It is the shortest, it needs no constant that
+was not already there, and `pack_islands` is a strictly better default than `pack_forest`: on a
+graph that *is* a tree it packs the one component and behaves like the tree, and on the ordinary
+graph — a sweep of unrelated tasks — it does not degenerate into the ribbon `G304` describes. The
+other four are per-canvas choices at best: `hex` if the stagger reads better to a human eye than the
+grid does, `organic`, `multiradial` and `spider` for a single hub and a screenshot.
+
 ## Adding an algorithm
 
-One entry in `ALGOS` in `algos.py` and three small functions: `inside(task, agents, rings, ring, sub,
+An arrangement with a counterpart in `layout.rs` goes in `algos.py`; one without goes in `shapes.py`
+and is added to `ALGOS` at the bottom of that file. Either way it is one entry and three small
+functions: `inside(task, agents, rings, ring, sub,
 target)` arranges one container's cards, `ring(count)` says where a card's delegates go inside its
 own fence, and `pack(sizes, parents, target)` packs a session's containers. A ring shape that draws
 delegates at something other than `SUB_BOX` says so with the entry's `sub`, and the renderer, the
 metrics and every reservation follow. An arrangement that grows rather than tidies
-sets `grow` as well and leaves the other three as its starting shape. Nothing else changes — the
-renderer, the metrics and the CLI read the registry.
+sets `grow` as well and leaves the other three as its starting shape; one whose packer reads which
+container hangs under which sets `forest`. Nothing else changes — the renderer, the metrics and the
+CLI read the registry.
