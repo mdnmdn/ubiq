@@ -3,11 +3,11 @@ id: wip-kb
 title: The knowledge base — sources, the write half, and what is next
 kind: wip
 status: current
-summary: A project's knowledge base as it stands — a per-project list of sources persisted as one TOML file, a folder read where it lies, a git repository cloned and refreshed, an internal wiki, a host-side write half (`kb/ops.rs`) behind six new messages, the `ubiq-kb` MCP server that reaches it, the explorer's right-click menu that reaches it from the interface, and the centre's own save path — a document over a writable source draws as a buffer rather than a viewer, and its header's `Save` button writes it back through `WriteKbFile`.
-read_when: you are touching the knowledge base's sources, its git sync worker, its write half, its `ubiq-kb` MCP server, or its explorer panel or centre
+summary: A project's knowledge base as it stands — a per-project list of sources persisted as one TOML file, a folder read where it lies, a git repository cloned and refreshed, an internal wiki, a host-side write half (`kb/ops.rs`) behind six new messages, the `ubiq-kb` MCP server that reaches it, the explorer's right-click menu that reaches it from the interface, and a document as a dock tab — the same `OpenFile` the IDE's editor uses, with its own Save gated on the source's write access.
+read_when: you are touching the knowledge base's sources, its git sync worker, its write half, its `ubiq-kb` MCP server, or its explorer panel or document tabs
 updated: 2026-09-19
 verified: 2026-09-19
-code_anchors: [crates/ubiq-proto/src/kb.rs, crates/ubiq-host/src/kb/mod.rs, crates/ubiq-host/src/kb/ops.rs, crates/ubiq-host/src/kb/store.rs, crates/ubiq-host/src/kb/sync.rs, crates/ubiq-host/src/mcp/kb.rs, crates/ubiq/src/state/kb.rs, crates/ubiq/src/app/kb.rs, crates/ubiq/src/ui/kb/mod.rs, crates/ubiq/src/ui/kb/source_form.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq-proto/src/messages.rs, crates/ubiq/tests/kb.rs]
+code_anchors: [crates/ubiq-proto/src/kb.rs, crates/ubiq-host/src/kb/mod.rs, crates/ubiq-host/src/kb/ops.rs, crates/ubiq-host/src/kb/store.rs, crates/ubiq-host/src/kb/sync.rs, crates/ubiq-host/src/mcp/kb.rs, crates/ubiq/src/state/kb.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/app/kb.rs, crates/ubiq/src/ui/kb/mod.rs, crates/ubiq/src/ui/kb/source_form.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq-proto/src/messages.rs, crates/ubiq/tests/kb.rs]
 depends_on: [tech-architecture, tech-transport, feat-workbench, tech-decisions]
 ---
 
@@ -102,16 +102,23 @@ is in this family to answer with.
 **The interface.** `crates/ubiq/src/state/kb.rs`'s `KbState` holds one `KbSourceView` per source —
 the host's status plus a tree that is deliberately smaller than `ExplorerState`'s: no git marks, no
 filter walk and no drag, just what is inside a folder, whether it is open and whether its listing is
-in flight, plus the one thing a documents explorer cannot do without, a right-click menu. A selected
-document is a `KbDocKey`, the pair of source id and path, held
-beside its body so a re-selection of the same document redraws from what is already there without
-asking again. `crates/ubiq/src/app/kb.rs` is the wire between a click and a message: opening a
-folder sends `KbTree`, opening a document sends `ReadKbFile`, a press on a source that is not ready
-sends `SyncKbSource`. The settings mutators — `confirm_kb_source`, `remove_kb_source`,
+in flight, plus the one thing a documents explorer cannot do without, a right-click menu. Its
+`selected` field is only the explorer's own highlight now, a `KbDocKey` (source id plus path); the
+documents actually open are `KbState::docs: Vec<OpenFile>` — **a knowledge-base document is the
+IDE's `OpenFile`**, the very type the editor's tabs are, distinguished only by `OpenFile::kb_source`
+being `Some`. It gets the IDE's viewer, buffer, highlighting, dirty tracking and layout toggle by
+being one rather than by restating any of them (`T-31`). `kb_tab_key(source, path)` —
+`"kb:{source}:{path}"` — is the one key space every document, panel and cache entry uses, so a
+document and a project file of the same path are two tabs rather than one; `KbDocKey::tab_key()` and
+`KbDocKey::from_tab_key()` convert between the pair and the string.
+`crates/ubiq/src/app/kb.rs` is the wire between a click and a message: opening a folder sends
+`KbTree`, opening a document opens its tab (`KbState::open_doc`, a no-op if the tab is already open)
+and sends `ReadKbFile`, a press on a source that is not ready sends `SyncKbSource`, and a click on a
+row whose read failed retries it. The settings mutators — `confirm_kb_source`, `remove_kb_source`,
 `set_kb_source_filter` — all read the configured list back out of `KbState`, edit it in memory and
 funnel through the one sender to `SetKbSources`; the host's `KbSourcesListed` answer is what actually
 moves `KbState`, on `KbState::accept`'s own merge, which keeps an already-open source's tree across a
-rename and drops only what a filter edit invalidates.
+rename, drops only what a filter edit invalidates, and closes any tab whose source is gone.
 
 **A source's folder is chosen on the host, through Ubiq's own picker.** `browse_kb_source_folder`
 opens a `PickKind::Folders` file picker owned by `PickerOwner::KbFolder` over a `host_browse` session
@@ -122,30 +129,39 @@ default: a source is almost always found inside or beside the project it is bein
 platform dialog `cx.prompt_for_paths` is gone from this family; `G32` still names it for a project's
 Add and Locate, which have not moved.
 
-`crates/ubiq/src/ui/kb/mod.rs` draws two things: the left panel, a multi-source explorer that
-borrows `ui::kit::files`'s row, twisty and kind-icon exactly as `ui/explorer.rs` does, with a
-source's own row carrying its origin as a tooltip and a state word — `pending`, a syncing detail, or
-`failed` with a retry control — that `Ready` never draws; and the centre, which leads with a flush
-header naming the open document — the IDE editor leans on the dock's own tab strip for that, and the
-knowledge base has no tab strip here, so a click against a document with nothing else to show for
-it (a wiki's file, just created and still empty) would otherwise look like it did nothing at all
-(`T-23`) — then draws the body. Over a source `KbSource::is_writable` calls read-only, or for a
-diagram or an image whatever the source, that body is a viewer: markdown hands to the one markdown
-renderer the window has, `ViewerKind::Editor` falls back to plain text, and a diagram or an image
-says "opens in the IDE", because reaching those from here means wiring a web tenant to a document
-that is not an open file (`G11`). Over a **writable** source, for `ViewerKind::Markdown` and
-`ViewerKind::Editor` only, the body is instead a buffer: `KbDoc::edit`, built by `app/kb.rs`'s
-`attach_kb_docs` the frame after `body` reaches `KbBody::Ready` — an `EditorState` needs a `Window`,
-which `KbFileContents` does not carry, so the arrival queues in `AppState::pending_kb_docs` exactly
-as `pending_files` queues a project file's, and is drained in `render` beside it. `is_writable` is
-read in this one place to decide whether a document can be typed into at all; nothing else in the
-centre asks it. The header's trailing control follows the buffer: a `Save` button once the buffer
-disagrees with the text last confirmed on disk, `Saving…` while `WriteKbFile` is in flight, and the
-refusal's reason beside the button — never in place of the document — when the host answers with
-`KbFileError` while a save was in flight, so a write that lands on a source flipped read-only under
-the user does not cost them what they typed. Confirmation is the `KbChanged` naming the file's own
-parent directory that `WriteKbFile`'s own success already sends for the explorer's re-list; the
-document mid-save is found by that same parent, and clearing dirty here costs no second round trip.
+`crates/ubiq/src/ui/kb/mod.rs` draws the left panel — a multi-source explorer that borrows
+`ui::kit::files`'s row, twisty and kind-icon exactly as `ui/explorer.rs` does, with a source's own
+row carrying its origin as a tooltip and a state word — `pending`, a syncing detail, or `failed` with
+a retry control — that `Ready` never draws. **A document is a dock tab, exactly as a file is**
+(`T-31`): a click opens (or reveals) a `PanelKind::Kb(tab_key)` panel beside the explorer, so several
+documents are open at once, each with the dock's own tab strip, dirty dot, drag, pin and close — the
+module's own flush header naming the open document is gone with the single-document centre it existed
+for (`T-23`'s reasoning is now the dock's). `ui::kb::centre()` is only the "no document open" page,
+drawn while `KbState::docs` is empty; `ui::kb::render_doc()` is one panel's body, looked up by tab key
+and handed to `ui::viewer::render()` — the same seam the IDE editor draws through, so markdown,
+plain text and the highlighted buffer are all `ui/viewer/`'s, not restated here. A diagram or an
+image still says "opens in the IDE", because reaching those from here means wiring a web tenant to a
+document that is not an open file (`G11`); until then their bytes are held as `OpenFile`'s
+`FileBody::Bytes` rather than decoded into a buffer that would have nothing on screen to draw it
+(`T-32`, `backlog.md`).
+
+**Every document opens with a buffer, whatever its source's access says** — `app/kb.rs`'s
+`attach_kb_doc` builds one for `ViewerKind::Markdown` and `ViewerKind::Editor` regardless of
+`KbSource::is_writable`, queued in `AppState::pending_kb_docs` and drained in `render` exactly as
+`pending_files` queues a project file's, because an `EditorState` needs a `Window` that
+`KbFileContents` does not carry. `is_writable` is read in exactly one place now,
+`AppState::savable_kb_doc`, to decide whether **Save** is offered at all — a read-only source's
+document gets the IDE's highlighting and its `ViewLayout` toggle exactly like a writable one, and
+simply has no way to write back (`T-31`; before it, a read-only source's document had no buffer and
+so no highlighting either, which is the gap `T-29` first exposed). The dock's tab menu offers `Save`
+next to `Close` and the pin row for a `PanelKind::Kb`, and `save_kb_doc` is a no-op wherever
+`savable_kb_doc` says no, so a stray keybinding cannot write through a read-only source. Confirmation
+of a write is the `KbChanged` naming the file's own parent directory that `WriteKbFile`'s own success
+already sends for the explorer's re-list; every document mid-save under that parent is found by it
+(`OpenFile::saved_unversioned`, since `KbChanged` carries no `FileVersion`), and clearing dirty here
+costs no second round trip. A reply for a document the user has since closed is discarded; a reply
+for one still open fills its own tab even if the user has since opened others, so no click against a
+second document ever costs what the first one's reply was about to answer with (`T-31`).
 `crates/ubiq/src/ui/sink/project.rs`'s `kb` function is the third surface: an inline section in the
 project settings dialog, drawn only for a project with a live record — the sink's fixture page and
 the create form have no project for a source to belong to — listing each source with its filter
@@ -216,10 +232,10 @@ visible**: on the document on screen when it names that document, and otherwise 
 row, because a create, a rename or a delete that failed has no document to fail in and a gesture that
 silently did nothing is the one failure mode the panel must not have.
 
-**The centre reaches the write half too, now** (`T-29`): a document over a writable source is
-edited and saved from the panel itself, on top of the explorer's menu and the `ubiq-kb` MCP server,
-which is what the centre used to draw before this — a read-only viewer whatever `is_writable` said,
-because nothing between a click and the screen ever read it.
+**A document's tab reaches the write half too** (`T-29`, folded into the dock's own tabs by `T-31`):
+a document over a writable source is edited and saved from its own panel, on top of the explorer's
+menu and the `ubiq-kb` MCP server — before `T-29` the panel drew a read-only viewer whatever
+`is_writable` said, because nothing between a click and the screen ever read it.
 
 The wire is the Kb family in `crates/ubiq-proto/src/messages.rs`: UI → host is `KbSources`,
 `SetKbSources`, `KbTree`, `ReadKbFile`, `SyncKbSource`, `WriteKbFile`, `CreateKbEntry`,
@@ -263,13 +279,10 @@ yet; the gap is `G269`.
    assistant reads before answering. It cannot live inside the document's own folder for a read-only
    source, since nothing may write there; where it lives instead — a sidecar under the source's own
    record, most likely — is undecided.
-6. **`Cmd/Ctrl-S` over the centre.** Saving a document today is the header's `Save` button only —
-   the IDE editor's own `SaveFile` keybinding is bound at `"Workbench"` and dispatches to its own
-   active-file lookup, and reaching the KB panel from it means the same binding asking which of the
-   two panels has focus first.
-7. **A writable markdown document's buffer is source, not the rendered preview** — `ViewLayout`'s
-   `Source`/`Preview`/`Split` choice, which the IDE editor's markdown tabs already offer, is not
-   wired into the centre; editing a wiki page today means editing its raw text.
+6. **`Cmd/Ctrl-S` over an open document.** Saving one today is the tab menu's `Save` row only — the
+   IDE editor's own `SaveFile` keybinding is bound at `"Workbench"` and dispatches to its own
+   active-file lookup, and reaching a KB tab from it means the same binding asking which of the two
+   families of tab has focus first.
 
 ## Related docs
 
@@ -279,7 +292,7 @@ yet; the gap is `G269`.
 - [`../tech/decisions.md`](../tech/decisions.md) — `D30`, which `KbStore::Project` needs a row of its
   own against
 - [`../features/workbench.md`](../features/workbench.md) — the rail mode the knowledge base panel
-  and centre draw inside
-- [`../backlog.md`](../backlog.md) — `G11` (the KB centre is read-only and markdown-only), `G32`
+  and its document tabs draw inside, and the dock tab conventions a KB document reuses
+- [`../backlog.md`](../backlog.md) — `G11` (a diagram or an image still has no viewer here), `G32`
   (the platform folder dialog assumes a local host) and `G269` (`KbStore::Project` has no decision
   row)

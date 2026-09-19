@@ -76,6 +76,10 @@ pub struct Help {
     pub at: usize,
     /// Whether the contents tree is drawn beside the page.
     pub contents_open: bool,
+    /// Whether the panel follows wherever the reader is standing: on, a mode or window change
+    /// that binds a page swaps the panel onto it; off, the panel stays on what was picked, which
+    /// is every behaviour before this field existed.
+    pub follow: bool,
     /// Nav branches the reader folded away, by the id of the page that heads them. Collapsed
     /// rather than expanded so a tree nobody has touched is open, which is what a manual wants.
     pub folded: HashSet<String>,

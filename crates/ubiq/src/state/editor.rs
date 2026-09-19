@@ -14,6 +14,7 @@ use std::ops::Range;
 use gpui::{Entity, Pixels, Point, Subscription};
 use gpui_component::input::EditorState;
 use ubiq_proto::files::{DiffBase, FileDiff, FileVersion};
+use ubiq_proto::ids::KbSourceId;
 
 use super::image_edit::ImageEdit;
 
@@ -395,6 +396,14 @@ pub struct OpenFile {
     pub name: String,
     /// Project-relative, as every path the interface holds is.
     pub path: String,
+    /// The knowledge-base source this tab's path is relative to, for a KB document; `None` for
+    /// every ordinary file, whose path is the project's.
+    ///
+    /// **A path is meaningless in the knowledge base without the source beside it** — `state/kb.rs`
+    /// says why — so this is what makes a KB document's [`OpenFile::key`] a different key from a
+    /// project file of the same path, and it is the only thing about a KB tab that differs from
+    /// an IDE one.
+    pub kb_source: Option<KbSourceId>,
     /// The file itself, or a comparison the host made from it.
     pub subject: Subject,
     pub language: FileLanguage,
@@ -464,6 +473,7 @@ impl OpenFile {
         Self {
             name: leaf(path).to_string(),
             path: path.to_string(),
+            kb_source: None,
             subject,
             language: FileLanguage::of(path),
             viewer,
@@ -479,6 +489,18 @@ impl OpenFile {
             dirty: false,
             _change: None,
             restore: None,
+        }
+    }
+
+    /// The same, for a document that lives in a knowledge-base source rather than in the project.
+    ///
+    /// Everything past the source is the IDE's: the same viewer choice, the same layout default,
+    /// the same buffer once the bytes arrive. That is the whole point — a KB document is a tab,
+    /// not a second kind of thing.
+    pub fn kb_opening(source: KbSourceId, path: &str, markdown_open: ViewLayout) -> Self {
+        Self {
+            kb_source: Some(source),
+            ..Self::opening(path, Subject::File, markdown_open)
         }
     }
 
@@ -512,8 +534,15 @@ impl OpenFile {
     }
 
     /// The key this tab is known by, in the dock's saved layout and in the view prefs.
+    ///
+    /// A knowledge-base document answers its own key space — `kb:{source}:{path}` — so a document
+    /// and an editor tab on a file of the same name are two tabs, two panels and two entries in
+    /// the renderer's scan cache rather than one.
     pub fn key(&self) -> String {
-        tab_key(&self.path, self.subject)
+        match self.kb_source {
+            Some(source) => crate::state::kb::kb_tab_key(source, &self.path),
+            None => tab_key(&self.path, self.subject),
+        }
     }
 
     /// Give the tab the hunks the host computed. A diff replaces nothing and is never edited.
@@ -840,6 +869,22 @@ impl OpenFile {
                 self.dirty = current != baseline;
             }
             _ => {}
+        }
+    }
+
+    /// A write landed for a tab whose host reports no version with it.
+    ///
+    /// [`Self::saved`] said for the knowledge base: `WriteKbFile` is confirmed by `KbChanged`,
+    /// which names the directory that changed and carries no [`FileVersion`], so the baseline is
+    /// rebased onto what was written and the version the read brought is kept as it was.
+    pub fn saved_unversioned(&mut self, current: &str) {
+        let text = match std::mem::replace(&mut self.save, SaveState::Idle) {
+            SaveState::Saving(text) => text,
+            _ => return,
+        };
+        if let FileBody::Text { baseline, .. } = &mut self.body {
+            *baseline = text;
+            self.dirty = current != baseline;
         }
     }
 

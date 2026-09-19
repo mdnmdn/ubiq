@@ -17,7 +17,7 @@ use gpui_component::Root;
 use ubiq::app::{AppState, BusHub};
 use ubiq::state::sink::ProjectNav;
 use ubiq::state::{
-    KbAction, KbBody, KbKind, KbMenuRow, KbSaveState, WindowRegistry, kb_menu_entries,
+    FileBody, KbAction, KbKind, KbMenuRow, SaveState, WindowRegistry, kb_menu_entries, kb_tab_key,
 };
 use ubiq_proto::bus::{self, FromClient, To};
 use ubiq_proto::files::{DirEntry, DirListing, EntryKind, FileContents, FileError, HostDirEntry};
@@ -249,10 +249,11 @@ fn clicking_a_folder_asks_for_its_listing_once(cx: &mut TestAppContext) {
     );
 }
 
-/// A file's contents can land after the user has clicked past it to another one; the reply is
-/// discarded rather than drawn over what is on screen now.
+/// Two documents clicked in turn are two tabs, and each reply fills the tab it names — a reply
+/// that arrives after the user has moved on is no longer discarded, because the document it
+/// names is still open beside the one they moved to (`T-31`).
 #[gpui::test]
-fn a_reply_for_a_superseded_selection_is_discarded(cx: &mut TestAppContext) {
+fn two_documents_open_as_two_tabs_each_filled_by_its_own_reply(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
     let source = fixture.seed_source("docs", cx);
     fixture.deliver(
@@ -272,7 +273,8 @@ fn a_reply_for_a_superseded_selection_is_discarded(cx: &mut TestAppContext) {
         state.click_kb_row(source, "b.md".to_string(), cx)
     });
 
-    // The reply for "a.md" lands after the user has already moved on to "b.md".
+    // The reply for "a.md" lands after the user has already moved on to "b.md" — its own tab is
+    // still open and is what it fills.
     fixture.deliver(
         Message::KbFileContents {
             project_id: fixture.project,
@@ -289,16 +291,19 @@ fn a_reply_for_a_superseded_selection_is_discarded(cx: &mut TestAppContext) {
         cx,
     );
     fixture.with(cx, |state, _, cx| {
-        let doc = state.kb(cx).and_then(|kb| kb.doc.as_ref());
-        assert_eq!(doc.map(|doc| doc.key.path.as_str()), Some("b.md"));
+        let kb = state.kb(cx).expect("a knowledge base");
+        assert_eq!(kb.docs.len(), 2, "two clicks opened two tabs");
         assert!(
-            matches!(doc.map(|doc| &doc.body), Some(KbBody::Loading)),
-            "a stale reply must not turn the current selection's body ready"
+            matches!(
+                kb.doc(&kb_tab_key(source, "b.md")).map(|doc| &doc.body),
+                Some(FileBody::Loading)
+            ),
+            "a reply for another tab must not fill this one"
         );
         let _ = cx;
     });
 
-    // The reply for "b.md" is the one the selection is still waiting on.
+    // The reply for "b.md" fills the other tab.
     fixture.deliver(
         Message::KbFileContents {
             project_id: fixture.project,
@@ -315,14 +320,15 @@ fn a_reply_for_a_superseded_selection_is_discarded(cx: &mut TestAppContext) {
         cx,
     );
     fixture.with(cx, |state, _, cx| {
-        let doc = state.kb(cx).and_then(|kb| kb.doc.as_ref());
-        match doc.map(|doc| &doc.body) {
-            Some(KbBody::Ready(contents)) => assert_eq!(contents.bytes, b"current"),
-            Some(KbBody::Loading) => {
-                panic!("expected the current selection's contents, found Loading")
-            }
-            Some(KbBody::Failed(reason)) => panic!("expected contents, found Failed({reason})"),
-            None => panic!("expected a document to be selected"),
+        let kb = state.kb(cx).expect("a knowledge base");
+        for (path, text) in [("a.md", "stale"), ("b.md", "current")] {
+            let doc = kb
+                .doc(&kb_tab_key(source, path))
+                .unwrap_or_else(|| panic!("{path} is open"));
+            let buffer = doc
+                .buffer()
+                .unwrap_or_else(|| panic!("{path} has its bytes"));
+            assert_eq!(buffer.read(cx).value(), text);
         }
     });
 }
@@ -785,7 +791,7 @@ fn the_folder_chooser_browses_the_host_and_answers_the_form(cx: &mut TestAppCont
 }
 
 /// A wiki source's file opens exactly the way a folder's or a repository's does: the click asks
-/// for the same `ReadKbFile`, and the reply lands in `kb.doc` as `Ready` — `KbOrigin::Internal`
+/// for the same `ReadKbFile`, and the reply fills its tab's buffer — `KbOrigin::Internal`
 /// is not a special case anywhere in this path (`T-23`).
 #[gpui::test]
 fn a_wiki_sources_file_opens_like_any_other(cx: &mut TestAppContext) {
@@ -850,12 +856,12 @@ fn a_wiki_sources_file_opens_like_any_other(cx: &mut TestAppContext) {
         let doc = state
             .kb(cx)
             .unwrap()
-            .doc
-            .as_ref()
+            .doc(&kb_tab_key(id, "notes.md"))
             .expect("a document opened");
-        assert_eq!(doc.key.path, "notes.md");
-        assert!(
-            matches!(&doc.body, KbBody::Ready(contents) if contents.bytes == b"hello"),
+        assert_eq!(doc.path, "notes.md");
+        assert_eq!(
+            doc.buffer().expect("the bytes arrived").read(cx).value(),
+            "hello",
             "the document drew the wiki file's contents"
         );
     });
@@ -910,15 +916,12 @@ fn a_text_reply(project: ProjectId, source: KbSourceId, rel_path: &str, text: &s
     }
 }
 
-/// A document from a read-write source gets a buffer the user can type into; the same document
-/// from a read-only source never does. `KbSource::is_writable` is read in exactly one place,
-/// `attach_kb_docs`, to decide it — before this, the centre drew every document the same way
-/// whatever a source's access said, which is what left a read-write source's files uneditable
-/// (`T-29`).
+/// Every document opens in the same editor, whatever its source's access says; what
+/// `KbSource::is_writable` decides is whether a save is offered. `savable_kb_doc` is the one
+/// place it is read — before `T-31` a read-only source's document got no buffer at all, which
+/// cost it the IDE's highlighting to say something a refused save already says (`T-29`).
 #[gpui::test]
-fn a_writable_sources_document_opens_editable_and_a_read_only_ones_does_not(
-    cx: &mut TestAppContext,
-) {
+fn every_document_opens_in_the_editor_and_only_a_writable_one_saves(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
     let (writable, read_only, sources) = a_writable_and_a_read_only_source();
     fixture.deliver(
@@ -948,17 +951,14 @@ fn a_writable_sources_document_opens_editable_and_a_read_only_ones_does_not(
         cx,
     );
     fixture.with(cx, |state, _, cx| {
-        let doc = state
-            .kb(cx)
-            .unwrap()
-            .doc
-            .as_ref()
-            .expect("a document opened");
-        let edit = doc
-            .edit
-            .as_ref()
-            .expect("a read-write source's document must be editable");
-        assert_eq!(edit.buffer.read(cx).value(), "hello");
+        let key = kb_tab_key(writable, "notes.md");
+        let doc = state.kb(cx).unwrap().doc(&key).expect("a document opened");
+        assert_eq!(
+            doc.buffer().expect("a buffer").read(cx).value(),
+            "hello",
+            "a read-write source's document opens in the editor"
+        );
+        assert!(state.savable_kb_doc(&key, cx), "and it can be written back");
     });
 
     fixture.with(cx, |state, _, cx| {
@@ -969,15 +969,16 @@ fn a_writable_sources_document_opens_editable_and_a_read_only_ones_does_not(
         cx,
     );
     fixture.with(cx, |state, _, cx| {
-        let doc = state
-            .kb(cx)
-            .unwrap()
-            .doc
-            .as_ref()
-            .expect("a document opened");
+        let key = kb_tab_key(read_only, "notes.md");
+        let doc = state.kb(cx).unwrap().doc(&key).expect("a document opened");
+        assert_eq!(
+            doc.buffer().expect("a buffer").read(cx).value(),
+            "hello",
+            "a read-only source's document opens in the same editor"
+        );
         assert!(
-            doc.edit.is_none(),
-            "a read-only source's document must stay a viewer, never a buffer"
+            !state.savable_kb_doc(&key, cx),
+            "but it is never written back"
         );
     });
 }
@@ -1027,8 +1028,10 @@ fn a_dirty_writable_document_saves_and_a_refusal_keeps_the_buffer(cx: &mut TestA
     );
     let _ = fixture.said();
 
+    let key = kb_tab_key(source, "notes.md");
+
     // Nothing typed yet: a save asks for nothing.
-    fixture.with(cx, |state, _, cx| state.save_kb_doc(cx));
+    fixture.with(cx, |state, _, cx| state.save_kb_doc(&key, cx));
     assert!(
         fixture.said().is_empty(),
         "a clean buffer has nothing to write"
@@ -1037,13 +1040,14 @@ fn a_dirty_writable_document_saves_and_a_refusal_keeps_the_buffer(cx: &mut TestA
     // Marked dirty directly, on `an_unsaved_tab_is_asked_about_before_it_closes`'s own precedent
     // for the file editor: what is under test is the save wiring, not the widget's keystroke path.
     fixture.with(cx, |state, _, cx| {
-        let doc = state.kb_mut(cx).unwrap().doc.as_mut().expect("open");
-        doc.edit
-            .as_mut()
-            .expect("editable")
+        state
+            .kb_mut(cx)
+            .unwrap()
+            .doc_mut(&key)
+            .expect("open")
             .refresh_dirty("changed");
     });
-    fixture.with(cx, |state, _, cx| state.save_kb_doc(cx));
+    fixture.with(cx, |state, _, cx| state.save_kb_doc(&key, cx));
     let said = fixture.said();
     assert!(
         said.iter().any(|m| matches!(
@@ -1066,21 +1070,21 @@ fn a_dirty_writable_document_saves_and_a_refusal_keeps_the_buffer(cx: &mut TestA
         cx,
     );
     fixture.with(cx, |state, _, cx| {
-        let doc = state.kb(cx).unwrap().doc.as_ref().expect("still open");
+        let doc = state.kb(cx).unwrap().doc(&key).expect("still open");
         assert_eq!(
-            doc.key.path, "notes.md",
+            doc.path, "notes.md",
             "a refused save must not discard the document"
         );
-        let edit = doc
-            .edit
-            .as_ref()
-            .expect("the buffer must survive a refused save");
-        assert!(matches!(&edit.save, KbSaveState::Failed(_)));
-        assert!(edit.is_dirty(), "what was typed is still unsaved");
+        assert!(
+            doc.buffer().is_some(),
+            "the buffer must survive a refused save"
+        );
+        assert!(matches!(&doc.save, SaveState::Failed(_)));
+        assert!(doc.dirty(), "what was typed is still unsaved");
     });
 
     // Retried, and this time the host confirms with `KbChanged` for the file's own directory.
-    fixture.with(cx, |state, _, cx| state.save_kb_doc(cx));
+    fixture.with(cx, |state, _, cx| state.save_kb_doc(&key, cx));
     let _ = fixture.said();
     fixture.deliver(
         Message::KbChanged {
@@ -1091,11 +1095,10 @@ fn a_dirty_writable_document_saves_and_a_refusal_keeps_the_buffer(cx: &mut TestA
         cx,
     );
     fixture.with(cx, |state, _, cx| {
-        let doc = state.kb(cx).unwrap().doc.as_ref().expect("still open");
-        let edit = doc.edit.as_ref().expect("still editable");
-        assert!(matches!(edit.save, KbSaveState::Idle));
+        let doc = state.kb(cx).unwrap().doc(&key).expect("still open");
+        assert!(matches!(doc.save, SaveState::Idle));
         assert!(
-            !edit.is_dirty(),
+            !doc.dirty(),
             "a `KbChanged` for the file's own directory confirms the save"
         );
     });

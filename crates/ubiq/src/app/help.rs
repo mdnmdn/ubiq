@@ -90,6 +90,34 @@ impl AppState {
         cx.notify();
     }
 
+    /// Flip whether the panel follows the reader. Turning it on does not itself jump the page —
+    /// the next mode or window change is what moves it, the same as if the reader had just made
+    /// that change with follow already on.
+    pub fn toggle_help_follow(&mut self, cx: &mut Context<Self>) {
+        self.help.follow = !self.help.follow;
+        cx.notify();
+    }
+
+    /// While follow is on, keep the panel on the page bound to wherever the reader now stands.
+    ///
+    /// Silent whenever there is nothing to move to: a context with no bound page leaves the panel
+    /// exactly where it was, per [`Self::bound_help_page`] — follow only ever carries the reader
+    /// forward onto a page that exists, never blanks the one already open.
+    pub fn sync_help_follow(&mut self, cx: &mut Context<Self>) {
+        if !self.help.follow {
+            return;
+        }
+        let Some(page) = self.bound_help_page(cx) else {
+            return;
+        };
+        if self.help.page.as_deref() == Some(page.as_str()) {
+            return;
+        }
+        self.help.visit(&page);
+        self.load_help_page(&page);
+        cx.notify();
+    }
+
     /// Fold or unfold one branch of the contents tree.
     pub fn toggle_help_fold(&mut self, id: &str, cx: &mut Context<Self>) {
         self.help.toggle_fold(id);
@@ -124,13 +152,21 @@ impl AppState {
     /// The page to open for wherever the reader is standing — the ladder in `wip/help.md` §5,
     /// ending at the landing page so F1 always opens something.
     pub fn help_target(&self, cx: &App) -> String {
+        self.bound_help_page(cx)
+            .unwrap_or_else(|| INDEX_PAGE.to_string())
+    }
+
+    /// The page bound to wherever the reader now stands, if the catalogue binds one — rungs 1 to
+    /// 4 of the ladder, with no fallback to the index. [`Self::help_target`]'s landing-page
+    /// fallback is right for **?**/F1, which always has to open something; follow mode reads this
+    /// instead, because a context that binds nothing is not itself a reason to leave the page the
+    /// reader is already on.
+    fn bound_help_page(&self, cx: &App) -> Option<String> {
         if let Some(page) = self.claimed_help_page(cx) {
-            return page.to_string();
+            return Some(page.to_string());
         }
-        let bound = self
-            .context_key(cx)
-            .and_then(|key| self.help.state.catalog()?.context.get(&key).cloned());
-        bound.unwrap_or_else(|| INDEX_PAGE.to_string())
+        self.context_key(cx)
+            .and_then(|key| self.help.state.catalog()?.context.get(&key).cloned())
     }
 
     /// The context key for where the reader is standing, most specific first, stopping at the
@@ -177,9 +213,10 @@ impl AppState {
     /// Note which panel the dock is displaying, so the context ladder has a rung 2 to read.
     ///
     /// Pushed from the dock — where focus is decided — rather than read back from it, the same way
-    /// the focused pane is.
-    pub fn note_active_panel(&mut self, kind: PanelKind) {
+    /// the focused pane is. Also the "window changed" edge follow mode watches for.
+    pub fn note_active_panel(&mut self, kind: PanelKind, cx: &mut Context<Self>) {
         self.workbench.active_panel = Some(kind);
+        self.sync_help_follow(cx);
     }
 
     /// The help family.

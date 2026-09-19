@@ -547,6 +547,7 @@ impl AppState {
         if mode == RailMode::Control {
             self.poll_stats(cx);
         }
+        self.sync_help_follow(cx);
         cx.notify();
     }
 

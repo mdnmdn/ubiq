@@ -150,8 +150,17 @@ pub enum PanelKind {
     /// Git diff viewer panel: shows diff for selected file/commit.
     GitDiff,
     /// The knowledge base's explorer: one row per configured root, and the documents under each.
-    /// KB mode's only side panel — the centre is the document it selects.
+    /// KB mode's side panel — the centre is the documents it opens.
     KbExplorer,
+    /// One open knowledge-base document, named by its tab key — `state/kb.rs`'s `kb_tab_key`,
+    /// which is the source and the path together because a path alone names nothing there.
+    ///
+    /// **A document is a tab exactly as a file is**, so the centre of KB mode is a strip of them
+    /// with the dock's own chrome — drag, split, pin, dirty dot, close. It is a kind of its own
+    /// rather than a `File` carrying a KB key because the two are drawn in different rail modes
+    /// and are populated from different halves of the project: a `File` is one of
+    /// `EditorPaneState::open`, and a document is one of `KbState::docs`.
+    Kb(String),
     /// The board's one task: the report for whatever is selected, or the form for one being
     /// written. Tasks mode's side panel — the columns are the centre, and this is what they select.
     ///
@@ -194,7 +203,7 @@ impl PanelKind {
             | PanelKind::KbExplorer
             | PanelKind::Task
             | PanelKind::AgentsExplorer => PanelClass::Edge,
-            PanelKind::Centre | PanelKind::File(_) => PanelClass::Centre,
+            PanelKind::Centre | PanelKind::File(_) | PanelKind::Kb(_) => PanelClass::Centre,
         }
     }
 
@@ -208,7 +217,7 @@ impl PanelKind {
             | PanelKind::KbExplorer
             | PanelKind::AgentsExplorer => Region::Left,
             PanelKind::Chat(_) | PanelKind::Task | PanelKind::Help => Region::Right,
-            PanelKind::Centre | PanelKind::File(_) => Region::Centre,
+            PanelKind::Centre | PanelKind::File(_) | PanelKind::Kb(_) => Region::Centre,
             // Git panels default to left/right edges for IDE-like layout
             PanelKind::GitRefs => Region::Left,
             PanelKind::GitChanges => Region::Right,
@@ -261,6 +270,7 @@ impl PanelKind {
             PanelKind::GitHistory => "ubiq.git.history",
             PanelKind::GitDiff => "ubiq.git.diff",
             PanelKind::KbExplorer => "ubiq.kb.explorer",
+            PanelKind::Kb(_) => "ubiq.kb.doc",
             PanelKind::Task => "ubiq.task",
             PanelKind::AgentsExplorer => "ubiq.agents.explorer",
             PanelKind::Help => "ubiq.help",
@@ -308,6 +318,18 @@ impl PanelKind {
     pub fn tab_key(&self) -> Option<&str> {
         match self {
             PanelKind::File(key) => Some(key.as_str()),
+            _ => None,
+        }
+    }
+
+    /// The document this panel is the knowledge-base tab of, if it is one.
+    ///
+    /// Deliberately *not* folded into [`Self::tab_key`]: that one answers "which of the project's
+    /// open files is this", and every caller of it — the panel sync, the file activation, the
+    /// bookmark count — would go looking for a document among them and find nothing.
+    pub fn kb_key(&self) -> Option<&str> {
+        match self {
+            PanelKind::Kb(key) => Some(key.as_str()),
             _ => None,
         }
     }
@@ -360,6 +382,11 @@ impl PanelKind {
                 }
             }
             PanelKind::File(_) => at.is_ide && at.file_open,
+            // The same rule one mode along: a document is drawn while its tab is open, and only on
+            // the screen the documents are the centre of.
+            PanelKind::Kb(_) => {
+                at.has_project && matches!(at.rail_mode, Some(RailMode::Kb)) && at.file_open
+            }
             PanelKind::Search => at.is_ide && at.has_project,
             // No project clause: a file dropped in from outside every project still has an
             // outline, because the buffer is the whole input.
@@ -406,7 +433,10 @@ impl PanelKind {
         self.is_git()
             || matches!(
                 self,
-                PanelKind::KbExplorer | PanelKind::Task | PanelKind::AgentsExplorer
+                PanelKind::KbExplorer
+                    | PanelKind::Kb(_)
+                    | PanelKind::Task
+                    | PanelKind::AgentsExplorer
             )
     }
 
@@ -419,6 +449,7 @@ impl PanelKind {
             self,
             PanelKind::Terminal(_)
                 | PanelKind::File(_)
+                | PanelKind::Kb(_)
                 | PanelKind::Logs
                 | PanelKind::Search
                 | PanelKind::Outline

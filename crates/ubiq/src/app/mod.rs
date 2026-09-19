@@ -64,11 +64,10 @@ use crate::state::web_panel::WebPanels;
 use crate::state::work::WorkProjection;
 use crate::state::{
     ActiveSearch, ChatId, ChatTab, EditorPaneState, ExplorerAction, ExplorerKey, ExplorerPressed,
-    ExplorerState, ExplorerView, FileBody, FileDialog, FileLanguage, Follow, KbBody, KbDoc,
-    KbDocKey, KbEdit, KbPressed, KbSaveState, KbState, LogState, MenuId, NewAgentMenu,
-    NewAgentSurface, NewPaneRow, NewProjectRow, OpenFile, OverflowRow, PanelKind, ProjectSettings,
-    ProjectSettingsMode, RailMode, Region, SearchState, Toggle, WindowRegistry, WorkbenchState,
-    kb_parent_path, prefs,
+    ExplorerState, ExplorerView, FileBody, FileDialog, FileLanguage, Follow, KbDocKey, KbPressed,
+    KbState, LogState, MenuId, NewAgentMenu, NewAgentSurface, NewPaneRow, NewProjectRow, OpenFile,
+    OverflowRow, PanelKind, ProjectSettings, ProjectSettingsMode, RailMode, Region, SearchState,
+    Toggle, WindowRegistry, WorkbenchState, kb_parent_path, prefs,
 };
 use crate::theme::{self, Mode, ThemeId};
 use crate::ui;
@@ -477,12 +476,13 @@ struct FileArrival {
     contents: FileContents,
 }
 
-/// A knowledge-base document that reached `KbBody::Ready`, waiting for the frame that can build
-/// its editable buffer — `FileArrival`'s reasoning, said again because an `EditorState` needs a
-/// `Window` a `KbFileContents` message does not carry.
+/// A knowledge-base document the host answered, waiting for the frame that can turn it into a
+/// buffer — `FileArrival`'s reasoning, said again because an `EditorState` needs a `Window` a
+/// `KbFileContents` message does not carry.
 struct KbArrival {
     project_id: ProjectId,
     key: KbDocKey,
+    contents: FileContents,
 }
 
 pub struct AppState {
@@ -654,8 +654,8 @@ pub struct AppState {
     adding_select: Option<String>,
     /// Contents the host sent that still need a window to become buffers. Drained in `render`.
     pending_files: Vec<FileArrival>,
-    /// Knowledge-base documents that reached `KbBody::Ready` and still need a window to become an
-    /// editable buffer, over a writable source. Drained in `render`, beside `pending_files`.
+    /// Knowledge-base documents the host answered that still need a window to become a buffer.
+    /// Drained in `render`, beside `pending_files`.
     pending_kb_docs: Vec<KbArrival>,
 
     /// Every diagram this window has drawn, by content key — the cache's memory tier. **Behind a

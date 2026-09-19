@@ -1,5 +1,11 @@
-//! The knowledge base a project keeps: its sources, the tree under each, and the document on
-//! screen.
+//! The knowledge base a project keeps: its sources, the tree under each, and the documents open
+//! from them.
+//!
+//! **An open document is an [`OpenFile`]**, the very type the IDE's tabs are, with
+//! `OpenFile::kb_source` set — so it gets the editor, the highlighting, the viewer, the dirty
+//! tracking and the layout toggle by being one rather than by restating any of them, and the
+//! dock gives it the tab chrome. [`kb_tab_key`] is the key space that keeps a document and a
+//! project file of the same path two tabs rather than one.
 //!
 //! This is the documents half of the IDE, and it differs from [`super::explorer`] in one
 //! structural way: **there are several sources, and none of them need be the project**. A source
@@ -15,13 +21,12 @@
 
 use std::sync::Arc;
 
-use gpui::{Entity, Subscription};
-use gpui_component::input::EditorState;
-use ubiq_proto::files::{DirListing, EntryKind, FileContents};
+use ubiq_proto::files::{DirListing, EntryKind};
 use ubiq_proto::ids::{KbSourceId, RepoQueryId};
 use ubiq_proto::kb::{KbAccess, KbOrigin, KbSource, KbSourceState, KbSourceStatus, KbStore};
 use ubiq_proto::repos::CloneError;
 
+use super::editor::OpenFile;
 use super::explorer::{FileNode, NodeKind};
 
 /// One source as the screen holds it: what the host says it is, plus the tree under it.
@@ -84,11 +89,16 @@ pub struct KbState {
     pub sources: Vec<KbSourceView>,
     /// Whether the host has answered the configuration at all.
     pub loaded: bool,
-    /// The document the centre is drawing, as the pair that identifies one.
+    /// The document the explorer's highlight is on, as the pair that identifies one.
     pub selected: Option<KbDocKey>,
-    /// Its bytes, once they arrive. Held beside the selection rather than inside it so a
-    /// re-selection of the same document redraws from what is already here.
-    pub doc: Option<KbDoc>,
+    /// The documents open as tabs, in the order they were opened.
+    ///
+    /// **The same [`OpenFile`] the IDE's tabs are**, so a document gets the IDE's viewer, its
+    /// buffer, its highlighting, its dirty tracking and its layout toggle by being one rather than
+    /// by restating any of it. What tells a document from a project file is `OpenFile::kb_source`,
+    /// which is also what gives it a key of its own; the dock draws each as a
+    /// `PanelKind::Kb` panel.
+    pub docs: Vec<OpenFile>,
     /// The right-click menu, while one is up.
     pub menu: Option<KbMenu>,
     /// Stamped onto each menu as it opens, so the outside click that dismisses the old one cannot
@@ -115,72 +125,36 @@ impl KbDocKey {
     pub fn name(&self) -> &str {
         self.path.rsplit('/').next().unwrap_or(&self.path)
     }
-}
 
-/// The document the centre is drawing, in whatever state it has reached.
-pub struct KbDoc {
-    pub key: KbDocKey,
-    pub body: KbBody,
-    /// A buffer to type into, built the moment `body` becomes [`KbBody::Ready`] over a writable,
-    /// non-binary source — `app/kb.rs`'s `attach_kb_docs`, on `attach_arrived_files`'s reasoning:
-    /// an `EditorState` needs a `Window` and `KbFileContents` does not carry one. `None` for a
-    /// read-only source, a binary file, or a document the window has not yet had a frame to build
-    /// it in — the one and only place a source's `is_writable` is read to decide whether a
-    /// document can be typed into, so a read-only source stays read-only by never getting one.
-    pub edit: Option<KbEdit>,
-}
-
-pub enum KbBody {
-    Loading,
-    Ready(FileContents),
-    Failed(String),
-}
-
-/// The editable half of an open document, present only over a writable source.
-pub struct KbEdit {
-    pub buffer: Entity<EditorState>,
-    /// Exactly the text last confirmed on disk, so dirty is a comparison against a fact — the
-    /// buffer's own change event keeps `dirty` current without a per-frame comparison.
-    baseline: String,
-    dirty: bool,
-    pub save: KbSaveState,
-    /// Held only to live as long as the document does.
-    _change: Subscription,
-}
-
-impl KbEdit {
-    pub fn new(buffer: Entity<EditorState>, baseline: String, change: Subscription) -> Self {
-        Self {
-            buffer,
-            baseline,
-            dirty: false,
-            save: KbSaveState::Idle,
-            _change: change,
-        }
+    /// The tab key this document is known by — its panel's, its entry in the Markdown renderer's
+    /// scan cache, and what the dock's saved layout names it by.
+    pub fn tab_key(&self) -> String {
+        kb_tab_key(self.source, &self.path)
     }
 
-    pub fn is_dirty(&self) -> bool {
-        self.dirty
+    /// The same key read back, or nothing for a key that names no document.
+    pub fn from_tab_key(key: &str) -> Option<Self> {
+        let (source, path) = key.strip_prefix(KB_TAB_PREFIX)?.split_once(':')?;
+        Some(Self::new(source.parse::<KbSourceId>().ok()?, path))
     }
 
-    /// Called from the buffer's own change subscription, with what it holds now.
-    pub fn refresh_dirty(&mut self, current: &str) {
-        self.dirty = current != self.baseline;
-    }
-
-    /// A save landed: what was sent is now the fact on disk.
-    pub fn saved(&mut self, current: String) {
-        self.baseline = current;
-        self.dirty = false;
-        self.save = KbSaveState::Idle;
+    /// The document an open tab is, for a tab that is one.
+    pub fn of(file: &OpenFile) -> Option<Self> {
+        Some(Self::new(file.kb_source?, file.path.clone()))
     }
 }
 
-/// Where a document's save has got to.
-pub enum KbSaveState {
-    Idle,
-    Saving,
-    Failed(String),
+/// What every knowledge-base tab key starts with.
+const KB_TAB_PREFIX: &str = "kb:";
+
+/// The tab key for one document: **the knowledge base's own key space**, so a document and an
+/// editor tab on a project file of the same name are two tabs, two panels and two entries in the
+/// renderer's scan cache rather than one.
+///
+/// This is the one convention — [`OpenFile::key`], the dock's payload and every cache that keys
+/// on a tab read it here rather than each improvising a format of its own.
+pub fn kb_tab_key(source: KbSourceId, path: &str) -> String {
+    format!("{KB_TAB_PREFIX}{source}:{path}")
 }
 
 /// The directory a path lives in, `ProjectPathEdited`'s own reasoning said for the knowledge
@@ -483,13 +457,16 @@ impl KbState {
             })
             .collect();
         self.loaded = true;
-        // A selection into a source that has gone is not a selection.
+        // A selection into a source that has gone is not a selection, and nor is a tab open on
+        // one: a document whose source was removed names nothing to read or write.
         if let Some(key) = &self.selected
             && !self.sources.iter().any(|view| view.id() == key.source)
         {
             self.selected = None;
-            self.doc = None;
         }
+        let sources: Vec<KbSourceId> = self.sources.iter().map(|view| view.id()).collect();
+        self.docs
+            .retain(|doc| doc.kb_source.is_some_and(|id| sources.contains(&id)));
     }
 
     /// One source's state moved on its own — a clone started, got somewhere, finished or failed.
@@ -507,6 +484,37 @@ impl KbState {
             view.listed = false;
             view.loading = false;
         }
+    }
+
+    /// One open document by its tab key. What a KB panel draws and what its tab reports are both
+    /// this — `AppState::file`'s own shape, said for the documents half.
+    pub fn doc(&self, key: &str) -> Option<&OpenFile> {
+        self.docs.iter().find(|file| file.key() == key)
+    }
+
+    pub fn doc_mut(&mut self, key: &str) -> Option<&mut OpenFile> {
+        self.docs.iter_mut().find(|file| file.key() == key)
+    }
+
+    /// Put a document in front of the user before its bytes exist, answering whether this call is
+    /// what opened it. One already open is left exactly as it is, so a second click cannot open it
+    /// twice or discard what has been typed into it.
+    pub fn open_doc(&mut self, key: &KbDocKey, markdown_open: super::editor::ViewLayout) -> bool {
+        if self.doc(&key.tab_key()).is_some() {
+            return false;
+        }
+        self.docs
+            .push(OpenFile::kb_opening(key.source, &key.path, markdown_open));
+        true
+    }
+
+    /// Take a document's tab away. Answers whether there was one.
+    pub fn close_doc(&mut self, key: &str) -> bool {
+        let Some(at) = self.docs.iter().position(|file| file.key() == key) else {
+            return false;
+        };
+        self.docs.remove(at);
+        true
     }
 
     pub fn source(&self, source: KbSourceId) -> Option<&KbSourceView> {

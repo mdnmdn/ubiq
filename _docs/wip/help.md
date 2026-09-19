@@ -5,7 +5,9 @@ kind: wip
 status: draft
 summary: The mechanics of Ubiq's help system end to end — the content tree and its page frontmatter, the packer and the bundle it writes, how the app finds and unpacks it, how the panel renders and navigates a page, how a context key becomes a page, what the MCP server exposes, and what happens at every point where something is missing.
 read_when: you are writing a help page, changing the packer or the bundle, wiring a screen to contextual help, or debugging why the help panel shows the wrong thing
-updated: 2026-09-18
+updated: 2026-09-19
+verified: 2026-09-19
+code_anchors: [crates/ubiq/src/app/help.rs, crates/ubiq/src/state/help.rs, crates/ubiq/src/ui/help/mod.rs, crates/ubiq-host/src/mcp/help.rs, _tools/helpbundle.py]
 depends_on: [inbox-help, feat-workbench, tech-ui, tech-transport, tech-operations, wip-kb]
 ---
 
@@ -251,6 +253,29 @@ Wire vocabulary, UI → host and back:
 The panel reads page files under `root` once the host says they are there, the same way the web
 panel reads the bundle path the host hands it. That makes local help work and leaves help against a
 remote host unsolved — a backlog row, not a silent assumption.
+
+### 6.1 Follow mode
+
+`Help::follow` (`state/help.rs`) is a checkbox in the panel header, off by default, drawn through
+`kit::check_box` and toggled by `AppState::toggle_help_follow`. Off is every behaviour above: F1 and
+**?** bind a page once, and the reader is free to browse away from it without the panel following
+them back.
+
+On, the panel tracks §5's ladder itself. `AppState::bound_help_page` is the ladder read without the
+`index` fallback rung 5 adds — rungs 1 to 4 only, so a context that binds nothing answers `None`
+rather than the landing page. `help_target` (F1, **?**) still falls back to `index`, because those
+always have to open something; `sync_help_follow` reads `bound_help_page` instead, and does nothing
+when it answers `None` — **follow only ever carries the reader forward onto a page that exists, it
+never blanks the one already open.** When it answers a page different from the one on screen,
+`sync_help_follow` visits it exactly as a nav click would.
+
+`sync_help_follow` runs from the two places a context changes without the reader clicking anything:
+`AppState::set_rail_mode` (`app/shell.rs`), for rung 4, and `AppState::note_active_panel`
+(`app/help.rs`), pushed from the dock whenever the displayed panel changes, for rung 2. It is **not**
+called from `enter_project` or the `Scope::Project` config-load path in `app/projects.rs`, which
+assign `rail_mode` while restoring a project rather than through an active mode change — so follow
+does not yet react to a project switch that lands on a different mode than the one the reader left.
+That gap is `G303` in `backlog.md`.
 
 ## 7. When something is missing
 

@@ -841,9 +841,10 @@ fn tab_kind_of(panel: &Arc<dyn BasePanelView>, cx: &App) -> Option<PanelKind> {
         .downcast::<WorkbenchPanel>()
         .ok()
         .and_then(|panel| match panel.read(cx).kind() {
-            kind @ (PanelKind::File(_) | PanelKind::Terminal(_) | PanelKind::Chat(_)) => {
-                Some(kind.clone())
-            }
+            kind @ (PanelKind::File(_)
+            | PanelKind::Kb(_)
+            | PanelKind::Terminal(_)
+            | PanelKind::Chat(_)) => Some(kind.clone()),
             _ => None,
         })
 }

@@ -29,6 +29,12 @@ impl AppState {
         });
     }
 
+    /// One open document of the project on screen, by its tab key. What a KB panel draws and what
+    /// its tab reports are both this — [`AppState::file`] for the documents half.
+    pub fn kb_doc(&self, key: &str, cx: &App) -> Option<&OpenFile> {
+        self.open_project(cx)?.kb.doc(key)
+    }
+
     /// A press on one row of the KB explorer.
     pub fn click_kb_row(&mut self, source: KbSourceId, path: String, cx: &mut Context<Self>) {
         let Some(project) = self.project(cx) else {
@@ -48,26 +54,48 @@ impl AppState {
                 });
             }
             KbPressed::Open(key) => {
-                // A reply already sitting for this exact document is not asked for again — the
-                // guard `KbFileContents`'s discard on the way back exists for, spent here instead
-                // of on the wire.
-                let ready = matches!(
-                    &open.kb.doc,
-                    Some(doc) if doc.key == key && matches!(doc.body, KbBody::Ready(_))
-                );
+                // The tab appears on the click rather than on the answer — `select_file`'s rule,
+                // said here: a click with no visible effect invites a second one, and a read that
+                // fails needs somewhere to say so. A document already open is not read again: its
+                // tab holds its bytes, and whatever has been typed into them would go with a
+                // second read.
+                let markdown_open = self.workbench.settings.ui.markdown_open.layout();
+                let tab = key.tab_key();
                 open.kb.selected = Some(key.clone());
-                if !ready {
-                    open.kb.doc = Some(KbDoc {
-                        key: key.clone(),
-                        body: KbBody::Loading,
-                        edit: None,
-                    });
+                let fresh = open.kb.open_doc(&key, markdown_open);
+                if fresh {
+                    // The tab and its panel open together: each document is its own panel, so a
+                    // tab with none is a document with nowhere to be drawn.
+                    self.pending_panels
+                        .push(PanelEdit::Open(PanelKind::Kb(tab)));
                     self.bus.send(Message::ReadKbFile {
                         project_id: project,
                         source: key.source,
                         rel_path: key.path,
                         max_bytes: Some(MAX_FILE_BYTES),
                     });
+                } else {
+                    // A read that failed is retried by clicking the row again — the tab is the
+                    // only place the refusal is shown, so it has to be the place it is answered.
+                    let retry = open
+                        .kb
+                        .doc(&tab)
+                        .is_some_and(|doc| matches!(doc.body, FileBody::Failed(_)));
+                    if retry {
+                        if let Some(doc) = open.kb.doc_mut(&tab) {
+                            doc.reload();
+                        }
+                        self.bus.send(Message::ReadKbFile {
+                            project_id: project,
+                            source: key.source,
+                            rel_path: key.path,
+                            max_bytes: Some(MAX_FILE_BYTES),
+                        });
+                    }
+                    // Already a panel the dock holds, so it is brought forward rather than added
+                    // twice — which tab a group displays is the dock's to say.
+                    self.pending_panels
+                        .push(PanelEdit::Reveal(PanelKind::Kb(tab)));
                 }
             }
             KbPressed::Sync(source) => {
@@ -90,14 +118,9 @@ impl AppState {
         });
     }
 
-    /// Turn everything the host answered since the last frame into an editable buffer, over a
-    /// writable source — `app/editor.rs`'s `attach_arrived_files`, said again for the knowledge
-    /// base because an `EditorState` needs a `Window` and `KbFileContents` does not carry one.
-    ///
-    /// A read-only source, or a binary or already-loading document, gets no buffer: `edit` stays
-    /// `None`, and the centre panel draws the document as a viewer rather than a buffer purely by
-    /// matching on it — the one place `KbSource::is_writable` is read to decide whether a document
-    /// can be typed into.
+    /// Turn everything the host answered since the last frame into a document's body —
+    /// `app/editor.rs`'s `attach_arrived_files`, said again for the knowledge base because an
+    /// `EditorState` needs a `Window` and `KbFileContents` does not carry one.
     pub(super) fn attach_kb_docs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         for arrival in std::mem::take(&mut self.pending_kb_docs) {
             self.attach_kb_doc(arrival, window, cx);
@@ -105,39 +128,53 @@ impl AppState {
     }
 
     fn attach_kb_doc(&mut self, arrival: KbArrival, window: &mut Window, cx: &mut Context<Self>) {
-        let KbArrival { project_id, key } = arrival;
+        let KbArrival {
+            project_id,
+            key,
+            contents,
+        } = arrival;
+        let tab = key.tab_key();
         let Some(open) = self.projects.get(&project_id) else {
             return;
         };
-        let writable = open
-            .kb
-            .source(key.source)
-            .is_some_and(|view| view.status.source.is_writable());
-        if !writable {
+        // A tab that already holds bytes is never overwritten, exactly as a file's is not:
+        // whatever has been typed into it would go with them.
+        if !open.kb.doc(&tab).is_some_and(|doc| doc.is_loading()) {
             return;
         }
-        let Some(doc) = &open.kb.doc else {
-            return;
-        };
-        // A reply for a document the user has clicked past by the time the frame runs is not
-        // built for — the same guard `KbFileContents` itself applies to whether it draws at all.
-        if doc.key != key || doc.edit.is_some() {
-            return;
-        }
-        let KbBody::Ready(contents) = &doc.body else {
-            return;
-        };
+        // A source Ubiq may not write to is read exactly as it is drawn, and simply never saved:
+        // `savable_kb_doc` is where that is decided, so the buffer here is the same one either
+        // way and the read-only half keeps the IDE's highlighting rather than losing it.
         if contents.is_binary {
+            if let Some(doc) = self
+                .projects
+                .get_mut(&project_id)
+                .and_then(|open| open.kb.doc_mut(&tab))
+            {
+                doc.set_binary();
+            }
+            cx.notify();
             return;
         }
-        // A diagram or an image is not drawn here at all yet — the centre says "opens in the
-        // IDE" for it — so a buffer over its bytes would be typed into and never shown.
+
+        // A diagram or an image is not drawn here yet — `ui::kb::render_doc` says "opens in the
+        // IDE" for it — so it is kept as its own bytes rather than given a buffer that would be
+        // a lossy decode of them and would have nothing on screen to be typed into.
         if !matches!(
             crate::state::editor::ViewerKind::of(&key.path),
             crate::state::editor::ViewerKind::Editor | crate::state::editor::ViewerKind::Markdown
         ) {
+            if let Some(doc) = self
+                .projects
+                .get_mut(&project_id)
+                .and_then(|open| open.kb.doc_mut(&tab))
+            {
+                doc.set_bytes(contents.bytes);
+            }
+            cx.notify();
             return;
         }
+
         let text = String::from_utf8_lossy(&contents.bytes).into_owned();
         let language = FileLanguage::of(&key.path);
         let buffer = cx.new(|cx| {
@@ -148,7 +185,7 @@ impl AppState {
                 .default_value(text.clone())
         });
 
-        let watched = key.clone();
+        let watched = tab.clone();
         let change = cx.subscribe_in(
             &buffer,
             window,
@@ -158,51 +195,119 @@ impl AppState {
                 }
                 let typed = buffer.read(cx).value().to_string();
                 if let Some(open) = this.projects.get_mut(&project_id)
-                    && let Some(doc) = &mut open.kb.doc
-                    && doc.key == watched
-                    && let Some(edit) = &mut doc.edit
+                    && let Some(doc) = open.kb.doc_mut(&watched)
                 {
-                    edit.refresh_dirty(&typed);
+                    doc.refresh_dirty(&typed);
                 }
                 cx.notify();
             },
         );
 
-        if let Some(open) = self.projects.get_mut(&project_id)
-            && let Some(doc) = &mut open.kb.doc
-            && doc.key == key
+        if let Some(doc) = self
+            .projects
+            .get_mut(&project_id)
+            .and_then(|open| open.kb.doc_mut(&tab))
         {
-            doc.edit = Some(KbEdit::new(buffer, text, change));
+            doc.attach(buffer, text, contents.truncated, contents.version, change);
         }
+        cx.notify();
     }
 
-    /// Write the buffer behind the open document back through `WriteKbFile`. A no-op with nothing
-    /// typed since the last save, or with a save already in flight — the button that calls this is
-    /// hidden either way, but a stray keybinding must not send a second write racing the first.
-    pub fn save_kb_doc(&mut self, cx: &mut Context<Self>) {
+    /// Whether a document's source is one Ubiq may write back to. **The one place
+    /// `KbSource::is_writable` is read** to decide whether a save is offered at all: a document on
+    /// a read-only source is still opened, highlighted and read, and simply never written.
+    pub fn savable_kb_doc(&self, key: &str, cx: &App) -> bool {
+        let Some(open) = self.open_project(cx) else {
+            return false;
+        };
+        let Some(doc) = open.kb.doc(key) else {
+            return false;
+        };
+        doc.kb_source
+            .and_then(|source| open.kb.source(source))
+            .is_some_and(|view| view.status.source.is_writable())
+    }
+
+    /// Write one document's buffer back through `WriteKbFile`. A no-op with nothing typed since
+    /// the last save, with a save already in flight, or over a source Ubiq may not write to — a
+    /// stray keybinding must not send a second write racing the first.
+    pub fn save_kb_doc(&mut self, key: &str, cx: &mut Context<Self>) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        if !self.savable_kb_doc(key, cx) {
+            return;
+        }
+        let Some(open) = self.projects.get_mut(&project) else {
+            return;
+        };
+        let Some(doc) = open.kb.doc_mut(key) else {
+            return;
+        };
+        if !doc.dirty() || doc.is_saving() {
+            return;
+        }
+        let Some(buffer) = doc.buffer().cloned() else {
+            return;
+        };
+        let Some(doc_key) = KbDocKey::of(doc) else {
+            return;
+        };
+        let contents = buffer.read(cx).value().to_string();
+        doc.mark_saving(contents.clone());
+        self.bus.send(Message::WriteKbFile {
+            project_id: project,
+            source: doc_key.source,
+            rel_path: doc_key.path,
+            contents,
+        });
+        cx.notify();
+    }
+
+    /// A KB panel became the displayed tab of its group, so its document is the one the explorer
+    /// highlights — `AppState::activate_file`'s direction, said for the documents half.
+    pub fn activate_kb_doc(&mut self, key: &str, cx: &mut Context<Self>) {
         let Some(project) = self.project(cx) else {
             return;
         };
         let Some(open) = self.projects.get_mut(&project) else {
             return;
         };
-        let Some(doc) = &mut open.kb.doc else {
+        let Some(doc_key) = open.kb.doc(key).and_then(KbDocKey::of) else {
             return;
         };
-        let Some(edit) = &mut doc.edit else {
-            return;
-        };
-        if !edit.is_dirty() || matches!(edit.save, KbSaveState::Saving) {
-            return;
+        open.kb.selected = Some(doc_key);
+        cx.notify();
+    }
+
+    /// Close one document's tab from the state side — the tab menu's Close.
+    ///
+    /// The panel goes with it as a queued `PanelEdit`, never through `ui::dock::close_panel`:
+    /// this runs inside an `AppState` update, and that function takes a second lease on the same
+    /// entity to reach the dock.
+    pub fn close_kb_doc(&mut self, key: &str, cx: &mut Context<Self>) {
+        if let Some(project) = self.project(cx)
+            && let Some(open) = self.projects.get_mut(&project)
+            && open.kb.close_doc(key)
+        {
+            self.pending_panels
+                .push(PanelEdit::Close(PanelKind::Kb(key.to_string())));
         }
-        let contents = edit.buffer.read(cx).value().to_string();
-        edit.save = KbSaveState::Saving;
-        self.bus.send(Message::WriteKbFile {
-            project_id: project,
-            source: doc.key.source,
-            rel_path: doc.key.path.clone(),
-            contents,
-        });
+        cx.notify();
+    }
+
+    /// A KB panel left the dock for good, so its tab closes with it.
+    ///
+    /// **A document's × closes the tab and nothing else**, the way a file's does: there is no
+    /// harness behind it for `TabClose` to be about, and the bytes are the host's either way.
+    pub fn closed_kb_panel(&mut self, key: &str, cx: &mut Context<Self>) {
+        if let Some(project) = self.project(cx)
+            && let Some(open) = self.projects.get_mut(&project)
+        {
+            open.kb.close_doc(key);
+        }
+        self.panels.remove(&PanelKind::Kb(key.to_string()));
+        cx.notify();
     }
 
     // ── The right-click menu ────────────────────────────────────────

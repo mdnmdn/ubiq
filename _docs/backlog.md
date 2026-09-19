@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: Every open question, known gap and deferred item across the project, in one register.
 read_when: you are planning the next piece of work, or you hit something unresolved and need somewhere to put it
-updated: 2026-09-18
-verified: 2026-09-18
+updated: 2026-09-19
+verified: 2026-09-19
 review_cycle: monthly
 ---
 
@@ -46,7 +46,7 @@ change what Ubiq does (here), or where a document lives (there)?
 | G187 | Docker cannot be enabled by naming `integrations/docker`: the shipped layer uses the undefined SBPL symbol `HOME_DIR`, so it is in `BROKEN_LAYERS` and any run that names it starts nothing. A confined agent that needs a container daemon reaches it only through hand-written extra grants for the socket and `~/.docker` — the same hand-replication xcode and chromium require, and the layer's own header calls socket access high-risk | [`tech/agent-manager.md`](./tech/agent-manager.md) |
 | G7 | The MCP surface Ubiq exposes to hosted agents is the catalogue in `crates/ubiq-host/src/mcp/`: `test`, `project-info`, `manage-ubiq-tasks` and `use-task`. What else it should offer, and whether the surface should grow past what a hosted agent needs to work inside Ubiq, is open | [`tech/architecture.md`](./tech/architecture.md) |
 | G10 | The chat has no transport family, so its composer sends to nothing and its reply is canned | [`features/chat.md`](./features/chat.md) |
-| G11 | The KB centre renders markdown and plain text and nothing else: a draw.io, an Excalidraw, a mermaid or an image document says it opens in the IDE rather than drawing, because no web-panel tenant is wired behind the KB viewer. A knowledge base is also read-only — editing a document is the file family's job, through the IDE | [`features/workbench.md`](./features/workbench.md) |
+| G11 | A knowledge-base document opens as a dock tab drawing markdown or plain text; a draw.io, an Excalidraw, a mermaid or an image document still says it opens in the IDE rather than drawing, because no web-panel tenant is wired behind the KB viewer, and its bytes are held as `OpenFile`'s `FileBody::Bytes` rather than decoded into anything (`T-32`) | [`features/workbench.md`](./features/workbench.md), [`wip/kb.md`](./wip/kb.md) |
 | G12 | Ubiq ships no icon set, so the history and status glyphs borrow the nearest icon from the component library's bundle | [`tech/ui-and-design.md`](./tech/ui-and-design.md) |
 | G14 | `just verify` is red on three clippy lints in `crates/agent-manager`, so the project gate cannot pass from a clean checkout | [`tech/operations.md`](./tech/operations.md) |
 | G24 | `just test` is red on `codex_bridge_round_trips_events_and_terminates`: under the workspace run its `initialize` handshake times out after 10s, while the test passes on its own | [`tech/operations.md`](./tech/operations.md) |
@@ -217,6 +217,7 @@ change what Ubiq does (here), or where a document lives (there)?
 | G244 | The draw.io mirror is curated, not complete. `_tools/webassets.py`'s `keep_drawio_path` drops `stencils/`, `templates/`, `img/`, `math4/`, `plugins/` and `WEB-INF/` outright, and `js/diagramly/**`, `js/grapheditor/**`, `shapes/**` and `mxgraph/` outside its `images/` and `css/` — each one is bundled into `js/app.min.js` or `js/shapes-14-6-5.min.js`, or loaded only under `?dev=1`. What is missing is the template gallery and MathJax typesetting, not the shape palettes, which the bundled scripts still carry. Widening the allowlist is what closes either gap | [`wip/web-panel-phase45.md`](./wip/web-panel-phase45.md) |
 | G245 | The embedded draw.io was never seen to boot, and its `Preview { svg }` frame is verified only at the bridge and the route. No session was opened by hand, no diagram was drawn or saved, and no export was read back from the disk tier `state/diagrams.rs` files it in. Closing this needs a real run, the same shape `G241` names for Excalidraw | [`wip/web-panel-phase6.md`](./wip/web-panel-phase6.md) |
 | G246 | A vendor bundle fetch killed part way is never resumed: `web_assets` writes one compressed `.bundle` file behind a `.part` sibling, and a `.part` left by a killed process is overwritten rather than read back, so an interrupted 25 MiB fetch restarts from its first file rather than its last. Trading resume for one file instead of hundreds was deliberate; reintroducing it would mean per-entry offsets recorded outside the archive itself | [`wip/web-panel-phase3.md`](./wip/web-panel-phase3.md) |
+| G303 | Follow mode does not watch a project switch. `AppState::sync_help_follow` is called from `set_rail_mode` and `note_active_panel` — a mode change and a displayed-panel change — but not from `enter_project` or the `Scope::Project` config-load path in `app/projects.rs`, both of which assign `rail_mode` while restoring a project rather than through an active mode change. So a reader with follow on, who switches to a project that restores a different rail mode, keeps the page bound to the mode they left rather than the one they landed in | [`wip/help.md`](./wip/help.md) |
 
 ## Open questions — a decision nobody has made
 

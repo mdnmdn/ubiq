@@ -303,6 +303,28 @@ impl WorkbenchPanel {
                 label: "Documents".into(),
                 ..TabInfo::default()
             },
+            // A document's tab is the document's own report, from the same two functions a file's
+            // tab uses — it is the same `OpenFile`. There is no git colour: a source is not the
+            // project, and the explorer has nothing to say about a path inside one.
+            PanelKind::Kb(key) => match app.kb_doc(key, cx) {
+                Some(doc) => TabInfo {
+                    label: editor::label(doc),
+                    title_colour: theme::text_muted(),
+                    dot_colour: did_save_or_dirty(doc).then(|| editor::dirty_colour(doc)),
+                    tooltip: Some(SharedString::from(doc.path.clone())),
+                    pinned: doc.pinned,
+                    ..TabInfo::default()
+                },
+                // The tab of a document this window no longer holds, keeping its slot.
+                None => TabInfo {
+                    label: SharedString::from(
+                        crate::state::KbDocKey::from_tab_key(key)
+                            .map(|key| key.name().to_string())
+                            .unwrap_or_else(|| key.clone()),
+                    ),
+                    ..TabInfo::default()
+                },
+            },
             // One slot, two things in it: the tab says which, the way a file's tab says what it is
             // looking at.
             PanelKind::Task => TabInfo {
@@ -457,7 +479,7 @@ impl BasePanel for WorkbenchPanel {
                 // Which panel is displayed is what gives contextual help its `panel.<name>` rung.
                 // Pushed from here for the reason the focused pane is: the dock is where this is
                 // decided, and the window learns it rather than asking.
-                app.note_active_panel(kind.clone());
+                app.note_active_panel(kind.clone(), cx);
                 match kind.pane() {
                     Some(pane_id) => app.focus_pane(pane_id, cx),
                     None => {
@@ -467,6 +489,11 @@ impl BasePanel for WorkbenchPanel {
                         // from here.
                         if let Some(key) = kind.tab_key() {
                             app.activate_file(key, cx);
+                        }
+                        // The same one mode along: a document panel becoming the displayed tab
+                        // is what moves the documents explorer's highlight onto it.
+                        if let Some(key) = kind.kb_key() {
+                            app.activate_kb_doc(key, cx);
                         }
                     }
                 }
@@ -506,7 +533,11 @@ impl BasePanel for WorkbenchPanel {
     fn on_removed(&mut self, _: &mut Window, cx: &mut Context<Self>) {
         self.attached = false;
         let kind = self.kind.clone();
-        if kind.pane().is_none() && kind.tab_key().is_none() && kind.chat_id().is_none() {
+        if kind.pane().is_none()
+            && kind.tab_key().is_none()
+            && kind.kb_key().is_none()
+            && kind.chat_id().is_none()
+        {
             return;
         }
         let app = self.app.clone();
@@ -537,6 +568,7 @@ impl BasePanel for WorkbenchPanel {
                     }
                 }
                 PanelKind::File(key) => app.closed_file_panel(key, cx),
+                PanelKind::Kb(key) => app.closed_kb_panel(key, cx),
                 PanelKind::Chat(id) => {
                     // The agent has to be read before the tab goes: `closed_chat_tab` takes the
                     // tab out of the project, and the attachment goes with it.
@@ -563,7 +595,7 @@ impl BasePanel for WorkbenchPanel {
     /// diagram: those are functions of bytes the host will send again.
     fn dump(&self, _: &App) -> PanelState {
         let mut state = PanelState::new(self.kind.name());
-        if let Some(key) = self.kind.tab_key() {
+        if let Some(key) = self.kind.tab_key().or_else(|| self.kind.kb_key()) {
             state.info = PanelInfo::panel(file_payload(key, self.layout));
         }
         if let Some(pane_id) = self.kind.pane() {
@@ -645,6 +677,7 @@ fn body(
         PanelKind::GitHistory => git::history::render(app, window, cx).into_any_element(),
         PanelKind::GitDiff => git::diff::render(app, cx).into_any_element(),
         PanelKind::KbExplorer => kb::render(app, cx),
+        PanelKind::Kb(key) => drop_target(kb::render_doc(app, key, cx), cx),
         PanelKind::Task => board::panel(app, window, cx),
         PanelKind::AgentsExplorer => agents::sidebar::render(app, cx).into_any_element(),
         PanelKind::Help => help::render(app, window, cx),
@@ -1245,15 +1278,24 @@ fn leaf(state: &PanelState, layouts: &mut Vec<(String, ViewLayout)>) -> Option<P
         };
         return chat_from_payload(payload);
     }
-    if state.panel_name != PanelKind::File(String::new()).name() {
+    let is_file = state.panel_name == PanelKind::File(String::new()).name();
+    let is_doc = state.panel_name == PanelKind::Kb(String::new()).name();
+    if !is_file && !is_doc {
         return PanelKind::from_name(&state.panel_name);
     }
     let PanelInfo::Panel(payload) = &state.info else {
-        // A file panel with no payload names no tab, so there is nothing to rebuild it as.
+        // A file or document panel with no payload names no tab, so there is nothing to rebuild
+        // it as.
         return None;
     };
     let (kind, layout) = file_from_payload(payload)?;
-    if let Some(key) = kind.tab_key() {
+    // A knowledge-base document writes the same payload under its own panel name, so what the
+    // key rebuilds into is the name's answer rather than the payload's.
+    let kind = match is_doc {
+        true => PanelKind::Kb(kind.tab_key()?.to_string()),
+        false => kind,
+    };
+    if let Some(key) = kind.tab_key().or_else(|| kind.kb_key()) {
         layouts.push((key.to_string(), layout));
     }
     Some(kind)

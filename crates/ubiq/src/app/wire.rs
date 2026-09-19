@@ -1241,17 +1241,15 @@ impl AppState {
             } => {
                 let open = self.projects.get_mut(&project_id)?;
                 let key = KbDocKey::new(source, rel_path);
-                // A reply for a document the user has clicked past is discarded, not drawn: only
-                // the selection this key still names gets it.
-                if open.kb.selected.as_ref() == Some(&key) {
-                    open.kb.doc = Some(KbDoc {
-                        key: key.clone(),
-                        body: KbBody::Ready(contents),
-                        // Built in `attach_kb_docs`, which needs a `Window` this message does not
-                        // carry — queued exactly as `ProjectFileContents` queues `pending_files`.
-                        edit: None,
+                // A reply for a document whose tab has since been closed is discarded, not drawn.
+                // The buffer is built in `attach_kb_docs`, which needs a `Window` this message
+                // does not carry — queued exactly as `ProjectFileContents` queues `pending_files`.
+                if open.kb.doc(&key.tab_key()).is_some() {
+                    self.pending_kb_docs.push(KbArrival {
+                        project_id,
+                        key,
+                        contents,
                     });
-                    self.pending_kb_docs.push(KbArrival { project_id, key });
                     cx.notify();
                 }
             }
@@ -1269,26 +1267,17 @@ impl AppState {
                 // listing, or a write, create, rename or delete that has no document behind it —
                 // lands on the source's own row, because a gesture that silently did nothing is
                 // the one failure mode the panel must not have.
-                let mid_save = matches!(
-                    &open.kb.doc,
-                    Some(doc) if doc.key == key
-                        && matches!(doc.edit.as_ref().map(|edit| &edit.save), Some(KbSaveState::Saving))
-                );
+                let tab = key.tab_key();
+                let mid_save = open.kb.doc(&tab).is_some_and(|doc| doc.is_saving());
                 if mid_save {
                     // A save that was refused leaves the buffer exactly as the user left it — the
                     // one place a `KbFileError` must not read as "the document is gone", since
                     // what it names here is a write, not the read that put the document on screen.
-                    if let Some(doc) = &mut open.kb.doc
-                        && let Some(edit) = &mut doc.edit
-                    {
-                        edit.save = KbSaveState::Failed(reason);
+                    if let Some(doc) = open.kb.doc_mut(&tab) {
+                        doc.save_failed(reason);
                     }
-                } else if !key.path.is_empty() && open.kb.selected.as_ref() == Some(&key) {
-                    open.kb.doc = Some(KbDoc {
-                        key,
-                        body: KbBody::Failed(reason),
-                        edit: None,
-                    });
+                } else if let Some(doc) = open.kb.doc_mut(&tab) {
+                    doc.set_failed(reason);
                 } else {
                     open.kb.set_error(source, Some(reason));
                 }
@@ -1308,14 +1297,27 @@ impl AppState {
                 // `KbChanged` naming the parent directory rather than with anything of its own —
                 // the document mid-save is found by that same parent, and the save it was
                 // carrying is the one thing this arm confirms rather than merely re-lists.
-                if let Some(doc) = &mut open.kb.doc
-                    && doc.key.source == source
-                    && kb_parent_path(&doc.key.path) == rel_path
-                    && let Some(edit) = &mut doc.edit
-                    && matches!(edit.save, KbSaveState::Saving)
-                {
-                    let current = edit.buffer.read(cx).value().to_string();
-                    edit.saved(current);
+                let saved: Vec<String> = open
+                    .kb
+                    .docs
+                    .iter()
+                    .filter(|doc| {
+                        doc.kb_source == Some(source)
+                            && kb_parent_path(&doc.path) == rel_path
+                            && doc.is_saving()
+                    })
+                    .map(|doc| doc.key())
+                    .collect();
+                for key in saved {
+                    let current = open
+                        .kb
+                        .doc(&key)
+                        .and_then(|doc| doc.buffer())
+                        .map(|buffer| buffer.read(cx).value().to_string())
+                        .unwrap_or_default();
+                    if let Some(doc) = open.kb.doc_mut(&key) {
+                        doc.saved_unversioned(&current);
+                    }
                 }
                 if open.kb.mark_unlisted(source, &rel_path) {
                     open.kb.mark_loading(source, &rel_path);

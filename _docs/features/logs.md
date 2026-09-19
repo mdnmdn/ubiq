@@ -6,7 +6,7 @@ status: current
 summary: One sink every subsystem writes its diagnostics to, and the console panel that reads it back with a subsystem selector and a level floor.
 read_when: you are adding a log event, adding or renaming a subsystem, changing what the console shows or where it sits, or chasing why something the application did left no trace
 updated: 2026-09-18
-verified: 2026-09-18
+verified: 2026-09-19
 code_anchors: [crates/ubiq-proto/src/log.rs, crates/ubiq/src/state/logs.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/state/dock.rs, crates/ubiq-app/src/lib.rs]
 depends_on: [tech-architecture, feat-panes]
 review_cycle: monthly

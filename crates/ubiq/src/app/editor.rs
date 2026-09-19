@@ -20,15 +20,22 @@ impl AppState {
         let Some(open) = self.projects.get_mut(&project) else {
             return;
         };
-        let Some(file) = open.editor.find_key_mut(key) else {
-            return;
+        // A knowledge-base document is the same `OpenFile` under a key of its own, held in the
+        // other half of the project — so the lookup falls through to it and the panel it pushes
+        // the settled layout onto is its own kind.
+        let (file, kind) = match open.editor.find_key_mut(key) {
+            Some(file) => (file, PanelKind::File(key.to_string())),
+            None => match open.kb.doc_mut(key) {
+                Some(doc) => (doc, PanelKind::Kb(key.to_string())),
+                None => return,
+            },
         };
         file.set_layout(layout);
         // What the file *took*, not what was asked: a viewer refuses a layout it does not offer,
         // and a panel told the asked-for one would write it into the arrangement anyway.
         let settled = file.layout;
 
-        let panel = self.panels.get(&PanelKind::File(key.to_string())).cloned();
+        let panel = self.panels.get(&kind).cloned();
         if let Some(panel) = panel {
             panel.update(cx, |panel, _| panel.set_layout(settled));
         }
@@ -548,6 +555,15 @@ impl AppState {
                     "Open in Finder" => self.open_in_finder_for_tab(&key, cx),
                     "Save" => self.save_file(&key, window, cx),
                     "Word Wrap" => self.toggle_editor_wrap(window, cx),
+                    "Pin" | "Unpin" => self.toggle_tab_pin(kind, cx),
+                    _ => {}
+                }
+            }
+            PanelKind::Kb(key) => {
+                let key = key.clone();
+                match row {
+                    "Close" => self.close_kb_doc(&key, cx),
+                    "Save" => self.save_kb_doc(&key, cx),
                     "Pin" | "Unpin" => self.toggle_tab_pin(kind, cx),
                     _ => {}
                 }

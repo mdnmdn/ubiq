@@ -28,6 +28,7 @@ impl AppState {
     pub fn tab_pinned(&self, kind: &PanelKind, cx: &App) -> bool {
         match kind {
             PanelKind::File(key) => self.file(key, cx).is_some_and(|file| file.pinned),
+            PanelKind::Kb(key) => self.kb_doc(key, cx).is_some_and(|doc| doc.pinned),
             _ => self.pinned_tabs.contains(kind),
         }
     }
@@ -62,6 +63,18 @@ impl AppState {
                 };
                 file.pinned = !file.pinned;
                 self.remember(project, cx);
+            }
+            PanelKind::Kb(key) => {
+                let Some(project) = self.project(cx) else {
+                    return;
+                };
+                let Some(open) = self.projects.get_mut(&project) else {
+                    return;
+                };
+                let Some(doc) = open.kb.doc_mut(key) else {
+                    return;
+                };
+                doc.pinned = !doc.pinned;
             }
             _ => {
                 if !self.pinned_tabs.remove(&kind) {
@@ -347,6 +360,28 @@ impl AppState {
         }
         for key in wanted {
             let kind = PanelKind::File(key);
+            if !self.panels.contains_key(&kind) {
+                self.pending_panels.push(PanelEdit::Open(kind));
+            }
+        }
+
+        // The knowledge base's documents are the same bargain one mode along: the documents are
+        // a project's and the panels are the window's, so a switch has to square them or the
+        // documents of the project just left would keep their tabs.
+        let docs: Vec<String> = self
+            .projects
+            .get(&project)
+            .map(|open| open.kb.docs.iter().map(|doc| doc.key()).collect())
+            .unwrap_or_default();
+        for kind in self.panels.keys() {
+            if let Some(key) = kind.kb_key()
+                && !docs.iter().any(|open| open == key)
+            {
+                self.pending_panels.push(PanelEdit::Close(kind.clone()));
+            }
+        }
+        for key in docs {
+            let kind = PanelKind::Kb(key);
             if !self.panels.contains_key(&kind) {
                 self.pending_panels.push(PanelEdit::Open(kind));
             }
@@ -668,9 +703,11 @@ impl AppState {
             .open_project(cx)
             .map(|open| open.panes.iter().map(|pane| pane.id).collect())
             .unwrap_or_default();
-        // The tab keys the project on screen holds, and the layout each of them is in. Read once:
-        // every file panel asks the same two questions of it.
-        let files: HashMap<String, ViewLayout> = self
+        // The tab keys the project on screen holds, and the layout each of them is in. Read
+        // once: every file panel asks the same two questions of it. The knowledge base's open
+        // documents are in the same map — they are the same `OpenFile`, their keys are in a key
+        // space of their own, and `is_drawn` is where the two are told apart.
+        let mut files: HashMap<String, ViewLayout> = self
             .editor(cx)
             .map(|editor| {
                 editor
@@ -680,10 +717,21 @@ impl AppState {
                     .collect()
             })
             .unwrap_or_default();
+        let docs: Vec<(String, ViewLayout)> = self
+            .open_project(cx)
+            .map(|open| {
+                open.kb
+                    .docs
+                    .iter()
+                    .map(|doc| (doc.key(), doc.layout))
+                    .collect()
+            })
+            .unwrap_or_default();
+        files.extend(docs);
 
         let mut changed = false;
         for (kind, panel) in &self.panels {
-            let key = kind.tab_key();
+            let key = kind.tab_key().or_else(|| kind.kb_key());
             let at = Visibility {
                 is_ide,
                 has_project,

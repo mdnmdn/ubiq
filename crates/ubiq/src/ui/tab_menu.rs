@@ -68,6 +68,17 @@ pub fn rows(kind: &PanelKind, pinned: bool, restartable: bool) -> Vec<&'static s
             rows.push(pin_row);
             rows
         }
+        // A knowledge-base document offers the subset that means anything about it: it has no
+        // path on this machine to copy or reveal, and the wrap is the IDE editor's preference.
+        PanelKind::Kb(_) => {
+            let mut rows = Vec::new();
+            if !pinned {
+                rows.push("Close");
+            }
+            rows.extend(["Save"]);
+            rows.push(pin_row);
+            rows
+        }
         PanelKind::Terminal(_) | PanelKind::Chat(_) => {
             let mut rows = vec!["Rename…"];
             // Above the endings, because it is the opposite of them: the row that puts the pane

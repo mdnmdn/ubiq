@@ -1,10 +1,15 @@
-//! The knowledge base on screen: the explorer that lists every source, and the centre that draws
-//! the document it selects.
+//! The knowledge base on screen: the explorer that lists every source, and the panel that draws
+//! one open document.
 //!
 //! This is the documents half of the IDE, and it borrows the IDE's parts rather than restating
 //! them — [`crate::ui::kit::files`]'s row, twisty and kind icon draw a line here exactly as they
-//! draw one in `ui/explorer.rs`, and the centre hands Markdown to
-//! [`crate::ui::viewer::markdown`], which is the one Markdown renderer in the window.
+//! draw one in `ui/explorer.rs`.
+//!
+//! **A document is a dock tab, exactly as a file is.** It is the same `OpenFile`, held in
+//! `KbState::docs`, drawn by [`crate::ui::viewer`], and given its tab strip, its dirty dot, its
+//! drag, its pin and its close by the dock — so several documents are open at once and none of
+//! the IDE's chrome is said twice here. What this module keeps is the explorer, the body lookup
+//! ([`render_doc`]) and the page that says nothing is open yet.
 //!
 //! **A source is not a folder in a tree, it is a place the documents come from**, so its row says
 //! where — the origin as a tooltip — and how far it has got. A source that is not readable yet is
@@ -23,14 +28,12 @@ use ubiq_proto::kb::KbSourceState;
 use crate::app::AppState;
 use crate::state::MenuId;
 use crate::state::editor::ViewerKind;
-use crate::state::kb::{KbBody, KbDoc, KbRow, KbRowKind};
+use crate::state::kb::{KbRow, KbRowKind};
 use crate::theme;
-use crate::theme::{Family, Role};
 use crate::ui::kit::{
     ContextItem, UbiqIcon, context_menu, elided, elided_with, file_row, icon_button, kind_icon,
-    mono, panel, panel_header, primary_button, row_font, row_height, twisty,
+    panel, panel_header, primary_button, row_font, twisty,
 };
-use crate::ui::viewer::markdown;
 use crate::ui::{eid2, empty};
 
 pub mod source_form;
@@ -299,138 +302,20 @@ fn retry(
     )
 }
 
-/// The centre: the selected document, drawn by whichever renderer its extension names.
-///
-/// **Leads with a header naming the document**, unlike the IDE editor, which leans on the dock's
-/// own tab strip for that — the knowledge base has no tab strip here, so a click with nothing
-/// else to show for it (a document just created, empty, on a wiki) would otherwise look like it
-/// did nothing at all. The header is what says a click was heard even when the body has nothing
-/// to draw.
+/// The centre with no document open: the explorer is what opens one, so that is what it points
+/// at. As soon as a document is open the document panels *are* the centre and this steps aside,
+/// exactly as `ui/editor.rs`'s welcome page does in IDE mode.
 pub fn centre(app: &AppState, _window: &mut Window, cx: &mut Context<AppState>) -> AnyElement {
-    let Some(kb) = app.kb(cx) else {
-        return nothing_selected();
-    };
-    let Some(doc) = &kb.doc else {
-        return nothing_selected();
-    };
-
-    let body = if let Some(edit) = &doc.edit {
-        // A writable source got a buffer in `attach_kb_docs`, once a `Window` was in reach — see
-        // `KbDoc::edit`. Its presence is exactly `KbSource::is_writable` read one frame earlier,
-        // so drawing it here rather than the read-only renderer is the one place editability is
-        // decided; a read-only source never has one to draw.
-        crate::ui::viewer::buffer(&edit.buffer, app.content_font_size(cx))
-    } else {
-        match &doc.body {
-            KbBody::Loading => faint("Opening\u{2026}"),
-            KbBody::Failed(error) => sentence(error.clone(), theme::danger()),
-            KbBody::Ready(contents) => {
-                if contents.is_binary {
-                    faint(format!("{} is not text.", doc.key.name()))
-                } else {
-                    let source = String::from_utf8_lossy(&contents.bytes).into_owned();
-                    // The knowledge base's own key space, so a document and an editor tab on a
-                    // file of the same name are two entries in the renderer's scan cache rather
-                    // than one.
-                    let key = format!("kb:{}:{}", doc.key.source, doc.key.path);
-                    let font_size = app.content_font_size(cx);
-                    match ViewerKind::of(&doc.key.path) {
-                        ViewerKind::Markdown => {
-                            markdown::render(app, &key, &source, font_size, false, cx)
-                        }
-                        ViewerKind::Editor => plain(source, font_size),
-                        // Diagrams and images are the IDE's viewers, and reaching them from here
-                        // means wiring a web tenant to a document that is not an open file. Until
-                        // that is done the panel says where the file is drawn rather than drawing
-                        // it wrongly.
-                        _ => faint(format!("{} opens in the IDE.", doc.key.name())),
-                    }
-                }
-            }
-        }
-    };
-
-    div()
-        .flex()
-        .flex_col()
-        .flex_1()
-        .min_h(px(0.))
-        .child(doc_header(doc, kb, cx))
-        .child(body)
-        .into_any_element()
-}
-
-/// The flush row naming the open document, the one thing on screen that changes the instant a
-/// click lands — a `panel_header`'s own reasoning, spelled here rather than reused because a
-/// document's title is a path, not an uppercase section name.
-fn doc_header(
-    doc: &KbDoc,
-    kb: &crate::state::kb::KbState,
-    cx: &mut Context<AppState>,
-) -> AnyElement {
-    let title = match kb.source(doc.key.source) {
-        Some(view) => format!("{} / {}", view.name(), doc.key.path),
-        None => doc.key.path.clone(),
-    };
-    let font_size = row_font();
-    let mut row = div()
-        .h(px(row_height(font_size)))
-        .px_3()
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap_2()
-        .border_b_1()
-        .border_color(theme::border())
-        .bg(theme::pane_bg())
-        .child(kind_icon(false, theme::text_muted()))
-        .child(elided_with(
-            eid2("kb-doc-title", doc.key.source, &doc.key.path),
-            doc.key.name().to_string(),
-            title,
-            theme::text(),
-            px(font_size),
-        ));
-    if let Some(edit) = &doc.edit {
-        row = row.child(save_control(edit, cx));
+    let open = app.kb(cx).is_some_and(|kb| !kb.docs.is_empty());
+    if open {
+        // Reached for the frame between a tab opening and the dock settling its panel.
+        return div()
+            .flex()
+            .flex_1()
+            .min_h(px(0.))
+            .bg(theme::app_bg())
+            .into_any_element();
     }
-    row.into_any_element()
-}
-
-/// What the header says on the writable side: nothing while there is nothing unsaved, a save
-/// control once there is, and a failure the write answered with — kept beside the button rather
-/// than replacing the document, on `KbFileError`'s own rule that a failed write leaves the buffer
-/// exactly as the user left it.
-fn save_control(edit: &crate::state::kb::KbEdit, cx: &mut Context<AppState>) -> AnyElement {
-    use crate::state::kb::KbSaveState;
-
-    let button = match &edit.save {
-        KbSaveState::Saving => faint("Saving\u{2026}"),
-        _ if edit.is_dirty() => primary_button(
-            "kb-save",
-            None,
-            "Save",
-            cx.listener(|this, _, _, cx| this.save_kb_doc(cx)),
-        )
-        .into_any_element(),
-        _ => div().into_any_element(),
-    };
-
-    let mut row = div().flex().flex_none().items_center().gap_2();
-    if let KbSaveState::Failed(reason) = &edit.save {
-        row = row.child(
-            div()
-                .text_size(px(row_font()))
-                .text_color(theme::danger())
-                .child(reason.clone()),
-        );
-    }
-    row.child(button).into_any_element()
-}
-
-/// The centre with no document chosen: the explorer is what chooses one, so that is what it points
-/// at.
-fn nothing_selected() -> AnyElement {
     empty::empty_page(
         "No document open",
         "Pick one from the documents explorer on the left.",
@@ -440,40 +325,27 @@ fn nothing_selected() -> AnyElement {
     .into_any_element()
 }
 
-/// A document with no renderer of its own, as its own text.
-fn plain(source: String, font_size: Option<f32>) -> AnyElement {
-    div()
-        .id("kb-plain")
-        .flex()
-        .flex_col()
-        .flex_1()
-        .min_h(px(0.))
-        .overflow_y_scroll()
-        .p_5()
-        .text_size(px(font_size.unwrap_or(theme::EDITOR_FONT_SIZE)))
-        .text_color(theme::text())
-        .child(mono(source, theme::text()))
-        .into_any_element()
-}
-
-fn faint(note: impl Into<String>) -> AnyElement {
-    empty::empty_panel(&note.into()).into_any_element()
-}
-
-fn sentence(text: String, colour: gpui::Rgba) -> AnyElement {
-    div()
-        .flex()
-        .flex_1()
-        .min_h(px(0.))
-        .p_5()
-        .justify_center()
-        .items_center()
-        .child(
-            div()
-                .max_w(px(420.))
-                .text_size(theme::font(Family::Chrome, Role::Body))
-                .text_color(colour)
-                .child(SharedString::from(text)),
-        )
-        .into_any_element()
+/// One document panel's body: the document its tab key names, drawn by its viewer.
+///
+/// **The same viewer seam the IDE uses.** A document is an `OpenFile`, so what draws it is
+/// `ViewerKind`'s answer and everything past the lookup is `ui/viewer/`'s — the highlighted
+/// buffer, the Markdown render, the layout toggle. The header naming the document is gone with
+/// the single-document centre it existed for: the dock's tab strip says which document this is,
+/// and says it for every one of them at once.
+pub fn render_doc(app: &AppState, key: &str, cx: &mut Context<AppState>) -> AnyElement {
+    let Some(doc) = app.kb_doc(key, cx) else {
+        // A panel whose tab has gone is hidden rather than drawn, so this is the frame between
+        // the two.
+        return crate::ui::viewer::note("No document open", theme::text_faint());
+    };
+    // Diagrams and images are the IDE's viewers, and reaching them from here means wiring a web
+    // tenant to a document that is not an open file. Until that is done the panel says where the
+    // file is drawn rather than drawing it wrongly.
+    if !matches!(doc.viewer, ViewerKind::Editor | ViewerKind::Markdown) {
+        return crate::ui::viewer::note(
+            format!("{} opens in the IDE.", doc.name),
+            theme::text_faint(),
+        );
+    }
+    crate::ui::viewer::render(app, doc, cx)
 }

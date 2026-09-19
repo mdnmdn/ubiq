@@ -113,6 +113,31 @@ fn header(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
             theme::text(),
             theme::font(theme::Family::Chrome, theme::Role::Body),
         )))
+        .child(
+            div()
+                .id("help-follow")
+                .h_full()
+                .flex_none()
+                .flex()
+                .items_center()
+                .gap_1p5()
+                .pr_2()
+                .child(kit::check_box(
+                    "help-follow-box",
+                    app.help.follow,
+                    cx.listener(|this, _, _, cx| this.toggle_help_follow(cx)),
+                ))
+                .child(
+                    kit::mono("Follow mode".to_string(), theme::text_muted())
+                        .text_size(theme::font(theme::Family::Chrome, theme::Role::Meta)),
+                )
+                .tooltip(|window, cx| {
+                    gpui_component::tooltip::Tooltip::new(
+                        "Switch the page automatically when the mode or window changes",
+                    )
+                    .build(window, cx)
+                }),
+        )
 }
 
 /// The contents tree: the catalogue's nav order, indented by each page's depth, with a twisty on

@@ -29,6 +29,7 @@ fn every_kind() -> Vec<PanelKind> {
         PanelKind::GitHistory,
         PanelKind::GitDiff,
         PanelKind::KbExplorer,
+        PanelKind::Kb("kb:01J0:notes.md".to_string()),
         PanelKind::Task,
         PanelKind::AgentsExplorer,
     ]
@@ -86,7 +87,11 @@ fn a_free_panel_takes_any_region() {
 
 #[test]
 fn a_centre_panel_takes_only_the_centre() {
-    for kind in [PanelKind::Centre, PanelKind::File("justfile".to_string())] {
+    for kind in [
+        PanelKind::Centre,
+        PanelKind::File("justfile".to_string()),
+        PanelKind::Kb("kb:01J0:notes.md".to_string()),
+    ] {
         assert!(kind.class().allows(Region::Centre), "{kind:?}");
         for region in [Region::Left, Region::Right, Region::Bottom] {
             assert!(!kind.class().allows(region), "{kind:?} in {region:?}");
@@ -164,6 +169,14 @@ fn the_names_a_saved_layout_is_keyed_by_are_fixed() {
     assert_eq!(PanelKind::GitDiff.home(), Region::Centre);
     assert_eq!(PanelKind::KbExplorer.name(), "ubiq.kb.explorer");
     assert_eq!(PanelKind::KbExplorer.home(), Region::Left);
+    assert_eq!(
+        PanelKind::Kb("kb:01J0:notes.md".to_string()).name(),
+        "ubiq.kb.doc"
+    );
+    assert_eq!(
+        PanelKind::Kb("kb:01J0:notes.md".to_string()).home(),
+        Region::Centre
+    );
     assert_eq!(PanelKind::Task.name(), "ubiq.task");
     assert_eq!(PanelKind::Task.home(), Region::Right);
     assert_eq!(PanelKind::AgentsExplorer.name(), "ubiq.agents.explorer");
@@ -251,7 +264,7 @@ fn a_file_panel_s_name_is_the_same_for_every_file() {
 fn every_name_but_a_terminal_a_file_and_a_chat_rebuilds() {
     for kind in every_kind() {
         match kind {
-            PanelKind::Terminal(_) | PanelKind::File(_) | PanelKind::Chat(_) => {
+            PanelKind::Terminal(_) | PanelKind::File(_) | PanelKind::Kb(_) | PanelKind::Chat(_) => {
                 assert_eq!(PanelKind::from_name(kind.name()), None, "{kind:?}")
             }
             kind => assert_eq!(PanelKind::from_name(kind.name()), Some(kind)),
@@ -278,6 +291,7 @@ fn a_pane_a_file_a_chat_tab_and_the_console_close_and_nothing_else_does() {
                 | PanelKind::GitDiff
         ) || kind.pane().is_some()
             || kind.tab_key().is_some()
+            || kind.kb_key().is_some()
             || kind.chat_id().is_some();
         assert_eq!(kind.closable(), closes, "{kind:?}");
     }

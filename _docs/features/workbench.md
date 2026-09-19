@@ -97,8 +97,9 @@ is written to be reused by the other screens later, but is not shared furniture 
 
 **A side panel defaults to the dock, and only a panel meaningful in exactly one mode stays out of
 it.** `PanelKind` (`state/dock.rs`) is the shared, draggable, per-window arrangement — `Terminal`,
-`Logs`, `Explorer`, `Chat`, `File`, `Search`, `Outline`, the Git family, `KbExplorer`,
-`AgentsExplorer` and the board's own `Task` panel all live there, so any of them can be dragged
+`Logs`, `Explorer`, `Chat`, `File`, `Search`, `Outline`, the Git family, `KbExplorer`, `Kb` (one open
+knowledge-base document, the same `OpenFile` a `File` panel draws — `wip/kb.md`), `AgentsExplorer`
+and the board's own `Task` panel all live there, so any of them can be dragged
 wherever the window is arranged that day; the board's popup flag only swaps that panel's *shape*,
 docked or modal, never whether the dock owns it. A screen that wants a panel with no meaning outside
 its own mode brings its own instead of asking for a `PanelKind`: the Teams and `[Teams]` screens'
@@ -1328,11 +1329,12 @@ click: the box around the diagonal takes none, or the ribbon would swallow every
 bottom-left of the window.
 
 **Every area in the dock is a panel.** One per pane for the terminals, one per open file in IDE
-mode, one per open chat tab — see the chat document — and one each for the explorer, the log
-console — which is [`logs.md`](./logs.md) — the outline, and the centre. A mode with side furniture
-of its own adds to that list: Git's four, the knowledge base's documents explorer, the board's task
-(`PanelKind::Task`, the report or the form for whatever the columns select) and the agents list
-(`PanelKind::AgentsExplorer`).
+mode, one per open document in KB mode (the same `OpenFile` a file panel draws, over a
+knowledge-base source rather than the project — `wip/kb.md`), one per open chat tab — see the chat
+document — and one each for the explorer, the log console — which is [`logs.md`](./logs.md) — the
+outline, and the centre. A mode with side furniture of its own adds to that list: Git's four, the
+knowledge base's documents explorer, the board's task (`PanelKind::Task`, the report or the form for
+whatever the columns select) and the agents list (`PanelKind::AgentsExplorer`).
 
 **Placement is a property of the kind of panel, not a special case.** The explorer sits in the left
 or the right region and nowhere else, because an explorer squeezed into the bottom is a sixty-pixel
@@ -1341,7 +1343,8 @@ tab moves to any dockable region the same way a terminal already could. The cent
 centre. A panel
 dropped where its class forbids is moved back to its home region on the same edit, so the drop reads
 as refused rather than half-taken. A file takes the centre, like the centre panel: the open files
-*are* the centre in IDE mode, so a file dragged to a border would leave nothing behind it.
+*are* the centre in IDE mode, so a file dragged to a border would leave nothing behind it — an open
+KB document takes it the same way in KB mode.
 
 **There is no top region.** The dock has a centre and three edges — left, right and bottom — so
 "docked above the editor" is a split at the top of the centre rather than a region of its own.
@@ -3046,11 +3049,13 @@ in that first row so it sits in the corner above the rail rather than inside it.
 arrangement — everything between the chrome is the dock's.
 
 `ui/dock/` is the adapter. `state/dock.rs` is the policy over the tree and draws nothing:
-`PanelKind` names a panel — a pane id for a terminal, a tab key for a file, nothing at all for the
-rest — `class()` says which regions it may sit in, `home()` where it opens and where one put back
-goes, `name()` is the permanent key a saved layout is rebuilt from, `tab_key()` is the tab a file
-panel draws, `is_drawn()` is the hidden-not-removed rule, and `closable()` says whose tab offers a
-close. `is_drawn()` is asked against one `Visibility` — everything the window knows about itself
+`PanelKind` names a panel — a pane id for a terminal, a tab key for a file, a knowledge-base
+document's own tab key for a `Kb`, nothing at all for the rest — `class()` says which regions it may
+sit in, `home()` where it opens and where one put back goes, `name()` is the permanent key a saved
+layout is rebuilt from, `tab_key()` is the tab a file panel draws and `kb_key()` the tab a `Kb`
+document panel draws — kept apart because every caller of `tab_key()` means "one of the project's
+open files" and would find nothing among the documents — `is_drawn()` is the hidden-not-removed
+rule, and `closable()` says whose tab offers a close. `is_drawn()` is asked against one `Visibility` — everything the window knows about itself
 that a panel could care about — so a new rule is a field on that struct rather than another argument
 threaded through the dock. All of it is pure logic and is tested without a frame in
 `crates/ubiq/tests/dock.rs`, which is also what makes the cost of renaming a panel visible at the
@@ -3063,7 +3068,10 @@ how a terminal's and a file's panel join and leave, `holds()` is what stops a pa
 arrangement already carries being added a second time, `enforce_placement()` puts back a panel
 dropped where its class forbids, and `restore()` rebuilds a saved arrangement or answers that it
 could not. `dump()` writes a file panel's payload through `file_payload()` and `rebuild()` reads it
-back through `file_from_payload()`, which is the one pair that keeps the shape on disk in one place. `ui/dock/skin.rs` implements the component library's
+back through `file_from_payload()`, which is the one pair that keeps the shape on disk in one place;
+a `Kb` document writes and reads the same payload under its own panel name, so `rebuild()` tells the
+two apart by name before handing the key back as a `PanelKind::Kb` rather than a `PanelKind::File`.
+`ui/dock/skin.rs` implements the component library's
 three renderer traits and draws every pixel the library would otherwise style: the tab strip at the
 same height as `ui::kit::tab_strip`, the active tab marked on its bottom edge, the dot beside a tab,
 the close wherever the panel allows one — through `ui::dock::close_panel()` rather than the group,
@@ -3109,7 +3117,10 @@ than read back, because the dock asks both while `AppState` is mid-update — th
 rebuilds a saved arrangement and puts the layouts it carried back on the files, then
 `settle_panels()` drains the `PanelEdit` queue. `sync_file_panels()` squares the dock's file panels
 with the incoming project's open files when the window changes which project it is pointed at,
-because the files are a project's and the panels are the window's. That is the same
+because the files are a project's and the panels are the window's — and does the same for the
+knowledge base's open documents (`KbState::docs`) in the same pass, on the same reasoning: `Kb`
+panels for a project just left are queued to close, and one for each of the incoming project's
+already-open documents is queued to open. That is the same
 device the pending focus and the arrived files already use. A `DockEvent::LayoutChanged`
 subscription enforces placement, then `hide_emptied_regions()` closes an edge region the change just
 emptied — its last panel closed, or dragged to another region — before the layout is written down,
@@ -3808,7 +3819,10 @@ answering contents build is put back where the old one was read rather than open
 `crates/ubiq/tests/files_changed.rs` is what asserts each of those without a frame, cursor position
 included. `activate_file()` and `closed_file_panel()`
 are the other direction — the dock deciding which tab is in front and which has gone, which the
-editor learns from it rather than the other way round. Contents cannot become a buffer where they
+editor learns from it rather than the other way round. `activate_kb_doc()` and `closed_kb_panel()`
+in `app/kb.rs` are the same pair for a `PanelKind::Kb`, moving the explorer's highlight and closing
+the document's own tab respectively rather than anything in `state/editor.rs` — `wip/kb.md` has the
+knowledge base's own half of the tab machinery. Contents cannot become a buffer where they
 arrive, because a buffer needs a window and a message does not come with one, so they queue and
 `attach_arrived_files()` drains them in `render` — the same device the dock's own edits and the
 pending focus use, and the one `fill_task_form()` uses for the task panel's fields. `take_editor_focus()`
