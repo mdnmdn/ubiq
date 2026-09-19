@@ -39,6 +39,7 @@ pub mod scene;
 pub mod script;
 pub mod search;
 pub mod settings;
+pub mod shapes;
 pub mod sink;
 pub mod stats;
 pub mod teams;

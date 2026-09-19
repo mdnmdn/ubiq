@@ -31,8 +31,7 @@ use ubiq_proto::ids::{SessionId, TaskId};
 use ubiq_proto::work::{Activity, AgentId, Priority, Shape, Status, TaskRecord, WorkAgent};
 
 use super::layout::{
-    Algo, CARD_HEIGHT, CARD_WIDTH, GROUP_LABEL, GROUP_PAD, Layout, Rings, SUB_HEIGHT, SUB_WIDTH,
-    fence, sub_slot,
+    Algo, CARD_HEIGHT, CARD_WIDTH, GROUP_LABEL, GROUP_PAD, Layout, Rings, fence, sub_slot,
 };
 
 /// The one format string this reader knows. A file that says anything else is refused rather than
@@ -700,8 +699,26 @@ impl Sim {
         let offset = self
             .layout
             .sub_offset(id, key)
-            .unwrap_or_else(|| sub_slot(sub));
+            .unwrap_or_else(|| self.slot(ix, sub));
         Some((at.0 + offset.0, at.1 + offset.1))
+    }
+
+    /// The slot a delegate starts in, in the shape the chosen arrangement asks for — the same
+    /// reading the teams canvas makes, so the sink shows what the application draws.
+    fn slot(&self, ix: usize, sub: usize) -> (f32, f32) {
+        let count = self
+            .scenario
+            .agents
+            .get(ix)
+            .map(|row| row.subagents.len())
+            .unwrap_or(0);
+        let slots = (self.algo.ring())(count);
+        slots.get(sub).copied().unwrap_or_else(|| sub_slot(sub))
+    }
+
+    /// What one delegate box measures under that ring.
+    pub fn sub_box(&self) -> (f32, f32) {
+        self.algo.sub()
     }
 
     /// Every delegate of one card, where each is drawn.
@@ -718,7 +735,7 @@ impl Sim {
     /// What a card takes on the canvas, its ring included: `(x0, y0, x1, y1)`.
     fn card_bounds(&self, ix: usize) -> Option<(f32, f32, f32, f32)> {
         let at = self.card_at(ix)?;
-        Some(match fence(at, &self.subs_at(ix)) {
+        Some(match fence(at, &self.subs_at(ix), self.sub_box()) {
             Some((x, y, w, h)) => (x, y, x + w, y + h),
             None => (at.0, at.1, at.0 + CARD_WIDTH, at.1 + CARD_HEIGHT),
         })
@@ -792,18 +809,18 @@ impl Sim {
             });
 
             let spots = self.subs_at(ix);
-            if let Some(rect) = fence(at, &spots) {
+            if let Some(rect) = fence(at, &spots, self.sub_box()) {
                 drawing.rings.push(Group { ix, rect });
             }
             for (sub, spot) in spots.iter().enumerate() {
                 drawing.subs.push(Sub {
                     agent: ix,
                     sub,
-                    rect: (spot.0, spot.1, SUB_WIDTH, SUB_HEIGHT),
+                    rect: (spot.0, spot.1, self.sub_box().0, self.sub_box().1),
                 });
                 drawing.edges.push(Edge {
                     from: (at.0 + CARD_WIDTH / 2.0, at.1 + CARD_HEIGHT),
-                    to: (spot.0 + SUB_WIDTH / 2.0, spot.1),
+                    to: (spot.0 + self.sub_box().0 / 2.0, spot.1),
                     kind: EdgeKind::Delegate,
                 });
             }

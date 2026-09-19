@@ -36,8 +36,8 @@ use ubiq_proto::work::{AgentId, TaskRecord, WorkAgent};
 use crate::app::AppState;
 use crate::state::conversation::{SubagentTab, short_model_label};
 use crate::state::teams::{
-    AgentStatus, CARD_HEIGHT, CARD_WIDTH, GROUP_LABEL, GROUP_PAD, SUB_HEIGHT, SUB_WIDTH,
-    agent_status, delegate_status, fence,
+    AgentStatus, CARD_HEIGHT, CARD_WIDTH, GROUP_LABEL, GROUP_PAD, agent_status, delegate_status,
+    fence,
 };
 use crate::state::work;
 use crate::state::{TeamsHeld, TeamsSelection};
@@ -165,6 +165,10 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
     // as each piece is added, which is one fewer reading of the same geometry to disagree with.
     let mut board = Board::new(zoom, GRAPH_MARGIN);
 
+    // What one delegate measures under the chosen arrangement's ring. Read once, so the card, its
+    // connector and the fence round it can never disagree about the shape being drawn.
+    let sub = graph.sub_box();
+
     // The task containers, under everything: a dashed box round the cards serving one task, with
     // its shape and its title on the top edge. The box is computed from where its cards are, so a
     // card dragged out of one takes the outline with it.
@@ -251,7 +255,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                     (at.0 + CARD_WIDTH / 2.0) * zoom,
                     (at.1 + CARD_HEIGHT) * zoom,
                 ),
-                to: point((spot.0 + SUB_WIDTH / 2.0) * zoom, spot.1 * zoom),
+                to: point((spot.0 + sub.0 / 2.0) * zoom, spot.1 * zoom),
                 colour: theme::fade(delegate_colour(delegate_status(tab)), 0.45),
             });
         }
@@ -264,7 +268,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
     // levels. It is the box round a card and wherever its delegates have been put, so dragging one
     // out to the side resizes the fence rather than leaving it behind.
     for (id, at, delegates, spots) in &rings {
-        if let Some(rect) = fence(*at, spots) {
+        if let Some(rect) = fence(*at, spots, sub) {
             board.inner_fence(Fence::new(
                 rect,
                 theme::fade(theme::accent_muted(), 0.8),
@@ -273,13 +277,14 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         }
         for (ix, (tab, spot)) in delegates.iter().zip(spots).enumerate() {
             board.block(
-                (spot.0, spot.1, SUB_WIDTH, SUB_HEIGHT),
+                (spot.0, spot.1, sub.0, sub.1),
                 subagent_card(
                     *id,
                     work.agent(*id).map(|a| a.harness.as_str()).unwrap_or(""),
                     tab,
                     ix,
                     *spot,
+                    sub,
                     graph.subagent_in_focus() == Some(tab.id.as_str()),
                     held.as_ref()
                         == Some(&TeamsHeld::Subagent {
@@ -407,6 +412,7 @@ fn subagent_card(
     tab: &SubagentTab,
     ix: usize,
     at: (f32, f32),
+    sub: (f32, f32),
     selected: bool,
     carried: bool,
     zoom: f32,
@@ -440,7 +446,7 @@ fn subagent_card(
     // being read, where the selected fill is already behind it.
     let mut body = blocks::block(
         eid2("teams-subagent", agent, ix),
-        (at.0, at.1, SUB_WIDTH, SUB_HEIGHT),
+        (at.0, at.1, sub.0, sub.1),
         Look::new(colour)
             .selected(selected)
             .carried(carried)

@@ -460,14 +460,29 @@ impl TeamsView {
         self.ring(agent).len()
     }
 
+    /// The slot the `ix`-th delegate starts in, in the shape the chosen arrangement asks for.
+    ///
+    /// **The ring is the arrangement's, not a constant.** A grid ring and a one-per-row ring put
+    /// the same delegate in different places, and the packers reserved room for whichever one this
+    /// answers — so reading `sub_slot` directly here would draw a shape nothing left room for.
+    fn slot(&self, agent: AgentId, ix: usize) -> (f32, f32) {
+        let slots = (self.algo.ring())(self.ring_count(agent));
+        slots.get(ix).copied().unwrap_or_else(|| sub_slot(ix))
+    }
+
     /// Where one delegate is drawn, on the canvas: the offset a drag wrote for it, or the slot it
     /// starts in. `at` is where its parent card is.
     pub fn sub_at(&self, agent: AgentId, at: (f32, f32), sub: &str, ix: usize) -> (f32, f32) {
         let offset = self
             .layout
             .sub_offset(agent, sub)
-            .unwrap_or_else(|| sub_slot(ix));
+            .unwrap_or_else(|| self.slot(agent, ix));
         (at.0 + offset.0, at.1 + offset.1)
+    }
+
+    /// What one delegate box measures under the chosen arrangement's ring.
+    pub fn sub_box(&self) -> (f32, f32) {
+        self.algo.sub()
     }
 
     /// Every delegate of one card, in transcript order, where each is drawn.
@@ -484,7 +499,7 @@ impl TeamsView {
     /// Derived from where the delegates actually are, so dragging one resizes the fence and
     /// nothing has to hold a rectangle in step with them.
     pub fn fence_of(&self, agent: AgentId, at: (f32, f32)) -> Option<(f32, f32, f32, f32)> {
-        fence(at, &self.subs_at(agent, at))
+        fence(at, &self.subs_at(agent, at), self.sub_box())
     }
 
     /// What a card takes on the canvas, its fence included: `(x0, y0, x1, y1)` at 100% zoom.
