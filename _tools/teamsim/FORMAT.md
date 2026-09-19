@@ -81,3 +81,14 @@ uses: a task's is its container's origin on the canvas, an agent's is its offset
 spawned it, keyed `<agent id>/<subagent id>`. Anything the map does not name is placed by the
 arrangement. An arrangement that runs from scratch ignores the whole block; `adaptive` reads it and
 moves as little as it can.
+
+## Arrival order
+
+**A scenario is also a history.** Sessions, tasks, agents and delegates are listed in the order they
+arrived, and that is what the `adaptive` arrangement is judged on: a real graph is never laid out
+once, it grows a block at a time as an agent spawns a delegate or takes on a task, and each arriving
+block has to find a place in the arrangement that is already on screen.
+
+A reader that only draws the finished graph may ignore this. One that simulates the growth — the
+Python tool's `--incremental` mode, and the sink's `+sub` / `Add agent` / `Add task` buttons — adds
+the blocks in file order and places each one against what is already there.
