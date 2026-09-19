@@ -46,10 +46,11 @@ pub enum SinkSection {
     Messages,
     A2ui,
     Script,
+    Teamsim,
 }
 
 impl SinkSection {
-    /// The eleven, in the order the strip draws them.
+    /// The twelve, in the order the strip draws them.
     pub fn all() -> &'static [SinkSection] {
         &[
             SinkSection::Editor,
@@ -63,6 +64,7 @@ impl SinkSection {
             SinkSection::Messages,
             SinkSection::A2ui,
             SinkSection::Script,
+            SinkSection::Teamsim,
         ]
     }
 
@@ -83,7 +85,7 @@ impl SinkSection {
 }
 
 /// The tab and the line under the title, one row per [`SinkSection`], in variant order.
-const SECTION_COPY: [(&str, &str); 11] = [
+const SECTION_COPY: [(&str, &str); 12] = [
     (
         "Editor",
         "The plain buffer: highlighting, line numbers, folding.",
@@ -124,6 +126,10 @@ const SECTION_COPY: [(&str, &str); 11] = [
     (
         "Script",
         "A JavaScript scratchpad, run by the embedded interpreter.",
+    ),
+    (
+        "Teamsim",
+        "The teams graph's arrangements, against a scenario you can edit.",
     ),
 ];
 
@@ -1333,6 +1339,11 @@ pub struct SinkState {
     pub a2ui: A2uiDemo,
     /// The script page: what the last run of the embedded interpreter said.
     pub script: ScriptDemo,
+    /// The teamsim page: the loaded scenario, where the arrangement put it, and what the page
+    /// remembers about looking at it. The type is
+    /// [`crate::state::teamsim::TeamsimDemo`] — the geometry lives beside the scenario it is
+    /// derived from, so this module never grows a second layout engine.
+    pub teamsim: crate::state::teamsim::TeamsimDemo,
 }
 
 impl Default for SinkState {
@@ -1353,6 +1364,7 @@ impl Default for SinkState {
             messages: MessagesDemo::default(),
             a2ui: A2uiDemo::default(),
             script: ScriptDemo::default(),
+            teamsim: crate::state::teamsim::TeamsimDemo::default(),
         }
     }
 }

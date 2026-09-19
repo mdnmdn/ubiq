@@ -253,6 +253,12 @@ drone-manifest:
 drone-manifest-verify:
     uv run _tools/drone.py verify
 
+# ── the teams graph ────────────────────────────────────────────────
+
+# Render the graph's arrangements as PNGs: `just teamsim --all-scenarios --algo all --sheet`
+teamsim *ARGS:
+    uv run _tools/teamsim/teamsim.py {{ARGS}}
+
 # ── housekeeping ───────────────────────────────────────────────────
 
 # Remove build output

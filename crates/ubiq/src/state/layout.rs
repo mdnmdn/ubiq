@@ -24,6 +24,8 @@ use std::collections::HashMap;
 use ubiq_proto::ids::{SessionId, TaskId};
 use ubiq_proto::work::{AgentId, TaskRecord, WorkAgent};
 
+use super::shapes;
+
 /// The card's size at 100% zoom. The graph's arithmetic — containers, connectors, hit testing —
 /// all works from these, so a card that changes size changes them in one place. The height is
 /// four rows: what the agent is, what is answering for it and how full its window is, the line it
@@ -64,6 +66,45 @@ pub const SUB_GAP: f32 = 12.0;
 /// How far under its parent's bottom edge the first row of delegates starts.
 pub const SUB_DROP: f32 = 16.0;
 
+/// The narrow delegate box, and what a ring shape is measured in.
+///
+/// **A delegate drawn full card width is what makes every arrangement a tower.** Six of them under
+/// one card is some 650pt of height nothing else on the canvas can use, and a row is charged for
+/// the tallest card in it, so the room beside the ring is lost as well. The narrow
+/// box is the same delegate at a size two of them fit across a card, which is the shape every ring
+/// but [`ring_rows`] is built out of.
+pub const SUB_NARROW_WIDTH: f32 = (CARD_WIDTH - SUB_GAP) / 2.0;
+pub const SUB_NARROW_HEIGHT: f32 = 72.0;
+
+/// What one delegate box measures, per ring shape. An arrangement says which with [`Algo::sub`],
+/// and the drawing reads it from there rather than assuming the full-width one.
+pub const SUB_BOX: (f32, f32) = (SUB_WIDTH, SUB_HEIGHT);
+pub const SUB_NARROW: (f32, f32) = (SUB_NARROW_WIDTH, SUB_NARROW_HEIGHT);
+
+/// How many rows two columns of delegates may reach before a grid ring widens to three.
+pub const GRID_ROWS: usize = 4;
+
+/// The clear sector at the top **and** the bottom of a radial ring, in degrees either side of the
+/// vertical, kept free because that is where a card's connectors arrive and leave. The delegates
+/// take the two side flanks, which is also why that fence comes out wide and short.
+pub const RADIAL_CLEAR: f32 = 30.0;
+/// The breathing room between the card and its first radial ring, and between two rings.
+pub const RADIAL_GAP: f32 = 12.0;
+/// The most delegates one radial ring is ever asked to seat, however much room the arithmetic finds.
+pub const RADIAL_SEATS: usize = 10;
+
+/// The shape an arrangement is read at when nothing says otherwise: a screen, not a square.
+///
+/// The arrangements that predate the layout spike ask for a square, because nothing told them the
+/// viewport is a rectangle, and they keep asking for one so their arithmetic is unchanged —
+/// [`Algo::target`] is what says which of the two an arrangement wants. Threading the *real*
+/// viewport down here is `G310`: no caller of [`Layout::auto`] has one to hand.
+pub const VIEW_ASPECT: f32 = 1.6;
+
+/// How much wider than the bare area sum a viewport-aware shelf's first guess runs, for the ragged
+/// end of every row. It is only a candidate — [`pack_view_shelf`] scores it against the others.
+pub const SHELF_SLACK: f32 = 1.15;
+
 /// Where the `ix`-th delegate starts, as an offset from its parent card's top-left. One to a row,
 /// squared up under the card, so a fence round the default arrangement is never wider than the
 /// card plus its padding.
@@ -87,19 +128,21 @@ pub fn ring_drop(count: usize) -> f32 {
 
 /// The fence round a card and its delegates: `(x, y, w, h)` at 100% zoom, in the caller's frame.
 ///
-/// `subs` are the delegates' top-left corners on the same canvas. An empty slice is a card with no
-/// delegates, which wears no fence and is why this answers `None` rather than the bare card.
-pub fn fence(at: (f32, f32), subs: &[(f32, f32)]) -> Option<(f32, f32, f32, f32)> {
+/// `subs` are the delegates' top-left corners on the same canvas, and `sub` is what one of them
+/// measures — [`SUB_BOX`] for the one-per-row ring, [`SUB_NARROW`] for every shape that seats them
+/// beside one another. An empty slice is a card with no delegates, which wears no fence and is why
+/// this answers `None` rather than the bare card.
+pub fn fence(at: (f32, f32), subs: &[(f32, f32)], sub: (f32, f32)) -> Option<(f32, f32, f32, f32)> {
     if subs.is_empty() {
         return None;
     }
     let (mut x0, mut y0) = (at.0, at.1);
     let (mut x1, mut y1) = (at.0 + CARD_WIDTH, at.1 + CARD_HEIGHT);
-    for sub in subs {
-        x0 = x0.min(sub.0);
-        y0 = y0.min(sub.1);
-        x1 = x1.max(sub.0 + SUB_WIDTH);
-        y1 = y1.max(sub.1 + SUB_HEIGHT);
+    for at in subs {
+        x0 = x0.min(at.0);
+        y0 = y0.min(at.1);
+        x1 = x1.max(at.0 + sub.0);
+        y1 = y1.max(at.1 + sub.1);
     }
     Some((
         x0 - RING_PAD,
@@ -109,13 +152,243 @@ pub fn fence(at: (f32, f32), subs: &[(f32, f32)]) -> Option<(f32, f32, f32, f32)
     ))
 }
 
+/// The ring every arrangement that predates the layout spike wears: one delegate to a row.
+pub fn ring_rows(count: usize) -> Vec<(f32, f32)> {
+    (0..count).map(sub_slot).collect()
+}
+
+/// How many columns a grid ring takes. Two, until two would run past [`GRID_ROWS`] rows.
+fn grid_cols(count: usize) -> usize {
+    if count == 0 {
+        return 1;
+    }
+    if count.div_ceil(2) <= GRID_ROWS { 2 } else { 3 }
+}
+
+/// Narrow delegates in a grid under the card, centred on it.
+///
+/// Two columns of [`SUB_NARROW_WIDTH`] come to exactly `CARD_WIDTH`, so the usual ring is as wide as
+/// its card and a third the height of the one-per-row stack. A ring that would run deeper than
+/// [`GRID_ROWS`] widens to three columns rather than growing down — width is the cheap axis.
+pub fn ring_grid(count: usize) -> Vec<(f32, f32)> {
+    if count == 0 {
+        return Vec::new();
+    }
+    let cols = grid_cols(count);
+    let span = cols as f32 * SUB_NARROW_WIDTH + (cols - 1) as f32 * SUB_GAP;
+    let left = (CARD_WIDTH - span) / 2.0;
+    let top = CARD_HEIGHT + SUB_DROP;
+
+    (0..count)
+        .map(|ix| {
+            let (row, col) = (ix / cols, ix % cols);
+            // A short last row is centred in the grid rather than left-aligned under it.
+            let wide = cols.min(count - row * cols);
+            let held = wide as f32 * SUB_NARROW_WIDTH + (wide - 1) as f32 * SUB_GAP;
+            (
+                left + (span - held) / 2.0 + col as f32 * (SUB_NARROW_WIDTH + SUB_GAP),
+                top + row as f32 * (SUB_NARROW_HEIGHT + SUB_GAP),
+            )
+        })
+        .collect()
+}
+
+/// One delegate on the ray `turn` degrees clockwise from straight up, hugging the card.
+///
+/// Not an ellipse: the box is pushed out along the ray only as far as it takes to clear the card's
+/// **rectangle**, grown by the box and the gap. A ring of these follows the card's own outline, so
+/// nothing sits on the card and the ring stays as tight as the card is.
+pub fn radial_slot(turn: f32, depth: usize) -> (f32, f32) {
+    let rad = turn.to_radians();
+    let (dx, dy) = (rad.sin(), -rad.cos());
+    let wide = (CARD_WIDTH + SUB_NARROW_WIDTH) / 2.0
+        + RADIAL_GAP
+        + depth as f32 * (SUB_NARROW_WIDTH + SUB_GAP);
+    let tall = (CARD_HEIGHT + SUB_NARROW_HEIGHT) / 2.0
+        + RADIAL_GAP
+        + depth as f32 * (SUB_NARROW_HEIGHT + SUB_GAP);
+    let out = (if dx.abs() > 1e-9 {
+        wide / dx.abs()
+    } else {
+        f32::INFINITY
+    })
+    .min(if dy.abs() > 1e-9 {
+        tall / dy.abs()
+    } else {
+        f32::INFINITY
+    });
+    (
+        CARD_WIDTH / 2.0 + out * dx - SUB_NARROW_WIDTH / 2.0,
+        CARD_HEIGHT / 2.0 + out * dy - SUB_NARROW_HEIGHT / 2.0,
+    )
+}
+
+/// Whether every pair of slots stays a readable [`SUB_GAP`] apart, at the narrow box.
+pub fn apart_enough(slots: &[(f32, f32)]) -> bool {
+    for i in 0..slots.len() {
+        for j in i + 1..slots.len() {
+            let (a, b) = (slots[i], slots[j]);
+            let gap_x = (a.0 - b.0).abs() - SUB_NARROW_WIDTH;
+            let gap_y = (a.1 - b.1).abs() - SUB_NARROW_HEIGHT;
+            if gap_x.max(gap_y) < SUB_GAP - EPS {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// One side's delegates, spread evenly down the flank between the two clear sectors.
+fn radial_flank(seats: usize, depth: usize, left: bool) -> Vec<(f32, f32)> {
+    if seats == 0 {
+        return Vec::new();
+    }
+    let (lo, hi) = if left {
+        (180.0 + RADIAL_CLEAR, 360.0 - RADIAL_CLEAR)
+    } else {
+        (RADIAL_CLEAR, 180.0 - RADIAL_CLEAR)
+    };
+    let step = (hi - lo) / seats as f32;
+    (0..seats)
+        .map(|ix| radial_slot(lo + (ix as f32 + 0.5) * step, depth))
+        .collect()
+}
+
+/// One whole ring, its delegates shared between the right flank and the left.
+fn radial_ring(seats: usize, depth: usize) -> Vec<(f32, f32)> {
+    let right = seats.div_ceil(2);
+    let mut out = radial_flank(right, depth, false);
+    out.extend(radial_flank(seats - right, depth, true));
+    out
+}
+
+/// How many delegates ring `depth` seats while they stay a readable [`SUB_GAP`] apart.
+fn radial_room(depth: usize) -> usize {
+    let mut room = 1;
+    for seats in 2..=RADIAL_SEATS {
+        if !apart_enough(&radial_ring(seats, depth)) {
+            break;
+        }
+        room = seats;
+    }
+    room
+}
+
+/// How the delegates split between the rings: one, until a readable spacing runs out.
+fn radial_rings(count: usize) -> Vec<usize> {
+    if count == 0 {
+        return Vec::new();
+    }
+    let inner = radial_room(0);
+    if count <= inner {
+        return vec![count];
+    }
+    // Past one ring, share them out evenly rather than filling the inner one — an even constellation
+    // reads as one card's delegates, a full inner ring with two strays hanging off it does not.
+    let share = inner.min(count.div_ceil(2));
+    vec![share, count - share]
+}
+
+/// Narrow delegates round the card rather than under it, on its two side flanks.
+///
+/// The sectors straight up and straight down are left clear, because that is where the card's
+/// connectors arrive and leave — a delegate never sits on one. What is left is the two flanks, so
+/// the fence comes out wide and short, which is the trade a rectangular viewport wants: width is
+/// cheap, height is not. Past one ring's worth, a second opens outside the first.
+pub fn ring_radial(count: usize) -> Vec<(f32, f32)> {
+    radial_rings(count)
+        .into_iter()
+        .enumerate()
+        .flat_map(|(depth, seats)| radial_ring(seats, depth))
+        .collect()
+}
+
+/// [`RING_PAD`] on each side the delegates actually push past the card, and nowhere else.
+///
+/// A one-per-row ring only ever passes the card downwards, so this is the bottom-only pad the
+/// arrangement has always reserved, arithmetic for arithmetic. A ring that reaches sideways gets its
+/// pad there too, which is what keeps one card's fence from touching its neighbour's.
+pub fn ring_pad(held: (f32, f32, f32, f32), card: (f32, f32, f32, f32)) -> (f32, f32, f32, f32) {
+    let left = if held.0 < card.0 - EPS { RING_PAD } else { 0.0 };
+    let top = if held.1 < card.1 - EPS { RING_PAD } else { 0.0 };
+    let right = if held.0 + held.2 > card.0 + card.2 + EPS {
+        RING_PAD
+    } else {
+        0.0
+    };
+    let bottom = if held.1 + held.3 > card.1 + card.3 + EPS {
+        RING_PAD
+    } else {
+        0.0
+    };
+    (
+        held.0 - left,
+        held.1 - top,
+        held.2 + left + right,
+        held.3 + top + bottom,
+    )
+}
+
+/// The union of some rectangles. An empty set is the empty rectangle at the origin.
+pub fn union(rects: &[(f32, f32, f32, f32)]) -> (f32, f32, f32, f32) {
+    let mut out: Option<(f32, f32, f32, f32)> = None;
+    for r in rects {
+        out = Some(match out {
+            None => *r,
+            Some(held) => {
+                let x0 = held.0.min(r.0);
+                let y0 = held.1.min(r.1);
+                let x1 = (held.0 + held.2).max(r.0 + r.2);
+                let y1 = (held.1 + held.3).max(r.1 + r.3);
+                (x0, y0, x1 - x0, y1 - y0)
+            }
+        });
+    }
+    out.unwrap_or((0.0, 0.0, 0.0, 0.0))
+}
+
+/// The room a card and its delegates take, in the card's own frame.
+///
+/// The union of the card and the delegate boxes, padded by [`ring_pad`] — the same reading the
+/// canvas draws, so what a packer reserves is exactly what appears, whatever shape the ring is in.
+pub fn ring_box(slots: &[(f32, f32)], sub: (f32, f32)) -> (f32, f32, f32, f32) {
+    let card = (0.0, 0.0, CARD_WIDTH, CARD_HEIGHT);
+    if slots.is_empty() {
+        return card;
+    }
+    let mut parts = vec![card];
+    parts.extend(slots.iter().map(|at| (at.0, at.1, sub.0, sub.1)));
+    let held = union(&parts);
+    union(&[card, ring_pad(held, card)])
+}
+
+/// What one card reserves, in **both** axes — the fix a ring wider than its card needs.
+///
+/// A card used to reserve a *height* alone, so a ring wider than its card was invisible to every
+/// packer: nothing could reserve room for a shape other than the one already there. This is derived
+/// from the ring function's own slots, so a new ring shape is reserved for the moment it exists.
+pub fn card_box(agent: AgentId, rings: &Rings, ring: RingFn, sub: (f32, f32)) -> (f32, f32) {
+    let held = ring_box(&ring(rings.get(&agent).copied().unwrap_or(0)), sub);
+    (held.2, held.3)
+}
+
+/// Where the card itself sits inside that box. `(0, 0)` unless the ring reaches past it.
+pub fn card_lead(agent: AgentId, rings: &Rings, ring: RingFn, sub: (f32, f32)) -> (f32, f32) {
+    let held = ring_box(&ring(rings.get(&agent).copied().unwrap_or(0)), sub);
+    (-held.0, -held.1)
+}
+
+/// Where a card's delegates go inside its own fence. One function per ring shape, named by
+/// [`Algo::ring`], so a packer and the drawing always agree about the shape being reserved for.
+pub type RingFn = fn(usize) -> Vec<(f32, f32)>;
+
 /// What a packer answers: a position per box, in the order it was given them, and the extent the
 /// lot takes. Named because five functions return it and the tuple says nothing on its own.
-type Packing = (Vec<(f32, f32)>, (f32, f32));
+pub type Packing = (Vec<(f32, f32)>, (f32, f32));
 
 /// The slack a float comparison is allowed. Geometry is accumulated by addition, so two edges that
 /// should meet rarely meet exactly, and a packer that believes the difference leaves seams.
-const EPS: f32 = 0.01;
+pub const EPS: f32 = 0.01;
 
 /// Which arrangement a tidy computes.
 ///
@@ -130,10 +403,34 @@ pub enum Algo {
     Packed,
     Tree,
     Columns,
+    Adaptive,
+    Multiline,
+    Radial,
+    Organic,
+    Multiradial,
+    Spider,
+    Hex,
+    Islands,
 }
 
 impl Algo {
-    pub const ALL: [Algo; 4] = [Algo::Flow, Algo::Packed, Algo::Tree, Algo::Columns];
+    pub const ALL: [Algo; 12] = [
+        Algo::Flow,
+        Algo::Packed,
+        Algo::Tree,
+        Algo::Columns,
+        Algo::Adaptive,
+        Algo::Multiline,
+        Algo::Radial,
+        Algo::Organic,
+        Algo::Multiradial,
+        Algo::Spider,
+        Algo::Hex,
+        Algo::Islands,
+    ];
+
+    /// The four that predate the layout spike, and the arithmetic none of the rest may disturb.
+    pub const ORIGINAL: [Algo; 4] = [Algo::Flow, Algo::Packed, Algo::Tree, Algo::Columns];
 
     /// The name the menu row carries.
     pub fn label(self) -> &'static str {
@@ -142,6 +439,14 @@ impl Algo {
             Algo::Packed => "Packed",
             Algo::Tree => "Tree",
             Algo::Columns => "Columns",
+            Algo::Adaptive => "Adaptive",
+            Algo::Multiline => "Multiline",
+            Algo::Radial => "Radial",
+            Algo::Organic => "Organic",
+            Algo::Multiradial => "Multiradial",
+            Algo::Spider => "Spider",
+            Algo::Hex => "Hex",
+            Algo::Islands => "Islands",
         }
     }
 
@@ -152,47 +457,87 @@ impl Algo {
             Algo::Packed => "the tightest fit, for when the whitespace bothers you",
             Algo::Tree => "containers hang under whoever spawned them",
             Algo::Columns => "one card per row, for a narrow window",
+            Algo::Adaptive => "delegates in a grid, containers in record order",
+            Algo::Multiline => "delegates in a grid under their card, folded to the screen's shape",
+            Algo::Radial => "delegates round their card, packed against the screen's rectangle",
+            Algo::Organic => "children sprayed under their parent, bowed and nudged off the grid",
+            Algo::Multiradial => "every parent a hub, its children on arcs below it",
+            Algo::Spider => "one hub per container, cards on arcs, spokes to the parent",
+            Algo::Hex => "cards on a honeycomb, a row per hand-off, rows half a cell over",
+            Algo::Islands => "disjoint families as separate islands, no root assumed",
         }
+    }
+
+    /// Where this arrangement puts a card's delegates inside its own fence.
+    pub fn ring(self) -> RingFn {
+        match self {
+            Algo::Flow | Algo::Packed | Algo::Tree | Algo::Columns => ring_rows,
+            Algo::Adaptive | Algo::Multiline | Algo::Islands => ring_grid,
+            Algo::Radial => ring_radial,
+            Algo::Organic => shapes::ring_organic,
+            Algo::Multiradial | Algo::Spider => shapes::ring_fan,
+            Algo::Hex => shapes::ring_hex,
+        }
+    }
+
+    /// What one delegate box measures under that ring. The drawing reads this, not [`SUB_BOX`].
+    pub fn sub(self) -> (f32, f32) {
+        match self {
+            Algo::Flow | Algo::Packed | Algo::Tree | Algo::Columns => SUB_BOX,
+            _ => SUB_NARROW,
+        }
+    }
+
+    /// The shape this arrangement is aiming its folds and its packing at.
+    ///
+    /// `1.0` is the square the four original arrangements have always asked for, and keeping them
+    /// on it is what makes every one of their positions unchanged by this file's other additions.
+    fn target(self) -> f32 {
+        match self {
+            Algo::Flow | Algo::Packed | Algo::Tree | Algo::Columns => 1.0,
+            _ => VIEW_ASPECT,
+        }
+    }
+
+    /// Whether the session-level packer is handed which container hangs under which.
+    fn forest(self) -> bool {
+        matches!(
+            self,
+            Algo::Tree
+                | Algo::Organic
+                | Algo::Multiradial
+                | Algo::Spider
+                | Algo::Hex
+                | Algo::Islands
+        )
     }
 
     /// Arrange one container's cards. The inner arrangement fixes the group's box, which is what
     /// the session-level packer then treats as rigid — the whole thing is solved bottom-up.
     fn inside(self, task: TaskId, agents: &[WorkAgent], rings: &Rings) -> Contents {
         let members: Vec<&WorkAgent> = agents.iter().filter(|a| a.task == Some(task)).collect();
+        let (ring, sub, target) = (self.ring(), self.sub(), self.target());
         match self {
             // Tree wants the connectors to run straight down, which is what the plain stack draws.
-            Algo::Flow | Algo::Tree => stack(&members, rings),
-            Algo::Packed => stack_wrapped(&members, rings),
-            Algo::Columns => column(&members, rings),
+            Algo::Flow | Algo::Tree | Algo::Adaptive => stack(&members, rings, ring, sub),
+            Algo::Packed => stack_wrapped(&members, rings, ring, sub),
+            Algo::Columns => column(&members, rings, ring, sub),
+            Algo::Multiline | Algo::Radial => stack_aspect(&members, rings, ring, sub, target),
+            Algo::Organic => shapes::inside_organic(&members, rings, ring, sub, target),
+            Algo::Multiradial => shapes::inside_multiradial(&members, rings, ring, sub, target),
+            Algo::Spider => shapes::inside_spider(&members, rings, ring, sub, target),
+            Algo::Hex => shapes::inside_hex(&members, rings, ring, sub, target),
+            Algo::Islands => shapes::inside_islands(&members, rings, ring, sub, target),
         }
     }
 }
 
-/// How many delegates each card is drawing, for the packers that have to leave room under it.
+/// How many delegates each card is drawing, for the packers that have to leave room round it.
 ///
-/// A card the map does not name has none, which is why every reader goes through
-/// [`card_extent`]/[`row_extent`] rather than the map: the arrangement is the same one it always
-/// was for a graph with no delegates in it.
+/// A card the map does not name has none, which is why every reader goes through [`card_box`]
+/// rather than the map: the arrangement is the same one it always was for a graph with no
+/// delegates in it.
 pub type Rings = HashMap<AgentId, usize>;
-
-/// What one card takes up top to bottom, ring included: `CARD_HEIGHT` plus whatever room its
-/// delegates need under it.
-///
-/// **The one place a card's vertical extent is computed.** A packer that instead wrote
-/// `CARD_HEIGHT + ring_drop(..)` inline would have to be found and changed again the day a second
-/// ring row, a taller delegate box, or a wider cap on how many a card can carry moves the number —
-/// three call sites is three chances to fix two of them and miss the third. Every packer below
-/// asks this rather than assuming `CARD_HEIGHT` on its own.
-fn card_extent(agent: AgentId, rings: &Rings) -> f32 {
-    CARD_HEIGHT + ring_drop(rings.get(&agent).copied().unwrap_or(0))
-}
-
-/// The room one row of cards needs: the tallest extent any card in it takes.
-fn row_extent(row: &[AgentId], rings: &Rings) -> f32 {
-    row.iter()
-        .map(|id| card_extent(*id, rings))
-        .fold(0.0f32, f32::max)
-}
 
 /// Every position the graph draws from.
 #[derive(Default, Debug)]
@@ -324,7 +669,10 @@ impl Layout {
             .iter()
             .filter(|a| a.session == session && a.task.is_none())
             .collect();
-        let Contents { cards, height, .. } = stack(&loose, rings);
+        // Stacked whichever arrangement is chosen, because this block is the frame the session
+        // hangs off — but it wears the arrangement's own ring, so a delegate up here is the shape
+        // the packers below reserved for.
+        let Contents { cards, height, .. } = stack(&loose, rings, algo.ring(), algo.sub());
         if !cards.is_empty() {
             for (agent, offset) in cards {
                 self.agents
@@ -357,18 +705,29 @@ impl Layout {
             })
             .collect();
 
+        // Only the arrangements that read it pay for working it out, and the rest are handed the
+        // all-`None` relation they have always had.
+        let parents = if algo.forest() {
+            task_forest(&boxes, agents)
+        } else {
+            vec![None; boxes.len()]
+        };
+        let target = algo.target();
+
         let (at, extent) = match algo {
             // The shelf keeps record order, which is what makes Flow the calm one to read.
-            Algo::Flow | Algo::Columns => {
+            Algo::Flow | Algo::Columns | Algo::Adaptive => {
                 pack_shelf(&sizes, LAYOUT_WIDTH - LAYOUT_MARGIN, TASK_GAP)
             }
-            Algo::Packed => without_empties(&sizes, |kept| pack_best(kept, TASK_GAP)),
-            Algo::Tree => {
-                let parents = task_forest(&boxes, agents);
-                without_empties(&sizes, |kept| {
-                    let kept_parents = remap(&sizes, &parents);
-                    pack_tree(kept, &kept_parents, TASK_GAP)
-                })
+            Algo::Packed => without_empties(&sizes, |kept| pack_best(kept, TASK_GAP, 1.0, false)),
+            Algo::Tree => without_empties(&sizes, |kept| {
+                let kept_parents = remap(&sizes, &parents);
+                pack_tree(kept, &kept_parents, TASK_GAP)
+            }),
+            Algo::Multiline => pack_view_shelf(&sizes, target),
+            Algo::Radial => without_empties(&sizes, |kept| pack_best(kept, TASK_GAP, target, true)),
+            Algo::Organic | Algo::Multiradial | Algo::Spider | Algo::Hex | Algo::Islands => {
+                shapes::pack_islands(&sizes, &parents, target)
             }
         };
 
@@ -397,14 +756,14 @@ impl Layout {
 }
 
 /// One container's contents: an offset per card, and the size those cards take up.
-struct Contents {
-    cards: Vec<(AgentId, (f32, f32))>,
-    width: f32,
-    height: f32,
+pub struct Contents {
+    pub cards: Vec<(AgentId, (f32, f32))>,
+    pub width: f32,
+    pub height: f32,
 }
 
 impl Contents {
-    fn empty() -> Self {
+    pub fn empty() -> Self {
         Contents {
             cards: Vec::new(),
             width: 0.0,
@@ -423,38 +782,117 @@ impl Contents {
 /// Shared by a container and by the row of agents that have no task, because the second one holds a
 /// spawn tree too: the agent coordinating a project parents each session's master, and drawing it
 /// beside its own child rather than above it would send the connector sideways.
-fn stack(members: &[&WorkAgent], rings: &Rings) -> Contents {
+fn stack(members: &[&WorkAgent], rings: &Rings, ring: RingFn, sub: (f32, f32)) -> Contents {
     let rows = rows_by_depth(members);
     if rows.is_empty() {
         return Contents::empty();
     }
+    let held = Boxes::of(members, rings, ring, sub);
+    let width = rows.iter().map(|row| held.span(row)).fold(0.0f32, f32::max);
+    held.lay(&rows, width)
+}
 
-    let width = rows
-        .iter()
-        .map(|row| row_width(row.len()))
-        .fold(0.0f32, f32::max);
+/// Every card's reserved box and where the card sits inside it, for one container's members.
+///
+/// **A row is laid out by these, not by `CARD_WIDTH`.** A ring wider than its card moves the card
+/// that wears it, and the neighbour beside it, and until this existed no arrangement could say so.
+pub struct Boxes {
+    boxes: HashMap<AgentId, (f32, f32)>,
+    leads: HashMap<AgentId, (f32, f32)>,
+}
 
-    // Rows are walked rather than multiplied out, because a row holding a card with delegates is
-    // taller than one that does not: the fence under it is part of what that row draws.
-    let mut cards = Vec::new();
-    let mut y = 0.0f32;
-    let mut height = 0.0f32;
-    for row in &rows {
-        // Short rows are centred over long ones, so a coordinator sits above the middle of its
-        // workers rather than over the leftmost one.
-        let start = (width - row_width(row.len())) / 2.0;
-        for (ix, agent) in row.iter().enumerate() {
-            cards.push((*agent, (start + ix as f32 * (CARD_WIDTH + CARD_GAP_X), y)));
+impl Boxes {
+    pub fn of(members: &[&WorkAgent], rings: &Rings, ring: RingFn, sub: (f32, f32)) -> Self {
+        Boxes {
+            boxes: members
+                .iter()
+                .map(|m| (m.id, card_box(m.id, rings, ring, sub)))
+                .collect(),
+            leads: members
+                .iter()
+                .map(|m| (m.id, card_lead(m.id, rings, ring, sub)))
+                .collect(),
         }
-        let tall = row_extent(row, rings);
-        height = y + tall;
-        y += tall + CARD_GAP_Y;
     }
 
-    Contents {
-        cards,
-        width,
-        height,
+    pub fn box_of(&self, agent: AgentId) -> (f32, f32) {
+        self.boxes
+            .get(&agent)
+            .copied()
+            .unwrap_or((CARD_WIDTH, CARD_HEIGHT))
+    }
+
+    pub fn lead_of(&self, agent: AgentId) -> (f32, f32) {
+        self.leads.get(&agent).copied().unwrap_or((0.0, 0.0))
+    }
+
+    /// How wide a row of cards is once each one is as wide as its own ring.
+    pub fn span(&self, row: &[AgentId]) -> f32 {
+        if row.is_empty() {
+            return 0.0;
+        }
+        row.iter().map(|a| self.box_of(*a).0).sum::<f32>() + CARD_GAP_X * (row.len() - 1) as f32
+    }
+
+    /// The tallest box on a row.
+    pub fn tall(&self, row: &[AgentId]) -> f32 {
+        row.iter().map(|a| self.box_of(*a).1).fold(0.0f32, f32::max)
+    }
+
+    /// Rows of cards, each centred in `width`, each as tall and as wide as its own ring needs.
+    pub fn lay(&self, chunks: &[Vec<AgentId>], width: f32) -> Contents {
+        let mut cards = Vec::new();
+        let mut y = 0.0f32;
+        let mut height = 0.0f32;
+        for chunk in chunks {
+            // Short rows are centred over long ones, so a coordinator sits above the middle of its
+            // workers rather than over the leftmost one.
+            let mut x = (width - self.span(chunk)) / 2.0;
+            for agent in chunk {
+                let lead = self.lead_of(*agent);
+                cards.push((*agent, (x + lead.0, y + lead.1)));
+                x += self.box_of(*agent).0 + CARD_GAP_X;
+            }
+            let tall = self.tall(chunk);
+            height = y + tall;
+            y += tall + CARD_GAP_Y;
+        }
+        Contents {
+            cards,
+            width,
+            height,
+        }
+    }
+
+    /// One card per line, in the order given.
+    pub fn one_each(rows: &[Vec<AgentId>]) -> Vec<Vec<AgentId>> {
+        rows.iter().flatten().map(|a| vec![*a]).collect()
+    }
+
+    /// The rows folded so each block it makes reads at `target`, and laid out.
+    ///
+    /// **The one place a row is folded to the screen's shape.** Both the wrapped stacks here and
+    /// the island shapes in [`super::shapes`] ask this rather than each working the fold out, so a
+    /// change to what "reads at the target" means moves one number and not three.
+    pub fn fold_to(&self, rows: &[Vec<AgentId>], target: f32) -> Contents {
+        let per_line: Vec<usize> = rows
+            .iter()
+            .map(|row| {
+                let biggest =
+                    row.iter()
+                        .map(|a| self.box_of(*a))
+                        .fold((0.0f32, 0.0f32), |best, b| {
+                            if b.0 * b.1 > best.0 * best.1 { b } else { best }
+                        });
+                break_to(row.len(), biggest, target)
+            })
+            .collect();
+        let chunks = chunked(rows, &per_line);
+        let width = chunks
+            .iter()
+            .map(|chunk| self.span(chunk))
+            .fold(0.0f32, f32::max);
+        self.lay(&chunks, width)
     }
 }
 
@@ -463,68 +901,90 @@ fn stack(members: &[&WorkAgent], rings: &Rings) -> Contents {
 /// **A wide row is what makes a canvas wide.** Eight workers on one task drag every other container
 /// out past them, and the whitespace that leaves is the thing Packed exists to remove — so a row of
 /// `n` breaks at about `ceil(sqrt(n))` cards, which is the squarest break there is.
-fn stack_wrapped(members: &[&WorkAgent], rings: &Rings) -> Contents {
+fn stack_wrapped(members: &[&WorkAgent], rings: &Rings, ring: RingFn, sub: (f32, f32)) -> Contents {
     let rows = rows_by_depth(members);
     if rows.is_empty() {
         return Contents::empty();
     }
-
+    let held = Boxes::of(members, rings, ring, sub);
     let per_line: Vec<usize> = rows.iter().map(|row| break_at(row.len())).collect();
-    let width = per_line
+    let chunks = chunked(&rows, &per_line);
+    let width = chunks
         .iter()
-        .map(|n| row_width(*n))
+        .map(|chunk| held.span(chunk))
         .fold(0.0f32, f32::max);
+    held.lay(&chunks, width)
+}
 
-    let mut cards = Vec::new();
-    let mut y = 0.0f32;
-    let mut height = 0.0f32;
-    for (row, per) in rows.iter().zip(&per_line) {
-        for chunk in row.chunks(*per) {
-            // Every line is centred, for the same reason a short row is: the card handing work out
-            // belongs over the middle of the cards taking it.
-            let start = (width - row_width(chunk.len())) / 2.0;
-            for (ix, agent) in chunk.iter().enumerate() {
-                cards.push((*agent, (start + ix as f32 * (CARD_WIDTH + CARD_GAP_X), y)));
-            }
-            let tall = row_extent(chunk, rings);
-            height = y + tall;
-            y += tall + CARD_GAP_Y;
+/// The same depth rows, folded to the shape of the screen rather than to a square.
+///
+/// The wrap [`Algo::Packed`] uses aims at a square, because nothing told it the viewport is a
+/// rectangle. This one is told, by [`Algo::target`].
+fn stack_aspect(
+    members: &[&WorkAgent],
+    rings: &Rings,
+    ring: RingFn,
+    sub: (f32, f32),
+    target: f32,
+) -> Contents {
+    let rows = rows_by_depth(members);
+    if rows.is_empty() {
+        return Contents::empty();
+    }
+    Boxes::of(members, rings, ring, sub).fold_to(&rows, target)
+}
+
+/// Each row cut into lines of at most its own `per`.
+pub fn chunked(rows: &[Vec<AgentId>], per_line: &[usize]) -> Vec<Vec<AgentId>> {
+    let mut out = Vec::new();
+    for (row, per) in rows.iter().zip(per_line) {
+        for chunk in row.chunks((*per).max(1)) {
+            out.push(chunk.to_vec());
         }
     }
-
-    Contents {
-        cards,
-        width,
-        height,
-    }
+    out
 }
 
 /// One card per row, in spawn order. The tall, narrow container a small window has room for.
-fn column(members: &[&WorkAgent], rings: &Rings) -> Contents {
+fn column(members: &[&WorkAgent], rings: &Rings, ring: RingFn, sub: (f32, f32)) -> Contents {
     let rows = rows_by_depth(members);
     if rows.is_empty() {
         return Contents::empty();
     }
+    let held = Boxes::of(members, rings, ring, sub);
+    let width = members
+        .iter()
+        .map(|m| held.box_of(m.id).0)
+        .fold(CARD_WIDTH, f32::max);
+    held.lay(&Boxes::one_each(&rows), width)
+}
 
-    let mut cards = Vec::new();
-    let mut y = 0.0f32;
-    let mut height = 0.0f32;
-    for agent in rows.iter().flatten() {
-        cards.push((*agent, (0.0, y)));
-        let tall = card_extent(*agent, rings);
-        height = y + tall;
-        y += tall + CARD_GAP_Y;
+/// How many cards a row takes before it folds, so the block it makes reads at `target`.
+pub fn break_to(cards: usize, size: (f32, f32), target: f32) -> usize {
+    if cards <= 1 {
+        return 1;
     }
-    Contents {
-        cards,
-        width: CARD_WIDTH,
-        height,
+    let (mut best, mut mark) = (1usize, f32::INFINITY);
+    for per in 1..=cards {
+        let lines = cards.div_ceil(per);
+        let wide = per as f32 * size.0 + (per - 1) as f32 * CARD_GAP_X;
+        let tall = lines as f32 * size.1 + (lines - 1) as f32 * CARD_GAP_Y;
+        let off = if tall > 0.0 {
+            ((wide / tall) / target).ln().abs()
+        } else {
+            f32::INFINITY
+        };
+        if off < mark - 1e-9 {
+            best = per;
+            mark = off;
+        }
     }
+    best
 }
 
 /// The cards of one set, gathered into a row per hand-off depth. What every inner arrangement
 /// starts from, so they disagree about shape rather than about who answers to whom.
-fn rows_by_depth(members: &[&WorkAgent]) -> Vec<Vec<AgentId>> {
+pub fn rows_by_depth(members: &[&WorkAgent]) -> Vec<Vec<AgentId>> {
     if members.is_empty() {
         return Vec::new();
     }
@@ -549,10 +1009,6 @@ fn rows_by_depth(members: &[&WorkAgent]) -> Vec<Vec<AgentId>> {
         rows[depth].push(agent.id);
     }
     rows
-}
-
-fn row_width(cards: usize) -> f32 {
-    cards as f32 * CARD_WIDTH + cards.saturating_sub(1) as f32 * CARD_GAP_X
 }
 
 /// How many cards a wrapped row takes before it folds: the side of the smallest square that holds
@@ -612,7 +1068,14 @@ fn pack_shelf(sizes: &[(f32, f32)], width: f32, gap: f32) -> Packing {
 /// instead of merely filling rows. **Positions come back indexed the same as `sizes`** even though
 /// the packer visits them sorted, because the caller is placing containers it named in record
 /// order.
-fn pack_skyline(sizes: &[(f32, f32)], width: f32, gap: f32) -> Packing {
+/// The same packing, told whether the container width is a decision already taken.
+///
+/// The greedy "smallest bounding box so far" rule has one failure: a set of boxes of much the same
+/// width stacks into a single column whatever `width` it is given, because starting a second column
+/// always grows the box more than another row does. `commit` charges a slot for the **height** it
+/// costs against the width already chosen, which is what makes sweeping widths in [`pack_best`]
+/// mean anything. The four original arrangements never pass it.
+fn pack_skyline_in(sizes: &[(f32, f32)], width: f32, gap: f32, commit: bool) -> Packing {
     let mut order: Vec<usize> = (0..sizes.len()).collect();
     order.sort_by(|&a, &b| {
         longest(sizes[b])
@@ -637,7 +1100,12 @@ fn pack_skyline(sizes: &[(f32, f32)], width: f32, gap: f32) -> Packing {
                 continue;
             }
             let y = ledge(&fence, x, w);
-            let grown = extent.0.max(x + w - gap) * extent.1.max(y + h - gap);
+            let wide = if commit {
+                width
+            } else {
+                extent.0.max(x + w - gap)
+            };
+            let grown = wide * extent.1.max(y + h - gap);
             // Ties go to the topmost, then the leftmost: two placements that cost the same should
             // resolve the same way every tidy, and reading order is the one the eye expects.
             if best.is_none_or(|(bg, bx, by)| {
@@ -705,9 +1173,13 @@ fn height_at(fence: &[(f32, f32)], x: f32) -> f32 {
 /// wastes. Both charges are fractions of the area, which keeps them unitless: **these two weights
 /// are the whole tuning surface**, and the gaps between boxes count as waste because they are
 /// constant across the candidates being compared.
-fn score(extent: (f32, f32), content: f32) -> f32 {
-    /// What a bounding box twice as wide as it is tall costs: a third of its area.
-    const OFF_SQUARE: f32 = 0.35;
+/// `target` is the shape the packing is wanted at: `1.0` is the square the four original
+/// arrangements ask for, and a viewport's `w / h` is what a screen actually is. The penalty is the
+/// distance from that shape either way, so a ribbon and a tower are both charged and a rectangle
+/// is not — and at `target = 1.0` the arithmetic is the square one, unchanged.
+fn score(extent: (f32, f32), content: f32, target: f32) -> f32 {
+    /// What a bounding box twice as far from the target as it should be costs: a third of its area.
+    const OFF_TARGET: f32 = 0.35;
     /// What a bounding box of pure whitespace would cost: half as much again.
     const WASTED: f32 = 0.5;
 
@@ -715,9 +1187,10 @@ fn score(extent: (f32, f32), content: f32) -> f32 {
     if area <= 0.0 {
         return 0.0;
     }
-    let aspect = (extent.0 / extent.1).max(extent.1 / extent.0);
+    let ratio = (extent.0 / extent.1) / target;
+    let off = ratio.max(1.0 / ratio);
     let waste = ((area - content) / area).clamp(0.0, 1.0);
-    area * (1.0 + OFF_SQUARE * (aspect - 1.0) + WASTED * waste)
+    area * (1.0 + OFF_TARGET * (off - 1.0) + WASTED * waste)
 }
 
 /// Pack against a handful of container widths and keep the best-scoring result.
@@ -725,21 +1198,72 @@ fn score(extent: (f32, f32), content: f32) -> f32 {
 /// Nothing here searches. Four candidates either side of the square root of the content's area,
 /// never narrower than the widest single box, is enough to beat any fixed width; a local search
 /// over the same boxes would cost a frame's arithmetic for a difference nobody can see.
-fn pack_best(sizes: &[(f32, f32)], gap: f32) -> Packing {
+/// The widths tried hang off the side of the `target`-shaped rectangle of the same area, so asking
+/// for a 1.6:1 screen tries wider containers than asking for a square — and `target = 1.0` is the
+/// square, arithmetic for arithmetic.
+pub fn pack_best(sizes: &[(f32, f32)], gap: f32, target: f32, commit: bool) -> Packing {
     let content: f32 = sizes.iter().map(|(w, h)| w * h).sum();
     let widest = sizes.iter().map(|s| s.0).fold(0.0f32, f32::max);
-    let side = content.sqrt();
+    let side = (content * target).sqrt();
 
     let mut best: Option<(Packing, f32)> = None;
     for ratio in [0.7f32, 1.0, 1.4, 1.9] {
-        let packed = pack_skyline(sizes, (side * ratio).max(widest), gap);
-        let marked = score(packed.1, content);
+        let packed = pack_skyline_in(sizes, (side * ratio).max(widest), gap, commit);
+        let marked = score(packed.1, content, target);
         if best.as_ref().is_none_or(|(_, was)| marked < *was) {
             best = Some((packed, marked));
         }
     }
     best.map(|(packed, _)| packed)
         .unwrap_or((Vec::new(), (0.0, 0.0)))
+}
+
+/// How wide a shelf has to be for what it holds to come out at `target`.
+///
+/// The side of the `target`-shaped rectangle of the same area, loosened by [`SHELF_SLACK`] because
+/// a shelf wastes the ragged end of every row, and never narrower than the widest box on it.
+fn shelf_width(sizes: &[(f32, f32)], target: f32) -> f32 {
+    let content: f32 = sizes.iter().map(|(w, h)| w * h).sum();
+    let widest = sizes.iter().map(|s| s.0).fold(0.0f32, f32::max);
+    ((content * target).sqrt() * SHELF_SLACK).max(widest)
+}
+
+/// A shelf as wide as the screen wants, which keeps record order and still fills a rectangle.
+///
+/// The widths worth trying are the ones that actually change where the rows break — the running
+/// total of the boxes in record order — plus [`shelf_width`]'s area-derived guess. Scoring them
+/// against the target is the same judgement [`pack_best`] makes, and saves inventing a slack
+/// constant that would be right for one graph and wrong for the next.
+pub fn pack_view_shelf(sizes: &[(f32, f32)], target: f32) -> Packing {
+    let kept: Vec<(f32, f32)> = sizes
+        .iter()
+        .copied()
+        .filter(|s| s.0 > 0.0 || s.1 > 0.0)
+        .collect();
+    if kept.is_empty() {
+        return pack_shelf(sizes, LAYOUT_WIDTH - LAYOUT_MARGIN, TASK_GAP);
+    }
+    let content: f32 = kept.iter().map(|(w, h)| w * h).sum();
+    let widest = kept.iter().map(|s| s.0).fold(0.0f32, f32::max);
+
+    let mut widths = vec![widest, shelf_width(&kept, target)];
+    let mut run = -TASK_GAP;
+    for (w, _) in &kept {
+        run += w + TASK_GAP;
+        widths.push(run.max(widest));
+    }
+    widths.sort_by(f32::total_cmp);
+
+    let mut best: Option<(Packing, f32)> = None;
+    for width in widths {
+        let packed = pack_shelf(sizes, width, TASK_GAP);
+        let marked = score(packed.1, content, target);
+        if best.as_ref().is_none_or(|(_, was)| marked < *was) {
+            best = Some((packed, marked));
+        }
+    }
+    best.map(|(packed, _)| packed)
+        .unwrap_or_else(|| pack_shelf(sizes, widest, TASK_GAP))
 }
 
 /// Lay a forest of boxes out tidy-tree style: a parent centred over the span of its children.
@@ -846,7 +1370,10 @@ fn brood(children: &[usize], span: &[f32], gap: f32) -> f32 {
 /// An empty container has no box, so a packer that reasons about area would be packing nothing and
 /// charging a gap for it. It gets the session's own corner instead — a frame for a card to be
 /// dropped into, costing no room.
-fn without_empties(sizes: &[(f32, f32)], pack: impl FnOnce(&[(f32, f32)]) -> Packing) -> Packing {
+pub fn without_empties(
+    sizes: &[(f32, f32)],
+    pack: impl FnOnce(&[(f32, f32)]) -> Packing,
+) -> Packing {
     let kept: Vec<usize> = (0..sizes.len())
         .filter(|&ix| sizes[ix].0 > 0.0 || sizes[ix].1 > 0.0)
         .collect();
@@ -863,7 +1390,7 @@ fn without_empties(sizes: &[(f32, f32)], pack: impl FnOnce(&[(f32, f32)]) -> Pac
 /// The parent relation over the containers that are drawn, renumbered to match what
 /// [`without_empties`] passes the packer. An empty container is never a parent — a parent is a
 /// container holding the card somebody answers to — so nothing is lost by dropping it.
-fn remap(sizes: &[(f32, f32)], parents: &[Option<usize>]) -> Vec<Option<usize>> {
+pub fn remap(sizes: &[(f32, f32)], parents: &[Option<usize>]) -> Vec<Option<usize>> {
     let mut dense = vec![None; sizes.len()];
     let mut next = 0usize;
     for ix in 0..sizes.len() {
@@ -966,6 +1493,12 @@ mod tests {
         }
     }
 
+    /// How wide a row of plain cards is. The arrangement works in [`Boxes`] now, which is a ring's
+    /// box rather than a card's, so this is only what a test with no delegates in it expects.
+    fn row_width(cards: usize) -> f32 {
+        cards as f32 * CARD_WIDTH + cards.saturating_sub(1) as f32 * CARD_GAP_X
+    }
+
     /// A spread of boxes wide, tall and square, which is what a real session looks like.
     fn spread() -> Vec<(f32, f32)> {
         vec![
@@ -1010,7 +1543,7 @@ mod tests {
     #[test]
     fn a_skyline_keeps_its_boxes_apart() {
         let sizes = spread();
-        let (at, extent) = pack_skyline(&sizes, 800.0, TASK_GAP);
+        let (at, extent) = pack_skyline_in(&sizes, 800.0, TASK_GAP, false);
         clear(&at, &sizes, TASK_GAP);
         for (ix, (w, h)) in sizes.iter().enumerate() {
             assert!(at[ix].0 >= -EPS && at[ix].1 >= -EPS);
@@ -1023,7 +1556,7 @@ mod tests {
     #[test]
     fn packing_beats_the_shelf_and_stays_squarish() {
         let sizes = spread();
-        let (packed, tight) = pack_best(&sizes, TASK_GAP);
+        let (packed, tight) = pack_best(&sizes, TASK_GAP, 1.0, false);
         clear(&packed, &sizes, TASK_GAP);
 
         let (_, shelf) = pack_shelf(&sizes, LAYOUT_WIDTH - LAYOUT_MARGIN, TASK_GAP);
@@ -1218,7 +1751,8 @@ mod tests {
 
     #[test]
     fn a_fence_grows_round_wherever_a_delegate_was_put() {
-        let snug = fence((0.0, 0.0), &[sub_slot(0), sub_slot(1)]).expect("a card with delegates");
+        let snug =
+            fence((0.0, 0.0), &[sub_slot(0), sub_slot(1)], SUB_BOX).expect("a card with delegates");
         assert_eq!(snug.0, -RING_PAD, "the fence starts a pad left of the card");
         assert!(
             snug.2 <= CARD_WIDTH + RING_PAD * 2.0 + EPS,
@@ -1226,7 +1760,8 @@ mod tests {
         );
 
         // One delegate dragged out to the right, and the fence is the box round where it landed.
-        let moved = fence((0.0, 0.0), &[sub_slot(0), (600.0, 40.0)]).expect("still a fence");
+        let moved =
+            fence((0.0, 0.0), &[sub_slot(0), (600.0, 40.0)], SUB_BOX).expect("still a fence");
         assert!(
             moved.2 > snug.2,
             "the fence widened: {moved:?} from {snug:?}"
@@ -1234,7 +1769,7 @@ mod tests {
         assert_eq!(moved.0 + moved.2, 600.0 + SUB_WIDTH + RING_PAD);
 
         assert!(
-            fence((0.0, 0.0), &[]).is_none(),
+            fence((0.0, 0.0), &[], SUB_BOX).is_none(),
             "a card with no delegates wears none"
         );
     }

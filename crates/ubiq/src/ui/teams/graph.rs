@@ -18,11 +18,16 @@
 //!
 //! Zoom scales positions, card size and type together, so the graph reads the same at every step
 //! rather than turning into large cards on a small map.
+//!
+//! **What a block, a fence and the board they sit on look like is `ui::kit::blocks`'s**, not this
+//! file's. This one measures the graph and says what each piece is; the kit stacks the layers in
+//! the order a graph reads in and scales them by the one zoom. The sink's `teamsim` page draws the
+//! same arrangement through the same module, which is the only way the two cannot drift apart.
 
 use gpui::{
     App, AppContext as _, Context, DragMoveEvent, Entity, InteractiveElement, IntoElement,
     ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, Window, div, point,
-    prelude::FluentBuilder, px,
+    px,
 };
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
@@ -31,17 +36,16 @@ use ubiq_proto::work::{AgentId, TaskRecord, WorkAgent};
 use crate::app::AppState;
 use crate::state::conversation::{SubagentTab, short_model_label};
 use crate::state::teams::{
-    AgentStatus, CARD_HEIGHT, CARD_WIDTH, GROUP_LABEL, GROUP_PAD, SUB_HEIGHT, SUB_WIDTH,
-    agent_status, delegate_status, fence,
+    AgentStatus, CARD_HEIGHT, CARD_WIDTH, GROUP_LABEL, GROUP_PAD, agent_status, delegate_status,
+    fence,
 };
 use crate::state::work;
 use crate::state::{TeamsHeld, TeamsSelection};
 use crate::theme;
 use crate::theme::{Family, Role};
+use crate::ui::kit::blocks::{self, Board, Fence, Look, Word};
 use crate::ui::kit::canvas::{self, Link};
-use crate::ui::kit::{
-    UbiqIcon, card, elided_with, ghost_button, harness_icon, mono, progress_ring_in,
-};
+use crate::ui::kit::{UbiqIcon, elided_with, ghost_button, harness_icon, mono, progress_ring_in};
 use crate::ui::teams::status::{
     delegate_chip, delegate_colour, delegate_mark, status_chip, status_colour,
 };
@@ -156,47 +160,14 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         })
         .collect();
 
-    // The canvas is as big as what is on it, so scrolling reaches everything at any zoom — cards,
-    // containers, and every delegate's card and fence, none of which is measured again below.
-    let mut extent = visible.iter().fold((0.0f32, 0.0f32), |(w, h), agent| {
-        let at = graph.at(agent);
-        (
-            w.max(at.0 + CARD_WIDTH + GRAPH_MARGIN),
-            h.max(at.1 + CARD_HEIGHT + GRAPH_MARGIN),
-        )
-    });
-    for (_, (x, y, w, h)) in &boxes {
-        extent = (
-            extent.0.max(x + w + GRAPH_MARGIN),
-            extent.1.max(y + h + GRAPH_MARGIN),
-        );
-    }
-    for (_, at, _, spots) in &rings {
-        for spot in spots {
-            extent = (
-                extent.0.max(spot.0 + SUB_WIDTH + GRAPH_MARGIN),
-                extent.1.max(spot.1 + SUB_HEIGHT + GRAPH_MARGIN),
-            );
-        }
-        if let Some((x, y, w, h)) = fence(*at, spots) {
-            extent = (
-                extent.0.max(x + w + GRAPH_MARGIN),
-                extent.1.max(y + h + GRAPH_MARGIN),
-            );
-        }
-    }
+    // The board is as big as what is on it, so scrolling reaches everything at any zoom — cards,
+    // containers, and every delegate's card and fence. Nothing here measures that: the extent grows
+    // as each piece is added, which is one fewer reading of the same geometry to disagree with.
+    let mut board = Board::new(zoom, GRAPH_MARGIN);
 
-    // The canvas is never smaller than the viewport, so a card dragged near the right or bottom
-    // edge of an otherwise-small graph still has somewhere to scroll to.
-    let viewport = window.viewport_size();
-    let mut content = div()
-        .relative()
-        .w(px((extent.0 * zoom).max(f32::from(viewport.width))))
-        .h(px((extent.1 * zoom).max(f32::from(viewport.height))))
-        .child(canvas::dot_grid(
-            theme::graph_dot_pitch() * zoom,
-            point(0.0, 0.0),
-        ));
+    // What one delegate measures under the chosen arrangement's ring. Read once, so the card, its
+    // connector and the fence round it can never disagree about the shape being drawn.
+    let sub = graph.sub_box();
 
     // The task containers, under everything: a dashed box round the cards serving one task, with
     // its shape and its title on the top edge. The box is computed from where its cards are, so a
@@ -209,29 +180,36 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         let carried = held == Some(TeamsHeld::Task(id));
         let view = view.clone();
 
-        content = content
-            .child(canvas::dashed_box(
-                (x * zoom, y * zoom, w * zoom, h * zoom),
+        // The shape and the separator after it go together: a task nobody has shaped draws
+        // neither, rather than a title behind a dot with nothing in front of it.
+        let mut label = Vec::new();
+        if let Some(shape) = task.shape {
+            label.push(Word::new(shape.label(), theme::text_faint(), Role::Micro));
+            label.push(Word::new("\u{b7}", theme::text_faint(), Role::Micro));
+        }
+        label.push(Word::new(
+            task.title.clone(),
+            theme::text_muted(),
+            Role::Meta,
+        ));
+
+        board.fence(
+            Fence::new(
+                (x, y, w, h),
                 if lit || carried {
                     theme::accent()
                 } else {
                     theme::border()
                 },
                 lit || carried,
-            ))
+            )
+            .labelled(label, (GROUP_PAD * 0.5, 4.0), GROUP_LABEL)
             // The empty ground inside a container is the handle for the container itself. The
             // cards are drawn after it and take their own drags, so grabbing a card moves one
             // agent and grabbing anywhere else in the box moves the whole task with everything in
             // it.
-            .child(
-                div()
-                    .id(eid("teams-task", id))
-                    .absolute()
-                    .left(px(x * zoom))
-                    .top(px(y * zoom))
-                    .w(px(w * zoom))
-                    .h(px(h * zoom))
-                    .cursor_grab()
+            .handle(
+                blocks::handle(eid("teams-task", id), (x, y, w, h), zoom)
                     .on_drag(
                         Carried(TeamsHeld::Task(id)),
                         move |_, grab, _, cx: &mut App| {
@@ -241,34 +219,10 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                             });
                             cx.new(|_| Empty)
                         },
-                    ),
-            )
-            .child(
-                div()
-                    .absolute()
-                    .left(px((x + GROUP_PAD * 0.5) * zoom))
-                    .top(px((y + 4.0) * zoom))
-                    .flex()
-                    .items_center()
-                    .gap_1p5()
-                    .h(px(GROUP_LABEL * zoom))
-                    .px(px(8.0 * zoom))
-                    .bg(theme::pane_bg())
-                    // The shape and the separator after it go together: a task nobody has shaped
-                    // draws neither, rather than a title behind a dot with nothing in front of it.
-                    .children(task.shape.map(|shape| {
-                        mono(shape.label(), theme::text_faint())
-                            .text_size(theme::font(Family::Chrome, Role::Micro) * zoom)
-                    }))
-                    .children(task.shape.map(|_| {
-                        mono("\u{b7}", theme::text_faint())
-                            .text_size(theme::font(Family::Chrome, Role::Micro) * zoom)
-                    }))
-                    .child(
-                        mono(task.title.clone(), theme::text_muted())
-                            .text_size(theme::font(Family::Chrome, Role::Meta) * zoom),
-                    ),
-            );
+                    )
+                    .into_any_element(),
+            ),
+        );
     }
 
     // The connectors, over the containers and under the cards: parent's bottom edge to child's top.
@@ -301,41 +255,47 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                     (at.0 + CARD_WIDTH / 2.0) * zoom,
                     (at.1 + CARD_HEIGHT) * zoom,
                 ),
-                to: point((spot.0 + SUB_WIDTH / 2.0) * zoom, spot.1 * zoom),
+                to: point((spot.0 + sub.0 / 2.0) * zoom, spot.1 * zoom),
                 colour: theme::fade(delegate_colour(delegate_status(tab)), 0.45),
             });
         }
     }
-    content = content.child(canvas::links(links));
+    for link in links {
+        board.link(link);
+    }
 
     // The delegate fences, under the cards and over the containers — the inner of the two dashed
     // levels. It is the box round a card and wherever its delegates have been put, so dragging one
     // out to the side resizes the fence rather than leaving it behind.
     for (id, at, delegates, spots) in &rings {
-        if let Some((x, y, w, h)) = fence(*at, spots) {
-            content = content.child(canvas::dashed_box(
-                (x * zoom, y * zoom, w * zoom, h * zoom),
+        if let Some(rect) = fence(*at, spots, sub) {
+            board.inner_fence(Fence::new(
+                rect,
                 theme::fade(theme::accent_muted(), 0.8),
                 false,
             ));
         }
         for (ix, (tab, spot)) in delegates.iter().zip(spots).enumerate() {
-            content = content.child(subagent_card(
-                *id,
-                work.agent(*id).map(|a| a.harness.as_str()).unwrap_or(""),
-                tab,
-                ix,
-                *spot,
-                graph.subagent_in_focus() == Some(tab.id.as_str()),
-                held.as_ref()
-                    == Some(&TeamsHeld::Subagent {
-                        agent: *id,
-                        subagent: tab.id.clone(),
-                    }),
-                zoom,
-                &view,
-                cx,
-            ));
+            board.block(
+                (spot.0, spot.1, sub.0, sub.1),
+                subagent_card(
+                    *id,
+                    work.agent(*id).map(|a| a.harness.as_str()).unwrap_or(""),
+                    tab,
+                    ix,
+                    *spot,
+                    sub,
+                    graph.subagent_in_focus() == Some(tab.id.as_str()),
+                    held.as_ref()
+                        == Some(&TeamsHeld::Subagent {
+                            agent: *id,
+                            subagent: tab.id.clone(),
+                        }),
+                    zoom,
+                    &view,
+                    cx,
+                ),
+            );
         }
     }
 
@@ -348,19 +308,23 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         let context = conversation
             .and_then(|conversation| conversation.context_pct())
             .or(Some(agent.context_pct).filter(|pct| *pct > 0));
-        content = content.child(agent_card(
-            agent,
-            // The live conversation is the better witness of what a card is doing than the host's
-            // periodic reading of it, and this mode draws no card without one.
-            agent_status(agent, conversation),
-            context,
-            graph.at(agent),
-            graph.agent_in_focus() == Some(agent.id),
-            held == Some(TeamsHeld::Agent(agent.id)),
-            zoom,
-            &view,
-            cx,
-        ));
+        let at = graph.at(agent);
+        board.block(
+            (at.0, at.1, CARD_WIDTH, CARD_HEIGHT),
+            agent_card(
+                agent,
+                // The live conversation is the better witness of what a card is doing than the
+                // host's periodic reading of it, and this mode draws no card without one.
+                agent_status(agent, conversation),
+                context,
+                at,
+                graph.agent_in_focus() == Some(agent.id),
+                held == Some(TeamsHeld::Agent(agent.id)),
+                zoom,
+                &view,
+                cx,
+            ),
+        );
     }
 
     // The sand goes over everything, including the card that is shedding it.
@@ -375,7 +339,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 size: grain.size,
             })
             .collect();
-        content = content.child(canvas::sand(grains, theme::accent()));
+        board.over(canvas::sand(grains, theme::accent()));
         // The trail has to keep thinning after the pointer stops, so the window owes it frames
         // until the last grain is gone.
         window.request_animation_frame();
@@ -384,7 +348,8 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
     // The whole canvas is the drop target, so anything put down on it lands. Which task a card
     // landed in is worked out from where it is, not from what it was dropped on — a container is
     // an outline round some cards, and the outline is not what takes the drop.
-    let content = content
+    let content = board
+        .content(window.viewport_size())
         .on_drag_move(
             cx.listener(move |this, event: &DragMoveEvent<Carried>, _, cx| {
                 if !event.bounds.contains(&event.event.position) {
@@ -410,15 +375,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         )
         .on_drop(cx.listener(|this, _: &Carried, _, cx| this.end_teams_carry(cx)));
 
-    div()
-        .id("teams-graph")
-        .flex()
-        .flex_1()
-        .min_w(px(0.))
-        .min_h(px(0.))
-        .overflow_scroll()
-        .track_scroll(&app.teams_scroll)
-        .bg(theme::app_bg())
+    blocks::scroller("teams-graph", &app.teams_scroll)
         .child(content)
         .into_any_element()
 }
@@ -455,6 +412,7 @@ fn subagent_card(
     tab: &SubagentTab,
     ix: usize,
     at: (f32, f32),
+    sub: (f32, f32),
     selected: bool,
     carried: bool,
     zoom: f32,
@@ -484,60 +442,53 @@ fn subagent_card(
     };
     let view = view.clone();
 
-    let mut body = card(eid2("teams-subagent", agent, ix), colour, selected)
-        .absolute()
-        .left(px(at.0 * zoom))
-        .top(px(at.1 * zoom))
-        .w(px(SUB_WIDTH * zoom))
-        .h(px(SUB_HEIGHT * zoom))
-        .p(px(10.0 * zoom))
-        .gap(px(6.0 * zoom))
-        .overflow_hidden()
-        // A card sits on the dotted ground, so it needs a ground of its own — except when it is
-        // the one being read, where `card` has already given it the selected fill.
-        .when(!selected, |this| this.bg(theme::pane_bg()))
-        .when(carried, |this| {
-            this.bg(theme::surface_raised())
-                .border_l(px(theme::accent_edge() * 2.0))
-                .border_color(theme::accent())
-        })
-        .cursor_grab()
-        .child(
-            div()
-                .flex()
-                .flex_none()
-                .items_center()
-                .gap(px(7.0 * zoom))
-                // Nothing is drawn for a delegate whose spawning call the transcript does not
-                // hold, because nothing here knows what it is up to.
-                .children(delegate_mark(status, zoom))
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .flex_1()
-                        .min_w(px(0.))
-                        .child(elided_with(
-                            eid2("teams-subagent-name", agent, ix),
-                            tab.name.clone(),
-                            tip.clone(),
-                            theme::text(),
-                            theme::font(Family::Chrome, Role::Body) * zoom,
-                        ))
-                        .children(tab.kind.clone().map(|kind| {
-                            mono(kind.to_uppercase(), theme::text_faint())
-                                .text_size(theme::font(Family::Chrome, Role::Micro) * zoom)
-                        })),
-                )
-                .child(delegate_chip(status, zoom)),
-        )
-        // The alias, not the catalogue id — the same cut the composer's chip makes, so one project
-        // never spells a model two ways. The tooltip above still carries it in full.
-        .children(tab.model.as_deref().map(|model| {
-            mono(short_model_label(harness, model), theme::text_muted())
-                .text_size(theme::font(Family::Chrome, Role::Micro) * zoom)
-                .truncate()
-        }));
+    // A card sits on the dotted ground, so it needs a ground of its own — except when it is the one
+    // being read, where the selected fill is already behind it.
+    let mut body = blocks::block(
+        eid2("teams-subagent", agent, ix),
+        (at.0, at.1, sub.0, sub.1),
+        Look::new(colour)
+            .selected(selected)
+            .carried(carried)
+            .opaque(true),
+        zoom,
+    )
+    .child(
+        div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(7.0 * zoom))
+            // Nothing is drawn for a delegate whose spawning call the transcript does not
+            // hold, because nothing here knows what it is up to.
+            .children(delegate_mark(status, zoom))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_w(px(0.))
+                    .child(elided_with(
+                        eid2("teams-subagent-name", agent, ix),
+                        tab.name.clone(),
+                        tip.clone(),
+                        theme::text(),
+                        theme::font(Family::Chrome, Role::Body) * zoom,
+                    ))
+                    .children(tab.kind.clone().map(|kind| {
+                        mono(kind.to_uppercase(), theme::text_faint())
+                            .text_size(theme::font(Family::Chrome, Role::Micro) * zoom)
+                    })),
+            )
+            .child(delegate_chip(status, zoom)),
+    )
+    // The alias, not the catalogue id — the same cut the composer's chip makes, so one project
+    // never spells a model two ways. The tooltip above still carries it in full.
+    .children(tab.model.as_deref().map(|model| {
+        mono(short_model_label(harness, model), theme::text_muted())
+            .text_size(theme::font(Family::Chrome, Role::Micro) * zoom)
+            .truncate()
+    }));
 
     if let Some(activity) = delegate_activity_label(tab) {
         body = body.child(
@@ -581,168 +532,155 @@ fn agent_card(
     let colour = status_colour(status);
     let view = view.clone();
 
-    let body = card(eid("teams-card", id), colour, selected)
-        .absolute()
-        .left(px(at.0 * zoom))
-        .top(px(at.1 * zoom))
-        .w(px(CARD_WIDTH * zoom))
-        .h(px(CARD_HEIGHT * zoom))
-        .p(px(10.0 * zoom))
-        .gap(px(6.0 * zoom))
-        // The card is a fixed box on a canvas, so a long note is clipped by it rather than
-        // spilling over the cards below.
-        .overflow_hidden()
-        // A card under the pointer is lifted off the ground: it goes opaque against the sand it is
-        // dropping, and its edge takes the accent so it is the one thing in focus.
-        .when(carried, |this| {
-            this.bg(theme::surface_raised())
-                .border_l(px(theme::accent_edge() * 2.0))
-                .border_color(theme::accent())
-        })
-        .cursor_grab()
-        .child(
-            div()
-                .flex()
-                .flex_none()
-                .items_center()
-                .gap(px(7.0 * zoom))
-                .child(role_mark(&agent.role, colour, 22.0 * zoom))
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .flex_1()
-                        .min_w(px(0.))
-                        .child(
-                            div()
-                                .text_size(theme::font(Family::Chrome, Role::Body) * zoom)
-                                .text_color(theme::text())
-                                .child(SharedString::from(agent.name.clone())),
-                        )
-                        .child(
-                            mono(agent.role.to_uppercase(), theme::text_faint())
-                                .text_size(theme::font(Family::Chrome, Role::Micro) * zoom),
-                        ),
-                )
-                .child(status_chip(status, zoom)),
-        )
-        // What is answering, and how full its window is — the two facts a reader picks a card by
-        // once they know what it is doing. The harness is its mark and the model is its name,
-        // because the mark is what tells two cards apart at a glance and the name is what tells
-        // one card what it is; the ring reads in the tone the usage earns, the same one a column's
-        // footer draws it in.
-        .child(
-            div()
-                .flex()
-                .flex_none()
-                .items_center()
-                .gap(px(5.0 * zoom))
-                .children((!agent.harness.is_empty()).then(|| {
-                    Icon::new(harness_icon(&agent.harness))
-                        .with_size(theme::icon_sm() * zoom)
-                        .flex_none()
-                        .text_color(theme::text_muted())
-                }))
-                .child(
-                    mono(
-                        if agent.model.is_empty() {
-                            agent.harness.clone()
-                        } else {
-                            short_model_label(&agent.harness, &agent.model)
-                        },
-                        theme::text_muted(),
-                    )
-                    .text_size(theme::font(Family::Chrome, Role::Micro) * zoom)
+    let body = blocks::block(
+        eid("teams-card", id),
+        (at.0, at.1, CARD_WIDTH, CARD_HEIGHT),
+        Look::new(colour).selected(selected).carried(carried),
+        zoom,
+    )
+    .child(
+        div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(7.0 * zoom))
+            .child(role_mark(&agent.role, colour, 22.0 * zoom))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
                     .flex_1()
                     .min_w(px(0.))
-                    .truncate(),
+                    .child(
+                        div()
+                            .text_size(theme::font(Family::Chrome, Role::Body) * zoom)
+                            .text_color(theme::text())
+                            .child(SharedString::from(agent.name.clone())),
+                    )
+                    .child(
+                        mono(agent.role.to_uppercase(), theme::text_faint())
+                            .text_size(theme::font(Family::Chrome, Role::Micro) * zoom),
+                    ),
+            )
+            .child(status_chip(status, zoom)),
+    )
+    // What is answering, and how full its window is — the two facts a reader picks a card by
+    // once they know what it is doing. The harness is its mark and the model is its name,
+    // because the mark is what tells two cards apart at a glance and the name is what tells
+    // one card what it is; the ring reads in the tone the usage earns, the same one a column's
+    // footer draws it in.
+    .child(
+        div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(5.0 * zoom))
+            .children((!agent.harness.is_empty()).then(|| {
+                Icon::new(harness_icon(&agent.harness))
+                    .with_size(theme::icon_sm() * zoom)
+                    .flex_none()
+                    .text_color(theme::text_muted())
+            }))
+            .child(
+                mono(
+                    if agent.model.is_empty() {
+                        agent.harness.clone()
+                    } else {
+                        short_model_label(&agent.harness, &agent.model)
+                    },
+                    theme::text_muted(),
                 )
-                // No ring where no harness stated a window: a ratio with an invented denominator
-                // is worse than none.
-                .children(context.map(|pct| {
-                    div()
-                        .flex()
-                        .flex_none()
-                        .items_center()
-                        .gap(px(4.0 * zoom))
-                        .child(progress_ring_in(
-                            pct.min(100),
-                            12.0 * zoom,
-                            theme::usage_tone(pct),
-                        ))
-                        .child(
-                            mono(format!("{pct}%"), theme::text_faint())
-                                .text_size(theme::font(Family::Chrome, Role::Micro) * zoom),
-                        )
-                })),
-        )
-        .child(
-            div()
+                .text_size(theme::font(Family::Chrome, Role::Micro) * zoom)
                 .flex_1()
-                .min_h(px(0.))
-                .text_size(theme::font(Family::Chrome, Role::Label) * zoom)
-                .text_color(theme::text_muted())
-                .child(SharedString::from(agent.note.clone())),
-        )
-        .child(
-            div()
-                .flex()
-                .flex_none()
-                .items_center()
-                .gap(px(5.0 * zoom))
-                .child(
-                    Icon::new(UbiqIcon::GitBranch)
-                        .with_size(Size::XSmall)
-                        .text_color(theme::text_faint()),
-                )
-                .child(
-                    mono(agent.branch.clone(), theme::text_muted())
-                        .text_size(theme::font(Family::Chrome, Role::Micro) * zoom),
-                )
-                .child(
-                    mono(work::tokens_label(agent), theme::text_faint())
-                        .text_size(theme::font(Family::Chrome, Role::Micro) * zoom),
-                )
-                .child(div().flex_1().min_w(px(0.)))
-                // The way into the conversation with this one agent: it selects the card and puts
-                // the inspector on its thread, which is two clicks the card can save.
-                .child(
-                    div()
-                        .id(eid("teams-card-chat", id))
-                        .flex()
-                        .flex_none()
-                        .items_center()
-                        .gap(px(4.0 * zoom))
-                        .px(px(4.0 * zoom))
-                        .cursor_pointer()
-                        .hover(|this| this.bg(theme::hover()))
-                        .child(
-                            Icon::new(IconName::Inbox)
-                                .with_size(Size::XSmall)
-                                .text_color(theme::text_faint()),
-                        )
-                        .child(
-                            mono("chat", theme::text_muted())
-                                .text_size(theme::font(Family::Chrome, Role::Micro) * zoom),
-                        )
-                        .on_click(cx.listener(move |this, _, _, cx| this.open_teams_chat(id, cx))),
-                ),
-        )
-        .on_click(
-            cx.listener(move |this, _, _, cx| this.select_in_teams(TeamsSelection::Agent(id), cx)),
-        )
-        .on_drag(
-            Carried(TeamsHeld::Agent(id)),
-            move |_, grab, _, cx: &mut App| {
-                // The grab point is where inside the card the pointer went down. Keeping it is what
-                // stops the card jumping under the cursor on the first move.
-                let grab = (f32::from(grab.x), f32::from(grab.y));
-                view.update(cx, |this, cx| {
-                    this.start_teams_carry(TeamsHeld::Agent(id), grab, cx)
-                });
-                cx.new(|_| Empty)
-            },
-        );
+                .min_w(px(0.))
+                .truncate(),
+            )
+            // No ring where no harness stated a window: a ratio with an invented denominator
+            // is worse than none.
+            .children(context.map(|pct| {
+                div()
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .gap(px(4.0 * zoom))
+                    .child(progress_ring_in(
+                        pct.min(100),
+                        12.0 * zoom,
+                        theme::usage_tone(pct),
+                    ))
+                    .child(
+                        mono(format!("{pct}%"), theme::text_faint())
+                            .text_size(theme::font(Family::Chrome, Role::Micro) * zoom),
+                    )
+            })),
+    )
+    .child(
+        div()
+            .flex_1()
+            .min_h(px(0.))
+            .text_size(theme::font(Family::Chrome, Role::Label) * zoom)
+            .text_color(theme::text_muted())
+            .child(SharedString::from(agent.note.clone())),
+    )
+    .child(
+        div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(5.0 * zoom))
+            .child(
+                Icon::new(UbiqIcon::GitBranch)
+                    .with_size(Size::XSmall)
+                    .text_color(theme::text_faint()),
+            )
+            .child(
+                mono(agent.branch.clone(), theme::text_muted())
+                    .text_size(theme::font(Family::Chrome, Role::Micro) * zoom),
+            )
+            .child(
+                mono(work::tokens_label(agent), theme::text_faint())
+                    .text_size(theme::font(Family::Chrome, Role::Micro) * zoom),
+            )
+            .child(div().flex_1().min_w(px(0.)))
+            // The way into the conversation with this one agent: it selects the card and puts
+            // the inspector on its thread, which is two clicks the card can save.
+            .child(
+                div()
+                    .id(eid("teams-card-chat", id))
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .gap(px(4.0 * zoom))
+                    .px(px(4.0 * zoom))
+                    .cursor_pointer()
+                    .hover(|this| this.bg(theme::hover()))
+                    .child(
+                        Icon::new(IconName::Inbox)
+                            .with_size(Size::XSmall)
+                            .text_color(theme::text_faint()),
+                    )
+                    .child(
+                        mono("chat", theme::text_muted())
+                            .text_size(theme::font(Family::Chrome, Role::Micro) * zoom),
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| this.open_teams_chat(id, cx))),
+            ),
+    )
+    .on_click(
+        cx.listener(move |this, _, _, cx| this.select_in_teams(TeamsSelection::Agent(id), cx)),
+    )
+    .on_drag(
+        Carried(TeamsHeld::Agent(id)),
+        move |_, grab, _, cx: &mut App| {
+            // The grab point is where inside the card the pointer went down. Keeping it is what
+            // stops the card jumping under the cursor on the first move.
+            let grab = (f32::from(grab.x), f32::from(grab.y));
+            view.update(cx, |this, cx| {
+                this.start_teams_carry(TeamsHeld::Agent(id), grab, cx)
+            });
+            cx.new(|_| Empty)
+        },
+    );
 
     body.into_any_element()
 }

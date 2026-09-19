@@ -36,6 +36,7 @@ pub fn harness_icon(harness: &str) -> UbiqIcon {
     }
 }
 
+pub mod blocks;
 pub mod canvas;
 pub mod colour;
 pub mod controls;
