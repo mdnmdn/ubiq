@@ -221,6 +221,10 @@ pub enum MenuId {
     SinkA2ui,
     /// The script page's example picker: which starter the buffers are seeded from.
     SinkScript,
+    /// The teamsim page's two dropdowns: which scenario is loaded, and which arrangement placed it.
+    /// Two ids rather than one carrying a discriminant, for the same reason the clone modal's are.
+    SinkTeamsimPreset,
+    SinkTeamsimAlgo,
     /// A dropdown on the settings page. Which one is `SinkState::settings.menu`.
     SinkSettings,
     /// The explorer's right-click menu. Which row (or the empty panel) is on `ExplorerState::menu`.

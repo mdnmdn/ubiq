@@ -1202,4 +1202,181 @@ impl AppState {
         self.sink.picker.pattern = pattern;
         cx.notify();
     }
+
+    // ---- teamsim: the teams graph's arrangements, against a scenario that can be edited -----
+    //
+    // Every one of these is a call into `state::teamsim`, because the page draws and mutates
+    // nothing itself. The scenario is the source of truth and the layout follows it; only `Tidy`
+    // throws hand positions away.
+
+    pub fn load_teamsim_preset(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.sink.teamsim.load(index);
+        self.workbench.open_menu = None;
+        cx.notify();
+    }
+
+    /// Choose the arrangement. It tidies, because that is what choosing one means.
+    pub fn set_teamsim_algo(&mut self, index: usize, cx: &mut Context<Self>) {
+        if let Some(algo) = crate::state::layout::Algo::ALL.get(index).copied() {
+            self.sink.teamsim.sim.set_algo(algo);
+        }
+        self.workbench.open_menu = None;
+        cx.notify();
+    }
+
+    /// Throw every hand position away and arrange the whole graph again — the one thing that does.
+    pub fn tidy_teamsim(&mut self, cx: &mut Context<Self>) {
+        self.sink.teamsim.sim.tidy();
+        cx.notify();
+    }
+
+    pub fn zoom_teamsim(&mut self, delta: f32, cx: &mut Context<Self>) {
+        self.sink.teamsim.zoom_by(delta);
+        cx.notify();
+    }
+
+    pub fn reset_teamsim_zoom(&mut self, cx: &mut Context<Self>) {
+        self.sink.teamsim.zoom = 1.0;
+        cx.notify();
+    }
+
+    /// Add a container to the first session, with one card in it — an arrival, so nothing that is
+    /// already placed moves.
+    pub fn add_teamsim_task(&mut self, cx: &mut Context<Self>) {
+        let session = self
+            .sink
+            .teamsim
+            .sim
+            .scenario
+            .sessions
+            .first()
+            .map(|session| session.id.clone());
+        if let Some(session) = session {
+            self.sink.teamsim.sim.add_task(&session);
+        }
+        cx.notify();
+    }
+
+    /// Add a card to the first container, for the same reason.
+    pub fn add_teamsim_agent(&mut self, cx: &mut Context<Self>) {
+        let task = self
+            .sink
+            .teamsim
+            .sim
+            .scenario
+            .tasks
+            .first()
+            .map(|task| task.id.clone());
+        if let Some(task) = task {
+            self.sink.teamsim.sim.add_agent(&task);
+        }
+        cx.notify();
+    }
+
+    pub fn add_teamsim_subagent(&mut self, agent: String, cx: &mut Context<Self>) {
+        self.sink.teamsim.sim.add_subagent(&agent);
+        cx.notify();
+    }
+
+    pub fn remove_teamsim_subagent(&mut self, agent: String, sub: String, cx: &mut Context<Self>) {
+        self.sink.teamsim.sim.remove_subagent(&agent, &sub);
+        cx.notify();
+    }
+
+    pub fn remove_teamsim_agent(&mut self, agent: String, cx: &mut Context<Self>) {
+        if self.sink.teamsim.arming.as_deref() == Some(agent.as_str()) {
+            self.sink.teamsim.arming = None;
+        }
+        self.sink.teamsim.sim.remove_agent(&agent);
+        cx.notify();
+    }
+
+    /// Arm a link from one card, or — with one already armed — finish it against the card clicked.
+    /// Clicking the armed card again disarms, because a link to itself is the one thing the gesture
+    /// cannot mean.
+    pub fn arm_teamsim_link(&mut self, agent: String, cx: &mut Context<Self>) {
+        match self.sink.teamsim.arming.take() {
+            Some(from) if from == agent => {}
+            Some(from) => {
+                self.sink
+                    .teamsim
+                    .sim
+                    .link(&from, &agent, crate::state::teamsim::LinkKind::Handoff);
+            }
+            None => self.sink.teamsim.arming = Some(agent),
+        }
+        cx.notify();
+    }
+
+    /// The card clicked: what it is, and — when a link is armed — the target of that link instead.
+    pub fn select_teamsim_card(&mut self, agent: String, cx: &mut Context<Self>) {
+        if self.sink.teamsim.arming.is_some() {
+            self.arm_teamsim_link(agent, cx);
+            return;
+        }
+        self.sink.teamsim.selected = Some(agent);
+        cx.notify();
+    }
+
+    pub fn unlink_teamsim(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.sink.teamsim.sim.unlink(index);
+        cx.notify();
+    }
+
+    /// The scenario, positions and all, onto the clipboard. The clipboard is this page's save file:
+    /// a bench with a document store behind it would be a screen, and the JSON is one paste away
+    /// from the Python tool beside it.
+    pub fn copy_teamsim_json(&mut self, cx: &mut Context<Self>) {
+        let json = self.sink.teamsim.sim.to_json();
+        cx.write_to_clipboard(gpui::ClipboardItem::new_string(json));
+        cx.notify();
+    }
+
+    /// And back off it. A paste that does not parse leaves what is on screen alone and says why.
+    pub fn paste_teamsim_json(&mut self, cx: &mut Context<Self>) {
+        let text = cx
+            .read_from_clipboard()
+            .and_then(|item| item.text())
+            .unwrap_or_default();
+        if text.trim().is_empty() {
+            self.sink.teamsim.error = Some("nothing on the clipboard to read".to_string());
+        } else {
+            self.sink.teamsim.paste(&text);
+        }
+        cx.notify();
+    }
+
+    /// Pick a block up. The grab point is where inside it the pointer went down, which is what
+    /// stops it jumping under the cursor on the first move.
+    pub fn start_teamsim_carry(
+        &mut self,
+        held: crate::state::TeamsimHeld,
+        grab: (f32, f32),
+        cx: &mut Context<Self>,
+    ) {
+        self.sink.teamsim.carry = Some(crate::state::TeamsimCarry { held, grab });
+        cx.notify();
+    }
+
+    /// Put whatever is held at `at`, in canvas coordinates at 100% zoom. The drop writes back
+    /// through the same `Layout` calls the Teams screen makes, so a hand position here is a hand
+    /// position there.
+    pub fn move_teamsim_carry(&mut self, at: (f32, f32), cx: &mut Context<Self>) {
+        let Some(carry) = self.sink.teamsim.carry.clone() else {
+            return;
+        };
+        match &carry.held {
+            crate::state::TeamsimHeld::Task(task) => self.sink.teamsim.sim.move_task(task, at),
+            crate::state::TeamsimHeld::Agent(agent) => self.sink.teamsim.sim.move_agent(agent, at),
+            crate::state::TeamsimHeld::Sub { agent, sub } => {
+                self.sink.teamsim.sim.move_sub(agent, sub, at)
+            }
+        }
+        cx.notify();
+    }
+
+    pub fn end_teamsim_carry(&mut self, cx: &mut Context<Self>) {
+        self.sink.teamsim.carry = None;
+        cx.notify();
+    }
 }

@@ -1,0 +1,23 @@
+{
+  "format": "ubiq.teamsim/1",
+  "name": "chain",
+  "note": "a six-link hand-off chain — one card per depth, so the container is a tall column",
+  "viewport": { "w": 1600, "h": 1000 },
+  "sessions": [
+    { "id": "s1", "name": "transport split", "branch": "feat/bus", "worktree": true }
+  ],
+  "tasks": [
+    { "id": "t1", "session": "s1", "title": "Split the bus", "shape": "chain" }
+  ],
+  "agents": [
+    { "id": "a1", "session": "s1", "task": "t1", "parent": null, "name": "survey", "role": "coordinator", "harness": "claude-code", "activity": "thinking", "subagents": [] },
+    { "id": "a2", "session": "s1", "task": "t1", "parent": "a1", "name": "carve", "role": "patcher", "harness": "codex", "activity": "tools", "subagents": [] },
+    { "id": "a3", "session": "s1", "task": "t1", "parent": "a2", "name": "route", "role": "implementer", "harness": "claude-code", "activity": "writing", "subagents": [] },
+    { "id": "a4", "session": "s1", "task": "t1", "parent": "a3", "name": "frame", "role": "implementer", "harness": "gemini-cli", "activity": "writing", "subagents": [] },
+    { "id": "a5", "session": "s1", "task": "t1", "parent": "a4", "name": "cover", "role": "tester", "harness": "opencode", "activity": "tools", "subagents": [] },
+    { "id": "a6", "session": "s1", "task": "t1", "parent": "a5", "name": "sign-off", "role": "reviewer", "harness": "copilot-cli", "activity": "waiting", "subagents": [] }
+  ],
+  "links": [
+    { "from": "a6", "to": "a1", "kind": "watch" }
+  ]
+}

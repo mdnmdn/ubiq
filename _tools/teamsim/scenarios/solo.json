@@ -1,0 +1,20 @@
+{
+  "format": "ubiq.teamsim/1",
+  "name": "solo",
+  "note": "one agent on one task — the smallest thing the arrangement has to get right",
+  "viewport": { "w": 1600, "h": 1000 },
+  "sessions": [
+    { "id": "s1", "name": "icon pass", "branch": "feat/icons", "worktree": false }
+  ],
+  "tasks": [
+    { "id": "t1", "session": "s1", "title": "Redraw the pane glyphs", "shape": "direct" }
+  ],
+  "agents": [
+    {
+      "id": "a1", "session": "s1", "task": "t1", "parent": null,
+      "name": "nib", "role": "implementer", "harness": "claude-code", "activity": "writing",
+      "subagents": []
+    }
+  ],
+  "links": []
+}

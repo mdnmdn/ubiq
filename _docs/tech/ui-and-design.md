@@ -5,9 +5,9 @@ kind: tech
 status: current
 summary: The GPUI rendering model, the complete theme token set and the rule that no colour escapes it, how a palette is switched, the shape every surface, modal and dialog is drawn in, the page every primitive is looked at on, and the design assets screens are built against.
 read_when: you are building or restyling a screen, adding a colour or a size, switching or extending a palette, raising a modal or the file picker, looking at a primitive on the style reference, or looking for the wireframe a layout came from
-updated: 2026-09-18
+updated: 2026-09-19
 verified: 2026-09-19
-code_anchors: [crates/ubiq/src/theme.rs, assets/icons/icons.yaml, _tools/icons.py, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/state/overlay.rs, crates/ubiq/src/ui/kit/ribbon.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/src/ui/kit/popover.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/tests/dismiss.rs, crates/ubiq/src/ui/remote_hosts.rs]
+code_anchors: [crates/ubiq/src/theme.rs, assets/icons/icons.yaml, _tools/icons.py, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/blocks.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/state/overlay.rs, crates/ubiq/src/ui/kit/ribbon.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/src/ui/kit/popover.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/tests/dismiss.rs, crates/ubiq/src/ui/remote_hosts.rs]
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -652,6 +652,20 @@ second ring on a surface can carry its own token rather than a second accent. `p
 draws two concentric bands over the same painter, outer first and each thinner than a single ring's,
 for the one glyph — the footer's quota ring — that has to carry two readings of the same kind at
 once.
+
+**A graph is a board of blocks, and one module draws every one of them.**
+`crates/ubiq/src/ui/kit/blocks.rs` is the layer above `canvas.rs`: the stack those painted layers go
+into, in the one order a graph reads in — ground, the fences on it, the links between what they hold,
+the blocks, and whatever goes over the lot. A caller adds things as it measures them and gets that
+order anyway, so two screens cannot draw the same graph with the z-order a notch apart. `Board` also
+accumulates the extent as it goes, which is what makes the canvas as big as what is on it without
+anyone measuring the geometry twice; `block` and `handle` answer the positioned, styled element and
+the caller hangs its own `on_drag` on it, which keeps the carried type the screen's rather than
+something the kit has to name. It takes plain rectangles at 100% zoom and scales all of them by the
+one zoom, so no call site multiplies a coordinate itself. The Teams canvas
+(`crates/ubiq/src/ui/teams/graph.rs`) and the kitchen sink's teamsim testbed
+(`crates/ubiq/src/ui/sink/teamsim.rs`) both draw through it. What it does *not* know is where
+anything goes: that is `state/layout.rs`'s.
 
 **The kit knows nothing about the workbench.** Its interactive helpers take a plain
 `Fn(&mut Window, &mut App)`, and call sites bridge to the root view with `ui::handler` and

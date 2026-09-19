@@ -968,6 +968,9 @@ pub struct AppState {
     /// The Teams canvas, independent of `graph_scroll` for the reason `teams` is independent of
     /// `graph`.
     pub teams_scroll: ScrollHandle,
+    /// The kitchen sink's teamsim canvas. Its own, because it is a bench and not the Teams screen:
+    /// scrolling one must not move the other.
+    pub teamsim_scroll: ScrollHandle,
     /// Where the keyboard rests when it is on the tree rather than in the filter above it. The two
     /// are separate focuses on purpose: the field owns every key a field owns — Backspace first of
     /// all — and the tree's own keys, removal included, are only live once the tree holds focus.

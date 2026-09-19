@@ -42,6 +42,7 @@ pub mod settings;
 pub mod sink;
 pub mod stats;
 pub mod teams;
+pub mod teamsim;
 pub mod viewport;
 pub mod vim;
 pub mod web_panel;
@@ -89,6 +90,7 @@ pub use sink::{
     SinkState,
 };
 pub use teams::{TeamsCarry, TeamsGrain, TeamsHeld, TeamsInspectorTab, TeamsSelection, TeamsView};
+pub use teamsim::{Scenario, Sim, TeamsimCarry, TeamsimDemo, TeamsimHeld};
 pub use windows::{ProjectGroups, WindowRegistry, WindowSlot};
 pub use work::WorkProjection;
 pub use workbench::{
