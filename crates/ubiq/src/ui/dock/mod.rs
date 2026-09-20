@@ -716,7 +716,12 @@ fn centre(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> An
         RailMode::TeamsOld if has_project => {
             orchestration::render(app, window, cx).into_any_element()
         }
-        RailMode::Teams if has_project => teams::render(app, window, cx).into_any_element(),
+        // One screen, two rail entries: the entry is what decides the span, and the canvas asks
+        // for it through `AppState::teams_span`. `TeamsAll` is in the APP group but still wants a
+        // project — a canvas about every open project has nothing to draw when there are none.
+        RailMode::Teams | RailMode::TeamsAll if has_project => {
+            teams::render(app, window, cx).into_any_element()
+        }
         RailMode::Tasks if has_project => board::render(app, window, cx).into_any_element(),
         RailMode::Kb if has_project => kb::centre(app, window, cx),
         // The two modes that are about the application rather than a project answer whether or

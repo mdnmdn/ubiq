@@ -304,7 +304,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
     // Whose card this is, under the window span only: the canvas is drawing several projects at
     // once, and a card that does not say which is a card a reader cannot place. Under the project
     // span the answer is the whole screen, and the card is what it always was.
-    let spanning = app.teams_span == TeamsSpan::Window;
+    let spanning = app.teams_span() == TeamsSpan::Window;
 
     for agent in &visible {
         let conversation = app.teams_conversation(agent.id, cx);

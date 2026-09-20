@@ -366,7 +366,12 @@ impl PanelKind {
                     && (at.is_ide
                         || matches!(
                             at.rail_mode,
-                            Some(RailMode::Tasks | RailMode::Teams | RailMode::TeamsOld)
+                            Some(
+                                RailMode::Tasks
+                                    | RailMode::Teams
+                                    | RailMode::TeamsAll
+                                    | RailMode::TeamsOld
+                            )
                         ))
             }
             PanelKind::Terminal(_) => at.pane_on_screen,

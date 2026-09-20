@@ -402,13 +402,41 @@ fn login_path() -> &'static [PathBuf] {
         let shell = default_program();
         // `-lic` rather than `-c`: the directories a toolchain installer adds are written into the
         // login and interactive files, not into a non-interactive shell's environment.
-        let Ok(out) = std::process::Command::new(&shell)
+        use std::io::Read as _;
+        use std::process::Stdio;
+        use std::time::{Duration, Instant};
+
+        // This runs before the first window, so a slow or wedged rc file (a stale lock, a network
+        // call) must cost a bounded wait, not the whole boot: no tty to block on, and after
+        // `LOGIN_PATH_BUDGET` the shell is killed and `PATH` falls back to the usual homes.
+        const LOGIN_PATH_BUDGET: Duration = Duration::from_secs(2);
+        let Ok(mut child) = std::process::Command::new(&shell)
             .args(["-lic", "printf %s \"$PATH\""])
-            .output()
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
         else {
             return Vec::new();
         };
-        let path = String::from_utf8_lossy(&out.stdout);
+        let mut stdout = child.stdout.take().expect("stdout was piped");
+        // ponytail: a PATH is far below the pipe buffer, so waiting before reading cannot deadlock.
+        let deadline = Instant::now() + LOGIN_PATH_BUDGET;
+        loop {
+            match child.try_wait() {
+                Ok(Some(_)) => break,
+                Ok(None) if Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(20))
+                }
+                _ => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Vec::new();
+                }
+            }
+        }
+        let mut path = String::new();
+        let _ = stdout.read_to_string(&mut path);
         std::env::split_paths(path.trim()).collect()
     })
 }

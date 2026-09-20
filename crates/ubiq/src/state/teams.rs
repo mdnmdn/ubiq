@@ -85,10 +85,10 @@ pub fn live_work(work: &WorkProjection, live: &[AgentId]) -> WorkProjection {
 
 /// What the canvas is about: the project on screen, or every project the window holds.
 ///
-/// **A span beside the filters, not a second mode.** `RailMode::Teams` stays one mode with one
-/// rail entry; this is one more thing the canvas is narrowed by, the way the session row and the
-/// bucket row are. The window's own fact, like the zoom and the arrangement — nothing outside this
-/// window has an opinion about it, and it is not sent anywhere.
+/// **Not stored anywhere.** The span is which rail entry the window is on — `RailMode::Teams` for
+/// the project, `RailMode::TeamsAll` for the window — and `AppState::teams_span` derives it. So
+/// there is no switch on the canvas to get out of step with the rail, and no second answer to
+/// reconcile; nothing outside this window has an opinion about it, and it is not sent anywhere.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum TeamsSpan {
     /// The active project's agents, which is the only reach the screen had before the span.

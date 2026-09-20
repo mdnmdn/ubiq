@@ -33,7 +33,7 @@ impl AppState {
             RailMode::Tasks => View::Tasks {
                 task: self.board(cx)?.selected?,
             },
-            RailMode::Teams => {
+            RailMode::Teams | RailMode::TeamsAll => {
                 let teams = self.teams(cx)?;
                 let selection = teams.selection.clone()?;
                 let tab = teams.tab;
@@ -84,7 +84,7 @@ impl AppState {
             self.activate_project(dest.project, cx);
         }
 
-        if let Some(mode) = rail_of(&dest.view) {
+        if let Some(mode) = rail_of(&dest.view, self.workbench.rail_mode) {
             self.set_rail_mode(mode, cx);
         }
         match &dest.view {
@@ -312,15 +312,20 @@ impl AppState {
     }
 }
 
-/// Which rail mode a view is drawn in. `None` for the three that are panels rather than screens:
-/// they are revealed where they already sit, whatever mode is up.
-pub fn rail_of(view: &View) -> Option<RailMode> {
+/// Which rail mode a view is drawn in, arriving from `from`. `None` for the three that are panels
+/// rather than screens: they are revealed where they already sit, whatever mode is up.
+pub fn rail_of(view: &View, from: RailMode) -> Option<RailMode> {
     Some(match view {
         View::Control => RailMode::Control,
         View::Kb => RailMode::Kb,
         View::Git => RailMode::Git,
         View::Ide { .. } | View::Explorer { .. } => RailMode::Ide,
         View::Graph { .. } => RailMode::TeamsOld,
+        // A teams link names the project of what it points at, but the span is not part of the
+        // address: the same card is the same card on a canvas showing one project and on one
+        // showing six. So a window already on `TeamsAll` stays there rather than being yanked to
+        // the project span by every link it follows.
+        View::Teams { .. } if from == RailMode::TeamsAll => RailMode::TeamsAll,
         View::Teams { .. } => RailMode::Teams,
         View::Agents { .. } => RailMode::Agents,
         View::Tasks { .. } => RailMode::Tasks,

@@ -105,7 +105,7 @@ fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
     // The lit pill is the one being *drawn*, not the one selected: `all` is a real state of the
     // row, and a session can be selected while every session is on screen.
     let showing = graph.session;
-    let spanning = app.teams_span == TeamsSpan::Window;
+    let spanning = app.teams_span() == TeamsSpan::Window;
 
     let all = session_pill(
         "teams-session-all",
@@ -176,25 +176,6 @@ fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         .bg(theme::pane_bg())
         .border_b_1()
         .border_color(theme::border())
-        // The span leads the row because it is the widest filter on it: it decides which projects
-        // the session pills and the bucket pills are then narrowing. Drawn only when the window
-        // holds more than one project — a toggle that cannot change anything is noise.
-        .children(app.teams_span_choice(cx).then(|| {
-            div()
-                .flex()
-                .flex_none()
-                .items_center()
-                .gap_2()
-                .child(section_label("Span"))
-                .child(toggle_pill(
-                    "teams-span",
-                    "All projects",
-                    theme::accent(),
-                    spanning,
-                    cx.listener(|this, _, _, cx| this.toggle_teams_span(cx)),
-                ))
-                .child(div().w(px(12.)).flex_none())
-        }))
         .child(section_label("Session"))
         .child(all)
         .children(sessions)
@@ -258,11 +239,11 @@ fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
 /// this one answers "what is there to be on screen". Last in the action group rather than first,
 /// so its distance from the zoom stepper does not move when `Show everything` comes and goes.
 ///
-/// **Its shape is the question it asks.** A window holding several projects gets a picker — a
-/// start raised from a canvas about all of them has to name which one it is for — and a window
-/// holding one gets a plain button, because a list of one row is a decision already made.
+/// **Its shape is the question it asks.** A canvas spanning several projects gets a picker — a
+/// start raised from a canvas about all of them has to name which one it is for — and anything
+/// else gets a plain button, because a list of one row is a decision already made.
 fn add_agent(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
-    if !app.teams_span_choice(cx) {
+    if !app.teams_project_choice(cx) {
         return ghost_button(
             "teams-add-agent",
             Some(IconName::Plus),

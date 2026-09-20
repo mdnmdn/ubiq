@@ -636,12 +636,12 @@ impl AppState {
 
     /// The Teams toolbar's `+ Add agent`, pressed.
     ///
-    /// Two shapes, because the question only exists when there is more than one answer: a window
-    /// holding several projects is asked which one first, and a window holding one goes straight
-    /// to the form. A picker offering a single row is a step that reads as a decision and is not
-    /// one.
+    /// Two shapes, because the question only exists when there is more than one answer: a canvas
+    /// spanning several projects is asked which one first, and anything else — the project span,
+    /// or a window holding one project — goes straight to the form. A picker offering a single
+    /// row is a step that reads as a decision and is not one.
     pub fn open_teams_add_agent(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.teams_span_choice(cx) {
+        if self.teams_project_choice(cx) {
             self.open_menu(MenuId::TeamsAddAgent, cx);
             return;
         }

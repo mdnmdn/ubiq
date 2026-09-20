@@ -390,7 +390,7 @@ impl AppState {
     /// **The one answer**, so the projection, the owner map and every write the screen makes
     /// cannot disagree about what is on the canvas.
     pub fn teams_projects(&self, cx: &App) -> Vec<ProjectId> {
-        match self.teams_span {
+        match self.teams_span() {
             TeamsSpan::Project => self.project(cx).into_iter().collect(),
             TeamsSpan::Window => self.window_projects(cx),
         }
@@ -461,7 +461,7 @@ impl AppState {
     /// the canvas hearing about it — falls back to the span's guess, which is what the callers
     /// that send against a project did before there was a second span.
     pub fn project_of_agent(&self, agent: AgentId, cx: &App) -> Option<ProjectId> {
-        let guess = match self.teams_span {
+        let guess = match self.teams_span() {
             TeamsSpan::Project => self.project(cx),
             TeamsSpan::Window => self.teams_owner.get(&agent).copied(),
         };
@@ -487,7 +487,7 @@ impl AppState {
     /// back to the active project, which is what a link built from it said before there was a
     /// second span.
     pub fn project_of_session(&self, session: SessionId, cx: &App) -> Option<ProjectId> {
-        match self.teams_span {
+        match self.teams_span() {
             TeamsSpan::Project => self.project(cx),
             TeamsSpan::Window => self
                 .window_projects(cx)
@@ -528,7 +528,7 @@ impl AppState {
     /// one**: the active project's under [`TeamsSpan::Project`], the window's own under
     /// [`TeamsSpan::Window`], which is a second arrangement over a different set of cards.
     pub fn teams(&self, cx: &App) -> Option<&TeamsView> {
-        match self.teams_span {
+        match self.teams_span() {
             TeamsSpan::Project => self.open_project(cx).map(|open| &open.teams),
             TeamsSpan::Window => {
                 (!self.teams_projects(cx).is_empty()).then_some(&self.teams_window)
@@ -545,7 +545,7 @@ impl AppState {
     /// a field of it. Every reader on that screen asks for this instead of [`Self::work`];
     /// `TeamsOld` keeps asking for the whole projection.
     pub fn teams_work(&self, cx: &App) -> Option<WorkProjection> {
-        match self.teams_span {
+        match self.teams_span() {
             TeamsSpan::Project => self
                 .open_project(cx)
                 .map(|open| live_work(&open.work, &open.agents.live)),
@@ -577,7 +577,7 @@ impl AppState {
 
     /// The same view [`Self::teams`] reads, to write: the span decides which one.
     pub fn teams_mut(&mut self, cx: &App) -> Option<&mut TeamsView> {
-        match self.teams_span {
+        match self.teams_span() {
             TeamsSpan::Project => {
                 let id = self.project(cx)?;
                 self.projects.get_mut(&id).map(|open| &mut open.teams)
@@ -619,7 +619,7 @@ impl AppState {
     /// projection is built *before* the view is borrowed mutably, which is the only order the
     /// borrow checker allows when both come out of `self`.
     pub(super) fn teams_over_work(&mut self, cx: &App) -> Option<(&mut TeamsView, WorkProjection)> {
-        match self.teams_span {
+        match self.teams_span() {
             TeamsSpan::Project => {
                 let id = self.project(cx)?;
                 let open = self.projects.get(&id)?;

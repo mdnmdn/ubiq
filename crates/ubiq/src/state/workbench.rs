@@ -27,8 +27,8 @@ use crate::state::settings::SettingsState;
 use crate::state::sink::{ColourField, DroneField, ProjectNav};
 use crate::theme::ThemeId;
 
-/// The left rail's destinations. `Control`, `Ide`, `Git`, `Agents`, `Teams`, `TeamsOld`, `Tasks`
-/// and `Sink` are built; the rest render an empty page.
+/// The left rail's destinations. `Control`, `Ide`, `Git`, `Agents`, `Teams`, `TeamsAll`,
+/// `TeamsOld`, `Tasks` and `Sink` are built; the rest render an empty page.
 ///
 /// `Agents` and `TeamsOld` are two screens over the same records, and the split is the point.
 /// `Agents` is where the user *talks to* the agents — parallel columns, one conversation each.
@@ -39,6 +39,12 @@ use crate::theme::ThemeId;
 /// independent so the two can drift apart wave by wave. `TeamsOld` is not removed and not
 /// redirected — it keeps drawing exactly what it always has, under its old label wrapped in
 /// brackets, until the waves after this one either fold it away or replace it outright.
+///
+/// `Teams` and `TeamsAll` are the same screen over two spans, and which entry the rail is on is
+/// the whole of what decides the span — there is no switch on the canvas. `Teams` is the active
+/// project's agents and sits in the PROJECT group with the other views onto one project;
+/// `TeamsAll` draws every open project's agents on one canvas, which is a fact about the window
+/// rather than about any project, so it sits in the APP group beside `Control` and `Sink`.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub enum RailMode {
     Control,
@@ -46,6 +52,7 @@ pub enum RailMode {
     Git,
     Agents,
     Teams,
+    TeamsAll,
     TeamsOld,
     Kb,
     Tasks,
@@ -62,8 +69,9 @@ impl RailMode {
 
     /// Whether a pane started here has an edge region to land in that the user is looking at.
     ///
-    /// Every mode but two is a view onto a project, and the bottom region is where its terminals
-    /// live. `Control` reports the running host and `Sink` is the application's own test bench —
+    /// Every mode but two is a view onto a project's work — `TeamsAll` onto several projects' at
+    /// once — and the bottom region is where its terminals live. `Control` reports the running
+    /// host and `Sink` is the application's own test bench —
     /// neither is about a project's folder, and a pane started from one has nowhere to be seen.
     /// So starting a runner from either moves the window to the IDE first; see
     /// `AppState::reveal_pane_region`.
@@ -87,6 +95,7 @@ impl RailMode {
             RailMode::Git => "Git",
             RailMode::Agents => "Agents",
             RailMode::Teams => "Teams",
+            RailMode::TeamsAll => "All Teams",
             RailMode::TeamsOld => "[Teams]",
             RailMode::Kb => "KB",
             RailMode::Tasks => "Tasks",
@@ -104,6 +113,7 @@ impl RailMode {
             RailMode::Git => "What version control knows about this project.",
             RailMode::Agents => "The agents running in this project, one column each.",
             RailMode::Teams => "How the agents are arranged, and which task each serves.",
+            RailMode::TeamsAll => "Every open project's agents, arranged on one canvas.",
             RailMode::TeamsOld => "How the agents are arranged, and which task each serves.",
             RailMode::Kb => "Notes and documents the agents can read.",
             RailMode::Tasks => "Work queued for the agents in this session.",
@@ -119,8 +129,9 @@ impl RailMode {
     }
 
     /// The modes that belong to a project, in the order the rail draws them — the "PROJECT"
-    /// group, as opposed to `Control` and `Sink`, which are the "APP" group and are not about
-    /// one. This is what a digit shortcut for "the current project's mode" counts: `ctrl-1` is
+    /// group, as opposed to `Control`, `TeamsAll` and `Sink`, which are the "APP" group and are
+    /// not about one. This is what a digit shortcut for "the current project's mode" counts:
+    /// `ctrl-1` is
     /// the first of these that is enabled, not `Control`.
     pub fn project_modes() -> impl Iterator<Item = RailMode> {
         Self::groups()
@@ -133,7 +144,10 @@ impl RailMode {
     /// The rail groups, in the order they are drawn.
     pub fn groups() -> &'static [(&'static str, &'static [RailMode])] {
         &[
-            ("APP", &[RailMode::Control, RailMode::Sink]),
+            (
+                "APP",
+                &[RailMode::Control, RailMode::TeamsAll, RailMode::Sink],
+            ),
             (
                 "PROJECT",
                 &[

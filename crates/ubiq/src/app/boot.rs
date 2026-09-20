@@ -1346,7 +1346,6 @@ impl AppState {
             projects: HashMap::new(),
             active_seen: None,
             parked: HashMap::new(),
-            teams_span: TeamsSpan::default(),
             teams_window: TeamsView::default(),
             teams_owner: HashMap::new(),
             session: SessionId::generate(),

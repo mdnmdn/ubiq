@@ -3,7 +3,7 @@ id: wip-teams-cross-project
 title: Teams across projects
 kind: wip
 status: current
-summary: How the Teams screen draws every open project's agents at once — a span beside the selection rather than a second mode, one merged projection built from each project's `live_work`, an owner map that answers "whose agent is this" for every write the screen makes, and what the rail, the titlebar and a `ubiq://` link keep meaning when the canvas is about more than one project.
+summary: How the Teams screen draws every open project's agents at once — a second rail entry in the APP group that the span is read off, one merged projection built from each project's `live_work`, an owner map that answers "whose agent is this" for every write the screen makes, and what the rail, the titlebar and a `ubiq://` link keep meaning when the canvas is about more than one project.
 read_when: you are changing what the Teams screen is scoped to, or adding a reader that must work when the canvas spans several projects
 updated: 2026-09-20
 verified: 2026-09-20
@@ -24,15 +24,24 @@ Registered as `D154`.
 
 ## The shape
 
-**A span, not a second mode.** Teams gains one more thing it is filtered by, beside the session
-pills and the bucket pills: whether the canvas is about the active project or about every project
-the window holds. `RailMode::Teams` stays one mode with one rail entry; a toggle in its toolbar says
-which span is showing.
+**A second rail entry, not a control on the canvas.** One screen, two entries: `RailMode::Teams` in
+the PROJECT group is the active project's agents, and `RailMode::TeamsAll` — labelled "All Teams" —
+is every project the window holds, on one canvas. The entry the rail is on *is* the span, so there
+is nothing on the toolbar that says which span is up and nothing on `AppState` that could disagree
+with the rail.
+
+`TeamsAll` sits in the APP group, between `Control` and `Sink`, because a canvas about every open
+project is a fact about the window rather than a view onto one project — the same reason those two
+are there. It is the one APP entry that still wants a project: a canvas about every open project has
+nothing to draw when there are none, so `ui/dock/mod.rs`'s centre arm keeps it behind `has_project`
+with the PROJECT screens rather than answering ahead of the no-project case.
 
 **Three facts make the whole feature.**
 
-1. `TeamsSpan` — `Project` or `Window`. A window's own fact, like the zoom and the arrangement:
-   nothing outside this window has an opinion about it, and it is not sent anywhere.
+1. `TeamsSpan` — `Project` or `Window` — **derived, never stored**. `AppState::teams_span()` reads
+   `workbench.rail_mode`: `TeamsAll` is `Window`, everything else is `Project`. A window's own fact,
+   like the zoom and the arrangement: nothing outside this window has an opinion about it, and it is
+   not sent anywhere.
 2. `AppState.teams_window: TeamsView` — the window span's own view, beside the per-project ones in
    `OpenProject.teams`. Two spans are two arrangements over two different sets of cards, and a
    shared `TeamsView` would mean switching span threw the other's layout away.
@@ -79,12 +88,11 @@ narrowed to the ones this window has actually built — an unfiltered list would
 state is not there yet. `AppState::teams_projects` is the one answer to "which projects is this
 screen about", and every reader asks it rather than the registry.
 
-**`teams_projects` cannot answer whether there is a choice**, which is why
-`AppState::teams_span_choice` sits beside `toggle_teams_span` in `app/teams_span.rs`. It answers for
-the span that is *up*: under `TeamsSpan::Project` that is always the active project alone, so the
-toolbar control asking it would hide itself the moment it was used and never come back.
-`teams_span_choice` is the window span's own arithmetic — more than one project this window both
-holds and has built state for — asked whatever the span is.
+**`teams_projects` cannot answer whether a start has a project to choose between**, which is why
+`AppState::teams_project_choice` sits beside `teams_span()` in `app/teams_span.rs`: the span is
+`Window` *and* the window holds more than one project it has built state for. `teams_projects`
+answers with the projects the span is actually drawing — under `TeamsSpan::Project` always the
+active project alone — so neither half implies the other, and the add-agent control asks this one.
 
 ## Where the switch lives
 

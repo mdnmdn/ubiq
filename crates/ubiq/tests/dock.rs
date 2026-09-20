@@ -196,6 +196,7 @@ fn a_chat_homes_right_in_every_mode() {
         RailMode::Git,
         RailMode::Kb,
         RailMode::Teams,
+        RailMode::TeamsAll,
         RailMode::TeamsOld,
     ] {
         assert_eq!(chat.home_in(mode), Region::Right, "{mode:?}");

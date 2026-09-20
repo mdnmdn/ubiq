@@ -244,6 +244,7 @@ pub const RAIL_MODE_IDE: UiId = UiId::new("rail.mode.ide");
 pub const RAIL_MODE_GIT: UiId = UiId::new("rail.mode.git");
 pub const RAIL_MODE_AGENTS: UiId = UiId::new("rail.mode.agents");
 pub const RAIL_MODE_TEAMS: UiId = UiId::new("rail.mode.teams");
+pub const RAIL_MODE_TEAMS_ALL: UiId = UiId::new("rail.mode.teams-all");
 pub const RAIL_MODE_TEAMS_OLD: UiId = UiId::new("rail.mode.teams-old");
 pub const RAIL_MODE_KB: UiId = UiId::new("rail.mode.kb");
 pub const RAIL_MODE_TASKS: UiId = UiId::new("rail.mode.tasks");
@@ -292,6 +293,7 @@ pub const CATALOGUE: &[UiId] = &[
     RAIL_MODE_GIT,
     RAIL_MODE_AGENTS,
     RAIL_MODE_TEAMS,
+    RAIL_MODE_TEAMS_ALL,
     RAIL_MODE_TEAMS_OLD,
     RAIL_MODE_KB,
     RAIL_MODE_TASKS,
@@ -420,6 +422,14 @@ const DESCRIPTIONS: &[(UiId, TargetInfo)] = &[
             label: "Teams",
             blurb: "Groups of agents working a shared brief, and the lanes their work is split \
                     across.",
+        },
+    ),
+    (
+        RAIL_MODE_TEAMS_ALL,
+        TargetInfo {
+            label: "All Teams",
+            blurb: "The same canvas over every open project at once, so agents from all of them \
+                    are arranged and compared side by side.",
         },
     ),
     (
@@ -632,6 +642,7 @@ pub fn rail_mode(mode: RailMode) -> UiId {
         RailMode::Git => RAIL_MODE_GIT,
         RailMode::Agents => RAIL_MODE_AGENTS,
         RailMode::Teams => RAIL_MODE_TEAMS,
+        RailMode::TeamsAll => RAIL_MODE_TEAMS_ALL,
         RailMode::TeamsOld => RAIL_MODE_TEAMS_OLD,
         RailMode::Kb => RAIL_MODE_KB,
         RailMode::Tasks => RAIL_MODE_TASKS,

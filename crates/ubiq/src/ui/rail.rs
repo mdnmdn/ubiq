@@ -53,6 +53,7 @@ pub fn mode_icon(mode: RailMode) -> Icon {
         // Generic, so it may not borrow the asterisk — that is Claude's own mark.
         RailMode::Agents => Icon::new(UbiqIcon::ModeAgents),
         RailMode::Teams => Icon::new(UbiqIcon::ModeTeams),
+        RailMode::TeamsAll => Icon::new(UbiqIcon::ModeTeams),
         RailMode::TeamsOld => Icon::new(UbiqIcon::ModeTeams),
         RailMode::Kb => Icon::new(UbiqIcon::ModeKb),
         RailMode::Tasks => Icon::new(UbiqIcon::ModeTasks),

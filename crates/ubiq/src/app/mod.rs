@@ -510,9 +510,6 @@ pub struct AppState {
     /// restores its furniture with no round trip and no debounce to race.
     parked: HashMap<ProjectId, prefs::ViewPrefs>,
 
-    /// What the Teams screen is about: the active project, or every project this window holds.
-    /// The window's own fact, set from that screen's toolbar and sent nowhere.
-    pub teams_span: TeamsSpan,
     /// The window span's own Teams view, beside the per-project ones in [`OpenProject::teams`].
     /// Two spans are two arrangements over two different sets of cards, so a shared view would
     /// throw the other's layout away every time the span was switched.
@@ -620,8 +617,9 @@ pub struct AppState {
     /// Which project the start now being composed is *for*, when it is not the active one.
     ///
     /// Every way into the New agent form but one aims at `self.project(cx)`, and says so by having
-    /// no project field at all. The Teams toolbar's `+ Add agent` is the exception: under
-    /// `TeamsSpan::Window` the canvas is about every project the window holds, so a start raised
+    /// no project field at all. The Teams toolbar's `+ Add agent` is the exception: on the
+    /// `RailMode::TeamsAll` entry the canvas is about every project the window holds, so a start
+    /// raised
     /// from it has to name which. `None` is "the active one", which is what every other caller
     /// leaves it as.
     ///

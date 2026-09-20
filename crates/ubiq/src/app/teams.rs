@@ -234,7 +234,7 @@ impl AppState {
     /// move. A card whose project cannot be named lands in no container at all, which is the safe
     /// half of the same rule.
     fn teams_carry_tasks(&self, cx: &App) -> Option<HashSet<TaskId>> {
-        if self.teams_span == TeamsSpan::Project {
+        if self.teams_span() == TeamsSpan::Project {
             return None;
         }
         let TeamsHeld::Agent(agent) = &self.teams(cx)?.carry.as_ref()?.held else {
@@ -340,7 +340,7 @@ impl AppState {
         // Only under the window span: the project span answers "whose agent" with the project on
         // screen and never reads the map, and building it would clone a whole projection every
         // frame for a question nobody asks.
-        let owner = match self.teams_span {
+        let owner = match self.teams_span() {
             TeamsSpan::Project => Default::default(),
             TeamsSpan::Window => self
                 .teams_merged(&projects)
