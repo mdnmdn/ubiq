@@ -3,11 +3,11 @@ id: tech-components
 title: Reusable components
 kind: tech
 status: current
-summary: The reusable components Ubiq builds out of its own primitives — the floating popover, the activity bar a conversation heads with, and the file picker any screen raises to choose a path — the state that drives them, and the discipline that keeps a compound a component rather than a one-off screen's decoration.
-read_when: you are building a control that floats above another, adding a second activity reading to a conversation's bar, wiring a screen to choose a path on the interface's or a host's filesystem, or reshaping something the kit's primitives are insufficient for and a one-off would have duplicated
-updated: 2026-09-17
-verified: 2026-09-17
-code_anchors: [crates/ubiq/src/ui/kit/popover.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/ui/teams/inspector.rs, crates/ubiq/src/state/agents.rs]
+summary: The reusable components Ubiq builds out of its own primitives — the floating popover, the activity bar a conversation heads with, the file picker any screen raises to choose a path, the viewer that draws one open file whole, the diff renderer two screens reach a change through, and the capabilities and tools panels each asked for by two surfaces — the state that drives them, and the discipline that keeps a compound a component rather than a one-off screen's decoration.
+read_when: you are building a control that floats above another, adding a second activity reading to a conversation's bar, wiring a screen to choose a path on the interface's or a host's filesystem, adding a file kind the viewer draws, reaching a diff or a harness's capabilities from a second screen, or reshaping something the kit's primitives are insufficient for and a one-off would have duplicated
+updated: 2026-09-20
+verified: 2026-09-20
+code_anchors: [crates/ubiq/src/ui/kit/popover.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/ui/teams/inspector.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/kb/mod.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/ui/tools.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/state/editor.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
 ---
@@ -120,6 +120,60 @@ answered from the window's one `file_name` field. Neither draws the other.
 its fixture tree — so no screen has yet wired a real project's `ProjectTree` listings into
 `PickerNode`s to choose a path through it for real work (`G68`).
 
+## The viewer
+
+**What it is.** One open file, drawn whole: the header that carries the layout toggle — or an
+image's annotation toolbar — over a body that dispatches on what the file turned out to be. An
+editor buffer, a Markdown render, a diagram, a scene, a picture, a diff. A caller hands it an
+`OpenFile` and gets the whole arrangement back, and learns nothing about which of the six it got.
+
+`render` in `crates/ubiq/src/ui/viewer/mod.rs` is the entry, `header` and `body` are its two halves,
+and `ViewerKind` on `crates/ubiq/src/state/editor.rs` is what `body` matches on — with the status
+bar's file-kind chip able to override it for the life of the tab. **Two hosts ask for it**: the IDE's
+file tabs (`crates/ubiq/src/ui/editor.rs`) and a knowledge-base document tab
+(`crates/ubiq/src/ui/kb/mod.rs`, `render_doc`). The second is what makes it a component rather than
+the editor's own body — a KB document is reached through a different tree, loaded through a
+different message and saved against a different write, and everything past that lookup is the
+viewer's. A web panel's `Edit` position is a layout on this same axis, not a seventh body.
+
+## The diff renderer
+
+**What it is.** One `FileDiff` as a flat, virtualized list of rows — the `@@` hunk headers and the
+old and new lines under them — in either the unified or the split arrangement. `render` in
+`crates/ubiq/src/ui/viewer/diff.rs`, with `header` and `draw` under it.
+
+**Two screens draw a change and neither owns the drawing.** The Git screen's diff panel
+(`crates/ubiq/src/ui/git/diff.rs`) and the viewer's own `FileBody::Diff` arm both call it, so a
+change reads identically whether it was opened as a tab or picked out of the changed-paths list.
+That is the whole reason it is a component: the two paths to a diff are unrelated, and a reader
+comparing what one shows against what the other shows must not find a difference that is only the
+renderer's.
+
+## The capabilities panel
+
+**What it is.** The reading of what one harness said it can do at `initialize` — its identity, its
+capability groups, the authentication methods it offers — as one panel. `panel` in
+`crates/ubiq/src/ui/acp_capabilities.rs`.
+
+**Two surfaces ask the same question and must not word it differently.** A conversation's info modal
+(`crates/ubiq/src/ui/conversation/info.rs`) asks it about the harness behind *this* conversation;
+the Harnesses settings section (`crates/ubiq/src/ui/settings.rs`) asks it about a harness in the
+abstract. The facts are identical and the wording of a capability that is *absent* is the part worth
+sharing — a reader who sees "not offered" in one place and a missing row in the other learns a
+difference that is not there.
+
+## The tools panel
+
+**What it is.** A project's or the machine's runnable tools: the rows, and the add-or-edit form
+under them. `panel` in `crates/ubiq/src/ui/tools.rs`, parameterised by `ToolEditScope` on
+`crates/ubiq/src/state/settings.rs`.
+
+**One panel twice, because only the list behind it differs.** Application settings passes
+`ToolEditScope::System` and the project settings page passes `ToolEditScope::Project(project)`; the
+rows, the form, the validation and the empty state are the same. The scope is a parameter rather
+than two panels for the reason the file picker's `PickerOwner` is one: what differs between two uses
+of a compound belongs in what the caller hands it, not in a second copy.
+
 ## The boundary with the kit
 
 A compound lives either in the kit or in the screen that uses it, never in both:
@@ -136,6 +190,14 @@ A compound lives either in the kit or in the screen that uses it, never in both:
 
 The gap between the two is the rule: a component earns the kit when the second screen wants the
 *shape*; it stays in the screen when the second screen wants the *meaning*.
+
+**Four of the seven compounds above sit on the meaning side, and none of them is in the kit.** The
+viewer knows what a Markdown file is, the diff renderer knows what a hunk is, the capabilities panel
+knows what ACP advertises and the tools panel knows what a runnable tool is — so each lives in
+`crates/ubiq/src/ui/` under its own name and is called by the two screens that want it, rather than
+being generalised into a shape the kit could hold. The test a new compound answers is which of the
+two it is: a second screen that wants the same *arrangement* is asking for a kit primitive, and a
+second screen that wants the same *answer* is asking for one of these.
 
 ## Rationale
 

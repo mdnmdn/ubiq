@@ -623,7 +623,7 @@ the picker's own nodes rather than reading a disk the interface may not even be 
 `detach_file` is a tag's `×`. Those two are the exception to the rule above — they take the window's
 active project, where the enqueue write, `clear_attachments` and a queue row's edit, remove and
 requeue take `project_of_agent` — so a card belonging to another project cannot have a file attached
-to it or taken off it; `G323` is the backlog row that holds that, along with the question of whose
+to it or taken off it; `G326` is the backlog row that holds that, along with the question of whose
 explorer tree a foreign card's picker should offer. `crates/ubiq/src/ui/conversation/mod.rs`'s `attachment_tags()` draws
 the wrapping row as the composer's first `extras` entry, on `kit::removable_tag`. The control
 itself is `crates/ubiq/src/ui/kit/menu.rs`'s `Picker`, unchanged — its `disabled` set draws the
@@ -661,7 +661,7 @@ field the filter. A grouped, searchable, partly-inert list was already what that
 | The turn is cancelled while asks are up | The outstanding set is dropped, the prompts and the strip go with it, and the host answers every one of them as cancelled before the cancel reaches the harness |
 | The harness ends or is unloaded while an ask is up | The prompts go with the process; there is nothing left waiting on an answer |
 | The conversation accepts everything and the harness offers no allowing option | The host emits the request unchanged, and it is drawn and answered like any other |
-| A conversation surface is asked about an agent in a project the window is not pointed at | It is answered from the project that owns the agent: `project_of_agent` finds it, and the transcript, the record and every write follow the card rather than the rail. Attaching a file is the one thing that does not, and `G323` holds it |
+| A conversation surface is asked about an agent in a project the window is not pointed at | It is answered from the project that owns the agent: `project_of_agent` finds it, and the transcript, the record and every write follow the card rather than the rail. Attaching a file is the one thing that does not, and `G326` holds it |
 | Accept-all is switched on while an ask is up | The prompt on screen stays and is answered by hand; the flag governs the asks that follow, and nothing retracts a prompt the transcript holds |
 
 ## Related docs

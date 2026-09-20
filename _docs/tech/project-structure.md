@@ -5,7 +5,7 @@ kind: tech
 status: current
 summary: Every folder in the workspace, what belongs in it, what must never go in it, and the two crates' division of labour.
 read_when: you are adding a file and are not certain where it goes, or you are new to the repository
-updated: 2026-09-19
+updated: 2026-09-20
 verified: 2026-09-19
 code_anchors: [Cargo.toml, crates/ubiq-host/src/store/usage.rs, crates/ubiq-host/src/kb/mod.rs, crates/ubiq-host/src/lib.rs, crates/ubiq/Cargo.toml, crates/ubiq-proto/Cargo.toml, crates/ubiq-host/Cargo.toml, crates/ubiq-app/Cargo.toml, crates/ubiq-drone/Cargo.toml, vendor/gpui-terminal/Cargo.toml, _tools/icns.py]
 depends_on: [tech-architecture]
@@ -274,6 +274,7 @@ environment set up.
 | Script | Does |
 |---|---|
 | `_tools/docs.py` | Lints, indexes and drift-checks this library. Fronted by the `docs-*` recipes |
+| `_tools/dump.py` | Prints many source files in one call — globs, directories and line ranges — for reading a corner of the tree without one command per file. Fronted by `just dump`, `dump-list` and `dump-outline` |
 | `_tools/icns.py` | Builds the macOS application icon from `assets/`. Fronted by `just icns`, consumed by `just bundle` |
 
 Nothing in `_tools/` is imported by the crates, and nothing in the crates is imported by it.

@@ -190,7 +190,7 @@ list body and `ui/conversation/info.rs` read through `teams_conversation` and `t
 same reason — a guard moved on the panel and not on what it wraps draws a panel with nothing in it.
 
 **The rule this leaves behind:** a reader on a path the Teams screen can reach may not ask
-`self.project(cx)`. `G323` names the three surfaces where that is still open, and why two of them
+`self.project(cx)`. `G326` names the three surfaces where that is still open, and why two of them
 are a decision rather than a missing sibling.
 
 ## Where this stands
@@ -202,6 +202,6 @@ are a decision rather than a missing sibling.
 | W3 | The toolbar toggle, the project chip on cards and session pills | `app/teams_span.rs`, `ui/project_face.rs`, `ui/teams/mod.rs`, `ui/teams/graph.rs`, `ui/teams/status.rs` |
 | W4 | Tests and the documents this owes | `crates/ubiq/tests/teams.rs`, `_docs/features/workbench.md`, `_docs/tech/decisions.md`, `_docs/backlog.md` |
 
-All four are in the tree. What is open is `G322` — following a teams link that names a
+All four are in the tree. What is open is `G325` — following a teams link that names a
 non-active project activates that project on arrival, which is right for the other eight modes and
 is a side effect under the window span, where the card the link names is on screen either way.
