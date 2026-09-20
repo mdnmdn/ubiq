@@ -4,9 +4,10 @@ title: Rail modes
 summary: What the rail's IDE, Tasks and Control destinations fill the centre of the window with.
 keywords: [rail, mode, ide, control, tasks, stats]
 context: [rail.ide, rail.control, rail.tasks]
+targets: [ui.rail.mode.ide, ui.rail.mode.tasks, ui.rail.mode.control]
 order: 10
 status: current
-related: [workbench-panels, git-overview, kb-overview, agents-starting]
+related: [workbench-panels, workbench-rail, git-overview, kb-overview, agents-starting]
 ---
 
 ## The rail selects what the centre is for

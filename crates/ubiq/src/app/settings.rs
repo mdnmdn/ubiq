@@ -669,6 +669,7 @@ impl AppState {
             id: Some(id),
             platforms: tool.platforms.clone(),
             wait_on_exit: tool.wait_on_exit,
+            wait_on_error: tool.wait_on_error,
             single_instance: tool.single_instance,
         });
         cx.notify();
@@ -697,6 +698,7 @@ impl AppState {
             env,
             platforms: editor.platforms,
             wait_on_exit: editor.wait_on_exit,
+            wait_on_error: editor.wait_on_error,
             single_instance: editor.single_instance,
         };
         match editor.scope {
@@ -783,6 +785,19 @@ impl AppState {
             return;
         };
         editor.wait_on_exit = !editor.wait_on_exit;
+        cx.notify();
+    }
+
+    /// Flip "wait on error" on the editor. The panel only offers this while "wait on exit" is
+    /// off — that already keeps the pane open on every exit, which would make this redundant.
+    pub fn toggle_tool_wait_on_error(&mut self, cx: &mut Context<Self>) {
+        let Some(editor) = self.workbench.settings.tool_editor.as_mut() else {
+            return;
+        };
+        if editor.wait_on_exit {
+            return;
+        }
+        editor.wait_on_error = !editor.wait_on_error;
         cx.notify();
     }
 

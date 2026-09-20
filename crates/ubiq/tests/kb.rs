@@ -146,6 +146,7 @@ fn a_project() -> ProjectSnapshot {
             managed_repos: Vec::new(),
             lanes: Vec::new(),
             runs_on: None,
+            initials: String::new(),
         },
         health: ProjectHealth::Ok,
         open_panes: 0,

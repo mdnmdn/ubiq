@@ -183,17 +183,21 @@ fn the_names_a_saved_layout_is_keyed_by_are_fixed() {
     assert_eq!(PanelKind::AgentsExplorer.home(), Region::Left);
 }
 
-/// **The mode is part of the placement policy.** A chat tab opens on the right everywhere but the
-/// Teams screens, whose graph and inspector take the centre and the right — there the conversation
-/// is the left side. Every other kind answers its one home whatever the mode.
+/// **The mode is part of the placement policy**, even though a chat answers it the same way in
+/// every mode: a chat tab is the agents' side of the conversation and holds the right dock whatever
+/// the mode, Teams included, where the graph and its own inspector take the centre and stay inline
+/// rather than in the dock. Every other kind answers its one home whatever the mode.
 #[test]
-fn a_chat_homes_left_in_teams_and_right_everywhere_else() {
+fn a_chat_homes_right_in_every_mode() {
     let chat = PanelKind::Chat(ChatId::generate());
-    for mode in [RailMode::Teams, RailMode::TeamsOld] {
-        assert_eq!(chat.home_in(mode), Region::Left, "{mode:?}");
-        assert_eq!(PanelKind::chat_home(mode), Region::Left, "{mode:?}");
-    }
-    for mode in [RailMode::Ide, RailMode::Tasks, RailMode::Git, RailMode::Kb] {
+    for mode in [
+        RailMode::Ide,
+        RailMode::Tasks,
+        RailMode::Git,
+        RailMode::Kb,
+        RailMode::Teams,
+        RailMode::TeamsOld,
+    ] {
         assert_eq!(chat.home_in(mode), Region::Right, "{mode:?}");
         assert_eq!(PanelKind::chat_home(mode), Region::Right, "{mode:?}");
     }

@@ -865,6 +865,7 @@ impl AppState {
             Some(OverflowRow::WebExport) => self.open_web_export(window, cx),
             Some(OverflowRow::CaptureWindow) => self.capture_window(&CaptureWindow, window, cx),
             Some(OverflowRow::Help) => self.reveal_help(window, cx),
+            Some(OverflowRow::PointAtSomething) => self.open_help_target(cx),
             Some(OverflowRow::Settings) => self.toggle_settings(cx),
             None => {}
         }

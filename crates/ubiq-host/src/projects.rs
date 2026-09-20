@@ -340,6 +340,7 @@ impl Projects {
             tools: Vec::new(),
             lanes: Vec::new(),
             runs_on: None,
+            initials: String::new(),
         };
 
         let snapshot = self.snapshot(&record);
@@ -525,6 +526,29 @@ impl Projects {
         if let Some(runs_on) = runs_on {
             record.runs_on = runs_on.resolve();
         }
+
+        let snapshot = self.snapshot(&record);
+        let mut replies = vec![Reply::Everyone(
+            ubiq_proto::messages::Message::ProjectChanged { project: snapshot },
+        )];
+        replies.extend(self.keep(record));
+        replies
+    }
+
+    /// Override, or clear, the letters the rail's badge shows for this project. Trimmed and
+    /// capped at two characters here rather than trusted from the wire — a field this narrow is
+    /// cheaper to enforce once, at the one place it is written, than to re-check at every draw.
+    /// Its own message rather than a field on [`Message::UpdateProject`]; see
+    /// [`Message::SetProjectInitials`].
+    ///
+    /// [`Message::UpdateProject`]: ubiq_proto::messages::Message::UpdateProject
+    /// [`Message::SetProjectInitials`]: ubiq_proto::messages::Message::SetProjectInitials
+    pub fn set_initials(&mut self, id: ProjectId, initials: &str) -> Vec<Reply> {
+        let Some(record) = self.find(id) else {
+            return vec![Reply::Asker(message_error(Some(id), "no such project"))];
+        };
+        let mut record = record.clone();
+        record.initials = initials.trim().chars().take(2).collect();
 
         let snapshot = self.snapshot(&record);
         let mut replies = vec![Reply::Everyone(

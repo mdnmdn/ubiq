@@ -23,6 +23,22 @@ impl AppState {
         input.update(cx, |input, cx| input.set_value(&hex, window, cx));
     }
 
+    /// Keeps the rail-initials field at two characters as it is typed, rather than only refusing a
+    /// third at Save — a field that silently accepted a longer string until then would look like it
+    /// had taken it.
+    pub(super) fn clamp_project_initials_input(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let text = self.project_initials_input.read(cx).value().to_string();
+        let clamped: String = text.chars().take(2).collect();
+        if clamped != text {
+            let input = self.project_initials_input.clone();
+            input.update(cx, |input, cx| input.set_value(&clamped, window, cx));
+        }
+    }
+
     // The picker page's controls. Each sets one field of the request the next dialog is raised
     // with; none of them touches a picker that is already up, because the ask a dialog was opened
     // under is the ask it is answering.
@@ -780,14 +796,22 @@ impl AppState {
         }
         let colour = settings.colour.swatch;
         let custom = settings.colour.custom;
+        let initials = self.project_initials_input.read(cx).value().to_string();
         match settings.mode {
             ProjectSettingsMode::Create { path } => {
+                // The record does not exist until `AddProject` answers, so an override typed
+                // during creation has nowhere to be sent yet — the same reason `fill_project_form`
+                // never seeds this field for Create.
                 self.add_project(path, Some(name), Some(colour), custom, false, cx);
             }
             ProjectSettingsMode::Edit { project } => {
                 // Nothing marks this as a promotion: the host treats an `UpdateProject` on a
                 // temporary record as the project's entry into the real catalogue.
                 self.update_project(project, Some(name), Some(colour), custom, cx);
+                self.bus.send(Message::SetProjectInitials {
+                    project_id: project,
+                    initials,
+                });
             }
         }
     }
@@ -805,6 +829,14 @@ impl AppState {
             ProjectSettingsMode::Edit { project } => WindowRegistry::read(cx)
                 .project(*project)
                 .map(|entry| entry.record.name.clone())
+                .unwrap_or_default(),
+        };
+        // Create has no record yet to carry an override — only Edit answers with one.
+        let initials = match &settings.mode {
+            ProjectSettingsMode::Create { .. } => String::new(),
+            ProjectSettingsMode::Edit { project } => WindowRegistry::read(cx)
+                .project(*project)
+                .map(|entry| entry.record.initials.clone())
                 .unwrap_or_default(),
         };
         let path = match &settings.mode {
@@ -834,6 +866,8 @@ impl AppState {
         });
         let about = self.project_form_about.clone();
         about.update(cx, |input, cx| input.set_value("", window, cx));
+        let initials_input = self.project_initials_input.clone();
+        initials_input.update(cx, |input, cx| input.set_value(&initials, window, cx));
         let path_input = self.project_path_input.clone();
         path_input.update(cx, |input, cx| {
             input.set_value(
@@ -981,6 +1015,9 @@ impl AppState {
                     if view.rail_mode == RailMode::Git && saved.layout.is_none() {
                         self.queue_git_furniture();
                     }
+                    // The project's own config just moved the mode the window reads its context
+                    // from — the same edge a mode switch or a project entry gives follow mode.
+                    self.sync_help_follow(cx);
                 }
                 // A project closed and reopened in this session restored from the parked blob
                 // already, and reopening the tabs the user has since closed would be worse than

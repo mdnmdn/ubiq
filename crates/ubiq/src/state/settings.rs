@@ -800,6 +800,9 @@ pub struct ToolEditor {
     /// everywhere.
     pub platforms: Vec<String>,
     pub wait_on_exit: bool,
+    /// Keep the pane open only on a non-zero exit. Meaningless — and disabled in the editor —
+    /// while `wait_on_exit` is set.
+    pub wait_on_error: bool,
     /// Whether this tool is restricted to one run at a time. The host is what enforces it —
     /// see [`ubiq_proto::tools::ToolDef::single_instance`].
     pub single_instance: bool,

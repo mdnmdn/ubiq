@@ -128,6 +128,7 @@ recolour and a move on disk.
 | `AddProject` | UI → host | `path`, `name?`, `colour?`, `custom_colour?`, `temporary` | `ProjectAdded` or `ProjectError` |
 | `ForgetProject` | UI → host | `project_id` | `ProjectForgotten` |
 | `UpdateProject` | UI → host | `project_id`, `name?`, `colour?`, `custom_colour?`, `search_excludes?`, `index?`, `tools?`, `managed_repos?`, `lanes?`, `runs_on?` | `ProjectChanged` |
+| `SetProjectInitials` | UI → host | `project_id`, `initials` | `ProjectChanged` |
 | `LocateProject` | UI → host | `project_id`, `path` | `ProjectChanged` or `ProjectError` |
 | `OpenedProject` | UI → host | `project_id` | `ProjectChanged` |
 | `AdoptProject` | UI → host | `project_id` | — |
@@ -1157,7 +1158,7 @@ Forty-seven records travel inside payloads.
 | Record | Fields |
 |---|---|
 | `SessionInfo` | `id`, `name`, `home_folder`, `created_at` |
-| `WorkspaceInfo` | `id`, `session_id`, `project_id`, `rel_path?`, `agent_type`, `cols`, `rows`, `running`, `wait_on_exit`, `tool?` |
+| `WorkspaceInfo` | `id`, `session_id`, `project_id`, `rel_path?`, `agent_type`, `cols`, `rows`, `running`, `wait_on_exit`, `wait_on_error`, `tool?` |
 | `ShellInfo` | `label`, `program`, `is_default` |
 | `AgentTypeInfo` | `id`, `label`, `command`, `available`, `chat`, `acp`, `modes[]`, `unattended_mode?`, `keeps_sessions`, `quota` |
 | `AcpCapabilitiesRecord` | `protocol_version`, `agent?`, `groups[]`, `auth_methods[]`, `discovered_ms` |
@@ -1165,10 +1166,10 @@ Forty-seven records travel inside payloads.
 | `AcpCapabilityGroupRecord` | `label`, `entries[]` |
 | `AcpCapabilityRecord` | `id`, `label`, `supported`, `description` |
 | `AcpAuthMethodRecord` | `id`, `name`, `description?`, `default` |
-| `ToolDef` | `id`, `name`, `command`, `args`, `env`, `platforms[]`, `wait_on_exit`, `single_instance` |
+| `ToolDef` | `id`, `name`, `command`, `args`, `env`, `platforms[]`, `wait_on_exit`, `wait_on_error`, `single_instance` |
 | `ToolRun` | `scope`, `id` |
 | `ListedTool` | `scope`, `tool`, `applicable` |
-| `ProjectRecord` | `id`, `name`, `path`, `colour`, `custom_colour?`, `temporary`, `created_at`, `last_opened_at?`, `search_excludes[]`, `index?`, `tools[]`, `managed_repos[]` |
+| `ProjectRecord` | `id`, `name`, `path`, `colour`, `custom_colour?`, `temporary`, `created_at`, `last_opened_at?`, `search_excludes[]`, `index?`, `tools[]`, `managed_repos[]`, `initials` |
 | `ProjectSnapshot` | a `ProjectRecord`, flattened, plus `health`, `open_panes`, `workarea` and `ephemeral` |
 | `DirEntry` | `name`, `rel_path`, `kind`, `size?`, `symlink` |
 | `DirListing` | `rel_path`, `entries[]`, `truncated` |

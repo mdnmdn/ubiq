@@ -185,6 +185,7 @@ mod tests {
                 tools: vec![],
                 lanes: vec![],
                 runs_on: None,
+                initials: String::new(),
             },
             health: ProjectHealth::Ok,
             open_panes: 2,

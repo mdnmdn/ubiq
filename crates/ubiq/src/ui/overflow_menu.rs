@@ -56,6 +56,7 @@ fn label(row: OverflowRow) -> &'static str {
         OverflowRow::WebExport => "Explore the project in browser",
         OverflowRow::CaptureWindow => "Capture this window",
         OverflowRow::Help => "Help",
+        OverflowRow::PointAtSomething => "Point at something…",
         OverflowRow::Settings => "Settings",
     }
 }
@@ -67,6 +68,9 @@ fn icon(row: OverflowRow) -> kit::UbiqIcon {
         OverflowRow::WebExport => kit::UbiqIcon::TitlebarBrowser,
         OverflowRow::CaptureWindow => kit::UbiqIcon::CaptureWindow,
         OverflowRow::Help => kit::UbiqIcon::TitlebarHelp,
+        // The same glyph as Help: it is the same offer, and the registry has no pointer icon —
+        // giving it one is `G294`'s neighbour rather than this change's business.
+        OverflowRow::PointAtSomething => kit::UbiqIcon::TitlebarHelp,
         OverflowRow::Settings => kit::UbiqIcon::TitlebarSettings,
     }
 }

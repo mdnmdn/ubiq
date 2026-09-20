@@ -38,6 +38,9 @@ from rich.console import Console
 REPO = Path(__file__).resolve().parents[1]
 HELP_DIR = REPO / "help"
 MANIFEST_PATH = HELP_DIR / "manifest.toml"
+# Where the `ui.*` catalogue this checks `targets:` against lives. See `load_ui_catalogue` for
+# exactly what scraping this file can and cannot prove.
+UI_ID_SOURCE = REPO / "crates" / "ubiq" / "src" / "state" / "ui_id.rs"
 # The default output. `--out-dir` overrides it, because the bundle has to land in the `target/` of
 # the workspace that built the binary: Ubiq Studio compiles the base through its own workspace, so
 # its `target/help/` is the one the executable walks up to.
@@ -53,13 +56,14 @@ FRONTMATTER_FIELDS = {
     "summary",
     "keywords",
     "context",
+    "targets",
     "order",
     "status",
     "related",
     "redirects",
     "since",
 }
-LIST_FIELDS = {"keywords", "context", "related", "redirects"}
+LIST_FIELDS = {"keywords", "context", "targets", "related", "redirects"}
 STATUSES = {"current", "draft", "planned"}
 
 # The four context-key shapes the interface computes: a panel's stable name, a view, a rail mode, a
@@ -67,6 +71,21 @@ STATUSES = {"current", "draft", "planned"}
 # the Rust source to check the name after the dot is a real one, the way the proposal describes; that
 # is a known deferred check, not an oversight.
 CONTEXT_KEY_RE = re.compile(r"^(panel|view|rail|modal)\.[A-Za-z0-9_.\-]+$")
+
+# A `targets:` entry: the `ui.` namespace (`UiId::NAMESPACE`) plus 1-8 dotted segments matching
+# `UiId`'s own grammar (`crates/ubiq/src/state/ui_id.rs::validate`). This checks *shape* only;
+# whether the name after `ui.` is one the catalogue actually declares is `load_ui_catalogue`'s job.
+TARGET_KEY_RE = re.compile(
+    r"^ui(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*){1,8}$"
+)
+
+# `pub const CATALOGUE: &[UiId] = &[ ... ];` — the identifiers actually exposed as real targets.
+UI_CATALOGUE_BLOCK_RE = re.compile(r"pub const CATALOGUE:\s*&\[UiId\]\s*=\s*&\[(.*?)\];", re.DOTALL)
+UI_CATALOGUE_IDENT_RE = re.compile(r"[A-Z][A-Z0-9_]*")
+# `pub const NAME: UiId = UiId::new("literal");` — every declared name and the string it carries.
+UI_CONST_DEF_RE = re.compile(
+    r'pub const ([A-Z][A-Z0-9_]*):\s*UiId\s*=\s*UiId::new\("([a-z][a-z0-9.\-]*)"\);'
+)
 
 # A markdown link, `[text](target)`, excluding an image's `![text](target)` — the lookbehind is what
 # tells the two apart.
@@ -169,6 +188,7 @@ class Page:
     summary: str = ""
     keywords: list[str] = field(default_factory=list)
     context: list[str] = field(default_factory=list)
+    targets: list[str] = field(default_factory=list)
     order: int | None = None
     status: str = "current"
     related: list[str] = field(default_factory=list)
@@ -205,6 +225,7 @@ def load_pages(errors: list[str]) -> list[Page]:
                 summary=data["summary"],
                 keywords=list(data.get("keywords", [])),
                 context=list(data.get("context", [])),
+                targets=list(data.get("targets", [])),
                 order=order,
                 status=data.get("status", "current"),
                 related=list(data.get("related", [])),
@@ -214,6 +235,63 @@ def load_pages(errors: list[str]) -> list[Page]:
             )
         )
     return pages
+
+
+def load_ui_catalogue(errors: list[str]) -> set[str] | None:
+    """The set of bare `UiId` names (no `ui.` prefix) that `targets:` may legally name, scraped out
+    of `crates/ubiq/src/state/ui_id.rs`, or `None` when that file cannot be read or parsed — in
+    which case `targets:` shape is still checked but no page-to-id check runs.
+
+    **What this can prove:** every name in `pub const CATALOGUE: &[UiId] = &[...]` today, because
+    every entry there is, today, a bare identifier defined two lines away by a literal
+    `pub const NAME: UiId = UiId::new("dotted.string");` — no macro, no computation, one identifier
+    per line. Scraping the `CATALOGUE` block first (rather than every `UiId::new(...)` in the file)
+    means a `UiId::new` declared but never added to `CATALOGUE` is correctly *not* treated as valid
+    — matching `ui_id::is_known()`, which also only consults `CATALOGUE`.
+
+    **What this cannot prove, and never will by regex alone:** a name assembled at runtime —
+    `format!`, string concatenation, a value built from a `RailMode` variant rather than written as
+    a literal — would never appear here and a `targets:` entry naming it would be rejected as
+    unknown even though the interface itself considers it real. `rail_mode()` today maps every
+    `RailMode` onto one of the literal `RAIL_MODE_*` consts already in `CATALOGUE`, so this
+    limitation has no false negative today — but a regex over Rust cannot know that stays true
+    tomorrow, only that it is true now. This is the same gap `inbox/ui-id-proposal.md` §3 argues for
+    solving with a data catalogue (`ui-targets.toml`) rather than a Rust `const` list: a data file a
+    script can parse exactly is not a text pattern a script can only approximate. Treat this
+    function as a best-effort cross-check with a known false-negative mode, not as a proof that a
+    `targets:` entry is unreachable — it is honest evidence, not a guarantee.
+    """
+    if not UI_ID_SOURCE.is_file():
+        errors.append(
+            f"{shown(UI_ID_SOURCE)} not found — targets: entries are checked for shape only, "
+            "not against the real ui id catalogue"
+        )
+        return None
+    text = UI_ID_SOURCE.read_text(encoding="utf-8")
+    block = UI_CATALOGUE_BLOCK_RE.search(text)
+    if not block:
+        errors.append(
+            f"{shown(UI_ID_SOURCE)}: could not find `pub const CATALOGUE: &[UiId] = &[...]` — "
+            "targets: entries are checked for shape only, not against the real ui id catalogue"
+        )
+        return None
+    idents = set(UI_CATALOGUE_IDENT_RE.findall(block.group(1)))
+    literals = dict(UI_CONST_DEF_RE.findall(text))
+    names: set[str] = set()
+    unresolved: list[str] = []
+    for ident in sorted(idents):
+        if ident in literals:
+            names.add(literals[ident])
+        else:
+            unresolved.append(ident)
+    if unresolved:
+        errors.append(
+            f"{shown(UI_ID_SOURCE)}: CATALOGUE names {unresolved} but no matching "
+            "`pub const NAME: UiId = UiId::new(\"...\");` was found for them — the scrape is "
+            "incomplete, fix the regex rather than trust a partial catalogue"
+        )
+        return None
+    return names
 
 
 # ── validation ─────────────────────────────────────────────────────────────────────────────────
@@ -244,8 +322,10 @@ def resolve_link_target(target: str, from_page: Page, by_id: dict[str, Page], by
     return head in by_id
 
 
-def validate(pages: list[Page], manifest: dict, errors: list[str]) -> dict:
-    """Runs every check; returns the resolved context map (key -> page id) for the bundle step."""
+def validate(pages: list[Page], manifest: dict, errors: list[str]) -> tuple[dict, dict]:
+    """Runs every check; returns `(resolved_context, targets_map)` for the bundle step —
+    `resolved_context` is `context:` inverted exactly-once, `targets_map` is `targets:` inverted
+    many-to-many (key -> sorted list of page ids)."""
     by_id: dict[str, Page] = {}
     for page in pages:
         if page.id in by_id:
@@ -313,7 +393,30 @@ def validate(pages: list[Page], manifest: dict, errors: list[str]) -> dict:
     for page_id in sorted(missing):
         errors.append(f"page {page_id!r} ({by_id[page_id].path}) is not reachable from [nav] order")
 
-    return resolved_context
+    # `targets:` — many-to-many, no exclusivity: several pages may claim the same ui id, and one
+    # page may claim several. Unlike `context:`, there is no manifest override table, because there
+    # is nothing to disambiguate — every claimant is kept.
+    ui_catalogue = load_ui_catalogue(errors) if any(page.targets for page in pages) else None
+    targets_map: dict[str, list[str]] = {}
+    for page in pages:
+        for key in page.targets:
+            if not TARGET_KEY_RE.match(key):
+                errors.append(
+                    f"{page.path}: targets entry {key!r} does not match `ui.<segment>"
+                    "(.<segment>)*` (1-8 lowercase-kebab segments after `ui.`)"
+                )
+                continue
+            if ui_catalogue is not None and key[len("ui."):] not in ui_catalogue:
+                errors.append(
+                    f"{page.path}: targets entry {key!r} names no id in "
+                    f"{shown(UI_ID_SOURCE)}'s CATALOGUE"
+                )
+                continue
+            targets_map.setdefault(key, []).append(page.id)
+    for key in targets_map:
+        targets_map[key] = sorted(set(targets_map[key]))
+
+    return resolved_context, targets_map
 
 
 def expand_nav(nav_order: list[str], pages: list[Page], errors: list[str]) -> list[Page]:
@@ -378,7 +481,9 @@ def write_bundle(entries: list[tuple[str, bytes]], out_path: Path) -> None:
         handle.write(MAGIC)
 
 
-def build_catalog(pages: list[Page], manifest: dict, resolved_context: dict[str, str]) -> dict:
+def build_catalog(
+    pages: list[Page], manifest: dict, resolved_context: dict[str, str], targets_map: dict[str, list[str]]
+) -> dict:
     nav_order = manifest.get("nav", {}).get("order", [])
     nav_errors: list[str] = []
     nav_pages = expand_nav(nav_order, pages, nav_errors)
@@ -406,6 +511,7 @@ def build_catalog(pages: list[Page], manifest: dict, resolved_context: dict[str,
         ],
         "nav": [page.id for page in nav_pages],
         "context": dict(sorted(resolved_context.items())),
+        "targets": dict(sorted(targets_map.items())),
         "redirects": dict(sorted(redirects.items())),
     }
 
@@ -413,15 +519,16 @@ def build_catalog(pages: list[Page], manifest: dict, resolved_context: dict[str,
 # ── actions ────────────────────────────────────────────────────────────────────────────────────
 
 
-def run_validate() -> tuple[list[Page], dict, dict, list[str]] | None:
-    """Returns `(pages, manifest, resolved_context, errors)`, or `None` when `help/` is absent."""
+def run_validate() -> tuple[list[Page], dict, dict, dict, list[str]] | None:
+    """Returns `(pages, manifest, resolved_context, targets_map, errors)`, or `None` when `help/`
+    is absent."""
     if not HELP_DIR.is_dir():
         return None
     errors: list[str] = []
     manifest = load_manifest(errors)
     pages = load_pages(errors)
-    resolved_context = validate(pages, manifest, errors)
-    return pages, manifest, resolved_context, errors
+    resolved_context, targets_map = validate(pages, manifest, errors)
+    return pages, manifest, resolved_context, targets_map, errors
 
 
 def report_errors(errors: list[str]) -> None:
@@ -435,7 +542,7 @@ def run_check() -> int:
     if result is None:
         console.print("[dim]no help/ tree — nothing to check[/dim]")
         return 0
-    _, _, _, errors = result
+    _, _, _, _, errors = result
     if errors:
         report_errors(errors)
         return 1
@@ -456,12 +563,12 @@ def run_bundle(out_dir: Path) -> int:
     if result is None:
         console.print("[dim]no help/ tree — nothing to bundle[/dim]")
         return 0
-    pages, manifest, resolved_context, errors = result
+    pages, manifest, resolved_context, targets_map, errors = result
     if errors:
         report_errors(errors)
         return 1
 
-    catalog = build_catalog(pages, manifest, resolved_context)
+    catalog = build_catalog(pages, manifest, resolved_context, targets_map)
     entries: list[tuple[str, bytes]] = []
     for page in pages:
         entries.append((page.path, (HELP_DIR / page.path).read_bytes()))

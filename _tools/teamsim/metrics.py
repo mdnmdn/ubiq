@@ -9,12 +9,12 @@ from __future__ import annotations
 import math
 from typing import Iterable, Sequence
 
-from algos import CARD_HEIGHT, CARD_WIDTH, Arrangement, Rect
+from algos import CARD_HEIGHT, CARD_WIDTH, SUB_BOX, Arrangement, Rect
 
 
 def drawn_rects(arr: Arrangement) -> list[Rect]:
-    """Every rectangle with ink in it: the cards and the delegates, at this ring shape's size."""
-    sw, sh = arr.algo.sub
+    """Every rectangle with ink in it: the cards and the delegates, at the size they are drawn."""
+    sw, sh = SUB_BOX
     out: list[Rect] = []
     for card in arr.cards:
         out.append((card.at[0], card.at[1], CARD_WIDTH, CARD_HEIGHT))

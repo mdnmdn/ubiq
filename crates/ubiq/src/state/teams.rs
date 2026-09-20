@@ -35,8 +35,8 @@ use super::conversation::{Conversation, Run, SubagentTab};
 use super::work::WorkProjection;
 
 pub use super::layout::{
-    Algo, CARD_HEIGHT, CARD_WIDTH, GROUP_LABEL, GROUP_PAD, Layout, RING_PAD, Rings, SUB_GAP,
-    SUB_HEIGHT, SUB_WIDTH, fence, sub_slot,
+    Algo, CARD_HEIGHT, CARD_WIDTH, GROUP_LABEL, GROUP_PAD, Layout, RING_PAD, Rings, SUB_BOX,
+    SUB_GAP, SUB_HEIGHT, SUB_WIDTH, fence, sub_slot,
 };
 
 /// The work this mode draws: the host's projection, narrowed to the agents this window actually
@@ -480,9 +480,10 @@ impl TeamsView {
         (at.0 + offset.0, at.1 + offset.1)
     }
 
-    /// What one delegate box measures under the chosen arrangement's ring.
+    /// What one delegate box measures. [`SUB_BOX`] under every arrangement: a block is drawn at
+    /// the size the interface draws it, and no ring shape scales one.
     pub fn sub_box(&self) -> (f32, f32) {
-        self.algo.sub()
+        SUB_BOX
     }
 
     /// Every delegate of one card, in transcript order, where each is drawn.
@@ -499,7 +500,7 @@ impl TeamsView {
     /// Derived from where the delegates actually are, so dragging one resizes the fence and
     /// nothing has to hold a rectangle in step with them.
     pub fn fence_of(&self, agent: AgentId, at: (f32, f32)) -> Option<(f32, f32, f32, f32)> {
-        fence(at, &self.subs_at(agent, at), self.sub_box())
+        fence(at, &self.subs_at(agent, at))
     }
 
     /// What a card takes on the canvas, its fence included: `(x0, y0, x1, y1)` at 100% zoom.

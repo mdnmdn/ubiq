@@ -147,6 +147,7 @@ gpui::actions!(
         OpenSearch,
         OpenOutline,
         OpenHelp,
+        PointAtSomething,
         SaveFile,
         NewFile,
         PasteClipboardImage,
@@ -259,6 +260,9 @@ pub struct PaneState {
     /// Keep the pane open after the process ends instead of closing it: a tool run with
     /// "wait on exit", whose output stays readable until the tab is closed.
     pub wait_on_exit: bool,
+    /// Keep the pane open only when the process ends with a non-zero status: a tool run with
+    /// "wait on error". Redundant while `wait_on_exit` is set, which already covers every exit.
+    pub wait_on_error: bool,
     /// The tool that started this pane, when one did. What Restart re-sends — see
     /// `AppState::restart_pane_tool` — and `None` for a shell or a harness.
     pub tool: Option<ubiq_proto::tools::ToolRun>,
@@ -575,13 +579,6 @@ pub struct AppState {
     /// empty", so [`Self::toggle_region`] opening a region on purpose is never mistaken for the
     /// auto-hide this drives. See the `DockEvent::LayoutChanged` subscription in [`Self::new`].
     region_had_content: (bool, bool, bool),
-    /// Whether the user has expressly put away the Git screen's left (refs) or right (changes)
-    /// region during this run of the window. Session-only, never written to `ViewPrefs`: Git's
-    /// two side regions open with the mode every time it is entered (`D119`), and this is the one
-    /// thing that is allowed to override that for as long as the window stays up — a hide from a
-    /// previous run does not count, only one made since the process started. See
-    /// [`Self::enforce_git_sides`], which reads it, and [`Self::toggle_region`], which sets it.
-    git_sides_hidden: (bool, bool),
 
     /// Every place this window has drawn, and where in that list it is standing.
     pub nav: History,
@@ -832,6 +829,11 @@ pub struct AppState {
     /// than typed into — so a long path can be scrolled and selected instead of overflowing a
     /// label.
     pub project_path_input: Entity<InputState>,
+    /// The project settings dialog's rail-initials override: capped at two characters, shared by
+    /// the sink fixture and the live dialog the way `project_path_input` is — the live dialog
+    /// overwrites it in `fill_project_form`. Empty means no override, and the rail falls back to
+    /// the name's own first letter.
+    pub project_initials_input: Entity<InputState>,
     /// The "Add source" modal's two typed fields: what the source is called, and — for a git
     /// source — the repository URL the Check button asks about. They live on the window rather
     /// than on the form because every field in this crate does: the form is redrawn from state on
@@ -1087,6 +1089,7 @@ pub use hosts::{
 };
 mod image_edit;
 mod kb;
+mod mark;
 mod nav;
 mod new_agent;
 mod notifications;
@@ -1198,6 +1201,10 @@ pub fn install_key_bindings(cx: &mut App) {
         // F1 opens help for whatever the window is showing. Bare, and the same key everywhere:
         // it is the one shortcut a reader tries without being told it exists.
         gpui::KeyBinding::new("f1", OpenHelp, Some("Workbench")),
+        // ⇧F1 is the other help gesture: point at something and read what it is. Beside F1
+        // because it is the same question asked the other way round, and distinct from it
+        // because the answers are different sizes.
+        gpui::KeyBinding::new("shift-f1", PointAtSomething, Some("Workbench")),
         gpui::KeyBinding::new("cmd-p", FocusFileFilter, Some("Workbench")),
         gpui::KeyBinding::new("ctrl-p", FocusFileFilter, Some("Workbench")),
         gpui::KeyBinding::new("ctrl--", NavBack, Some("Workbench")),
@@ -1256,6 +1263,8 @@ pub fn install_key_bindings(cx: &mut App) {
         gpui::KeyBinding::new("cmd-shift-o", OpenOutline, Some("Input")),
         // F1 means help with the caret in a field too, by the same device.
         gpui::KeyBinding::new("f1", OpenHelp, Some("Input")),
+        // And ⇧F1 with the caret in a field too, by the same device.
+        gpui::KeyBinding::new("shift-f1", PointAtSomething, Some("Input")),
         // ⌘P means "go to file" wherever the caret is, for the same reason and by the same device.
         gpui::KeyBinding::new("cmd-p", FocusFileFilter, Some("Input")),
         // ⌃- and ⌃⇧- mean back and forward with the caret in a buffer too, by the same device.

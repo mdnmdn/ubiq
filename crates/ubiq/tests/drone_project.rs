@@ -6,15 +6,23 @@
 //! name, colour and origin on it. The bus half of that rule is unit-tested beside `Bus` itself;
 //! what is here is the projection the picker draws from, and the form that writes the origin.
 
+use std::time::Duration;
+
+use gpui_component::input::InputEvent;
 use ubiq::app::{AppState, BusHub};
 use ubiq::state::sink::{DroneField, ProjectNav};
 use ubiq::state::windows::WindowRegistry;
 use ubiq::state::workbench::{ProjectSettings, ProjectSettingsMode};
+use ubiq_proto::bus::FromClient;
 use ubiq_proto::ids::{ProjectId, SshProfileId};
+use ubiq_proto::messages::Message;
 use ubiq_proto::projects::{
     DroneChange, DroneOrigin, ProjectHealth, ProjectRecord, ProjectSnapshot,
 };
 use ubiq_proto::settings::DronePreset;
+
+/// Long enough for a message to cross a channel in the same process.
+const PATIENCE: Duration = Duration::from_millis(500);
 
 fn origin(profile: SshProfileId, root: &str) -> DroneOrigin {
     DroneOrigin {
@@ -42,6 +50,7 @@ fn snapshot(id: ProjectId, name: &str, runs_on: Option<DroneOrigin>) -> ProjectS
             managed_repos: Vec::new(),
             lanes: Vec::new(),
             runs_on,
+            initials: String::new(),
         },
         health: ProjectHealth::Ok,
         open_panes: 0,
@@ -210,4 +219,95 @@ fn the_remote_nav_needs_a_record_to_attach_to(cx: &mut gpui::TestAppContext) {
             ProjectNav::Remote
         );
     });
+}
+
+/// The dialog's rail-initials override: prefilled from the record's own on open, clamped to two
+/// characters as it is typed rather than only refused on Save, and sent as `SetProjectInitials`
+/// alongside the rename's own `UpdateProject` — never before, because a project being created has
+/// no record yet for an override to belong to.
+#[gpui::test]
+fn the_initials_field_prefills_clamps_and_saves(cx: &mut gpui::TestAppContext) {
+    use gpui::AppContext as _;
+
+    let project = ProjectId::generate();
+    let mut record = snapshot(project, "ubiq studio", None);
+    record.record.initials = "u".to_string();
+
+    let (hub, host) = ubiq_proto::bus::hub();
+    cx.update(|cx| {
+        gpui_component::init(cx);
+        ubiq::theme::set_mode(ubiq::app::boot_theme(), cx);
+        BusHub::install(hub, cx);
+        WindowRegistry::install(cx);
+        cx.global_mut::<WindowRegistry>().apply(record);
+        ubiq::app::install_key_bindings(cx);
+    });
+
+    let held: std::rc::Rc<std::cell::RefCell<Option<gpui::Entity<AppState>>>> = Default::default();
+    let taken = held.clone();
+    let window = cx.add_window(move |window, cx| {
+        let state = cx.new(|cx| AppState::for_project(Some(project), 'A', window, cx));
+        *taken.borrow_mut() = Some(state.clone());
+        gpui_component::Root::new(state, window, cx)
+    });
+    cx.run_until_parked();
+    let state = held
+        .borrow_mut()
+        .take()
+        .expect("the window built its state");
+
+    // Opening the dialog fills the field from the record's own override on the next frame.
+    window
+        .update(cx, |_, _window, cx| {
+            state.update(cx, |state, cx| state.open_edit_project(cx));
+        })
+        .expect("the window is open");
+    cx.run_until_parked();
+    state.update(cx, |state, cx| {
+        assert_eq!(state.project_initials_input.read(cx).value(), "u");
+    });
+
+    // Typed past two characters, it is clamped as it is typed, not only refused on Save.
+    // `set_value` itself is the silent, programmatic setter used above for the prefill — it
+    // deliberately does not raise `InputEvent::Change` — so a typed keystroke is modelled the same
+    // way the field's own `PressEnter` gesture is modelled elsewhere: set the text, then raise the
+    // event the real input widget raises for a keystroke.
+    window
+        .update(cx, |_, window, cx| {
+            state.update(cx, |state, cx| {
+                let input = state.project_initials_input.clone();
+                input.update(cx, |input, cx| {
+                    input.set_value("xyz", window, cx);
+                    cx.emit(InputEvent::Change);
+                });
+            });
+        })
+        .expect("the window is open");
+    cx.run_until_parked();
+    state.update(cx, |state, cx| {
+        assert_eq!(state.project_initials_input.read(cx).value(), "xy");
+    });
+
+    // Save sends the clamped override alongside the rename's own `UpdateProject`.
+    window
+        .update(cx, |_, _window, cx| {
+            state.update(cx, |state, cx| state.commit_project_settings(cx));
+        })
+        .expect("the window is open");
+    cx.run_until_parked();
+
+    let mut saw_initials = false;
+    while let Ok(event) = host.recv_timeout(PATIENCE) {
+        if let FromClient::Said { message, .. } = event
+            && let Message::SetProjectInitials {
+                project_id,
+                initials,
+            } = message
+        {
+            assert_eq!(project_id, project);
+            assert_eq!(initials, "xy");
+            saw_initials = true;
+        }
+    }
+    assert!(saw_initials, "commit sent the clamped override");
 }

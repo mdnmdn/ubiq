@@ -10,10 +10,10 @@
 use gpui::{Context, InteractiveElement, IntoElement, ParentElement, Styled, Window, div, px};
 
 use crate::app::{
-    AppState, FocusFileFilter, ImageRedo, ImageUndo, OpenHelp, ProjectSlot1, ProjectSlot2,
-    ProjectSlot3, ProjectSlot4, ProjectSlot5, ProjectSlot6, ProjectSlot7, ProjectSlot8,
-    ProjectSlot9, RailSlot1, RailSlot2, RailSlot3, RailSlot4, RailSlot5, RailSlot6, RailSlot7,
-    RailSlot8, RailSlot9, SubmitSearch, ZoomIn, ZoomOut,
+    AppState, FocusFileFilter, ImageRedo, ImageUndo, OpenHelp, PointAtSomething, ProjectSlot1,
+    ProjectSlot2, ProjectSlot3, ProjectSlot4, ProjectSlot5, ProjectSlot6, ProjectSlot7,
+    ProjectSlot8, ProjectSlot9, RailSlot1, RailSlot2, RailSlot3, RailSlot4, RailSlot5, RailSlot6,
+    RailSlot7, RailSlot8, RailSlot9, SubmitSearch, ZoomIn, ZoomOut,
 };
 use crate::state::RailMode;
 use crate::theme;
@@ -27,6 +27,11 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
     // Nothing about size is pushed in here any more. Appearance is one setting for all of Ubiq
     // (`D151`), so the thread-local the theme already is carries the whole of it, written when a
     // size changes rather than at the top of every paint.
+    //
+    // The frame's `.ui_id(...)` collection starts here, before any child is built: element
+    // construction finishes before layout begins, so every rectangle this frame records arrives
+    // after this line. See `ui::ident`.
+    crate::ui::ident::begin_frame(window);
     div()
         .id("workbench-root")
         .flex()
@@ -46,6 +51,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         .on_action(cx.listener(AppState::open_search))
         .on_action(cx.listener(AppState::open_outline))
         .on_action(cx.listener(|this, _: &OpenHelp, window, cx| this.reveal_help(window, cx)))
+        .on_action(cx.listener(|this, _: &PointAtSomething, _, cx| this.open_help_target(cx)))
         .on_action(cx.listener(AppState::back))
         .on_action(cx.listener(AppState::forward))
         .on_action(cx.listener(AppState::toggle_bookmark))
@@ -457,6 +463,12 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         // The bell's list, painted last of the overlays: it is reached from the titlebar, which
         // is above every screen, so it has to be above every dialog a screen raised.
         .child(crate::ui::notifications::render(app, window, cx))
+        // In-place help's targeting mode, painted after every other overlay — including the
+        // bell's list, which is otherwise the last of them. It is the one layer that is not a
+        // dialog: the reader is pointing at the window rather than answering it, and a dialog's
+        // own controls are exactly the things they cannot otherwise ask about. `Layer::HelpTarget`
+        // is the top rung for the same reason, so Escape peels this before anything under it.
+        .child(crate::ui::help_target::overlay(app, window, cx))
         // The build-channel ribbon, over everything: the window always says which build it is.
         .child(ribbon::render())
         // Last child of the root, and it draws nothing: it prepaints after every panel and every
@@ -555,5 +567,8 @@ fn overlaid(app: &AppState) -> bool {
         || workbench.remote_connect.is_some()
         || workbench.new_agent_menu.is_some()
         || workbench.open_menu.is_some()
+        // A child webview is stacked over the window by the platform, so it would sit on top of
+        // the targeting overlay and take the mouse moves it lives on.
+        || workbench.help_target.is_some()
         || app.file_picker.is_some()
 }

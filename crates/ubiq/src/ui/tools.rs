@@ -4,11 +4,12 @@
 //!
 //! [`ToolEditScope`]: crate::state::settings::ToolEditScope
 
+use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, Context, ElementId, IntoElement, ParentElement, SharedString, Styled, div, px,
 };
-use gpui_component::IconName;
 use gpui_component::input::{Input, Textarea};
+use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use ubiq_proto::tools::{TOOL_PLATFORMS, ToolDef, parse_env};
 
@@ -27,6 +28,27 @@ const PLATFORM_LABELS: [(&str, &str); 3] = [
     ("windows", "Windows"),
     ("linux", "Linux"),
 ];
+
+/// [`check_box`]'s square with no click and the faint palette — for "wait on error", which reads
+/// as redundant and takes no click while "wait on exit" is on.
+fn check_box_disabled(checked: bool) -> impl IntoElement {
+    div()
+        .size(px(18.))
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .border_1()
+        .border_color(theme::border())
+        .bg(theme::surface())
+        .when(checked, |this| {
+            this.child(
+                Icon::new(IconName::Check)
+                    .with_size(Size::XSmall)
+                    .text_color(theme::text_faint()),
+            )
+        })
+}
 
 /// One tools list and its editor, for the machine-wide rows or one project's own.
 ///
@@ -118,6 +140,8 @@ fn tool_row(
         platforms,
         if tool.wait_on_exit {
             "waits on exit"
+        } else if tool.wait_on_error {
+            "waits on error"
         } else {
             "closes on exit"
         }
@@ -311,6 +335,31 @@ fn editor_form(
             .child(label_block(
                 "Wait on exit",
                 "Keep the pane open after the command ends, so its output stays readable.",
+            )),
+    );
+
+    let wait_on_error = editor.wait_on_error;
+    form = form.child(
+        div()
+            .flex()
+            .items_center()
+            .gap_2()
+            .child(if wait {
+                check_box_disabled(wait_on_error).into_any_element()
+            } else {
+                check_box(
+                    ElementId::Name(format!("{prefix}-wait-error").into()),
+                    wait_on_error,
+                    cx.listener(|this, _, _, cx| {
+                        this.toggle_tool_wait_on_error(cx);
+                    }),
+                )
+                .into_any_element()
+            })
+            .child(label_block(
+                "Wait on error",
+                "Keep the pane open only when the command exits with an error. Redundant, and \
+                 disabled, while \"wait on exit\" is on.",
             )),
     );
 

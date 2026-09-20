@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="512" height="512">
+  <!-- Ubiq's mark, traced from assets/logo-white.png. Ring and cubes share this 1024x1024 viewBox, so
+       the two part files stack back into the whole. Both cubes are one file: they never move
+       apart, so one raster carries them both. -->
+  <title>Ubiq logo — cubes</title>
+  <g id="cube">
+    <path fill="#f7f7f7" d="M356.72 446.34L482.63 519.04L482.63 659.12L356.72 586.42Z"/>
+    <path fill="#e5e5e5" d="M482.63 519.04L608.55 446.34L608.55 586.42L482.63 659.12Z"/>
+    <path fill="#ffffff" d="M482.63 373.64L608.55 446.34L482.63 519.04L356.72 446.34Z"/>
+  </g>
+  <g id="cube-small">
+    <path fill="#f7f7f7" d="M724.56 156.03L800.94 200.12L800.94 281.22L724.56 237.13Z"/>
+    <path fill="#e5e5e5" d="M800.94 200.12L877.31 156.03L877.31 237.13L800.94 281.22Z"/>
+    <path fill="#ffffff" d="M800.94 111.93L877.31 156.03L800.94 200.12L724.56 156.03Z"/>
+  </g>
+</svg>

@@ -776,6 +776,15 @@ pub enum Message {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         runs_on: Option<DroneChange>,
     },
+    /// Override the letters the rail's badge shows for this project, in place of the name's own
+    /// first letter. Capped at two characters; an empty string clears the override and returns
+    /// the badge to that default. Its own message rather than another field on
+    /// [`Message::UpdateProject`] so that message's callers — every one already in the tree —
+    /// need not learn a field they never set.
+    SetProjectInitials {
+        project_id: ProjectId,
+        initials: String,
+    },
     /// Re-point a record at a folder that moved, keeping its id, colour and history. Unlike
     /// [`Message::UpdateProject`] this changes truth, so it can answer [`Message::ProjectError`].
     LocateProject {
@@ -2117,6 +2126,7 @@ impl Message {
             | Message::RunTool { project_id, .. }
             | Message::ForgetProject { project_id, .. }
             | Message::UpdateProject { project_id, .. }
+            | Message::SetProjectInitials { project_id, .. }
             | Message::LocateProject { project_id, .. }
             | Message::OpenedProject { project_id, .. }
             | Message::AdoptProject { project_id, .. }
@@ -2549,6 +2559,10 @@ pub struct WorkspaceInfo {
     /// "wait on exit". Absent on answers from older hosts, which never set it.
     #[serde(default)]
     pub wait_on_exit: bool,
+    /// Keep the pane open when the process ends with a non-zero status: a tool run with "wait
+    /// on error". Absent on answers from older hosts, which never set it.
+    #[serde(default)]
+    pub wait_on_error: bool,
     /// The tool this pane was started by, when [`Message::RunTool`] is what started it. A shell
     /// and a harness carry `None`. It is what lets a stopped tool pane offer Restart — the
     /// interface sends the very same `RunTool` again rather than guessing from the tab's title.

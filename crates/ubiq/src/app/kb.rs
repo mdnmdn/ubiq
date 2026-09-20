@@ -157,13 +157,14 @@ impl AppState {
             return;
         }
 
-        // A diagram or an image is not drawn here yet — `ui::kb::render_doc` says "opens in the
-        // IDE" for it — so it is kept as its own bytes rather than given a buffer that would be
-        // a lossy decode of them and would have nothing on screen to be typed into.
-        if !matches!(
-            crate::state::editor::ViewerKind::of(&key.path),
-            crate::state::editor::ViewerKind::Editor | crate::state::editor::ViewerKind::Markdown
-        ) {
+        // An image is its own bytes, handed straight to `ui/viewer/image.rs` exactly as a project
+        // file's are (`T-32`): it is not text, and a buffer would be a lossy decode of it. Unlike
+        // a project file it stays plain `FileBody::Bytes` rather than `OpenFile::set_image`'s
+        // `ImageEdit` — annotating a knowledge-base picture would need `WriteKbFile` to carry
+        // bytes, which it does not yet, so the toggle that offers annotation tools is never drawn
+        // here and Save is never asked to write back what it cannot send.
+        if crate::state::editor::ViewerKind::of(&key.path) == crate::state::editor::ViewerKind::Image
+        {
             if let Some(doc) = self
                 .projects
                 .get_mut(&project_id)
@@ -175,6 +176,9 @@ impl AppState {
             return;
         }
 
+        // Everything else — Markdown, Mermaid, Excalidraw, draw.io, the plain editor — is a
+        // buffer, the same one a project file of that viewer kind gets: the diagram's source text,
+        // which is what its `Edit` layout hands to the web-panel bridge (`ui/viewer/web.rs`).
         let text = String::from_utf8_lossy(&contents.bytes).into_owned();
         let language = FileLanguage::of(&key.path);
         let buffer = cx.new(|cx| {
@@ -286,10 +290,14 @@ impl AppState {
     /// this runs inside an `AppState` update, and that function takes a second lease on the same
     /// entity to reach the dock.
     pub fn close_kb_doc(&mut self, key: &str, cx: &mut Context<Self>) {
-        if let Some(project) = self.project(cx)
-            && let Some(open) = self.projects.get_mut(&project)
-            && open.kb.close_doc(key)
-        {
+        let closed = self
+            .project(cx)
+            .and_then(|project| self.projects.get_mut(&project))
+            .is_some_and(|open| open.kb.close_doc(key));
+        if closed {
+            // A diagram may have opened a web-panel session over this tab (`T-32`); it goes with
+            // the tab exactly as a file's does in `force_close_tab`.
+            self.close_web_session(key);
             self.pending_panels
                 .push(PanelEdit::Close(PanelKind::Kb(key.to_string())));
         }
@@ -306,6 +314,7 @@ impl AppState {
         {
             open.kb.close_doc(key);
         }
+        self.close_web_session(key);
         self.panels.remove(&PanelKind::Kb(key.to_string()));
         cx.notify();
     }

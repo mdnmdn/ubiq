@@ -269,13 +269,13 @@ when it answers `None` — **follow only ever carries the reader forward onto a 
 never blanks the one already open.** When it answers a page different from the one on screen,
 `sync_help_follow` visits it exactly as a nav click would.
 
-`sync_help_follow` runs from the two places a context changes without the reader clicking anything:
-`AppState::set_rail_mode` (`app/shell.rs`), for rung 4, and `AppState::note_active_panel`
-(`app/help.rs`), pushed from the dock whenever the displayed panel changes, for rung 2. It is **not**
-called from `enter_project` or the `Scope::Project` config-load path in `app/projects.rs`, which
-assign `rail_mode` while restoring a project rather than through an active mode change — so follow
-does not yet react to a project switch that lands on a different mode than the one the reader left.
-That gap is `G303` in `backlog.md`.
+`sync_help_follow` runs from every place a context changes without the reader clicking anything:
+`AppState::set_rail_mode` (`app/shell.rs`), for rung 4; `AppState::note_active_panel`
+(`app/help.rs`), pushed from the dock whenever the displayed panel changes, for rung 2; and
+`AppState::enter_project` (`app/shell.rs`) and the `Scope::Project` config-load path in
+`app/projects.rs`, both of which assign `rail_mode` while restoring a project rather than through
+an active mode change — so follow swaps the page on a project switch too, whether the mode reaches
+the window as part of opening it or as a slower answer from the host.
 
 ## 7. When something is missing
 

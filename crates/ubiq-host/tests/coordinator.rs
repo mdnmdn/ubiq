@@ -2116,6 +2116,7 @@ fn a_tool(ui: &Client, name: &str, command: &str, single_instance: bool) -> Tool
             env: Default::default(),
             platforms: Vec::new(),
             wait_on_exit: false,
+            wait_on_error: false,
             single_instance,
         }],
         ..Default::default()

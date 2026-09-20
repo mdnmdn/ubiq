@@ -55,6 +55,17 @@ impl AppState {
         }
     }
 
+    /// The open document a web-panel session's key names, whichever half of the project holds it.
+    ///
+    /// A tab key is one of two disjoint spaces — `AppState::file` for the IDE's own tabs,
+    /// `AppState::kb_doc` (`"kb:{source}:{path}"`) for a knowledge-base document opened as one —
+    /// and a web panel is opened from either, so every lookup in this module tries both rather
+    /// than only the first. This is `AppState::set_view_layout`'s own fallback, generalised for
+    /// the one module that reaches a tab by key without already knowing which half it is on.
+    fn web_doc(&self, key: &str, cx: &gpui::App) -> Option<&crate::state::OpenFile> {
+        self.file(key, cx).or_else(|| self.kb_doc(key, cx))
+    }
+
     /// Whether the file behind this tab can be edited in a browser at all.
     ///
     /// Being editable is a property of the file — a document of a bundle-backed viewer kind whose
@@ -62,7 +73,7 @@ impl AppState {
     /// which is a separate question the header asks
     /// [`crate::state::web_panel::BundleState::unavailable`].
     pub fn web_editable(&self, key: &str, cx: &gpui::App) -> bool {
-        self.file(key, cx)
+        self.web_doc(key, cx)
             .is_some_and(|file| bridge::web_app(file.viewer).is_some() && file.savable())
     }
 
@@ -77,12 +88,16 @@ impl AppState {
     /// A session outlives a switch back to `Preview`: the component is expensive to mount and the
     /// sweep has already taken its browser off screen. It ends when the tab does.
     pub(super) fn settle_web_panels(&mut self, window: &mut gpui::Window, cx: &mut Context<Self>) {
+        // Both halves of the project: the IDE's own tabs and the knowledge base's documents are
+        // both `OpenFile`, and a diagram in either one opens the same bridge on the same `Edit`
+        // layout.
         let wanted: Vec<String> = self
-            .editor(cx)
-            .map(|editor| {
-                editor
+            .open_project(cx)
+            .map(|open| {
+                open.editor
                     .open
                     .iter()
+                    .chain(open.kb.docs.iter())
                     .filter(|file| {
                         file.layout == crate::state::editor::ViewLayout::Edit && file.savable()
                     })
@@ -106,7 +121,7 @@ impl AppState {
             return;
         }
         let Some(app) = self
-            .file(key, cx)
+            .web_doc(key, cx)
             .and_then(|file| bridge::web_app(file.viewer))
         else {
             return;
@@ -262,7 +277,7 @@ impl AppState {
                 let mut still_waiting = Vec::new();
                 for key in std::mem::take(&mut self.web_panels.awaiting) {
                     match self
-                        .file(&key, cx)
+                        .web_doc(&key, cx)
                         .and_then(|file| bridge::web_app(file.viewer))
                     {
                         Some(tenant) if tenant == app => self.open_web_session(&key, tenant, cx),
@@ -284,7 +299,7 @@ impl AppState {
                 self.web_panels.awaiting = waiting
                     .into_iter()
                     .filter(|key| {
-                        self.file(key, cx)
+                        self.web_doc(key, cx)
                             .and_then(|file| bridge::web_app(file.viewer))
                             != Some(app.as_str())
                     })
@@ -371,7 +386,7 @@ impl AppState {
     ) -> bool {
         match frame {
             bridge::FromWeb::Ready => {
-                let Some(file) = self.file(key, cx) else {
+                let Some(file) = self.web_doc(key, cx) else {
                     return false;
                 };
                 let Some(document) = file.buffer().map(|b| b.read(cx).value().to_string()) else {
@@ -419,7 +434,7 @@ impl AppState {
                 // a preview that lands after the next edit is simply not found again — the panel
                 // exports another one.
                 let document = self
-                    .file(key, cx)
+                    .web_doc(key, cx)
                     .and_then(|file| file.buffer().map(|b| b.read(cx).value().to_string()));
                 match document {
                     Some(document) => self.keep_exported(&document, svg, cx),
@@ -438,7 +453,8 @@ impl AppState {
     }
 
     /// Reach the open file behind a session's tab, in its own project rather than whichever one is
-    /// on screen.
+    /// on screen — the IDE's own tab first, then a knowledge-base document, [`Self::web_doc`]'s
+    /// fallback said for a mutable lookup.
     fn with_web_file(
         &mut self,
         project: Option<ProjectId>,
@@ -451,10 +467,14 @@ impl AppState {
         let Some(open) = self.projects.get_mut(&project) else {
             return false;
         };
-        let Some(file) = open.editor.find_key_mut(key) else {
+        if let Some(file) = open.editor.find_key_mut(key) {
+            edit(file);
+            return true;
+        }
+        let Some(doc) = open.kb.doc_mut(key) else {
             return false;
         };
-        edit(file);
+        edit(doc);
         true
     }
 
@@ -474,7 +494,7 @@ impl AppState {
             return;
         }
         for (key, document) in std::mem::take(&mut self.web_panels.incoming) {
-            let Some(file) = self.file(&key, cx) else {
+            let Some(file) = self.web_doc(&key, cx) else {
                 // The tab closed while the frame was in flight. Dropping it is right: there is no
                 // buffer to write into and nothing was promised.
                 continue;
@@ -499,7 +519,14 @@ impl AppState {
     /// dirty dot and `ProjectFileWritten` all behave exactly as they do for `⌘S`.
     fn flush_web_saves(&mut self, window: &mut gpui::Window, cx: &mut Context<Self>) {
         for key in std::mem::take(&mut self.web_panels.saving) {
-            self.save_file(&key, window, cx);
+            // Two save paths behind one tab menu row, on `AppState::pick_tab_menu`'s own split:
+            // a knowledge-base document writes through `WriteKbFile`, everything else through
+            // `WriteProjectFile`. `kb_doc` is `None` for a project tab, so this never double-fires.
+            if self.kb_doc(&key, cx).is_some() {
+                self.save_kb_doc(&key, cx);
+            } else {
+                self.save_file(&key, window, cx);
+            }
         }
     }
 }

@@ -350,7 +350,26 @@ pub enum OverflowRow {
     WebExport,
     CaptureWindow,
     Help,
+    PointAtSomething,
     Settings,
+}
+
+/// In-place help while it is up: where the cursor is, and nothing else.
+///
+/// **The hit target is not stored.** Which name is under the cursor is a question about the frame
+/// that was just laid out, answered by `ui::ident::hit_at` as the overlay is built; keeping a copy
+/// here would be a second answer that goes stale the moment a panel moves under a still mouse.
+/// State holds the gesture — the mode is on, the pointer is there — and the interface holds the
+/// geometry, which is the same division the rest of `state/` keeps.
+///
+/// `cursor` is `None` until the pointer first moves inside the window, which is why the overlay
+/// opens with its hint and no highlight rather than with a rectangle around whatever happens to
+/// be at the origin.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct HelpTargeting {
+    /// The last position the pointer reported, in window coordinates — the same space
+    /// `crate::state::ui_id::MarkRect` is recorded in.
+    pub cursor: Option<(f32, f32)>,
 }
 
 /// One row of the titlebar's new-project menu, in the order it is drawn — the same three ways in
@@ -473,6 +492,34 @@ pub enum FileDialog {
     CloseProject { project: ProjectId },
 }
 
+/// The brand mark's spin, on whichever empty page is drawing the mark.
+///
+/// The mark is a watermark, not a control, and it rests still: a spin is an answer to something the
+/// user did, or the window's own way of showing it is still awake. Only three numbers are needed to
+/// say so, because the curve itself is code — see `ui/mark.rs`.
+///
+/// **`spinning` is what mounts the animated element at all.** GPUI plays a one-shot animation when
+/// the element carrying it first appears, so an always-mounted spinning ring would spin every time
+/// the user switched to an empty page. The still ring is a different element, and the spinning one
+/// exists only for the length of a spin.
+#[derive(Default)]
+pub struct MarkState {
+    /// Bumped once per spin, and part of the animated element's id, so a spin asked for while one
+    /// is running replaces it from the start rather than being swallowed.
+    pub spin: u64,
+    /// Whether the spinning element is the one being drawn.
+    pub spinning: bool,
+    /// When the running spin is due to end. Moved forward by a spin asked for mid-spin, which is
+    /// what the timer watching it re-reads rather than firing on the first deadline it was given.
+    pub until: Option<std::time::Instant>,
+    /// When the idle watch may next spin the mark, once the mark has been on screen that long.
+    /// Set by the watch itself, to a fresh interval each time — see `app/mark.rs`.
+    pub idle_at: Option<std::time::Instant>,
+    /// Whether the idle watch is already running. One per window, started the first time the mark
+    /// is drawn and never stopped.
+    pub idle_watch: bool,
+}
+
 pub struct WorkbenchState {
     /// Where the host writes everything down, and whether that is the usual place. The status bar
     /// says so when it is not, because a config root you cannot see is a foot-gun.
@@ -512,6 +559,8 @@ pub struct WorkbenchState {
     /// focus is decided, the way the focused pane is — it is what gives the help ladder its
     /// `panel.<name>` rung.
     pub active_panel: Option<crate::state::dock::PanelKind>,
+    /// The brand mark's spin, while one is running. See [`MarkState`].
+    pub mark: MarkState,
 
     /// What was typed into the project menu's search field.
     pub project_filter: String,
@@ -587,6 +636,13 @@ pub struct WorkbenchState {
     /// Until when a folder move skips its confirmation, from the dialog's checkbox. In memory and
     /// per window: ten minutes is not a preference, and there is nothing to migrate.
     pub move_unasked_until: Option<std::time::Instant>,
+    /// In-place help's targeting mode. `Some` exactly while it is up.
+    ///
+    /// An `Option` rather than a bool beside a hovered-target field, for the reason every other
+    /// overlay on this struct is one: the mode has state of its own that means nothing when it is
+    /// down, and a pair would make "mode off but a cursor still remembered" a state the type
+    /// allows. See [`HelpTargeting`].
+    pub help_target: Option<HelpTargeting>,
     /// Where the new-pane menu's chevron was clicked, which is what anchors the menu over the
     /// window. `Some` exactly while `open_menu` is `MenuId::NewPane`.
     pub new_pane_menu: Option<(f32, f32)>,
@@ -686,6 +742,7 @@ impl Default for WorkbenchState {
             theme_prompt: None,
             open_menu: None,
             active_panel: None,
+            mark: MarkState::default(),
             project_filter: String::new(),
             row_action: None,
             project_settings: None,
@@ -705,6 +762,7 @@ impl Default for WorkbenchState {
             tab_menu: None,
             file_dialog: None,
             move_unasked_until: None,
+            help_target: None,
             new_pane_menu: None,
             overflow_menu: None,
             new_project_menu: None,
@@ -789,6 +847,9 @@ impl WorkbenchState {
         // Always offered, project or not: help is about the application, and a window with no
         // folder open is one of the places a reader most wants it.
         rows.push(OverflowRow::Help);
+        // Under Help, because it is the same question asked the other way round: Help opens the
+        // page for where you are standing, this one waits for you to point at something.
+        rows.push(OverflowRow::PointAtSomething);
         rows.push(OverflowRow::Settings);
         rows
     }

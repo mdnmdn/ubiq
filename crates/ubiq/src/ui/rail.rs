@@ -12,8 +12,10 @@ use gpui::{
 use gpui_component::{Icon, Sizable as _, Size};
 
 use crate::app::AppState;
+use crate::state::ui_id;
 use crate::state::{RailMode, WindowRegistry};
 use crate::theme;
+use crate::ui::ident::Identified as _;
 use crate::ui::kit::{UbiqIcon, section_label};
 use ubiq_proto::ids::ProjectId;
 
@@ -90,6 +92,7 @@ pub fn mark(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         .border_b_1()
         .border_color(theme::border())
         .child(img(ImageSource::Image(logo)).size(px(theme::titlebar_height() - 10.)))
+        .ui_id(ui_id::RAIL_MARK)
 }
 
 pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl IntoElement {
@@ -138,7 +141,18 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
         .bg(theme::pane_bg())
         .border_r_1()
         .border_color(theme::border())
-        .children(groups)
+        .ui_id(ui_id::RAIL)
+        .child(
+            // A thin wrapper, matching the rail's own flex settings, so the whole column of
+            // groups can carry one name — `.children` would otherwise splice `groups` in as
+            // siblings with nothing to mark.
+            div()
+                .flex()
+                .flex_col()
+                .items_center()
+                .ui_id(ui_id::RAIL_MODES)
+                .children(groups),
+        )
         .child(div().flex_1().min_h(px(0.)))
         .child(
             div()
@@ -146,6 +160,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                 .flex_col()
                 .items_center()
                 .pb(px(1.))
+                .ui_id(ui_id::RAIL_PROJECTS)
                 .children(project_badges(app, window, cx)),
         )
 }
@@ -233,16 +248,23 @@ fn project_badges(app: &AppState, window: &Window, cx: &mut Context<AppState>) -
             (
                 p.record.id,
                 p.record.name.clone(),
+                p.record.initials.clone(),
                 theme::project_tint(p.record.temporary, p.record.colour, p.record.custom_colour),
             )
         })
-        .map(|(id, name, tint)| {
-            let initial = name
-                .chars()
-                .next()
-                .unwrap_or('?')
-                .to_uppercase()
-                .to_string();
+        .map(|(id, name, initials, tint)| {
+            // An override wins outright — 1 or 2 characters, shown as the project settings field
+            // holds them. Empty is "no override", which is the name's own first letter, the way
+            // it always read.
+            let initial = if initials.is_empty() {
+                name.chars()
+                    .next()
+                    .unwrap_or('?')
+                    .to_uppercase()
+                    .to_string()
+            } else {
+                initials
+            };
             let tooltip = SharedString::from(name);
             let selected = Some(id) == active;
             div()
@@ -312,5 +334,6 @@ fn rail_item(mode: RailMode, active: bool, cx: &mut Context<AppState>) -> AnyEle
                 .child(SharedString::from(mode.label())),
         )
         .on_click(cx.listener(move |this, _, _, cx| this.set_rail_mode(mode, cx)))
+        .ui_id(ui_id::rail_mode(mode))
         .into_any_element()
 }

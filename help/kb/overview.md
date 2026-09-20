@@ -4,6 +4,7 @@ title: The knowledge base
 summary: A project's documents, read from one or more sources that need not be inside the project.
 keywords: [knowledge base, kb, documents, wiki, sources]
 context: [rail.kb, panel.ubiq.kb-explorer]
+targets: [ui.rail.mode.kb]
 order: 10
 status: current
 related: [workbench-explorer]

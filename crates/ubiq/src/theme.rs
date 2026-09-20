@@ -215,6 +215,31 @@ pub fn modal_width() -> f32 {
     scaled(MODAL_WIDTH)
 }
 
+/// In-place help's balloon: the panel that says what the cursor is pointing at.
+///
+/// One width, for a sentence — narrower than a modal because it is read beside the thing it
+/// describes rather than instead of it. `HELP_BALLOON_ROOM` is not a height the balloon is given:
+/// the panel hugs its text, and this is the space the placement arithmetic assumes it needs when
+/// it decides whether to sit below the target or flip above it. Generous on purpose — guessing
+/// high flips a little early, guessing low runs the balloon off the bottom of the window, and
+/// only one of those is visible to a reader.
+pub const HELP_BALLOON_WIDTH: f32 = 300.0;
+pub const HELP_BALLOON_ROOM: f32 = 132.0;
+/// What the balloon keeps between itself and the target, and between itself and the window edge.
+pub const HELP_BALLOON_GAP: f32 = 8.0;
+
+pub fn help_balloon_width() -> f32 {
+    scaled(HELP_BALLOON_WIDTH)
+}
+
+pub fn help_balloon_room() -> f32 {
+    scaled(HELP_BALLOON_ROOM)
+}
+
+pub fn help_balloon_gap() -> f32 {
+    scaled(HELP_BALLOON_GAP)
+}
+
 /// The one modal that is not one question: a running harness login for a full-screen TUI
 /// (`opencode auth login`, bare `grok`). Those measure the box they are given and redraw for it,
 /// so a one-question width and a squeezed height is what garbles their output — see
@@ -315,6 +340,10 @@ pub struct TextColors {
     pub muted: Rgba,
     pub faint: Rgba,
     pub on_accent: Rgba,
+    /// The brand mark drawn as a watermark behind an empty surface. GPUI paints an `svg()` as a
+    /// single-colour alpha mask, so the ring needs one flat colour rather than a per-theme asset —
+    /// fixed by ground rather than derived from the accent, the same posture a status colour takes.
+    pub mark: Rgba,
 }
 
 /// The six hued tokens, all of them derived from one seed by [`with_accent`].
@@ -1451,6 +1480,11 @@ pub fn on_accent() -> Rgba {
     Theme::current().palette.text.on_accent
 }
 
+/// The brand mark drawn as a watermark behind an empty surface — see [`TextColors::mark`].
+pub fn mark() -> Rgba {
+    Theme::current().palette.text.mark
+}
+
 pub fn accent() -> Rgba {
     Theme::current().palette.accent.primary
 }
@@ -1693,6 +1727,7 @@ const DARK: Palette = Palette {
         muted: rgba_hex(0x8f8f9a),
         faint: rgba_hex(0x5c5c68),
         on_accent: rgba_hex(0xffffff),
+        mark: rgba_hex(0xffffff),
     },
     accent: AccentColors {
         primary: rgba_hex(0x5b8def),
@@ -1765,6 +1800,7 @@ const LIGHT: Palette = Palette {
         muted: rgba_hex(0x6b6b80),
         faint: rgba_hex(0x9a9aac),
         on_accent: rgba_hex(0xffffff),
+        mark: rgba_hex(0x003d6e),
     },
     accent: AccentColors {
         primary: rgba_hex(0x3b6fd4),
@@ -1895,6 +1931,7 @@ const EMBER_DARK: Palette = Palette {
         muted: rgba_hex(0xa89583),
         faint: rgba_hex(0x7c6c5c),
         on_accent: rgba_hex(0x1b1409),
+        mark: rgba_hex(0xffffff),
     },
     accent: AccentColors {
         primary: rgba_hex(0xd9a05b),
@@ -1947,6 +1984,7 @@ const EMBER_LIGHT: Palette = Palette {
         muted: rgba_hex(0x7a6b58),
         faint: rgba_hex(0xa2947f),
         on_accent: rgba_hex(0xfdfaf3),
+        mark: rgba_hex(0x003d6e),
     },
     accent: AccentColors {
         primary: rgba_hex(0xa9702a),
@@ -2000,6 +2038,7 @@ const CONTRAST_DARK: Palette = Palette {
         muted: rgba_hex(0xd4d4d4),
         faint: rgba_hex(0xa8a8a8),
         on_accent: rgba_hex(0x000000),
+        mark: rgba_hex(0xffffff),
     },
     accent: AccentColors {
         primary: rgba_hex(0x6cb6ff),
@@ -2052,6 +2091,7 @@ const CONTRAST_LIGHT: Palette = Palette {
         muted: rgba_hex(0x333333),
         faint: rgba_hex(0x555555),
         on_accent: rgba_hex(0xffffff),
+        mark: rgba_hex(0x003d6e),
     },
     accent: AccentColors {
         primary: rgba_hex(0x0040c0),
@@ -2105,6 +2145,7 @@ const NAVY_DARK: Palette = Palette {
         muted: rgba_hex(0x7e90a6),
         faint: rgba_hex(0x546478),
         on_accent: rgba_hex(0xffffff),
+        mark: rgba_hex(0xffffff),
     },
     accent: AccentColors {
         primary: rgba_hex(0x5ba8f5),
@@ -2157,6 +2198,7 @@ const NAVY_LIGHT: Palette = Palette {
         muted: rgba_hex(0x4a5d73),
         faint: rgba_hex(0x7a8ca0),
         on_accent: rgba_hex(0xffffff),
+        mark: rgba_hex(0x003d6e),
     },
     accent: AccentColors {
         primary: rgba_hex(0x2a6ec8),
@@ -2210,6 +2252,7 @@ const VIOLET_DARK: Palette = Palette {
         muted: rgba_hex(0x9a8cad),
         faint: rgba_hex(0x6c5e80),
         on_accent: rgba_hex(0xffffff),
+        mark: rgba_hex(0xffffff),
     },
     accent: AccentColors {
         primary: rgba_hex(0xb794f6),
@@ -2262,6 +2305,7 @@ const VIOLET_LIGHT: Palette = Palette {
         muted: rgba_hex(0x6a5a7c),
         faint: rgba_hex(0x9488a4),
         on_accent: rgba_hex(0xffffff),
+        mark: rgba_hex(0x003d6e),
     },
     accent: AccentColors {
         primary: rgba_hex(0x7a45c8),

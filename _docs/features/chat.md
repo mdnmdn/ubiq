@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: Editor-like chat tabs — many, movable to any dockable region, each a view onto a host-owned conversation or onto none, drawn by the composer, transcript and tool blocks the whole window shares.
 read_when: you are changing a chat tab, the control that starts or attaches a conversation, or which conversation a tab shows
-updated: 2026-09-18
-verified: 2026-09-19
+updated: 2026-09-20
+verified: 2026-09-20
 code_anchors: [crates/ubiq/src/ui/chat/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/conversation/info.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/app/projects.rs]
 depends_on: [feat-workbench]
 review_cycle: monthly
@@ -465,8 +465,9 @@ rest. Which surface drew the buttons is not on the wire, so an ask here is answe
 `crates/ubiq/src/state/dock.rs` holds `ChatId` — a locally minted counter, `Display` and `FromStr`
 so it round-trips through the dock's saved payload the way a pane's id does — and
 `PanelKind::Chat(ChatId)`'s `class` (`Free`, so it may sit anywhere), `home` (the right region),
-`home_in` — the mode is part of the placement policy, and on the Teams screens, whose graph and
-inspector take the centre and the right, the conversation is the left side — `closable` and
+`home_in` — the mode is part of the placement policy, though a chat answers it the same way in
+every mode: it holds the right dock whatever mode is on screen, Teams included, where the graph and
+its own inspector take the centre and stay inline rather than in the dock — `closable` and
 `is_drawn` rules. `PanelKind::chat_home(mode)` is `home_in` asked without a tab in hand, for the
 window filling a side region it has not minted a tab for yet. `crates/ubiq/src/ui/dock/mod.rs`'s `chat_payload` and
 `chat_from_payload` are that round trip; a saved leaf naming an id this window did not already hold

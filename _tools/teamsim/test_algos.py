@@ -27,7 +27,8 @@ from algos import (
     LAYOUT_MARGIN,
     LAYOUT_WIDTH,
     RING_PAD,
-    SUB_NARROW,
+    SUB_BOX,
+    SUB_HEIGHT,
     SUB_WIDTH,
     TASK_GAP,
     Agent,
@@ -43,6 +44,7 @@ from algos import (
     card_lead,
     content_rect,
     fence,
+    grid_cols,
     layout_auto,
     load,
     pack_best,
@@ -359,19 +361,27 @@ def test_the_production_arrangements_are_unchanged():
 
 
 def test_a_grid_ring_stays_as_wide_as_its_card_until_it_has_to_widen():
+    """A delegate is full `SUB_WIDTH`, so one column is exactly card-wide — the shape a grid ring
+    keeps until `GRID_ROWS` deep forces a second column open beside it."""
     assert ring_grid(0) == []
-    for count in range(1, GRID_ROWS * 2 + 1):
-        box = ring_box(ring_grid(count), SUB_NARROW)
+    for count in range(1, GRID_ROWS + 1):
+        box = ring_box(ring_grid(count))
         assert abs(box[2] - CARD_WIDTH) < EPS, f"{count} delegates widened the fence: {box}"
-        rows = math.ceil(count / 2.0)
-        assert len(ring_grid(count)) == count and rows <= GRID_ROWS
-    wide = ring_box(ring_grid(GRID_ROWS * 2 + 1), SUB_NARROW)
-    assert wide[2] > CARD_WIDTH, f"past {GRID_ROWS} rows it takes a third column: {wide}"
+        assert grid_cols(count) == 1, f"{count} delegates should still be one column"
+        assert len(ring_grid(count)) == count
+    wide = ring_box(ring_grid(GRID_ROWS + 1))
+    assert wide[2] > CARD_WIDTH, f"past {GRID_ROWS} delegates it takes a second column: {wide}"
 
 
 def test_a_grid_ring_is_shorter_than_the_stack_it_replaces():
-    for count in (2, 4, 6, 8):
-        grid = ring_box(ring_grid(count), SUB_NARROW)[3]
+    """Once a grid ring is deep enough to open a second column, it buys back height by it.
+
+    A ring at `GRID_ROWS` or fewer delegates is one column, and one column *is* the stack it
+    replaces — the two are the same slots, so there is nothing to be shorter than. The saving
+    only shows up once the ring is deep enough to spread across more than one column.
+    """
+    for count in (GRID_ROWS + 1, GRID_ROWS + 2, GRID_ROWS * 2, GRID_ROWS * 3):
+        grid = ring_box(ring_grid(count))[3]
         rows = CARD_HEIGHT + ring_drop(count)
         assert grid < rows * 0.75, f"{count} delegates: grid {grid} against the stack's {rows}"
 
@@ -382,34 +392,34 @@ def test_a_radial_ring_clears_the_card_and_both_connectors():
         slots = ring_radial(count)
         assert len(slots) == count
         for at in slots:
-            held = (at[0], at[1], SUB_NARROW[0], SUB_NARROW[1])
+            held = (at[0], at[1], SUB_WIDTH, SUB_HEIGHT)
             assert not overlaps(((held[0], held[1]), (held[2], held[3])), ((card[0], card[1]), (card[2], card[3])), 0.0), (
                 f"{count} delegates: one sits on the card at {at}"
             )
             middle = CARD_WIDTH / 2.0
-            assert not (at[0] < middle - EPS and at[0] + SUB_NARROW[0] > middle + EPS), (
+            assert not (at[0] < middle - EPS and at[0] + SUB_WIDTH > middle + EPS), (
                 f"{count} delegates: {at} sits on the connector's line up and down from the card"
             )
 
 
 def test_a_radial_ring_is_shorter_than_it_is_wide():
     for count in range(2, 9):
-        box = ring_box(ring_radial(count), SUB_NARROW)
+        box = ring_box(ring_radial(count))
         assert box[2] > box[3], f"{count} delegates came out taller than wide: {box}"
 
 
 def test_the_new_rings_reserve_what_they_draw():
     """The same promise the containers make, at one card: `card_box` is the fence's own box."""
-    for ring, sub in ((ring_grid, SUB_NARROW), (ring_radial, SUB_NARROW), (ring_rows, None)):
+    for ring in (ring_grid, ring_radial, ring_rows):
         for count in range(0, 13):
             rings = {"a": count}
-            box = card_box("a", rings, ring, sub or (CARD_WIDTH, 96.0))
-            lead = card_lead("a", rings, ring, sub or (CARD_WIDTH, 96.0))
+            box = card_box("a", rings, ring)
+            lead = card_lead("a", rings, ring)
             slots = ring(count)
             card = Placed(agent=Agent(id="a", session="s", task=None, parent=None), offset=(0.0, 0.0))
             card.at = lead
             card.subs = [("s", "s", (lead[0] + at[0], lead[1] + at[1])) for at in slots]
-            card.ring = fence(card.at, [s[2] for s in card.subs], sub or (CARD_WIDTH, 96.0))
+            card.ring = fence(card.at, [s[2] for s in card.subs])
             drew = content_rect(card)
             assert abs(drew[0]) < EPS and abs(drew[1]) < EPS, f"{ring.__name__}/{count}: {drew}"
             assert abs(drew[2] - box[0]) < EPS and abs(drew[3] - box[1]) < EPS, (
@@ -419,16 +429,16 @@ def test_the_new_rings_reserve_what_they_draw():
 
 def test_the_new_rings_reserve_what_they_draw_too():
     """The same promise, at the five new rings' own delegate shapes."""
-    for ring, sub in ((ring_fan, SUB_NARROW), (ring_organic, SUB_NARROW), (ring_hex, SUB_NARROW)):
+    for ring in (ring_fan, ring_organic, ring_hex):
         for count in range(0, 13):
             rings = {"a": count}
-            box = card_box("a", rings, ring, sub)
-            lead = card_lead("a", rings, ring, sub)
+            box = card_box("a", rings, ring)
+            lead = card_lead("a", rings, ring)
             slots = ring(count)
             card = Placed(agent=Agent(id="a", session="s", task=None, parent=None), offset=(0.0, 0.0))
             card.at = lead
             card.subs = [("s", "s", (lead[0] + at[0], lead[1] + at[1])) for at in slots]
-            card.ring = fence(card.at, [s[2] for s in card.subs], sub)
+            card.ring = fence(card.at, [s[2] for s in card.subs])
             drew = content_rect(card)
             assert abs(drew[0]) < EPS and abs(drew[1]) < EPS, f"{ring.__name__}/{count}: {drew}"
             assert abs(drew[2] - box[0]) < EPS and abs(drew[3] - box[1]) < EPS, (
@@ -464,13 +474,12 @@ def test_no_two_delegates_of_a_card_overlap():
     for scen in scenarios():
         for key in ALGOS:
             out = layout_auto(scen, key)
-            sub = out.algo.sub
             for card in out.cards:
                 subs = card.subs
                 for i in range(len(subs)):
                     for j in range(i + 1, len(subs)):
                         a, b = subs[i][2], subs[j][2]
-                        assert not overlaps((a, sub), (b, sub), 0.0), (
+                        assert not overlaps((a, SUB_BOX), (b, SUB_BOX), 0.0), (
                             f"{scen.name}/{key}: {card.agent.id}'s delegates {i} and {j} overlap"
                         )
 

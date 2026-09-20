@@ -37,9 +37,8 @@ from algos import (
     EPS,
     SUB_DROP,
     SUB_GAP,
-    SUB_NARROW,
-    SUB_NARROW_HEIGHT,
-    SUB_NARROW_WIDTH,
+    SUB_HEIGHT,
+    SUB_WIDTH,
     TASK_GAP,
     VIEW_ASPECT,
     Agent,
@@ -80,8 +79,10 @@ ORGANIC_JITTER = 0.3
 #: This is the bow that makes a row of children read as a spray rather than as a row.
 ORGANIC_BOW = 1.4
 
-#: A honeycomb's long row. Rows alternate `HEX_COLS` and `HEX_COLS - 1`, offset half a cell.
-HEX_COLS = 3
+#: A honeycomb's long row. Rows alternate `HEX_COLS` and `HEX_COLS - 1`, offset half a cell. Two,
+#: because a delegate is a full `SUB_WIDTH` wide: three of them across is 816pt of ring under a
+#: 264pt card, which costs more sideways scrolling than the stagger is worth.
+HEX_COLS = 2
 
 #: Half the sector a spider's web spans, in degrees either side of straight down.
 SPIDER_SPREAD = 80.0
@@ -215,11 +216,9 @@ def as_islands(
     return out
 
 
-def _cards(
-    members: Sequence[Agent], rings: Rings, ring, sub: Size
-) -> tuple[dict[str, Size], dict[str, Point]]:
-    boxes = {m.id: card_box(m.id, rings, ring, sub) for m in members}
-    leads = {m.id: card_lead(m.id, rings, ring, sub) for m in members}
+def _cards(members: Sequence[Agent], rings: Rings, ring) -> tuple[dict[str, Size], dict[str, Point]]:
+    boxes = {m.id: card_box(m.id, rings, ring) for m in members}
+    leads = {m.id: card_lead(m.id, rings, ring) for m in members}
     return boxes, leads
 
 
@@ -326,17 +325,17 @@ def ring_hex(count: int) -> list[Point]:
     """
     if count <= 0:
         return []
-    cell = SUB_NARROW_WIDTH + SUB_GAP
-    span = HEX_COLS * SUB_NARROW_WIDTH + (HEX_COLS - 1) * SUB_GAP
+    cell = SUB_WIDTH + SUB_GAP
+    span = HEX_COLS * SUB_WIDTH + (HEX_COLS - 1) * SUB_GAP
     left = (CARD_WIDTH - span) / 2.0
     top = CARD_HEIGHT + SUB_DROP
 
     out: list[Point] = []
     for row, seats in enumerate(hex_rows(count)):
-        wide = seats * SUB_NARROW_WIDTH + (seats - 1) * SUB_GAP
+        wide = seats * SUB_WIDTH + (seats - 1) * SUB_GAP
         x = left + (span - wide) / 2.0
         for col in range(seats):
-            out.append((x + col * cell, top + row * (SUB_NARROW_HEIGHT + SUB_GAP)))
+            out.append((x + col * cell, top + row * (SUB_HEIGHT + SUB_GAP)))
     return out
 
 
@@ -454,24 +453,24 @@ def _grown(
 
 
 def inside_organic(
-    task: str, agents, rings: Rings, ring=ring_organic, sub: Size = SUB_NARROW, target: float = VIEW_ASPECT
+    task: str, agents, rings: Rings, ring=ring_organic, target: float = VIEW_ASPECT
 ) -> Contents:
     """Children sprayed under their parent, bowed at the ends, then pushed apart until they fit."""
     members = _members(task, agents)
     if not members:
         return Contents()
-    boxes, leads = _cards(members, rings, ring, sub)
+    boxes, leads = _cards(members, rings, ring)
     return contents_of(_grown(members, boxes, _brood_organic, target), boxes, leads)
 
 
 def inside_multiradial(
-    task: str, agents, rings: Rings, ring=ring_fan, sub: Size = SUB_NARROW, target: float = VIEW_ASPECT
+    task: str, agents, rings: Rings, ring=ring_fan, target: float = VIEW_ASPECT
 ) -> Contents:
     """Every parent its own hub, its children on the downward half of a circle round it."""
     members = _members(task, agents)
     if not members:
         return Contents()
-    boxes, leads = _cards(members, rings, ring, sub)
+    boxes, leads = _cards(members, rings, ring)
     return contents_of(_grown(members, boxes, _brood_radial, target), boxes, leads)
 
 
@@ -509,7 +508,7 @@ def _wedges(
 
 
 def inside_spider(
-    task: str, agents, rings: Rings, ring=ring_fan, sub: Size = SUB_NARROW, target: float = VIEW_ASPECT
+    task: str, agents, rings: Rings, ring=ring_fan, target: float = VIEW_ASPECT
 ) -> Contents:
     """One hub per container, its cards on concentric downward arcs, its spokes the parent links.
 
@@ -520,7 +519,7 @@ def inside_spider(
     members = _members(task, agents)
     if not members:
         return Contents()
-    boxes, leads = _cards(members, rings, ring, sub)
+    boxes, leads = _cards(members, rings, ring)
     roots, kids = family(members)
     seats = _wedges(roots, kids, 180.0 - SPIDER_SPREAD, 180.0 + SPIDER_SPREAD)
 
@@ -552,7 +551,7 @@ def inside_spider(
 
 
 def inside_hex(
-    task: str, agents, rings: Rings, ring=ring_hex, sub: Size = SUB_NARROW, target: float = VIEW_ASPECT
+    task: str, agents, rings: Rings, ring=ring_hex, target: float = VIEW_ASPECT
 ) -> Contents:
     """Cards on a honeycomb lattice: a row per hand-off depth, every other row half a cell over.
 
@@ -562,7 +561,7 @@ def inside_hex(
     members = _members(task, agents)
     if not members:
         return Contents()
-    boxes, leads = _cards(members, rings, ring, sub)
+    boxes, leads = _cards(members, rings, ring)
     roots, kids = family(members)
 
     seats = _wedges(roots, kids, 0.0, 1.0)  # the DFS order, so a family stays together in its row
@@ -594,7 +593,7 @@ def inside_hex(
 
 
 def inside_islands(
-    task: str, agents, rings: Rings, ring=ring_grid, sub: Size = SUB_NARROW, target: float = VIEW_ASPECT
+    task: str, agents, rings: Rings, ring=ring_grid, target: float = VIEW_ASPECT
 ) -> Contents:
     """Each disjoint family of cards arranged on its own, the families packed against the screen.
 
@@ -605,7 +604,7 @@ def inside_islands(
     members = _members(task, agents)
     if not members:
         return Contents()
-    boxes, leads = _cards(members, rings, ring, sub)
+    boxes, leads = _cards(members, rings, ring)
     roots, kids = family(members)
 
     blocks: list[tuple[dict[str, Point], dict[str, Size]]] = []
@@ -616,7 +615,7 @@ def inside_islands(
             node = rank.pop(0)
             crew.append(next(m for m in members if m.id == node))
             rank += kids.get(node, [])
-        held = stack_aspect(crew, rings, ring, sub, target)
+        held = stack_aspect(crew, rings, ring, target)
         # `stack_aspect` answers where the *card* goes; the island is packed by its box
         blocks.append(
             ({a: (at[0] - leads[a][0], at[1] - leads[a][1]) for a, at in held.cards}, boxes)
@@ -698,7 +697,6 @@ EXTRA: dict[str, Algo] = {
         inside_organic,
         ring_organic,
         pack_islands,
-        sub=SUB_NARROW,
         forest=True,
     ),
     "multiradial": Algo(
@@ -708,7 +706,6 @@ EXTRA: dict[str, Algo] = {
         inside_multiradial,
         ring_fan,
         pack_islands,
-        sub=SUB_NARROW,
         forest=True,
     ),
     "spider": Algo(
@@ -718,7 +715,6 @@ EXTRA: dict[str, Algo] = {
         inside_spider,
         ring_fan,
         pack_islands,
-        sub=SUB_NARROW,
         forest=True,
     ),
     "hex": Algo(
@@ -728,7 +724,6 @@ EXTRA: dict[str, Algo] = {
         inside_hex,
         ring_hex,
         pack_islands,
-        sub=SUB_NARROW,
         forest=True,
     ),
     "islands": Algo(
@@ -738,7 +733,6 @@ EXTRA: dict[str, Algo] = {
         inside_islands,
         ring_grid,
         pack_islands,
-        sub=SUB_NARROW,
         forest=True,
     ),
 }

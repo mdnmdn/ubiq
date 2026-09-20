@@ -31,7 +31,7 @@ use ubiq_proto::ids::{SessionId, TaskId};
 use ubiq_proto::work::{Activity, AgentId, Priority, Shape, Status, TaskRecord, WorkAgent};
 
 use super::layout::{
-    Algo, CARD_HEIGHT, CARD_WIDTH, GROUP_LABEL, GROUP_PAD, Layout, Rings, fence, sub_slot,
+    Algo, CARD_HEIGHT, CARD_WIDTH, GROUP_LABEL, GROUP_PAD, Layout, Rings, SUB_BOX, fence, sub_slot,
 };
 
 /// The one format string this reader knows. A file that says anything else is refused rather than
@@ -716,9 +716,10 @@ impl Sim {
         slots.get(sub).copied().unwrap_or_else(|| sub_slot(sub))
     }
 
-    /// What one delegate box measures under that ring.
+    /// What one delegate box measures. [`SUB_BOX`] under every arrangement, because no ring shape
+    /// scales a block.
     pub fn sub_box(&self) -> (f32, f32) {
-        self.algo.sub()
+        SUB_BOX
     }
 
     /// Every delegate of one card, where each is drawn.
@@ -735,7 +736,7 @@ impl Sim {
     /// What a card takes on the canvas, its ring included: `(x0, y0, x1, y1)`.
     fn card_bounds(&self, ix: usize) -> Option<(f32, f32, f32, f32)> {
         let at = self.card_at(ix)?;
-        Some(match fence(at, &self.subs_at(ix), self.sub_box()) {
+        Some(match fence(at, &self.subs_at(ix)) {
             Some((x, y, w, h)) => (x, y, x + w, y + h),
             None => (at.0, at.1, at.0 + CARD_WIDTH, at.1 + CARD_HEIGHT),
         })
@@ -809,7 +810,7 @@ impl Sim {
             });
 
             let spots = self.subs_at(ix);
-            if let Some(rect) = fence(at, &spots, self.sub_box()) {
+            if let Some(rect) = fence(at, &spots) {
                 drawing.rings.push(Group { ix, rect });
             }
             for (sub, spot) in spots.iter().enumerate() {

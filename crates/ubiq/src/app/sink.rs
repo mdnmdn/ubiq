@@ -670,6 +670,8 @@ impl AppState {
         about.update(cx, |input, cx| {
             input.set_value(crate::state::sink::PROJECT_ABOUT, window, cx)
         });
+        let initials = self.project_initials_input.clone();
+        initials.update(cx, |input, cx| input.set_value("", window, cx));
         self.sync_sink_project_hex(window, cx);
         cx.notify();
     }

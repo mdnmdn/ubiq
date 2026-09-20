@@ -12,7 +12,9 @@ use ubiq_proto::notifications::{Level, UbiqLink};
 
 use crate::app::{AppState, NavBack, NavForward};
 use crate::state::MenuId;
+use crate::state::ui_id::{self, UiId};
 use crate::theme;
+use crate::ui::ident::Identified as _;
 use crate::ui::kit::{UbiqIcon, badge, field, icon_button, mono};
 use crate::ui::navigator;
 use crate::ui::project_menu;
@@ -39,10 +41,22 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
         .bg(theme::pane_bg())
         .border_b_1()
         .border_color(theme::border())
+        .ui_id(ui_id::TITLEBAR)
         // The window's letter sits before the picker rather than inside it: one says which
-        // window, the other which project.
-        .children(project_menu::window_badge(app, cx))
-        .child(project_menu::render(app, window, cx))
+        // window, the other which project. Both return an opaque `impl IntoElement` from
+        // `ui::project_menu` (out of this change's scope), so a thin wrapper — matching the
+        // row's own flex settings — is what carries the `TITLEBAR_PROJECT` name; `.ui_id()`
+        // cannot be chained on an opaque type from outside the module that names it.
+        .child(
+            div()
+                .h_full()
+                .flex()
+                .flex_none()
+                .items_center()
+                .ui_id(ui_id::TITLEBAR_PROJECT)
+                .children(project_menu::window_badge(app, cx))
+                .child(project_menu::render(app, window, cx)),
+        )
         .child(
             icon_button(
                 "new-project",
@@ -51,6 +65,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                 cx.listener(|this, _, _, cx| this.choose_folder(None, cx)),
             )
             .h_full()
+            .ui_id(ui_id::TITLEBAR_NEW_PROJECT)
             .tooltip(move |window, cx| {
                 gpui_component::tooltip::Tooltip::new("Add a project").build(window, cx)
             }),
@@ -69,6 +84,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                 }),
             )
             .h_full()
+            .ui_id(ui_id::TITLEBAR_NEW_PROJECT_MENU)
             .tooltip(move |window, cx| {
                 gpui_component::tooltip::Tooltip::new("Open a project").build(window, cx)
             }),
@@ -146,12 +162,14 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
             "nav-back",
             IconName::ChevronLeft,
             nav_label(app, true, cx),
+            ui_id::TITLEBAR_NAV_BACK,
             cx.listener(|this, _, window, cx| this.back(&NavBack, window, cx)),
         ))
         .child(nav_control(
             "nav-forward",
             IconName::ChevronRight,
             nav_label(app, false, cx),
+            ui_id::TITLEBAR_NAV_FORWARD,
             cx.listener(|this, _, window, cx| this.forward(&NavForward, window, cx)),
         ))
         .child(div().flex_1().min_w(px(0.)))
@@ -164,6 +182,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                 .flex_none()
                 .items_center()
                 .gap(px(1.))
+                .ui_id(ui_id::TITLEBAR_ACTIONS)
                 // All three switches, in every mode. Every mode now has side panels of its own —
                 // the IDE's explorer and chat, Git's refs and changes, KB's documents, the board's
                 // task, the agents list, Teams' chat — and a mode that happens to have nothing in a
@@ -177,7 +196,8 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                             this.toggle_region(crate::state::Region::Left, window, cx)
                         }),
                     )
-                    .h_full(),
+                    .h_full()
+                    .ui_id(ui_id::TITLEBAR_REGION_LEFT),
                 )
                 .child(
                     icon_button(
@@ -188,7 +208,8 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                             this.toggle_region(crate::state::Region::Bottom, window, cx)
                         }),
                     )
-                    .h_full(),
+                    .h_full()
+                    .ui_id(ui_id::TITLEBAR_REGION_BOTTOM),
                 )
                 .child(
                     icon_button(
@@ -199,7 +220,8 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                             this.toggle_region(crate::state::Region::Right, window, cx)
                         }),
                     )
-                    .h_full(),
+                    .h_full()
+                    .ui_id(ui_id::TITLEBAR_REGION_RIGHT),
                 )
                 .child(
                     div()
@@ -222,6 +244,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                             }),
                         )
                         .h_full()
+                        .ui_id(ui_id::TITLEBAR_NEW_AGENT)
                         .tooltip(move |window, cx| {
                             gpui_component::tooltip::Tooltip::new("New agent").build(window, cx)
                         }),
@@ -234,6 +257,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                             cx.listener(|this, _, window, cx| this.new_terminal(window, cx)),
                         )
                         .h_full()
+                        .ui_id(ui_id::TITLEBAR_NEW_TERMINAL)
                         .tooltip(move |window, cx| {
                             gpui_component::tooltip::Tooltip::new("New terminal").build(window, cx)
                         }),
@@ -253,6 +277,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                             }),
                         )
                         .h_full()
+                        .ui_id(ui_id::TITLEBAR_NEW_TERMINAL_MENU)
                         .tooltip(move |window, cx| {
                             gpui_component::tooltip::Tooltip::new("Run in a new pane")
                                 .build(window, cx)
@@ -266,7 +291,8 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                         false,
                         cx.listener(|this, _, window, cx| this.reveal_search(window, cx)),
                     )
-                    .h_full(),
+                    .h_full()
+                    .ui_id(ui_id::TITLEBAR_SEARCH),
                 )
                 .child(bell(app, cx))
                 // The balloon: say something about Ubiq itself. Beside the bell because both are
@@ -280,6 +306,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                         cx.listener(|this, _, window, cx| this.open_feedback(window, cx)),
                     )
                     .h_full()
+                    .ui_id(ui_id::TITLEBAR_FEEDBACK)
                     .tooltip(move |window, cx| {
                         gpui_component::tooltip::Tooltip::new("Send feedback").build(window, cx)
                     }),
@@ -295,6 +322,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                         cx.listener(|this, _, window, cx| this.reveal_help(window, cx)),
                     )
                     .h_full()
+                    .ui_id(ui_id::TITLEBAR_HELP)
                     .tooltip(move |window, cx| {
                         gpui_component::tooltip::Tooltip::new("Help").build(window, cx)
                     }),
@@ -307,6 +335,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                         cx.listener(|this, _, _, cx| this.open_remote_manager(cx)),
                     )
                     .h_full()
+                    .ui_id(ui_id::TITLEBAR_REMOTE_HOSTS)
                     .tooltip(move |window, cx| {
                         gpui_component::tooltip::Tooltip::new("Remote hosts").build(window, cx)
                     }),
@@ -325,6 +354,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                         }),
                     )
                     .h_full()
+                    .ui_id(ui_id::TITLEBAR_OVERFLOW)
                     .tooltip(move |window, cx| {
                         gpui_component::tooltip::Tooltip::new("More").build(window, cx)
                     }),
@@ -340,7 +370,8 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                         false,
                         cx.listener(|this, _, _, cx| this.toggle_theme(cx)),
                     )
-                    .h_full(),
+                    .h_full()
+                    .ui_id(ui_id::TITLEBAR_THEME),
                 ),
         )
 }
@@ -373,7 +404,8 @@ fn command_field(app: &AppState, window: &Window, cx: &mut Context<AppState>) ->
         .child(
             mono("\u{2318}K", theme::text_faint())
                 .text_size(theme::font(theme::Family::Chrome, theme::Role::Micro)),
-        );
+        )
+        .ui_id(ui_id::TITLEBAR_COMMAND);
     // The navigator hangs off the field it is typed into: its key context and its handlers go on
     // this div, because the keyboard is in the input inside it.
     navigator::attach(bar, app, cx)
@@ -401,11 +433,13 @@ fn nav_control(
     id: &'static str,
     icon: IconName,
     target: Option<String>,
+    ui_id: UiId,
     on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> impl IntoElement {
     let live = target.is_some();
     div()
         .id(id)
+        .ui_id(ui_id)
         .w(px(30.))
         .h_full()
         .flex()
@@ -462,6 +496,7 @@ fn bell(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         .flex()
         .flex_none()
         .h_full()
+        .ui_id(ui_id::TITLEBAR_NOTIFICATIONS)
         .child(
             icon_button(
                 "bell",

@@ -44,6 +44,7 @@ pub mod sink;
 pub mod stats;
 pub mod teams;
 pub mod teamsim;
+pub mod ui_id;
 pub mod viewport;
 pub mod vim;
 pub mod web_panel;
@@ -92,10 +93,11 @@ pub use sink::{
 };
 pub use teams::{TeamsCarry, TeamsGrain, TeamsHeld, TeamsInspectorTab, TeamsSelection, TeamsView};
 pub use teamsim::{Scenario, Sim, TeamsimCarry, TeamsimDemo, TeamsimHeld};
+pub use ui_id::{MarkRect, MarkRegistry, UiId, UiMark};
 pub use windows::{ProjectGroups, WindowRegistry, WindowSlot};
 pub use work::WorkProjection;
 pub use workbench::{
-    AllProjectsState, FileDialog, HarnessChoice, MenuId, NewAgentMenu, NewAgentSurface, NewPaneRow,
-    NewProjectRow, OverflowRow, ProjectSettings, ProjectSettingsMode, RailMode, RowAction,
-    SizePrompt, ThemeEditor, ThemePrompt, WorkbenchState,
+    AllProjectsState, FileDialog, HarnessChoice, HelpTargeting, MenuId, NewAgentMenu,
+    NewAgentSurface, NewPaneRow, NewProjectRow, OverflowRow, ProjectSettings, ProjectSettingsMode,
+    RailMode, RowAction, SizePrompt, ThemeEditor, ThemePrompt, WorkbenchState,
 };

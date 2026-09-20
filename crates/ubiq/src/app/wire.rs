@@ -607,8 +607,11 @@ impl AppState {
                 }
                 // A tool run with "wait on exit" stays readable: the command is over but its
                 // output is what the pane was opened for, so the tab keeps it until it is
-                // closed. The dot reports the stop; closing still goes through `close_pane`.
-                if self.pane_wait_on_exit(pane_id) {
+                // closed. "Wait on error" is the same, but only when the exit code was
+                // non-zero — a clean exit closes the tab as usual.
+                // The dot reports the stop; closing still goes through `close_pane`.
+                if self.pane_wait_on_exit(pane_id) || (code != 0 && self.pane_wait_on_error(pane_id))
+                {
                     self.pane_stopped(pane_id);
                     cx.notify();
                 } else {
@@ -2759,6 +2762,15 @@ impl AppState {
             .any(|pane| pane.id == pane_id && pane.wait_on_exit)
     }
 
+    /// Whether the pane runs a tool with "wait on error": the exit closes the process, not the
+    /// tab, only when the process ended with a non-zero status.
+    fn pane_wait_on_error(&self, pane_id: PaneId) -> bool {
+        self.projects
+            .values()
+            .flat_map(|open| open.panes.iter())
+            .any(|pane| pane.id == pane_id && pane.wait_on_error)
+    }
+
     /// Draw a workspace the coordinator started: a tab, and an emulator on the pane's stream.
     ///
     /// The workspace names its project, which is what makes an answer that arrives after the user
@@ -2865,6 +2877,7 @@ impl AppState {
                 title,
                 running: workspace.running,
                 wait_on_exit: workspace.wait_on_exit,
+                wait_on_error: workspace.wait_on_error,
                 tool: workspace.tool,
             });
             // A pane in a background project becomes that project's focused one only if it had

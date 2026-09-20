@@ -318,6 +318,9 @@ impl AppState {
         if let Some(pane_id) = focused {
             self.bus.send(Message::Focus { pane_id });
         }
+        // Entering a project moves the reader's context as much as a mode switch does, so follow
+        // mode swaps the help page here too — see `Self::sync_help_follow`.
+        self.sync_help_follow(cx);
         cx.notify();
     }
 
@@ -719,6 +722,7 @@ impl AppState {
             (Layer::RemoteConnect, w.remote_connect.is_some()),
             (Layer::Notifications, self.notifications.open),
             (Layer::Dropdown, dropdown),
+            (Layer::HelpTarget, w.help_target.is_some()),
         ]
         .into_iter()
         .filter_map(|(layer, up)| up.then_some(layer))
@@ -753,6 +757,14 @@ impl AppState {
     /// that bind Escape at their own depth — the file picker, the navigator, the explorer's
     /// filter — still win, because a deeper binding fires before this one ever runs.
     pub fn cancel_dialog(&mut self, _: &DialogCancel, window: &mut Window, cx: &mut Context<Self>) {
+        // In-place help is `Layer::HelpTarget`, the top rung in the window, so it is peeled before
+        // anything at all — including a menu. The mode is deliberately able to cover a dialog and
+        // point at its controls, and the price of that is that Escape means "stop pointing" while
+        // it is up rather than "close what I was doing".
+        if self.workbench.help_target.is_some() {
+            self.close_help_target(cx);
+            return;
+        }
         // A menu is drawn over whatever raised it, so it is peeled before anything else.
         if self.workbench.open_menu.is_some() {
             self.close_menu(cx);
@@ -1219,7 +1231,7 @@ impl Render for AppState {
         self.settle_visibility(cx);
         self.settle_mode(window, cx);
         self.settle_layout(window, cx);
-        self.enforce_git_sides(window, cx);
+        self.refill_mode_sides(cx);
         self.settle_panels(window, cx);
         self.take_focus(window, cx);
         self.attach_arrived_files(window, cx);

@@ -5,9 +5,9 @@ kind: feature
 status: draft
 summary: The window's shell — the activity rail and its modes, the dock of movable panels the user arranges around the centre, the file explorer and editor a project owns, the Git screen of refs, history and uncommitted changes, the agents screen of parallel columns, the Teams and `[Teams]` graphs and the tasks board the rail's other built modes hold, the kitchen sink the application tests itself against, the file picker any screen raises to choose a path, the empty state a window with no project shows, and the status bar that reports on all of it.
 read_when: you are changing the window layout, a rail mode, where a panel may sit or when it is drawn, the explorer, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, capturing the window or annotating a capture, saving a file, the Git screen's refs, history, change lists or diff, the agents screen's columns, what a tab drag means or what the bench is, the Teams or `[Teams]` screen's graph, how it arranges itself, its inspector or its tasks, the tasks board's columns, cards or task panel, the kitchen sink's pages or fixtures, the file picker a screen raises to choose a path, cloning a project, application settings, vim mode, or the status bar
-updated: 2026-09-19
-verified: 2026-09-19
-code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/teams.rs, crates/ubiq/src/state/teams.rs, crates/ubiq/src/ui/teams/mod.rs, crates/ubiq/src/ui/teams/graph.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/src/ui/teams/inspector.rs, crates/ubiq/src/ui/teams/tasks.rs, crates/ubiq/tests/teams.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/src/ui/new_project_menu.rs, crates/ubiq/tests/new_project.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/feedback.rs, crates/ubiq/src/state/feedback.rs, crates/ubiq/src/ui/feedback.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/tests/image_gestures.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/app/sink.rs, crates/ubiq/src/state/a2ui.rs, crates/ubiq/src/state/a2ui/value.rs, crates/ubiq/src/state/a2ui/eval.rs, crates/ubiq/src/state/a2ui/action.rs, crates/ubiq/src/state/a2ui/live.rs, crates/ubiq/src/state/a2ui/svg.rs, crates/ubiq/src/state/a2ui/path.rs, crates/ubiq/src/state/a2ui/ubiq-catalog.json, crates/ubiq/src/ui/a2ui.rs, crates/ubiq/src/ui/a2ui/registry.rs, crates/ubiq/src/ui/a2ui/svg.rs, crates/ubiq/src/ui/a2ui/path.rs, crates/ubiq/src/ui/sink/a2ui.rs, crates/ubiq/tests/a2ui.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/sink/script.rs, crates/ubiq/src/state/script.rs, crates/ubiq/src/ui/sink/teamsim.rs, crates/ubiq/src/state/teamsim.rs, crates/ubiq/src/ui/kit/blocks.rs, _tools/teamsim/FORMAT.md, crates/ubiq/tests/script.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/stats.rs, crates/ubiq/src/ui/stats.rs, crates/ubiq/src/app/stats.rs, crates/ubiq/tests/stats.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/src/ui/git/repo_selector.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/app/new_agent.rs, crates/ubiq/src/ui/new_agent.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/app/graph.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/ui/web_view.rs, crates/ubiq/src/ui/viewer/web.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/state/web_panel.rs, crates/ubiq/src/app/explorer.rs, crates/ubiq/src/state/explorer/menu.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/app/board.rs, crates/ubiq/tests/prefs.rs, crates/ubiq/tests/viewer_kind.rs]
+updated: 2026-09-20
+verified: 2026-09-20
+code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/teams.rs, crates/ubiq/src/state/teams.rs, crates/ubiq/src/ui/teams/mod.rs, crates/ubiq/src/ui/teams/graph.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/src/ui/teams/inspector.rs, crates/ubiq/src/ui/teams/tasks.rs, crates/ubiq/tests/teams.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/src/ui/new_project_menu.rs, crates/ubiq/tests/new_project.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/mark.rs, crates/ubiq/src/app/mark.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/feedback.rs, crates/ubiq/src/state/feedback.rs, crates/ubiq/src/ui/feedback.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/tests/image_gestures.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/app/sink.rs, crates/ubiq/src/state/a2ui.rs, crates/ubiq/src/state/a2ui/value.rs, crates/ubiq/src/state/a2ui/eval.rs, crates/ubiq/src/state/a2ui/action.rs, crates/ubiq/src/state/a2ui/live.rs, crates/ubiq/src/state/a2ui/svg.rs, crates/ubiq/src/state/a2ui/path.rs, crates/ubiq/src/state/a2ui/ubiq-catalog.json, crates/ubiq/src/ui/a2ui.rs, crates/ubiq/src/ui/a2ui/registry.rs, crates/ubiq/src/ui/a2ui/svg.rs, crates/ubiq/src/ui/a2ui/path.rs, crates/ubiq/src/ui/sink/a2ui.rs, crates/ubiq/tests/a2ui.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/sink/script.rs, crates/ubiq/src/state/script.rs, crates/ubiq/src/ui/sink/teamsim.rs, crates/ubiq/src/state/teamsim.rs, crates/ubiq/src/ui/kit/blocks.rs, _tools/teamsim/FORMAT.md, crates/ubiq/tests/script.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/stats.rs, crates/ubiq/src/ui/stats.rs, crates/ubiq/src/app/stats.rs, crates/ubiq/tests/stats.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/src/ui/git/repo_selector.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/app/new_agent.rs, crates/ubiq/src/ui/new_agent.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/app/graph.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/ui/web_view.rs, crates/ubiq/src/ui/viewer/web.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/state/web_panel.rs, crates/ubiq/src/app/explorer.rs, crates/ubiq/src/state/explorer/menu.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/app/board.rs, crates/ubiq/tests/prefs.rs, crates/ubiq/tests/viewer_kind.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
 ---
@@ -34,7 +34,8 @@ group is not decoration: a `PROJECT` mode with no folder open draws the page say
 mode answers whether or not one is open.
 
 **Under the modes, the projects this window holds, once it holds more than one.** Bottom-justified
-badges, each in the project's own colour with its initial and its full name as the tooltip; a click
+badges, each in the project's own colour with its initial — or, where project settings set an
+override, up to two letters of its own choosing — and its full name as the tooltip; a click
 points the window at it. The active project is the filled square, edge to edge; the rest are the
 same square drawn as a thick ring, inset. One project is nothing to pick between, so the rail shows
 no badge at all. The modes have precedence: the rail fits as many whole badges as the space left
@@ -62,7 +63,10 @@ draws one page in the panel with an **Add KB** button on it, which opens project
 section; everything else about a source is edited there. The sources, their listings and their
 documents are the transport contract's knowledge-base family, and a source that has to be fetched
 reports its clone on its own row rather than in a modal. The centre renders markdown through the
-same viewer the IDE uses; a diagram and an image say they open in the IDE, which is `G11`.
+same viewer the IDE uses, and now draws a diagram or an image through it too — a Mermaid,
+Excalidraw or draw.io document opens the same web-panel bridge a project file's does, and an image
+draws through `ui/viewer/image.rs` (`T-32`); it does not offer that image the annotation toolbar a
+project picture gets, which is `G311`.
 
 **Every row of the KB explorer has a right-click menu**, drawn with the same `kit::context_menu` the
 project explorer uses and answered by the same prompt and confirm modals. A **source row** offers
@@ -758,6 +762,12 @@ the panel while it is open, so the form and a task's report are never both on sc
 refills its fields from a record — there is no record behind it. Cancel throws it away, and there
 is nothing to unwind, because nothing was sent.
 
+**`New agent`, beside `New task` in the toolbar, does not touch the board at all.** It raises the
+New agent form with `NewAgentSurface::Agents`, the same aim the titlebar's own shortcut and the `+`
+menu's first row make, so the agent it starts is revealed into the Agents screen's columns rather
+than drawn as anything on the board. Starting an agent from here answers "who should work on this"
+without leaving the board to do it; the task the agent ends up working still needs its own card.
+
 **A card written as a description names itself.** A draft with a description and no title is
 created under a stand-in — the first line of that description, taken as plain text, cut to sixty
 characters on a word boundary — and then asks the host's own assistance for a written one through
@@ -899,10 +909,10 @@ one task is not asking that — the rail reaches the graph in one click for the 
 **The Git screen is what version control knows, whole.** The refs explorer (branches, remotes, tags,
 stashes, submodules) in the left region, the uncommitted changes and the commit box in the right,
 the commit list in the centre. A first visit opens the left and right regions onto those panels and
-puts the history in the centre; the bottom pane region stays shut. Entering Git mode reopens both
-side regions every time, even over a saved arrangement that left one shut, unless the user has put
-one away with the titlebar's own switch during the window's current run — that hide is remembered
-only for as long as the window stays up (`D119`). The titlebar's side-panel
+puts the history in the centre; the bottom pane region stays shut. A saved arrangement from before
+the refs and changes panels existed lands them the moment Git's own side regions are on screen
+(`D119`), the general rule `AppState::refill_mode_sides()` gives every mode with side furniture —
+Tasks and Agents included — rather than a rule of Git's own. The titlebar's side-panel
 switches, the same ones the IDE uses for the explorer and the chat, put the sides away and bring
 them back. The comparison is a panel of its own and comes forward when a changed path is picked. It is the same facts the explorer's badges and the status bar's branch carry, at
 the size they can be read at: the tree answers "is this file changed" and this screen answers
@@ -1378,7 +1388,7 @@ remembered from then on, the same posture the pane region has always taken. **Op
 edge region with nothing in it fills it with that mode's own furniture**: the bottom starts a pane;
 Git's left and right open onto the refs and the changes, KB's left onto the documents, Tasks' right
 onto the task and Agents' left onto the list; and a side that is the *chat's* home in the mode on
-screen — the right everywhere but Teams, where it is the left — opens onto a fresh chat tab. A
+screen — the right, in every mode — opens onto a fresh chat tab. A
 switch that gave the user a bar of nothing would not have answered what was asked. The left is the
 exception, not because it opens by default but because it is never genuinely empty: the explorer
 panel is already in the tree the moment IDE mode is entered, so opening a closed left reveals it
@@ -2099,6 +2109,21 @@ uses its editor's own default, which is to wrap.
 file says so without furniture — no button, no menu, just Ubiq's own mark at 200px and half opacity
 on the window's ground. The mark is theme picked, the blue on a light palette and the white on a
 dark one, exactly as the rail's mark is on its swatch.
+
+**An empty page that already has words keeps them, and gains the mark behind them.** The agents
+row with no columns, the documents centre with no document open and the teams graph with nothing
+to draw each keep the sentence and the icon they had, with the mark painted underneath at 0.16
+opacity — far fainter than the no-file page's half, because a watermark that competes with the
+sentence in front of it has stopped being a background.
+
+**The mark turns over, and nothing on screen asks it to.** The spin winds back a fraction of a turn,
+runs two full turns and settles onto the mark it started from, swelling a tenth as it winds up and
+back to its own size by the end; the whole thing takes 2.4 seconds. Only the ring moves — the cubes
+in the middle stay put, which is what makes the turn read as the ring turning rather than the image
+spinning. Two things start it, neither of them a control: a **triple click on the big cube** in the
+middle of the mark, and an **idle spin** every seven to fifteen minutes for as long as the window is
+open. Asking for a spin while one is running restarts the curve rather than being swallowed, and
+extends the run rather than queueing a second one.
 
 **Each open file is a panel, so its tab is the dock's.** There is no tab strip of the editor's own:
 a file's tab belongs to the group it sits in, which is what lets a file be dragged beside another
@@ -3030,12 +3055,14 @@ rather than reading it. A first visit to Git reveals the history panel in the ce
 and right regions open — refs on **Local branches** alone, the sidebar's other four sections shut —
 and the bottom shut — `collapse_empty_regions()` leaves both regions' edges unarmed while
 `queue_git_furniture()`'s refs and changes panels are still in the pending-panel queue, so neither
-is put away before `settle_panels()` drains it. `AppState::enforce_git_sides()` runs every frame
-Git is on screen, after the mode and the layout have settled, and reopens whichever side region
-`settle_mode()` or `settle_layout()` just left shut — a restored blob predating one, or one saved
-from a run where the user had hidden it — unless `git_sides_hidden` says this window's own run
-already put it away by hand; `toggle_region()` is what sets that pair, one bit per side, and only
-while Git is the mode on screen. `select_git_ref()` reveals that panel if it was
+is put away before `settle_panels()` drains it. `AppState::refill_mode_sides()` runs every frame,
+for whichever mode is on screen, and re-queues a side region's own furniture — `mode_side_furniture()`
+answers which, shared with `toggle_region()` — whenever that region is open and holds nothing: a
+restored blob that predates the panel, or one saved before Git (or Tasks, Agents, KB) had a side
+panel of its own, lands its furniture the moment the region is on screen, with no click needed. A
+region a blob or the user's own click left shut stays shut — this only ever fills an open one, never
+reopens a closed one — and it is idempotent: once the furniture lands the region is no longer empty,
+so the next frame asks for nothing. `select_git_ref()` reveals that panel if it was
 hidden; `jump_to_git_ref()` selects the commit the ref points at and scrolls the list to it.
 `select_git_path()` reveals the diff panel. The IDE's right region stays shut on a first visit,
 whatever `settle_persistent_chat()` attaches behind it. `git_view()`, `git_view_mut()` and
@@ -3232,6 +3259,16 @@ owning one open index per project, fed by the same walk content search runs and 
 own batches, handing out a read handle that carries no writer. It lives in a host-owned `index/`
 directory beside the interface's `ui/` workarea, which Forget and the orphan collector already
 remove.
+
+The same dialog's General page carries the rail's badge override: a two-character field,
+`AppState::project_initials_input`, clamped as it is typed rather than only on Save. Empty is "no
+override" and leaves the badge on the name's own first letter, the way it always read; a value
+wins outright, in both the header's own preview mark and — once saved — the rail's badge in
+`ui/rail.rs`'s `project_badges()`. `fill_project_form` prefills it from `ProjectRecord::initials`
+on open; `commit_project_settings` sends it as `Message::SetProjectInitials` alongside the
+`UpdateProject` for an existing record. A project still being created has no record yet for an
+override to belong to, so the field is not prefilled and nothing is sent for it until the project
+exists and is edited again.
 
 The same dialog's own search excludes are `ui/sink/project.rs`'s `search_excludes_row()`: one
 removable row per pattern, an `Add folder…` button that raises the native chooser and relativizes
@@ -3626,7 +3663,9 @@ a draft makes `open_task()` answer nothing. `popup` is the shape toggle over the
 than a second copy of the task: with it on, both draw as a modal over the columns and the docked
 panel says where they went, so the toggle back is always in reach. A first visit to the mode opens
 the right region onto it, through `AppState::queue_mode_furniture()` and
-`prefs::ModeLayout::default_for`, exactly the way Git's and KB's furniture arrives.
+`prefs::ModeLayout::default_for`, exactly the way Git's and KB's furniture arrives. A saved blob from
+before this panel existed is not a first visit, so `AppState::refill_mode_sides()` is what gets it
+onto a stale layout's right region instead, the moment that region is on screen and empty.
 
 `ui/board/detail.rs` is the report and `ui/board/form.rs` the controls, drawn into the same panel.
 The form is not an area of its own and has no row in the table above: the rule about adding an area
@@ -3789,8 +3828,42 @@ by.
 `ui/editor.rs` is what one file draws and the two things its tab asks of it. `render_file()` is the
 file panel's body, `label()` and `state_colour()` are what the dock's tab says and the colour of the
 dot beside it, `highlighter_language()` is the one place our language enum meets the highlighter's,
-and `render()` is what is left of the centre panel in IDE mode: `welcome(app)`, the big, faint brand
-mark on the no-file page.
+and `render()` is what is left of the centre panel — in Git mode as much as in IDE mode, since both
+put the same panel in the middle: `ui::mark::alone`, the big, faint brand mark on the no-file page.
+
+`ui/mark.rs` is the mark itself, a module rather than a private helper on the screen that had it
+first, because five screens draw it: `alone()` is the mark on an otherwise empty page, and
+`backdrop()` wraps a page's existing empty state with the mark painted under it — `ui/agents/mod.rs`'s
+"No columns" page, `ui::kb::centre`'s "No document open" page and `ui/teams/graph.rs`'s empty graph.
+**Two layers, because one of them moves.** The ring is an `svg()` and the cubes are an `img()`, and
+the split is forced: GPUI can only transform an `svg()`, and it draws one by rasterising the markup
+to a single-colour alpha mask tinted with `text_color` — exactly what the ring is, and exactly what
+the cubes are not, since each cube's three faces are three shades. So `assets/logo-ring.svg` is one
+file for both themes with `theme::mark` deciding its colour, and `assets/logo-white-cubes.svg` and
+`assets/logo-blue-cubes.svg` are a file per theme drawn in full colour. A rotation turns an element
+about its own bounds' centre, so the ring's file carries `viewBox="-29.25 7.65 1024 1024"` — its box
+recentred on the ring rather than on the mark — and `RING_DX`/`RING_DY` shift that box back over the
+cubes, which sit in the mark's own `0 0 1024 1024` box. The triple click is taken over the `cube`
+group's bounds rather than the whole 200px square.
+
+`turns()` and `grow()` are the curves, over `SPIN`'s 2400ms: the wind-up eases to a stop so the
+release is a release, and the two turns run on a back-out cubic whose overshoot is tuned down from
+the usual ten percent to two — ten percent of two turns is most of another one, which is a second
+spin and not an arrival — landing about seventeen degrees past the mark and walking back onto it.
+`workbench.mark` is a `MarkState` of `spin`, `spinning` and `until`. `spinning` is what mounts the
+animated element at all: GPUI plays a one-shot animation when the element carrying it first appears,
+so an always-mounted spinning ring would spin every time the user opened an empty page — the still
+ring is a different element, and the spinning one exists only for the length of a spin. `spin` is
+part of the animated element's id, so a spin asked for mid-spin restarts the curve. `app/mark.rs`
+holds the two mutators: `spin_mark` bumps the number, sets the deadline and starts one waiter per
+run of spins — the waiter re-reads the deadline, so a spin asked for while it sleeps extends the run
+instead of starting a second waiter — and `watch_mark_idle`, started once from `AppState::new` in
+`app/boot.rs`, is the idle spin. The watch is deliberately blind: it does not ask whether the mark
+is on screen, because a spin on a window showing something else costs one repaint and mounts
+nothing, and the alternative is a second copy of every screen's idea of "empty". Its interval is
+randomised from `std::collections::hash_map::RandomState`'s seed rather than by pulling in a
+random-number crate.
+
 There is no tab strip here — the dock's groups draw those. A body that is not a buffer goes to
 `ui/viewer/`, whose `mod.rs` holds the layout toggle and the frame every viewer's body is drawn in
 and dispatches on `ViewerKind`: `diff.rs`, `markdown.rs`, `diagram.rs`, `scene.rs` and `image.rs`.

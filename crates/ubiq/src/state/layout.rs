@@ -66,22 +66,17 @@ pub const SUB_GAP: f32 = 12.0;
 /// How far under its parent's bottom edge the first row of delegates starts.
 pub const SUB_DROP: f32 = 16.0;
 
-/// The narrow delegate box, and what a ring shape is measured in.
+/// What one delegate box measures. The one delegate size there is.
 ///
-/// **A delegate drawn full card width is what makes every arrangement a tower.** Six of them under
-/// one card is some 650pt of height nothing else on the canvas can use, and a row is charged for
-/// the tallest card in it, so the room beside the ring is lost as well. The narrow
-/// box is the same delegate at a size two of them fit across a card, which is the shape every ring
-/// but [`ring_rows`] is built out of.
-pub const SUB_NARROW_WIDTH: f32 = (CARD_WIDTH - SUB_GAP) / 2.0;
-pub const SUB_NARROW_HEIGHT: f32 = 72.0;
-
-/// What one delegate box measures, per ring shape. An arrangement says which with [`Algo::sub`],
-/// and the drawing reads it from there rather than assuming the full-width one.
+/// **A block is drawn at the size the interface draws it, under every arrangement.** Six delegates
+/// under one card is some 650pt of height nothing else on the canvas can use, and a row is charged
+/// for the tallest card in it — but the answer to that is *where* a ring puts a delegate, never a
+/// smaller delegate. A ring earns its height by folding across two axes ([`ring_grid`]), not by
+/// shrinking what it seats, and a ring wider than its card is the packers' business: they read it
+/// off the ring's own slots through [`ring_box`].
 pub const SUB_BOX: (f32, f32) = (SUB_WIDTH, SUB_HEIGHT);
-pub const SUB_NARROW: (f32, f32) = (SUB_NARROW_WIDTH, SUB_NARROW_HEIGHT);
 
-/// How many rows two columns of delegates may reach before a grid ring widens to three.
+/// How many rows a grid ring's columns may reach before it opens another column.
 pub const GRID_ROWS: usize = 4;
 
 /// The clear sector at the top **and** the bottom of a radial ring, in degrees either side of the
@@ -128,11 +123,10 @@ pub fn ring_drop(count: usize) -> f32 {
 
 /// The fence round a card and its delegates: `(x, y, w, h)` at 100% zoom, in the caller's frame.
 ///
-/// `subs` are the delegates' top-left corners on the same canvas, and `sub` is what one of them
-/// measures — [`SUB_BOX`] for the one-per-row ring, [`SUB_NARROW`] for every shape that seats them
-/// beside one another. An empty slice is a card with no delegates, which wears no fence and is why
-/// this answers `None` rather than the bare card.
-pub fn fence(at: (f32, f32), subs: &[(f32, f32)], sub: (f32, f32)) -> Option<(f32, f32, f32, f32)> {
+/// `subs` are the delegates' top-left corners on the same canvas, and each one measures
+/// [`SUB_BOX`], whatever ring shape put it there. An empty slice is a card with no delegates, which
+/// wears no fence and is why this answers `None` rather than the bare card.
+pub fn fence(at: (f32, f32), subs: &[(f32, f32)]) -> Option<(f32, f32, f32, f32)> {
     if subs.is_empty() {
         return None;
     }
@@ -141,8 +135,8 @@ pub fn fence(at: (f32, f32), subs: &[(f32, f32)], sub: (f32, f32)) -> Option<(f3
     for at in subs {
         x0 = x0.min(at.0);
         y0 = y0.min(at.1);
-        x1 = x1.max(at.0 + sub.0);
-        y1 = y1.max(at.1 + sub.1);
+        x1 = x1.max(at.0 + SUB_WIDTH);
+        y1 = y1.max(at.1 + SUB_HEIGHT);
     }
     Some((
         x0 - RING_PAD,
@@ -157,25 +151,30 @@ pub fn ring_rows(count: usize) -> Vec<(f32, f32)> {
     (0..count).map(sub_slot).collect()
 }
 
-/// How many columns a grid ring takes. Two, until two would run past [`GRID_ROWS`] rows.
+/// How many columns a grid ring takes: one, until one would run past [`GRID_ROWS`] rows.
+///
+/// A delegate is a full [`SUB_WIDTH`] wide, so one column is exactly as wide as the card and is the
+/// shape to stay in while it fits. Past [`GRID_ROWS`] deep the ring opens another column beside it
+/// rather than growing down — width is the cheap axis, and it is the only one bought here.
 fn grid_cols(count: usize) -> usize {
     if count == 0 {
         return 1;
     }
-    if count.div_ceil(2) <= GRID_ROWS { 2 } else { 3 }
+    count.div_ceil(GRID_ROWS).max(1)
 }
 
-/// Narrow delegates in a grid under the card, centred on it.
+/// Delegates in a grid under the card, at full size, centred on it.
 ///
-/// Two columns of [`SUB_NARROW_WIDTH`] come to exactly `CARD_WIDTH`, so the usual ring is as wide as
-/// its card and a third the height of the one-per-row stack. A ring that would run deeper than
-/// [`GRID_ROWS`] widens to three columns rather than growing down — width is the cheap axis.
+/// One column is card-wide and [`GRID_ROWS`] deep at most; past that a second column opens beside
+/// it, then a third. Nothing is scaled to make the ring fit — a wide ring is reserved for by
+/// [`ring_box`] and packed round by every packer, which is what lets a ring be wider than its card
+/// at all.
 pub fn ring_grid(count: usize) -> Vec<(f32, f32)> {
     if count == 0 {
         return Vec::new();
     }
     let cols = grid_cols(count);
-    let span = cols as f32 * SUB_NARROW_WIDTH + (cols - 1) as f32 * SUB_GAP;
+    let span = cols as f32 * SUB_WIDTH + (cols - 1) as f32 * SUB_GAP;
     let left = (CARD_WIDTH - span) / 2.0;
     let top = CARD_HEIGHT + SUB_DROP;
 
@@ -184,10 +183,10 @@ pub fn ring_grid(count: usize) -> Vec<(f32, f32)> {
             let (row, col) = (ix / cols, ix % cols);
             // A short last row is centred in the grid rather than left-aligned under it.
             let wide = cols.min(count - row * cols);
-            let held = wide as f32 * SUB_NARROW_WIDTH + (wide - 1) as f32 * SUB_GAP;
+            let held = wide as f32 * SUB_WIDTH + (wide - 1) as f32 * SUB_GAP;
             (
-                left + (span - held) / 2.0 + col as f32 * (SUB_NARROW_WIDTH + SUB_GAP),
-                top + row as f32 * (SUB_NARROW_HEIGHT + SUB_GAP),
+                left + (span - held) / 2.0 + col as f32 * (SUB_WIDTH + SUB_GAP),
+                top + row as f32 * (SUB_HEIGHT + SUB_GAP),
             )
         })
         .collect()
@@ -201,12 +200,9 @@ pub fn ring_grid(count: usize) -> Vec<(f32, f32)> {
 pub fn radial_slot(turn: f32, depth: usize) -> (f32, f32) {
     let rad = turn.to_radians();
     let (dx, dy) = (rad.sin(), -rad.cos());
-    let wide = (CARD_WIDTH + SUB_NARROW_WIDTH) / 2.0
-        + RADIAL_GAP
-        + depth as f32 * (SUB_NARROW_WIDTH + SUB_GAP);
-    let tall = (CARD_HEIGHT + SUB_NARROW_HEIGHT) / 2.0
-        + RADIAL_GAP
-        + depth as f32 * (SUB_NARROW_HEIGHT + SUB_GAP);
+    let wide = (CARD_WIDTH + SUB_WIDTH) / 2.0 + RADIAL_GAP + depth as f32 * (SUB_WIDTH + SUB_GAP);
+    let tall =
+        (CARD_HEIGHT + SUB_HEIGHT) / 2.0 + RADIAL_GAP + depth as f32 * (SUB_HEIGHT + SUB_GAP);
     let out = (if dx.abs() > 1e-9 {
         wide / dx.abs()
     } else {
@@ -218,18 +214,18 @@ pub fn radial_slot(turn: f32, depth: usize) -> (f32, f32) {
         f32::INFINITY
     });
     (
-        CARD_WIDTH / 2.0 + out * dx - SUB_NARROW_WIDTH / 2.0,
-        CARD_HEIGHT / 2.0 + out * dy - SUB_NARROW_HEIGHT / 2.0,
+        CARD_WIDTH / 2.0 + out * dx - SUB_WIDTH / 2.0,
+        CARD_HEIGHT / 2.0 + out * dy - SUB_HEIGHT / 2.0,
     )
 }
 
-/// Whether every pair of slots stays a readable [`SUB_GAP`] apart, at the narrow box.
+/// Whether every pair of slots stays a readable [`SUB_GAP`] apart, at the delegate's own box.
 pub fn apart_enough(slots: &[(f32, f32)]) -> bool {
     for i in 0..slots.len() {
         for j in i + 1..slots.len() {
             let (a, b) = (slots[i], slots[j]);
-            let gap_x = (a.0 - b.0).abs() - SUB_NARROW_WIDTH;
-            let gap_y = (a.1 - b.1).abs() - SUB_NARROW_HEIGHT;
+            let gap_x = (a.0 - b.0).abs() - SUB_WIDTH;
+            let gap_y = (a.1 - b.1).abs() - SUB_HEIGHT;
             if gap_x.max(gap_y) < SUB_GAP - EPS {
                 return false;
             }
@@ -351,13 +347,13 @@ pub fn union(rects: &[(f32, f32, f32, f32)]) -> (f32, f32, f32, f32) {
 ///
 /// The union of the card and the delegate boxes, padded by [`ring_pad`] — the same reading the
 /// canvas draws, so what a packer reserves is exactly what appears, whatever shape the ring is in.
-pub fn ring_box(slots: &[(f32, f32)], sub: (f32, f32)) -> (f32, f32, f32, f32) {
+pub fn ring_box(slots: &[(f32, f32)]) -> (f32, f32, f32, f32) {
     let card = (0.0, 0.0, CARD_WIDTH, CARD_HEIGHT);
     if slots.is_empty() {
         return card;
     }
     let mut parts = vec![card];
-    parts.extend(slots.iter().map(|at| (at.0, at.1, sub.0, sub.1)));
+    parts.extend(slots.iter().map(|at| (at.0, at.1, SUB_WIDTH, SUB_HEIGHT)));
     let held = union(&parts);
     union(&[card, ring_pad(held, card)])
 }
@@ -367,14 +363,14 @@ pub fn ring_box(slots: &[(f32, f32)], sub: (f32, f32)) -> (f32, f32, f32, f32) {
 /// A card used to reserve a *height* alone, so a ring wider than its card was invisible to every
 /// packer: nothing could reserve room for a shape other than the one already there. This is derived
 /// from the ring function's own slots, so a new ring shape is reserved for the moment it exists.
-pub fn card_box(agent: AgentId, rings: &Rings, ring: RingFn, sub: (f32, f32)) -> (f32, f32) {
-    let held = ring_box(&ring(rings.get(&agent).copied().unwrap_or(0)), sub);
+pub fn card_box(agent: AgentId, rings: &Rings, ring: RingFn) -> (f32, f32) {
+    let held = ring_box(&ring(rings.get(&agent).copied().unwrap_or(0)));
     (held.2, held.3)
 }
 
 /// Where the card itself sits inside that box. `(0, 0)` unless the ring reaches past it.
-pub fn card_lead(agent: AgentId, rings: &Rings, ring: RingFn, sub: (f32, f32)) -> (f32, f32) {
-    let held = ring_box(&ring(rings.get(&agent).copied().unwrap_or(0)), sub);
+pub fn card_lead(agent: AgentId, rings: &Rings, ring: RingFn) -> (f32, f32) {
+    let held = ring_box(&ring(rings.get(&agent).copied().unwrap_or(0)));
     (-held.0, -held.1)
 }
 
@@ -480,14 +476,6 @@ impl Algo {
         }
     }
 
-    /// What one delegate box measures under that ring. The drawing reads this, not [`SUB_BOX`].
-    pub fn sub(self) -> (f32, f32) {
-        match self {
-            Algo::Flow | Algo::Packed | Algo::Tree | Algo::Columns => SUB_BOX,
-            _ => SUB_NARROW,
-        }
-    }
-
     /// The shape this arrangement is aiming its folds and its packing at.
     ///
     /// `1.0` is the square the four original arrangements have always asked for, and keeping them
@@ -516,18 +504,18 @@ impl Algo {
     /// the session-level packer then treats as rigid — the whole thing is solved bottom-up.
     fn inside(self, task: TaskId, agents: &[WorkAgent], rings: &Rings) -> Contents {
         let members: Vec<&WorkAgent> = agents.iter().filter(|a| a.task == Some(task)).collect();
-        let (ring, sub, target) = (self.ring(), self.sub(), self.target());
+        let (ring, target) = (self.ring(), self.target());
         match self {
             // Tree wants the connectors to run straight down, which is what the plain stack draws.
-            Algo::Flow | Algo::Tree | Algo::Adaptive => stack(&members, rings, ring, sub),
-            Algo::Packed => stack_wrapped(&members, rings, ring, sub),
-            Algo::Columns => column(&members, rings, ring, sub),
-            Algo::Multiline | Algo::Radial => stack_aspect(&members, rings, ring, sub, target),
-            Algo::Organic => shapes::inside_organic(&members, rings, ring, sub, target),
-            Algo::Multiradial => shapes::inside_multiradial(&members, rings, ring, sub, target),
-            Algo::Spider => shapes::inside_spider(&members, rings, ring, sub, target),
-            Algo::Hex => shapes::inside_hex(&members, rings, ring, sub, target),
-            Algo::Islands => shapes::inside_islands(&members, rings, ring, sub, target),
+            Algo::Flow | Algo::Tree | Algo::Adaptive => stack(&members, rings, ring),
+            Algo::Packed => stack_wrapped(&members, rings, ring),
+            Algo::Columns => column(&members, rings, ring),
+            Algo::Multiline | Algo::Radial => stack_aspect(&members, rings, ring, target),
+            Algo::Organic => shapes::inside_organic(&members, rings, ring, target),
+            Algo::Multiradial => shapes::inside_multiradial(&members, rings, ring, target),
+            Algo::Spider => shapes::inside_spider(&members, rings, ring, target),
+            Algo::Hex => shapes::inside_hex(&members, rings, ring, target),
+            Algo::Islands => shapes::inside_islands(&members, rings, ring, target),
         }
     }
 }
@@ -672,7 +660,7 @@ impl Layout {
         // Stacked whichever arrangement is chosen, because this block is the frame the session
         // hangs off — but it wears the arrangement's own ring, so a delegate up here is the shape
         // the packers below reserved for.
-        let Contents { cards, height, .. } = stack(&loose, rings, algo.ring(), algo.sub());
+        let Contents { cards, height, .. } = stack(&loose, rings, algo.ring());
         if !cards.is_empty() {
             for (agent, offset) in cards {
                 self.agents
@@ -782,12 +770,12 @@ impl Contents {
 /// Shared by a container and by the row of agents that have no task, because the second one holds a
 /// spawn tree too: the agent coordinating a project parents each session's master, and drawing it
 /// beside its own child rather than above it would send the connector sideways.
-fn stack(members: &[&WorkAgent], rings: &Rings, ring: RingFn, sub: (f32, f32)) -> Contents {
+fn stack(members: &[&WorkAgent], rings: &Rings, ring: RingFn) -> Contents {
     let rows = rows_by_depth(members);
     if rows.is_empty() {
         return Contents::empty();
     }
-    let held = Boxes::of(members, rings, ring, sub);
+    let held = Boxes::of(members, rings, ring);
     let width = rows.iter().map(|row| held.span(row)).fold(0.0f32, f32::max);
     held.lay(&rows, width)
 }
@@ -802,15 +790,15 @@ pub struct Boxes {
 }
 
 impl Boxes {
-    pub fn of(members: &[&WorkAgent], rings: &Rings, ring: RingFn, sub: (f32, f32)) -> Self {
+    pub fn of(members: &[&WorkAgent], rings: &Rings, ring: RingFn) -> Self {
         Boxes {
             boxes: members
                 .iter()
-                .map(|m| (m.id, card_box(m.id, rings, ring, sub)))
+                .map(|m| (m.id, card_box(m.id, rings, ring)))
                 .collect(),
             leads: members
                 .iter()
-                .map(|m| (m.id, card_lead(m.id, rings, ring, sub)))
+                .map(|m| (m.id, card_lead(m.id, rings, ring)))
                 .collect(),
         }
     }
@@ -901,12 +889,12 @@ impl Boxes {
 /// **A wide row is what makes a canvas wide.** Eight workers on one task drag every other container
 /// out past them, and the whitespace that leaves is the thing Packed exists to remove — so a row of
 /// `n` breaks at about `ceil(sqrt(n))` cards, which is the squarest break there is.
-fn stack_wrapped(members: &[&WorkAgent], rings: &Rings, ring: RingFn, sub: (f32, f32)) -> Contents {
+fn stack_wrapped(members: &[&WorkAgent], rings: &Rings, ring: RingFn) -> Contents {
     let rows = rows_by_depth(members);
     if rows.is_empty() {
         return Contents::empty();
     }
-    let held = Boxes::of(members, rings, ring, sub);
+    let held = Boxes::of(members, rings, ring);
     let per_line: Vec<usize> = rows.iter().map(|row| break_at(row.len())).collect();
     let chunks = chunked(&rows, &per_line);
     let width = chunks
@@ -920,18 +908,12 @@ fn stack_wrapped(members: &[&WorkAgent], rings: &Rings, ring: RingFn, sub: (f32,
 ///
 /// The wrap [`Algo::Packed`] uses aims at a square, because nothing told it the viewport is a
 /// rectangle. This one is told, by [`Algo::target`].
-fn stack_aspect(
-    members: &[&WorkAgent],
-    rings: &Rings,
-    ring: RingFn,
-    sub: (f32, f32),
-    target: f32,
-) -> Contents {
+fn stack_aspect(members: &[&WorkAgent], rings: &Rings, ring: RingFn, target: f32) -> Contents {
     let rows = rows_by_depth(members);
     if rows.is_empty() {
         return Contents::empty();
     }
-    Boxes::of(members, rings, ring, sub).fold_to(&rows, target)
+    Boxes::of(members, rings, ring).fold_to(&rows, target)
 }
 
 /// Each row cut into lines of at most its own `per`.
@@ -946,12 +928,12 @@ pub fn chunked(rows: &[Vec<AgentId>], per_line: &[usize]) -> Vec<Vec<AgentId>> {
 }
 
 /// One card per row, in spawn order. The tall, narrow container a small window has room for.
-fn column(members: &[&WorkAgent], rings: &Rings, ring: RingFn, sub: (f32, f32)) -> Contents {
+fn column(members: &[&WorkAgent], rings: &Rings, ring: RingFn) -> Contents {
     let rows = rows_by_depth(members);
     if rows.is_empty() {
         return Contents::empty();
     }
-    let held = Boxes::of(members, rings, ring, sub);
+    let held = Boxes::of(members, rings, ring);
     let width = members
         .iter()
         .map(|m| held.box_of(m.id).0)
@@ -1751,8 +1733,7 @@ mod tests {
 
     #[test]
     fn a_fence_grows_round_wherever_a_delegate_was_put() {
-        let snug =
-            fence((0.0, 0.0), &[sub_slot(0), sub_slot(1)], SUB_BOX).expect("a card with delegates");
+        let snug = fence((0.0, 0.0), &[sub_slot(0), sub_slot(1)]).expect("a card with delegates");
         assert_eq!(snug.0, -RING_PAD, "the fence starts a pad left of the card");
         assert!(
             snug.2 <= CARD_WIDTH + RING_PAD * 2.0 + EPS,
@@ -1760,8 +1741,7 @@ mod tests {
         );
 
         // One delegate dragged out to the right, and the fence is the box round where it landed.
-        let moved =
-            fence((0.0, 0.0), &[sub_slot(0), (600.0, 40.0)], SUB_BOX).expect("still a fence");
+        let moved = fence((0.0, 0.0), &[sub_slot(0), (600.0, 40.0)]).expect("still a fence");
         assert!(
             moved.2 > snug.2,
             "the fence widened: {moved:?} from {snug:?}"
@@ -1769,7 +1749,7 @@ mod tests {
         assert_eq!(moved.0 + moved.2, 600.0 + SUB_WIDTH + RING_PAD);
 
         assert!(
-            fence((0.0, 0.0), &[], SUB_BOX).is_none(),
+            fence((0.0, 0.0), &[]).is_none(),
             "a card with no delegates wears none"
         );
     }

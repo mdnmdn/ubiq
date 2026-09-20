@@ -91,6 +91,11 @@ pub struct ProjectRecord {
     /// meant — a local project — rather than a guess.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runs_on: Option<DroneOrigin>,
+    /// Overrides the rail badge's letters in place of the name's own first character. At most
+    /// two characters; empty is "no override", which is why this skips serialisation like the
+    /// rest of this record's sparse fields rather than needing its own `Option`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub initials: String,
 }
 
 /// What one project has said about one lane of its task board.
@@ -359,6 +364,7 @@ mod tests {
             tools: vec![],
             lanes: vec![],
             runs_on: None,
+            initials: String::new(),
         }
     }
 

@@ -4,6 +4,7 @@ title: The Git screen
 summary: Reviewing refs, history and uncommitted changes for a project's repository, on the same window.
 keywords: [git, repository, branch, commit]
 context: [rail.git]
+targets: [ui.rail.mode.git]
 order: 10
 status: current
 related: [git-changes, git-history, git-refs]

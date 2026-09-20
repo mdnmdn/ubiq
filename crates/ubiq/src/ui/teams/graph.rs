@@ -46,6 +46,7 @@ use crate::theme::{Family, Role};
 use crate::ui::kit::blocks::{self, Board, Fence, Look, Word};
 use crate::ui::kit::canvas::{self, Link};
 use crate::ui::kit::{UbiqIcon, elided_with, ghost_button, harness_icon, mono, progress_ring_in};
+use crate::ui::mark;
 use crate::ui::teams::status::{
     delegate_chip, delegate_colour, delegate_mark, status_chip, status_colour,
 };
@@ -120,7 +121,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 cx.listener(|this, _, _, cx| this.clear_teams_filters(cx)),
             ));
         }
-        return said.into_any_element();
+        return mark::backdrop(app, said.into_any_element(), cx);
     }
 
     // The containers that are actually drawn, measured once: the boxes decide the canvas size, take
@@ -268,7 +269,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
     // levels. It is the box round a card and wherever its delegates have been put, so dragging one
     // out to the side resizes the fence rather than leaving it behind.
     for (id, at, delegates, spots) in &rings {
-        if let Some(rect) = fence(*at, spots, sub) {
+        if let Some(rect) = fence(*at, spots) {
             board.inner_fence(Fence::new(
                 rect,
                 theme::fade(theme::accent_muted(), 0.8),

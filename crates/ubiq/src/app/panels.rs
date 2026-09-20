@@ -110,18 +110,6 @@ impl AppState {
         });
         let placement = dock::placement_of(region);
         let now_open = self.dock.read(cx).is_dock_open(placement);
-        // The one gesture that counts as "expressly hidden" for `enforce_git_sides`: a side region
-        // the user put away, or brought back, with their own click, while Git is the mode on
-        // screen. Every other path a region's openness moves through — a mode switch, a restored
-        // arrangement — is not this, which is what keeps a stale blob from being read as a choice
-        // the user never made this run.
-        if self.workbench.rail_mode == RailMode::Git {
-            match region {
-                Region::Left => self.git_sides_hidden.0 = !now_open,
-                Region::Right => self.git_sides_hidden.1 = !now_open,
-                _ => {}
-            }
-        }
         let now_empty = {
             let dock = self.dock.read(cx);
             now_open && dock.is_empty(placement, cx)
@@ -132,14 +120,7 @@ impl AppState {
             // it has some — and a fresh chat tab where the side is the one the conversation calls
             // home. A side that is neither is the user having dragged its panel away on purpose,
             // and the switch leaves it be.
-            let furniture = match (mode, region) {
-                (RailMode::Git, Region::Left) => Some(PanelKind::GitRefs),
-                (RailMode::Git, Region::Right) => Some(PanelKind::GitChanges),
-                (RailMode::Kb, Region::Left) => Some(PanelKind::KbExplorer),
-                (RailMode::Tasks, Region::Right) => Some(PanelKind::Task),
-                (RailMode::Agents, Region::Left) => Some(PanelKind::AgentsExplorer),
-                _ => None,
-            };
+            let furniture = mode_side_furniture(mode, region);
             match region {
                 Region::Bottom => self.spawn_pane(None, Vec::new(), AgentPicks::default(), cx),
                 Region::Centre => {}
@@ -640,44 +621,31 @@ impl AppState {
         cx.notify();
     }
 
-    /// Both of Git's side regions on screen whenever Git is the mode on screen, whatever
-    /// [`Self::settle_mode`] or [`Self::settle_layout`] just left them as — unless the user has
-    /// expressly put one away with their own click since this window started (`git_sides_hidden`).
+    /// Re-ask the mode on screen for its side furniture whenever one of its own regions is open
+    /// and holds nothing — the general rule that replaced `enforce_git_sides`, which used to do
+    /// only this for Git.
     ///
-    /// The refs explorer and the changes panel *are* the Git screen (`D119`), so a restored blob
-    /// that predates them, or one written from an earlier run where they had been hidden, must not
-    /// reopen the window onto a Git screen missing a side a user this run never touched. Runs every
-    /// frame Git is on screen, after the mode and the layout have settled and before
-    /// [`Self::settle_panels`] drains the queue this can add to, and is idempotent: a region already
-    /// where this wants it is left alone.
-    pub(super) fn enforce_git_sides(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.workbench.rail_mode != RailMode::Git {
-            return;
-        }
-        let (hide_left, hide_right) = self.git_sides_hidden;
+    /// **Open and empty**, never closed-and-empty: a region a stale saved layout (or the user's
+    /// own click) left shut stays shut, so a project whose Tasks or Agents layout was saved before
+    /// their side panel existed gets it back the moment that side is on screen, without a click
+    /// reopening a region the user meant to keep away. Runs every frame, after the mode and the
+    /// layout have settled and before [`Self::settle_panels`] drains the queue this adds to, and
+    /// is idempotent: once the furniture lands the region is no longer empty, so this stops asking.
+    pub(super) fn refill_mode_sides(&mut self, cx: &mut Context<Self>) {
+        let mode = self.workbench.rail_mode;
         let mut fill = Vec::new();
-        let dock = self.dock.clone();
-        dock.update(cx, |dock, cx| {
-            for (region, hidden, kind) in [
-                (Region::Left, hide_left, PanelKind::GitRefs),
-                (Region::Right, hide_right, PanelKind::GitChanges),
-            ] {
-                if hidden {
+        {
+            let dock = self.dock.read(cx);
+            for region in [Region::Left, Region::Right] {
+                let Some(kind) = mode_side_furniture(mode, region) else {
                     continue;
-                }
+                };
                 let placement = dock::placement_of(region);
-                if !dock.is_dock_open(placement) {
-                    dock.toggle_dock(placement, window, cx);
-                }
-                // Reopening an edge the blob had closed brings back whatever tree it saved there.
-                // An edge with nothing saved in it — a first visit whose furniture has not landed
-                // yet, or a blob from before Git had one — is queued the panel this side is for, so
-                // it never sits open and blank.
                 if dock.is_dock_open(placement) && dock.is_empty(placement, cx) {
                     fill.push(kind);
                 }
             }
-        });
+        }
         for kind in fill {
             self.pending_panels.push(PanelEdit::Open(kind));
         }
@@ -763,5 +731,21 @@ impl AppState {
             .collect();
         let dock = self.dock.clone();
         dock::enforce_placement(&dock, &|id| kinds.get(&id).cloned(), window, cx);
+    }
+}
+
+/// The panel a mode calls home in one of its side regions, if it has one there.
+///
+/// Shared by [`AppState::toggle_region`], which fills a region the user just opened onto nothing,
+/// and [`AppState::refill_mode_sides`], which does the same for one a saved layout left open and
+/// empty.
+fn mode_side_furniture(mode: RailMode, region: Region) -> Option<PanelKind> {
+    match (mode, region) {
+        (RailMode::Git, Region::Left) => Some(PanelKind::GitRefs),
+        (RailMode::Git, Region::Right) => Some(PanelKind::GitChanges),
+        (RailMode::Kb, Region::Left) => Some(PanelKind::KbExplorer),
+        (RailMode::Tasks, Region::Right) => Some(PanelKind::Task),
+        (RailMode::Agents, Region::Left) => Some(PanelKind::AgentsExplorer),
+        _ => None,
     }
 }

@@ -242,7 +242,9 @@ crates/ubiq/src/
 │   ├── feedback.rs
 │   ├── help.rs
 │   ├── overlay.rs
-│   └── teams.rs
+│   ├── teams.rs
+│   ├── shapes.rs
+│   └── teamsim.rs
 ├── ui/
 │   ├── mod.rs
 │   ├── chat/
@@ -259,7 +261,10 @@ crates/ubiq/src/
 │   │   ├── settings.rs
 │   │   ├── icons.rs
 │   │   ├── ribbon.rs
-│   │   └── popover.rs
+│   │   ├── popover.rs
+│   │   ├── blocks.rs
+│   │   ├── colour.rs
+│   │   └── slider.rs
 │   ├── editor.rs
 │   ├── empty.rs
 │   ├── explorer.rs
@@ -300,7 +305,8 @@ crates/ubiq/src/
 │   │   ├── settings.rs
 │   │   ├── messages.rs
 │   │   ├── a2ui.rs
-│   │   └── script.rs
+│   │   ├── script.rs
+│   │   └── teamsim.rs
 │   ├── file_picker.rs
 │   ├── orchestration/
 │   │   ├── graph.rs
@@ -363,7 +369,10 @@ crates/ubiq/src/
 │   ├── acp_capabilities.rs
 │   ├── feedback.rs
 │   ├── new_project_menu.rs
-│   └── run_tool_menu.rs
+│   ├── run_tool_menu.rs
+│   ├── mark.rs
+│   ├── size.rs
+│   └── themes.rs
 ├── lib.rs
 ├── theme.rs
 ├── web_export/
@@ -409,7 +418,10 @@ crates/ubiq/src/
 │   ├── kb.rs
 │   ├── feedback.rs
 │   ├── help.rs
-│   └── teams.rs
+│   ├── teams.rs
+│   ├── mark.rs
+│   ├── size.rs
+│   └── themes.rs
 ├── version.rs
 └── .DS_Store
 
@@ -443,6 +455,9 @@ the documents in its row.
 | `_tools/helpbundle.py` | [`operations.md`](./operations.md), [`wip/help.md`](../wip/help.md) |
 | `_tools/icns.py` | [`operations.md`](./operations.md), [`project-structure.md`](./project-structure.md) |
 | `_tools/icons.py` | [`ui-and-design.md`](./ui-and-design.md) |
+| `_tools/teamsim/FORMAT.md` | [`features/workbench.md`](../features/workbench.md), [`wip/teams-layout-spike.md`](../wip/teams-layout-spike.md) |
+| `_tools/teamsim/algos.py` | [`wip/teams-layout-spike.md`](../wip/teams-layout-spike.md) |
+| `_tools/teamsim/shapes.py` | [`wip/teams-layout-spike.md`](../wip/teams-layout-spike.md) |
 | `_tools/webassets.py` | [`operations.md`](./operations.md) |
 | `assets/icons/icons.yaml` | [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/agent-manager/examples/confined_shell_probe.rs` | [`agent-manager.md`](./agent-manager.md) |
@@ -602,6 +617,7 @@ the documents in its row.
 | `crates/ubiq/src/app/hosts.rs` | [`features/drone.md`](../features/drone.md), [`features/workbench.md`](../features/workbench.md), [`architecture.md`](./architecture.md) |
 | `crates/ubiq/src/app/image_edit.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/app/kb.rs` | [`wip/kb.md`](../wip/kb.md) |
+| `crates/ubiq/src/app/mark.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/app/mod.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/workbench.md`](../features/workbench.md), [`architecture.md`](./architecture.md), [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/app/nav.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/app/new_agent.rs` | [`features/workbench.md`](../features/workbench.md) |
@@ -613,6 +629,7 @@ the documents in its row.
 | `crates/ubiq/src/app/settings.rs` | [`features/connectors.md`](../features/connectors.md), [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/app/shell.rs` | [`features/stats.md`](../features/stats.md), [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md), [`wip/web-panel-phase6.md`](../wip/web-panel-phase6.md) |
 | `crates/ubiq/src/app/sink.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/app/size.rs` | [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/app/ssh_connect.rs` | [`features/drone.md`](../features/drone.md), [`features/workbench.md`](../features/workbench.md), [`architecture.md`](./architecture.md) |
 | `crates/ubiq/src/app/stats.rs` | [`features/stats.md`](../features/stats.md), [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/app/teams.rs` | [`features/workbench.md`](../features/workbench.md) |
@@ -646,7 +663,7 @@ the documents in its row.
 | `crates/ubiq/src/state/help.rs` | [`wip/help.md`](../wip/help.md) |
 | `crates/ubiq/src/state/image_edit.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/kb.rs` | [`wip/kb.md`](../wip/kb.md) |
-| `crates/ubiq/src/state/layout.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/state/layout.rs` | [`features/workbench.md`](../features/workbench.md), [`wip/teams-layout-spike.md`](../wip/teams-layout-spike.md) |
 | `crates/ubiq/src/state/logs.rs` | [`features/logs.md`](../features/logs.md) |
 | `crates/ubiq/src/state/mod.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/nav.rs` | [`features/workbench.md`](../features/workbench.md) |
@@ -664,6 +681,7 @@ the documents in its row.
 | `crates/ubiq/src/state/sink.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/stats.rs` | [`features/stats.md`](../features/stats.md), [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/teams.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/state/teamsim.rs` | [`features/workbench.md`](../features/workbench.md), [`wip/teams-layout-spike.md`](../wip/teams-layout-spike.md) |
 | `crates/ubiq/src/state/viewport.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/vim/mod.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/vim/motion.rs` | [`features/workbench.md`](../features/workbench.md) |
@@ -710,7 +728,9 @@ the documents in its row.
 | `crates/ubiq/src/ui/help/mod.rs` | [`wip/help.md`](../wip/help.md) |
 | `crates/ubiq/src/ui/kb/mod.rs` | [`wip/kb.md`](../wip/kb.md) |
 | `crates/ubiq/src/ui/kb/source_form.rs` | [`wip/kb.md`](../wip/kb.md) |
+| `crates/ubiq/src/ui/kit/blocks.rs` | [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md), [`wip/teams-layout-spike.md`](../wip/teams-layout-spike.md) |
 | `crates/ubiq/src/ui/kit/canvas.rs` | [`ui-and-design.md`](./ui-and-design.md) |
+| `crates/ubiq/src/ui/kit/colour.rs` | [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/ui/kit/controls.rs` | [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/ui/kit/files.rs` | [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/ui/kit/menu.rs` | [`ui-and-design.md`](./ui-and-design.md), [`wip/clone-a-project.md`](../wip/clone-a-project.md) |
@@ -720,6 +740,7 @@ the documents in its row.
 | `crates/ubiq/src/ui/kit/ribbon.rs` | [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/ui/kit/settings.rs` | [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/ui/logs.rs` | [`features/logs.md`](../features/logs.md), [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/ui/mark.rs` | [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/ui/mod.rs` | [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/ui/navigator.rs` | [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/ui/new_agent.rs` | [`features/workbench.md`](../features/workbench.md) |
@@ -747,10 +768,12 @@ the documents in its row.
 | `crates/ubiq/src/ui/sink/script.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/sink/settings.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/sink/style.rs` | [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
+| `crates/ubiq/src/ui/sink/teamsim.rs` | [`features/workbench.md`](../features/workbench.md), [`wip/teams-layout-spike.md`](../wip/teams-layout-spike.md) |
+| `crates/ubiq/src/ui/size.rs` | [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/ui/stats.rs` | [`features/stats.md`](../features/stats.md), [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/status_bar.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/tab_menu.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/workbench.md`](../features/workbench.md) |
-| `crates/ubiq/src/ui/teams/graph.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/ui/teams/graph.rs` | [`features/workbench.md`](../features/workbench.md), [`wip/teams-layout-spike.md`](../wip/teams-layout-spike.md) |
 | `crates/ubiq/src/ui/teams/inspector.rs` | [`features/workbench.md`](../features/workbench.md), [`components.md`](./components.md) |
 | `crates/ubiq/src/ui/teams/mod.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/teams/status.rs` | [`features/workbench.md`](../features/workbench.md) |
@@ -847,15 +870,19 @@ No document's `code_anchors` names these. Restricted to Ubiq's own crates.
 | `crates/ubiq-proto/src/search.rs` |
 | `crates/ubiq/src/app/host_secrets.rs` |
 | `crates/ubiq/src/app/remote_hosts.rs` |
+| `crates/ubiq/src/app/themes.rs` |
 | `crates/ubiq/src/state/explorer/filter.rs` |
 | `crates/ubiq/src/state/explorer/keys.rs` |
 | `crates/ubiq/src/state/remote_hosts.rs` |
 | `crates/ubiq/src/state/search.rs` |
+| `crates/ubiq/src/state/shapes.rs` |
 | `crates/ubiq/src/ui/kit/icons.rs` |
 | `crates/ubiq/src/ui/kit/panel.rs` |
+| `crates/ubiq/src/ui/kit/slider.rs` |
 | `crates/ubiq/src/ui/run_tool_menu.rs` |
 | `crates/ubiq/src/ui/search.rs` |
 | `crates/ubiq/src/ui/sink/messages.rs` |
+| `crates/ubiq/src/ui/themes.rs` |
 
 <!-- generated:end anchors -->
 

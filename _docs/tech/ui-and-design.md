@@ -7,7 +7,7 @@ summary: The GPUI rendering model, the complete theme token set and the rule tha
 read_when: you are building or restyling a screen, adding a colour or a size, switching or extending a palette, raising a modal or the file picker, looking at a primitive on the style reference, or looking for the wireframe a layout came from
 updated: 2026-09-19
 verified: 2026-09-19
-code_anchors: [crates/ubiq/src/theme.rs, assets/icons/icons.yaml, _tools/icons.py, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/colour.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/blocks.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/state/overlay.rs, crates/ubiq/src/ui/kit/ribbon.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/src/ui/kit/popover.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/tests/dismiss.rs, crates/ubiq/src/ui/remote_hosts.rs]
+code_anchors: [crates/ubiq/src/theme.rs, assets/icons/icons.yaml, _tools/icons.py, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/mark.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/colour.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/blocks.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/state/overlay.rs, crates/ubiq/src/ui/kit/ribbon.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/src/ui/kit/popover.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/tests/dismiss.rs, crates/ubiq/src/ui/remote_hosts.rs]
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -82,7 +82,7 @@ a palette swap changes every surface consistently.
 | Group | Accessors | For |
 |---|---|---|
 | Surface | `app_bg`, `pane_bg`, `surface`, `surface_raised`, `hover`, `selected`, `selected_focus`, `scrim` | The stack of backgrounds, from the window down to a selected row, deepening once the list holding that row has the keyboard — and what a modal lays over the window it took the keyboard from |
-| Text | `text`, `text_muted`, `text_faint`, `on_accent` | Primary copy, secondary copy, the faintest tier — ignored rows, timestamps, hints — and copy sitting on a filled surface |
+| Text | `text`, `text_muted`, `text_faint`, `on_accent`, `mark` | Primary copy, secondary copy, the faintest tier — ignored rows, timestamps, hints — copy sitting on a filled surface, and the brand mark an empty page draws: white in every dark palette, `#003d6e` in every light one |
 | Accent | `accent`, `accent_muted`, `accent_soft`, `accent_selection`, `accent_id` | The interactive colour, its subdued form, the fill behind a selected row, the highlight a selected run of text takes on a non-editor surface, and which accent the window is dressed in — all four colours derived from one seed, below |
 | Terminal | `selection_background`, `link_underline`, `link_underline_hover` | Selected cells in a pane, and the underline on an OSC 8 or detected URL — brighter when the pointer is over it |
 | Border | `border`, `border_focus` | Ordinary separation, and the focused pane's edge |
@@ -152,7 +152,8 @@ default rather than discarding the blob.
 `palette_for(base)` → the overrides → `with_accent`, so an author supplies one colour or sixteen and
 the rest stay the fork's. The editable set is **grounds and ink** — the eight surfaces, the four
 text colours, the two borders and the accent seed, which is `theme::EDITABLE_TOKENS`; status,
-ribbon, terminal and project-swatch tokens inherit, because they carry meaning rather than taste. An
+ribbon, brand-mark, terminal and project-swatch tokens inherit, because they carry meaning rather
+than taste — `text.mark` is the brand, which a fork of a palette does not get to restate. An
 override is a hue and not a transparency: the alpha stays the palette's, which is what keeps the
 scrim a scrim. A custom id is `custom-…` and is **interned** rather than owned, so `ThemeId` stays a
 `Copy` newtype over a `&'static str` and the built-ins stay compile-time; `ThemeId::base` is the
@@ -393,10 +394,12 @@ page rather than reasoned about.
   of the layout — chrome heights, panel widths — are constants in `theme.rs` instead.
 - **There are no radii.** See *The shape of a surface* below; a corner radius anywhere is a defect
   in the same way a literal colour is.
-- **The no-file page is the brand, not furniture.** In IDE mode with nothing open the centre shows
-  Ubiq's mark at 200px and half opacity on the window's ground — `welcome(app)` in
-  `crates/ubiq/src/ui/editor.rs` — theme picked exactly as the rail's mark is: the blue logo on a
-  light palette, the white on a dark one, so it reads on the empty page.
+- **An empty page is the brand, not furniture.** `crates/ubiq/src/ui/mark.rs` owns it for every
+  screen that has one: `alone()` is the mark at 200px and half opacity on the window's ground, which
+  is what the centre panel shows with nothing open, and `backdrop()` paints the same mark at 0.16
+  under a page's own words. The ring is an `svg()` tinted with `theme::mark`, one file for both
+  palettes, and the cubes are a full-colour `img()` per palette — a consequence of *The icon set*'s
+  alpha mask, which carries one colour, where each cube's three faces are three shades.
 
 ## The shape of a surface
 
@@ -920,7 +923,9 @@ strip. The rules and the drawing loop are the `ubiq-icons` skill.
 
 Micro-animation is not part of any of this: it is a state's property, driven by `with_animation` on
 the element, and it never produces an icon variant. The writing mark in `ui/conversation/mod.rs` is
-the most complex one the app draws, and it is five divs and an opacity ramp.
+five divs and an opacity ramp. The brand mark's spin in `ui/mark.rs` is the longest one the app
+draws, and it turns the ring alone, because a rotation is a matrix on the cached tile of a single
+`svg()` and the cubes stacked over it are an image.
 
 ## Design assets
 

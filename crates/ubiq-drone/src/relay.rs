@@ -443,6 +443,7 @@ impl Relay {
                     rows: INITIAL_ROWS,
                     running: true,
                     wait_on_exit: false,
+                    wait_on_error: false,
                     // A drone spawns shells, never a configured tool — `RunTool` is the local
                     // coordinator's alone.
                     tool: None,
@@ -878,6 +879,7 @@ fn record_for(root: &Root) -> ProjectRecord {
         // on.
         lanes: Vec::new(),
         runs_on: None,
+        initials: String::new(),
     }
 }
 

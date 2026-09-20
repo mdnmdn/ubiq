@@ -169,6 +169,8 @@ impl AppState {
                 crate::state::sink::PROJECT_PATH,
             ))
         });
+        let project_initials_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Auto"));
         let kb_name_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("What the source is called"));
         let kb_url_input =
@@ -1168,6 +1170,19 @@ impl AppState {
             },
         ));
 
+        // Capped at two characters as it is typed, rather than only on save — a field that let
+        // three characters sit until Save silently dropped one would look like it had accepted
+        // them.
+        subscriptions.push(cx.subscribe_in(
+            &project_initials_input,
+            window,
+            |this, _, event: &InputEvent, window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    this.clamp_project_initials_input(window, cx);
+                }
+            },
+        ));
+
         // A pattern is added on Enter, the same gesture the two comma-lists commit on — but this
         // field holds one pattern at a time, so the field is cleared afterwards rather than left
         // holding what was just added.
@@ -1259,6 +1274,7 @@ impl AppState {
             project_form_hex.read(cx).focus_handle(cx),
             project_exclude_input.read(cx).focus_handle(cx),
             project_path_input.read(cx).focus_handle(cx),
+            project_initials_input.read(cx).focus_handle(cx),
             kb_name_input.read(cx).focus_handle(cx),
             kb_url_input.read(cx).focus_handle(cx),
             picker_search.read(cx).focus_handle(cx),
@@ -1349,7 +1365,6 @@ impl AppState {
             pending_regions: None,
             pending_pane_region: false,
             region_had_content: (false, false, false),
-            git_sides_hidden: (false, false),
             workbench: WorkbenchState::default(),
             pending_chat_attach: None,
             pending_chat_open: false,
@@ -1422,6 +1437,7 @@ impl AppState {
             project_form_hex,
             project_exclude_input,
             project_path_input,
+            project_initials_input,
             kb_name_input,
             kb_url_input,
             kb_filter_inputs: HashMap::new(),
@@ -1547,6 +1563,11 @@ impl AppState {
         // Whatever the registry says this window holds, it now holds — including the pane a
         // project gets when it is first entered. A window opening on nothing spawns nothing.
         this.sync_projects(cx);
+
+        // The mark on an empty page turns over by itself every few minutes. Started here because
+        // it belongs to the window rather than to any one screen, and because the page that draws
+        // the mark must not be the thing that starts a timer.
+        this.watch_mark_idle(cx);
         this
     }
 

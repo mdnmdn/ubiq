@@ -46,6 +46,7 @@ use crate::state::NewAgentSurface;
 use crate::theme;
 use crate::ui::empty;
 use crate::ui::kit::{self, ghost_button, mono};
+use crate::ui::mark;
 use crate::ui::{handler, indexed};
 
 /// What a dragged tab carries. The agent alone: which column it came from is a question the view
@@ -68,7 +69,12 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         } else {
             "Every agent is on the bench. Pick one in the list to open a column."
         };
-        empty::empty_page("No columns", note, kit::UbiqIcon::HarnessAny, None).into_any_element()
+        mark::backdrop(
+            app,
+            empty::empty_page("No columns", note, kit::UbiqIcon::HarnessAny, None)
+                .into_any_element(),
+            cx,
+        )
     } else {
         columns(app, window, cx)
     };

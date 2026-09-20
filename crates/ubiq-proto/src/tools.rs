@@ -47,6 +47,11 @@ pub struct ToolDef {
     /// its output stays readable until the tab is closed.
     #[serde(default)]
     pub wait_on_exit: bool,
+    /// Keep the pane open when the command ends with a non-zero status, and close it normally
+    /// on a clean exit. Redundant, and disabled in the editor, while [`Self::wait_on_exit`] is
+    /// set — that already keeps the pane open on every exit.
+    #[serde(default)]
+    pub wait_on_error: bool,
     /// Restrict this tool to one run at a time. A second [`Message::RunTool`] while a pane
     /// started by this tool is still held is refused with [`Message::ToolError`] rather than
     /// given a pane — a watcher on a port, a dev server, anything that cannot share a resource
@@ -139,6 +144,7 @@ mod tests {
             env: BTreeMap::new(),
             platforms: Vec::new(),
             wait_on_exit: false,
+            wait_on_error: false,
             single_instance: false,
         }
     }

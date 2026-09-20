@@ -27,13 +27,13 @@ use ubiq_proto::kb::KbSourceState;
 
 use crate::app::AppState;
 use crate::state::MenuId;
-use crate::state::editor::ViewerKind;
 use crate::state::kb::{KbRow, KbRowKind};
 use crate::theme;
 use crate::ui::kit::{
     ContextItem, UbiqIcon, context_menu, elided, elided_with, file_row, icon_button, kind_icon,
     panel, panel_header, primary_button, row_font, twisty,
 };
+use crate::ui::mark;
 use crate::ui::{eid2, empty};
 
 pub mod source_form;
@@ -316,13 +316,17 @@ pub fn centre(app: &AppState, _window: &mut Window, cx: &mut Context<AppState>) 
             .bg(theme::app_bg())
             .into_any_element();
     }
-    empty::empty_page(
-        "No document open",
-        "Pick one from the documents explorer on the left.",
-        UbiqIcon::ModeKb,
-        None,
+    mark::backdrop(
+        app,
+        empty::empty_page(
+            "No document open",
+            "Pick one from the documents explorer on the left.",
+            UbiqIcon::ModeKb,
+            None,
+        )
+        .into_any_element(),
+        cx,
     )
-    .into_any_element()
 }
 
 /// One document panel's body: the document its tab key names, drawn by its viewer.
@@ -338,14 +342,9 @@ pub fn render_doc(app: &AppState, key: &str, cx: &mut Context<AppState>) -> AnyE
         // the two.
         return crate::ui::viewer::note("No document open", theme::text_faint());
     };
-    // Diagrams and images are the IDE's viewers, and reaching them from here means wiring a web
-    // tenant to a document that is not an open file. Until that is done the panel says where the
-    // file is drawn rather than drawing it wrongly.
-    if !matches!(doc.viewer, ViewerKind::Editor | ViewerKind::Markdown) {
-        return crate::ui::viewer::note(
-            format!("{} opens in the IDE.", doc.name),
-            theme::text_faint(),
-        );
-    }
+    // Every `ViewerKind` now draws here: an image is `FileBody::Bytes` handed straight to
+    // `ui/viewer/image.rs`, exactly as a project file's is, and a diagram is the same buffer and
+    // the same `Edit` layout that opens the web-panel bridge for one (`T-32`). `ui/viewer/`
+    // decides what to draw; nothing here decides for it.
     crate::ui::viewer::render(app, doc, cx)
 }

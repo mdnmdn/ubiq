@@ -33,6 +33,7 @@ fn record(id: ProjectId, path: &Path, temporary: bool) -> ProjectRecord {
         tools: Vec::new(),
         lanes: Vec::new(),
         runs_on: None,
+        initials: String::new(),
     }
 }
 

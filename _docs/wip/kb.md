@@ -5,9 +5,9 @@ kind: wip
 status: current
 summary: A project's knowledge base as it stands — a per-project list of sources persisted as one TOML file, a folder read where it lies, a git repository cloned and refreshed, an internal wiki, a host-side write half (`kb/ops.rs`) behind six new messages, the `ubiq-kb` MCP server that reaches it, the explorer's right-click menu that reaches it from the interface, and a document as a dock tab — the same `OpenFile` the IDE's editor uses, with its own Save gated on the source's write access.
 read_when: you are touching the knowledge base's sources, its git sync worker, its write half, its `ubiq-kb` MCP server, or its explorer panel or document tabs
-updated: 2026-09-19
-verified: 2026-09-19
-code_anchors: [crates/ubiq-proto/src/kb.rs, crates/ubiq-host/src/kb/mod.rs, crates/ubiq-host/src/kb/ops.rs, crates/ubiq-host/src/kb/store.rs, crates/ubiq-host/src/kb/sync.rs, crates/ubiq-host/src/mcp/kb.rs, crates/ubiq/src/state/kb.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/app/kb.rs, crates/ubiq/src/ui/kb/mod.rs, crates/ubiq/src/ui/kb/source_form.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq-proto/src/messages.rs, crates/ubiq/tests/kb.rs]
+updated: 2026-09-20
+verified: 2026-09-20
+code_anchors: [crates/ubiq-proto/src/kb.rs, crates/ubiq-host/src/kb/mod.rs, crates/ubiq-host/src/kb/ops.rs, crates/ubiq-host/src/kb/store.rs, crates/ubiq-host/src/kb/sync.rs, crates/ubiq-host/src/mcp/kb.rs, crates/ubiq/src/state/kb.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/app/kb.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/ui/kb/mod.rs, crates/ubiq/src/ui/kb/source_form.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq-proto/src/messages.rs, crates/ubiq/tests/kb.rs]
 depends_on: [tech-architecture, tech-transport, feat-workbench, tech-decisions]
 ---
 
@@ -137,13 +137,29 @@ a retry control — that `Ready` never draws. **A document is a dock tab, exactl
 documents are open at once, each with the dock's own tab strip, dirty dot, drag, pin and close — the
 module's own flush header naming the open document is gone with the single-document centre it existed
 for (`T-23`'s reasoning is now the dock's). `ui::kb::centre()` is only the "no document open" page,
-drawn while `KbState::docs` is empty; `ui::kb::render_doc()` is one panel's body, looked up by tab key
-and handed to `ui::viewer::render()` — the same seam the IDE editor draws through, so markdown,
-plain text and the highlighted buffer are all `ui/viewer/`'s, not restated here. A diagram or an
-image still says "opens in the IDE", because reaching those from here means wiring a web tenant to a
-document that is not an open file (`G11`); until then their bytes are held as `OpenFile`'s
-`FileBody::Bytes` rather than decoded into a buffer that would have nothing on screen to draw it
-(`T-32`, `backlog.md`).
+drawn while `KbState::docs` is empty — the sentence pointing at the explorer, over Ubiq's brand mark
+as a faint backdrop, which is `ui::mark::backdrop` and the same page `ui/editor.rs` draws with no
+file open; `ui::kb::render_doc()` is one panel's body, looked up by tab key
+and handed to `ui::viewer::render()` unconditionally — the same seam the IDE editor draws through
+for every `ViewerKind`, not only Markdown and plain text (`T-32`). An image is `FileBody::Bytes`
+handed straight to `ui/viewer/image.rs`, exactly as a project file's is; a diagram (Mermaid,
+Excalidraw, draw.io) gets the same source buffer a project file of that kind gets, so its `Edit`
+layout opens the same web-panel bridge (`ui/viewer/web.rs`) a project file's does. `AppState::web_doc`
+in `app/web_panel.rs` is what makes the bridge reach a document rather than only a project tab — it
+tries `AppState::file` then `AppState::kb_doc`, the two disjoint tab-key spaces, everywhere the
+module used to read only the first; `settle_web_panels` walks `open.kb.docs` beside `open.editor.open`
+for the same reason, `with_web_file` falls through to `open.kb.doc_mut`, and `flush_web_saves` sends
+a KB tab's `⌘S`-from-the-chrome write to `save_kb_doc` (`WriteKbFile`) rather than `save_file`
+(`WriteProjectFile`). `close_kb_doc` and `closed_kb_panel` end a diagram's session the way a file
+tab's close already did, so a document's × never leaves an embedded browser running for a tab that
+is gone.
+
+**A knowledge-base picture does not annotate.** `attach_kb_doc` keeps an image as plain
+`FileBody::Bytes` rather than `OpenFile::set_image`'s `ImageEdit` a project file's does — the
+annotation toolbar is never offered, and there is nothing for `save_kb_doc` to refuse. Annotating a
+knowledge-base picture and saving it back would need `WriteKbFile` to carry bytes rather than only
+`contents: String`, which is a `crates/ubiq-proto/src/messages.rs` change this card did not make;
+see `backlog.md`.
 
 **Every document opens with a buffer, whatever its source's access says** — `app/kb.rs`'s
 `attach_kb_doc` builds one for `ViewerKind::Markdown` and `ViewerKind::Editor` regardless of
@@ -293,6 +309,6 @@ yet; the gap is `G269`.
   own against
 - [`../features/workbench.md`](../features/workbench.md) — the rail mode the knowledge base panel
   and its document tabs draw inside, and the dock tab conventions a KB document reuses
-- [`../backlog.md`](../backlog.md) — `G11` (a diagram or an image still has no viewer here), `G32`
+- [`../backlog.md`](../backlog.md) — `G311` (a knowledge-base picture does not annotate), `G32`
   (the platform folder dialog assumes a local host) and `G269` (`KbStore::Project` has no decision
   row)

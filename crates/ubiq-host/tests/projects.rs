@@ -38,6 +38,7 @@ fn record(name: &str, path: &str) -> ProjectRecord {
         tools: Vec::new(),
         lanes: Vec::new(),
         runs_on: None,
+        initials: String::new(),
     }
 }
 

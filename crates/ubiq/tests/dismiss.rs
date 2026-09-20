@@ -221,6 +221,7 @@ fn the_composers_picker_draws_with_the_rail_off_the_sink(cx: &mut gpui::TestAppC
             managed_repos: Vec::new(),
             lanes: Vec::new(),
             runs_on: None,
+            initials: String::new(),
         },
         health: ProjectHealth::Ok,
         open_panes: 0,
@@ -508,5 +509,146 @@ fn an_outside_click_in_a_higher_layer_leaves_the_layer_under_it_up(cx: &mut gpui
             "a click in the file question would have taken the page under it"
         );
         assert!(!state.covered(Layer::FileDialog));
+    });
+}
+
+/// In-place help is the top rung, above the menus and the modals both.
+///
+/// The mode is deliberately able to cover a dialog and point at its controls — that is what makes
+/// it an inspector rather than another modal — so Escape has to mean "stop pointing" while it is
+/// up, before the menu it was drawn over. The rest of the stack has to be exactly where it was
+/// when the mode closes: pointing at a dialog must not cost the reader the dialog.
+#[gpui::test]
+fn escape_takes_in_place_help_before_anything_under_it(cx: &mut gpui::TestAppContext) {
+    use gpui::AppContext as _;
+    use ubiq::state::overlay::Layer;
+
+    let (hub, _host) = ubiq_proto::bus::hub();
+    cx.update(|cx| {
+        gpui_component::init(cx);
+        ubiq::theme::set_mode(ubiq::app::boot_theme(), cx);
+        BusHub::install(hub, cx);
+        WindowRegistry::install(cx);
+        ubiq::app::install_key_bindings(cx);
+    });
+
+    let held: std::rc::Rc<std::cell::RefCell<Option<gpui::Entity<AppState>>>> = Default::default();
+    let taken = held.clone();
+    let handle = cx.add_window(move |window, cx| {
+        let state = cx.new(|cx| AppState::for_project(None, 'A', window, cx));
+        *taken.borrow_mut() = Some(state.clone());
+        gpui_component::Root::new(state, window, cx)
+    });
+    cx.run_until_parked();
+    let state = held
+        .borrow_mut()
+        .take()
+        .expect("the window built its state");
+
+    state.update(cx, |state, cx| {
+        state.workbench.settings.open = true;
+        state.open_menu(MenuId::SinkPicker, cx);
+        state.open_help_target(cx);
+    });
+    cx.run_until_parked();
+
+    state.read_with(cx, |state, _| {
+        assert_eq!(state.top_layer(), Some(Layer::HelpTarget));
+        assert!(
+            state.covered(Layer::Menu),
+            "a click in the targeting overlay is not the menu's"
+        );
+    });
+
+    let escape = |state: &gpui::Entity<AppState>, cx: &mut gpui::TestAppContext| {
+        handle
+            .update(cx, |_, window, cx| {
+                state.update(cx, |state, cx| {
+                    state.cancel_dialog(&DialogCancel, window, cx);
+                });
+            })
+            .expect("the window is open");
+        cx.run_until_parked();
+    };
+
+    escape(&state, cx);
+    state.read_with(cx, |state, _| {
+        assert!(state.workbench.help_target.is_none(), "the mode is down");
+        assert_eq!(
+            state.workbench.open_menu,
+            Some(MenuId::SinkPicker),
+            "and it took neither the menu"
+        );
+        assert!(state.workbench.settings.open, "nor the page under it");
+    });
+
+    // From there the stack peels in its usual order.
+    escape(&state, cx);
+    state.read_with(cx, |state, _| assert!(state.workbench.open_menu.is_none()));
+    escape(&state, cx);
+    state.read_with(cx, |state, _| assert!(!state.workbench.settings.open));
+}
+
+/// The pointer's position is the mode's, and only the mode's.
+#[gpui::test]
+fn the_cursor_is_only_remembered_while_the_mode_is_up(cx: &mut gpui::TestAppContext) {
+    use gpui::AppContext as _;
+
+    let (hub, _host) = ubiq_proto::bus::hub();
+    cx.update(|cx| {
+        gpui_component::init(cx);
+        ubiq::theme::set_mode(ubiq::app::boot_theme(), cx);
+        BusHub::install(hub, cx);
+        WindowRegistry::install(cx);
+        ubiq::app::install_key_bindings(cx);
+    });
+    let held: std::rc::Rc<std::cell::RefCell<Option<gpui::Entity<AppState>>>> = Default::default();
+    let taken = held.clone();
+    let _handle = cx.add_window(move |window, cx| {
+        let state = cx.new(|cx| AppState::for_project(None, 'A', window, cx));
+        *taken.borrow_mut() = Some(state.clone());
+        gpui_component::Root::new(state, window, cx)
+    });
+    cx.run_until_parked();
+    let state = held
+        .borrow_mut()
+        .take()
+        .expect("the window built its state");
+
+    // A move with the mode down raises nothing: a stray pointer is not a gesture.
+    state.update(cx, |state, cx| state.move_help_target(10., 10., cx));
+    state.read_with(cx, |state, _| {
+        assert!(state.workbench.help_target.is_none())
+    });
+
+    // Up, and it opens with no cursor — so the overlay shows its hint rather than a rectangle
+    // around whatever happens to be at the window origin.
+    state.update(cx, |state, cx| state.open_help_target(cx));
+    state.read_with(cx, |state, _| {
+        assert_eq!(state.workbench.help_target.map(|m| m.cursor), Some(None));
+    });
+
+    state.update(cx, |state, cx| state.move_help_target(120., 48., cx));
+    state.read_with(cx, |state, _| {
+        assert_eq!(
+            state.workbench.help_target.and_then(|m| m.cursor),
+            Some((120., 48.))
+        );
+    });
+
+    // Asking again while it is up keeps the cursor it already had: a second ⇧F1 must not blank
+    // the highlight the reader is looking at.
+    state.update(cx, |state, cx| state.open_help_target(cx));
+    state.read_with(cx, |state, _| {
+        assert_eq!(
+            state.workbench.help_target.and_then(|m| m.cursor),
+            Some((120., 48.))
+        );
+    });
+
+    // And closing forgets it, because the type does not let the mode be down with a cursor.
+    state.update(cx, |state, cx| state.close_help_target(cx));
+    state.read_with(cx, |state, _| {
+        assert!(state.workbench.help_target.is_none())
     });
 }

@@ -228,8 +228,9 @@ impl PanelKind {
 
     /// [`Self::home`], asked about one rail mode. **The mode is part of the placement policy**, not
     /// a branch at the site that opens a panel: Tasks has the task in its right region, so a chat
-    /// there goes where it always goes, while Teams draws the graph and its inspector across the
-    /// centre and the right and the chat belongs on the left.
+    /// there goes where it always goes, and Teams draws its graph in the centre with the inspector
+    /// beside it — the chat is the conversation with the agents, and that stays on the right in
+    /// every mode, Teams included.
     ///
     /// Everything else answers the same in every mode, which is why this delegates rather than
     /// repeating the table.
@@ -241,12 +242,11 @@ impl PanelKind {
     }
 
     /// [`Self::home_in`] for a chat tab, asked without one in hand — what a window filling an
-    /// emptied side region needs to know *before* it has minted the tab to put there.
-    pub fn chat_home(mode: RailMode) -> Region {
-        match mode {
-            RailMode::Teams | RailMode::TeamsOld => Region::Left,
-            _ => Region::Right,
-        }
+    /// emptied side region needs to know *before* it has minted the tab to put there. A chat is the
+    /// agents' side of the conversation, and it holds its region — the right dock — whatever the
+    /// mode.
+    pub fn chat_home(_mode: RailMode) -> Region {
+        Region::Right
     }
 
     /// The permanent name a saved layout is rebuilt from. **It never changes**: it is the key the
@@ -433,10 +433,7 @@ impl PanelKind {
         self.is_git()
             || matches!(
                 self,
-                PanelKind::KbExplorer
-                    | PanelKind::Kb(_)
-                    | PanelKind::Task
-                    | PanelKind::AgentsExplorer
+                PanelKind::KbExplorer | PanelKind::Task | PanelKind::AgentsExplorer
             )
     }
 

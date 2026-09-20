@@ -43,7 +43,7 @@ use ubiq_proto::ids::TaskId;
 use ubiq_proto::work::{Status, TaskRecord};
 
 use crate::app::AppState;
-use crate::state::work;
+use crate::state::{NewAgentSurface, work};
 use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::eid;
@@ -239,6 +239,15 @@ fn toolbar(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl 
             IconName::Maximize,
             board.popup,
             cx.listener(|this, _, _, cx| this.toggle_board_popup(cx)),
+        ))
+        .child(ghost_button(
+            "board-new-agent",
+            Some(IconName::Plus),
+            "New agent",
+            cx.listener(|this, event: &gpui::ClickEvent, _, cx| {
+                let at = event.position();
+                this.open_new_agent_menu((at.x.into(), at.y.into()), NewAgentSurface::Agents, cx);
+            }),
         ))
         .child(primary_button(
             "board-new-task",

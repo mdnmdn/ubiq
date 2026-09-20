@@ -126,6 +126,12 @@ pub fn home_abbreviated(path: &str) -> String {
 }
 
 fn form_mark(app: &AppState, form: Form, cx: &gpui::App) -> String {
+    // An override typed into the Initials field wins outright, the same rule the rail's own
+    // badge follows for a saved record — see `ui/rail.rs`'s `project_badges`.
+    let override_text = app.project_initials_input.read(cx).value().to_string();
+    if !override_text.is_empty() {
+        return override_text;
+    }
     match form {
         Form::Sink => PROJECT_MARK.to_string(),
         Form::Live => {
@@ -1056,6 +1062,24 @@ fn general(app: &AppState, window: &Window, cx: &mut Context<AppState>, form: Fo
                 Input::new(&app.project_path_input)
                     .appearance(false)
                     .readonly(true)
+                    .text_size(theme::font(Family::Chrome, Role::Body)),
+            )
+            .into_any_element(),
+        ))
+        .child(setting_row(
+            "Rail initials",
+            "Up to two letters for the rail's badge, in place of the name's own first letter. \
+             Empty leaves it derived from the name.",
+            framed_active(
+                theme::border(),
+                input_on(&app.project_initials_input, window, cx),
+            )
+            .h(px(30.))
+            .w(px(64.))
+            .items_center()
+            .child(
+                Input::new(&app.project_initials_input)
+                    .appearance(false)
                     .text_size(theme::font(Family::Chrome, Role::Body)),
             )
             .into_any_element(),

@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: What a pane shows, how exactly one of them holds focus, how a resize reaches the harness, and how a pane is moved around the window's dock.
 read_when: you are changing where a pane sits, pane focus, resize, pane chrome, or how terminal bytes reach the screen
-updated: 2026-09-19
-verified: 2026-09-19
+updated: 2026-09-20
+verified: 2026-09-20
 code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/editor.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/new_pane_menu.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/tools.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/tests/coordinator.rs, crates/ubiq-host/src/pty/mod.rs, crates/ubiq-host/src/shells.rs, vendor/gpui-terminal/src/view.rs, vendor/gpui-terminal/src/render.rs, vendor/gpui-terminal/src/input.rs, vendor/gpui-terminal/src/mouse.rs, vendor/gpui-terminal/src/clipboard.rs, vendor/gpui-terminal/src/event.rs, vendor/gpui-terminal/src/terminal.rs]
 depends_on: [tech-transport]
 review_cycle: monthly
@@ -260,7 +260,10 @@ immediately resized draws correctly; one that never learns its size does not.
 coordinator reports `PaneExited`, and the tab goes with it — a path of its own, with no confirm and
 no dependence on what the × is set to. A tool run with wait on
 exit stays readable instead: the process ends, the dot reports the stop, and the tab stays with
-its output until it is closed. That tab's right-click menu then offers **Restart**, above Hide and
+its output until it is closed. Wait on error is the narrower form of the same thing: the tab stays
+only when `PaneExited`'s code is non-zero, and closes normally on a clean exit — the two checkboxes
+are mutually exclusive in the tool editor, wait on exit's already covering every exit, so wait on
+error is offered disabled while it is on. That tab's right-click menu then offers **Restart**, above Hide and
 Close because it is the opposite of them: the spent pane is closed and the very same `RunTool` is
 sent again, in that order, so a tool restricted to one run at a time is not refused its own
 restart. The row is offered on a tool pane alone, and only while its command has ended — a shell

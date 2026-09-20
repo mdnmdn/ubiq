@@ -49,6 +49,7 @@ fn snapshot(id: ProjectId, name: &str, path: &str, opened: Option<u32>) -> Proje
             managed_repos: Vec::new(),
             lanes: Vec::new(),
             runs_on: None,
+            initials: String::new(),
         },
         health: ProjectHealth::Ok,
         open_panes: 0,

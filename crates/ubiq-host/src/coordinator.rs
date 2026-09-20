@@ -1461,6 +1461,13 @@ impl Coordinator {
                 // the whole of the coordinator's involvement — no reader is spawned, no relay is
                 // dialed, nothing here treats the project as remote. The absence is the decision.
             }
+            Message::SetProjectInitials {
+                project_id,
+                initials,
+            } => {
+                let replies = self.projects.set_initials(project_id, &initials);
+                self.answer(client, replies);
+            }
             Message::LocateProject { project_id, path } => {
                 let replies = self.projects.locate(project_id, &path);
                 self.git_forget(client, project_id);
@@ -4762,6 +4769,7 @@ impl Coordinator {
                 rows: INITIAL_ROWS,
                 running: true,
                 wait_on_exit: false,
+                wait_on_error: false,
                 tool: None,
             },
         });
@@ -4955,6 +4963,7 @@ impl Coordinator {
                 rows: INITIAL_ROWS,
                 running: true,
                 wait_on_exit: tool.wait_on_exit,
+                wait_on_error: tool.wait_on_error,
                 // What started it, so a stopped pane can be restarted with the same two values
                 // this call was addressed with.
                 tool: Some(ToolRun { scope, id }),

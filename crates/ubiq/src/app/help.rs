@@ -35,6 +35,44 @@ impl AppState {
         self.open_help_page(&page, window, cx);
     }
 
+    /// Turn on in-place help: point at anything in the window and read what it is.
+    ///
+    /// **The other help gesture, not a variant of the one above.** `reveal_help` answers *where am
+    /// I* with a page about the screen; this answers *what is that* with a sentence about one
+    /// control, and the two want different amounts of the same content library. So it takes its
+    /// own key (⇧F1) and its own row, and `F1` and the titlebar's `?` are untouched.
+    ///
+    /// Idempotent: asking again while it is up keeps the cursor it already has, so a second ⇧F1
+    /// does not blank the highlight the user is reading.
+    pub fn open_help_target(&mut self, cx: &mut Context<Self>) {
+        if self.workbench.help_target.is_none() {
+            self.workbench.help_target = Some(crate::state::HelpTargeting::default());
+        }
+        cx.notify();
+    }
+
+    /// Turn it off — Escape, or the overlay's own Done.
+    pub fn close_help_target(&mut self, cx: &mut Context<Self>) {
+        self.workbench.help_target = None;
+        cx.notify();
+    }
+
+    /// Where the pointer is, from the overlay's full-window `on_mouse_move`.
+    ///
+    /// A no-op when the mode is down, because a stray move must not raise it, and a no-op when the
+    /// pointer has not actually moved: the overlay is redrawn on every notify, and notifying on a
+    /// repeat of the same point is a frame loop that never parks.
+    pub fn move_help_target(&mut self, x: f32, y: f32, cx: &mut Context<Self>) {
+        let Some(mode) = self.workbench.help_target.as_mut() else {
+            return;
+        };
+        if mode.cursor == Some((x, y)) {
+            return;
+        }
+        mode.cursor = Some((x, y));
+        cx.notify();
+    }
+
     /// Bring the panel on screen showing one page, by id. What a `ubiq://<project>/help/<id>` link
     /// arrives at, and what a link inside a page follows.
     pub fn open_help_page(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {

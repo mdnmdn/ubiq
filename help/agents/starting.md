@@ -4,6 +4,7 @@ title: Starting an agent
 summary: Agents mode's parallel columns, and what happens when you start a harness in a project.
 keywords: [start agent, new agent, agents mode, harness]
 context: [rail.agents]
+targets: [ui.rail.mode.agents]
 order: 10
 status: current
 related: [panes, sessions, agents-accounts]

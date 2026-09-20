@@ -94,4 +94,13 @@ pub enum Layer {
     /// Any dropdown a form keeps open on its own state — a picker inside a modal is painted above
     /// every modal, so it is the top rung whatever raised it.
     Dropdown,
+    /// In-place help's targeting mode, above every other rung in the window.
+    ///
+    /// **Deliberately the top, and the one layer that is not a dialog.** Everything below is
+    /// something the user is *doing*; this one is a question about what they are looking at, and
+    /// a dialog's own controls are exactly the things hardest to name — so the mode has to be
+    /// able to cover one and point at it, the way a browser's inspector inspects its own page
+    /// furniture. The consequences fall out of the order for free: Escape peels it before any
+    /// modal under it, and no layer below can dismiss itself on a click that happened up here.
+    HelpTarget,
 }
