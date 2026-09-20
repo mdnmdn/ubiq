@@ -453,6 +453,7 @@ the documents in its row.
 | `_tools/Info.plist` | [`operations.md`](./operations.md) |
 | `_tools/docs.py` | [`operations.md`](./operations.md) |
 | `_tools/drone.py` | [`features/drone.md`](../features/drone.md), [`operations.md`](./operations.md) |
+| `_tools/dump.py` | [`operations.md`](./operations.md) |
 | `_tools/helpbundle.py` | [`operations.md`](./operations.md), [`wip/help.md`](../wip/help.md) |
 | `_tools/icns.py` | [`operations.md`](./operations.md), [`project-structure.md`](./project-structure.md) |
 | `_tools/icons.py` | [`ui-and-design.md`](./ui-and-design.md) |
