@@ -169,8 +169,7 @@ impl AppState {
                 crate::state::sink::PROJECT_PATH,
             ))
         });
-        let project_initials_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Auto"));
+        let project_initials_input = cx.new(|cx| InputState::new(window, cx).placeholder("Auto"));
         let kb_name_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("What the source is called"));
         let kb_url_input =
@@ -1347,6 +1346,9 @@ impl AppState {
             projects: HashMap::new(),
             active_seen: None,
             parked: HashMap::new(),
+            teams_span: TeamsSpan::default(),
+            teams_window: TeamsView::default(),
+            teams_owner: HashMap::new(),
             session: SessionId::generate(),
             bus,
             terminals: HashMap::new(),
@@ -1368,6 +1370,7 @@ impl AppState {
             workbench: WorkbenchState::default(),
             pending_chat_attach: None,
             pending_chat_open: false,
+            new_agent_project: None,
             sink,
             stats: StatsState::default(),
             web_panels: crate::state::web_panel::WebPanels::default(),

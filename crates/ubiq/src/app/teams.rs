@@ -207,10 +207,45 @@ impl AppState {
         cx: &mut Context<Self>,
     ) {
         let trail = (!cx.reduce_motion()).then_some(pointer);
+        // Which containers the card in the air may be filed into, decided here because
+        // `state::teams` does not know what a project is and is the better for it. Read before the
+        // view is borrowed to write, which is the only order the borrow checker allows.
+        let eligible = self.teams_carry_tasks(cx);
         if let Some((graph, work)) = self.teams_over_work(cx) {
-            graph.carry_to(&work, at, trail, std::time::Instant::now());
+            graph.carry_to(
+                &work,
+                at,
+                trail,
+                std::time::Instant::now(),
+                eligible.as_ref(),
+            );
         }
         cx.notify();
+    }
+
+    /// The tasks the card currently in the air may be dropped into: its own project's, and no
+    /// other's. `None` is every task on the canvas, which is the project span's answer — one
+    /// project's canvas draws one project's tasks and the question does not arise.
+    ///
+    /// **A hand-over is within a project.** Under the window span the merged projection's tasks
+    /// are every held project's, so without this every project's container is a live target for
+    /// every card: the drop would send an `AssignAgent` naming project A, A's agent and B's task,
+    /// which A's host has never heard of and would refuse — after the canvas had already drawn the
+    /// move. A card whose project cannot be named lands in no container at all, which is the safe
+    /// half of the same rule.
+    fn teams_carry_tasks(&self, cx: &App) -> Option<HashSet<TaskId>> {
+        if self.teams_span == TeamsSpan::Project {
+            return None;
+        }
+        let TeamsHeld::Agent(agent) = &self.teams(cx)?.carry.as_ref()?.held else {
+            return None;
+        };
+        let tasks = self
+            .project_of_agent(*agent, cx)
+            .and_then(|project| self.held_project(project))
+            .map(|open| open.work.tasks.iter().map(|task| task.id).collect())
+            .unwrap_or_default();
+        Some(tasks)
     }
 
     /// Put it down, and ask for the card to be moved into whatever container it landed in.
@@ -219,13 +254,19 @@ impl AppState {
     /// card's new offset and nothing else; which task it serves is written down, so the answer is
     /// an `AssignAgent` and the card only changes hands when the host says it has.
     pub fn end_teams_carry(&mut self, cx: &mut Context<Self>) {
-        let Some(project_id) = self.project(cx) else {
-            return;
-        };
         let landed = self
             .teams_over_work(cx)
             .and_then(|(graph, work)| graph.end_carry(&work));
         if let Some((agent_id, task_id)) = landed {
+            // The project is the *dropped card's*, not the window's. Under the window span the
+            // canvas draws every open project's agents, and both ids in this message belong to
+            // whichever project the card came from — filing it against the active project would
+            // name a task that project's host has never heard of, and move somebody else's agent
+            // onto work it cannot serve. Under the project span it is the same answer as
+            // `self.project(cx)`.
+            let Some(project_id) = self.project_of_agent(agent_id, cx) else {
+                return;
+            };
             self.bus.send(Message::AssignAgent {
                 project_id,
                 agent_id,
@@ -233,6 +274,32 @@ impl AppState {
             });
         }
         cx.notify();
+    }
+
+    /// Lay the window span's own view out over the merged projection, after a wire arm has laid
+    /// the arriving project's view out over its own.
+    ///
+    /// **The window span has a second view over a second set of cards**, and nothing in those arms
+    /// reaches it: each holds one project's [`OpenProject`] and writes the [`TeamsView`] inside
+    /// it. Left out, `teams_window` keeps the empty `Layout` it was built with, every card answers
+    /// the same default offset, and switching the span draws one pile in the corner with each new
+    /// arrival landing under the last.
+    ///
+    /// Done whatever span is up, because the view is the window's and not the screen's: a span
+    /// switched to after the work arrived must find the cards already placed. `relayout` where the
+    /// per-project call is a relayout, `absorb_new` where it is one, so the two spans keep the
+    /// same rule about which hand-placed cards survive. Nothing to do for a window holding no
+    /// project — [`Self::teams_merged`] answers `None` and there is no canvas.
+    pub(super) fn settle_window_layout(&mut self, relayout: bool, cx: &App) {
+        let projects = self.window_projects(cx);
+        let Some((work, _)) = self.teams_merged(&projects) else {
+            return;
+        };
+        if relayout {
+            self.teams_window.relayout(&work);
+        } else {
+            self.teams_window.absorb_new(&work);
+        }
     }
 
     /// Age the drag trail by one frame, and answer whether it still owes the window another.
@@ -250,18 +317,39 @@ impl AppState {
         // Every delegate the transcripts named, before the filter: which of them a card *draws*
         // is `TeamsView::drawn_delegates`'s answer and only its, so the room the arrangement
         // leaves under a card and the boxes the canvas puts there cannot disagree.
+        //
+        // Read from every project the span is about, not from the one on screen: under the window
+        // span a card whose rings came from `open_project` would be a card with no delegates on
+        // it, for no reason the reader can see.
+        let projects = self.teams_projects(cx);
         let named: std::collections::HashMap<
             AgentId,
             Vec<crate::state::conversation::SubagentTab>,
-        > = self
-            .open_project(cx)
-            .map(|open| {
+        > = projects
+            .iter()
+            .filter_map(|id| self.projects.get(id))
+            .flat_map(|open| {
                 open.conversations
                     .iter()
                     .map(|(id, conversation)| (*id, conversation.subagents()))
-                    .collect()
             })
-            .unwrap_or_default();
+            .collect();
+        // Whose agent each card is, from the same pass that builds the projection the canvas
+        // measures — the one thing merging the projections throws away, and the one thing every
+        // write on this screen needs back. Write-if-changed, like the rings below it.
+        // Only under the window span: the project span answers "whose agent" with the project on
+        // screen and never reads the map, and building it would clone a whole projection every
+        // frame for a question nobody asks.
+        let owner = match self.teams_span {
+            TeamsSpan::Project => Default::default(),
+            TeamsSpan::Window => self
+                .teams_merged(&projects)
+                .map(|(_, owner)| owner)
+                .unwrap_or_default(),
+        };
+        if self.teams_owner != owner {
+            self.teams_owner = owner;
+        }
         if let Some(graph) = self.teams_mut(cx) {
             let counts: std::collections::HashMap<AgentId, Vec<String>> = named
                 .into_iter()

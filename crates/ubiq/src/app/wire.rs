@@ -610,7 +610,8 @@ impl AppState {
                 // closed. "Wait on error" is the same, but only when the exit code was
                 // non-zero — a clean exit closes the tab as usual.
                 // The dot reports the stop; closing still goes through `close_pane`.
-                if self.pane_wait_on_exit(pane_id) || (code != 0 && self.pane_wait_on_error(pane_id))
+                if self.pane_wait_on_exit(pane_id)
+                    || (code != 0 && self.pane_wait_on_error(pane_id))
                 {
                     self.pane_stopped(pane_id);
                     cx.notify();
@@ -1392,6 +1393,9 @@ impl AppState {
                 } else {
                     open.agents.arrange(&open.work);
                 }
+                // And the window span's own view over the merged projection: it is a second
+                // arrangement over a second set of cards, and this arm has only fed the first.
+                self.settle_window_layout(true, cx);
                 self.refill_columns = true;
                 self.settle_persistent_chat(project_id, cx);
                 cx.notify();
@@ -1419,6 +1423,7 @@ impl AppState {
                 if let Some(pending) = pending {
                     self.settle_new_task(project_id, id, pending);
                 }
+                self.settle_window_layout(false, cx);
                 cx.notify();
             }
 
@@ -1443,6 +1448,7 @@ impl AppState {
                 if selected && !editing {
                     self.form_filled = None;
                 }
+                self.settle_window_layout(false, cx);
                 cx.notify();
             }
 
@@ -1488,6 +1494,7 @@ impl AppState {
                 if open.agents.prune(&open.work) {
                     self.refill_columns = true;
                 }
+                self.settle_window_layout(false, cx);
                 cx.notify();
             }
 
@@ -1585,6 +1592,7 @@ impl AppState {
                         }
                     }
                 }
+                self.settle_window_layout(false, cx);
                 self.refill_columns = true;
                 cx.notify();
             }
@@ -1763,6 +1771,7 @@ impl AppState {
                 for tab in watching {
                     self.close_chat_tab_in(project, tab, cx);
                 }
+                self.settle_window_layout(false, cx);
                 self.refill_columns = true;
                 cx.notify();
             }

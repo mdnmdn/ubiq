@@ -365,7 +365,17 @@ impl AppState {
         cx: &mut Context<Self>,
     ) -> Option<(NewAgentForm, ProjectId, Option<String>)> {
         let prompt = self.new_agent_prompt.read(cx).value().to_string();
-        let project_id = self.project(cx)?;
+        // The Teams toolbar can aim a start at any project the window holds; every other way in
+        // aims at the active one and says so by having no project field at all.
+        //
+        // **The override is checked, not trusted.** A project can be let go between the form going
+        // up and the user confirming it, and a `StartConversation` against one this window no
+        // longer holds is a conversation with nowhere to land — so a stale aim falls back to the
+        // active project rather than being sent.
+        let project_id = self
+            .new_agent_project
+            .filter(|id| self.projects.contains_key(id))
+            .or_else(|| self.project(cx))?;
         let mut form = self.workbench.new_agent.take()?;
         form.prompt = prompt;
         let Some(target) = form.target.clone() else {
@@ -389,6 +399,12 @@ impl AppState {
             Target::Profile(id) => Some(id.clone()),
             Target::Harness { .. } => None,
         };
+        // Spent here rather than when the answer lands, unlike the two surface aims: this one is
+        // read at send time, so once the message carries it there is nothing left to wait for —
+        // and a start that leaves it standing would file the *next* form's start in the same
+        // project. The refusals above are before this on purpose: they put the form back up, and
+        // the project it is still being composed against goes back with it.
+        self.new_agent_project = None;
         Some((form, project_id, profile))
     }
 
@@ -616,5 +632,56 @@ impl AppState {
     ) {
         let input = self.new_agent_prompt.clone();
         input.update(cx, |state, cx| state.set_value(text, window, cx));
+    }
+
+    /// The Teams toolbar's `+ Add agent`, pressed.
+    ///
+    /// Two shapes, because the question only exists when there is more than one answer: a window
+    /// holding several projects is asked which one first, and a window holding one goes straight
+    /// to the form. A picker offering a single row is a step that reads as a decision and is not
+    /// one.
+    pub fn open_teams_add_agent(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.teams_span_choice(cx) {
+            self.open_menu(MenuId::TeamsAddAgent, cx);
+            return;
+        }
+        self.start_teams_agent(None, window, cx);
+    }
+
+    /// One row of that menu, clicked — an index into [`Self::window_projects`], read again here
+    /// exactly as it was drawn, the rule every position-matched menu in this window follows.
+    pub fn pick_teams_add_agent(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let picked = self.window_projects(cx).get(index).copied();
+        self.close_menu(cx);
+        let Some(project) = picked else {
+            return;
+        };
+        self.start_teams_agent(Some(project), window, cx);
+    }
+
+    /// Aim a start at the Teams canvas, in the project named — or in the active one, for a window
+    /// with nothing to choose between.
+    ///
+    /// [`NewAgentSurface::Agents`] is the aim, and it writes nothing: a conversation with no other
+    /// claim on it opens a card wherever the work it belongs to is already drawn, which on this
+    /// screen is the canvas. It is not a chat tab and not the sink, and neither of those flags may
+    /// be left standing behind this button.
+    ///
+    /// **The order matters.** `aim_start` begins by clearing the aim — the project included — so
+    /// the override is written after it, not before.
+    fn start_teams_agent(
+        &mut self,
+        project: Option<ProjectId>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.aim_start(NewAgentSurface::Agents, cx);
+        self.new_agent_project = project;
+        self.open_new_agent(window, cx);
     }
 }

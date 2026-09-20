@@ -24,11 +24,11 @@
 //! canvas, which nothing outside this window has an opinion about; which task that card *serves* is
 //! written down, so a drop answers the pair and the caller sends `AssignAgent`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use ubiq_proto::conversation::ToolStatus;
-use ubiq_proto::ids::{SessionId, TaskId};
+use ubiq_proto::ids::{ProjectId, SessionId, TaskId};
 use ubiq_proto::work::{Activity, AgentId, Bucket, TaskRecord, WorkAgent};
 
 use super::conversation::{Conversation, Run, SubagentTab};
@@ -81,6 +81,58 @@ pub fn live_work(work: &WorkProjection, live: &[AgentId]) -> WorkProjection {
         tasks,
         loaded: work.loaded,
     }
+}
+
+/// What the canvas is about: the project on screen, or every project the window holds.
+///
+/// **A span beside the filters, not a second mode.** `RailMode::Teams` stays one mode with one
+/// rail entry; this is one more thing the canvas is narrowed by, the way the session row and the
+/// bucket row are. The window's own fact, like the zoom and the arrangement — nothing outside this
+/// window has an opinion about it, and it is not sent anywhere.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum TeamsSpan {
+    /// The active project's agents, which is the only reach the screen had before the span.
+    #[default]
+    Project,
+    /// Every project the window holds, merged into one projection by [`window_work`].
+    Window,
+}
+
+/// Every open project's live work in one projection, and which project each card came from.
+///
+/// **Nothing collides, so nothing is renamed.** `AgentId`, `SessionId` and `TaskId` are ULIDs
+/// minted per record, so two projects' records never share an id: the merged lists need no
+/// prefixing and no composite key, and what comes out is a [`WorkProjection`] like any other —
+/// which is why `Layout`, every packer and the whole of [`super::layout`] are untouched by the
+/// span. The owner map carries the one thing the merge loses, and every *write* the screen makes
+/// needs: whose agent this is.
+///
+/// Order is the caller's — the window's project order, which is picker order and never moves — so
+/// a relayout puts the same project's cards in the same region twice running.
+pub fn window_work(
+    projects: &[(ProjectId, &WorkProjection, &[AgentId])],
+) -> (WorkProjection, HashMap<AgentId, ProjectId>) {
+    // Loaded until a project says otherwise: the claim is "nothing here is still waiting on the
+    // host", and no project is nothing waiting. An empty slice is therefore `loaded: true`, which
+    // is what keeps a window with no project from drawing a spinner nobody can end.
+    let mut merged = WorkProjection {
+        sessions: Vec::new(),
+        agents: Vec::new(),
+        tasks: Vec::new(),
+        loaded: true,
+    };
+    let mut owner: HashMap<AgentId, ProjectId> = HashMap::new();
+    for (project, work, live) in projects {
+        let narrowed = live_work(work, live);
+        for agent in &narrowed.agents {
+            owner.insert(agent.id, *project);
+        }
+        merged.sessions.extend(narrowed.sessions);
+        merged.agents.extend(narrowed.agents);
+        merged.tasks.extend(narrowed.tasks);
+        merged.loaded &= narrowed.loaded;
+    }
+    (merged, owner)
 }
 
 /// What a card says it is doing, at the grain the canvas can draw a mark for.
@@ -652,12 +704,21 @@ impl TeamsView {
     /// `at` is in graph coordinates — the top-left of the card, or of the container's box.
     /// `pointer` is where the pointer is in the window, which is the frame the sand is painted in;
     /// `None` lays no trail, which is what reduced motion asks for.
+    ///
+    /// `eligible` is which containers this card may be filed into, `None` being all of them. The
+    /// caller decides: under a canvas spanning several projects the projection's tasks are every
+    /// project's, and a card filed into a foreign container would name a task its own host has
+    /// never heard of — but *whose* a task is is a question this module deliberately cannot ask,
+    /// so it arrives already answered. Narrowing it here rather than at the drop is what keeps the
+    /// canvas honest: a container that never lights up is a hand-over that never looks offered,
+    /// and the card is never re-anchored to a frame it cannot join.
     pub fn carry_to(
         &mut self,
         work: &WorkProjection,
         at: (f32, f32),
         pointer: Option<(f32, f32)>,
         now: Instant,
+        eligible: Option<&HashSet<TaskId>>,
     ) {
         let Some(carry) = self.carry.clone() else {
             return;
@@ -667,7 +728,9 @@ impl TeamsView {
                 self.place(work, id, at);
                 // Which container the pointer is over decides what a drop means, and is what the
                 // canvas lights up while the card is in the air.
-                let over = self.task_at(work, id, at);
+                let over = self
+                    .task_at(work, id, at)
+                    .filter(|task| eligible.is_none_or(|open| open.contains(task)));
                 if let Some(carry) = self.carry.as_mut() {
                     carry.over = over;
                 }

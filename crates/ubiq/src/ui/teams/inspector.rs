@@ -254,7 +254,7 @@ fn agent_view(
 /// no toolbar of its own to hang that menu in, which is the difference between it and the chat
 /// panel.
 fn chat(app: &AppState, id: AgentId, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
-    let Some(conversation) = app.conversation(id, cx) else {
+    let Some(conversation) = app.teams_conversation(id, cx) else {
         // A card is only drawn for an agent this window holds a conversation with, so this is the
         // frame between an agent ending and the canvas hearing about it.
         return note("This agent is no longer running.");

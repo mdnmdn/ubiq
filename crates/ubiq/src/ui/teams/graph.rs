@@ -36,8 +36,8 @@ use ubiq_proto::work::{AgentId, TaskRecord, WorkAgent};
 use crate::app::AppState;
 use crate::state::conversation::{SubagentTab, short_model_label};
 use crate::state::teams::{
-    AgentStatus, CARD_HEIGHT, CARD_WIDTH, GROUP_LABEL, GROUP_PAD, agent_status, delegate_status,
-    fence,
+    AgentStatus, CARD_HEIGHT, CARD_WIDTH, GROUP_LABEL, GROUP_PAD, TeamsSpan, agent_status,
+    delegate_status, fence,
 };
 use crate::state::work;
 use crate::state::{TeamsHeld, TeamsSelection};
@@ -47,8 +47,9 @@ use crate::ui::kit::blocks::{self, Board, Fence, Look, Word};
 use crate::ui::kit::canvas::{self, Link};
 use crate::ui::kit::{UbiqIcon, elided_with, ghost_button, harness_icon, mono, progress_ring_in};
 use crate::ui::mark;
+use crate::ui::project_face::{ProjectFace, project_face};
 use crate::ui::teams::status::{
-    delegate_chip, delegate_colour, delegate_mark, status_chip, status_colour,
+    delegate_chip, delegate_colour, delegate_mark, project_chip, status_chip, status_colour,
 };
 use crate::ui::work::{activity_colour, role_mark};
 use crate::ui::{eid, eid2};
@@ -144,7 +145,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
             // tick box hides are hidden here and in `settle_teams`'s ring counts, which are two
             // readings of one answer.
             let delegates = graph.drawn_delegates(
-                app.conversation(agent.id, cx)
+                app.teams_conversation(agent.id, cx)
                     .map(|conversation| conversation.subagents())
                     .unwrap_or_default(),
             );
@@ -300,8 +301,19 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         }
     }
 
+    // Whose card this is, under the window span only: the canvas is drawing several projects at
+    // once, and a card that does not say which is a card a reader cannot place. Under the project
+    // span the answer is the whole screen, and the card is what it always was.
+    let spanning = app.teams_span == TeamsSpan::Window;
+
     for agent in &visible {
-        let conversation = app.conversation(agent.id, cx);
+        let conversation = app.teams_conversation(agent.id, cx);
+        let project = spanning
+            .then(|| {
+                app.project_of_agent(agent.id, cx)
+                    .and_then(|project| project_face(project, cx))
+            })
+            .flatten();
         // How full the window is, on the same rule the status follows: the live conversation
         // first, because it is the stream itself, and the host's periodic reading of it after. No
         // ring at all where neither states one — no harness reports a window it was not given, and
@@ -318,6 +330,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 // host's periodic reading of it, and this mode draws no card without one.
                 agent_status(agent, conversation),
                 context,
+                project,
                 at,
                 graph.agent_in_focus() == Some(agent.id),
                 held == Some(TeamsHeld::Agent(agent.id)),
@@ -520,6 +533,7 @@ fn agent_card(
     agent: &WorkAgent,
     status: AgentStatus,
     context: Option<u8>,
+    project: Option<ProjectFace>,
     at: (f32, f32),
     selected: bool,
     carried: bool,
@@ -563,6 +577,11 @@ fn agent_card(
                             .text_size(theme::font(Family::Chrome, Role::Micro) * zoom),
                     ),
             )
+            // The project first, then the state: the chip that says *whose* card this is reads
+            // before the one that says what it is doing, and it is absent under the project span.
+            .children(project.map(|face| {
+                project_chip(eid("teams-card-project", id), &face, zoom).into_any_element()
+            }))
             .child(status_chip(status, zoom)),
     )
     // What is answering, and how full its window is — the two facts a reader picks a card by

@@ -9,7 +9,7 @@ impl AppState {
     /// a place and answers `None`, and neither is the sink: it is the test bench and has no
     /// project behind it.
     pub fn current_destination(&self, cx: &App) -> Option<Destination> {
-        let project = self.project(cx)?;
+        let mut project = self.project(cx)?;
         let view = match self.workbench.rail_mode {
             RailMode::Control => View::Control,
             RailMode::Kb => View::Kb,
@@ -35,10 +35,24 @@ impl AppState {
             },
             RailMode::Teams => {
                 let teams = self.teams(cx)?;
-                View::Teams {
-                    selection: teams.selection.clone()?,
-                    tab: teams.tab,
+                let selection = teams.selection.clone()?;
+                let tab = teams.tab;
+                // A teams link names the project of what it points at, which under the window
+                // span is not the project on screen: the same agent, read on a canvas showing one
+                // project and on one showing six, is the same agent, and a link built here has to
+                // be followable by a window in the project span. A session selection names no
+                // agent, so it asks the sibling that resolves a session — the active project is
+                // the wrong answer for a session the canvas drew from another project, and a link
+                // naming it points at work that project has never held.
+                let owner = match &selection {
+                    TeamsSelection::Session(session) => self.project_of_session(*session, cx),
+                    TeamsSelection::Agent(agent) => self.project_of_agent(*agent, cx),
+                    TeamsSelection::Subagent { agent, .. } => self.project_of_agent(*agent, cx),
+                };
+                if let Some(owner) = owner {
+                    project = owner;
                 }
+                View::Teams { selection, tab }
             }
             RailMode::Sink => return None,
         };

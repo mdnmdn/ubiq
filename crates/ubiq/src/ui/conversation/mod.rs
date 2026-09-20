@@ -595,8 +595,11 @@ fn lifecycle_glyph(conversation: &Conversation, view: &ConversationView) -> AnyE
 /// card have no live conversation to read it off. So this is the one lookup, and the surfaces that
 /// already hold the record ([`crate::ui::agents::column`]) read it there directly instead.
 fn is_persistent(app: &AppState, id: AgentId, cx: &App) -> bool {
-    app.work(cx)
-        .and_then(|work| work.agent(id))
+    // Through [`AppState::teams_agent`], like the two readers below it and the three toggles they
+    // pair with: the record is read from the project that owns the agent, because the Teams
+    // inspector draws this menu for any open project's card under the window span, and a row that
+    // read `None` there would report *off* for a flag that is on.
+    app.teams_agent(id, cx)
         .is_some_and(|agent| agent.persistent)
 }
 
@@ -607,8 +610,7 @@ fn is_persistent(app: &AppState, id: AgentId, cx: &App) -> bool {
 /// surface is currently drawing — so the work snapshot is where the truth is and the window only
 /// reads it.
 fn accepts_all(app: &AppState, id: AgentId, cx: &App) -> bool {
-    app.work(cx)
-        .and_then(|work| work.agent(id))
+    app.teams_agent(id, cx)
         .is_some_and(|agent| agent.accept_all)
 }
 
@@ -620,8 +622,7 @@ fn accepts_all(app: &AppState, id: AgentId, cx: &App) -> bool {
 /// tooltip; being on the record rather than on [`Conversation`] is [`is_persistent`]'s reason
 /// again.
 fn dump_path(app: &AppState, id: AgentId, cx: &App) -> Option<String> {
-    app.work(cx)
-        .and_then(|work| work.agent(id))
+    app.teams_agent(id, cx)
         .and_then(|agent| agent.debug_dump.clone())
 }
 
@@ -1360,7 +1361,10 @@ fn transcript(
         move |app, range, window, cx| {
             let scroll = app.transcript_scrolls.get(slot);
             let width = scroll.map_or(px(0.), |scroll| scroll.handle.bounds().size.width);
-            let Some(conversation) = app.conversation(id, cx) else {
+            // The agent's own project, matching the guard the Teams inspector draws this panel
+            // behind: a foreign card under the window span has a conversation the project on
+            // screen has never held, and reading it there would draw a panel with no rows in it.
+            let Some(conversation) = app.teams_conversation(id, cx) else {
                 return Vec::new();
             };
             let mut attached: HashMap<usize, Vec<&Pending>> = HashMap::new();

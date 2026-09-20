@@ -209,16 +209,23 @@ impl AppState {
     /// Nothing is appended here, for the reason [`Self::send_to_agent`] appends nothing: the line
     /// lands in the thread when the host answers with the agent carrying it.
     pub fn steer_column(&mut self, slot: usize, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(project_id) = self.project(cx) else {
+        let Some(agent_id) = self.agent_for_slot(slot, cx) else {
             return;
         };
-        let Some(agent_id) = self.agent_for_slot(slot, cx) else {
+        // The turn is filed against the agent's project, not the window's: the Teams composer at
+        // `TEAMS_SLOT` addresses whichever card the canvas has selected, and under the window span
+        // that card may belong to any open project. Every other slot's agent is the project on
+        // screen's, where this is the same answer.
+        let Some(project_id) = self.project_of_agent(agent_id, cx) else {
             return;
         };
         // A column showing a live agent sends or queues, whichever the turn in flight calls for;
         // one showing a mock keeps the path it had. Both are on screen at once, and the
         // difference is whether a conversation exists.
-        if self.conversation(agent_id, cx).is_some() {
+        if self
+            .held_project(project_id)
+            .is_some_and(|open| open.conversations.contains_key(&agent_id))
+        {
             self.send_or_enqueue(agent_id, slot, window, cx);
             return;
         }
@@ -253,7 +260,10 @@ impl AppState {
             return;
         };
         let typed = input.read(cx).value().to_string();
-        let Some(conversation) = self.conversation(agent_id, cx) else {
+        // The agent's own project, not the window's — the Teams composer under the window span
+        // sends to a card the project on screen does not hold, and `conversation` would answer
+        // `None` for it and drop the turn.
+        let Some(conversation) = self.teams_conversation(agent_id, cx) else {
             return;
         };
         if !conversation.accepts_input {
@@ -288,7 +298,7 @@ impl AppState {
         cx: &mut Context<Self>,
     ) {
         let working = self
-            .conversation(agent_id, cx)
+            .teams_conversation(agent_id, cx)
             .is_some_and(|conversation| conversation.run == Run::Working);
         if !working {
             self.prompt_agent(agent_id, slot, window, cx);
@@ -303,13 +313,14 @@ impl AppState {
         // its own removes and its own colouring, which is a second composer. The paths are in the
         // text the row previews, and an edit brings them back into the field as text.
         let Some(text) = self
-            .conversation(agent_id, cx)
+            .teams_conversation(agent_id, cx)
             .map(|conversation| conversation.compose_prompt(&typed))
             .filter(|text| !text.is_empty())
         else {
             return;
         };
-        if let Some(id) = self.project(cx)
+        // The queue is the conversation's own, so it is written where the conversation lives.
+        if let Some(id) = self.project_of_agent(agent_id, cx)
             && let Some(open) = self.projects.get_mut(&id)
             && let Some(conversation) = open.conversations.get_mut(&agent_id)
         {
@@ -323,7 +334,7 @@ impl AppState {
     /// Drop every attachment a conversation was holding — what a prompt leaving consumes, the
     /// same moment the draft is cleared.
     fn clear_attachments(&mut self, agent_id: AgentId, cx: &mut Context<Self>) {
-        if let Some(id) = self.project(cx)
+        if let Some(id) = self.project_of_agent(agent_id, cx)
             && let Some(open) = self.projects.get_mut(&id)
             && let Some(conversation) = open.conversations.get_mut(&agent_id)
         {
@@ -351,7 +362,11 @@ impl AppState {
         }
         let Some(text) = self
             .agent_for_slot(slot, cx)
-            .and_then(|agent_id| self.conversation(agent_id, cx))
+            // The agent's own project, not the window's: the Teams composer at `TEAMS_SLOT`
+            // recalls for whichever card the canvas has selected, which under the window span is
+            // not the project on screen. Every other slot's agent is the active project's, where
+            // `project_of_agent` answers exactly that.
+            .and_then(|agent_id| self.teams_conversation(agent_id, cx))
             .and_then(|conversation| {
                 conversation
                     .blocks
@@ -448,7 +463,10 @@ impl AppState {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(id) = self.project(cx) else {
+        // A queue row belongs to whichever agent it lists, not to the window's active project: the
+        // Teams canvas draws every open project's queue under the window span, and editing one is a
+        // write into the project that holds it.
+        let Some(id) = self.project_of_agent(agent_id, cx) else {
             return;
         };
         let Some(text) = self
@@ -479,7 +497,7 @@ impl AppState {
         queued_id: u64,
         cx: &mut Context<Self>,
     ) {
-        if let Some(id) = self.project(cx)
+        if let Some(id) = self.project_of_agent(agent_id, cx)
             && let Some(open) = self.projects.get_mut(&id)
             && let Some(conversation) = open.conversations.get_mut(&agent_id)
         {
@@ -500,7 +518,7 @@ impl AppState {
         queued_id: u64,
         cx: &mut Context<Self>,
     ) {
-        let Some(id) = self.project(cx) else {
+        let Some(id) = self.project_of_agent(agent_id, cx) else {
             return;
         };
         let Some(text) = self
@@ -522,7 +540,10 @@ impl AppState {
     /// already closed.
     pub fn cancel_turn(&mut self, agent_id: AgentId, cx: &mut Context<Self>) {
         self.bus.send(Message::CancelTurn { agent_id });
-        if let Some(id) = self.project(cx)
+        // The pending list cleared here is the agent's own project's, not the window's: the wire
+        // answer settles the turn regardless, but the local clear has to land on the record the
+        // agent actually lives in, or a foreign card under the window span keeps its stale pending.
+        if let Some(id) = self.project_of_agent(agent_id, cx)
             && let Some(open) = self.projects.get_mut(&id)
             && let Some(conversation) = open.conversations.get_mut(&agent_id)
         {
@@ -734,9 +755,11 @@ impl AppState {
     /// the host owns the record, and the glyph moves when the work snapshot says it did — a mark
     /// that flips on the click and back on the refusal is worse than one that waits.
     pub fn toggle_conversation_persistent(&mut self, agent_id: AgentId, cx: &mut Context<Self>) {
+        // The three-dots menu reads the work record through the agent's own span, since a Teams
+        // card selected under the window span may be reporting on a project other than the active
+        // one.
         let persistent = self
-            .work(cx)
-            .and_then(|work| work.agent(agent_id))
+            .teams_agent(agent_id, cx)
             .is_some_and(|agent| agent.persistent);
         self.bus.send(Message::SetConversationPersistent {
             agent_id,
@@ -755,8 +778,7 @@ impl AppState {
     /// question gets asked at all.
     pub fn toggle_conversation_accept_all(&mut self, agent_id: AgentId, cx: &mut Context<Self>) {
         let accept_all = self
-            .work(cx)
-            .and_then(|work| work.agent(agent_id))
+            .teams_agent(agent_id, cx)
             .is_some_and(|agent| agent.accept_all);
         self.bus.send(Message::SetConversationAcceptAll {
             agent_id,
@@ -787,8 +809,7 @@ impl AppState {
     /// the click just happened.
     pub fn toggle_conversation_debug_dump(&mut self, agent_id: AgentId, cx: &mut Context<Self>) {
         let dumping = self
-            .work(cx)
-            .and_then(|work| work.agent(agent_id))
+            .teams_agent(agent_id, cx)
             .and_then(|agent| agent.debug_dump.clone());
         self.bus.send(Message::SetConversationDebugDump {
             agent_id,
@@ -827,8 +848,7 @@ impl AppState {
                         return true;
                     }
                     let Some(path) = this
-                        .work(cx)
-                        .and_then(|work| work.agent(agent_id))
+                        .teams_agent(agent_id, cx)
                         .and_then(|agent| agent.debug_dump.clone())
                     else {
                         return false;
@@ -857,7 +877,10 @@ impl AppState {
     /// The new agent's id is minted here, the way [`Self::start_new_agent`] mints one — the window
     /// names the agent it asked for, and the host answers under that name. The source is untouched.
     pub fn fork_conversation(&mut self, agent_id: AgentId, cx: &mut Context<Self>) {
-        let Some(project_id) = self.project(cx) else {
+        // The forked agent's own project, not the window's: this files a `ReviveConversation`
+        // against a project, and under the window span the source may belong to any open one — the
+        // fork has to land beside the agent it copies, not wherever the window is pointed.
+        let Some(project_id) = self.project_of_agent(agent_id, cx) else {
             return;
         };
         self.bus.send(Message::ReviveConversation {
@@ -919,7 +942,7 @@ impl AppState {
         // This prompt goes as its answer does — and only this one: a second request outstanding
         // under another id is still waiting, and clearing it here would strand the turn on a
         // question nobody can answer any more.
-        if let Some(id) = self.project(cx)
+        if let Some(id) = self.project_of_agent(agent_id, cx)
             && let Some(open) = self.projects.get_mut(&id)
             && let Some(conversation) = open.conversations.get_mut(&agent_id)
         {
@@ -979,7 +1002,11 @@ impl AppState {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(id) = self.project(cx)
+        // This UI-only state — the picker's choice, its open flag, a panel, a tool's disclosure —
+        // lives on the conversation record in the agent's own project: under the window span the
+        // Teams inspector can draw any open project's card at `TEAMS_SLOT`, and the toggle has to
+        // land on the record that card is actually showing.
+        if let Some(id) = self.project_of_agent(agent_id, cx)
             && let Some(open) = self.projects.get_mut(&id)
             && let Some(conversation) = open.conversations.get_mut(&agent_id)
         {
@@ -1007,7 +1034,7 @@ impl AppState {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(id) = self.project(cx)
+        if let Some(id) = self.project_of_agent(agent_id, cx)
             && let Some(open) = self.projects.get_mut(&id)
             && let Some(conversation) = open.conversations.get_mut(&agent_id)
         {
@@ -1032,13 +1059,18 @@ impl AppState {
     /// `Some(id)` a spawned subagent's instance id. Per conversation rather than per window, like
     /// `open_config` beside it: several conversations are on screen at once and each is read
     /// independently.
+    ///
+    /// The project is the agent's rather than the window's — [`Self::project_of_agent`] — because
+    /// the Teams canvas selects cards from every open project under the window span, and pointing
+    /// a foreign card's transcript at a delegate is a write into the project that holds it. For
+    /// every other caller, and for the project span, that is the project on screen.
     pub fn view_conversation_agent(
         &mut self,
         agent_id: AgentId,
         subagent: Option<String>,
         cx: &mut Context<Self>,
     ) {
-        if let Some(id) = self.project(cx)
+        if let Some(id) = self.project_of_agent(agent_id, cx)
             && let Some(open) = self.projects.get_mut(&id)
             && let Some(conversation) = open.conversations.get_mut(&agent_id)
         {
@@ -1066,7 +1098,7 @@ impl AppState {
         cx: &mut Context<Self>,
     ) {
         let route = self
-            .project(cx)
+            .project_of_agent(agent_id, cx)
             .and_then(|id| self.projects.get(&id))
             .and_then(|open| open.conversations.get(&agent_id))
             .and_then(|conversation| {
@@ -1109,7 +1141,7 @@ impl AppState {
         panel: ActivityPanel,
         cx: &mut Context<Self>,
     ) {
-        if let Some(id) = self.project(cx)
+        if let Some(id) = self.project_of_agent(agent_id, cx)
             && let Some(open) = self.projects.get_mut(&id)
             && let Some(conversation) = open.conversations.get_mut(&agent_id)
         {
@@ -1121,7 +1153,7 @@ impl AppState {
     /// Close whichever activity panel is open — a row picked in one, an Escape
     /// elsewhere. `None` is the resting state, so this is a no-op there.
     pub fn close_conversation_panel(&mut self, agent_id: AgentId, cx: &mut Context<Self>) {
-        if let Some(id) = self.project(cx)
+        if let Some(id) = self.project_of_agent(agent_id, cx)
             && let Some(open) = self.projects.get_mut(&id)
             && let Some(conversation) = open.conversations.get_mut(&agent_id)
         {
@@ -1137,7 +1169,7 @@ impl AppState {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(id) = self.project(cx)
+        if let Some(id) = self.project_of_agent(agent_id, cx)
             && let Some(open) = self.projects.get_mut(&id)
             && let Some(conversation) = open.conversations.get_mut(&agent_id)
         {
@@ -1163,7 +1195,7 @@ impl AppState {
         call_id: String,
         cx: &mut Context<Self>,
     ) {
-        let Some(id) = self.project(cx) else {
+        let Some(id) = self.project_of_agent(agent_id, cx) else {
             return;
         };
         if let Some(open) = self.projects.get_mut(&id)
@@ -1183,7 +1215,7 @@ impl AppState {
         blocks: Vec<usize>,
         cx: &mut Context<Self>,
     ) {
-        let Some(id) = self.project(cx) else {
+        let Some(id) = self.project_of_agent(agent_id, cx) else {
             return;
         };
         if let Some(open) = self.projects.get_mut(&id)
@@ -1201,7 +1233,7 @@ impl AppState {
         key: String,
         cx: &mut Context<Self>,
     ) {
-        let Some(id) = self.project(cx) else {
+        let Some(id) = self.project_of_agent(agent_id, cx) else {
             return;
         };
         if let Some(open) = self.projects.get_mut(&id)
@@ -1408,6 +1440,7 @@ impl AppState {
         self.pending_chat_attach = None;
         self.pending_chat_open = false;
         self.sink.messages.pending_attach = false;
+        self.new_agent_project = None;
     }
 
     /// Show a conversation on the surface that asked for it.

@@ -1,6 +1,7 @@
 use super::*;
 
 use crate::state::Layer;
+use ubiq_proto::work::WorkAgent;
 
 impl AppState {
     /// Reconcile what the window holds with what the registry says it holds.
@@ -383,20 +384,175 @@ impl AppState {
         self.open_project(cx).map(|open| &open.graph)
     }
 
-    /// The Teams screen's own view of that work, independent of `graph`.
+    /// Which projects the Teams screen is about: every project the window holds under
+    /// [`TeamsSpan::Window`], and the active one alone under [`TeamsSpan::Project`].
+    ///
+    /// **The one answer**, so the projection, the owner map and every write the screen makes
+    /// cannot disagree about what is on the canvas.
+    pub fn teams_projects(&self, cx: &App) -> Vec<ProjectId> {
+        match self.teams_span {
+            TeamsSpan::Project => self.project(cx).into_iter().collect(),
+            TeamsSpan::Window => self.window_projects(cx),
+        }
+    }
+
+    /// Every project this window both holds and has built state for, whatever span is up.
+    ///
+    /// The order is the registry's — picker order, which never moves — so a relayout puts the
+    /// same project's cards in the same region twice running. A window with no slot in the
+    /// registry sorts its own map instead: `HashMap` order permutes on rehash, and an order that
+    /// moved between two reads would move every card on the canvas with it. `ProjectId` is a
+    /// ULID, so sorting it is the order the projects were created in.
+    ///
+    /// **Not [`Self::teams_projects`]**, which answers for the span that is up: this is the
+    /// window span's own list, which the layout the window span keeps has to be fed from even
+    /// while the project span is what is on screen.
+    pub fn window_projects(&self, cx: &App) -> Vec<ProjectId> {
+        match WindowRegistry::read(cx).slot(self.window_id) {
+            Some(slot) => slot
+                .projects
+                .iter()
+                .copied()
+                // The registry can name a project this window has not built an `OpenProject`
+                // for yet — `sync_projects` runs on a later frame — and a card cannot be drawn
+                // for work that is not here.
+                .filter(|id| self.projects.contains_key(id))
+                .collect(),
+            None => {
+                let mut ids: Vec<ProjectId> = self.projects.keys().copied().collect();
+                ids.sort();
+                ids
+            }
+        }
+    }
+
+    /// The merged projection over named projects, and who owns each card. `None` when none of them
+    /// is held, which is what makes every Teams accessor answer `None` for a window with no
+    /// project — the screen draws nothing rather than an empty graph to explain.
+    ///
+    /// The owner map is handed back rather than dropped because `settle_teams` writes it into
+    /// [`Self::teams_owner`] from the same pass that builds the projection.
+    pub(super) fn teams_merged(
+        &self,
+        projects: &[ProjectId],
+    ) -> Option<(WorkProjection, HashMap<AgentId, ProjectId>)> {
+        let held: Vec<(ProjectId, &WorkProjection, &[AgentId])> = projects
+            .iter()
+            .filter_map(|id| {
+                self.projects
+                    .get(id)
+                    .map(|open| (*id, &open.work, open.agents.live.as_slice()))
+            })
+            .collect();
+        if held.is_empty() {
+            return None;
+        }
+        Some(window_work(&held))
+    }
+
+    /// Which project one agent belongs to — the question every *write* the Teams screen makes has
+    /// to answer, because a merged projection has lost it.
+    ///
+    /// The span's answer first: the owner map under [`TeamsSpan::Window`], the active project
+    /// under [`TeamsSpan::Project`]. Both are guesses about a map that is rebuilt a frame behind
+    /// the projection, so the answer is only taken when the project it names actually holds the
+    /// agent's conversation; otherwise the held projects are searched for the one that does. An
+    /// agent nobody holds a conversation with — a card in the frame between an agent ending and
+    /// the canvas hearing about it — falls back to the span's guess, which is what the callers
+    /// that send against a project did before there was a second span.
+    pub fn project_of_agent(&self, agent: AgentId, cx: &App) -> Option<ProjectId> {
+        let guess = match self.teams_span {
+            TeamsSpan::Project => self.project(cx),
+            TeamsSpan::Window => self.teams_owner.get(&agent).copied(),
+        };
+        let holds = |id: &ProjectId| {
+            self.projects
+                .get(id)
+                .is_some_and(|open| open.conversations.contains_key(&agent))
+        };
+        if let Some(id) = guess.filter(&holds) {
+            return Some(id);
+        }
+        self.projects.keys().copied().find(holds).or(guess)
+    }
+
+    /// Which project one session belongs to — [`Self::project_of_agent`]'s sibling, for the one
+    /// selection on this screen that names no agent.
+    ///
+    /// A session is minted inside a project and never leaves it, so the first agent under it
+    /// answers for it, exactly as the session pills resolve the chip they wear. Read off the held
+    /// projects in the window's own order rather than off the merged projection: building one to
+    /// answer a single question would clone every card on the canvas. A session no held project
+    /// claims — the frame between the last agent under it ending and the canvas hearing — falls
+    /// back to the active project, which is what a link built from it said before there was a
+    /// second span.
+    pub fn project_of_session(&self, session: SessionId, cx: &App) -> Option<ProjectId> {
+        match self.teams_span {
+            TeamsSpan::Project => self.project(cx),
+            TeamsSpan::Window => self
+                .window_projects(cx)
+                .into_iter()
+                .find(|id| {
+                    self.projects.get(id).is_some_and(|open| {
+                        open.work
+                            .agents
+                            .iter()
+                            .any(|agent| agent.session == session)
+                    })
+                })
+                .or_else(|| self.project(cx)),
+        }
+    }
+
+    /// The Teams screen's conversation lookup: [`Self::conversation`] over the project that owns
+    /// the agent rather than over the one on screen. The active project's answer under
+    /// [`TeamsSpan::Project`], and the only one that can find a foreign card's thread under
+    /// [`TeamsSpan::Window`].
+    pub fn teams_conversation(&self, agent: AgentId, cx: &App) -> Option<&Conversation> {
+        let project = self.project_of_agent(agent, cx)?;
+        self.held_project(project)?.conversations.get(&agent)
+    }
+
+    /// The host's record for one agent, read from the project that owns it rather than from the
+    /// one on screen — [`Self::work`]'s sibling, on the same rule as [`Self::teams_conversation`].
+    ///
+    /// What the lifecycle menu's three state rows are read through. Reading the wrong project's
+    /// projection answers `None`, which a toggle cannot tell from "off": the row would send
+    /// *enable* every time and the flag could never be turned back off.
+    pub fn teams_agent(&self, agent: AgentId, cx: &App) -> Option<&WorkAgent> {
+        let project = self.project_of_agent(agent, cx)?;
+        self.held_project(project)?.work.agent(agent)
+    }
+
+    /// The Teams screen's own view of that work, independent of `graph`. **The span decides which
+    /// one**: the active project's under [`TeamsSpan::Project`], the window's own under
+    /// [`TeamsSpan::Window`], which is a second arrangement over a different set of cards.
     pub fn teams(&self, cx: &App) -> Option<&TeamsView> {
-        self.open_project(cx).map(|open| &open.teams)
+        match self.teams_span {
+            TeamsSpan::Project => self.open_project(cx).map(|open| &open.teams),
+            TeamsSpan::Window => {
+                (!self.teams_projects(cx).is_empty()).then_some(&self.teams_window)
+            }
+        }
     }
 
     /// The work the Teams mode draws: the host's projection narrowed to the agents this window
-    /// holds a conversation with — see [`crate::state::teams::live_work`].
+    /// holds a conversation with — see [`crate::state::teams::live_work`]. **The span decides how
+    /// wide that is**: the active project alone, or every project the window holds concatenated by
+    /// [`crate::state::teams::window_work`].
     ///
     /// Owned rather than borrowed, because it is a narrowing of what the project holds rather than
     /// a field of it. Every reader on that screen asks for this instead of [`Self::work`];
     /// `TeamsOld` keeps asking for the whole projection.
     pub fn teams_work(&self, cx: &App) -> Option<WorkProjection> {
-        self.open_project(cx)
-            .map(|open| live_work(&open.work, &open.agents.live))
+        match self.teams_span {
+            TeamsSpan::Project => self
+                .open_project(cx)
+                .map(|open| live_work(&open.work, &open.agents.live)),
+            TeamsSpan::Window => self
+                .teams_merged(&self.teams_projects(cx))
+                .map(|(work, _)| work),
+        }
     }
 
     /// The board's view of the same work.
@@ -419,9 +575,17 @@ impl AppState {
         self.projects.get_mut(&id).map(|open| &mut open.graph)
     }
 
+    /// The same view [`Self::teams`] reads, to write: the span decides which one.
     pub fn teams_mut(&mut self, cx: &App) -> Option<&mut TeamsView> {
-        let id = self.project(cx)?;
-        self.projects.get_mut(&id).map(|open| &mut open.teams)
+        match self.teams_span {
+            TeamsSpan::Project => {
+                let id = self.project(cx)?;
+                self.projects.get_mut(&id).map(|open| &mut open.teams)
+            }
+            TeamsSpan::Window => (!self.teams_projects(cx).is_empty())
+                .then_some(())
+                .map(|()| &mut self.teams_window),
+        }
     }
 
     // ── the Git screen ──────────────────────────────────────────────
@@ -450,13 +614,24 @@ impl AppState {
     /// arrangement, and the two live in the same [`OpenProject`].
     ///
     /// The work is the narrowed one, owned — a drag on this canvas has to measure the same
-    /// containers the canvas drew, and those are [`Self::teams_work`]'s.
+    /// containers the canvas drew, and those are [`Self::teams_work`]'s. The span decides which
+    /// view and how wide the projection is, exactly as it does for the readers above; the owned
+    /// projection is built *before* the view is borrowed mutably, which is the only order the
+    /// borrow checker allows when both come out of `self`.
     pub(super) fn teams_over_work(&mut self, cx: &App) -> Option<(&mut TeamsView, WorkProjection)> {
-        let id = self.project(cx)?;
-        let open = self.projects.get(&id)?;
-        let work = live_work(&open.work, &open.agents.live);
-        let open = self.projects.get_mut(&id)?;
-        Some((&mut open.teams, work))
+        match self.teams_span {
+            TeamsSpan::Project => {
+                let id = self.project(cx)?;
+                let open = self.projects.get(&id)?;
+                let work = live_work(&open.work, &open.agents.live);
+                let open = self.projects.get_mut(&id)?;
+                Some((&mut open.teams, work))
+            }
+            TeamsSpan::Window => {
+                let (work, _) = self.teams_merged(&self.teams_projects(cx))?;
+                Some((&mut self.teams_window, work))
+            }
+        }
     }
 
     /// Which project a pane belongs to. A pane is only ever in one, so the first answer is the

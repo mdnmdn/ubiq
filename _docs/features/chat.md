@@ -7,7 +7,7 @@ summary: Editor-like chat tabs — many, movable to any dockable region, each a 
 read_when: you are changing a chat tab, the control that starts or attaches a conversation, or which conversation a tab shows
 updated: 2026-09-20
 verified: 2026-09-20
-code_anchors: [crates/ubiq/src/ui/chat/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/conversation/info.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/app/projects.rs]
+code_anchors: [crates/ubiq/src/ui/chat/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/conversation/info.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/app/projects.rs]
 depends_on: [feat-workbench]
 review_cycle: monthly
 ---
@@ -77,9 +77,10 @@ than one taken. The tab's own current attachment stays selectable, since it is t
 checked.
 
 **Exclusivity is per chat tab, not per conversation, and it stops at this surface's edge.** The
-agents workbench may show the same conversation in a column at the same moment a chat tab is
-attached to it, and the host is never told which surfaces are looking, because a view was never the
-workspace.
+agents workbench may show the same conversation in a column, and the Teams inspector may draw it at
+`TEAMS_SLOT` — under the window span from a project this window is not pointed at — at the same
+moment a chat tab is attached to it. Three viewers at once, and the host is never told which surfaces
+are looking, because a view was never the workspace.
 
 **Adding a view is the tab strip's gesture, not the panel's.** A `+` on the dock's own tab strip —
 beside the terminal region's, offered on the strip of any group holding a chat, so a chat dragged
@@ -135,6 +136,19 @@ points**: the transcript hands `ui::on_link` to its `TextView`, so a relative pa
 project root or a full `ubiq://` opens that place in the window, `http`, `https` and `mailto` reach
 the operating system, and anything else does nothing — see
 [`workbench.md`](./workbench.md). A path merely *mentioned* in prose is text, not a link.
+
+**A conversation surface resolves the agent's own project, never the window's active one.** Which
+project a conversation belongs to is `AppState::project_of_agent`, and the two readers over it —
+`teams_conversation` for the conversation and `teams_agent` for the host's record — are what every
+surface drawing a live agent goes through: a chat tab, an agents column and the Teams inspector
+answer the question the same way, from the project that owns the agent. The Teams screen is where it
+bites. Under the window span its canvas draws every project the window holds, and the card its
+inspector draws may belong to a project the rail is not pointed at (`D154`); a lookup through the
+active project answers `None` for that card, and `None` is indistinguishable from a conversation with
+nothing in it — so a turn is dropped, a flag reads *off* while it is on, or a pending list stays
+stale, each of them silently. Every read and every write below — the send, the enqueue, the recall,
+the permission answers, the folds, the attachment edits — goes through those three accessors for that
+reason.
 
 **The footer's third ring says how much of the account's plan is left, one band per rolling window
 the provider stated.** It is an account fact, not a conversation one — two agents signed in as the
@@ -417,7 +431,10 @@ row, so it takes the two halves separately: `ui::conversation::lifecycle_mark` f
 `lifecycle_menu` for the three-dots. The agents column's bordered strip is the menu alone, its own
 reading of the state being the dot on its title. One set of functions either way: the glyph's state and the menu's enable rule are read once, in
 `crates/ubiq/src/ui/conversation/mod.rs`, and both surfaces call them rather than each keeping an
-answer of its own.
+answer of its own. The three readers behind the menu — `is_persistent`, `accepts_all` and
+`dump_path` — take the host's record through `teams_agent`, which is what makes one set safe to
+share: a row that read `None` would report *off* for a flag that is on, and its toggle would send
+*enable* every time, leaving a flag that could never be turned back off.
 
 **The glyph says the conversation's state; the word lives in its tooltip.**
 `ui::conversation::lifecycle` reads `launched`, `run`, `pending`, `blocks`, `accepts_input` and
@@ -484,7 +501,10 @@ current pick. One builder, so "already taken" is answered once for the chat head
 `crates/ubiq/src/state/agents.rs` defines `COLUMNS_MAX`, `CHATS_MAX` and
 `COMPOSER_SLOTS = COLUMNS_MAX + CHATS_MAX + 2` — the two above the chat range are `SINK_SLOT`, the
 kitchen sink's bench, and `TEAMS_SLOT`, the Teams screen's inspector; `AgentsView::free_slot` still
-allocates a column's slot from the low range, unchanged.
+allocates a column's slot from the low range, unchanged. `TEAMS_SLOT` is the one composer that does
+not type into the active project: it addresses whichever card the canvas has selected, which under
+the window span may be any project the window holds, and `AppState::send_or_enqueue` resolves that
+project through `project_of_agent` rather than reading the window's.
 
 `crates/ubiq/src/app/chat.rs` is where a tab's own lifecycle lives: `open_chat_tab` mints one and
 gives it a slot, `open_chat_tab_now` puts it in the dock as well — called when there is a
@@ -600,7 +620,11 @@ thresholds, and `size_reading` for which of the three readings a size gets — o
 the colour and the printed number can never disagree. `AppState::attach_files` in
 `crates/ubiq/src/app/picker.rs` is what the picker's commit routes into, taking each path's size off
 the picker's own nodes rather than reading a disk the interface may not even be on;
-`detach_file` is a tag's `×`. `crates/ubiq/src/ui/conversation/mod.rs`'s `attachment_tags()` draws
+`detach_file` is a tag's `×`. Those two are the exception to the rule above — they take the window's
+active project, where the enqueue write, `clear_attachments` and a queue row's edit, remove and
+requeue take `project_of_agent` — so a card belonging to another project cannot have a file attached
+to it or taken off it; `G323` is the backlog row that holds that, along with the question of whose
+explorer tree a foreign card's picker should offer. `crates/ubiq/src/ui/conversation/mod.rs`'s `attachment_tags()` draws
 the wrapping row as the composer's first `extras` entry, on `kit::removable_tag`. The control
 itself is `crates/ubiq/src/ui/kit/menu.rs`'s `Picker`, unchanged — its `disabled` set draws the
 headings and the rows another tab holds, its `separators` set the group lines, and its `search`
@@ -637,6 +661,7 @@ field the filter. A grouped, searchable, partly-inert list was already what that
 | The turn is cancelled while asks are up | The outstanding set is dropped, the prompts and the strip go with it, and the host answers every one of them as cancelled before the cancel reaches the harness |
 | The harness ends or is unloaded while an ask is up | The prompts go with the process; there is nothing left waiting on an answer |
 | The conversation accepts everything and the harness offers no allowing option | The host emits the request unchanged, and it is drawn and answered like any other |
+| A conversation surface is asked about an agent in a project the window is not pointed at | It is answered from the project that owns the agent: `project_of_agent` finds it, and the transcript, the record and every write follow the card rather than the rail. Attaching a file is the one thing that does not, and `G323` holds it |
 | Accept-all is switched on while an ask is up | The prompt on screen stays and is answered by hand; the flag governs the asks that follow, and nothing retracts a prompt the transcript holds |
 
 ## Related docs

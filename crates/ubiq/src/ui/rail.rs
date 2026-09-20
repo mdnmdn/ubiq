@@ -17,6 +17,7 @@ use crate::state::{RailMode, WindowRegistry};
 use crate::theme;
 use crate::ui::ident::Identified as _;
 use crate::ui::kit::{UbiqIcon, section_label};
+use crate::ui::project_face::project_face;
 use ubiq_proto::ids::ProjectId;
 
 /// The mark's two files: the white logo reads on a dark swatch, the blue on a light one. They are
@@ -238,34 +239,17 @@ fn project_badges(app: &AppState, window: &Window, cx: &mut Context<AppState>) -
     if order.is_empty() {
         return Vec::new();
     }
-    let registry = WindowRegistry::read(cx);
     let active = app.window_slot(cx).and_then(|slot| slot.active_project());
 
     order
         .iter()
-        .filter_map(|id| registry.project(*id))
-        .map(|p| {
-            (
-                p.record.id,
-                p.record.name.clone(),
-                p.record.initials.clone(),
-                theme::project_tint(p.record.temporary, p.record.colour, p.record.custom_colour),
-            )
-        })
-        .map(|(id, name, initials, tint)| {
-            // An override wins outright — 1 or 2 characters, shown as the project settings field
-            // holds them. Empty is "no override", which is the name's own first letter, the way
-            // it always read.
-            let initial = if initials.is_empty() {
-                name.chars()
-                    .next()
-                    .unwrap_or('?')
-                    .to_uppercase()
-                    .to_string()
-            } else {
-                initials
-            };
-            let tooltip = SharedString::from(name);
+        // The colour and the characters are `project_face`'s, shared with the chip a Teams card
+        // wears under the window span — one resolution, so a project cannot read two ways.
+        .filter_map(|id| Some((*id, project_face(*id, cx)?)))
+        .map(|(id, face)| {
+            let initial = face.initials;
+            let tint = face.tint;
+            let tooltip = face.name;
             let selected = Some(id) == active;
             div()
                 .id(ElementId::Name(format!("rail-project-{id}").into()))

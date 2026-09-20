@@ -3319,6 +3319,47 @@ not expressible. Interning leaks a slug per distinct custom theme the process ev
 how many a person authors. And a custom theme's ground is its base's: an override map that lightens
 a dark fork still tells the component library and the highlighter *dark*.
 
+### D154 — Teams is scoped by a span the window owns, and the span is not part of a `ubiq://` address
+
+`state::teams::TeamsSpan` is `Project` or `Window`, and it is what the Teams canvas is scoped by —
+not the window's active project, which is what every other screen is scoped by. Under `Window` the
+canvas draws every project the window holds, merged by `state::teams::window_work` into one
+`WorkProjection` plus an owner map. Three fields carry it: `AppState::teams_span`,
+`AppState::teams_window` — the window span's own `TeamsView`, beside the per-project ones in
+`OpenProject::teams` — and `AppState::teams_owner`. The switch lives in four accessors in
+`app/shell.rs`, `teams()`, `teams_mut()`, `teams_work()` and `teams_over_work()`, because every
+reader on that screen goes through them and none of `ui/teams/` reaches `open_project`.
+
+**A span, not a second rail mode.** `RailMode::Teams` stays one mode with one entry; the span is one
+more thing the canvas is filtered by, beside the session pills and the bucket pills, toggled from
+the toolbar. A second mode would have doubled the rail, the mode-restore table and the `when`
+vocabulary for a screen that draws the same cards either way. It is the window's own fact, like the
+zoom and the arrangement: nothing outside the window has an opinion about it, so it goes on the wire
+nowhere and into `ViewPrefs` nowhere.
+
+**Two spans, two `TeamsView`s.** They are two arrangements over two different sets of cards, and a
+shared view would throw the other's layout away on every switch. Nothing collides in the merge
+because `AgentId`, `SessionId` and `TaskId` are ULIDs minted per record, so two projects' records
+never share an id: the merged lists need no prefixing and no composite key, and `Layout`, every
+packer and the whole of `state::layout` are untouched by the span.
+
+**The span is not in the address.** A teams link names the project that owns the *selected agent*,
+which is a real project every time; the span is not part of the place, because the same agent read
+on a canvas showing one project and on one showing six is the same agent. So a link built under the
+window span is one a window in the project span can follow, and following one lands on the selection
+in whatever span the window is in. The rail and the titlebar go on meaning the active project for
+the same reason: they are the window's answer to which project the *other* modes are about, and a
+span set on one screen does not get to rewrite them.
+
+**Cost:** a second `TeamsView` per window that no preference restores, so the window span's
+arrangement is lost on restart while every project's survives. An owner map that has to be kept
+true — it is rebuilt in `settle_teams` a frame behind the projection, so `project_of_agent` cannot
+trust it alone and falls back to searching the held projects for the one holding the agent's
+conversation. Every write and every record read the Teams screen makes needs a span-aware sibling —
+`project_of_agent`, `teams_conversation`, `teams_agent` — and a reader added later that reaches for
+`self.project(cx)` is a bug that only appears with two projects open. And one more thing on screen
+that a link cannot carry: the span a canvas was arranged in is not recoverable from the link to it.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce

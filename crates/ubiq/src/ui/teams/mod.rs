@@ -41,13 +41,15 @@ use gpui_component::IconName;
 use ubiq_proto::work::Bucket;
 
 use crate::app::AppState;
-use crate::state::teams::{Algo, ZOOM_STEP};
+use crate::state::teams::{Algo, TeamsSpan, ZOOM_STEP};
 use crate::state::{MenuId, TeamsSelection};
 use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::kit::{
     Picker, check_box, ghost_button, icon_button, mono, section_label, stepper, toggle_pill,
 };
+use crate::ui::project_face::{ProjectFace, project_face};
+use crate::ui::teams::status::project_chip;
 use crate::ui::work::bucket_colour;
 use crate::ui::{eid, handler, indexed};
 
@@ -103,12 +105,14 @@ fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
     // The lit pill is the one being *drawn*, not the one selected: `all` is a real state of the
     // row, and a session can be selected while every session is on screen.
     let showing = graph.session;
+    let spanning = app.teams_span == TeamsSpan::Window;
 
     let all = session_pill(
         "teams-session-all",
         "all",
         work.agents.len(),
         showing.is_none(),
+        None,
         cx.listener(|this, _, _, cx| this.show_teams_session(None, cx)),
     );
 
@@ -118,11 +122,24 @@ fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         .map(|session| {
             let id = session.id;
             let count = work.agents.iter().filter(|a| a.session == id).count();
+            // Whose session this is, read off one of its cards: a session is minted inside a
+            // project and every agent under it is that project's, so the first one answers for
+            // the row. None under the project span, where the answer is the whole canvas.
+            let project = spanning
+                .then(|| {
+                    work.agents
+                        .iter()
+                        .find(|a| a.session == id)
+                        .and_then(|a| app.project_of_agent(a.id, cx))
+                        .and_then(|project| project_face(project, cx))
+                })
+                .flatten();
             session_pill(
                 eid("teams-session", id),
                 session.name.clone(),
                 count,
                 showing == Some(id),
+                project.map(|face| (eid("teams-session-project", id), face)),
                 cx.listener(move |this, _, _, cx| {
                     // Narrowing to a session is also picking it: the inspector reporting on one the
                     // canvas is not drawing would be two answers to "which session".
@@ -159,6 +176,25 @@ fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         .bg(theme::pane_bg())
         .border_b_1()
         .border_color(theme::border())
+        // The span leads the row because it is the widest filter on it: it decides which projects
+        // the session pills and the bucket pills are then narrowing. Drawn only when the window
+        // holds more than one project — a toggle that cannot change anything is noise.
+        .children(app.teams_span_choice(cx).then(|| {
+            div()
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap_2()
+                .child(section_label("Span"))
+                .child(toggle_pill(
+                    "teams-span",
+                    "All projects",
+                    theme::accent(),
+                    spanning,
+                    cx.listener(|this, _, _, cx| this.toggle_teams_span(cx)),
+                ))
+                .child(div().w(px(12.)).flex_none())
+        }))
         .child(section_label("Session"))
         .child(all)
         .children(sessions)
@@ -175,6 +211,8 @@ fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
                 cx.listener(|this, _, _, cx| this.clear_teams_filters(cx)),
             )
         }))
+        .child(add_agent(app, cx))
+        .child(div().w(px(12.)).flex_none())
         .child(stepper(
             "teams-zoom",
             format!("{}%", graph.zoom_pct()),
@@ -213,6 +251,57 @@ fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         .into_any_element()
 }
 
+/// The one control on the row that *makes* something rather than narrowing what is drawn.
+///
+/// It sits past the flexible gap, beside `Show everything` and before the view controls, because
+/// an action is not a filter: the pills to the left of the gap all answer "what is on screen", and
+/// this one answers "what is there to be on screen". Last in the action group rather than first,
+/// so its distance from the zoom stepper does not move when `Show everything` comes and goes.
+///
+/// **Its shape is the question it asks.** A window holding several projects gets a picker — a
+/// start raised from a canvas about all of them has to name which one it is for — and a window
+/// holding one gets a plain button, because a list of one row is a decision already made.
+fn add_agent(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+    if !app.teams_span_choice(cx) {
+        return ghost_button(
+            "teams-add-agent",
+            Some(IconName::Plus),
+            "Add agent",
+            cx.listener(|this, _, window, cx| this.open_teams_add_agent(window, cx)),
+        )
+        .into_any_element();
+    }
+    let view = cx.entity();
+    // A row is the project's name in full, resolved through `project_face` so the rail's badges,
+    // a card's chip and this list cannot disagree about which project is which. The initials and
+    // the tint are what a project wears where there is no room for its name; a menu row has the
+    // room, and the name is the thing a choice is made on.
+    let names: Vec<String> = app
+        .window_projects(cx)
+        .into_iter()
+        .map(|id| {
+            project_face(id, cx)
+                .map(|face| face.name.to_string())
+                // The registry is what `window_projects` filtered against, so this is unreachable
+                // in practice — but a row dropped here would shift every index below it, and the
+                // pick is matched by position.
+                .unwrap_or_else(|| "\u{2026}".to_string())
+        })
+        .collect();
+    Picker::new("teams-add-agent", "Add agent")
+        .icon(IconName::Plus)
+        .items(names)
+        .open(app.workbench.open_menu == Some(MenuId::TeamsAddAgent))
+        .on_toggle(handler(&view, |this, window, cx| {
+            this.open_teams_add_agent(window, cx)
+        }))
+        .on_dismiss(handler(&view, |this, _, cx| this.close_menu(cx)))
+        .on_pick(indexed(&view, |this, index, window, cx| {
+            this.pick_teams_add_agent(index, window, cx)
+        }))
+        .into_any_element()
+}
+
 /// The one control on the row about *delegates* rather than cards: whether a card goes on drawing
 /// the boxes for the delegates that have finished.
 ///
@@ -248,11 +337,14 @@ fn hide_done_check(hidden: bool, cx: &mut Context<AppState>) -> impl IntoElement
 /// One pill in the session row: a name, how many agents are under it, and whether it is the one
 /// being drawn. `all` is one of these rather than a control of its own, because it answers the same
 /// question the others do.
+/// Under the window span it leads with the project's chip: two projects can name a session the
+/// same thing, and a row of bare names would be two pills that look like one.
 fn session_pill(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
     count: usize,
     active: bool,
+    project: Option<(ElementId, ProjectFace)>,
     on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
     div()
@@ -276,6 +368,7 @@ fn session_pill(
         })
         .cursor_pointer()
         .hover(|this| this.bg(theme::hover()))
+        .children(project.map(|(chip, face)| project_chip(chip, &face, 1.0).into_any_element()))
         .child(
             div()
                 .text_size(theme::font(Family::Chrome, Role::Label))

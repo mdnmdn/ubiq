@@ -45,7 +45,9 @@ pub fn render(
         return div().into_any_element();
     }
     let entity = cx.entity();
-    let record = app.work(cx).and_then(|work| work.agent(id));
+    // The owning project's record: the Teams inspector reaches this panel for any open project's
+    // card under the window span, and the project on screen holds no row for a foreign one.
+    let record = app.teams_agent(id, cx);
     let harness = harness_label(conversation, record);
 
     let mut body = div()

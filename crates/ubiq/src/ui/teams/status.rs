@@ -10,13 +10,17 @@
 //! `Writing` and `Tools` — are the closest existing mark rather than one drawn for the state, and
 //! are the set's outstanding gap.
 
-use gpui::{IntoElement, ParentElement, Rgba, Styled, div, px};
-use gpui_component::{Icon, IconName, Sizable as _};
+use gpui::{
+    ElementId, InteractiveElement as _, IntoElement, ParentElement, Rgba,
+    StatefulInteractiveElement as _, Styled, div, px,
+};
+use gpui_component::{Icon, IconName, Sizable as _, tooltip::Tooltip};
 
 use crate::state::teams::{AgentStatus, DelegateStatus};
 use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::kit::{UbiqIcon, mono, pill};
+use crate::ui::project_face::ProjectFace;
 use crate::ui::work::bucket_colour;
 
 /// The glyph a card's state wears.
@@ -60,6 +64,30 @@ pub fn status_chip(status: AgentStatus, zoom: f32) -> impl IntoElement {
             mono(status.label(), theme::text())
                 .text_size(theme::font(Family::Chrome, Role::Meta) * zoom),
         )
+}
+
+/// The chip that says whose project this is: the project's swatch and its initials.
+///
+/// **Drawn only under [`crate::state::teams::TeamsSpan::Window`]**, beside [`status_chip`] on a
+/// card and before the name on a session pill. A canvas about one project does not need to say
+/// which, and two projects naming a session the same thing is exactly what this tells apart.
+///
+/// The swatch is the chip's own left edge — a coloured left edge is how a surface says what it
+/// belongs to everywhere else in the window, and a second square beside it in the same colour
+/// would be the same fact drawn twice. The initials are an abbreviation, so the name is the
+/// tooltip, which is why this takes an id.
+pub fn project_chip(id: impl Into<ElementId>, face: &ProjectFace, zoom: f32) -> impl IntoElement {
+    let name = face.name.clone();
+    pill(face.tint)
+        .h(px(22. * zoom))
+        .px(px(6. * zoom))
+        .gap(px(5. * zoom))
+        .id(id)
+        .child(
+            mono(face.initials.clone(), theme::text_muted())
+                .text_size(theme::font(Family::Chrome, Role::Meta) * zoom),
+        )
+        .tooltip(move |window, cx| Tooltip::new(name.clone()).build(window, cx))
 }
 
 /// The glyph a delegate's box wears, and the colour it takes.

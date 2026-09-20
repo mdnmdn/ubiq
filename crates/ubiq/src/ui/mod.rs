@@ -37,6 +37,7 @@ pub mod notifications;
 pub mod orchestration;
 pub mod outline;
 pub mod overflow_menu;
+pub mod project_face;
 pub mod project_menu;
 pub mod rail;
 pub mod remote_connect;

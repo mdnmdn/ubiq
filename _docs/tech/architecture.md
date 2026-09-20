@@ -5,7 +5,7 @@ kind: tech
 status: current
 summary: The two halves — coordinator and UI — the single bus between them, the rules neither may break, and why the split is drawn before it is needed.
 read_when: you are about to add a capability that crosses the UI/coordinator line, or you want to know why the code is shaped this way
-updated: 2026-09-17
+updated: 2026-09-20
 verified: 2026-09-19
 code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq/src/lib.rs, crates/ubiq/src/version.rs, crates/ubiq-app/src/lib.rs, crates/ubiq-app/src/main.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/state/windows.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-proto/src/lib.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/files/mod.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/kb/mod.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq-host/src/store/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/store/memory.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq-host/src/links.rs, crates/ubiq/src/web_export/mod.rs, crates/ubiq-host/src/mcp/mod.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-drone/src/lib.rs]
 review_cycle: quarterly
@@ -298,9 +298,12 @@ and "open in a new window" cannot drift apart. `ubiq-app` consumes `crates/ubiq`
 than redeclaring its modules, so the tree is compiled once. All real logic sits in the library root,
 `crates/ubiq/src/lib.rs`.
 
-**A window is one `AppState`.** Several may be open, each pointed at its own project. They share the
-palette, the window registry and the bus's hub, all of which are process-wide, and nothing else —
-so any state that ought to be global needs a home outside `AppState` before it can be shared.
+**A window is one `AppState`.** Several may be open, each holding its own projects and pointed at
+one of them. They share the palette, the window registry and the bus's hub, all of which are
+process-wide, and nothing else — so any state that ought to be global needs a home outside
+`AppState` before it can be shared. Which project a window points at is what eight of the nine rail
+modes are about; the ninth, Teams, is scoped by a span of its own and may read across every project
+the window holds (`D154`).
 
 **There is one host per process**, started by the binary before the first window and outliving every
 one of them. A window attaches to it and gets a `Client`; the host reads every client through one

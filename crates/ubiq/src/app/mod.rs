@@ -57,7 +57,9 @@ use crate::state::sink::{
     SinkSection, SinkState,
 };
 use crate::state::stats::{StatsState, StatsTab};
-use crate::state::teams::{TeamsHeld, TeamsInspectorTab, TeamsSelection, TeamsView, live_work};
+use crate::state::teams::{
+    TeamsHeld, TeamsInspectorTab, TeamsSelection, TeamsSpan, TeamsView, live_work, window_work,
+};
 use crate::state::viewport::{Content, Viewport};
 use crate::state::vim::VimState;
 use crate::state::web_panel::WebPanels;
@@ -508,6 +510,18 @@ pub struct AppState {
     /// restores its furniture with no round trip and no debounce to race.
     parked: HashMap<ProjectId, prefs::ViewPrefs>,
 
+    /// What the Teams screen is about: the active project, or every project this window holds.
+    /// The window's own fact, set from that screen's toolbar and sent nowhere.
+    pub teams_span: TeamsSpan,
+    /// The window span's own Teams view, beside the per-project ones in [`OpenProject::teams`].
+    /// Two spans are two arrangements over two different sets of cards, so a shared view would
+    /// throw the other's layout away every time the span was switched.
+    pub teams_window: TeamsView,
+    /// Which project each card drawn under the window span belongs to. The merged projection
+    /// loses it, and every write the screen makes — a hand-over, a selection, the composer's send
+    /// — needs it. Rebuilt each frame by `settle_teams`, write-if-changed.
+    pub teams_owner: HashMap<AgentId, ProjectId>,
+
     /// The window's session — the grouping every workspace it spawns belongs to.
     session: SessionId,
     /// This window's connection to every host it is attached to — always the local one, and, from
@@ -603,6 +617,18 @@ pub struct AppState {
     /// Cleared by [`Self::close_new_agent`]: a flag left standing would capture the next
     /// conversation from anywhere into a tab nobody opened.
     pub pending_chat_open: bool,
+    /// Which project the start now being composed is *for*, when it is not the active one.
+    ///
+    /// Every way into the New agent form but one aims at `self.project(cx)`, and says so by having
+    /// no project field at all. The Teams toolbar's `+ Add agent` is the exception: under
+    /// `TeamsSpan::Window` the canvas is about every project the window holds, so a start raised
+    /// from it has to name which. `None` is "the active one", which is what every other caller
+    /// leaves it as.
+    ///
+    /// An aim, not an answer — so it is written down beside the other two and cleared by the same
+    /// [`Self::clear_aim`]. A form that never started anything must not leave the next start,
+    /// from anywhere, pointed at somebody else's project.
+    pub new_agent_project: Option<ProjectId>,
     /// The kitchen sink's own state: which page is open, and what its controls hold. It belongs to
     /// the window rather than to a project, because the sink has no project behind it.
     pub sink: SinkState,
@@ -1082,6 +1108,7 @@ mod host_browse;
 pub mod host_secrets;
 mod hosts;
 mod teams;
+mod teams_span;
 pub use host_browse::HostBrowseState;
 pub use hosts::{
     Bus, ConnStatus, HostEntry, HostId, HostRef, HostStatus, LiveRemote, RemoteConn,

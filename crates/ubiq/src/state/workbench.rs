@@ -295,6 +295,12 @@ pub enum MenuId {
     /// which surface asked and which of its two stages is drawn is
     /// `WorkbenchState::new_agent_menu`.
     NewAgent,
+    /// The Teams toolbar's `+ Add agent`: which of the projects this window holds the agent
+    /// starts in. Its own id rather than `NewAgent` reused, because it is a different question —
+    /// that menu asks *what* to start, this one asks *where* — and it is the step before the form
+    /// rather than a stage of it. Drawn only when the window holds more than one project: a
+    /// choice of one is not a choice, and there the button raises the form outright.
+    TeamsAddAgent,
     /// One conversation's three-dots lifecycle menu (Stop, Unload, Resume, Delete), by the agent
     /// it belongs to — several conversations can be on screen at once, each with its own. Where
     /// it opened is `WorkbenchState::conversation_menu`.
