@@ -5,9 +5,9 @@ kind: tech
 status: current
 summary: Prerequisites, the complete command reference, what a first build costs, the checks a change has to pass before it lands, and the runbook for a tool an agent cannot run.
 read_when: you are setting the project up, running or testing it, adding a command, or an agent reports that it cannot run a tool
-updated: 2026-09-19
-verified: 2026-09-19
-code_anchors: [Justfile, crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/structured.rs, _tools/docs.py, _tools/icns.py, _tools/webassets.py, _tools/drone.py, _tools/helpbundle.py, _tools/Info.plist, _devops/scripts/bundle-version.sh, crates/ubiq-app/src/lib.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-app/build.rs, crates/ubiq-app/res/ubiq-app.rc, .github/workflows/create-release.yml, .github/workflows/release-macos.yml, .github/workflows/release-windows.yml]
+updated: 2026-09-20
+verified: 2026-09-20
+code_anchors: [Justfile, crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/structured.rs, _tools/docs.py, _tools/dump.py, _tools/icns.py, _tools/webassets.py, _tools/drone.py, _tools/helpbundle.py, _tools/Info.plist, _devops/scripts/bundle-version.sh, crates/ubiq-app/src/lib.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-app/build.rs, crates/ubiq-app/res/ubiq-app.rc, .github/workflows/create-release.yml, .github/workflows/release-macos.yml, .github/workflows/release-windows.yml]
 depends_on: [tech-structure]
 review_cycle: monthly
 ---
@@ -239,6 +239,21 @@ and runs, opening a help panel that says so rather than failing.
 `--out-dir DIR` overrides the default `target/help` — Studio's Justfile passes its own, because it
 compiles both binaries into a `target/` one level up from this checkout (`_docs/tech/operations.md`
 in `ubiq-studio` has the detail).
+
+### Reading the tree
+
+| Command | Does |
+|---|---|
+| `just dump <target>…` | Print every file the targets name, each under a header saying where it came from. A target is a path, a glob, a directory, or `path:start-end` |
+| `just dump-list <target>…` | What those targets hold and what printing them would cost — a file, its line count and its size — without printing any of it |
+| `just dump-outline <target>…` | The declaration lines and the module header only, for a suffix `_tools/dump.py` knows: Rust, Python, JavaScript, TypeScript, TOML, Markdown |
+
+For reading a corner of the tree in one command rather than one command per file, which is what a
+context budget cares about. Every run stops at `--max-total` lines (6000 by default) and says what
+it did not print rather than flooding; `--max-lines` caps each file, `--grep RE` keeps only the
+files whose text matches, `-x PAT` drops paths, and `--plain` drops the line numbers when the output
+is going somewhere that would choke on them. Build output, `vendor/`, `.git/`, `_data/` and anything
+with a NUL byte in it are skipped unless `--all` says otherwise. It reads and never writes.
 
 ### Housekeeping
 

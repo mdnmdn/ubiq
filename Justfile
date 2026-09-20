@@ -268,6 +268,20 @@ drone-manifest-verify:
 teamsim *ARGS:
     uv run _tools/teamsim/teamsim.py {{ARGS}}
 
+# ── reading the tree ───────────────────────────────────────────────
+
+# Print many files at once: paths, globs, directories, or `path:start-end`
+dump *ARGS:
+    @uv run _tools/dump.py {{ARGS}}
+
+# What those targets hold, and what printing them would cost
+dump-list *ARGS:
+    @uv run _tools/dump.py --list {{ARGS}}
+
+# Just the declaration lines and the module headers
+dump-outline *ARGS:
+    @uv run _tools/dump.py --outline {{ARGS}}
+
 # ── housekeeping ───────────────────────────────────────────────────
 
 # Remove build output
