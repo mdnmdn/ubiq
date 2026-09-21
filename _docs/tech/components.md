@@ -3,11 +3,11 @@ id: tech-components
 title: Reusable components
 kind: tech
 status: current
-summary: The reusable components Ubiq builds out of its own primitives — the floating popover, the activity bar a conversation heads with, the file picker any screen raises to choose a path, the viewer that draws one open file whole, the diff renderer two screens reach a change through, and the capabilities and tools panels each asked for by two surfaces — the state that drives them, and the discipline that keeps a compound a component rather than a one-off screen's decoration.
-read_when: you are building a control that floats above another, adding a second activity reading to a conversation's bar, wiring a screen to choose a path on the interface's or a host's filesystem, adding a file kind the viewer draws, reaching a diff or a harness's capabilities from a second screen, or reshaping something the kit's primitives are insufficient for and a one-off would have duplicated
-updated: 2026-09-20
-verified: 2026-09-20
-code_anchors: [crates/ubiq/src/ui/kit/popover.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/ui/teams/inspector.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/kb/mod.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/ui/tools.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/state/editor.rs]
+summary: The reusable components Ubiq builds out of its own primitives — the floating popover, the multi-select dropdown a filter or a form narrows with, the activity bar a conversation heads with, the file picker any screen raises to choose a path, the viewer that draws one open file whole, the diff renderer two screens reach a change through, and the capabilities and tools panels each asked for by two surfaces — the state that drives them, and the discipline that keeps a compound a component rather than a one-off screen's decoration.
+read_when: you are building a control that floats above another, letting a screen choose several values at once, adding a second activity reading to a conversation's bar, wiring a screen to choose a path on the interface's or a host's filesystem, adding a file kind the viewer draws, reaching a diff or a harness's capabilities from a second screen, or reshaping something the kit's primitives are insufficient for and a one-off would have duplicated
+updated: 2026-09-21
+verified: 2026-09-21
+code_anchors: [crates/ubiq/src/ui/kit/popover.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/ui/teams/inspector.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/kb/mod.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/ui/tools.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/state/editor.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
 ---
@@ -81,6 +81,44 @@ floating list does not rebuild it a fourth time.
 
 An optional debug name keeps the panel findable by its tests — the dropdowns this panel mirrors
 answer to nothing but their element id, while a conversation screen's tests name their own panels.
+
+## The multi-select
+
+**What it is.** `kit::MultiPicker` — the dropdown for a question whose answer is a *set*. It is
+`kit::Picker`'s sibling and shares its parts: the same trigger, the same panel, the same optional
+search field, the same `MenuId` discipline that keeps one menu in the window open at a time. Two
+things differ, and they are the whole component:
+
+- **A row toggles instead of answering.** `on_pick(index)` reports which row was clicked and
+  nothing closes the list, so narrowing to three values is three clicks rather than three reopens.
+  The caller decides what a tick means; the control keeps no selection of its own.
+- **Closed, it says what is ticked** — the values comma-separated in the list's own order, elided
+  to `kit::menu::MULTI_WIDTH` with the whole list on the hover, through `kit::elided`, so the
+  truncated label and the tooltip are one string and cannot disagree. Nothing ticked reads as the
+  placeholder, which for a filter is what an empty selection *shows* (`all states`) rather than
+  the word "none".
+
+**The selection goes in as well as out.** `.selected(indices)` is where the current set is handed
+back on every frame — indices into the `items` the caller passed. That is what makes one control
+serve both a filter, preselected with what is narrowing the screen, and an edit form, preselected
+with the record's own values.
+
+**Order is `multi_order(len, selected, query)`.** With the field empty the ticked rows are drawn
+first, because a selection scattered down a long list takes reading to recover. Once something is
+typed nothing is pinned: the list is the search result in the search's own order, since a ticked
+row lifted above better matches reads as a match that it is not. A list with **no** search field —
+the states filter below — has no query to be empty and is never reordered, so four fixed rows do
+not jump under the pointer as they are ticked.
+
+A row may carry a `dot` — one status colour from `.dots(...)`, the same 7px dot `kit::toggle_pill`
+wears — for a list whose values are read by colour before they are read by name.
+
+**Its first use is the Teams toolbar's states filter** (`crates/ubiq/src/ui/teams/mod.rs`,
+`MenuId::TeamsBuckets`), which replaced a row of four `toggle_pill`s: the buckets are the one
+filter on that row where several values are on at once. The row's other two are left as they were,
+because neither is a set — the session row is a choice of one, and `Hide done` is a toggle. The
+style reference draws a specimen (`crates/ubiq/src/ui/sink/style.rs`), preselected, as every kit
+primitive must.
 
 ## The file picker
 
@@ -183,6 +221,9 @@ A compound lives either in the kit or in the screen that uses it, never in both:
   its trigger sits at the bottom of a conversation, so the panel never breaks if another screen
   hangs it off a titlebar. It is exported with the kit's other reusable parts, and `tech/ui-and-design.md`
   documents the shape conventions it obeys.
+- **`kit::MultiPicker` is the same rule one step further.** It shares the dropdown's parts with
+  `kit::Picker` rather than forking a copy of them, and knows nothing about what a bucket, a label
+  or a role is — it is handed strings, indices and colours, and hands an index back.
 - **The activity bar is a conversation's, not the kit's.** It knows the conversation's vocabulary —
   `status_label`, `subagent_count_label`, the todo count — and that is exactly what keeps it out
   of the kit, which has no vocabulary. The chat surface gets it by embedding the conversation
@@ -191,7 +232,7 @@ A compound lives either in the kit or in the screen that uses it, never in both:
 The gap between the two is the rule: a component earns the kit when the second screen wants the
 *shape*; it stays in the screen when the second screen wants the *meaning*.
 
-**Four of the seven compounds above sit on the meaning side, and none of them is in the kit.** The
+**Four of the eight compounds above sit on the meaning side, and none of them is in the kit.** The
 viewer knows what a Markdown file is, the diff renderer knows what a hunk is, the capabilities panel
 knows what ACP advertises and the tools panel knows what a runnable tool is — so each lives in
 `crates/ubiq/src/ui/` under its own name and is called by the two screens that want it, rather than

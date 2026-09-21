@@ -129,13 +129,6 @@ fn header(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
             theme::text_muted(),
         ))
         .child(div().flex_1().min_w(px(0.)))
-        .child(
-            mono(
-                "drag a tab onto another column to group \u{b7} drop right to open a new one",
-                theme::text_faint(),
-            )
-            .text_size(theme::font(theme::Family::Conversation, theme::Role::Label)),
-        )
         .children(close_all(app, cx))
         .child(new_agent(cx))
         .into_any_element()

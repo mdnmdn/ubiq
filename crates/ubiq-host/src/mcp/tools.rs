@@ -12,6 +12,11 @@
 //! does for a window, and a harness waiting on a round trip through that thread would be a
 //! harness a busy coordinator can stall.
 //!
+//! **`ubiq-ask` is the one tool that waits.** `ask_user_question` parks until a person answers
+//! it, so it is never called on the listener's thread: [`super::server::handle`] moves the whole
+//! request onto a thread of its own and calls in here from there (`D138`). Everything else in
+//! this file still answers where it always did.
+//!
 //! An `Err` here is not a JSON-RPC error: the caller turns it into MCP's in-band `isError`, which
 //! is what a model can read and correct. See [`super::server::dispatch`].
 
@@ -20,9 +25,11 @@ use ubiq_proto::bus::Voice;
 use ubiq_proto::messages::Message;
 use ubiq_proto::notifications::{Family, Level, NotificationRequest};
 
-use super::catalogue::{MANAGE_UBIQ_TASKS, PROJECT_INFO, TEST, UBIQ_HELP, UBIQ_KB, USE_TASK};
+use super::catalogue::{
+    MANAGE_UBIQ_TASKS, PROJECT_INFO, TEST, UBIQ_ASK, UBIQ_HELP, UBIQ_KB, USE_TASK,
+};
 use super::registry::AgentFacts;
-use super::{HelpReach, KbReach, WorkAccess};
+use super::{AskReach, HelpReach, KbReach, WorkAccess};
 
 /// Call one tool. `server` and `tool` have already been matched against the catalogue's server;
 /// the tool has not, so an unknown one ends here as the in-band error a model sees.
@@ -36,6 +43,7 @@ pub fn call(
     work: Option<&WorkAccess>,
     kb: Option<&KbReach>,
     help: Option<&HelpReach>,
+    ask: Option<&AskReach>,
 ) -> Result<Value, String> {
     match (server, tool) {
         (TEST, "send_notification") => send_notification(arguments, facts, voice),
@@ -61,6 +69,14 @@ pub fn call(
             let reach =
                 help.ok_or_else(|| "this host has no help server for agents to reach".to_string())?;
             super::help::call(tool, arguments, reach)
+        }
+        // The one arm that waits for a person. It is reached on a thread
+        // [`super::server::handle`] spawned for it and never on the listener's own (`D138`); a
+        // build with no reach refuses here instead, which costs nothing and blocks nobody.
+        (UBIQ_ASK, _) => {
+            let reach =
+                ask.ok_or_else(|| "this host cannot put a question to the user".to_string())?;
+            super::ask::call(tool, arguments, facts, voice, reach)
         }
         _ => Err(format!("unknown tool: {server}/{tool}")),
     }

@@ -43,7 +43,7 @@ use ubiq_proto::ids::TaskId;
 use ubiq_proto::work::{Status, TaskRecord};
 
 use crate::app::AppState;
-use crate::state::{NewAgentSurface, work};
+use crate::state::work;
 use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::eid;
@@ -240,14 +240,15 @@ fn toolbar(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl 
             board.popup,
             cx.listener(|this, _, _, cx| this.toggle_board_popup(cx)),
         ))
+        // Straight to the form, the way Teams' own `+ Add agent` goes — the `+` menu's second row
+        // offers conversations to attach to a surface, and this board draws no agent to attach one
+        // to. The aim is `NewAgentSurface::Agents`, so what it starts is revealed into the agents
+        // columns and nothing about the board changes.
         .child(ghost_button(
             "board-new-agent",
             Some(IconName::Plus),
             "New agent",
-            cx.listener(|this, event: &gpui::ClickEvent, _, cx| {
-                let at = event.position();
-                this.open_new_agent_menu((at.x.into(), at.y.into()), NewAgentSurface::Agents, cx);
-            }),
+            cx.listener(|this, _, window, cx| this.open_new_agent_direct(window, cx)),
         ))
         .child(primary_button(
             "board-new-task",

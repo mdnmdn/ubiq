@@ -10,6 +10,7 @@
 
 pub mod a2ui;
 pub mod agents;
+pub mod ask;
 pub mod board;
 pub mod chat;
 pub mod clone;
@@ -54,6 +55,7 @@ pub mod work;
 pub mod workbench;
 
 pub use agents::{AgentsView, BenchRow, Column};
+pub use ask::{AskDialog, AskDraft, AskRecord, AskStage};
 pub use board::{BoardState, Field, TaskForm};
 pub use chat::{AttachChoices, ChatPick, ChatPicks, ChatTab, attach_choices, chat_picks};
 pub use conversation::{ConvBlock, Conversation, Pending, Run};
@@ -97,7 +99,7 @@ pub use ui_id::{MarkRect, MarkRegistry, UiId, UiMark};
 pub use windows::{ProjectGroups, WindowRegistry, WindowSlot};
 pub use work::WorkProjection;
 pub use workbench::{
-    AllProjectsState, FileDialog, HarnessChoice, HelpTargeting, MenuId, NewAgentMenu,
-    NewAgentSurface, NewPaneRow, NewProjectRow, OverflowRow, ProjectSettings, ProjectSettingsMode,
-    RailMode, RowAction, SizePrompt, ThemeEditor, ThemePrompt, WorkbenchState,
+    AllProjectsState, AttachmentPreview, FileDialog, HarnessChoice, HelpTargeting, MenuId,
+    NewAgentMenu, NewAgentSurface, NewPaneRow, NewProjectRow, OverflowRow, ProjectSettings,
+    ProjectSettingsMode, RailMode, RowAction, SizePrompt, ThemeEditor, ThemePrompt, WorkbenchState,
 };

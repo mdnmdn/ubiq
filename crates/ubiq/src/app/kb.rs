@@ -163,7 +163,8 @@ impl AppState {
         // `ImageEdit` — annotating a knowledge-base picture would need `WriteKbFile` to carry
         // bytes, which it does not yet, so the toggle that offers annotation tools is never drawn
         // here and Save is never asked to write back what it cannot send.
-        if crate::state::editor::ViewerKind::of(&key.path) == crate::state::editor::ViewerKind::Image
+        if crate::state::editor::ViewerKind::of(&key.path)
+            == crate::state::editor::ViewerKind::Image
         {
             if let Some(doc) = self
                 .projects

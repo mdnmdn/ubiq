@@ -30,11 +30,11 @@ use ubiq_proto::notifications::{Family, NotificationRequest, UbiqLink};
 use crate::state::sink::{CHOICES, FACETS, MENU_ITEMS, SinkModal};
 use crate::theme;
 use crate::ui::kit::{
-    ContextItem, Picker, PickerStyle, RIBBON_SIZE, RibbonCorner, Tab, badge, card, check_box,
-    choice_pill, colour_picker, context_panel, disclosure, file_row, filter_bar, ghost_button,
-    hint_row, icon_button, kind_icon, label_hint, meter, mono, panel_header, pill, primary_button,
-    progress_ring, progress_ring_pair, removable_tag, ribbon, row_font, section_label, slab,
-    state_chip, status_dot, stepper, tab_strip, toggle_pill, view_switch,
+    ContextItem, MultiPicker, Picker, PickerStyle, RIBBON_SIZE, RibbonCorner, Tab, badge, card,
+    check_box, choice_pill, colour_picker, context_panel, disclosure, file_row, filter_bar,
+    ghost_button, hint_row, icon_button, kind_icon, label_hint, meter, mono, panel_header, pill,
+    primary_button, progress_ring, progress_ring_pair, removable_tag, ribbon, row_font,
+    section_label, slab, state_chip, status_dot, stepper, tab_strip, tag, toggle_pill, view_switch,
 };
 use crate::ui::kit::{Slider, UbiqIcon};
 use crate::ui::{handler, hsv, indexed};
@@ -450,6 +450,25 @@ fn controls(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                 .on_dismiss(handler(&cx.entity(), |this, _, cx| this.close_menu(cx)))
                 .into_any_element(),
         ),
+        // The picker's multi-select sibling, drawn beside it so the difference is the thing you
+        // see: the trigger says every value that is ticked rather than the one that was picked,
+        // and clicking a row leaves the list down. It opens with two already on, which is what a
+        // form loading a record hands it.
+        labelled(
+            "MultiPicker",
+            MultiPicker::new("sink-multi", "nothing chosen")
+                .items(MENU_ITEMS)
+                .selected(sink.multi.clone())
+                .open(app.workbench.open_menu == Some(MenuId::SinkMulti))
+                .on_toggle(handler(&cx.entity(), |this, _, cx| {
+                    this.open_menu(MenuId::SinkMulti, cx)
+                }))
+                .on_pick(indexed(&cx.entity(), |this, index, _, cx| {
+                    this.toggle_sink_multi(index, cx)
+                }))
+                .on_dismiss(handler(&cx.entity(), |this, _, cx| this.close_menu(cx)))
+                .into_any_element(),
+        ),
         // The same picker in the shape a form wants: a bordered box with the chevron at its right
         // edge, so a closed trigger reads as something to click rather than as a line of text.
         // Drawn closed — the list it would open is the one above.
@@ -534,47 +553,86 @@ fn controls(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
 
     // The three readings of the `fill`/`edge`/`colour` triple, side by side, because the triple is
     // the whole of what a call site chooses about a tag.
-    let tags = row(vec![labelled(
-        "removable_tag",
-        div()
-            .flex()
-            .flex_wrap()
-            .gap_1()
-            .child(removable_tag(
-                "sink-tag-neutral",
-                "sink-tag-neutral-remove",
-                "neutral",
-                "A tag in the neutral reading",
-                theme::surface(),
-                theme::border(),
-                theme::text_muted(),
-                |_, _, _| {},
-                |_, _, _| {},
-            ))
-            .child(removable_tag(
-                "sink-tag-warning",
-                "sink-tag-warning-remove",
-                "warning",
-                "A tag in the warning reading",
-                theme::warning_soft(),
-                theme::warning(),
-                theme::warning(),
-                |_, _, _| {},
-                |_, _, _| {},
-            ))
-            .child(removable_tag(
-                "sink-tag-danger",
-                "sink-tag-danger-remove",
-                "danger",
-                "A tag in the danger reading",
-                theme::danger_soft(),
-                theme::danger(),
-                theme::danger(),
-                |_, _, _| {},
-                |_, _, _| {},
-            ))
-            .into_any_element(),
-    )]);
+    let tags = row(vec![
+        // The same three readings without the dismiss: what an attachment looks like once the
+        // turn carrying it has been sent and taking it back off is no longer on offer.
+        labelled(
+            "tag",
+            div()
+                .flex()
+                .flex_wrap()
+                .gap_1()
+                .child(tag(
+                    "sink-plain-tag-neutral",
+                    "neutral",
+                    "A sent tag in the neutral reading",
+                    theme::surface(),
+                    theme::border(),
+                    theme::text_muted(),
+                    |_, _, _| {},
+                ))
+                .child(tag(
+                    "sink-plain-tag-warning",
+                    "warning",
+                    "A sent tag in the warning reading",
+                    theme::warning_soft(),
+                    theme::warning(),
+                    theme::warning(),
+                    |_, _, _| {},
+                ))
+                .child(tag(
+                    "sink-plain-tag-danger",
+                    "danger",
+                    "A sent tag in the danger reading",
+                    theme::danger_soft(),
+                    theme::danger(),
+                    theme::danger(),
+                    |_, _, _| {},
+                ))
+                .into_any_element(),
+        ),
+        labelled(
+            "removable_tag",
+            div()
+                .flex()
+                .flex_wrap()
+                .gap_1()
+                .child(removable_tag(
+                    "sink-tag-neutral",
+                    "sink-tag-neutral-remove",
+                    "neutral",
+                    "A tag in the neutral reading",
+                    theme::surface(),
+                    theme::border(),
+                    theme::text_muted(),
+                    |_, _, _| {},
+                    |_, _, _| {},
+                ))
+                .child(removable_tag(
+                    "sink-tag-warning",
+                    "sink-tag-warning-remove",
+                    "warning",
+                    "A tag in the warning reading",
+                    theme::warning_soft(),
+                    theme::warning(),
+                    theme::warning(),
+                    |_, _, _| {},
+                    |_, _, _| {},
+                ))
+                .child(removable_tag(
+                    "sink-tag-danger",
+                    "sink-tag-danger-remove",
+                    "danger",
+                    "A tag in the danger reading",
+                    theme::danger_soft(),
+                    theme::danger(),
+                    theme::danger(),
+                    |_, _, _| {},
+                    |_, _, _| {},
+                ))
+                .into_any_element(),
+        ),
+    ]);
 
     let reports = row(vec![
         labelled(

@@ -64,6 +64,11 @@ pub enum Layer {
     Clone,
     /// The feedback modal.
     Feedback,
+    /// An agent's question to the user. Above the feedback modal on the same terms — it is raised
+    /// from the transcript, and from the host at any moment — and it is the one modal that is
+    /// never raised over another: an ask arriving while anything is up leaves a notification and
+    /// a transcript entry instead.
+    Ask,
     /// The "All projects" modal.
     AllProjects,
     /// The file question — new, rename, save-as and the rest.

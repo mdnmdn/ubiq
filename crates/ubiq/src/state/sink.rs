@@ -1323,6 +1323,10 @@ pub struct SinkState {
     pub disclosed: bool,
     /// Which row of the demo menu was picked.
     pub picked: usize,
+    /// Which rows of the demo multi-select are ticked. Indices into [`MENU_ITEMS`], and the
+    /// specimen's preselection: the page opens with two of them already on, because a control
+    /// that only ever starts empty never shows the state a form loads it in.
+    pub multi: Vec<usize>,
     /// The style reference's file-list toggle: tree when true, list when false.
     pub files_tree: bool,
     /// The file picker page: how the next dialog is asked for, and what the last one answered.
@@ -1357,6 +1361,7 @@ impl Default for SinkState {
             level: 60,
             disclosed: true,
             picked: 0,
+            multi: vec![0, 2],
             files_tree: true,
             picker: PickerDemo::default(),
             settings: SettingsDemo::default(),

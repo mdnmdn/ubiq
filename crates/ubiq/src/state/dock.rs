@@ -358,21 +358,18 @@ impl PanelKind {
     pub fn is_drawn(&self, at: Visibility) -> bool {
         match self {
             PanelKind::Explorer => at.is_ide,
-            // A conversation is furniture in three modes now, not one: the IDE's chat, the board's
-            // (a task is discussed with the agent doing it) and the Teams screen's. It still wants
-            // a project everywhere — a conversation about nothing is a fiction.
+            // **A conversation is furniture on every screen about a project**, not a list of
+            // three: the agents are how work gets done in all of them, and the right region is
+            // where they stay. Agents is the exception and the reason is the screen itself — the
+            // columns *are* the conversation there, and a chat panel beside them is the same
+            // thing twice. Control and the sink are not about a project at all. It still wants a
+            // project everywhere it is drawn — a conversation about nothing is a fiction.
             PanelKind::Chat(_) => {
                 at.has_project
-                    && (at.is_ide
-                        || matches!(
-                            at.rail_mode,
-                            Some(
-                                RailMode::Tasks
-                                    | RailMode::Teams
-                                    | RailMode::TeamsAll
-                                    | RailMode::TeamsOld
-                            )
-                        ))
+                    && !matches!(
+                        at.rail_mode,
+                        Some(RailMode::Agents | RailMode::Control | RailMode::Sink)
+                    )
             }
             PanelKind::Terminal(_) => at.pane_on_screen,
             PanelKind::Logs => true,
@@ -428,17 +425,25 @@ impl PanelKind {
 
     /// Whether this panel belongs to a rail mode rather than to the window.
     ///
-    /// Git's four, the knowledge base's explorer, the board's task and the agents list travel with
-    /// their own mode's saved
+    /// Git's four, the IDE's file explorer, the knowledge base's explorer, the board's task and
+    /// the agents list travel with their own mode's saved
     /// arrangement. Putting one back into another mode's tree would open that mode's edges for a
     /// panel it hides — so leftover restore skips them, and a first visit to the mode asks for
     /// them again. A second mode with side panels of its own is a name in this list, not a second
     /// branch in the restore.
+    ///
+    /// **The IDE's explorer is one of them**, even though [`Self::is_drawn`] already hides it
+    /// outside IDE: it is that mode's left-hand furniture (`AppState::queue_mode_furniture`), so a
+    /// leftover restore was leaking it into Git's, the knowledge base's and the agents' left
+    /// regions and then into their blobs.
     pub fn is_mode_owned(&self) -> bool {
         self.is_git()
             || matches!(
                 self,
-                PanelKind::KbExplorer | PanelKind::Task | PanelKind::AgentsExplorer
+                PanelKind::Explorer
+                    | PanelKind::KbExplorer
+                    | PanelKind::Task
+                    | PanelKind::AgentsExplorer
             )
     }
 

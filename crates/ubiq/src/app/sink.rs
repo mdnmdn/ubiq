@@ -220,6 +220,19 @@ impl AppState {
         cx.notify();
     }
 
+    /// The style reference's demo multi-select. It ticks and unticks and leaves the menu down,
+    /// because that is the behaviour being demonstrated — the opposite of `pick_sink_menu`, and
+    /// the whole difference between the two controls.
+    pub fn toggle_sink_multi(&mut self, index: usize, cx: &mut Context<Self>) {
+        match self.sink.multi.iter().position(|ix| *ix == index) {
+            Some(at) => {
+                self.sink.multi.remove(at);
+            }
+            None => self.sink.multi.push(index),
+        }
+        cx.notify();
+    }
+
     /// The A2UI page's example picker. Choosing one replaces the editor's text, and the surface is
     /// rebuilt from it — the payload is still the only place a drawn surface comes from.
     pub fn pick_a2ui_example(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {

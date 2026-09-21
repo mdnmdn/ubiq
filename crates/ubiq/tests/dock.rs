@@ -356,9 +356,11 @@ fn a_chat_tab_s_id_round_trips_through_the_payload() {
     assert_eq!(PanelKind::Chat(id).name(), PanelKind::CHAT);
 }
 
-/// The explorer and the chat leave with IDE mode; the chat also wants a project. A terminal is
-/// hidden while its project is not the one on screen — hidden, so it keeps its place and its
-/// harness keeps running. The console is always drawn.
+/// The explorer leaves with IDE mode. **A chat is furniture on every screen about a project** —
+/// IDE, Git, Kb, Tasks and Teams — and leaves only where the screen already is the conversation
+/// (Agents) or is about no project at all (Control, the sink); it always wants a project. A
+/// terminal is hidden while its project is not the one on screen — hidden, so it keeps its place
+/// and its harness keeps running. The console is always drawn.
 #[test]
 fn what_is_drawn_follows_the_mode_and_the_project() {
     let pane = PanelKind::Terminal(PaneId::generate());
@@ -373,6 +375,8 @@ fn what_is_drawn_follows_the_mode_and_the_project() {
     }));
 
     let chat = PanelKind::Chat(ChatId::generate());
+    // IDE is the one screen `settle_visibility` names with no mode at all — `rail_mode` is `None`
+    // exactly when `is_ide` is set — so it is said that way here rather than as a mode.
     assert!(chat.is_drawn(Visibility {
         is_ide: true,
         has_project: true,
@@ -382,10 +386,47 @@ fn what_is_drawn_follows_the_mode_and_the_project() {
         is_ide: true,
         ..nothing()
     }));
-    assert!(!chat.is_drawn(Visibility {
-        has_project: true,
-        ..nothing()
-    }));
+    for mode in [
+        RailMode::Git,
+        RailMode::Kb,
+        RailMode::Tasks,
+        RailMode::Teams,
+    ] {
+        assert!(
+            chat.is_drawn(Visibility {
+                has_project: true,
+                rail_mode: Some(mode),
+                ..nothing()
+            }),
+            "a chat is furniture in {mode:?}"
+        );
+    }
+    for mode in [RailMode::Agents, RailMode::Control, RailMode::Sink] {
+        assert!(
+            !chat.is_drawn(Visibility {
+                has_project: true,
+                rail_mode: Some(mode),
+                ..nothing()
+            }),
+            "a chat is not drawn in {mode:?}: the columns are the conversation there, and Control \
+             and the sink are about no project"
+        );
+    }
+    // A conversation about nothing is a fiction, in every mode that would otherwise draw one.
+    for mode in [
+        RailMode::Git,
+        RailMode::Kb,
+        RailMode::Tasks,
+        RailMode::Teams,
+    ] {
+        assert!(
+            !chat.is_drawn(Visibility {
+                rail_mode: Some(mode),
+                ..nothing()
+            }),
+            "a chat wants a project in {mode:?}"
+        );
+    }
 
     assert!(pane.is_drawn(Visibility {
         pane_on_screen: true,
@@ -452,12 +493,15 @@ fn what_is_drawn_follows_the_mode_and_the_project() {
 
 /// A panel that belongs to a rail mode rather than to the window is never put back into another
 /// mode's tree by the leftover restore — it would open that mode's edges for a panel it hides.
+/// The IDE's file explorer is one of them: it is that mode's left-hand furniture, drawn nowhere
+/// else, so it travels in IDE's own blob and in nothing else's.
 #[test]
 fn a_mode_s_own_panels_say_so() {
     for kind in every_kind() {
         let owned = matches!(
             kind,
-            PanelKind::GitRefs
+            PanelKind::Explorer
+                | PanelKind::GitRefs
                 | PanelKind::GitChanges
                 | PanelKind::GitHistory
                 | PanelKind::GitDiff

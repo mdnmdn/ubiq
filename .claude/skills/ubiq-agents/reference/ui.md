@@ -53,7 +53,9 @@ into — an index and nothing else.
 | `needs_you_strip()`, `waiting_count()` | The answerable strip, and its count badge above one request |
 | `footer()`, `delegate_spend_tip()` | The run pill, the context ring, `ctx`, `tot`, the cache ring — and what those readouts mean on a delegate's transcript |
 | `stop_button()`, `action_button()` | The square Stop, and the Send/Enqueue pair |
-| `attachment_tags()` | The wrapping tag row, on `kit::removable_tag` |
+| `attachment_tags()`, `attachment_face()` | The composer's wrapping tag row, on `kit::removable_tag`, and the one reading of a tag's label, tooltip and size colour that it and the sent row both use |
+| `user_turn()`, `sent_attachment_tags()`, `attachment_preview()` | A sent turn, the chips under its prose on `kit::tag` (no `×` — the harness has the file), and the `kit::popover` a chip opens over the image viewer |
+| `paste_into_composer()` (in `app/picker.rs`) | `⌘V` in the field: a copied file attaches by path, a copied picture is written under `.ubiq/pasted/` and attached, a text board is handed back to the field |
 | `config_choices()`, `ConfigRow` | The launch-time model / thinking / mode pickers |
 | `lifecycle()`, `lifecycle_colour()`, `lifecycle_pulses()`, `lifecycle_dot()`, `lifecycle_menu_enabled()`, `lifecycle_mark()`, `lifecycle_menu()`, `LIFECYCLE_ROWS` | The state dot and the three-dots menu — the reading, the mapping **and the element** are all **in this one module regardless of caller**. `lifecycle_colour`, `lifecycle_pulses` and `lifecycle_dot` are `pub` because the agents column and the dock's tab strip both draw the dot |
 | `subagent_tip()` | A delegate row's hover |

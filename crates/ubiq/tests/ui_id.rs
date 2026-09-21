@@ -439,12 +439,7 @@ impl gpui::Render for FlexContainer {
             .flex()
             .child(div().w(px(50.)).h(px(40.)).ui_id(UiId::new("test.flex.a")))
             .child(div().w(px(60.)).h(px(40.)).ui_id(UiId::new("test.flex.b")))
-            .child(
-                div()
-                    .flex_1()
-                    .h(px(40.))
-                    .ui_id(UiId::new("test.flex.c")),
-            );
+            .child(div().flex_1().h(px(40.)).ui_id(UiId::new("test.flex.c")));
 
         if self.marked {
             container

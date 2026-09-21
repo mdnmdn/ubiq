@@ -7,8 +7,8 @@
 use std::rc::Rc;
 
 use gpui::{
-    Anchor, AnyElement, App, ElementId, Entity, FontWeight, InteractiveElement, IntoElement,
-    MouseButton, ParentElement, Pixels, Point, RenderOnce, SharedString,
+    Anchor, AnyElement, App, Div, ElementId, Entity, FontWeight, InteractiveElement, IntoElement,
+    MouseButton, ParentElement, Pixels, Point, RenderOnce, Rgba, SharedString, Stateful,
     StatefulInteractiveElement, Styled, Window, anchored, deferred, div, px,
 };
 use gpui_component::input::{Input, InputState};
@@ -16,7 +16,7 @@ use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use crate::theme;
 use crate::theme::{Family, Role};
-use crate::ui::kit::{Action, IndexedAction, field};
+use crate::ui::kit::{Action, IndexedAction, elided, field};
 
 /// Where a dropdown is painted: above the shell, below a modal.
 pub const MENU_LAYER: usize = 1;
@@ -214,61 +214,15 @@ impl RenderOnce for Picker {
 
         let panel_id = ElementId::Name(format!("{id:?}-menu").into());
 
-        let mut trigger = div()
-            .id(id)
-            .relative()
-            .h(px(26.))
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap_2()
-            .text_size(theme::font(Family::Chrome, Role::Body))
-            .text_color(theme::text())
-            .cursor_pointer()
-            .hover(|this| this.bg(theme::hover()));
-
-        match style {
-            PickerStyle::Chip => {
-                trigger = trigger
-                    .px_2()
-                    .bg(theme::surface())
-                    .border_l(px(theme::accent_edge()))
-                    .border_color(theme::border())
-                    .text_size(theme::font(Family::Chrome, Role::Body));
-            }
-            PickerStyle::Field => {
-                trigger = trigger
-                    .h(px(28.))
-                    .w_full()
-                    .px_2()
-                    .justify_between()
-                    .bg(theme::surface())
-                    .border_l(px(theme::accent_edge()))
-                    .border_color(theme::border())
-                    .text_size(theme::font(Family::Chrome, Role::Body));
-            }
-            PickerStyle::Plain => trigger = trigger.px_2(),
-        }
-
-        if let Some(icon) = icon {
-            trigger = trigger.child(
-                Icon::new(icon)
-                    .with_size(Size::XSmall)
-                    .text_color(theme::text_muted()),
-            );
-        }
-
         // The value gives way rather than pushing the chevron off the end: a field-shaped trigger
         // is one line high, and a long model id is what would otherwise widen the whole column.
         let value = match style {
             PickerStyle::Field => div().flex_1().min_w(px(0.)).truncate().child(label),
             _ => div().child(label),
         };
-        trigger = trigger.child(value).child(
-            Icon::new(IconName::ChevronDown)
-                .with_size(Size::XSmall)
-                .text_color(theme::text_faint()),
-        );
+        let mut trigger = trigger_shell(id, style, icon, on_toggle)
+            .child(value)
+            .child(chevron());
 
         if let Some(text) = tooltip {
             trigger = trigger.tooltip(move |window, cx| {
@@ -276,16 +230,24 @@ impl RenderOnce for Picker {
             });
         }
 
-        if let Some(toggle) = on_toggle.clone() {
-            // Opening rather than toggling: the panel's own outside-click dismissal would
-            // otherwise race this click into reopening a menu the user meant to close.
-            trigger = trigger.on_click(move |_, window, cx| toggle(window, cx));
-        }
-
         if open {
+            let rows = items
+                .into_iter()
+                .enumerate()
+                .map(|(ix, label)| PanelRow {
+                    index: ix,
+                    label,
+                    // A picker's own current value is never the row it disables, whatever the
+                    // caller passed — the one row a picker cannot let you leave unpicked is the
+                    // one already picked.
+                    selected: selected == Some(ix),
+                    disabled: selected != Some(ix) && disabled.contains(&ix),
+                    separator: separators.contains(&ix),
+                    dot: None,
+                })
+                .collect();
             trigger = trigger.child(menu_panel(
-                panel_id, anchor, items, disabled, separators, selected, on_pick, on_dismiss,
-                search, layer,
+                panel_id, anchor, rows, on_pick, on_dismiss, search, layer,
             ));
         }
 
@@ -293,25 +255,103 @@ impl RenderOnce for Picker {
     }
 }
 
-// Nine render inputs, each one a distinct thing the panel draws or answers. A struct to carry
-// them would be ceremony around a private helper with exactly one caller, which builds them
-// inline anyway.
-#[allow(clippy::too_many_arguments)]
+/// The trigger every dropdown in the window is drawn on: the box, its hover, its style and the
+/// click that opens the list. What goes *inside* it — a value, a comma-separated summary — is the
+/// caller's, appended after this returns.
+fn trigger_shell(
+    id: ElementId,
+    style: PickerStyle,
+    icon: Option<IconName>,
+    on_toggle: Option<Action>,
+) -> Stateful<Div> {
+    let mut trigger = div()
+        .id(id)
+        .relative()
+        .h(px(26.))
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap_2()
+        .text_size(theme::font(Family::Chrome, Role::Body))
+        .text_color(theme::text())
+        .cursor_pointer()
+        .hover(|this| this.bg(theme::hover()));
+
+    match style {
+        PickerStyle::Chip => {
+            trigger = trigger
+                .px_2()
+                .bg(theme::surface())
+                .border_l(px(theme::accent_edge()))
+                .border_color(theme::border());
+        }
+        PickerStyle::Field => {
+            trigger = trigger
+                .h(px(28.))
+                .w_full()
+                .px_2()
+                .justify_between()
+                .bg(theme::surface())
+                .border_l(px(theme::accent_edge()))
+                .border_color(theme::border());
+        }
+        PickerStyle::Plain => trigger = trigger.px_2(),
+    }
+
+    if let Some(icon) = icon {
+        trigger = trigger.child(
+            Icon::new(icon)
+                .with_size(Size::XSmall)
+                .text_color(theme::text_muted()),
+        );
+    }
+
+    if let Some(toggle) = on_toggle {
+        // Opening rather than toggling: the panel's own outside-click dismissal would
+        // otherwise race this click into reopening a menu the user meant to close.
+        trigger = trigger.on_click(move |_, window, cx| toggle(window, cx));
+    }
+
+    trigger
+}
+
+fn chevron() -> Icon {
+    Icon::new(IconName::ChevronDown)
+        .with_size(Size::XSmall)
+        .text_color(theme::text_faint())
+}
+
+/// One row a dropdown draws, already resolved: the index the caller knows it by, what it says,
+/// and how it is dressed.
+///
+/// **The index is the row's place in the caller's `items`, not its place on screen.** A
+/// [`MultiPicker`] draws its selected rows first, and this is what keeps `on_pick` answering in
+/// the numbering the caller handed in.
+struct PanelRow {
+    index: usize,
+    label: SharedString,
+    selected: bool,
+    disabled: bool,
+    separator: bool,
+    /// A filled dot before the label, for a list whose values carry a status colour of their own
+    /// — the states filter, where the colour is half of what the row says. The same 7px dot
+    /// [`crate::ui::kit::toggle_pill`] wears, so a filter moved off a pill row into a menu reads
+    /// the same way.
+    dot: Option<Rgba>,
+}
+
 fn menu_panel(
     id: ElementId,
     anchor: Anchor,
-    items: Vec<SharedString>,
-    disabled: Vec<usize>,
-    separators: Vec<usize>,
-    selected: Option<usize>,
+    rows: Vec<PanelRow>,
     on_pick: Option<IndexedAction>,
     on_dismiss: Option<Action>,
     search: Option<(Entity<InputState>, bool)>,
     layer: usize,
 ) -> impl IntoElement {
-    // The caller has already filtered `items` — an empty result is said, once, rather than left
+    // The caller has already filtered its items — an empty result is said, once, rather than left
     // as a panel with nothing in it.
-    let rows: Vec<AnyElement> = if items.is_empty() {
+    let rows: Vec<AnyElement> = if rows.is_empty() {
         vec![
             div()
                 .h(px(28.))
@@ -324,11 +364,10 @@ fn menu_panel(
                 .into_any_element(),
         ]
     } else {
-        items
-            .into_iter()
-            .enumerate()
-            .map(|(ix, item)| {
-                if separators.contains(&ix) {
+        rows.into_iter()
+            .map(|item| {
+                let ix = item.index;
+                if item.separator {
                     return div()
                         .id(("menu-separator", ix))
                         .my_1()
@@ -337,11 +376,8 @@ fn menu_panel(
                         .bg(theme::border())
                         .into_any_element();
                 }
-                let is_selected = selected == Some(ix);
-                // A picker's own current value is never the row it disables, whatever the caller
-                // passed — the one row a picker cannot let you leave unpicked is the one already
-                // picked.
-                let is_disabled = !is_selected && disabled.contains(&ix);
+                let is_selected = item.selected;
+                let is_disabled = item.disabled;
                 let pick = on_pick.clone();
                 let mut row = div()
                     .id(("menu-row", ix))
@@ -368,7 +404,11 @@ fn menu_panel(
                             div().into_any_element()
                         },
                     ))
-                    .child(item);
+                    .children(
+                        item.dot
+                            .map(|colour| div().size(px(7.)).flex_none().rounded_full().bg(colour)),
+                    )
+                    .child(item.label);
                 if !is_disabled {
                     row = row
                         .cursor_pointer()
@@ -438,6 +478,249 @@ fn menu_panel(
             ),
     )
     .priority(layer)
+}
+
+/// How wide a closed [`MultiPicker`] lets its summary grow before eliding it, at `ui_scale = 1.0`.
+///
+/// A chip on a toolbar has no width of its own — it is as wide as what it says — so a control
+/// whose label is "every value you ticked" needs a ceiling, or four choices push the rest of the
+/// row off the screen. `PickerStyle::Field` ignores it and fills its column instead.
+pub const MULTI_WIDTH: f32 = 170.0;
+
+/// The [`Picker`]'s multi-select sibling: the same trigger, the same list, the same `MenuId`
+/// discipline — but a row **toggles** instead of answering, and the menu stays down until it is
+/// dismissed.
+///
+/// Closed, it says what is ticked: the values comma-separated, elided to [`MULTI_WIDTH`] with the
+/// whole list on the hover (`kit::elided`), or the placeholder when nothing is. The selection goes
+/// **in** as well as out — `selected` is a set of indices into `items`, so a filter hands it what
+/// is currently narrowing the screen and a form hands it what the record already holds, and the
+/// control is the same either way.
+///
+/// It owns no state. `on_pick(index)` is called with the caller's own index and the caller decides
+/// what ticking means; nothing here closes the menu.
+#[derive(IntoElement)]
+pub struct MultiPicker {
+    id: ElementId,
+    icon: Option<IconName>,
+    /// What a closed trigger says with nothing ticked. For a filter that is what an empty
+    /// selection *shows* — "all states" — rather than the word "none".
+    placeholder: SharedString,
+    items: Vec<SharedString>,
+    /// Indices into `items`, in any order: what is already ticked.
+    selected: Vec<usize>,
+    /// A status colour per row, parallel to `items`. Empty for a list whose values have none.
+    dots: Vec<Rgba>,
+    open: bool,
+    anchor: Anchor,
+    style: PickerStyle,
+    on_toggle: Option<Action>,
+    on_pick: Option<IndexedAction>,
+    on_dismiss: Option<Action>,
+    search: Option<(Entity<InputState>, bool)>,
+    layer: usize,
+}
+
+impl MultiPicker {
+    pub fn new(id: impl Into<ElementId>, placeholder: impl Into<SharedString>) -> Self {
+        Self {
+            id: id.into(),
+            icon: None,
+            placeholder: placeholder.into(),
+            items: Vec::new(),
+            selected: Vec::new(),
+            dots: Vec::new(),
+            open: false,
+            anchor: Anchor::TopLeft,
+            style: PickerStyle::Chip,
+            on_toggle: None,
+            on_pick: None,
+            on_dismiss: None,
+            search: None,
+            layer: MENU_LAYER,
+        }
+    }
+
+    pub fn icon(mut self, icon: IconName) -> Self {
+        self.icon = Some(icon);
+        self
+    }
+
+    pub fn items<S: AsRef<str>>(mut self, items: impl IntoIterator<Item = S>) -> Self {
+        self.items = items
+            .into_iter()
+            .map(|s| SharedString::from(s.as_ref().to_string()))
+            .collect();
+        self
+    }
+
+    /// What is already ticked, by index into `items`. The preselection *is* the value: nothing
+    /// here remembers a pick, so a caller that does not pass its current set back on the next
+    /// frame has an empty control.
+    pub fn selected(mut self, indices: impl IntoIterator<Item = usize>) -> Self {
+        self.selected = indices.into_iter().collect();
+        self
+    }
+
+    /// A status colour per row, in `items` order.
+    pub fn dots(mut self, dots: impl IntoIterator<Item = Rgba>) -> Self {
+        self.dots = dots.into_iter().collect();
+        self
+    }
+
+    pub fn open(mut self, open: bool) -> Self {
+        self.open = open;
+        self
+    }
+
+    pub fn anchor(mut self, anchor: Anchor) -> Self {
+        self.anchor = anchor;
+        self
+    }
+
+    pub fn style(mut self, style: PickerStyle) -> Self {
+        self.style = style;
+        self
+    }
+
+    pub fn on_toggle(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
+        self.on_toggle = Some(Rc::new(handler));
+        self
+    }
+
+    /// Called with the index of the row that was clicked, in the caller's `items` numbering —
+    /// never the row's position on screen, which the selected-first order moves.
+    pub fn on_pick(mut self, handler: impl Fn(usize, &mut Window, &mut App) + 'static) -> Self {
+        self.on_pick = Some(Rc::new(handler));
+        self
+    }
+
+    pub fn on_dismiss(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
+        self.on_dismiss = Some(Rc::new(handler));
+        self
+    }
+
+    /// Draw a filter field at the top of the panel. As with [`Picker::search`] the caller has
+    /// already narrowed `items`; the field is drawn here and the query is read back off the
+    /// buffer to decide whether the ticked rows are pinned to the top.
+    pub fn search(mut self, state: &Entity<InputState>, focused: bool) -> Self {
+        self.search = Some((state.clone(), focused));
+        self
+    }
+
+    /// Raise the list over a modal — [`Picker::above_modal`]'s reason, unchanged.
+    pub fn above_modal(mut self) -> Self {
+        self.layer = MODAL_MENU_LAYER;
+        self
+    }
+}
+
+/// What a closed multi-select says: the ticked values in `items` order, comma-separated, or the
+/// placeholder when nothing is ticked.
+///
+/// `items` order rather than the order they were ticked in — a label that reshuffles as you tick
+/// is a label nobody can read twice. Indices that name no row are dropped: the caller's selection
+/// and its list are two values and a frame can arrive holding an old one.
+pub fn multi_label(
+    items: &[SharedString],
+    selected: &[usize],
+    placeholder: &SharedString,
+) -> SharedString {
+    let picked: Vec<&str> = items
+        .iter()
+        .enumerate()
+        .filter(|(ix, _)| selected.contains(ix))
+        .map(|(_, label)| label.as_ref())
+        .collect();
+    if picked.is_empty() {
+        return placeholder.clone();
+    }
+    SharedString::from(picked.join(", "))
+}
+
+/// The order a multi-select draws its rows in: indices into the caller's `items`.
+///
+/// **Unfiltered, the ticked rows come first** — in `items` order, then everything left in `items`
+/// order — because a list whose selection is scattered down it takes reading to answer "what did I
+/// choose".
+///
+/// **Under a query, nothing is pinned.** The list is the search result in the search's own order:
+/// a ticked row lifted above better matches reads as a match that it is not, and the user typed to
+/// find something. `None` is a list with no search field at all, which has no query to be empty
+/// and keeps the order the caller chose — a short fixed list whose rows jump as they are ticked is
+/// harder to use, not easier.
+pub fn multi_order(len: usize, selected: &[usize], query: Option<&str>) -> Vec<usize> {
+    if query != Some("") {
+        return (0..len).collect();
+    }
+    let (ticked, rest): (Vec<usize>, Vec<usize>) = (0..len).partition(|ix| selected.contains(ix));
+    ticked.into_iter().chain(rest).collect()
+}
+
+impl RenderOnce for MultiPicker {
+    fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+        let MultiPicker {
+            id,
+            icon,
+            placeholder,
+            items,
+            selected,
+            dots,
+            open,
+            anchor,
+            style,
+            on_toggle,
+            on_pick,
+            on_dismiss,
+            search,
+            layer,
+        } = self;
+
+        let panel_id = ElementId::Name(format!("{id:?}-menu").into());
+        let label_id = ElementId::Name(format!("{id:?}-label").into());
+        let label = multi_label(&items, &selected, &placeholder);
+
+        // The summary elides rather than wraps, and carries itself on the hover — which is the
+        // whole list of what is ticked, said in full, exactly where a truncated one stops saying
+        // it.
+        let mut value = elided(
+            label_id,
+            label,
+            theme::text(),
+            theme::font(Family::Chrome, Role::Body),
+        );
+        if style != PickerStyle::Field {
+            value = value.max_w(px(theme::scaled(MULTI_WIDTH)));
+        }
+
+        let mut trigger = trigger_shell(id, style, icon, on_toggle)
+            .child(value)
+            .child(chevron());
+
+        if open {
+            // The query is read off the field rather than passed in: the caller has already
+            // filtered `items` with it, so asking for it twice is one more thing to get wrong.
+            let query = search
+                .as_ref()
+                .map(|(state, _)| state.read(cx).value().to_string());
+            let rows = multi_order(items.len(), &selected, query.as_deref())
+                .into_iter()
+                .map(|ix| PanelRow {
+                    index: ix,
+                    label: items[ix].clone(),
+                    selected: selected.contains(&ix),
+                    disabled: false,
+                    separator: false,
+                    dot: dots.get(ix).copied(),
+                })
+                .collect();
+            trigger = trigger.child(menu_panel(
+                panel_id, anchor, rows, on_pick, on_dismiss, search, layer,
+            ));
+        }
+
+        trigger
+    }
 }
 
 /// One row in a context menu. `enabled` is what a prepared action that has nothing behind it yet

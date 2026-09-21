@@ -60,14 +60,20 @@ impl ModeLayout {
     /// The arrangement a mode opens on when it has never been arranged.
     ///
     /// Most modes open on the centre alone: no region is furniture, and each comes back the
-    /// moment it is asked for. Git is the exception — its refs explorer and its changes panel
-    /// *are* the screen, so the left and right regions open with it (`D119`). The knowledge base
-    /// is the same claim over one side: its explorer is how a document is reached at all, and its
-    /// right is the centre's to use.
+    /// moment it is asked for (`D94`). The screens with an explorer are the exception, because
+    /// there the left region *is* how the screen is reached at all: the IDE's file tree, Git's
+    /// refs, the knowledge base's documents, the agents list. Git claims the right as well — its
+    /// changes panel and commit box are half the screen (`D119`) — and the board claims it for
+    /// the task being read.
+    ///
+    /// This is the fallback for a mode with **no entry in the map at all** — a mode that has never
+    /// been arranged. An entry that exists carries its own three flags, and those are what a
+    /// settle reads, whether or not it also carries a `layout`: a stored [`ModeLayout`] whose blob
+    /// is `None` is still the user's answer and this is not consulted for it (`G328`).
     pub fn default_for(mode: RailMode) -> Self {
         let (show_left, show_right) = match mode {
             RailMode::Git => (true, true),
-            RailMode::Kb | RailMode::Agents => (true, false),
+            RailMode::Ide | RailMode::Kb | RailMode::Agents => (true, false),
             RailMode::Tasks => (false, true),
             _ => (false, false),
         };

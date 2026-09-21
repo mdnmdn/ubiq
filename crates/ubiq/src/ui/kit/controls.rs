@@ -94,29 +94,28 @@ pub fn pill(edge: Rgba) -> Div {
         .border_color(edge)
 }
 
-/// A [`pill`] that does something when it is clicked and goes away when its `×` is — what a list
-/// of items the user put there and can take back out is drawn as.
+/// A [`pill`] that does something when it is clicked — what one item in a list the user put
+/// there is drawn as, where taking it back out is not on offer.
 ///
 /// **The colour is the caller's.** `fill` is the tag's ground, `edge` its left edge and `colour`
 /// its text and glyph, so a tag can report something about itself — a warning, a state — without
 /// this function knowing what it is reporting. Every one of them is a theme token; nothing here
 /// computes a shade.
 ///
-/// Two ids, because there are two things to click, and they are **siblings rather than nested**:
-/// the label carries the tag's own click and the dismiss carries its own, so taking a tag off
-/// never also does what clicking it does. The label is elided rather than wrapped — a tag is one
-/// line high — and `tooltip` is what says it in full, the same bargain [`elided_with`] makes.
-#[allow(clippy::too_many_arguments)]
-pub fn removable_tag(
+/// The label is elided rather than wrapped — a tag is one line high — and `tooltip` is what says
+/// it in full, the same bargain [`elided_with`] makes.
+///
+/// [`removable_tag`] is this with a dismiss beside it, built from this one rather than written
+/// twice: the two are the same object in two states of a list's life — before it is sent, and
+/// after — and a second copy of the pill is how they drift apart.
+pub fn tag(
     id: impl Into<ElementId>,
-    remove_id: impl Into<ElementId>,
     label: impl Into<SharedString>,
     tooltip: impl Into<SharedString>,
     fill: Rgba,
     edge: Rgba,
     colour: Rgba,
     on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-    on_remove: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Div {
     let tip: SharedString = tooltip.into();
 
@@ -141,23 +140,43 @@ pub fn removable_tag(
                 })
                 .on_click(on_click),
         )
-        .child(
-            div()
-                .id(remove_id)
-                .size(px(16.))
-                .flex()
-                .flex_none()
-                .items_center()
-                .justify_center()
-                .cursor_pointer()
-                .hover(|this| this.bg(theme::hover()))
-                .child(
-                    Icon::new(IconName::Close)
-                        .with_size(Size::XSmall)
-                        .text_color(colour),
-                )
-                .on_click(on_remove),
-        )
+}
+
+/// A [`tag`] that also goes away when its `×` is clicked — what a list of items the user put
+/// there and can take back out is drawn as.
+///
+/// Two ids, because there are two things to click, and they are **siblings rather than nested**:
+/// the label carries the tag's own click and the dismiss carries its own, so taking a tag off
+/// never also does what clicking it does.
+#[allow(clippy::too_many_arguments)]
+pub fn removable_tag(
+    id: impl Into<ElementId>,
+    remove_id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
+    tooltip: impl Into<SharedString>,
+    fill: Rgba,
+    edge: Rgba,
+    colour: Rgba,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    on_remove: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> Div {
+    tag(id, label, tooltip, fill, edge, colour, on_click).child(
+        div()
+            .id(remove_id)
+            .size(px(16.))
+            .flex()
+            .flex_none()
+            .items_center()
+            .justify_center()
+            .cursor_pointer()
+            .hover(|this| this.bg(theme::hover()))
+            .child(
+                Icon::new(IconName::Close)
+                    .with_size(Size::XSmall)
+                    .text_color(colour),
+            )
+            .on_click(on_remove),
+    )
 }
 
 /// A single-letter git badge.

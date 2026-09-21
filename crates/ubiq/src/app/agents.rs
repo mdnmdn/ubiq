@@ -331,14 +331,18 @@ impl AppState {
         cx.notify();
     }
 
-    /// Drop every attachment a conversation was holding — what a prompt leaving consumes, the
-    /// same moment the draft is cleared.
+    /// Take every attachment off the composer and hang it on the turn that is leaving — what a
+    /// prompt leaving consumes, the same moment the draft is cleared.
+    ///
+    /// The tags do not simply go away: the paths are inside the `PromptAgent` text as `@path`
+    /// mentions and the harness echoes that text back, so the transcript has to be told which of
+    /// them were files the user attached. See `Conversation::expect_attachments`.
     fn clear_attachments(&mut self, agent_id: AgentId, cx: &mut Context<Self>) {
         if let Some(id) = self.project_of_agent(agent_id, cx)
             && let Some(open) = self.projects.get_mut(&id)
             && let Some(conversation) = open.conversations.get_mut(&agent_id)
         {
-            conversation.clear_attached();
+            conversation.expect_attachments();
         }
     }
 
@@ -373,7 +377,7 @@ impl AppState {
                     .iter()
                     .rev()
                     .find_map(|block| match block {
-                        ConvBlock::User(text) => Some(text.clone()),
+                        ConvBlock::User { text, .. } => Some(text.clone()),
                         _ => None,
                     })
             })

@@ -22,6 +22,7 @@ use ubiq::state::teams::{
 };
 use ubiq::state::work::WorkProjection;
 use ubiq::state::{RailMode, WindowRegistry};
+use ubiq::ui::project_face::project_face;
 use ubiq_proto::bus::{self, FromClient, To};
 use ubiq_proto::ids::{ProjectId, TaskId};
 use ubiq_proto::messages::{AgentTypeInfo, Message};
@@ -156,7 +157,9 @@ fn a_project_named(name: &str) -> ProjectSnapshot {
             id: ProjectId::generate(),
             name: name.to_string(),
             path: format!("/tmp/{name}"),
-            colour: 0,
+            // A swatch per name, so two projects under one window are two colours — which is what
+            // the window span's fences are drawn from and what a shared index would hide.
+            colour: name.len(),
             custom_colour: None,
             temporary: false,
             created_at: Utc::now(),
@@ -455,6 +458,104 @@ fn project_of_agent_answers_each_card_s_own_project_under_the_window_span(cx: &m
         assert!(state.conversation(there, cx).is_none());
         assert!(state.teams_conversation(there, cx).is_some());
         assert!(state.teams_conversation(here, cx).is_some());
+    });
+}
+
+/// **Under the window span every top-level thing on the canvas is fenced, in the colour of the
+/// project it came from.** A card no container encloses gets a fence of its own and a container
+/// gets its owner's colour, so two projects' work reads apart at a glance instead of only through
+/// the chip on each card. Nothing is fenced twice: a card inside a container is not in
+/// `fenced_alone`, because a second dashed box round it would say what the box round it already
+/// does.
+#[gpui::test]
+fn the_window_span_fences_each_card_and_container_in_its_project_s_colour(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let second = fixture.hold_a_second(cx);
+    let task = fixture.a_task_in(fixture.project, "ours", cx);
+
+    let loose_here = AgentId::generate();
+    let on_task = AgentId::generate();
+    let loose_there = AgentId::generate();
+    fixture.started(an_agent(loose_here, "loose here"), cx);
+    let mut serving = an_agent(on_task, "on the task");
+    serving.task = Some(task);
+    fixture.started(serving, cx);
+    fixture.started_in(second, an_agent(loose_there, "loose there"), cx);
+
+    fixture.state.update(cx, |state, _| {
+        state.workbench.rail_mode = RailMode::TeamsAll
+    });
+
+    fixture.state.read_with(cx, |state, cx| {
+        let work = state.teams_work(cx).expect("the merged projection");
+        let teams = state.teams(cx).expect("the window span's view");
+        let span = state.teams_span();
+        assert_eq!(span, TeamsSpan::Window);
+
+        let alone = teams.fenced_alone(&work, span);
+        assert!(
+            alone.contains(&loose_here) && alone.contains(&loose_there),
+            "every card outside a container wears a fence of its own: {alone:?}"
+        );
+        assert!(
+            !alone.contains(&on_task),
+            "a card already inside a container is not fenced a second time"
+        );
+
+        assert_eq!(
+            teams.fenced_tasks(&work, span),
+            vec![(task, on_task)],
+            "the container takes its colour from the project of the card it holds"
+        );
+
+        // The colour itself, through the one resolution every surface draws a project with.
+        let tint = |agent: AgentId| {
+            state
+                .project_of_agent(agent, cx)
+                .and_then(|project| project_face(project, cx))
+                .map(|face| face.tint)
+                .expect("the registry knows the project the card came from")
+        };
+        assert_eq!(
+            tint(on_task),
+            tint(loose_here),
+            "one project, one colour, whatever shape is wearing it"
+        );
+        assert_ne!(
+            tint(loose_here),
+            tint(loose_there),
+            "two projects are two colours, which is the whole point of the fence"
+        );
+    });
+}
+
+/// **The project span's canvas is what it was before the fences existed.** One project is the whole
+/// screen, so a colour per card would be one colour repeated and a container keeps the outline it
+/// always had. Both lists are empty, and the canvas has nothing extra to draw.
+#[gpui::test]
+fn the_project_span_fences_nothing_by_project(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let task = fixture.a_task_in(fixture.project, "ours", cx);
+    let loose = AgentId::generate();
+    let on_task = AgentId::generate();
+    fixture.started(an_agent(loose, "loose"), cx);
+    let mut serving = an_agent(on_task, "on the task");
+    serving.task = Some(task);
+    fixture.started(serving, cx);
+
+    fixture.state.read_with(cx, |state, cx| {
+        let work = state.teams_work(cx).expect("the project span's work");
+        let teams = state.teams(cx).expect("the project span's view");
+        let span = state.teams_span();
+        assert_eq!(span, TeamsSpan::Project);
+        assert!(
+            teams.fenced_alone(&work, span).is_empty(),
+            "no card is fenced on its own under the project span"
+        );
+        assert!(
+            teams.fenced_tasks(&work, span).is_empty(),
+            "no container is recoloured under the project span"
+        );
     });
 }
 
@@ -858,4 +959,69 @@ fn a_card_is_never_filed_into_another_project_s_task(cx: &mut TestAppContext) {
         )),
         "a drop into its own project's container still files the card: {said:?}"
     );
+}
+
+/// The toolbar's states filter is a `kit::MultiPicker`, and the one thing that makes it one is
+/// asserted here: **ticking a state narrows the canvas and leaves the list down**, so narrowing to
+/// two states is two clicks rather than a click, a reopen and a click.
+///
+/// The selection the control is drawn from is `TeamsGraph::buckets` itself — nothing is copied
+/// into the control and nothing is remembered by it — which is what makes the same chip work as a
+/// filter here and as a preselected field in a form. `Show everything` puts every state back.
+#[gpui::test]
+fn ticking_a_state_narrows_the_canvas_without_closing_the_menu(cx: &mut TestAppContext) {
+    use ubiq::state::MenuId;
+    use ubiq_proto::work::Bucket;
+
+    let fixture = Fixture::open(cx);
+    let id = AgentId::generate();
+    fixture.started(an_agent(id, "Claude Code"), cx);
+
+    // What the closed control is handed on the first frame: every state, because nothing is
+    // filtered yet.
+    fixture.state.read_with(cx, |state, cx| {
+        let teams = state.teams(cx).expect("the project's Teams view");
+        assert_eq!(teams.buckets, Bucket::all().to_vec());
+    });
+
+    fixture
+        .state
+        .update(cx, |state, cx| state.open_menu(MenuId::TeamsBuckets, cx));
+    fixture.state.update(cx, |state, cx| {
+        state.toggle_teams_bucket(Bucket::Ended, cx);
+        state.toggle_teams_bucket(Bucket::Error, cx);
+    });
+    cx.run_until_parked();
+
+    fixture.state.read_with(cx, |state, cx| {
+        let teams = state.teams(cx).expect("the project's Teams view");
+        assert_eq!(teams.buckets, vec![Bucket::Running, Bucket::Waiting]);
+        assert!(!teams.showing(Bucket::Ended), "the canvas narrowed");
+        assert_eq!(
+            state.workbench.open_menu,
+            Some(MenuId::TeamsBuckets),
+            "both ticks landed in one open list"
+        );
+    });
+
+    // Ticking one back on is the same gesture, still without closing.
+    fixture
+        .state
+        .update(cx, |state, cx| state.toggle_teams_bucket(Bucket::Ended, cx));
+    cx.run_until_parked();
+    fixture.state.read_with(cx, |state, cx| {
+        let teams = state.teams(cx).expect("the project's Teams view");
+        assert!(teams.showing(Bucket::Ended), "and back on again");
+        assert_eq!(state.workbench.open_menu, Some(MenuId::TeamsBuckets));
+    });
+
+    fixture
+        .state
+        .update(cx, |state, cx| state.clear_teams_filters(cx));
+    cx.run_until_parked();
+    fixture.state.read_with(cx, |state, cx| {
+        let teams = state.teams(cx).expect("the project's Teams view");
+        assert_eq!(teams.buckets, Bucket::all().to_vec());
+        assert!(!teams.filtered(), "Show everything puts the whole set back");
+    });
 }

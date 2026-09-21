@@ -37,6 +37,10 @@ pub const UBIQ_KB: &str = "ubiq-kb";
 /// The slug of the server that reads Ubiq's own documentation.
 pub const UBIQ_HELP: &str = "ubiq-help";
 
+/// The slug of the server that asks the user a question and waits for the answer. The one server
+/// here whose tool does not answer itself — see [`super::ask`] and `D138`.
+pub const UBIQ_ASK: &str = "ubiq-ask";
+
 /// One tool, as the catalogue holds it: what the panel shows plus what a harness needs in order
 /// to call it.
 pub struct ToolSpec {
@@ -590,6 +594,69 @@ pub const SERVERS: &[ServerSpec] = &[
                 }"#,
             },
         ],
+    },
+    ServerSpec {
+        name: UBIQ_ASK,
+        title: "Ask the user",
+        description: "Ask the person watching a structured question and wait for their answer. Use it when a choice is theirs to make — an approach, a trade-off, a name — rather than guessing and writing something they did not ask for. The call blocks until they answer, so ask once, ask everything you need at once, and keep working from the answer.",
+        tools: &[ToolSpec {
+            name: "ask_user_question",
+            description: "Put one to four multiple-choice questions to the user and wait for their reply. Each question shows two to four options you wrote; 'Other' is always offered beside them and is never one of yours, so do not write it. The answer names the options the user picked by their labels, plus anything they typed. If the user would rather talk it through, the result says so and they will say the rest in the chat — carry on from the conversation, do not ask again.",
+            schema: r#"{
+                "type": "object",
+                "properties": {
+                    "questions": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 4,
+                        "description": "The questions to ask, at most four. Ask everything you need in one call.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "question": {
+                                    "type": "string",
+                                    "description": "The question in full, ending with a question mark."
+                                },
+                                "header": {
+                                    "type": "string",
+                                    "description": "A label of at most 12 characters, drawn as the question's tab. E.g. 'Database'."
+                                },
+                                "options": {
+                                    "type": "array",
+                                    "minItems": 2,
+                                    "maxItems": 4,
+                                    "description": "Two to four options. Do not offer 'Other' — it is always there.",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "label": {
+                                                "type": "string",
+                                                "description": "What the control says: a few words."
+                                            },
+                                            "description": {
+                                                "type": "string",
+                                                "description": "What picking it means, drawn under the label."
+                                            },
+                                            "preview": {
+                                                "type": "string",
+                                                "description": "Something to show beside the choice — a snippet, a sketch, a diff. Single-select questions only."
+                                            }
+                                        },
+                                        "required": ["label"]
+                                    }
+                                },
+                                "multiSelect": {
+                                    "type": "boolean",
+                                    "description": "Whether more than one option may be picked. A multi-select question may carry no previews."
+                                }
+                            },
+                            "required": ["question", "header", "options"]
+                        }
+                    }
+                },
+                "required": ["questions"]
+            }"#,
+        }],
     },
 ];
 

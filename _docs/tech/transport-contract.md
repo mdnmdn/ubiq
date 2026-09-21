@@ -5,9 +5,9 @@ kind: tech
 status: draft
 summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, quota, profile, command-line, host browse, connector, repository, assist, notification, web asset and carrier families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
-updated: 2026-09-19
-verified: 2026-09-19
-code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/feedback.rs, crates/ubiq-host/src/feedback/mod.rs, crates/ubiq-host/src/feedback/api.rs, crates/ubiq-host/src/feedback/issues.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq-drone/src/search.rs]
+updated: 2026-09-20
+verified: 2026-09-20
+code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ask.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/feedback.rs, crates/ubiq-host/src/feedback/mod.rs, crates/ubiq-host/src/feedback/api.rs, crates/ubiq-host/src/feedback/issues.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq-drone/src/search.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
 ---
@@ -485,8 +485,18 @@ if anything is already there, unless `overwrite` is set. `overwrite` is the inte
 asked the user and they said yes: beside an absent `expected` it lets a version-less write land on
 an existing file, keeping that file's permissions; beside a present `expected` it is refused rather
 than ignored, since a field the host silently dropped is a wiring mistake the interface cannot see.
-No folder is ever created, the mirror of `AddProject` never creating one, and the write is atomic
-and keeps the file's permissions.
+The write is atomic and keeps the file's permissions.
+
+**A creation makes the folders its path names; no other write makes any.** A creation is the
+interface saying this buffer has never been on disk — the save-as modal asks the user for a
+project-relative *path*, so `shots/new/capture-1.png` is a picture that has never been anywhere and
+the folders in it are part of what is being created. A write that names a version, and one told to
+overwrite, both name a file that is supposed to be there already: for them a folder that is not
+there is the staleness `Missing` exists to report, and inventing one would hide it. The boundary is
+unchanged — the folders are made one level at a time under an already-contained canonical ancestor,
+each one canonicalised and contained before the next is joined onto it, so a component that is a
+symlink out of the root is refused exactly as any write's would be, and the project's own root is
+never created (the mirror of `AddProject` never creating one).
 
 **A truncated read cannot be saved**, and mechanically rather than by the interface remembering:
 `FileContents.version` is absent when `truncated`, so there is no version to name, and a write naming
@@ -515,7 +525,10 @@ not belong rather than ignored: a field the host silently drops is a wiring mist
 cannot see. **Every op refuses a destination that already exists**, which is the same judgement an
 absent `expected` on a write makes — the contract does not hand out a forced overwrite for free — and
 `Move` and `Copy` also refuse a destination inside their own source, so a folder cannot be moved into
-its own child. `Create` makes exactly one level and never a parent, on the rule a write already keeps.
+its own child. `Create` makes exactly one level and never a parent: it is a row in the explorer,
+named beside the folder it lands in, so a path it cannot reach is a typo rather than a destination —
+unlike a save-as, which is the one gesture that names a whole path for a file that does not exist
+yet.
 
 **`Trash` and `Delete` are two ops because they are two promises.** `Trash` hands the path to the
 platform's own trash, where the user can get it back without Ubiq; `Delete` removes it, and a folder
@@ -846,6 +859,9 @@ is what multiplexes several of them down one channel.
 | `PromptAgent` | UI → host | `agent_id`, `text` | — |
 | `CancelTurn` | UI → host | `agent_id` | — |
 | `AnswerPermission` | UI → host | `agent_id`, `request_id`, `option_id` | — |
+| `AskUser` | host → UI | `agent_id`, `ask_id`, `questions` | `AnswerAsk` |
+| `AnswerAsk` | UI → host | `agent_id`, `ask_id`, `outcome` | — |
+| `AskEnded` | host → UI | `agent_id`, `ask_id`, `why` | — |
 | `SetAgentConfig` | UI → host | `agent_id`, `config_id`, `value` | — |
 | `EndConversation` | UI → host | `agent_id` | `ConversationDeleted` |
 | `UnloadConversation` | UI → host | `agent_id` | `ConversationUnloaded` |
@@ -1144,6 +1160,39 @@ host tracks the outstanding `request_id`s per conversation — recorded as reque
 they are answered — and `CancelTurn` is what discharges the rest: every request still outstanding
 for that agent is answered `PermissionOutcome::Cancelled` **before** the cancel goes down, which is
 what the library asks of a caller that gives up on a question it raised.
+
+**`AskUser` is the other loop a harness blocks on, and it is not the harness's own.** A permission
+request comes up through the agent's protocol; an ask comes from a tool the agent chose to call —
+`ask_user_question` on the `ubiq-ask` MCP server — so the host mints the `AskId`, parks the tool
+call, and pushes `AskUser` unsolicited to the one window that owns the conversation. The payload is
+`crates/ubiq-proto/src/ask.rs`'s vocabulary, which is Claude Code's `AskUserQuestion` schema
+deliberately: one to four questions, each with a header short enough to be a tab, two to four
+labelled options, single- or multi-select, previews on single-select only. The host checks all of
+that **before** it parks anything — a malformed ask is answered as a tool error and no user ever
+sees it.
+
+**The answer travels as labels and free text, and `Chat` is a real answer.** `AnswerAsk` carries
+either `AskOutcome::Answered` — one `AskAnswer` per question, naming the options the user picked by
+label, plus whatever they wrote under "Other" and whatever notes they added — or `AskOutcome::Chat`,
+which ends the ask having answered nothing and tells the agent the user would rather talk. Labels
+rather than indices, so a result outliving the question list still says what was chosen; "Other" is
+never one of the options the agent wrote.
+
+**An ask has a timeout, which is what makes it unlike a permission request.** `ASK_TIMEOUT_SECS`
+bounds how long the parked tool call waits. The host discharges it two other ways as well: a
+conversation that ends, unloads, aborts or dies takes its outstanding asks with it. Either way the
+window is told with `AskEnded` carrying `AskClosed::Timeout` or `AskClosed::Gone`, so the dialog and
+the transcript's entry stop offering an answer that can no longer land, and an `AnswerAsk` naming an
+ask the host is no longer holding is dropped in silence. A timeout that told nobody would be worse
+than no timeout at all: the dialog would still take a confirm, and the user would be told an answer
+went back to an agent that had already given up on it.
+
+**`AskEnded` is the one message in this family that travels both ways.** A window that cannot show
+an ask — it holds no conversation for that agent, because the project was closed between the tool
+call and the push — sends it back with `AskClosed::Gone`, and the host frees the parked call there
+and then rather than leaving the harness to wait out the hour. The coordinator tells the two
+directions apart by the sender: only the window that owns the conversation can be declining, and the
+`ubiq-ask` thread's own voice owns no conversation at all.
 
 **`SetAgentConfig` is real before a harness exists, and refused after.** While a conversation is
 still pending (above), `SetAgentConfig{config_id: "model", ..}` is what records the model its first

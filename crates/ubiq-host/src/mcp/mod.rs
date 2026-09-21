@@ -29,6 +29,9 @@
 //!   its `ops` on the same shape
 //! - `help`: the `ubiq-help` server, reaching Ubiq's own documentation through [`crate::help`] —
 //!   an agent's read of the same manual a person opens with the `?` in the titlebar
+//! - `ask`: the `ubiq-ask` server, the one tool that does not answer itself — it parks on
+//!   [`crate::ask::Asks`] until a person answers, on a thread of its own so the listener stays
+//!   free (`D138`)
 //!
 //! The boundary this sits inside is the ordinary one: nothing here draws. A notification a tool
 //! raised goes through [`ubiq_proto::bus::Voice`] as
@@ -36,6 +39,7 @@
 //! is posted to every window as the same work-family message a click would have produced, so the
 //! board redraws without the coordinator answering a question.
 
+mod ask;
 pub mod catalogue;
 mod help;
 mod kb;
@@ -88,4 +92,15 @@ pub struct KbReach {
 /// one clone, the listener thread another, and both must see the one cached outcome.
 pub struct HelpReach {
     pub help: Arc<crate::help::Help>,
+}
+
+/// How the ask tool parks a call until a person answers it.
+///
+/// One field, and it is the table itself: the question goes out to the coordinator through the
+/// [`ubiq_proto::bus::Voice`] the listener already holds — the same route a notification takes —
+/// so nothing extra is needed to *raise* an ask, only somewhere to hold it while it waits. `Arc`
+/// for the reason [`KbReach`]'s is: the coordinator answers into the same table the serving
+/// thread is parked on, and two copies would be two different waits.
+pub struct AskReach {
+    pub asks: Arc<crate::ask::Asks>,
 }

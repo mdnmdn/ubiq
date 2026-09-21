@@ -12,7 +12,7 @@
 //! because a second round trip per token would be a round trip per token.
 
 use std::cell::{Cell, RefCell};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
 use std::sync::Arc;
 
@@ -23,6 +23,7 @@ use ubiq_proto::conversation::{
     RateLimitRecord, StopReason, Subagent, TokenSpend, ToolCallPatch, ToolCallRecord, ToolStatus,
     UsageRecord,
 };
+use ubiq_proto::ids::AskId;
 use ubiq_proto::work::{Activity, AgentId};
 
 /// One thing in a transcript, in the order it was said.
@@ -33,8 +34,19 @@ use ubiq_proto::work::{Activity, AgentId};
 /// about who spoke.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ConvBlock {
-    /// What the user said, as the harness received it.
-    User(String),
+    /// What the user said, as the harness received it, and the files that went with it.
+    ///
+    /// **The attachments are remembered locally, because the harness does not echo them back as
+    /// attachments.** They leave as `@path` mentions inside `text` (`G171`), so a turn drawn from
+    /// the echo alone would have lost the chips the user put on it the moment Send was pressed.
+    /// They are carried across the send much as [`Conversation::prompt_preamble`] is — pushed onto
+    /// a queue when the turn goes out, popped by that turn's own real-text
+    /// [`ConvUpdate::UserChunk`] — and a sent attachment is not removable, so nothing here is ever
+    /// edited afterwards.
+    User {
+        text: String,
+        attached: Vec<Attachment>,
+    },
     /// Assistant prose, markdown. `subagent` is `None` for the conversation itself.
     Agent {
         body: String,
@@ -59,7 +71,7 @@ impl ConvBlock {
     /// Which subagent produced this block, where one did.
     pub fn subagent(&self) -> Option<&Subagent> {
         match self {
-            ConvBlock::User(_) | ConvBlock::Compacted => None,
+            ConvBlock::User { .. } | ConvBlock::Compacted => None,
             ConvBlock::Agent { subagent, .. } | ConvBlock::Thought { subagent, .. } => {
                 subagent.as_ref()
             }
@@ -254,6 +266,14 @@ pub struct Conversation {
     /// would deadlock the turn with nothing on screen to say so. Keyed by `request_id`: a second
     /// request under an id already here replaces it rather than queueing a duplicate.
     pub pending: Vec<Pending>,
+    /// Every structured question this agent has asked the user, oldest first — see
+    /// [`crate::state::ask`].
+    ///
+    /// **Beside `pending` rather than in `blocks`**, and for its reason: an ask is a side channel
+    /// joined to the transcript by id, not something the harness said. It outlives its answer, so
+    /// an entry stays after it is confirmed and reads as what was chosen. Keyed by `ask_id`: a
+    /// second `AskUser` under an id already here replaces it rather than queueing a duplicate.
+    pub asks: Vec<crate::state::ask::AskRecord>,
     /// The last thing that went wrong, until the next thing happens.
     pub error: Option<String>,
     /// Whether this harness takes a second turn at all.
@@ -319,6 +339,24 @@ pub struct Conversation {
     /// the echo. Set when the turn goes out and consumed by the next [`ConvUpdate::UserChunk`],
     /// which is that turn's own echo; a harness that echoes nothing simply never spends it.
     prompt_preamble: Option<String>,
+    /// The files folded into each turn now in flight, oldest first, to be hung on the harness's
+    /// echoes of them.
+    ///
+    /// [`Self::prompt_preamble`]'s mirror image, and here for its reason: what goes out is one
+    /// string of `@path` mentions (`G171`), so the echo that comes back says nothing about which
+    /// of those were tags the user placed. The transcript keeps them itself — pushed when a turn
+    /// leaves, popped by that turn's own [`ConvUpdate::UserChunk`] — because a turn that lost its
+    /// chips on Send would be the interface forgetting what the user just did.
+    ///
+    /// **A queue rather than one slot, and one entry per send even when it is empty.** Two Sends
+    /// can be in flight before either echoes; a single slot would let the second overwrite the
+    /// first, and the first turn would draw bare. An empty entry still goes on, because the queue
+    /// is only in step with the echoes if every send is on it — skipping a plain turn would hand
+    /// its position, and the next turn's files, to the wrong echo.
+    ///
+    /// Nothing in here outlives the turn that armed it: a run that can no longer echo discharges
+    /// the whole queue — see [`Self::discharge_attachments`].
+    prompt_attachments: VecDeque<Vec<Attachment>>,
 
     /// The highest sequence number applied. An update that does not follow it
     /// is a gap, and a gap is worth saying rather than silently drawing.
@@ -381,6 +419,7 @@ impl Conversation {
             config: Vec::new(),
             plan: Vec::new(),
             pending: Vec::new(),
+            asks: Vec::new(),
             error: None,
             accepts_input: true,
             draft: String::new(),
@@ -396,6 +435,7 @@ impl Conversation {
             attached: Vec::new(),
             next_attached_id: 0,
             prompt_preamble: None,
+            prompt_attachments: VecDeque::new(),
             seq: 0,
             tools: HashMap::new(),
             open: None,
@@ -536,7 +576,7 @@ impl Conversation {
                 ConvBlock::Tool { call, .. } => Some(call.title.clone()),
                 ConvBlock::Thought { .. } => Some("Thinking".to_string()),
                 ConvBlock::Agent { .. } => Some("Writing".to_string()),
-                ConvBlock::User(_) | ConvBlock::Compacted => None,
+                ConvBlock::User { .. } | ConvBlock::Compacted => None,
             })
     }
 
@@ -718,7 +758,16 @@ impl Conversation {
                     // it is dropped rather than pushed: not drawn as a message, and not there for
                     // `recall_last_message` to hand back as if it were the last thing the user said.
                     if !is_cancelled_turn_marker(&said) {
-                        self.blocks.push(ConvBlock::User(said));
+                        // Spent only by the *real* turn. A chunk with no text in it and a
+                        // synthetic interrupt echo are both this turn's harness talking, not this
+                        // turn — taking the front of the queue for either would draw the real
+                        // message bare a frame later. A turn that never echoes at all is
+                        // discharged instead, so nothing here is left for a later one.
+                        let attached = self.prompt_attachments.pop_front().unwrap_or_default();
+                        self.blocks.push(ConvBlock::User {
+                            text: said,
+                            attached,
+                        });
                     }
                 }
                 self.run = Run::Working;
@@ -836,6 +885,13 @@ impl Conversation {
                 self.end_open_thought();
                 self.open = None;
                 self.run = Run::Idle;
+                // A turn that broke never echoed and never will, so whatever it armed is
+                // discharged with it. A turn that ended cleanly is left alone: its own echo may
+                // still be a frame behind the end, and a send made while it ran is still in
+                // flight behind it.
+                if matches!(stop_reason, StopReason::Failed) || error.is_some() {
+                    self.discharge_attachments();
+                }
                 self.stop_reason = Some(stop_reason);
                 self.error = error;
             }
@@ -865,6 +921,7 @@ impl Conversation {
         self.end_open_thought();
         self.open = None;
         self.pending.clear();
+        self.discharge_attachments();
         self.run = Run::Ended;
         self.stop_reason = Some(stop_reason);
     }
@@ -878,6 +935,7 @@ impl Conversation {
         self.launched = false;
         self.open_config = None;
         self.pending.clear();
+        self.discharge_attachments();
     }
 
     /// Forget one request, because it has been answered. Idempotent: an answer that raced the
@@ -890,6 +948,23 @@ impl Conversation {
     /// footer names when several are up.
     pub fn oldest_pending(&self) -> Option<&Pending> {
         self.pending.first()
+    }
+
+    /// File a structured question the agent just asked, replacing any under the same id — a
+    /// re-sent ask is the same question, not a second one.
+    pub fn file_ask(&mut self, ask: crate::state::ask::AskRecord) {
+        match self.asks.iter_mut().find(|held| held.ask_id == ask.ask_id) {
+            Some(held) => *held = ask,
+            None => self.asks.push(ask),
+        }
+    }
+
+    pub fn ask(&self, ask_id: AskId) -> Option<&crate::state::ask::AskRecord> {
+        self.asks.iter().find(|held| held.ask_id == ask_id)
+    }
+
+    pub fn ask_mut(&mut self, ask_id: AskId) -> Option<&mut crate::state::ask::AskRecord> {
+        self.asks.iter_mut().find(|held| held.ask_id == ask_id)
     }
 
     /// Which block a tool call is drawn as, if the transcript holds it at all. The join a
@@ -992,9 +1067,34 @@ impl Conversation {
         Some(self.attached.remove(ix))
     }
 
-    /// Drop every attachment — what a prompt leaving consumes, alongside the draft.
+    /// Drop every attachment — what an enqueue consumes, alongside the draft. A queued prompt is
+    /// one string and its paths are already inside it, so there is nothing left to carry.
     pub fn clear_attached(&mut self) {
         self.attached.clear();
+    }
+
+    /// Hand every attachment to the turn now going out, so the echo of it can be drawn with them.
+    ///
+    /// [`Self::expect_preamble`]'s counterpart, and the composer's clear at the same time: the
+    /// field has finished with these files and the transcript has not started, so the one move
+    /// does both.
+    ///
+    /// **One entry per send, empty or not.** The queue is read in step with the echoes, so a
+    /// plain turn has to take its place in it: skipping it would hand its echo the *next* turn's
+    /// files. Two Sends before either echoes therefore keep their own sets, in order.
+    pub fn expect_attachments(&mut self) {
+        let sent = std::mem::take(&mut self.attached);
+        self.prompt_attachments.push_back(sent);
+    }
+
+    /// Forget every armed set, because no turn still in flight can echo.
+    ///
+    /// The queue is spent by echoes and nothing else, so a run that broke, was unloaded or ended
+    /// would leave its sets armed forever — and the next turn that *did* echo, in a later session
+    /// of the same conversation, would draw chips for files the user never attached to it. A turn
+    /// that cannot arrive is a turn whose attachments are not owed to anybody.
+    pub fn discharge_attachments(&mut self) {
+        self.prompt_attachments.clear();
     }
 
     /// What actually goes on the wire: what was typed, with every attachment named after it as
@@ -2406,6 +2506,235 @@ mod tests {
         c.clear_attached();
         assert!(c.attached.is_empty());
         assert_eq!(c.compose_prompt("plain"), "plain");
+    }
+
+    /// The chips survive Send. The harness echoes back one string of `@path` mentions and says
+    /// nothing about which of them were tags, so the turn carries its own list across — and the
+    /// composer is empty afterwards, exactly as a plain clear leaves it.
+    #[test]
+    fn a_sent_turn_keeps_the_files_it_was_sent_with() {
+        let mut c = conversation();
+        c.attach("src/lib.rs".to_string(), Some(12));
+        c.expect_attachments();
+        assert!(c.attached.is_empty(), "the composer is clear on send");
+
+        c.apply(
+            1,
+            ConvUpdate::UserChunk {
+                content: ConvContent::Text("review this @src/lib.rs".to_string()),
+                message_id: Some("u1".to_string()),
+            },
+        );
+
+        match &c.blocks[..] {
+            [ConvBlock::User { text, attached }] => {
+                assert_eq!(text, "review this @src/lib.rs");
+                assert_eq!(attached.len(), 1);
+                assert_eq!(attached[0].path, "src/lib.rs");
+                assert_eq!(attached[0].size, Some(12));
+            }
+            other => panic!("expected one user block, got {other:?}"),
+        }
+    }
+
+    /// They belong to one turn. A second echo with nothing armed is a plain message, rather than
+    /// the previous turn's files hung on a sentence they were never sent with.
+    #[test]
+    fn attachments_are_spent_by_the_turn_that_carried_them() {
+        let mut c = conversation();
+        c.attach("a.rs".to_string(), None);
+        c.expect_attachments();
+
+        let echo = |text: &str| ConvUpdate::UserChunk {
+            content: ConvContent::Text(text.to_string()),
+            message_id: None,
+        };
+        c.apply(1, echo("first @a.rs"));
+        c.apply(2, echo("second"));
+
+        match &c.blocks[..] {
+            [
+                ConvBlock::User {
+                    attached: first, ..
+                },
+                ConvBlock::User { attached: next, .. },
+            ] => {
+                assert_eq!(first.len(), 1);
+                assert!(next.is_empty(), "the second turn attached nothing");
+            }
+            other => panic!("expected two user blocks, got {other:?}"),
+        }
+    }
+
+    /// Two Sends can be in flight before either echoes, and each keeps its own files, in order.
+    /// One armed slot would let the second send overwrite the first and the first turn would draw
+    /// bare — which is what the queue exists to stop.
+    #[test]
+    fn two_sends_in_flight_keep_their_own_files_in_order() {
+        let mut c = conversation();
+        c.attach("first.rs".to_string(), None);
+        c.expect_attachments();
+        c.attach("second.rs".to_string(), None);
+        c.expect_attachments();
+
+        let echo = |text: &str| ConvUpdate::UserChunk {
+            content: ConvContent::Text(text.to_string()),
+            message_id: None,
+        };
+        c.apply(1, echo("one @first.rs"));
+        c.apply(2, echo("two @second.rs"));
+
+        match &c.blocks[..] {
+            [
+                ConvBlock::User { attached: one, .. },
+                ConvBlock::User { attached: two, .. },
+            ] => {
+                assert_eq!(one.len(), 1);
+                assert_eq!(one[0].path, "first.rs");
+                assert_eq!(two.len(), 1);
+                assert_eq!(two[0].path, "second.rs");
+            }
+            other => panic!("expected two user blocks, got {other:?}"),
+        }
+    }
+
+    /// A plain send takes its place in the queue too. Skipping it would hand its echo the *next*
+    /// turn's files, which is the same defect one position along.
+    #[test]
+    fn a_plain_send_between_two_attached_ones_keeps_the_queue_in_step() {
+        let mut c = conversation();
+        c.expect_attachments();
+        c.attach("later.rs".to_string(), None);
+        c.expect_attachments();
+
+        let echo = |text: &str| ConvUpdate::UserChunk {
+            content: ConvContent::Text(text.to_string()),
+            message_id: None,
+        };
+        c.apply(1, echo("plain"));
+        c.apply(2, echo("with a file @later.rs"));
+
+        match &c.blocks[..] {
+            [
+                ConvBlock::User {
+                    attached: plain, ..
+                },
+                ConvBlock::User {
+                    attached: files, ..
+                },
+            ] => {
+                assert!(plain.is_empty(), "the plain turn stayed plain");
+                assert_eq!(files.len(), 1);
+                assert_eq!(files[0].path, "later.rs");
+            }
+            other => panic!("expected two user blocks, got {other:?}"),
+        }
+    }
+
+    /// A turn that broke never echoed and never will, so its files are discharged rather than
+    /// left armed to be hung on some unrelated later turn.
+    #[test]
+    fn a_turn_that_never_echoes_does_not_hang_its_files_on_a_later_one() {
+        let mut c = conversation();
+        c.attach("lost.rs".to_string(), None);
+        c.expect_attachments();
+
+        c.apply(
+            1,
+            ConvUpdate::TurnEnded {
+                stop_reason: StopReason::Failed,
+                error: Some("the harness died".to_string()),
+            },
+        );
+        c.apply(
+            2,
+            ConvUpdate::UserChunk {
+                content: ConvContent::Text("a later, unrelated question".to_string()),
+                message_id: None,
+            },
+        );
+
+        match &c.blocks[..] {
+            [ConvBlock::User { attached, .. }] => assert!(
+                attached.is_empty(),
+                "the broken turn's files did not survive it"
+            ),
+            other => panic!("expected one user block, got {other:?}"),
+        }
+    }
+
+    /// An end and an unload both discharge, for the same reason: nothing in flight can echo once
+    /// the harness is gone.
+    #[test]
+    fn ending_and_unloading_both_discharge_the_armed_files() {
+        for gone in [
+            (|c: &mut Conversation| c.ended(StopReason::Cancelled)) as fn(&mut Conversation),
+            |c: &mut Conversation| c.unloaded(),
+        ] {
+            let mut c = conversation();
+            c.attach("lost.rs".to_string(), None);
+            c.expect_attachments();
+            gone(&mut c);
+            c.apply(
+                1,
+                ConvUpdate::UserChunk {
+                    content: ConvContent::Text("a resumed conversation's first turn".to_string()),
+                    message_id: None,
+                },
+            );
+            match &c.blocks[..] {
+                [ConvBlock::User { attached, .. }] => assert!(attached.is_empty()),
+                other => panic!("expected one user block, got {other:?}"),
+            }
+        }
+    }
+
+    /// Claude Code's synthetic interrupt echo is not the turn. It is dropped rather than drawn,
+    /// and it must not eat the files either — the real turn's own echo is still to come.
+    #[test]
+    fn an_interrupt_marker_echo_does_not_eat_the_files() {
+        let mut c = conversation();
+        c.attach("kept.rs".to_string(), None);
+        c.expect_attachments();
+
+        let echo = |text: &str| ConvUpdate::UserChunk {
+            content: ConvContent::Text(text.to_string()),
+            message_id: None,
+        };
+        c.apply(1, echo("[Request interrupted by user]"));
+        c.apply(2, echo("the real turn @kept.rs"));
+
+        match &c.blocks[..] {
+            [ConvBlock::User { text, attached }] => {
+                assert_eq!(text, "the real turn @kept.rs");
+                assert_eq!(attached.len(), 1, "the marker left them alone");
+                assert_eq!(attached[0].path, "kept.rs");
+            }
+            other => panic!("expected one user block, got {other:?}"),
+        }
+    }
+
+    /// An enqueue is not a send. Its paths are already inside the queued string, so they are
+    /// dropped rather than armed — otherwise they would land on whatever turn echoed next.
+    #[test]
+    fn enqueuing_drops_the_attachments_rather_than_carrying_them() {
+        let mut c = conversation();
+        c.attach("a.rs".to_string(), None);
+        c.enqueue(c.compose_prompt("later"));
+        c.clear_attached();
+
+        c.apply(
+            1,
+            ConvUpdate::UserChunk {
+                content: ConvContent::Text("something else".to_string()),
+                message_id: None,
+            },
+        );
+
+        match &c.blocks[..] {
+            [ConvBlock::User { attached, .. }] => assert!(attached.is_empty()),
+            other => panic!("expected one user block, got {other:?}"),
+        }
     }
 
     /// The mechanics `app.rs`'s auto-send glue relies on: a turn ending flips `run` to `Idle`,

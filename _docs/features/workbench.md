@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: The window's shell — the activity rail and its modes, the dock of movable panels the user arranges around the centre, the file explorer and editor a project owns, the Git screen of refs, history and uncommitted changes, the agents screen of parallel columns, the Teams and `[Teams]` graphs and the tasks board the rail's other built modes hold, the kitchen sink the application tests itself against, the file picker any screen raises to choose a path, the empty state a window with no project shows, and the status bar that reports on all of it.
 read_when: you are changing the window layout, a rail mode, where a panel may sit or when it is drawn, the explorer, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, capturing the window or annotating a capture, saving a file, the Git screen's refs, history, change lists or diff, the agents screen's columns, what a tab drag means or what the bench is, the Teams or `[Teams]` screen's graph, how it arranges itself, its inspector or its tasks, the tasks board's columns, cards or task panel, the kitchen sink's pages or fixtures, the file picker a screen raises to choose a path, cloning a project, application settings, vim mode, or the status bar
-updated: 2026-09-20
-verified: 2026-09-20
+updated: 2026-09-21
+verified: 2026-09-21
 code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/teams.rs, crates/ubiq/src/app/teams_span.rs, crates/ubiq/src/state/teams.rs, crates/ubiq/src/ui/project_face.rs, crates/ubiq/src/ui/teams/mod.rs, crates/ubiq/src/ui/teams/graph.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/src/ui/teams/inspector.rs, crates/ubiq/src/ui/teams/tasks.rs, crates/ubiq/tests/teams.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/src/ui/new_project_menu.rs, crates/ubiq/tests/new_project.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/mark.rs, crates/ubiq/src/app/mark.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/feedback.rs, crates/ubiq/src/state/feedback.rs, crates/ubiq/src/ui/feedback.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/tests/image_gestures.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/app/sink.rs, crates/ubiq/src/state/a2ui.rs, crates/ubiq/src/state/a2ui/value.rs, crates/ubiq/src/state/a2ui/eval.rs, crates/ubiq/src/state/a2ui/action.rs, crates/ubiq/src/state/a2ui/live.rs, crates/ubiq/src/state/a2ui/svg.rs, crates/ubiq/src/state/a2ui/path.rs, crates/ubiq/src/state/a2ui/ubiq-catalog.json, crates/ubiq/src/ui/a2ui.rs, crates/ubiq/src/ui/a2ui/registry.rs, crates/ubiq/src/ui/a2ui/svg.rs, crates/ubiq/src/ui/a2ui/path.rs, crates/ubiq/src/ui/sink/a2ui.rs, crates/ubiq/tests/a2ui.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/sink/script.rs, crates/ubiq/src/state/script.rs, crates/ubiq/src/ui/sink/teamsim.rs, crates/ubiq/src/state/teamsim.rs, crates/ubiq/src/ui/kit/blocks.rs, _tools/teamsim/FORMAT.md, crates/ubiq/tests/script.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/stats.rs, crates/ubiq/src/ui/stats.rs, crates/ubiq/src/app/stats.rs, crates/ubiq/tests/stats.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/src/ui/git/repo_selector.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/app/new_agent.rs, crates/ubiq/src/ui/new_agent.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/app/graph.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/ui/web_view.rs, crates/ubiq/src/ui/viewer/web.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/state/web_panel.rs, crates/ubiq/src/app/explorer.rs, crates/ubiq/src/state/explorer/menu.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/app/board.rs, crates/ubiq/tests/prefs.rs, crates/ubiq/tests/viewer_kind.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
@@ -95,9 +95,15 @@ ask, answered in the same `receive_repo` arm — and fills the branch picker fro
 store picker over `KbStore`. Access is read-only by default and is fixed on read-write for a wiki.
 Confirm appends the source and commits the whole list as one `SetKbSources`; Cancel discards.
 
-**The explorer and the chat belong to IDE mode.** They are IDE furniture and leave together when the
-mode changes; the console, the terminals and the centre panel itself outlive a mode switch. The chat
-is written to be reused by the other screens later, but is not shared furniture today.
+**The explorer belongs to IDE mode; the chat belongs to the project.** The explorer is IDE furniture
+and leaves with the mode — it is mode-owned (`PanelKind::is_mode_owned`), so it travels in the IDE's
+own blob and is never put back into another mode's tree. A conversation is furniture on every screen
+about a project instead: the right region holds it in every mode but Agents, where the columns *are*
+the conversation, and Control and the sink, which are not about a project at all. The console, the
+terminals and the centre panel itself outlive a mode switch too. **What no switch does is place a
+chat** (`D156`): a tab is opened by the user, on one screen, and comes back from that mode's own
+blob — a switch that put one beside Git's changes panel would be the window starting a conversation
+nobody asked for and then writing it down as Git's.
 
 **A side panel defaults to the dock, and only a panel meaningful in exactly one mode stays out of
 it.** `PanelKind` (`state/dock.rs`) is the shared, draggable, per-window arrangement — `Terminal`,
@@ -134,7 +140,7 @@ intact rather than rewriting the one that was up.
 and the arrangement, set from the Teams toolbar, persisted nowhere and sent nowhere.
 `state::teams::TeamsSpan` is `Project` or `Window` and starts at `Project`: one rail entry, one
 mode, with the span one more thing the canvas is filtered by beside the session pills and the
-bucket pills. An "All projects" toggle pill sits at the head of the Teams toolbar, drawn only when
+states control. An "All projects" toggle pill sits at the head of the Teams toolbar, drawn only when
 the window holds more than one built project. Under `Project` the canvas is the active project's
 live work and nothing else. Under `Window` it is every project the window holds, in the window's
 own project order — picker order, which never moves — with each project's live work concatenated
@@ -142,8 +148,14 @@ into one canvas.
 
 **Under the window span a card and a session pill wear the project they belong to**: the project's
 initials, with the project's tint as the pill's coloured left edge, the same face the rail draws its
-project badges with. Under the project span the canvas carries no chip — a screen about one project
-does not need to say which. **The rail and the titlebar go on meaning the active project.** They
+project badges with, **and every top-level thing on the canvas is fenced in that same tint**: a task
+container takes the colour of the project that owns it, and a card no container encloses gets a
+dashed fence of its own, so where one project's work stops is read off the canvas rather than off
+the chips one card at a time. Nothing is fenced twice — a card inside a container already sits in
+its project's colour — and a container lit as a drop target keeps `accent` while it is in that
+state, because that is the answer the canvas is giving for the moment. Under the project span the
+canvas carries no chip and no project fence — a screen about one project does not need to say
+which, and one colour repeated over every card is not a distinction. **The rail and the titlebar go on meaning the active project.** They
 are the window's answer to which project the other modes are about, and a span set on one screen
 does not rewrite them: the active project keeps its filled badge, and the cross-project canvas is a
 wider view *from* that project rather than a window with no project.
@@ -668,16 +680,21 @@ is drawn for it. Neither the inspector, the tasks drawer nor a connector reads t
 colours by `activity_colour(agent.activity)`, so all three report `Ended` where the card reports
 `Idle` (`G279`).
 
-**Three filters narrow it, and all of them clear.** The session row leads with `all` and then names
-each session with the count of agents under it; the four bucket pills — running, waiting, ended,
-error — decide which states are drawn. Any pill may be the last one turned off, because **a bucket
-row with none lit is not filtering**: the row means "narrow it to these", and narrowing to nothing is
-what an untouched row already does. That is what makes an empty canvas honest — it means an empty
+**Three filters narrow it, all of them clear, and each is shaped like the question it asks.** The
+session row leads with `all` and then names each session with the count of agents under it — a
+choice of one, so it is a row of pills that reports and controls at once. The states are a set,
+several on at once, so they are one `kit::MultiPicker` (`MenuId::TeamsBuckets`): a chip saying
+which of running, waiting, ended and error are ticked, opening a list that stays down while a
+second is ticked, each row carrying its bucket's own colour. Any state may be the last one turned
+off, because **a states control with none ticked is not filtering**: it means "narrow it to these",
+and narrowing to nothing is what an untouched control already does — which is why it reads as
+`all states` when empty. That is what makes an empty canvas honest — it means an empty
 project, never a filter the user cannot find their way back out of — and one control at the end of
 the strip puts every filter back at once, drawn only while there is something to put back.
 
 **The third is `Hide done`, and it is about delegates rather than cards.** A tick box after the
-bucket pills, on `Teams` alone. The pills hide whole cards; a card's ring goes on growing under it
+states control, on `Teams` alone — a toggle rather than a set, which is why it stayed a tick box
+when the states became one control. The states hide whole cards; a card's ring goes on growing under it
 for the life of the conversation, because every delegate a transcript ever named is still named
 there — so a long session ends as a wall of finished boxes round the three that are working, which
 is the clutter it answers. **Done is a state the data already carries, not a timer**: a delegate *is*
@@ -687,7 +704,7 @@ quiet (`G283`). `Failed` and `Unknown` stay on screen — an error is what a rea
 delegate whose spawning call the transcript does not hold is not a delegate anything says is over.
 `TeamsView::drawn_delegates` is the one place the rule is applied, read both by the canvas that draws
 the boxes and by `settle_teams`, which writes the ring counts the arrangement packs against — so a
-hidden delegate stops taking room the next time the graph is laid out. Like the bucket pills, the
+hidden delegate stops taking room the next time the graph is laid out. Like the states control, the
 tick box does not itself relayout: a filter narrows what is drawn, and throwing every hand-placed
 card away is `Tidy`'s job. **It is the one Teams filter that survives a restart**, carried in
 `ViewPrefs::teams_hide_done` beside the board's two, because it is a reading preference about a
@@ -807,7 +824,10 @@ is nothing to unwind, because nothing was sent.
 **`New agent`, beside `New task` in the toolbar, does not touch the board at all.** It raises the
 New agent form with `NewAgentSurface::Agents`, the same aim the titlebar's own shortcut and the `+`
 menu's first row make, so the agent it starts is revealed into the Agents screen's columns rather
-than drawn as anything on the board. Starting an agent from here answers "who should work on this"
+than drawn as anything on the board. It goes **straight to the form**, the way Teams' own
+`+ Add agent` does and without the `+` menu's first stage: that menu's other row attaches an
+existing conversation to the surface that raised it, and the board draws no agent to attach one to.
+No project step either — the board is one project's work, so there is nothing to choose between. Starting an agent from here answers "who should work on this"
 without leaving the board to do it; the task the agent ends up working still needs its own card.
 
 **A card written as a description names itself.** A draft with a description and no title is
@@ -952,11 +972,10 @@ one task is not asking that — the rail reaches the graph in one click for the 
 stashes, submodules) in the left region, the uncommitted changes and the commit box in the right,
 the commit list in the centre. A first visit opens the left and right regions onto those panels and
 puts the history in the centre; the bottom pane region stays shut. A saved arrangement from before
-the refs and changes panels existed lands them the moment Git's own side regions are on screen
-(`D119`), the general rule `AppState::refill_mode_sides()` gives every mode with side furniture —
-Tasks and Agents included — rather than a rule of Git's own. The titlebar's side-panel
-switches, the same ones the IDE uses for the explorer and the chat, put the sides away and bring
-them back. The comparison is a panel of its own and comes forward when a changed path is picked. It is the same facts the explorer's badges and the status bar's branch carry, at
+the refs and changes panels existed is not a first visit, so it does not have them injected into it:
+the region it left open and empty is closed instead, the same rule `D156` gives every mode's side
+furniture — Tasks and Agents included — rather than one of Git's own, and the titlebar's side-panel
+switch, the same one the IDE uses for the explorer, is what brings that side's furniture back. The comparison is a panel of its own and comes forward when a changed path is picked. It is the same facts the explorer's badges and the status bar's branch carry, at
 the size they can be read at: the tree answers "is this file changed" and this screen answers
 "what has this repository been doing". A red `experimental` ribbon sits on the screen's top-left
 corner for as long as the rail is on Git.
@@ -1408,9 +1427,11 @@ KB document takes it the same way in KB mode.
 "docked above the editor" is a split at the top of the centre rather than a region of its own.
 
 **A panel with nothing to show is hidden, not removed.** It keeps its place in the tree and its tab
-slot, and comes back where it was left. The explorer leaves with IDE mode; a chat tab is drawn in
-IDE, Tasks and the two Teams modes and wants a project in each of them, because a conversation about
-nothing is a fiction; the board's task wants Tasks mode and a project, and the agents list wants
+slot, and comes back where it was left. The explorer leaves with IDE mode; a chat tab is furniture on
+every screen about a project except Agents — it is drawn with a project open in every mode but
+Agents, Control and the sink — because the agents are how work gets done everywhere else and a
+conversation about nothing is a fiction, and Agents draws no chat panel because the columns *are*
+the conversation there; the board's task wants Tasks mode and a project, and the agents list wants
 Agents mode and a project, the way the documents explorer wants KB's; a terminal is hidden while its project is not the one on screen, so its
 harness goes on running and keeps its scrollback; a file panel is hidden while its tab is not one the
 project on screen holds. The console is always drawn, and **the centre panel steps aside in IDE mode
@@ -1429,18 +1450,42 @@ region — is closed the same way the switch would: the switch reads it as close
 closed, not merely because it looks it. **All three switches are drawn in every rail mode**: every
 mode has side furniture of its own now — the IDE's explorer and chat, Git's refs and changes, KB's
 documents, the board's task, the agents list, Teams' chat — so a switch that was hidden would be a
-region the user could not ask for. **No region opens
-by default, in any mode** — `D94`. A mode or a project never arranged before opens on the centre
-alone: no explorer, no chat, no pane region. Each comes back the moment it is asked for, and stays
-remembered from then on, the same posture the pane region has always taken. **Opening an
-edge region with nothing in it fills it with that mode's own furniture**: the bottom starts a pane;
-Git's left and right open onto the refs and the changes, KB's left onto the documents, Tasks' right
-onto the task and Agents' left onto the list; and a side that is the *chat's* home in the mode on
-screen — the right, in every mode — opens onto a fresh chat tab. A
-switch that gave the user a bar of nothing would not have answered what was asked. The left is the
-exception, not because it opens by default but because it is never genuinely empty: the explorer
-panel is already in the tree the moment IDE mode is entered, so opening a closed left reveals it
-rather than spawning anything. The `+` that opens another one sits at the right end of that region's tab strip, drawn in a
+region the user could not ask for. **The pane region never opens by default, in any mode** — `D94`. A mode or a project never arranged
+before opens on the centre and its own explorer side alone: the IDE's, Git's, the knowledge base's
+and the agents screen's left region, and Git's and Tasks' right region, come up with the mode
+because they *are* how that screen is read — `mode_side_furniture` is what each one opens onto —
+and every other edge, the bottom always and the right everywhere but Git and Tasks, stays shut until
+it is asked for.
+**A mode or a project switch is not that ask** (`D156`): it opens no region and adds no panel
+beyond what the mode's own defaults or its saved blob already name, and a region a restore or a
+switch leaves open with nothing in it is closed rather than filled — the same
+`collapse_empty_regions` a user emptying a region by hand triggers. The one gesture that fills an
+empty edge is **a click on that region's own titlebar switch**: `toggle_region` is the only place
+this happens, and it answers with the mode's own side furniture where the mode has one — the bottom
+starts a pane; the right in IDE, Git, Tasks and the knowledge base opens onto that mode's chat, the
+changes panel, the task or a fresh chat tab in turn; the left opens onto that mode's explorer, Git's
+refs, the knowledge base's documents or the agents list. Teams and Tasks have no left-hand furniture,
+so an empty left there is left as the user made it, and Teams' right is the inspector its own screen
+draws inline rather than a dockable panel. A
+switch that gave the user a bar of nothing would not have answered what was asked. The left is
+rarely genuinely empty in the modes that have furniture for it: the explorer panel is already in the
+tree the moment IDE mode is entered, so opening a closed left reveals it rather than spawning
+anything. **A switch fills nothing that is already on screen** — where the user has dragged that
+furniture to the other edge there is nothing this side can show, and the switch leaves the
+arrangement as it found it rather than opening a bar of nothing the dock would write down as the
+user's own. A mode with no furniture for a side promised nothing there and keeps the empty edge the
+user asked for, which is why Control's left stays open on a click and the IDE's does not.
+
+**Window furniture travels only when it can be brought back.** Search, the console and help are the
+window's rather than any one mode's, and a switch sweeps all three out so the incoming arrangement
+is the only thing that puts them on screen (`D156`). Three narrowings make that rule honest. A
+**window pointed at no project** sweeps nothing: nothing is written down for it, so nothing could
+restore what a sweep took, and the console it lost would be lost for good. A switch the **window
+made rather than the user** — a runner sending its pane to the IDE, the mode the window is in being
+hidden — sweeps nothing either. And **help in follow mode is revealed, not merely left in the
+tree**: the panel's whole contract is to keep up with the reader, so a mode whose arrangement has
+that region shut has it opened for the page, which is the one thing a switch is allowed to open.
+The `+` that opens another one sits at the right end of that region's tab strip, drawn in a
 group that holds a terminal or the console, in the pane region even when it holds neither, and only
 while a project is open — because a pane runs in a project's folder. Beside it is a chevron, drawn
 whether or not a project is, which opens the menu of what else can be reached here: the shells this
@@ -2294,7 +2339,12 @@ than a tab waiting on a read — there is nothing coming. Saving one raises the 
 the explorer's own gestures use, asking for a project-relative path; confirming it retitles the tab
 in place — name, language, viewer — and writes the file as a creation, which the host refuses if
 anything is already there — unless the user says to write over it, in the **Overwrite file** modal
-the refusal raises. The retitle happens on the confirmation rather than on the host's answer,
+the refusal raises. **The path may name folders that are not there yet**, and a creation makes them:
+the field asks where in the project the buffer goes, so `shots/new/capture-1.png` is a file that has
+never been anywhere rather than one that went away — which is what it used to be told it was, in the
+**Not saved** modal, reading *no longer there* over a picture that had just been pasted
+(`tech/transport-contract.md` owns the rule, and only a creation makes a folder). The retitle
+happens on the confirmation rather than on the host's answer,
 the same bet a click on an explorer row makes, so a refusal is reported on a tab that already carries
 the name the user chose and the message reads correctly.
 
@@ -2494,20 +2544,27 @@ inherits that one's edges and has them written down as its own. A blob it cannot
 mode the window is in is written down when the mode is chosen rather than when the arrangement next
 changes, so two modes that arrange nothing between them still reopen in the right one.
 
-**Two panels belong to the window, not to any project, and a project switch takes them with it.**
-The log console and the search panel can be opened from any project, but neither names one: entering
-a different project takes both out of the tree and resets the search field before the incoming
-project's own arrangement installs, rather than carrying one project's results or its open console
-into a screen that has never seen either. A saved arrangement that names them puts them straight
-back — that is the difference between *remembered* and *inherited*. When the incoming project has no
-saved arrangement at all, the region they just vacated is collapsed rather than left as an empty bar.
+**Three panels belong to the window, not to any project or any mode, and a project or a mode switch
+takes them out of the tree** (`D156`). The log console and the search panel can be opened from any
+project, but neither names one, so both are swept out on a project switch *and* on a rail-mode
+switch, before the incoming arrangement installs — carrying one project's results, or one mode's
+open console, into a screen that has never seen either would be inheriting, not remembering. Help is
+the third, and the one exception: it is swept the same way on both switches **unless follow mode is
+on**, because follow's whole contract is to keep the reader's page up with wherever they are
+standing, and a panel that is a means of staying with the reader cannot also be swept out from under
+them. A saved arrangement that names any of the three puts it straight back — that is the difference
+between *remembered* and *inherited*. When the incoming mode or project has no saved arrangement at
+all, the region a swept panel just vacated is collapsed rather than left as an empty bar. The search
+*results* are reset only on a project switch, because they are one project's hits and a mode switch
+inside one project has no reason to lose them.
 
-**Neither is ever put back by a state flag.** The search panel reaches the dock through
+**None of the three is ever put back by a state flag.** The search panel reaches the dock through
 `reveal_search()` and the console through `reveal_console()` — the titlebar's icon, the ⌘⇧F binding,
-`search_for()` and the new-pane menu's *Console* row — and through a saved arrangement that already
-named it. A search still in flight is not a reason to add the panel: entering the IDE with an
-unfinished search behind it used to re-add the search panel over whatever arrangement the user had
-left, which is the whole reason the presence of these two is the arrangement's business alone.
+`search_for()` and the new-pane menu's *Console* row — help through its own gesture, and each
+through a saved arrangement that already named it. A search still in flight is not a reason to add
+the panel: entering the IDE with an unfinished search behind it used to re-add the search panel over
+whatever arrangement the user had left, which is the whole reason the presence of these three is the
+arrangement's business alone, and a switch is never one of the gestures that adds them.
 
 **Layout persists; harnesses do not.** The arrangement carries a version of its own, and one written
 for another version is discarded whole for the default arrangement rather than half-applied. A saved
@@ -2519,7 +2576,12 @@ where they were, and no terminals. Restoring a mode's arrangement forces every r
 state that mode left it in — a region another mode shut in between is reopened, one that was shut is
 closed, and a region whose every panel was dropped is installed empty rather than left holding the
 last mode's — so a visit away does not leave the mode's edges silently gone. A panel the window
-holds that the restored arrangement does not name is put back in its home region rather than lost.
+holds that the restored arrangement does not name is put back in its home region rather than lost —
+**added there, never revealed** (`D156`): a reveal would open the region it lands in, which is a
+switch rearranging the window rather than restoring what the user left, and the very next
+`LayoutChanged` would write that rearrangement down as though the user had asked for it. Which
+regions the restore actually settled on is read first and forced back afterwards, since adding a
+leftover into a region no blob named is what creates that region, and a created region is open.
 
 **A panel writes down what it is looking at, not what it drew.** A file panel carries its tab and
 the layout its viewer was left in, a terminal panel carries its pane's id, and nothing else — never
@@ -3103,14 +3165,14 @@ rather than reading it. A first visit to Git reveals the history panel in the ce
 and right regions open — refs on **Local branches** alone, the sidebar's other four sections shut —
 and the bottom shut — `collapse_empty_regions()` leaves both regions' edges unarmed while
 `queue_git_furniture()`'s refs and changes panels are still in the pending-panel queue, so neither
-is put away before `settle_panels()` drains it. `AppState::refill_mode_sides()` runs every frame,
-for whichever mode is on screen, and re-queues a side region's own furniture — `mode_side_furniture()`
-answers which, shared with `toggle_region()` — whenever that region is open and holds nothing: a
-restored blob that predates the panel, or one saved before Git (or Tasks, Agents, KB) had a side
-panel of its own, lands its furniture the moment the region is on screen, with no click needed. A
-region a blob or the user's own click left shut stays shut — this only ever fills an open one, never
-reopens a closed one — and it is idempotent: once the furniture lands the region is no longer empty,
-so the next frame asks for nothing. `select_git_ref()` reveals that panel if it was
+is put away before `settle_panels()` drains it. There is no per-frame refill behind that: Git's
+furniture is queued exactly once, by `queue_git_furniture()` on entering the mode with no saved
+blob, the same way `queue_kb_furniture()` and `queue_mode_furniture()` seed the knowledge base's,
+the board's and the agents screen's own side panel (`D156`). A restored blob that predates the refs
+or the changes panel is not a first visit and gets no injection: the region it left open and empty
+is closed by `collapse_empty_regions()` instead, and the titlebar's side-panel switch — answered by
+`mode_side_furniture()`, shared with `toggle_region()` — is what puts Git's furniture there on a
+click. `select_git_ref()` reveals that panel if it was
 hidden; `jump_to_git_ref()` selects the commit the ref points at and scrolls the list to it.
 `select_git_path()` reveals the diff panel. The IDE's right region stays shut on a first visit,
 whatever `settle_persistent_chat()` attaches behind it. `git_view()`, `git_view_mut()` and
@@ -3753,8 +3815,9 @@ than a second copy of the task: with it on, both draw as a modal over the column
 panel says where they went, so the toggle back is always in reach. A first visit to the mode opens
 the right region onto it, through `AppState::queue_mode_furniture()` and
 `prefs::ModeLayout::default_for`, exactly the way Git's and KB's furniture arrives. A saved blob from
-before this panel existed is not a first visit, so `AppState::refill_mode_sides()` is what gets it
-onto a stale layout's right region instead, the moment that region is on screen and empty.
+before this panel existed is not a first visit, so it gets no injection either: the right region it
+left open and empty is closed instead (`D156`), and the titlebar's right-hand switch is what puts
+the task there.
 
 `ui/board/detail.rs` is the report and `ui/board/form.rs` the controls, drawn into the same panel.
 The form is not an area of its own and has no row in the table above: the rule about adding an area

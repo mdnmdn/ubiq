@@ -504,16 +504,75 @@ fn a_save_into_a_folder_that_went_away_is_refused() {
     );
 }
 
+/// A buffer that has never been on disk is created wherever it is saved, folders and all.
+///
+/// The bug this is for: a picture pasted into the workbench is saved through the save-as modal,
+/// which asks for a project-relative *path* — and a path naming a folder that is not there yet came
+/// back as `Missing`, drawn as "no longer there" over a file that had never been anywhere.
 #[test]
-fn a_save_never_creates_a_folder() {
+fn a_creation_makes_the_folders_its_path_names() {
     let dir = project();
+
+    files::save(dir.path(), "new/dir/capture-1.png", b"png", None, false).unwrap();
     assert_eq!(
-        files::save(dir.path(), "new/dir/file.txt", b"x", None, false).unwrap_err(),
+        fs::read(dir.path().join("new/dir/capture-1.png")).unwrap(),
+        b"png"
+    );
+
+    // Saving it again is an ordinary versioned write from there on.
+    let read = files::contents(dir.path(), "new/dir/capture-1.png", None).unwrap();
+    files::save(
+        dir.path(),
+        "new/dir/capture-1.png",
+        b"png2",
+        read.version,
+        false,
+    )
+    .unwrap();
+    assert_eq!(
+        fs::read(dir.path().join("new/dir/capture-1.png")).unwrap(),
+        b"png2"
+    );
+}
+
+/// The folder-making is a creation's alone: a write that names a version names a file that is
+/// supposed to be there, so a folder of its own that has gone is the staleness `Missing` is for.
+#[test]
+fn only_a_creation_makes_a_folder() {
+    let dir = project();
+    let stale = FileVersion {
+        len: 3,
+        modified: None,
+    };
+
+    assert_eq!(
+        files::save(dir.path(), "new/dir/file.txt", b"x", Some(stale), false).unwrap_err(),
+        FileError::Missing
+    );
+    assert_eq!(
+        files::save(dir.path(), "new/dir/file.txt", b"x", None, true).unwrap_err(),
         FileError::Missing
     );
     assert!(
         !dir.path().join("new").exists(),
-        "a write brought a folder into existence"
+        "a write that names an existing file brought a folder into existence"
+    );
+}
+
+// A folder that is a symlink out of the root is refused on the way through, the same as it is for
+// any other write: the creation walks one level at a time and contains each one as it lands.
+#[cfg(unix)]
+#[test]
+fn a_creation_never_makes_a_folder_outside_the_root() {
+    let dir = project();
+    let outside = TempDir::new().unwrap();
+    std::os::unix::fs::symlink(outside.path(), dir.path().join("away")).unwrap();
+
+    let error = files::save(dir.path(), "away/sub/file.txt", b"x", None, false).unwrap_err();
+    assert!(refused(&error), "answered {error:?}");
+    assert!(
+        !outside.path().join("sub").exists(),
+        "a creation made a folder outside the project"
     );
 }
 

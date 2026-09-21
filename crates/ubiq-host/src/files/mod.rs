@@ -270,6 +270,9 @@ pub fn contents(
 /// handing out for free — unless `overwrite` is set, which is the interface saying it asked the
 /// user and they said yes. `overwrite` beside an `expected` names no version and is refused rather
 /// than ignored.
+///
+/// A creation — and only a creation — makes the folders its path names, through
+/// [`path::resolve_for_create`]; every other write still refuses a path whose folder is not there.
 pub fn save(
     root: &Path,
     rel_path: &str,
@@ -278,7 +281,17 @@ pub fn save(
     overwrite: bool,
 ) -> Result<FileVersion, FileError> {
     // First, so containment is settled before a single byte is written.
-    let file = path::resolve_for_write(root, rel_path)?;
+    //
+    // A creation is the one write that may bring the folders its path names into existence, and
+    // it is the difference between "this file is new" and "this file went away": the save-as modal
+    // asks for a project-relative path, so `notes/today.png` is a picture that has never been
+    // anywhere, not a stale tab. A write naming a version — or one told to overwrite — names a
+    // file that is supposed to be on disk already, and both keep refusing a path whose folder is
+    // not there, because for them a missing folder is exactly the staleness this guard is for.
+    let file = match (expected, overwrite) {
+        (None, false) => path::resolve_for_create(root, rel_path)?,
+        _ => path::resolve_for_write(root, rel_path)?,
+    };
     let current = match fs::metadata(&file) {
         Ok(stat) if stat.is_file() => Some(stat),
         Ok(_) => return Err(FileError::WrongKind),

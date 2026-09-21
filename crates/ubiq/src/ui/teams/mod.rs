@@ -46,7 +46,7 @@ use crate::state::{MenuId, TeamsSelection};
 use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::kit::{
-    Picker, check_box, ghost_button, icon_button, mono, section_label, stepper, toggle_pill,
+    MultiPicker, Picker, check_box, ghost_button, icon_button, mono, section_label, stepper,
 };
 use crate::ui::project_face::{ProjectFace, project_face};
 use crate::ui::teams::status::project_chip;
@@ -94,9 +94,14 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
 /// The strip over the graph: which session it is drawing, which states it is showing, and how far
 /// in.
 ///
-/// Both filters clear. The session row leads with an `all` that draws every session, and a bucket
-/// row with nothing lit is not filtering — so a graph emptied by a filter is always one click from
-/// being full again, and the control at the end of the row does both at once.
+/// Both filters clear. The session row leads with an `all` that draws every session, and a states
+/// control with nothing ticked is not filtering — so a graph emptied by a filter is always one
+/// click from being full again, and the control at the end of the row does both at once.
+///
+/// **The two filters have different shapes because they are different questions.** A session is a
+/// choice of one, and a row of pills is the report and the control at once; the states are a set,
+/// several of them on at once, and that is a `kit::MultiPicker` — one chip saying what is ticked,
+/// a list that stays down while the user ticks a second.
 fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
     let (Some(work), Some(graph)) = (app.teams_work(cx), app.teams(cx)) else {
         return div().into_any_element();
@@ -150,21 +155,35 @@ fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         })
         .collect();
 
-    let filters: Vec<_> = Bucket::all()
-        .into_iter()
-        .map(|bucket| {
-            toggle_pill(
-                // Keyed off the enum's discriminant rather than an id: there is one pill per
-                // bucket and no record behind it, so there is nothing here for a ULID to name.
-                ("teams-filter", bucket as u32),
-                bucket.label(),
-                bucket_colour(bucket),
-                graph.showing(bucket),
-                cx.listener(move |this, _, _, cx| this.toggle_teams_bucket(bucket, cx)),
-            )
-            .into_any_element()
-        })
+    // The states filter: four values, any number of them on at once, which is what makes it the
+    // one filter on this row that is a set rather than a choice. It reads `buckets` rather than
+    // `showing`, because "every bucket lit" and "none lit" draw the same canvas but are not the
+    // same answer to give a control — ticking a row off the full set is how the user narrows it.
+    let buckets = Bucket::all();
+    let lit: Vec<usize> = buckets
+        .iter()
+        .enumerate()
+        .filter(|(_, bucket)| graph.buckets.contains(bucket))
+        .map(|(ix, _)| ix)
         .collect();
+    let states = MultiPicker::new("teams-buckets", "all states")
+        .items(buckets.map(|bucket| bucket.label()))
+        // The colour the pills carried comes with them: a state is read by colour before it is
+        // read by name, on this screen and on every other.
+        .dots(buckets.map(bucket_colour))
+        .selected(lit)
+        .open(app.workbench.open_menu == Some(MenuId::TeamsBuckets))
+        .on_toggle(handler(&view, |this, _, cx| {
+            this.open_menu(MenuId::TeamsBuckets, cx)
+        }))
+        .on_dismiss(handler(&view, |this, _, cx| this.close_menu(cx)))
+        // The menu stays down: narrowing to two states is two clicks, and a list that shut after
+        // the first would make the second a reopen.
+        .on_pick(indexed(&view, |this, index, _, cx| {
+            if let Some(&bucket) = Bucket::all().get(index) {
+                this.toggle_teams_bucket(bucket, cx);
+            }
+        }));
 
     div()
         .h(px(theme::titlebar_height()))
@@ -180,7 +199,8 @@ fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         .child(all)
         .children(sessions)
         .child(div().w(px(12.)).flex_none())
-        .children(filters)
+        .child(section_label("States"))
+        .child(states)
         .child(div().w(px(12.)).flex_none())
         .child(hide_done_check(graph.hide_done, cx))
         .child(div().flex_1().min_w(px(0.)))

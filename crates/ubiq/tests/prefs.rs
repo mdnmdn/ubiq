@@ -136,10 +136,11 @@ fn a_blob_missing_the_fields_a_later_build_added_still_opens() {
     // each mode the way a fresh one does.
     assert!(view.modes.is_empty());
     let arranged = ModeLayout::default_for(RailMode::Ide);
-    // No region is furniture: a mode that has never been arranged opens on the centre alone, and
-    // each region comes back the moment it is asked for. Git is the exception — its refs and
-    // changes *are* the screen, so both edges open with it.
-    assert!(!arranged.show_left && !arranged.show_right && !arranged.show_bottom);
+    // A mode never arranged opens on its own screen and nothing else: the pane region is furniture
+    // nowhere, and a right region is nobody's default. The IDE's left is the explorer's — never
+    // closable, and how the files are reached (P4) — so it opens with the mode. Git is the wider
+    // exception: its refs and its changes *are* the screen, so both edges open with it.
+    assert!(arranged.show_left && !arranged.show_right && !arranged.show_bottom);
     let git = ModeLayout::default_for(RailMode::Git);
     assert!(git.show_left && git.show_right && !git.show_bottom);
     // The knowledge base makes the same claim over one side only: its explorer is how a document
@@ -346,7 +347,7 @@ fn the_arrangement_may_be_absent() {
 
     assert!(view.modes.is_empty());
     let fresh = ModeLayout::default_for(RailMode::Ide);
-    assert!(!fresh.show_left && !fresh.show_right && !fresh.show_bottom);
+    assert!(fresh.show_left && !fresh.show_right && !fresh.show_bottom);
 }
 
 /// A blob may carry more than this build names — a newer build's field, or an edition's own

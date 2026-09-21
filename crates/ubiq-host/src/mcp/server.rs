@@ -32,7 +32,7 @@ use ubiq_proto::bus::Voice;
 
 use super::catalogue::{self, ServerSpec};
 use super::registry::{AgentFacts, Registry};
-use super::{HelpReach, KbReach, WorkAccess};
+use super::{AskReach, HelpReach, KbReach, WorkAccess};
 
 /// How often the serving thread wakes to check whether it should stop. Bounds shutdown latency
 /// without needing to unblock the listener.
@@ -95,6 +95,7 @@ pub fn start(
     work: Option<WorkAccess>,
     kb: Option<KbReach>,
     help: Option<HelpReach>,
+    ask: Option<AskReach>,
 ) -> anyhow::Result<Serving> {
     let http = tiny_http::Server::http("127.0.0.1:0")
         .map_err(|error| anyhow::anyhow!("binding the MCP listener: {error}"))?;
@@ -108,7 +109,7 @@ pub fn start(
     let stop_thread = Arc::clone(&stop);
     let handle = std::thread::Builder::new()
         .name("ubiq-mcp".to_string())
-        .spawn(move || serve(http, registry, voice, work, kb, help, stop_thread))
+        .spawn(move || serve(http, registry, voice, work, kb, help, ask, stop_thread))
         .expect("the MCP listener thread");
 
     Ok(Serving {
@@ -121,6 +122,11 @@ pub fn start(
 /// The serving loop: poll with a bounded timeout so [`Drop`] can stop it, and handle each request
 /// fully before reading the next. One request at a time is enough — a tool call here reads a
 /// snapshot under a read lock and returns.
+///
+/// **Except one.** `ubiq-ask`'s tool waits for a person, and a request that waits here is every
+/// other agent's tool calls waiting behind it. [`handle`] moves that one request onto a thread of
+/// its own and comes straight back, which is what keeps this loop the cheap thing it is (`D138`).
+#[allow(clippy::too_many_arguments)]
 fn serve(
     http: tiny_http::Server,
     registry: Registry,
@@ -128,6 +134,7 @@ fn serve(
     work: Option<WorkAccess>,
     kb: Option<KbReach>,
     help: Option<HelpReach>,
+    ask: Option<AskReach>,
     stop: Arc<AtomicBool>,
 ) {
     while !stop.load(Ordering::SeqCst) {
@@ -139,6 +146,7 @@ fn serve(
                 work.as_ref(),
                 kb.as_ref(),
                 help.as_ref(),
+                ask.as_ref(),
             ),
             Ok(None) => continue,
             Err(_) => break,
@@ -148,6 +156,7 @@ fn serve(
 
 /// Resolve the address, then speak the protocol. Never panics on anything a client sent: the worst
 /// a malformed request gets is a parse error, and the worst a wrong address gets is a 404.
+#[allow(clippy::too_many_arguments)]
 fn handle(
     mut request: tiny_http::Request,
     registry: &Registry,
@@ -155,6 +164,7 @@ fn handle(
     work: Option<&WorkAccess>,
     kb: Option<&KbReach>,
     help: Option<&HelpReach>,
+    ask: Option<&AskReach>,
 ) {
     let Some((key, server)) = route(request.url()) else {
         let _ = request.respond(not_found());
@@ -196,7 +206,39 @@ fn handle(
     let method = parsed.get("method").and_then(Value::as_str).unwrap_or("");
     let params = parsed.get("params").cloned().unwrap_or(Value::Null);
 
-    let response = match dispatch(method, params, spec, &facts, voice, work, kb, help) {
+    // The parking tool is the one request this thread does not serve itself. `tiny_http`'s
+    // `Request` is `Send`, so the whole of it — the call and the response nobody has written yet —
+    // moves onto a thread that can afford to wait for a human, and the listener goes straight back
+    // to reading (`D138`). Only `tools/call` is moved: `initialize` and `tools/list` on the same
+    // server answer instantly and belong here.
+    if spec.name == catalogue::UBIQ_ASK
+        && method == "tools/call"
+        && let Some(reach) = ask
+    {
+        let reach = AskReach {
+            asks: Arc::clone(&reach.asks),
+        };
+        let voice = voice.clone();
+        let spawned = std::thread::Builder::new()
+            .name("ubiq-ask-call".to_string())
+            .spawn(move || {
+                let result = dispatch("tools/call", params, spec, &facts, &voice, None, None, None, Some(&reach));
+                let response = match result {
+                    Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
+                    Err((code, message)) => {
+                        json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}})
+                    }
+                };
+                let _ = request.respond(json_response(&response));
+            });
+        if let Err(error) = spawned {
+            // A thread that will not start is not a call that may hang here instead.
+            tracing::error!("an ask could not be served on a thread of its own: {error}");
+        }
+        return;
+    }
+
+    let response = match dispatch(method, params, spec, &facts, voice, work, kb, help, ask) {
         Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
         Err((code, message)) => {
             json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}})
@@ -237,6 +279,7 @@ fn dispatch(
     work: Option<&WorkAccess>,
     kb: Option<&KbReach>,
     help: Option<&HelpReach>,
+    ask: Option<&AskReach>,
 ) -> Result<Value, (i64, String)> {
     match method {
         "initialize" => Ok(json!({
@@ -251,7 +294,9 @@ fn dispatch(
                 .get("arguments")
                 .cloned()
                 .unwrap_or_else(|| json!({}));
-            match super::tools::call(spec.name, name, &arguments, facts, voice, work, kb, help) {
+            match super::tools::call(
+                spec.name, name, &arguments, facts, voice, work, kb, help, ask,
+            ) {
                 Ok(value) => {
                     let text = serde_json::to_string(&value).unwrap_or_default();
                     Ok(json!({
@@ -333,7 +378,8 @@ mod tests {
         let (hub, host) = bus::hub();
         let registry = Registry::new();
         registry.register(facts());
-        let serving = start(registry, host.voice(), None, None, None).expect("the listener binds");
+        let serving =
+            start(registry, host.voice(), None, None, None, None).expect("the listener binds");
         (serving, hub, host)
     }
 
@@ -348,8 +394,8 @@ mod tests {
             work,
             everyone: host.mailbox(ubiq_proto::bus::To::Everyone),
         };
-        let serving =
-            start(registry, host.voice(), Some(access), None, None).expect("the listener binds");
+        let serving = start(registry, host.voice(), Some(access), None, None, None)
+            .expect("the listener binds");
         (serving, hub, host)
     }
 
@@ -883,8 +929,8 @@ mod tests {
             kb: kb.clone(),
             everyone: host.mailbox(ubiq_proto::bus::To::Everyone),
         };
-        let serving =
-            start(registry, host.voice(), None, Some(reach), None).expect("the listener binds");
+        let serving = start(registry, host.voice(), None, Some(reach), None, None)
+            .expect("the listener binds");
         (
             serving,
             hub,
@@ -1144,6 +1190,84 @@ mod tests {
                 .unwrap()
                 .contains("no knowledge base")
         );
+    }
+
+    /// The parking tool, end to end — and the thing `D138` is actually about: while one agent's
+    /// ask is waiting for a person, another agent's ordinary tool call is answered as usual.
+    #[test]
+    fn an_ask_parks_without_holding_up_the_listener() {
+        let (hub, host) = bus::hub();
+        let asking = ubiq_proto::work::AgentId::generate();
+        let registry = Registry::new();
+        registry.register(AgentFacts {
+            key: asking.to_string(),
+            ..facts()
+        });
+        registry.register(facts());
+        let asks = Arc::new(crate::ask::Asks::new());
+        let serving = start(
+            registry,
+            host.voice(),
+            None,
+            None,
+            None,
+            Some(crate::mcp::AskReach {
+                asks: Arc::clone(&asks),
+            }),
+        )
+        .expect("the listener binds");
+
+        let asked = url(&serving, &asking.to_string(), "ubiq-ask");
+        let calling = std::thread::spawn(move || {
+            call(
+                &asked,
+                "ask_user_question",
+                json!({"questions": [{
+                    "question": "Which way?",
+                    "header": "Direction",
+                    "options": [{"label": "Left"}, {"label": "Right"}],
+                    "multiSelect": false,
+                }]}),
+            )
+        });
+
+        // The ask reaches the host, which is where the coordinator addresses it from.
+        let ask_id = loop {
+            match host.recv_timeout(TIMEOUT).expect("the ask is raised") {
+                bus::FromClient::Said {
+                    message:
+                        Message::AskUser {
+                            ask_id, agent_id, ..
+                        },
+                    ..
+                } => {
+                    assert_eq!(agent_id, asking);
+                    break ask_id;
+                }
+                _ => continue,
+            }
+        };
+
+        // The call is parked, and the listener is free: another agent's tool answers now.
+        assert_eq!(asks.len(), 1);
+        let meanwhile = call(&url(&serving, KEY, "project-info"), "whoami", json!({}));
+        assert_eq!(meanwhile["result"]["isError"], false);
+
+        assert!(asks.answer(
+            ask_id,
+            ubiq_proto::ask::AskOutcome::Answered(vec![ubiq_proto::ask::AskAnswer {
+                question: 0,
+                chosen: vec!["Right".to_string()],
+                other: None,
+                notes: None,
+            }])
+        ));
+        let response = calling.join().expect("the calling thread");
+        assert_eq!(response["result"]["isError"], false);
+        let result = answered(&response);
+        assert_eq!(result["answered"][0]["chosen"][0], "Right");
+        assert_eq!(result["summary"], "Direction: Right");
+        drop(hub);
     }
 
     /// `ureq` reports a 4xx as an `Err`, so both sides of the result have a status.

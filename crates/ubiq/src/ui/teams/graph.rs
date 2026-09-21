@@ -26,11 +26,12 @@
 
 use gpui::{
     App, AppContext as _, Context, DragMoveEvent, Entity, InteractiveElement, IntoElement,
-    ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, Window, div, point,
-    px,
+    ParentElement, Render, Rgba, SharedString, StatefulInteractiveElement, Styled, Window, div,
+    point, px,
 };
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
+use ubiq_proto::ids::TaskId;
 use ubiq_proto::work::{AgentId, TaskRecord, WorkAgent};
 
 use crate::app::AppState;
@@ -171,6 +172,22 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
     // connector and the fence round it can never disagree about the shape being drawn.
     let sub = graph.sub_box();
 
+    // Whose work this is, under the window span only: the canvas is drawing several projects at
+    // once, and a card that does not say which is a card a reader cannot place. Under the project
+    // span the answer is the whole screen, and everything here is what it always was — both lists
+    // below come back empty and nothing on the canvas changes.
+    let span = app.teams_span();
+    let spanning = span == TeamsSpan::Window;
+    // Which container wears which project's colour, and which loose cards get a fence of their
+    // own. Both answered by the state, so the rule — everything fenced once, in the colour of the
+    // project it came from — is one reading rather than two the canvas could disagree about.
+    let tinted: Vec<(TaskId, Option<Rgba>)> = graph
+        .fenced_tasks(&work, span)
+        .into_iter()
+        .map(|(task, owner)| (task, card_tint(app, owner, cx)))
+        .collect();
+    let loose = graph.fenced_alone(&work, span);
+
     // The task containers, under everything: a dashed box round the cards serving one task, with
     // its shape and its title on the top edge. The box is computed from where its cards are, so a
     // card dragged out of one takes the outline with it.
@@ -195,13 +212,22 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
             Role::Meta,
         ));
 
+        let tint = tinted
+            .iter()
+            .find(|(task, _)| *task == id)
+            .and_then(|(_, tint)| *tint);
+
         board.fence(
             Fence::new(
                 (x, y, w, h),
+                // The drop state still wins the outline: `accent` plus the heavier dashes is what
+                // says "let go here", and a container that kept its project's colour while lit
+                // would trade the answer to "where does this land" for one already on every card
+                // inside it.
                 if lit || carried {
                     theme::accent()
                 } else {
-                    theme::border()
+                    tint.unwrap_or_else(theme::border)
                 },
                 lit || carried,
             )
@@ -225,6 +251,27 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                     .into_any_element(),
             ),
         );
+    }
+
+    // The loose cards' own fences, under the window span only: a card no container encloses still
+    // belongs to a project, and a canvas where only the grouped work is coloured leaves the rest
+    // of it unplaceable. One fence per card, never a second one round a card already inside a
+    // container — two dashed outlines in the same colour say nothing the inner one did not.
+    //
+    // Colourless is not a case: a project the registry cannot face is one no fence can speak for,
+    // so it draws none rather than a grey box round one card and a coloured one round the next.
+    for agent in &visible {
+        if !loose.contains(&agent.id) {
+            continue;
+        }
+        let Some(tint) = card_tint(app, agent.id, cx) else {
+            continue;
+        };
+        board.fence(Fence::new(
+            graph.solo_bounds(agent.id, graph.at(agent)),
+            tint,
+            false,
+        ));
     }
 
     // The connectors, over the containers and under the cards: parent's bottom edge to child's top.
@@ -300,11 +347,6 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
             );
         }
     }
-
-    // Whose card this is, under the window span only: the canvas is drawing several projects at
-    // once, and a card that does not say which is a card a reader cannot place. Under the project
-    // span the answer is the whole screen, and the card is what it always was.
-    let spanning = app.teams_span() == TeamsSpan::Window;
 
     for agent in &visible {
         let conversation = app.teams_conversation(agent.id, cx);
@@ -524,6 +566,15 @@ fn subagent_card(
         cx.new(|_| Empty)
     })
     .into_any_element()
+}
+
+/// The colour of the project one card belongs to, or `None` where the registry has never heard of
+/// it — the same resolution the chip on the card and the pill over it draw from, so a fence, a chip
+/// and a badge cannot disagree about what a project looks like.
+fn card_tint(app: &AppState, agent: AgentId, cx: &App) -> Option<Rgba> {
+    app.project_of_agent(agent, cx)
+        .and_then(|project| project_face(project, cx))
+        .map(|face| face.tint)
 }
 
 /// One card. Everything about it is either a fact the record carries or a colour from a token —

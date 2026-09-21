@@ -41,19 +41,19 @@ use ubiq_proto::quota::QuotaSnapshot;
 use ubiq_proto::work::{Activity, AgentId};
 
 use crate::app::AppState;
-use crate::state::MenuId;
 use crate::state::conversation::{
     ActivityPanel, Attachment, ConvBlock, Conversation, Pending, QueuedMessage, Run, SubagentTab,
     TranscriptScroll, short_model_label,
 };
 use crate::state::file_picker::{SizeReading, size_label, size_reading};
 use crate::state::settings::{quota_tip, snapshot_from_rate_limit};
+use crate::state::{AttachmentPreview, MenuId};
 use crate::theme;
 use crate::ui::kit::menu::MENU_ANCHOR_UP;
 use crate::ui::kit::{
-    ContextItem, Picker, PickerStyle, UbiqIcon, context_menu, ghost_button, harness_icon,
+    self, ContextItem, Picker, PickerStyle, UbiqIcon, context_menu, ghost_button, harness_icon,
     icon_button, mono, pill, popover, primary_button, progress_ring, progress_ring_in,
-    progress_ring_pair, removable_tag, status_dot,
+    progress_ring_pair, removable_tag, status_dot, tag as kit_tag,
 };
 use crate::ui::{handler, indexed};
 
@@ -758,11 +758,12 @@ pub fn lifecycle_dot(
 /// the row the reader most needs to see would land under the fold with no follow to bring it up.
 fn tail_signature(conversation: &Conversation, visible: &[usize]) -> u64 {
     let tail = match visible.last().and_then(|ix| conversation.blocks.get(*ix)) {
-        Some(
-            ConvBlock::User(text)
-            | ConvBlock::Agent { body: text, .. }
-            | ConvBlock::Thought { body: text, .. },
-        ) => text.len(),
+        // The chips count: a turn drawn with three files under it is a taller row than the same
+        // prose with none, and the attachments arrive on the same update the text does.
+        Some(ConvBlock::User { text, attached }) => text.len() + attached.len(),
+        Some(ConvBlock::Agent { body: text, .. } | ConvBlock::Thought { body: text, .. }) => {
+            text.len()
+        }
         Some(ConvBlock::Tool { call, open }) => {
             call.title.len() + call.content.len() + usize::from(*open)
         }
@@ -774,10 +775,19 @@ fn tail_signature(conversation: &Conversation, visible: &[usize]) -> u64 {
     // added, and a tail that did not notice would leave it under the fold.
     let run = conversation.run as u64;
     let pending = conversation.pending.len() as u64;
+    // And the asks, for `pending`'s reason exactly: an ask is a row at the end of the transcript
+    // that no block moved, and the one the reader most needs brought into view.
+    let asks = conversation
+        .asks
+        .iter()
+        .fold(conversation.asks.len() as u64, |sum, ask| {
+            sum.wrapping_mul(3) ^ u64::from(ask.live())
+        });
     (visible.len() as u64).wrapping_mul(1_000_003)
         ^ tail as u64
         ^ run.wrapping_mul(31)
         ^ pending.wrapping_mul(97)
+        ^ asks.wrapping_mul(193)
 }
 
 /// What one row of the transcript draws. The plan the virtual list is fed: built once a frame
@@ -798,6 +808,9 @@ enum RowKind {
     Thinking { blocks: Vec<usize>, open: bool },
     /// A prompt whose call the transcript does not hold, by its place in `pending`.
     Adrift(usize),
+    /// One structured question the agent asked the user, by its place in `asks`. Never attached to
+    /// a block: an ask is the agent talking to the user through the host, not something it said.
+    Ask(usize),
     /// The note a transcript with nothing in it draws.
     Empty,
     /// The mark under a turn still being written.
@@ -842,9 +855,16 @@ fn hashed(value: impl std::hash::Hash) -> u64 {
 /// frame after that is the measurement.
 fn block_shape(block: &ConvBlock) -> (u64, Pixels) {
     let (len, sig) = match block {
-        ConvBlock::User(text)
-        | ConvBlock::Agent { body: text, .. }
-        | ConvBlock::Thought { body: text, .. } => (text.len(), hashed(text.len())),
+        // A sent turn's chips are a wrapping row under its prose, so they are part of both halves
+        // of the answer: the signature moves when a chip does, and the estimate allows a row for
+        // every three of them, which is about what fits across a column.
+        ConvBlock::User { text, attached } => (
+            text.len() + attached.len().div_ceil(3) * 80,
+            hashed((text.len(), attached.len())),
+        ),
+        ConvBlock::Agent { body: text, .. } | ConvBlock::Thought { body: text, .. } => {
+            (text.len(), hashed(text.len()))
+        }
         ConvBlock::Tool { call, open } => {
             let len = call.title.len() + call.content.len();
             (
@@ -1048,6 +1068,24 @@ fn plan_rows(
         ));
     }
 
+    // Then the asks, oldest first — after the prompts, because a permission blocks the turn and a
+    // question does not, and a reader with both up should answer the blocking one first.
+    for at in 0..conversation.asks.len() {
+        let record = &conversation.asks[at];
+        // The entry's own arithmetic: how tall it is depends on the stage it is in, and only the
+        // module that draws it knows what it draws there.
+        let lines = crate::ui::ask::entry_lines(record);
+        rows.push(row(
+            RowKind::Ask(at),
+            None,
+            (6, at),
+            (
+                hashed((at, record.live(), lines)),
+                crate::ui::ask::entry_height(record),
+            ),
+        ));
+    }
+
     // Last, so a transcript holding only an unattached prompt reads as the question it is.
     if rows.is_empty() {
         rows.push(row(RowKind::Empty, None, (3, 0), (0, px(20.))));
@@ -1070,13 +1108,24 @@ fn build_row(
     id: AgentId,
     row: &Row,
     attached: &HashMap<usize, Vec<&Pending>>,
+    preview: Option<&AttachmentPreview>,
     view: &ConversationView,
     root: &gpui::Entity<AppState>,
     cx: &mut Context<AppState>,
 ) -> AnyElement {
     let inner = match &row.kind {
         RowKind::Block(ix) => match conversation.blocks.get(*ix) {
-            Some(block) => one_block(conversation, id, *ix, block, attached, view, root, cx),
+            Some(block) => one_block(
+                conversation,
+                id,
+                *ix,
+                block,
+                attached,
+                preview,
+                view,
+                root,
+                cx,
+            ),
             None => div().into_any_element(),
         },
         RowKind::Group {
@@ -1091,6 +1140,10 @@ fn build_row(
         }
         RowKind::Adrift(at) => match conversation.pending.get(*at) {
             Some(request) => permission(id, request, None, view, cx),
+            None => div().into_any_element(),
+        },
+        RowKind::Ask(at) => match conversation.asks.get(*at) {
+            Some(record) => crate::ui::ask::transcript_entry(id, record, cx),
             None => div().into_any_element(),
         },
         RowKind::Empty => mono("nothing said yet", theme::text_faint())
@@ -1123,12 +1176,19 @@ fn one_block(
     ix: usize,
     block: &ConvBlock,
     attached: &HashMap<usize, Vec<&Pending>>,
+    preview: Option<&AttachmentPreview>,
     view: &ConversationView,
     root: &gpui::Entity<AppState>,
     cx: &mut Context<AppState>,
 ) -> AnyElement {
     match block {
-        ConvBlock::User(text) => copyable(view, ix, text, user_turn(text)),
+        ConvBlock::User {
+            text,
+            attached: files,
+        } => {
+            let turn = user_turn(id, ix, text, files, preview, view, cx);
+            copyable(view, ix, text, turn)
+        }
         ConvBlock::Agent { body, .. } => copyable(
             view,
             ix,
@@ -1380,8 +1440,19 @@ fn transcript(
             let mut again = false;
             for at in range {
                 let Some(row) = plan.get(at) else { continue };
-                let mut element =
-                    build_row(conversation, id, row, &attached, &building, &entity, cx);
+                // Read off the window rather than captured: the panel opens and closes between
+                // frames, and the one place that knows which chip it hangs from is this state.
+                let preview = app.workbench.attachment_preview.as_ref();
+                let mut element = build_row(
+                    conversation,
+                    id,
+                    row,
+                    &attached,
+                    preview,
+                    &building,
+                    &entity,
+                    cx,
+                );
                 if let Some(scroll) = scroll
                     && width > px(0.)
                     && scroll.needs_measure(row.key, row.sig)
@@ -1524,7 +1595,7 @@ fn mark_variant(conversation: &Conversation) -> u64 {
     let turn = conversation
         .blocks
         .iter()
-        .rposition(|block| matches!(block, ConvBlock::User(_)))
+        .rposition(|block| matches!(block, ConvBlock::User { .. }))
         .map_or(0, |at| at + 1);
     let mut hasher = DefaultHasher::new();
     conversation.id.hash(&mut hasher);
@@ -1656,22 +1727,175 @@ fn copyable(
 }
 
 /// What the user said sits in the accent, the way every other surface in the window draws a turn
-/// of theirs.
-fn user_turn(text: &str) -> AnyElement {
+/// of theirs — and under it, the files that went with it.
+///
+/// **The chips are inside the turn's own surface, under the prose.** They were part of the
+/// message, not a footnote to it, and a row drawn outside the accent block would read as
+/// something the interface added afterwards. They carry no `×`: a sent attachment is not
+/// removable, because the harness already has it.
+///
+/// Clicking one opens [`attachment_preview`] rather than the editor. A chip on the composer opens
+/// the file, because the reader is still deciding whether to send it; a chip on a sent turn
+/// answers a narrower question — *which file was that* — and taking the reader off the transcript
+/// to answer it is the wrong trade. The panel's own `Open` is the other click.
+#[allow(clippy::too_many_arguments)]
+fn user_turn(
+    agent: AgentId,
+    ix: usize,
+    text: &str,
+    files: &[Attachment],
+    preview: Option<&AttachmentPreview>,
+    view: &ConversationView,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let mut said = div()
+        .p_2()
+        .bg(theme::accent_soft())
+        .border_l(px(theme::accent_edge()))
+        .border_color(theme::accent())
+        .text_size(theme::font(theme::Family::Conversation, theme::Role::Body))
+        .text_color(theme::text())
+        .child(SharedString::from(text.to_string()));
+
+    if !files.is_empty() {
+        said = said.child(sent_attachment_tags(agent, ix, files, preview, view, cx));
+    }
+
+    div().pl_6().flex_none().child(said).into_any_element()
+}
+
+/// The files one sent turn carried, one tag each, wrapping onto as many lines as they need.
+///
+/// [`attachment_tags`]'s twin with the dismiss gone, and the same three size readings, because it
+/// is the same list at a later moment in its life: what was above the field before Send is what
+/// sits under the prose after it. The colour still says the size, and the tooltip still says the
+/// whole path and the figure, for the reasons stated there.
+///
+/// The panel hangs off the chip it was opened from — a child of the trigger, the way every
+/// anchored surface in this interface is.
+fn sent_attachment_tags(
+    agent: AgentId,
+    ix: usize,
+    files: &[Attachment],
+    preview: Option<&AttachmentPreview>,
+    view: &ConversationView,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let tags: Vec<AnyElement> = files
+        .iter()
+        .map(|file| {
+            let (name, tip, fill, edge, colour) = attachment_face(file);
+            let open = file.path.clone();
+            let size = file.size;
+            let attachment = file.id;
+            let showing = preview
+                .filter(|preview| preview.agent == agent && preview.attachment == attachment);
+
+            let mut chip = kit_tag(
+                view.eid(&format!("sent-{ix}-{attachment}")),
+                name,
+                tip,
+                fill,
+                edge,
+                colour,
+                cx.listener(move |this, _, _, cx| {
+                    this.open_attachment_preview(agent, attachment, open.clone(), size, cx)
+                }),
+            );
+            if let Some(showing) = showing {
+                chip = chip.child(attachment_preview(showing, view, cx));
+            }
+            chip.into_any_element()
+        })
+        .collect();
+
     div()
-        .pl_6()
+        .pt_1()
+        .flex()
+        .flex_wrap()
         .flex_none()
-        .child(
-            div()
-                .p_2()
-                .bg(theme::accent_soft())
-                .border_l(px(theme::accent_edge()))
-                .border_color(theme::accent())
-                .text_size(theme::font(theme::Family::Conversation, theme::Role::Body))
-                .text_color(theme::text())
-                .child(SharedString::from(text.to_string())),
-        )
+        .items_center()
+        .gap_1()
+        .children(tags)
         .into_any_element()
+}
+
+/// How wide the preview panel draws, and how tall a picture inside it is allowed to be. Fixed,
+/// because a panel that sized itself to its picture would be a different shape for every
+/// screenshot and would cover a different amount of the transcript each time.
+const PREVIEW_WIDTH: Pixels = px(360.);
+const PREVIEW_HEIGHT: Pixels = px(240.);
+
+/// What is behind a chip on a sent turn: the picture where there is one, a note where there is
+/// not, and the file's own name, size and path under either.
+///
+/// **A popover, not a modal.** It asks nothing and blocks nothing, so it wants the shape that
+/// costs nothing to dismiss: a `MenuId` the window's single open-menu slot already holds, which
+/// means Escape peels it through `cancel_dialog` with no rung of its own and an outside click
+/// closes it.
+///
+/// **A read in flight is drawn as one.** An empty panel and a file that never arrived look
+/// identical, and they want different things done, so the waiting says so and nothing blocks
+/// while it waits. A file the image viewer declines says that too rather than drawing nothing —
+/// the viewer decides by extension and compiles in one decoder (`G178`, `G179`), so a picture
+/// under an unexpected name lands here, and `Open` is what it offers instead.
+fn attachment_preview(
+    preview: &AttachmentPreview,
+    view: &ConversationView,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let body = match (&preview.bytes, &preview.failed) {
+        (_, Some(reason)) => crate::ui::viewer::note(
+            SharedString::from(format!("Cannot preview \u{2014} {reason}")),
+            theme::text_faint(),
+        ),
+        (Some(bytes), None) => div()
+            .h(PREVIEW_HEIGHT)
+            .flex()
+            .child(crate::ui::viewer::image::render(bytes, &preview.path))
+            .into_any_element(),
+        (None, None) => crate::ui::viewer::note("Reading\u{2026}", theme::text_faint()),
+    };
+
+    let mut note = preview.path.clone();
+    let size = size_label(preview.size);
+    if !size.is_empty() {
+        note.push_str(" \u{00b7} ");
+        note.push_str(&size);
+    }
+    let open = preview.path.clone();
+
+    popover(
+        view.eid("attachment-preview"),
+        PREVIEW_WIDTH,
+        Some("attachment-preview"),
+        Some(Rc::new(handler(&cx.entity(), |this, _, cx| {
+            this.close_attachment_preview(cx)
+        }))),
+        vec![
+            body,
+            div()
+                .px_2()
+                .pb_1()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(kit::elided(
+                    view.eid("attachment-preview-path"),
+                    note,
+                    theme::text_faint(),
+                    theme::font(theme::Family::Conversation, theme::Role::Micro),
+                ))
+                .child(div().flex_1().min_w(px(0.)))
+                .child(ghost_button(
+                    view.eid("attachment-preview-open"),
+                    None,
+                    "Open",
+                    cx.listener(move |this, _, _, cx| this.open_attachment(open.clone(), cx)),
+                ))
+                .into_any_element(),
+        ],
+    )
 }
 
 /// Reasoning, quieter than prose: it is what the agent thought on the way to what it said, and it
@@ -3068,6 +3292,15 @@ fn composer(
                 }
             }),
         )
+        // A paste of a file or a picture is an attachment on this turn. Hung here rather than on
+        // the workbench root because this is the one node that knows *which* conversation the
+        // focused field types into — the slot is an index and nothing maps it back. A board with
+        // only text on it is handed back from inside the handler, and the field's own paste runs.
+        .on_action(
+            cx.listener(move |this, _: &crate::app::PasteIntoComposer, window, cx| {
+                this.paste_into_composer(id, slot, window, cx)
+            }),
+        )
         .child(
             div()
                 .id(view.eid("composer"))
@@ -3504,6 +3737,39 @@ fn agent_row(
 /// [`size_reading`]'s three readings, drawn in the warning and danger tokens. A size no host
 /// reported is drawn plainly rather than guessed at. The whole path and the size in figures are
 /// the tooltip, because the tag itself has room for a file name and nothing else.
+/// What one attachment's tag says and what colour it says it in — the label, the tooltip, and the
+/// `fill`/`edge`/`colour` triple the kit's tag takes.
+///
+/// One reading, because the row above the field and the row under a sent turn are the same list
+/// at two moments and a size that changed colour on Send would be the interface contradicting
+/// itself. The label is the file name; the tooltip is the whole path from the project root, the
+/// size in figures, and the warning where [`size_reading`] gives one, because a tag has room for
+/// a name and nothing else.
+fn attachment_face(file: &Attachment) -> (String, String, Rgba, Rgba, Rgba) {
+    let reading = size_reading(file.size);
+    let (fill, edge, colour) = match reading {
+        SizeReading::Huge => (theme::danger_soft(), theme::danger(), theme::danger()),
+        SizeReading::Large => (theme::warning_soft(), theme::warning(), theme::warning()),
+        SizeReading::Plain => (theme::surface(), theme::border(), theme::text_muted()),
+    };
+
+    let name = match file.path.rsplit_once('/') {
+        Some((_, name)) => name.to_string(),
+        None => file.path.clone(),
+    };
+    let mut tip = file.path.clone();
+    let size = size_label(file.size);
+    if !size.is_empty() {
+        tip.push_str(" \u{00b7} ");
+        tip.push_str(&size);
+    }
+    if let Some(warning) = reading.warning() {
+        tip.push_str(" \u{2014} ");
+        tip.push_str(warning);
+    }
+    (name, tip, fill, edge, colour)
+}
+
 fn attachment_tags(
     agent_id: AgentId,
     view: &ConversationView,
@@ -3514,29 +3780,7 @@ fn attachment_tags(
         .iter()
         .map(|file| {
             let attachment = file.id;
-            let reading = size_reading(file.size);
-            let (fill, edge, colour) = match reading {
-                SizeReading::Huge => (theme::danger_soft(), theme::danger(), theme::danger()),
-                SizeReading::Large => (theme::warning_soft(), theme::warning(), theme::warning()),
-                SizeReading::Plain => (theme::surface(), theme::border(), theme::text_muted()),
-            };
-
-            // The row already says the name; what answers "which one is this" is the path from
-            // the project root, which is the shape every path in this interface is held in.
-            let name = match file.path.rsplit_once('/') {
-                Some((_, name)) => name.to_string(),
-                None => file.path.clone(),
-            };
-            let mut tip = file.path.clone();
-            let size = size_label(file.size);
-            if !size.is_empty() {
-                tip.push_str(" \u{00b7} ");
-                tip.push_str(&size);
-            }
-            if let Some(warning) = reading.warning() {
-                tip.push_str(" \u{2014} ");
-                tip.push_str(warning);
-            }
+            let (name, tip, fill, edge, colour) = attachment_face(file);
 
             let open = file.path.clone();
             removable_tag(
@@ -3811,5 +4055,62 @@ mod tests {
             "a prompt arrived at the tail with no block changed to say so — the follow has to \
              notice it anyway"
         );
+    }
+
+    /// A chip row is height. The same sentence with files under it is a taller block, so both
+    /// halves of what the row planner reads — the signature that invalidates a measurement and
+    /// the estimate a row is first drawn at — have to move when the attachments do. Without this
+    /// the turn would be laid out at the height of its prose and its chips would be clipped.
+    #[test]
+    fn a_sent_turns_chips_are_part_of_its_height() {
+        let plain = ConvBlock::User {
+            text: "review this".to_string(),
+            attached: Vec::new(),
+        };
+        let with_files = ConvBlock::User {
+            text: "review this".to_string(),
+            attached: vec![Attachment {
+                id: 0,
+                path: "src/lib.rs".to_string(),
+                size: Some(12),
+            }],
+        };
+
+        let (plain_sig, plain_estimate) = block_shape(&plain);
+        let (files_sig, files_estimate) = block_shape(&with_files);
+        assert_ne!(plain_sig, files_sig, "a chip changes what the row draws");
+        assert!(
+            files_estimate > plain_estimate,
+            "a chip row is a line the block did not have"
+        );
+    }
+
+    /// And the tail reads them too: the chips arrive on the same update the text does, so a turn
+    /// landing at the bottom with files on it has to pull a reader who is following the tail.
+    #[test]
+    fn a_sent_turns_chips_move_the_tail_signature() {
+        let mut c = conversation();
+        c.attach("src/lib.rs".to_string(), Some(12));
+        c.expect_attachments();
+        c.apply(
+            1,
+            ConvUpdate::UserChunk {
+                content: ConvContent::Text("review this".to_string()),
+                message_id: Some("u1".to_string()),
+            },
+        );
+        let visible = c.visible_blocks().to_vec();
+        let with_files = tail_signature(&c, &visible);
+
+        let mut plain = conversation();
+        plain.apply(
+            1,
+            ConvUpdate::UserChunk {
+                content: ConvContent::Text("review this".to_string()),
+                message_id: Some("u1".to_string()),
+            },
+        );
+        let visible = plain.visible_blocks().to_vec();
+        assert_ne!(tail_signature(&plain, &visible), with_files);
     }
 }

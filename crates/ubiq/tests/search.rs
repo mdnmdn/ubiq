@@ -568,6 +568,12 @@ fn search_comes_back_with_the_ide_mode(cx: &mut TestAppContext) {
 /// The reveal that lands before the project's saved arrangement does. The blob was written
 /// before the panel existed, so it cannot name it — and a restore that drops it is the panel
 /// vanishing a frame after the user asked for it.
+///
+/// **The panel survives; the region it lands in does not open** (`D156`). A leftover the blob does
+/// not name is *added*, never revealed: an add puts the panel back where its kind lives, a reveal
+/// would open that edge — and the arrangement just installed is the one the user left this project
+/// in, so opening an edge over it is the window rearranging itself, which the dock's own
+/// `LayoutChanged` would then write down as the user's doing.
 #[gpui::test]
 fn a_reveal_survives_an_arrangement_that_predates_it(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
@@ -601,10 +607,10 @@ fn a_reveal_survives_an_arrangement_that_predates_it(cx: &mut TestAppContext) {
         fixture.panel_names(cx)
     );
     assert!(
-        fixture.state.read_with(cx, |state, cx| state
+        !fixture.state.read_with(cx, |state, cx| state
             .dock()
             .read(cx)
             .is_dock_open(gpui_component::dock::DockPlacement::Bottom)),
-        "the bottom region is open"
+        "the restore keeps the bottom region shut: the panel is put back, the edge is not opened"
     );
 }

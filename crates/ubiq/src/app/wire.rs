@@ -526,6 +526,9 @@ impl AppState {
         let Some(message) = self.receive_feedback(host, message, cx) else {
             return;
         };
+        let Some(message) = self.receive_ask(host, message, cx) else {
+            return;
+        };
         let Some(message) = self.receive_notifications(host, message, cx) else {
             return;
         };
@@ -791,6 +794,10 @@ impl AppState {
                 rel_path,
                 contents,
             } => {
+                // The attachment preview reads through the same message the editor does, and a
+                // file can be open in a tab and looked at in a panel at the same moment — so the
+                // panel is filled here and the arrival still queues for the tab.
+                self.fill_attachment_preview(project_id, &rel_path, &contents);
                 self.pending_files.push(FileArrival {
                     project: project_id,
                     path: rel_path,
@@ -804,6 +811,9 @@ impl AppState {
                 rel_path,
                 version,
             } => {
+                // A pasted picture's write landing is the optimistic chip proved right, so the
+                // row is forgotten and nothing else happens.
+                self.pasted_write_settled(project_id, &rel_path, None, cx);
                 // What the buffer holds now, not what was written: anything typed while the save
                 // was in flight is still unsaved, and the tab has to keep saying so.
                 let current = self
@@ -1651,9 +1661,7 @@ impl AppState {
                 // Whether anything on screen is drawing this conversation: the tab a column has
                 // up, or a chat tab attached to it. A delegate nobody is looking at still folds
                 // its stream into the record — it just stops driving frames while it does.
-                let shown = (0..open.agents.columns.len())
-                    .any(|column| open.agents.active_agent(column) == Some(agent_id))
-                    || open.chats.iter().any(|tab| tab.attached == Some(agent_id));
+                let shown = conversation_shown(open, agent_id);
                 let on_screen = elsewhere || shown;
                 // Read before `open`'s borrow ends below — the bell, per `G198`. A permission ask
                 // is worth the interruption whoever it is for, a delegate included: it still
@@ -1771,6 +1779,9 @@ impl AppState {
                 for tab in watching {
                     self.close_chat_tab_in(project, tab, cx);
                 }
+                // The asks went with the conversation, so a dialog standing on one of them has
+                // nothing left to draw — and a modal layer with nothing in it blocks the window.
+                self.settle_ask_dialog(cx);
                 self.settle_window_layout(false, cx);
                 self.refill_columns = true;
                 cx.notify();
@@ -2710,6 +2721,14 @@ impl AppState {
     ) {
         let reason = describe(&error);
         tracing::warn!("{project} {rel_path}: {reason}");
+
+        // Two readers of a refusal that have no tab behind them, so neither is reachable by the
+        // editor walk below: the pasted picture whose chip went up before its write was answered,
+        // and the attachment preview, which would otherwise say `Reading…` for as long as it is
+        // up. Both are still worth telling the ordinary path about — a pasted picture can be open
+        // in a tab too.
+        self.pasted_write_settled(project, &rel_path, Some(&reason), cx);
+        self.fail_attachment_preview(project, &rel_path, &reason);
 
         let mut question = None;
         if let Some(open) = self.projects.get_mut(&project) {

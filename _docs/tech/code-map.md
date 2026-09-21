@@ -59,7 +59,8 @@ crates/ubiq-proto/src/
 ├── kb.rs
 ├── acp.rs
 ├── feedback.rs
-└── help.rs
+├── help.rs
+└── ask.rs
 
 crates/ubiq-host/src/
 ├── pty/
@@ -147,7 +148,8 @@ crates/ubiq-host/src/
 │   ├── tools.rs
 │   ├── tasks.rs
 │   ├── kb.rs
-│   └── help.rs
+│   ├── help.rs
+│   └── ask.rs
 ├── web_assets/
 │   ├── manifest.rs
 │   ├── mod.rs
@@ -167,9 +169,10 @@ crates/ubiq-host/src/
 │   ├── api.rs
 │   ├── issues.rs
 │   └── mod.rs
-└── help/
-    ├── archive.rs
-    └── mod.rs
+├── help/
+│   ├── archive.rs
+│   └── mod.rs
+└── ask.rs
 
 crates/ubiq/src/
 ├── state/
@@ -245,7 +248,8 @@ crates/ubiq/src/
 │   ├── teams.rs
 │   ├── shapes.rs
 │   ├── teamsim.rs
-│   └── ui_id.rs
+│   ├── ui_id.rs
+│   └── ask.rs
 ├── ui/
 │   ├── mod.rs
 │   ├── chat/
@@ -376,7 +380,8 @@ crates/ubiq/src/
 │   ├── themes.rs
 │   ├── help_target.rs
 │   ├── ident.rs
-│   └── project_face.rs
+│   ├── project_face.rs
+│   └── ask.rs
 ├── lib.rs
 ├── theme.rs
 ├── web_export/
@@ -426,7 +431,8 @@ crates/ubiq/src/
 │   ├── mark.rs
 │   ├── size.rs
 │   ├── themes.rs
-│   └── teams_span.rs
+│   ├── teams_span.rs
+│   └── ask.rs
 ├── version.rs
 └── .DS_Store
 
@@ -480,7 +486,7 @@ the documents in its row.
 | `crates/agent-manager/src/isolate.rs` | [`agent-manager.md`](./agent-manager.md), [`operations.md`](./operations.md), [`wip/agent-setup.md`](../wip/agent-setup.md), [`wip/agent-vocabulary.md`](../wip/agent-vocabulary.md) |
 | `crates/agent-manager/src/lib.rs` | [`agent-manager.md`](./agent-manager.md) |
 | `crates/agent-manager/src/main.rs` | [`agent-manager.md`](./agent-manager.md) |
-| `crates/agent-manager/src/profile.rs` | [`agent-manager.md`](./agent-manager.md), [`wip/agent-setup.md`](../wip/agent-setup.md) |
+| `crates/agent-manager/src/profile.rs` | [`agent-manager.md`](./agent-manager.md), [`wip/agent-setup.md`](../wip/agent-setup.md), [`wip/planning-system.md`](../wip/planning-system.md) |
 | `crates/agent-manager/src/provision.rs` | [`agent-manager.md`](./agent-manager.md) |
 | `crates/agent-manager/src/quota.rs` | [`agent-manager.md`](./agent-manager.md) |
 | `crates/agent-manager/src/resolve.rs` | [`agent-manager.md`](./agent-manager.md), [`wip/agent-setup.md`](../wip/agent-setup.md) |
@@ -501,7 +507,8 @@ the documents in its row.
 | `crates/ubiq-drone/src/socket.rs` | [`features/drone.md`](../features/drone.md) |
 | `crates/ubiq-drone/src/state.rs` | [`features/drone.md`](../features/drone.md) |
 | `crates/ubiq-host/Cargo.toml` | [`agent-manager.md`](./agent-manager.md), [`architecture.md`](./architecture.md), [`operations.md`](./operations.md), [`project-structure.md`](./project-structure.md), [`wip/drone.md`](../wip/drone.md) |
-| `crates/ubiq-host/src/agent.rs` | [`features/sessions-and-workspaces.md`](../features/sessions-and-workspaces.md), [`agent-manager.md`](./agent-manager.md), [`wip/agent-login-note.md`](../wip/agent-login-note.md), [`wip/agent-setup.md`](../wip/agent-setup.md) |
+| `crates/ubiq-host/src/agent.rs` | [`features/sessions-and-workspaces.md`](../features/sessions-and-workspaces.md), [`agent-manager.md`](./agent-manager.md), [`wip/agent-login-note.md`](../wip/agent-login-note.md), [`wip/agent-setup.md`](../wip/agent-setup.md), [`wip/planning-system.md`](../wip/planning-system.md) |
+| `crates/ubiq-host/src/ask.rs` | [`agent-manager.md`](./agent-manager.md), [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-host/src/assist/api.rs` | [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-host/src/assist/mod.rs` | [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-host/src/assist/providers.rs` | [`transport-contract.md`](./transport-contract.md) |
@@ -539,13 +546,14 @@ the documents in its row.
 | `crates/ubiq-host/src/kb/sync.rs` | [`wip/kb.md`](../wip/kb.md) |
 | `crates/ubiq-host/src/lib.rs` | [`architecture.md`](./architecture.md), [`project-structure.md`](./project-structure.md) |
 | `crates/ubiq-host/src/links.rs` | [`architecture.md`](./architecture.md) |
-| `crates/ubiq-host/src/mcp/catalogue.rs` | [`wip/drone.md`](../wip/drone.md) |
+| `crates/ubiq-host/src/mcp/ask.rs` | [`agent-manager.md`](./agent-manager.md) |
+| `crates/ubiq-host/src/mcp/catalogue.rs` | [`wip/drone.md`](../wip/drone.md), [`wip/planning-system.md`](../wip/planning-system.md) |
 | `crates/ubiq-host/src/mcp/help.rs` | [`wip/help.md`](../wip/help.md) |
 | `crates/ubiq-host/src/mcp/kb.rs` | [`wip/kb.md`](../wip/kb.md) |
 | `crates/ubiq-host/src/mcp/mod.rs` | [`agent-manager.md`](./agent-manager.md), [`architecture.md`](./architecture.md) |
 | `crates/ubiq-host/src/mcp/registry.rs` | [`wip/drone.md`](../wip/drone.md) |
-| `crates/ubiq-host/src/mcp/server.rs` | [`wip/drone.md`](../wip/drone.md) |
-| `crates/ubiq-host/src/mcp/tasks.rs` | [`architecture.md`](./architecture.md) |
+| `crates/ubiq-host/src/mcp/server.rs` | [`wip/drone.md`](../wip/drone.md), [`wip/planning-system.md`](../wip/planning-system.md) |
+| `crates/ubiq-host/src/mcp/tasks.rs` | [`architecture.md`](./architecture.md), [`wip/planning-system.md`](../wip/planning-system.md) |
 | `crates/ubiq-host/src/mcp/tools.rs` | [`wip/drone.md`](../wip/drone.md) |
 | `crates/ubiq-host/src/notifications/mod.rs` | [`features/notifications.md`](../features/notifications.md), [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-host/src/notifications/os.rs` | [`features/notifications.md`](../features/notifications.md) |
@@ -560,7 +568,7 @@ the documents in its row.
 | `crates/ubiq-host/src/search/worker.rs` | [`wip/indexing.md`](../wip/indexing.md) |
 | `crates/ubiq-host/src/settings.rs` | [`features/connectors.md`](../features/connectors.md), [`features/drone.md`](../features/drone.md), [`architecture.md`](./architecture.md) |
 | `crates/ubiq-host/src/shells.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`wip/agent-vocabulary.md`](../wip/agent-vocabulary.md) |
-| `crates/ubiq-host/src/store/file.rs` | [`architecture.md`](./architecture.md) |
+| `crates/ubiq-host/src/store/file.rs` | [`architecture.md`](./architecture.md), [`wip/planning-system.md`](../wip/planning-system.md) |
 | `crates/ubiq-host/src/store/harness.rs` | [`wip/agent-vocabulary.md`](../wip/agent-vocabulary.md) |
 | `crates/ubiq-host/src/store/memory.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq-host/src/store/mod.rs` | [`architecture.md`](./architecture.md) |
@@ -569,11 +577,12 @@ the documents in its row.
 | `crates/ubiq-host/src/web_assets/archive.rs` | [`wip/web-panel-phase3.md`](../wip/web-panel-phase3.md) |
 | `crates/ubiq-host/src/web_assets/manifest.rs` | [`wip/web-panel-phase3.md`](../wip/web-panel-phase3.md) |
 | `crates/ubiq-host/src/web_assets/mod.rs` | [`architecture.md`](./architecture.md), [`transport-contract.md`](./transport-contract.md), [`wip/web-panel-phase3.md`](../wip/web-panel-phase3.md) |
-| `crates/ubiq-host/src/work/mod.rs` | [`architecture.md`](./architecture.md) |
+| `crates/ubiq-host/src/work/mod.rs` | [`architecture.md`](./architecture.md), [`wip/planning-system.md`](../wip/planning-system.md) |
 | `crates/ubiq-host/tests/coordinator.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md) |
 | `crates/ubiq-host/tests/files.rs` | [`wip/web-panel-phase6.md`](../wip/web-panel-phase6.md) |
 | `crates/ubiq-host/tests/usage.rs` | [`features/stats.md`](../features/stats.md) |
 | `crates/ubiq-proto/Cargo.toml` | [`project-structure.md`](./project-structure.md) |
+| `crates/ubiq-proto/src/ask.rs` | [`features/chat.md`](../features/chat.md), [`agent-manager.md`](./agent-manager.md), [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-proto/src/assist.rs` | [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-proto/src/bus.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`architecture.md`](./architecture.md), [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-proto/src/carrier.rs` | [`features/drone.md`](../features/drone.md), [`transport-contract.md`](./transport-contract.md), [`wip/drone.md`](../wip/drone.md) |
@@ -589,16 +598,16 @@ the documents in its row.
 | `crates/ubiq-proto/src/lib.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq-proto/src/log.rs` | [`features/logs.md`](../features/logs.md), [`architecture.md`](./architecture.md) |
 | `crates/ubiq-proto/src/mcp.rs` | [`transport-contract.md`](./transport-contract.md) |
-| `crates/ubiq-proto/src/messages.rs` | [`features/connectors.md`](../features/connectors.md), [`features/stats.md`](../features/stats.md), [`transport-contract.md`](./transport-contract.md), [`wip/drone.md`](../wip/drone.md), [`wip/kb.md`](../wip/kb.md), [`wip/web-panel-phase3.md`](../wip/web-panel-phase3.md) |
+| `crates/ubiq-proto/src/messages.rs` | [`features/connectors.md`](../features/connectors.md), [`features/stats.md`](../features/stats.md), [`transport-contract.md`](./transport-contract.md), [`wip/drone.md`](../wip/drone.md), [`wip/kb.md`](../wip/kb.md), [`wip/planning-system.md`](../wip/planning-system.md), [`wip/web-panel-phase3.md`](../wip/web-panel-phase3.md) |
 | `crates/ubiq-proto/src/notifications.rs` | [`features/notifications.md`](../features/notifications.md), [`transport-contract.md`](./transport-contract.md) |
-| `crates/ubiq-proto/src/projects.rs` | [`features/drone.md`](../features/drone.md), [`transport-contract.md`](./transport-contract.md), [`wip/clone-a-project.md`](../wip/clone-a-project.md), [`wip/indexing.md`](../wip/indexing.md) |
+| `crates/ubiq-proto/src/projects.rs` | [`features/drone.md`](../features/drone.md), [`transport-contract.md`](./transport-contract.md), [`wip/clone-a-project.md`](../wip/clone-a-project.md), [`wip/indexing.md`](../wip/indexing.md), [`wip/planning-system.md`](../wip/planning-system.md) |
 | `crates/ubiq-proto/src/quota.rs` | [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-proto/src/repos.rs` | [`features/workbench.md`](../features/workbench.md), [`transport-contract.md`](./transport-contract.md), [`wip/clone-a-project.md`](../wip/clone-a-project.md) |
-| `crates/ubiq-proto/src/settings.rs` | [`features/connectors.md`](../features/connectors.md), [`features/drone.md`](../features/drone.md), [`transport-contract.md`](./transport-contract.md), [`wip/indexing.md`](../wip/indexing.md) |
+| `crates/ubiq-proto/src/settings.rs` | [`features/connectors.md`](../features/connectors.md), [`features/drone.md`](../features/drone.md), [`transport-contract.md`](./transport-contract.md), [`wip/indexing.md`](../wip/indexing.md), [`wip/planning-system.md`](../wip/planning-system.md) |
 | `crates/ubiq-proto/src/stats.rs` | [`features/stats.md`](../features/stats.md), [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-proto/src/tools.rs` | [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-proto/src/wire.rs` | [`architecture.md`](./architecture.md), [`transport-contract.md`](./transport-contract.md) |
-| `crates/ubiq-proto/src/work.rs` | [`transport-contract.md`](./transport-contract.md), [`wip/agent-setup.md`](../wip/agent-setup.md) |
+| `crates/ubiq-proto/src/work.rs` | [`transport-contract.md`](./transport-contract.md), [`wip/agent-setup.md`](../wip/agent-setup.md), [`wip/planning-system.md`](../wip/planning-system.md) |
 | `crates/ubiq/Cargo.toml` | [`project-structure.md`](./project-structure.md), [`wip/web-panel-phase6.md`](../wip/web-panel-phase6.md) |
 | `crates/ubiq/assets/web/bridge.js` | [`wip/web-panel-phase2.md`](../wip/web-panel-phase2.md) |
 | `crates/ubiq/assets/web/drawio/app.js` | [`wip/web-panel-phase45.md`](../wip/web-panel-phase45.md) |
@@ -607,11 +616,12 @@ the documents in its row.
 | `crates/ubiq/assets/web/excalidraw/index.html` | [`wip/web-panel-phase45.md`](../wip/web-panel-phase45.md) |
 | `crates/ubiq/build.rs` | [`wip/web-panel-phase2.md`](../wip/web-panel-phase2.md) |
 | `crates/ubiq/src/app/agents.rs` | [`features/chat.md`](../features/chat.md), [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/app/ask.rs` | [`features/chat.md`](../features/chat.md), [`features/notifications.md`](../features/notifications.md) |
 | `crates/ubiq/src/app/board.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/app/boot.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq/src/app/capture.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/app/chat.rs` | [`features/chat.md`](../features/chat.md), [`features/workbench.md`](../features/workbench.md) |
-| `crates/ubiq/src/app/clipboard.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/app/clipboard.rs` | [`features/chat.md`](../features/chat.md), [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/app/clone.rs` | [`features/workbench.md`](../features/workbench.md), [`wip/clone-a-project.md`](../wip/clone-a-project.md) |
 | `crates/ubiq/src/app/editor.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`wip/web-panel-phase6.md`](../wip/web-panel-phase6.md) |
 | `crates/ubiq/src/app/explorer.rs` | [`features/workbench.md`](../features/workbench.md), [`wip/web-panel-phase6.md`](../wip/web-panel-phase6.md) |
@@ -629,7 +639,7 @@ the documents in its row.
 | `crates/ubiq/src/app/new_agent.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/app/notifications.rs` | [`features/notifications.md`](../features/notifications.md) |
 | `crates/ubiq/src/app/panels.rs` | [`features/chat.md`](../features/chat.md), [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/workbench.md`](../features/workbench.md) |
-| `crates/ubiq/src/app/picker.rs` | [`features/workbench.md`](../features/workbench.md), [`components.md`](./components.md) |
+| `crates/ubiq/src/app/picker.rs` | [`features/chat.md`](../features/chat.md), [`features/workbench.md`](../features/workbench.md), [`components.md`](./components.md) |
 | `crates/ubiq/src/app/projects.rs` | [`features/chat.md`](../features/chat.md), [`features/drone.md`](../features/drone.md), [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/app/remote_connect.rs` | [`features/drone.md`](../features/drone.md), [`features/workbench.md`](../features/workbench.md), [`architecture.md`](./architecture.md), [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq/src/app/settings.rs` | [`features/connectors.md`](../features/connectors.md), [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/workbench.md`](../features/workbench.md) |
@@ -653,12 +663,13 @@ the documents in its row.
 | `crates/ubiq/src/state/a2ui/ubiq-catalog.json` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/a2ui/value.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/agents.rs` | [`features/workbench.md`](../features/workbench.md), [`components.md`](./components.md) |
+| `crates/ubiq/src/state/ask.rs` | [`features/chat.md`](../features/chat.md) |
 | `crates/ubiq/src/state/board.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/chat.rs` | [`features/chat.md`](../features/chat.md), [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/clone.rs` | [`features/workbench.md`](../features/workbench.md), [`wip/clone-a-project.md`](../wip/clone-a-project.md) |
-| `crates/ubiq/src/state/conversation.rs` | [`features/chat.md`](../features/chat.md), [`features/workbench.md`](../features/workbench.md), [`components.md`](./components.md), [`wip/agent-setup.md`](../wip/agent-setup.md) |
+| `crates/ubiq/src/state/conversation.rs` | [`features/chat.md`](../features/chat.md), [`features/workbench.md`](../features/workbench.md), [`components.md`](./components.md), [`wip/agent-setup.md`](../wip/agent-setup.md), [`wip/planning-system.md`](../wip/planning-system.md) |
 | `crates/ubiq/src/state/diagrams.rs` | [`features/workbench.md`](../features/workbench.md), [`wip/web-panel-phase6.md`](../wip/web-panel-phase6.md) |
-| `crates/ubiq/src/state/dock.rs` | [`features/chat.md`](../features/chat.md), [`features/logs.md`](../features/logs.md), [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/workbench.md`](../features/workbench.md), [`wip/agent-vocabulary.md`](../wip/agent-vocabulary.md), [`wip/kb.md`](../wip/kb.md) |
+| `crates/ubiq/src/state/dock.rs` | [`features/chat.md`](../features/chat.md), [`features/logs.md`](../features/logs.md), [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/workbench.md`](../features/workbench.md), [`wip/agent-vocabulary.md`](../wip/agent-vocabulary.md), [`wip/kb.md`](../wip/kb.md), [`wip/planning-system.md`](../wip/planning-system.md) |
 | `crates/ubiq/src/state/editor.rs` | [`features/workbench.md`](../features/workbench.md), [`components.md`](./components.md), [`wip/kb.md`](../wip/kb.md), [`wip/web-panel-phase6.md`](../wip/web-panel-phase6.md) |
 | `crates/ubiq/src/state/explorer/menu.rs` | [`features/workbench.md`](../features/workbench.md), [`wip/web-panel-phase6.md`](../wip/web-panel-phase6.md) |
 | `crates/ubiq/src/state/explorer/mod.rs` | [`features/workbench.md`](../features/workbench.md), [`wip/web-panel-phase6.md`](../wip/web-panel-phase6.md) |
@@ -676,7 +687,7 @@ the documents in its row.
 | `crates/ubiq/src/state/nav.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/nav/text.rs` | [`features/workbench.md`](../features/workbench.md), [`wip/teams-cross-project.md`](../wip/teams-cross-project.md) |
 | `crates/ubiq/src/state/navigator.rs` | [`features/workbench.md`](../features/workbench.md) |
-| `crates/ubiq/src/state/new_agent.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/state/new_agent.rs` | [`features/workbench.md`](../features/workbench.md), [`wip/planning-system.md`](../wip/planning-system.md) |
 | `crates/ubiq/src/state/notifications.rs` | [`features/notifications.md`](../features/notifications.md) |
 | `crates/ubiq/src/state/orchestration.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/overlay.rs` | [`ui-and-design.md`](./ui-and-design.md) |
@@ -711,9 +722,10 @@ the documents in its row.
 | `crates/ubiq/src/ui/agents/mod.rs` | [`features/chat.md`](../features/chat.md), [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/agents/sidebar.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/all_projects.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/ui/ask.rs` | [`features/chat.md`](../features/chat.md) |
 | `crates/ubiq/src/ui/board/detail.rs` | [`features/workbench.md`](../features/workbench.md) |
-| `crates/ubiq/src/ui/board/form.rs` | [`features/workbench.md`](../features/workbench.md) |
-| `crates/ubiq/src/ui/board/mod.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/ui/board/form.rs` | [`features/workbench.md`](../features/workbench.md), [`wip/planning-system.md`](../wip/planning-system.md) |
+| `crates/ubiq/src/ui/board/mod.rs` | [`features/workbench.md`](../features/workbench.md), [`wip/planning-system.md`](../wip/planning-system.md) |
 | `crates/ubiq/src/ui/chat/mod.rs` | [`features/chat.md`](../features/chat.md) |
 | `crates/ubiq/src/ui/chat/sidebar.rs` | [`features/chat.md`](../features/chat.md), [`wip/agent-vocabulary.md`](../wip/agent-vocabulary.md) |
 | `crates/ubiq/src/ui/clone.rs` | [`features/workbench.md`](../features/workbench.md), [`wip/clone-a-project.md`](../wip/clone-a-project.md) |
@@ -743,7 +755,7 @@ the documents in its row.
 | `crates/ubiq/src/ui/kit/colour.rs` | [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/ui/kit/controls.rs` | [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/ui/kit/files.rs` | [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
-| `crates/ubiq/src/ui/kit/menu.rs` | [`ui-and-design.md`](./ui-and-design.md), [`wip/clone-a-project.md`](../wip/clone-a-project.md) |
+| `crates/ubiq/src/ui/kit/menu.rs` | [`components.md`](./components.md), [`ui-and-design.md`](./ui-and-design.md), [`wip/clone-a-project.md`](../wip/clone-a-project.md) |
 | `crates/ubiq/src/ui/kit/mod.rs` | [`components.md`](./components.md), [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/ui/kit/overlay.rs` | [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/ui/kit/popover.rs` | [`components.md`](./components.md), [`ui-and-design.md`](./ui-and-design.md) |
@@ -796,7 +808,7 @@ the documents in its row.
 | `crates/ubiq/src/ui/viewer/diff.rs` | [`features/workbench.md`](../features/workbench.md), [`components.md`](./components.md), [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/ui/viewer/image.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/viewer/image_edit.rs` | [`features/workbench.md`](../features/workbench.md) |
-| `crates/ubiq/src/ui/viewer/markdown.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/ui/viewer/markdown.rs` | [`features/workbench.md`](../features/workbench.md), [`wip/planning-system.md`](../wip/planning-system.md) |
 | `crates/ubiq/src/ui/viewer/mod.rs` | [`features/workbench.md`](../features/workbench.md), [`components.md`](./components.md), [`wip/web-panel-phase45.md`](../wip/web-panel-phase45.md), [`wip/web-panel-phase6.md`](../wip/web-panel-phase6.md) |
 | `crates/ubiq/src/ui/viewer/scene.rs` | [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/ui/viewer/viewport.rs` | [`features/workbench.md`](../features/workbench.md) |

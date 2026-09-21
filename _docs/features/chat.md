@@ -5,9 +5,9 @@ kind: feature
 status: draft
 summary: Editor-like chat tabs — many, movable to any dockable region, each a view onto a host-owned conversation or onto none, drawn by the composer, transcript and tool blocks the whole window shares.
 read_when: you are changing a chat tab, the control that starts or attaches a conversation, or which conversation a tab shows
-updated: 2026-09-20
-verified: 2026-09-20
-code_anchors: [crates/ubiq/src/ui/chat/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/conversation/info.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/app/projects.rs]
+updated: 2026-09-21
+verified: 2026-09-21
+code_anchors: [crates/ubiq/src/ui/chat/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/conversation/info.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/ask.rs, crates/ubiq/src/app/ask.rs, crates/ubiq/src/ui/ask.rs, crates/ubiq-proto/src/ask.rs]
 depends_on: [feat-workbench]
 review_cycle: monthly
 ---
@@ -301,6 +301,21 @@ request a delegate raised carries that delegate's name, since with the main agen
 screen the operation alone is not enough to go on. The rest are answered by working through them
 one strip at a time, because each request's options are its own.
 
+**A structured question from `ubiq-ask` is not a permission ask, and it is drawn as a dialog rather
+than on a block.** `AskUser` arrives from a tool call the host parked, not from the harness's own
+protocol, and is filed on the conversation as an `AskRecord` (`crates/ubiq/src/state/ask.rs`) rather
+than a `Pending` — a side channel joined by id, on `pending`'s own reasoning. Where the conversation
+is already on screen and no other dialog is up, the ask modal opens on it directly; anywhere else, a
+notification is raised instead and the transcript carries an "Ask for feedback" row (drawn by
+`ui::ask::transcript_entry`) whose button reopens the same dialog with whatever was already typed
+into it — closing the dialog never touches a draft, only the view over it. The modal is a tab strip,
+one tab per question, each a column of option cards (single- or multi-select, by the question's own
+flag) plus an always-offered "Other" and a notes field; Confirm sends `AnswerAsk` with the picks by
+label, and "Chat about this" sends it with no question answered and lets the user type instead. Both
+are real answers, and either one moves the record out of `AskStage::Waiting` — after that, and after
+an `AskEnded` naming a timeout or a gone conversation, every later opening is the same dialog with no
+controls in it: the questions and what was chosen (or that nothing was), read-only.
+
 **⌘⌥Y allows and ⌘⌥N rejects the oldest ask outstanding.** They answer the conversation being read —
 the active tab of the agents screen's focused column — with the first allow-kind or reject-kind
 option that request offered, and do nothing where it offered none of that reading rather than
@@ -378,6 +393,76 @@ does the same composition into the queued text and clears them: a queued prompt 
 queue row that carried its own tag list would need its own tag row, its own removes and its own
 colouring — a second composer. An edit brings those paths back into the field as the text they now
 are.
+
+**Pasting into the composer attaches, when the board carries a file.** `⌘V`/`Ctrl+V` with the field
+focused reads the pasteboard before the field does: a copied *file* becomes a tag under its own path
+— project-relative when it is inside a project this window holds, which is the reading a drop onto
+the window makes, and absolute when it is outside every one of them — and a copied *picture*, a
+screenshot or an image lifted out of a browser, becomes a tag too. Only the first path of a
+multi-file copy is taken. A board carrying only text is not this gesture at all, and the keystroke
+goes back to the field and types the text in as it always has. The chord is bound twice for that:
+once for the workbench and once for `Workbench > Input`, because the library's own field binds it at
+the deepest node and would otherwise swallow it.
+
+A pasted *file* is made relative only to **the agent's own project**. A window can hold several,
+and a file copied out of one of the others is attached absolutely: `src/lib.rs` is a path two
+projects can both have, and the relative form would name a different, existing file that the
+harness would then read without a word.
+
+**A pasted picture is written into the project first**, under `.ubiq/pasted/`, through
+`WriteProjectFile`. It is on no disk and an attachment is an `@path` mention, so there is nothing to
+attach until it has a path. **That is a file written into the user's project**, deliberately:
+`.ubiq/` is already Ubiq's own folder inside a project, beside `.ubiq/kb`. The name is the
+millisecond it was pasted, so a later session never repoints an older turn's tag at a newer
+picture. What comes out is an ordinary attachment — the same tag, dedupe, size warning and `@path`
+on send.
+
+**The folder ignores itself.** The first picture written into a project writes
+`.ubiq/pasted/.gitignore` holding `*` beside it, through the same `WriteProjectFile`. A stored
+knowledge base under `.ubiq/kb` is something the user asked for by adding a source; a pasted
+screenshot is the side effect of a keystroke, and a folder of untracked binaries nobody chose has
+no business in `git status`. The user's own `.gitignore` is never touched — that is a tracked file
+nobody asked to change, and a rule appended to it would then have to be merged, deduplicated and
+unwound.
+
+**The bytes are re-encoded as PNG where this build can.** The only reason to write the picture at
+all is for a harness to open it, and harness image support is png/jpeg/gif/webp — while a macOS
+screenshot arrives on the pasteboard as TIFF and a Windows DIB as BMP. Those two are decoded and
+written as PNG, which is lossless both ways, and the name follows the bytes. A format with no
+decoder compiled in, or bytes that will not decode, is written exactly as it arrived under its own
+extension: `G249` is what that still leaves unreadable.
+
+**An optimistic chip is taken back off when its write fails.** The tag goes up on the send rather
+than on the host's answer, so the interface tracks the writes it has outstanding; a
+`ProjectFileError` for one of them detaches the tag and raises a notification, because a pasted
+picture is in no editor tab and the ordinary save-failed path would never see it.
+
+**A sent turn keeps its chips, and clicking one previews the file.** The tags do not vanish on Send:
+they are drawn inside the turn's own accent surface, under the prose, because they were part of the
+message rather than a footnote to it, and they carry no `×` — the harness already has the file. The
+echo is one string of `@path` mentions and says nothing about which of them were tags, so the
+conversation carries the list across the send itself, much as it carries a start's preamble.
+
+**The carried list is a queue, one entry per send.** Two Sends can be in flight before either
+echoes, and each keeps its own files in order; a plain send takes its place in the queue too, empty,
+because the queue is only in step with the echoes if every send is on it. An entry is spent by the
+**real text** echo alone — a chunk with no text in it, and Claude Code's synthetic
+`[Request interrupted by user]`, are the harness talking rather than the turn, and either eating an
+entry would draw the real message bare. A turn that can no longer echo **discharges** the whole
+queue instead: a turn that failed or stopped with an error, a conversation unloaded, a conversation
+ended. Nothing outlives the turn that armed it, so no later turn ever draws a chip for a file the
+user did not attach to it.
+
+Clicking one opens an anchored panel holding the picture — the editor's own image viewer, over bytes
+read through `ReadProjectFile` inside the project and read directly for an absolute path — with the
+name, size and path under it and an `Open` that hands the file to the editor. The answer is matched
+on the project as well as the path, since one path can name a file in two of the projects a window
+holds. A read in flight says so; a read that failed says *why* rather than waiting forever; a file
+larger than the read ceiling says it is too large to preview, because a prefix of an image is not an
+image and would draw an empty box; and a file the viewer declines says that instead of drawing
+nothing. A panel rather than a modal because it asks nothing and blocks nothing: the window's single
+open-menu slot holds it, so Escape and an outside click already peel it — and opening *any* menu
+clears it, which is what keeps "`Some` exactly while that menu is open" true in both directions.
 
 **`ctx` is a level, `tot` is a flow.** The footer's ring and its `ctx` count are how full the
 context window is *now* — a number that falls when the conversation is compacted — and `tot` is
@@ -475,7 +560,10 @@ restore remembers travels in the interface's own opaque view blob. Once attached
 whatever [`../tech/transport-contract.md`](../tech/transport-contract.md)'s conversation family
 carries: a permission ask arrives as `ConvUpdate::PermissionRequest` and leaves as one
 `AnswerPermission` naming the `request_id` and the `option_id` pressed, `CancelTurn` answering the
-rest. Which surface drew the buttons is not on the wire, so an ask here is answered for them all.
+rest. Which surface drew the buttons is not on the wire, so an ask here is answered for them all. A
+question raised through `ubiq-ask` speaks the same family's `AskUser`/`AnswerAsk`/`AskEnded` trio
+instead, and is filed as an `AskRecord` beside the conversation rather than as a block, since it is
+a tool call the host parked, not a step of the harness's own turn.
 
 ## Implementation
 
@@ -547,9 +635,18 @@ dock's tree with `OpenProject::chats` — called whenever a project is entered, 
 restore that dropped an unfamiliar id is squared with the truth immediately. `settle_panels` skips the
 `Open` edit `sync_chat_panels` queues for that seeded tab through `AppState::is_idle_chat` — a chat
 panel attached to nothing, bound for the side region the chat calls home in the mode on screen while
-that region is shut and holds nothing — so IDE mode does not start with an empty agent panel open, or
-the region it would sit in. `toggle_region` mints a fresh tab when the user reopens that side empty
-and the mode has no furniture of its own for it.
+that region is anything but **open and empty** — so IDE mode does not start with an empty agent
+panel open, or the region it would sit in. Open and empty is the one case that takes one, because it
+is `toggle_region`'s own gesture: the user asking to see something on that side, answered with a
+fresh tab where the mode has no furniture of its own for it. A region that already holds something
+is not asking, and letting the seeded tab in wherever that region happened to be open is what put a
+chat beside Git's changes panel and then wrote it into Git's blob (`D156`).
+
+**A mode switch never places a chat tab either.** `settle_layout`'s leftover loop keeps a chat panel
+the incoming mode's blob does not name and drops only its *placement*: the panel is the one thing a
+rebuild cannot make again — a `ChatId` is minted fresh every process, so a saved leaf naming one this
+window no longer holds names nothing — while the tab comes back on screen from the blob of the mode
+it was opened in, or from the user's own reveal.
 
 Rendering is two modules under `crates/ubiq/src/ui/chat/`: `mod.rs` resolves a tab's own attachment
 once — `attached`, read by both children below rather than asked twice — and hands it to the shared
@@ -625,7 +722,11 @@ active project, where the enqueue write, `clear_attachments` and a queue row's e
 requeue take `project_of_agent` — so a card belonging to another project cannot have a file attached
 to it or taken off it; `G326` is the backlog row that holds that, along with the question of whose
 explorer tree a foreign card's picker should offer. `crates/ubiq/src/ui/conversation/mod.rs`'s `attachment_tags()` draws
-the wrapping row as the composer's first `extras` entry, on `kit::removable_tag`. The control
+the wrapping row as the composer's first `extras` entry, on `kit::removable_tag`;
+`sent_attachment_tags()` draws the same list under a sent turn on `kit::tag`, and
+`attachment_preview()` is the `kit::popover` a chip there opens. `paste_into_composer` is the
+paste, reading the board through `app/clipboard.rs`'s `clipboard_attachment` and the project roots
+through `AppState::project_relative`, which a drop onto the window reads too. The control
 itself is `crates/ubiq/src/ui/kit/menu.rs`'s `Picker`, unchanged — its `disabled` set draws the
 headings and the rows another tab holds, its `separators` set the group lines, and its `search`
 field the filter. A grouped, searchable, partly-inert list was already what that primitive did.
@@ -663,6 +764,9 @@ field the filter. A grouped, searchable, partly-inert list was already what that
 | The conversation accepts everything and the harness offers no allowing option | The host emits the request unchanged, and it is drawn and answered like any other |
 | A conversation surface is asked about an agent in a project the window is not pointed at | It is answered from the project that owns the agent: `project_of_agent` finds it, and the transcript, the record and every write follow the card rather than the rail. Attaching a file is the one thing that does not, and `G326` holds it |
 | Accept-all is switched on while an ask is up | The prompt on screen stays and is answered by hand; the flag governs the asks that follow, and nothing retracts a prompt the transcript holds |
+| An `AskUser` arrives while its conversation is off screen, or while any dialog is already up | A notification is raised instead of the modal, and the transcript's "Ask for feedback" entry is the way back to it; the drafts wait there until it is opened |
+| An ask's dialog is opened after it was answered, chatted away, timed out or its conversation ended | The same dialog, with no controls — the questions and what was chosen, read-only |
+| A conversation an ask belongs to ends, is unloaded, or its harness dies while the ask is still waiting | `AskEnded` closes it as `Gone`; the entry and a reopened dialog say so instead of offering a control that would send into nothing |
 
 ## Related docs
 

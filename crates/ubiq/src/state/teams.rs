@@ -566,6 +566,70 @@ impl TeamsView {
         }
     }
 
+    /// The cards the canvas fences on their own in their project's colour: every visible card no
+    /// container encloses, in the projection's order.
+    ///
+    /// **Empty under [`TeamsSpan::Project`]**, where one project is the whole canvas and a colour
+    /// per card would be one colour repeated — the project span's canvas is what it was before
+    /// the fences existed, and the span is in here rather than only at the call site so that is a
+    /// claim a test can make without a frame.
+    ///
+    /// **A card is in a container when a container is actually drawn round it**, which is more
+    /// than `task.is_some()`: a task the projection does not carry has no box on the canvas, and a
+    /// card serving it is as loose as a card serving nothing. Nothing is fenced twice, so a card
+    /// inside a container is not here.
+    pub fn fenced_alone(&self, work: &WorkProjection, span: TeamsSpan) -> Vec<AgentId> {
+        if span != TeamsSpan::Window {
+            return Vec::new();
+        }
+        work.agents
+            .iter()
+            .filter(|agent| self.visible(agent))
+            .filter(|agent| match agent.task {
+                None => true,
+                Some(task) => !work.tasks.iter().any(|record| record.id == task),
+            })
+            .map(|agent| agent.id)
+            .collect()
+    }
+
+    /// The containers the canvas colours by project, each with the card whose project answers for
+    /// it — a task is minted inside a project and every card serving it is that project's, so the
+    /// first one drawn speaks for the box.
+    ///
+    /// **Empty under [`TeamsSpan::Project`]** for the same reason [`Self::fenced_alone`] is, and a
+    /// container with no visible card is not here because it has no outline on the canvas either.
+    pub fn fenced_tasks(&self, work: &WorkProjection, span: TeamsSpan) -> Vec<(TaskId, AgentId)> {
+        if span != TeamsSpan::Window {
+            return Vec::new();
+        }
+        work.tasks
+            .iter()
+            .filter_map(|task| {
+                let owner = work
+                    .agents
+                    .iter()
+                    .find(|agent| agent.task == Some(task.id) && self.visible(agent))?;
+                Some((task.id, owner.id))
+            })
+            .collect()
+    }
+
+    /// The rectangle a lone card's own fence takes, `(x, y, w, h)`.
+    ///
+    /// The same padding a container is measured with, off the same [`Self::card_bounds`], so a
+    /// card fenced on its own and a card inside a container sit the same distance from the dashes.
+    /// No label, so no [`GROUP_LABEL`] strip at the top.
+    pub fn solo_bounds(&self, agent: AgentId, at: (f32, f32)) -> (f32, f32, f32, f32) {
+        let (x0, y0, x1, y1) = self.card_bounds(agent, at);
+        (
+            x0 - GROUP_PAD,
+            y0 - GROUP_PAD,
+            (x1 - x0) + GROUP_PAD * 2.0,
+            (y1 - y0) + GROUP_PAD * 2.0,
+        )
+    }
+
     /// Which session the screen is *about*: the one selected, or the one the selected agent runs
     /// in, falling back to the first so the inspector and the drawer always have something to
     /// report. What the canvas *draws* is `session`, which is a separate question.

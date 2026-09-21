@@ -5,9 +5,9 @@ kind: feature
 status: draft
 summary: One bell in the titlebar over a host-owned history — a level, an origin and an optional link per notification, a badge that counts the unread, a flash that carries a click straight to where it points, and mute rules by scope, level and duration that also decide what the desktop hears.
 read_when: you are raising a notification from a subsystem, changing the bell, the notification list or a mute rule, or wiring an event that should reach the user without a screen open
-updated: 2026-09-10
-verified: 2026-09-19
-code_anchors: [crates/ubiq-proto/src/notifications.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/notifications/os.rs, crates/ubiq/src/state/notifications.rs, crates/ubiq/src/app/notifications.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/ui/notifications.rs, crates/ubiq/src/ui/titlebar.rs]
+updated: 2026-09-20
+verified: 2026-09-20
+code_anchors: [crates/ubiq-proto/src/notifications.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/notifications/os.rs, crates/ubiq/src/state/notifications.rs, crates/ubiq/src/app/notifications.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/ui/notifications.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/app/ask.rs]
 depends_on: [tech-architecture, tech-transport, feat-workbench]
 review_cycle: monthly
 ---
@@ -186,9 +186,18 @@ ending is not raised where something on screen is already drawing that conversat
 something that has already happened, and the surface has said it. An ask is a question that blocks
 the turn until somebody answers it, and a surface drawing it may be behind another window, on
 another screen, or scrolled away from the prompt: being on screen is not being read. So it is
-raised whatever is drawn, and it is the only real producer that sets `os`, so the desktop is told
-as well as the bell. A mute rule on `Agents · permission` is how somebody who does not want that
-turns it off.
+raised whatever is drawn, and it is the only real producer that sets `os` **on this condition** —
+a `ubiq-ask` question, below, sets it too but only when the surface is not already showing the
+answer. A mute rule on `Agents · permission` is how somebody who does not want that turns it off.
+
+**A `ubiq-ask` question sets `os` too, and on a narrower condition than a permission ask.** Where a
+permission ask always reaches the bell, `AppState::asked` in `crates/ubiq/src/app/ask.rs` opens the
+ask dialog directly on the conversation instead when that conversation is already on screen and no
+other dialog is up — nothing is raised here at all in that case, because the question is already in
+front of the user. Everywhere else it raises `Family::Agents`, category `"ask"`, with `os` set on
+the same reasoning as a permission request: the turn is blocked on an answer and the surface that
+would show it may not be the one on screen. The dialog it opens and the transcript entry it links to
+are [`chat.md`](./chat.md)'s.
 
 ## Failure
 
@@ -209,6 +218,7 @@ turns it off.
 - [`../tech/transport-contract.md`](../tech/transport-contract.md) — the notification family and its
   records
 - [`workbench.md`](./workbench.md) — the titlebar the bell sits in
+- [`chat.md`](./chat.md) — the `ubiq-ask` dialog and transcript entry an ask notification links to
 - [`logs.md`](./logs.md) — the sink a diagnostic goes to when it is not something to interrupt for
 - [`../backlog.md`](../backlog.md) — what is not wired yet
 

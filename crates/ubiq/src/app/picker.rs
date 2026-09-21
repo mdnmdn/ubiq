@@ -1,5 +1,11 @@
 use super::*;
 
+/// What the preview says instead of drawing a picture it only has the front of.
+///
+/// Both read paths stop at `MAX_FILE_BYTES` and report `truncated`; a prefix of an image is not
+/// an image, and handing one to the renderer draws an empty box that explains nothing.
+const TOO_BIG: &str = "larger than the read ceiling";
+
 impl AppState {
     /// Raise a picker over the sink's fixture tree, in the shape the page's controls describe.
     ///
@@ -241,6 +247,345 @@ impl AppState {
             conversation.detach(attachment);
         }
         cx.notify();
+    }
+
+    // ── Pasting a file into a composer ──────────────────────────
+    //
+    // The `+` picker is one way to attach a file; the platform's own clipboard is the other, and
+    // this is it. What comes out the far end is identical — a `Conversation::attach`, one tag,
+    // one `@path` in the prompt — so the chip row, the dedupe, the size warning and
+    // `compose_prompt` all work here without knowing a paste happened.
+
+    /// The composer's paste: attach what is on the board, or hand the keystroke back.
+    ///
+    /// **A board carrying only text is not this gesture.** `cx.propagate()` returns the chord to
+    /// the field, where `InputState::paste` types the text in exactly as it always has — see
+    /// `install_key_bindings` for why both bindings exist and which wins.
+    ///
+    /// A copied *file* is attached by its path and nothing is written. A copied *picture* has no
+    /// path, so one is made for it: see [`Self::attach_pasted_image`].
+    pub fn paste_into_composer(
+        &mut self,
+        agent: AgentId,
+        slot: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(found) = clipboard::clipboard_attachment(cx) else {
+            cx.propagate();
+            return;
+        };
+        match found {
+            clipboard::PastedAttachment::Path(path) => self.attach_pasted_path(agent, &path, cx),
+            clipboard::PastedAttachment::Image { bytes, format } => {
+                self.attach_pasted_image(agent, bytes, format, cx)
+            }
+        }
+        // The user was in the middle of writing, and the chord was taken off the field to do
+        // this; the keyboard goes straight back, exactly as the picker's answer returns it.
+        if let Some(input) = self.column_inputs.get(slot).cloned() {
+            input.update(cx, |state, cx| state.focus(window, cx));
+        }
+        cx.notify();
+    }
+
+    /// Attach a file that already exists, by the path the platform named.
+    ///
+    /// **Project-relative where it can be, absolute where it cannot.** A file inside the
+    /// conversation's own project attaches under exactly the path the `+` picker would have given
+    /// it — one tag, not two, and the `@path` the harness reads. Anything else keeps its absolute
+    /// path: the harness is running somewhere, and an absolute path is the only thing that still
+    /// names the file from there.
+    ///
+    /// **Relative only to the agent's *own* project.** `project_relative` answers which project a
+    /// path fell inside, and that answer is the point: a window holding projects A and B, with an
+    /// agent in A, must not turn a file copied out of B into `@src/lib.rs` — the harness runs in A
+    /// and would resolve it against a different file that happens to exist, silently. So the
+    /// relative form is taken when the ids match and the absolute path is kept otherwise, which is
+    /// the same use `deliver_paths` makes of the id one function over.
+    ///
+    /// No size is reported. Nothing has read the folder, and a size the interface guessed at
+    /// would be a warning colour standing for nothing — `Attachment::size` is `None` for exactly
+    /// this case.
+    fn attach_pasted_path(&mut self, agent: AgentId, path: &Path, cx: &mut Context<Self>) {
+        let Some(id) = self.project_of_agent(agent, cx) else {
+            return;
+        };
+        let named = match self.project_relative(path, cx) {
+            Some((holder, rel)) if holder == id => rel,
+            _ => path.to_string_lossy().into_owned(),
+        };
+        if let Some(open) = self.projects.get_mut(&id)
+            && let Some(conversation) = open.conversations.get_mut(&agent)
+        {
+            conversation.attach(named, None);
+        }
+    }
+
+    /// Attach a picture that exists nowhere, by writing it into the project first.
+    ///
+    /// **This writes a file into the user's project**, under `clipboard::PASTED_DIR`, and that is
+    /// the decision rather than a side effect of one: a turn carries attachments as `@path`
+    /// mentions (`G171`), so a screenshot that is only on the pasteboard cannot be attached at
+    /// all until something gives it a path. `Message::WriteProjectFile` is how it gets one —
+    /// nothing new crosses the bus.
+    ///
+    /// **The tag goes up on the send, not on the answer**, which is the bet `save_untitled_as`
+    /// makes for the same reason: the path is already decided, the user is mid-sentence, and a
+    /// chip that appeared a round trip later would arrive after the turn it belongs to. **The bet
+    /// is paid for by tracking the write**: `file_failed` only reacts for a path the editor has
+    /// open and `.ubiq/pasted/…` never is, so a refused write would otherwise be a log line and a
+    /// dangling `@path`. The row goes on `pasted_writes`, and
+    /// [`Self::pasted_write_failed`] takes the chip back off and says so. The size is the board's
+    /// own byte count, which is exact — this is the one attachment nothing had to guess.
+    ///
+    /// **The format may not be the board's.** A screenshot arrives as TIFF on macOS and as a DIB
+    /// on Windows, and the only reason to write it at all is for a harness to open it — see
+    /// `clipboard::pasted_image_bytes`.
+    ///
+    /// With no project open there is nowhere to write and nothing happens: a picture cannot be
+    /// attached to a conversation that has no folder behind it.
+    fn attach_pasted_image(
+        &mut self,
+        agent: AgentId,
+        bytes: Vec<u8>,
+        format: gpui::ImageFormat,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(project) = self.project_of_agent(agent, cx) else {
+            return;
+        };
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|since| since.as_millis())
+            .unwrap_or_default();
+        let (format, bytes) = clipboard::pasted_image_bytes(format, bytes);
+        let rel_path = clipboard::pasted_image_path(format, stamp);
+        let size = bytes.len() as u64;
+        self.ignore_pasted_dir(project);
+        self.bus.send(Message::WriteProjectFile {
+            project_id: project,
+            rel_path: rel_path.clone(),
+            bytes,
+            expected: None,
+            overwrite: false,
+        });
+        let attachment = self
+            .projects
+            .get_mut(&project)
+            .and_then(|open| open.conversations.get_mut(&agent))
+            .and_then(|conversation| conversation.attach(rel_path.clone(), Some(size)));
+        if let Some(attachment) = attachment {
+            self.pasted_writes.push(PastedWrite {
+                project,
+                rel_path,
+                agent,
+                attachment,
+            });
+        }
+    }
+
+    /// Make the pasted folder ignore itself, the first time this window writes into one.
+    ///
+    /// **A pasted screenshot is not a file the user chose to keep**, unlike a project-stored
+    /// knowledge base under `.ubiq/kb`, so a folder of untracked binaries turning up in `git
+    /// status` is this gesture littering in the user's repository. The answer is one
+    /// `.gitignore` holding `*` inside the folder itself — never a line appended to the user's
+    /// own ignore file, which is a tracked file nobody asked to change and would then have to be
+    /// merged, deduplicated and unwound. It goes through `WriteProjectFile` like the picture
+    /// beside it, so the interface still names no filesystem path of its own.
+    ///
+    /// `overwrite: false` means an ignore file already there is left exactly as it is, and the
+    /// refusal that comes back is not one of [`Self::pasted_write_failed`]'s rows: nothing was
+    /// attached for it, and the folder is already ignored either way.
+    fn ignore_pasted_dir(&mut self, project: ProjectId) {
+        if !self.pasted_ignored.insert(project) {
+            return;
+        }
+        let (rel_path, body) = clipboard::PASTED_IGNORE;
+        self.bus.send(Message::WriteProjectFile {
+            project_id: project,
+            rel_path: rel_path.to_string(),
+            bytes: body.as_bytes().to_vec(),
+            expected: None,
+            overwrite: false,
+        });
+    }
+
+    /// A pasted picture's write came back, one way or the other.
+    ///
+    /// Success only forgets the row — the chip was right all along. Failure takes the attachment
+    /// back off and raises a notification, because there is no other surface for it: the chip is
+    /// in a composer that may not be on screen, the path is in no editor tab, and an `@path` sent
+    /// for a file that was never written is a turn the harness answers with a read error.
+    /// Answers whether this was a pasted write at all, so the ordinary file path keeps its own.
+    pub(super) fn pasted_write_settled(
+        &mut self,
+        project: ProjectId,
+        rel_path: &str,
+        failure: Option<&str>,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(ix) = self
+            .pasted_writes
+            .iter()
+            .position(|write| write.project == project && write.rel_path == rel_path)
+        else {
+            return false;
+        };
+        let write = self.pasted_writes.remove(ix);
+        let Some(reason) = failure else {
+            return true;
+        };
+        if let Some(open) = self.projects.get_mut(&project)
+            && let Some(conversation) = open.conversations.get_mut(&write.agent)
+        {
+            conversation.detach(write.attachment);
+        }
+        self.raise_notification(
+            NotificationRequest::warning(
+                Family::Files,
+                format!(
+                    "The pasted picture could not be saved \u{2014} {reason}. It was not attached."
+                ),
+            )
+            .with_category("paste"),
+        );
+        cx.notify();
+        true
+    }
+
+    // ── The preview behind a sent chip ──────────────────────────
+
+    /// Show what is behind one chip on a sent turn.
+    ///
+    /// **A panel, not a tab.** The question a chip answers is *which file was that* — a glance,
+    /// not a reading — and opening the editor for it would take the reader off the transcript
+    /// they are following. The editor is still one click further on, through the `Open` the panel
+    /// carries.
+    ///
+    /// The bytes are fetched, never held: a project-relative path asks the host the ordinary way
+    /// (`Message::ReadProjectFile`, answered into [`Self::fill_attachment_preview`]), and an
+    /// absolute one is read here, because there is no project to answer for a path outside every
+    /// project — the same split `open_guest_file` makes.
+    pub fn open_attachment_preview(
+        &mut self,
+        agent: AgentId,
+        attachment: u64,
+        path: String,
+        size: Option<u64>,
+        cx: &mut Context<Self>,
+    ) {
+        // `open_menu` clears whatever the last one left behind, so the field is empty here and the
+        // invariant `WorkbenchState::attachment_preview` states — `Some` exactly while this menu
+        // is open — holds through an open as well as a close.
+        self.open_menu(MenuId::AttachmentPreview, cx);
+        let mut preview = AttachmentPreview {
+            agent,
+            attachment,
+            project: None,
+            path: path.clone(),
+            size,
+            bytes: None,
+            failed: None,
+        };
+
+        let absolute = Path::new(&path);
+        if absolute.is_absolute() {
+            match read_guest_file(absolute) {
+                Ok(contents) => match contents.truncated {
+                    true => preview.failed = Some(TOO_BIG.to_string()),
+                    false => preview.bytes = Some(contents.bytes),
+                },
+                Err(reason) => preview.failed = Some(reason),
+            }
+        } else if let Some(project) = self.project_of_agent(agent, cx) {
+            preview.project = Some(project);
+            self.bus.send(Message::ReadProjectFile {
+                project_id: project,
+                rel_path: path,
+                max_bytes: Some(MAX_FILE_BYTES),
+            });
+        } else {
+            preview.failed = Some("no project holds this file".to_string());
+        }
+
+        self.workbench.attachment_preview = Some(preview);
+        cx.notify();
+    }
+
+    /// Hand a read the preview panel is waiting on to it, if this is the one it asked for.
+    ///
+    /// Called from the `ProjectFileContents` arm beside the editor's own queue rather than
+    /// instead of it: a file can be open in a tab and previewed at the same moment, and both
+    /// readers want the same bytes.
+    ///
+    /// **Matched on the project as well as the path**, because a path is not unique across the
+    /// projects one window holds — see `AttachmentPreview::project`.
+    ///
+    /// **A truncated read is not a picture.** The host answers `MAX_FILE_BYTES` of a larger file
+    /// and says so, and a prefix of a PNG handed to the image renderer draws an empty box with no
+    /// explanation. The chip for such a file is already coloured as huge, so this is the likeliest
+    /// file anybody clicks — it gets the note instead.
+    pub(super) fn fill_attachment_preview(
+        &mut self,
+        project: ProjectId,
+        rel_path: &str,
+        contents: &FileContents,
+    ) {
+        if let Some(preview) = &mut self.workbench.attachment_preview
+            && preview.project == Some(project)
+            && preview.path == rel_path
+            && preview.bytes.is_none()
+            && preview.failed.is_none()
+        {
+            match contents.truncated {
+                true => preview.failed = Some(TOO_BIG.to_string()),
+                false => preview.bytes = Some(contents.bytes.clone()),
+            }
+        }
+    }
+
+    /// Tell the preview panel the read it is waiting on will never arrive.
+    ///
+    /// Without this the popover says `Reading…` for as long as it is up: the failure goes to
+    /// `file_failed`, which only touches paths the editor has open. The panel already draws a
+    /// "cannot preview" state for a guest read that failed — this is the same state, reached from
+    /// the other half of the split. Answers whether the panel wanted this path.
+    pub(super) fn fail_attachment_preview(
+        &mut self,
+        project: ProjectId,
+        rel_path: &str,
+        reason: &str,
+    ) -> bool {
+        if let Some(preview) = &mut self.workbench.attachment_preview
+            && preview.project == Some(project)
+            && preview.path == rel_path
+            && preview.bytes.is_none()
+        {
+            preview.failed = Some(reason.to_string());
+            return true;
+        }
+        false
+    }
+
+    /// Take the preview down — its own outside click, and the `Open` that hands the file to the
+    /// editor instead.
+    pub fn close_attachment_preview(&mut self, cx: &mut Context<Self>) {
+        self.close_menu(cx);
+    }
+
+    /// Open the previewed file properly: in the editor for a path inside a project, as a
+    /// read-only guest for one outside every project. Exactly what clicking an unsent tag does,
+    /// which is why the panel offers it rather than inventing a second way in.
+    pub fn open_attachment(&mut self, path: String, cx: &mut Context<Self>) {
+        self.close_attachment_preview(cx);
+        let absolute = Path::new(&path);
+        if absolute.is_absolute() {
+            self.open_guest_file(absolute, cx);
+        } else {
+            self.select_file(path, cx);
+        }
     }
 
     /// Take the dialog down with nothing chosen. Dismissed is not the same answer as an empty one,

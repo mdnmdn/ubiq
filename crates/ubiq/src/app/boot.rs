@@ -348,6 +348,17 @@ impl AppState {
                 .auto_grow(4, 10)
         });
 
+        // The ask dialog's two fields, re-pointed at whichever question is on screen. Cleared
+        // when the dialog closes, so reopening it on another question never opens on that one's
+        // words.
+        let ask_other_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Something else\u{2026}"));
+        let ask_notes_input = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .placeholder("Anything else the agent should know\u{2026}")
+                .auto_grow(3, 8)
+        });
+
         // The connect modal's fields. Cleared when a flow is cancelled or captured, and kept
         // when one fails, so "Try again" is a retry rather than a re-type.
         let connect_instance_input =
@@ -561,7 +572,12 @@ impl AppState {
                 if matches!(event, DockEvent::LayoutChanged) {
                     this.enforce_placement(window, cx);
                     this.hide_emptied_regions(window, cx);
-                    this.remember_view(cx);
+                    // Unless the window is only hearing back the arrangement it just installed
+                    // itself: a settle is not the user arranging anything, and writing its result
+                    // down is how a stale blob gets rewritten instead of repaired (`D156`).
+                    if !this.is_settled_echo(cx) {
+                        this.remember_view(cx);
+                    }
                     cx.notify();
                 }
             },
@@ -1128,6 +1144,29 @@ impl AppState {
             },
         ));
 
+        // The ask dialog's two fields, mirrored into the question on screen: Confirm is enabled
+        // by what is in "Other", and both have to survive the dialog being closed and reopened.
+        subscriptions.push(cx.subscribe_in(
+            &ask_other_input,
+            window,
+            |this, input, event: &InputEvent, _window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    let typed = input.read(cx).value().to_string();
+                    this.retype_ask_other(typed, cx);
+                }
+            },
+        ));
+        subscriptions.push(cx.subscribe_in(
+            &ask_notes_input,
+            window,
+            |this, input, event: &InputEvent, _window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    let typed = input.read(cx).value().to_string();
+                    this.renote_ask(typed, cx);
+                }
+            },
+        ));
+
         subscriptions.push(cx.subscribe_in(
             &clone_name_input,
             window,
@@ -1258,6 +1297,8 @@ impl AppState {
             clone_name_input.read(cx).focus_handle(cx),
             feedback_title_input.read(cx).focus_handle(cx),
             feedback_description.read(cx).focus_handle(cx),
+            ask_other_input.read(cx).focus_handle(cx),
+            ask_notes_input.read(cx).focus_handle(cx),
             sink_search.read(cx).focus_handle(cx),
             sink_harness_name.read(cx).focus_handle(cx),
             sink_harness_exec.read(cx).focus_handle(cx),
@@ -1364,6 +1405,7 @@ impl AppState {
             pending_layout: None,
             reset_furniture: false,
             pending_regions: None,
+            settled_layout: None,
             pending_pane_region: false,
             region_had_content: (false, false, false),
             workbench: WorkbenchState::default(),
@@ -1387,6 +1429,8 @@ impl AppState {
             adding_select: None,
             pending_files: Vec::new(),
             pending_kb_docs: Vec::new(),
+            pasted_writes: Vec::new(),
+            pasted_ignored: HashSet::new(),
             diagrams: RefCell::new(HashMap::new()),
             diagram_asks: RefCell::new(Vec::new()),
             exported_asks: RefCell::new(Vec::new()),
@@ -1467,6 +1511,8 @@ impl AppState {
             clone_name_input,
             feedback_title_input,
             feedback_description,
+            ask_other_input,
+            ask_notes_input,
             connect_instance_input,
             connect_client_id_input,
             connect_secret_input,
@@ -1521,6 +1567,7 @@ impl AppState {
             refill_fields: false,
             refill_columns: false,
             fill_project_form: false,
+            refill_ask_fields: false,
             _subscriptions: subscriptions,
         };
 

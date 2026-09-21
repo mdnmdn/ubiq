@@ -151,7 +151,16 @@ ignore = "0.4"
 
 # PNG encode for the capture flatten, and base-image dimensions for the capture
 # scene. Decode for display stays GPUI's — this only measures and flattens.
-image = { version = "0.25", default-features = false, features = ["png"] }
+# `tiff` and `bmp` are decoders, and they are here for one reason: a pasted picture is written
+# into the project to be *opened by a harness*, and harness image support is png/jpeg/gif/webp.
+# A macOS screenshot arrives on the pasteboard as TIFF and a Windows DIB as BMP, so without these
+# two the one gesture that has no path behind it produces a path nothing can read —
+# `app/clipboard.rs::pasted_image_bytes`.
+image = { version = "0.25", default-features = false, features = [
+    "png",
+    "tiff",
+    "bmp",
+] }
 
 # The embedded browser a web panel draws in. `gpui-wry` is gpui-component's own wry binding —
 # same repository, so it resolves to the revision the component crates already pin, and a child

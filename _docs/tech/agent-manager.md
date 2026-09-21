@@ -5,9 +5,9 @@ kind: tech
 status: draft
 summary: What the embedded harness-management library owns, what Ubiq owns, how the application consumes it, and the rule that keeps the two from growing into each other.
 read_when: you are about to write code that launches a harness, drives one as a conversation, names a harness config path, or touches accounts, skills or MCP servers
-updated: 2026-09-19
-verified: 2026-09-19
-code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/main.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/quota.rs, crates/agent-manager/src/credentials/mod.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/examples/confined_shell_probe.rs, crates/agent-manager/src/io/structured.rs, crates/ubiq-app/src/lib.rs, crates/agent-manager/src/io/mod.rs, crates/agent-manager/src/io/acp.rs, crates/agent-manager/src/io/acp_caps.rs, crates/agent-manager/src/io/acp_client.rs, crates/ubiq-host/src/mcp/mod.rs]
+updated: 2026-09-20
+verified: 2026-09-20
+code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/main.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/quota.rs, crates/agent-manager/src/credentials/mod.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/examples/confined_shell_probe.rs, crates/agent-manager/src/io/structured.rs, crates/ubiq-app/src/lib.rs, crates/agent-manager/src/io/mod.rs, crates/agent-manager/src/io/acp.rs, crates/agent-manager/src/io/acp_caps.rs, crates/agent-manager/src/io/acp_client.rs, crates/ubiq-host/src/mcp/mod.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-host/src/mcp/ask.rs, crates/ubiq-proto/src/ask.rs]
 depends_on: [tech-structure]
 review_cycle: monthly
 ---
@@ -496,8 +496,13 @@ that wants the library to host and rewrite its service for it; Ubiq instead bind
 `McpRef::Inline` HTTP reference pointed at it, the same shape a remote server would arrive in. That
 keeps the listener's lifetime, its identity model and its stateless-by-URL routing entirely inside
 `ubiq-host` rather than behind a library feature flag, which is the choice `D102` states and costs.
-The catalogue is `test`, `project-info`, `manage-ubiq-tasks`, `use-task` and `ubiq-kb`; the last three
-share the host's `Work` and `Kb` through handles, so an agent reaches what a window does (`D120`).
+The catalogue is `test`, `project-info`, `manage-ubiq-tasks`, `use-task`, `ubiq-kb` and `ubiq-ask`.
+The middle three share the host's `Work` and `Kb` through handles, so an agent reaches what a window
+does (`D120`). `ubiq-ask` shares neither: its one tool, `ask_user_question`, answers no fact the host
+already holds, so it mints an `AskId`, parks the call on a thread of its own and pushes
+`Message::AskUser` to the window that owns the conversation instead — the pending-call pattern
+`D138` states for a drone tool call, generalised to a call that waits on a person rather than a
+remote host (`D155`). It is the first built-in tool that round-trips through the interface at all.
 
 `crates/ubiq-host/Cargo.toml` declares the dependency and `crates/ubiq/Cargo.toml` does not, which
 is where the edge belongs: the host owns configuration and processes, and the interface may not name

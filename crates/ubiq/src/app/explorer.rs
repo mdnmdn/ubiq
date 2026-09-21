@@ -1126,6 +1126,35 @@ impl AppState {
         }
     }
 
+    /// Which project this window holds contains an absolute path, and what that path is called
+    /// from its root.
+    ///
+    /// **Every project *this window* holds, not the whole catalogue**: a file under a project open
+    /// in another window is exactly as much a stranger here as one under no project. The longest
+    /// root wins, so a project nested inside another one matches rather than its container.
+    ///
+    /// One reading of this question, shared by everything that takes a path in from outside the
+    /// app — a drop on the window, and a paste into a composer. Both want the same answer:
+    /// project-relative where the path is inside a project, and nothing where it is not, which is
+    /// the one path shape the interface holds.
+    pub(super) fn project_relative(&self, path: &Path, cx: &App) -> Option<(ProjectId, String)> {
+        let mut roots: Vec<(ProjectId, String)> = {
+            let registry = WindowRegistry::read(cx);
+            registry
+                .slot(self.window_id)
+                .into_iter()
+                .flat_map(|slot| slot.projects.iter().copied())
+                .filter_map(|id| registry.project(id).map(|s| (id, s.record.path.clone())))
+                .collect()
+        };
+        roots.sort_by_key(|(_, root)| std::cmp::Reverse(root.len()));
+        roots.into_iter().find_map(|(id, root)| {
+            path.strip_prefix(&root)
+                .ok()
+                .map(|rel| (id, rel.to_string_lossy().into_owned()))
+        })
+    }
+
     /// A drop from outside the app: a folder becomes a project (temporary, until kept from the
     /// titlebar), a file under a project this window holds opens there, a file with a project open
     /// but outside all of them opens as a read-only guest, and a file with none open takes its
@@ -1144,26 +1173,7 @@ impl AppState {
                 continue;
             }
 
-            // Every project *this window* holds, not the whole catalogue: a file under a project
-            // open in another window is exactly as much a stranger here as one under no project.
-            let mut roots: Vec<(ProjectId, String)> = {
-                let registry = WindowRegistry::read(cx);
-                registry
-                    .slot(self.window_id)
-                    .into_iter()
-                    .flat_map(|slot| slot.projects.iter().copied())
-                    .filter_map(|id| registry.project(id).map(|s| (id, s.record.path.clone())))
-                    .collect()
-            };
-            // Longest root first, so a project nested inside another one wins the match.
-            roots.sort_by_key(|(_, root)| std::cmp::Reverse(root.len()));
-            let hit = roots.into_iter().find_map(|(id, root)| {
-                path.strip_prefix(&root)
-                    .ok()
-                    .map(|rel| (id, rel.to_string_lossy().into_owned()))
-            });
-
-            if let Some((id, rel)) = hit {
+            if let Some((id, rel)) = self.project_relative(path, cx) {
                 // The match can be a project this window holds but is not showing; a drop opens
                 // it, the same as clicking its row would.
                 if self.project(cx) != Some(id) {

@@ -9,6 +9,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::ask::{AskClosed, AskOutcome, AskQuestion};
 use crate::assist::{
     AiModelList, AiProviderDraft, AiProviderInfo, AssistLimits, AssistReason, SuggestSubject,
 };
@@ -24,8 +25,9 @@ use crate::git::{
 };
 use crate::help::HelpCatalog;
 use crate::ids::{
-    AiProviderId, CloneId, ConnectId, ConnectionId, KbSourceId, NotificationId, OauthAppId, PaneId,
-    ProjectId, RepoQueryId, SearchId, SessionId, SshProfileId, StepId, SuggestId, TaskId, ToolId,
+    AiProviderId, AskId, CloneId, ConnectId, ConnectionId, KbSourceId, NotificationId, OauthAppId,
+    PaneId, ProjectId, RepoQueryId, SearchId, SessionId, SshProfileId, StepId, SuggestId, TaskId,
+    ToolId,
 };
 use crate::kb::{KbSource, KbSourceState, KbSourceStatus};
 use crate::mcp::McpInfo;
@@ -1553,6 +1555,39 @@ pub enum Message {
         agent_id: AgentId,
         request_id: String,
         option_id: String,
+    },
+    /// An agent is asking the user something, through the `ubiq-ask` MCP server. Host to the one
+    /// window that owns the conversation, unsolicited: the tool call that raised it is parked
+    /// until [`Message::AnswerAsk`] comes back or the ask times out.
+    ///
+    /// Unlike a [`ConvUpdate::PermissionRequest`] this is not part of the harness's own protocol
+    /// and carries no tool call to hang itself under — it is raised by a tool the agent chose to
+    /// call, so it stands on its own in the transcript. See [`crate::ask`].
+    AskUser {
+        agent_id: AgentId,
+        ask_id: AskId,
+        questions: Vec<AskQuestion>,
+    },
+    /// What the user said, or that they would rather talk about it. One per ask: the host drops
+    /// an answer naming an ask it is no longer holding, so a dialog left open across a timeout
+    /// changes nothing.
+    AnswerAsk {
+        agent_id: AgentId,
+        ask_id: AskId,
+        outcome: AskOutcome,
+    },
+    /// An ask stopped waiting without the user ending it. Host to the owning window, so the
+    /// dialog and the transcript's entry stop offering an answer that can no longer land.
+    ///
+    /// **It travels both ways.** A window that cannot show an ask — it holds no conversation for
+    /// that agent, because the project was closed between the tool call and the push — sends this
+    /// back with [`AskClosed::Gone`], and the host frees the parked call there and then rather
+    /// than leaving the harness to wait out [`crate::ask::ASK_TIMEOUT_SECS`]. One message, because
+    /// it says one thing in both directions: nobody is going to answer this.
+    AskEnded {
+        agent_id: AgentId,
+        ask_id: AskId,
+        why: AskClosed,
     },
     /// Change a model, a mode, a thinking level — whatever the harness advertised under that id in
     /// a [`ConvUpdate::ConfigOptions`]. One message for all of them, because upstream has one

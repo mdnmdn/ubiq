@@ -62,6 +62,7 @@
 
 #[cfg(feature = "harness")]
 pub mod agent;
+pub mod ask;
 #[cfg(feature = "harness")]
 pub mod assist;
 pub mod atomic;

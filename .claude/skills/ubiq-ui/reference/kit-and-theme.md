@@ -144,7 +144,8 @@ a harness is a small secondary tag, never where one is being *chosen*.
 | `pill(edge) -> Div`, `badge(text, color)`, `state_chip(label, colour, scale)` | Inline tags |
 | `choice_pill(...)` | One value of a set |
 | `toggle_pill(...)` | An independent facet |
-| `removable_tag(...)` | `×` drops it; the label does something when clicked |
+| `tag(...)` | The label does something when clicked, and nothing takes it off |
+| `removable_tag(...)` | `tag` plus a `×` that drops it. Built from `tag`, so the two never drift |
 | `check_box(...)` | A row chosen where several may be |
 | `icon_button(...)`, `ghost_button(...)`, `primary_button(...)` | Icon-only (30px, tooltip carries the label), inline label, and the screen's single obvious action |
 | `elided(...)`, `elided_with(...)` | Truncate with the system ellipsis, whole string as tooltip — takes an element id |
@@ -205,8 +206,8 @@ disabled style).
 
 ### `menu.rs` — one dropdown mechanism for every menu in the window
 
-`Picker`, `PickerStyle`, `context_menu(...)`, `context_panel(...)`, `MENU_LAYER = 1`,
-`MENU_ANCHOR_UP`.
+`Picker`, `MultiPicker`, `PickerStyle`, `multi_label(...)`, `multi_order(...)`,
+`context_menu(...)`, `context_panel(...)`, `MENU_LAYER = 1`, `MENU_ANCHOR_UP`, `MULTI_WIDTH = 170`.
 
 - **The picker never filters.** The caller narrows `items` and keeps a parallel values list in
   lockstep, so `on_pick(index)` stays correct by construction. An empty result draws one muted
@@ -218,6 +219,13 @@ disabled style).
 - `.separators(indices)` draws a hairline instead of text — a separator still takes an index,
   because rows and the actions behind them are matched by position.
 - A context menu is the same panel, opened at the pointer rather than under a chip.
+- **`MultiPicker` is the same dropdown for a set**, sharing the trigger and the panel rather than
+  forking them: a row toggles, the list stays down, and the closed trigger says every ticked value
+  comma-separated through `kit::elided` (truncation and tooltip are one string). `.selected(ixs)`
+  is the preselection *and* the value — it holds nothing — `.dots(colours)` puts a status dot on
+  each row, and `multi_order(len, selected, query)` draws the ticked rows first under an empty
+  query, nothing pinned under a typed one, and never reorders a list with no search field. First
+  caller: the Teams toolbar's states filter.
 
 ### `popover.rs` — the anchored panel that is not a list
 

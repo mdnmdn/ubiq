@@ -12,6 +12,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use ubiq_proto::ask::AskClosed;
 use ubiq_proto::assist::{AssistProvider, SuggestSubject};
 use ubiq_proto::bus::{ClientId, FromClient, HostEnd, MovingAddress, To};
 use ubiq_proto::conversation::{
@@ -272,6 +273,10 @@ struct Coordinator {
     /// have, for the same two reasons: a reply goes to the window that asked, and a project's
     /// count changes when one ends.
     conversation_owners: HashMap<AgentId, (ClientId, ProjectId)>,
+    /// Every question an agent has put to the user and not yet had an answer to. `Arc` because
+    /// the MCP listener parks its tool calls on the same table this thread answers into — the two
+    /// halves of an ask never meet anywhere else (`D138`, [`crate::ask`]).
+    asks: Arc<crate::ask::Asks>,
     /// The launch recipe for every agent this window has asked for, kept for the agent's whole
     /// life rather than only until its first launch. Before a first [`Message::PromptAgent`] it is
     /// what P3's loader is waiting on; after `UnloadConversation` it is what
@@ -766,6 +771,9 @@ impl Coordinator {
         let shared_workarea_path = crate::projects::reserve_shared_workarea(&root.path);
         let help = Arc::new(Help::new(std::path::PathBuf::from(&shared_workarea_path)));
         let mcp_agents = crate::mcp::Registry::new();
+        // The parked questions, shared with the listener for the reason the knowledge base is:
+        // `ubiq-ask`'s tool waits on this table from its own thread and this one answers into it.
+        let asks = Arc::new(crate::ask::Asks::new());
         let mcp = crate::mcp::start(
             mcp_agents.clone(),
             host.voice(),
@@ -778,6 +786,7 @@ impl Coordinator {
                 everyone: host.mailbox(To::Everyone),
             }),
             Some(crate::mcp::HelpReach { help: help.clone() }),
+            Some(crate::mcp::AskReach { asks: asks.clone() }),
         )
         .inspect_err(|error| {
             tracing::warn!("Ubiq's own MCP servers are not available: {error:#}");
@@ -916,6 +925,7 @@ impl Coordinator {
             focused: HashMap::new(),
             conversations: HashMap::new(),
             conversation_owners: HashMap::new(),
+            asks,
             pending_conversations,
             logins: HashMap::new(),
             started: Instant::now(),
@@ -2343,6 +2353,77 @@ impl Coordinator {
                     conversation.answer_permission(request_id, option_id)
                 });
             }
+            // ── the ask family ──────────────────────────────────────
+            // Raised by the `ubiq-ask` tool through the host's own voice, not by a window: the
+            // coordinator is the only half that knows which window owns the conversation, so it
+            // does the addressing and the tool call knows nothing about clients (`D138`).
+            Message::AskUser {
+                agent_id,
+                ask_id,
+                questions,
+            } => {
+                match self.conversation_owners.get(&agent_id) {
+                    Some((owner, _)) => self.host.send(
+                        To::Client(*owner),
+                        Message::AskUser {
+                            agent_id,
+                            ask_id,
+                            questions,
+                        },
+                    ),
+                    // Nobody to ask. Ended here rather than left to the timeout: a tool call that
+                    // waits an hour for a window that does not exist is a wedged agent.
+                    None => {
+                        tracing::debug!(
+                            agent = %agent_id,
+                            ask = %ask_id,
+                            "an ask was raised by a conversation nobody owns",
+                        );
+                        self.asks.end(ask_id, AskClosed::Gone);
+                    }
+                }
+            }
+            Message::AnswerAsk {
+                agent_id,
+                ask_id,
+                outcome,
+            } => {
+                // The same owner gate every conversation-family message passes, then the table.
+                // An answer naming an ask nobody is holding — one that timed out while the dialog
+                // was still open, or a second answer — is dropped quietly there.
+                if self.drives(client, agent_id) {
+                    self.asks.answer(ask_id, outcome);
+                }
+            }
+            // The one ask message that travels both ways, so the sender is what tells them apart.
+            // The owning window is the only client that says it: it holds no conversation to draw
+            // the ask in, and the parked call is freed here rather than left to the timeout.
+            // Anything else on this arm came from the `ubiq-ask` thread's own voice — a wait that
+            // gave up — and the host's voice owns no conversation, so the two never read as each
+            // other. That one is addressed exactly as `AskUser` above is.
+            Message::AskEnded {
+                agent_id,
+                ask_id,
+                why,
+            } => match self.conversation_owners.get(&agent_id).copied() {
+                Some((owner, _)) if owner == client => {
+                    // An id the host is no longer holding — one that timed out first — is
+                    // dropped quietly by the table.
+                    self.asks.end(ask_id, why);
+                }
+                Some((owner, _)) => self.host.send(
+                    To::Client(owner),
+                    Message::AskEnded {
+                        agent_id,
+                        ask_id,
+                        why,
+                    },
+                ),
+                // No owner: nobody to tell, and nothing the table is still holding for it — the
+                // `AskUser` arm above ended it as `Gone` when it was raised.
+                None => {}
+            },
+
             Message::SetAgentConfig {
                 agent_id,
                 config_id,
@@ -2877,6 +2958,7 @@ impl Coordinator {
                 self.work
                     .lock()
                     .remove_live_agent(pending.project_id, agent_id);
+                self.close_asks(agent_id, AskClosed::Gone);
                 self.conversation_owners.remove(&agent_id);
                 self.pending_conversations.remove(&agent_id);
                 self.refuse_conversation(client, agent_id, format!("{error:#}"));
@@ -3447,6 +3529,9 @@ impl Coordinator {
         let Some(conversation) = self.conversations.remove(&agent_id) else {
             return;
         };
+        // The harness is about to go, so nothing can answer what it asked: release the parked
+        // calls now rather than leaving a thread waiting out the hour on a dead conversation.
+        self.close_asks(agent_id, AskClosed::Gone);
         // `quiet`: the pump skips its own `ConversationEnded` so `ConversationUnloaded`, sent
         // below, is the only lifecycle message this produces.
         let last_seq = conversation.stop(true);
@@ -3476,6 +3561,8 @@ impl Coordinator {
         let Some(conversation) = self.conversations.remove(&agent_id) else {
             return;
         };
+        // As in `unload_conversation`: the harness is going, so its questions are closed here.
+        self.close_asks(agent_id, AskClosed::Gone);
         // Always quiet, for the reason an unload is: `ConversationUnloaded` below is the one
         // lifecycle message an abort produces.
         let last_seq = conversation.abort();
@@ -3513,6 +3600,33 @@ impl Coordinator {
                 Message::ConversationError {
                     agent_id,
                     error: format!("{error:#}"),
+                },
+            );
+        }
+    }
+
+    /// Close every question this conversation left waiting, and tell the window that drew them.
+    ///
+    /// Called wherever a conversation stops being something an answer could reach — ended,
+    /// unloaded, or its harness gone. The parked tool call is released first, so the harness gets
+    /// its error rather than waiting out the hour, and the owning window is told per ask so a
+    /// dialog still on screen stops offering an answer that can no longer land. The owner is read
+    /// before it is removed, which is why this runs ahead of the removal at each site.
+    fn close_asks(&mut self, agent_id: AgentId, why: AskClosed) {
+        let closed = self.asks.end_for_agent(agent_id, why);
+        if closed.is_empty() {
+            return;
+        }
+        let Some((client, _)) = self.conversation_owners.get(&agent_id).copied() else {
+            return;
+        };
+        for ask_id in closed {
+            self.host.send(
+                To::Client(client),
+                Message::AskEnded {
+                    agent_id,
+                    ask_id,
+                    why,
                 },
             );
         }
@@ -3822,6 +3936,8 @@ impl Coordinator {
             "a one-shot harness finished its turn; the conversation stays"
         );
         self.remember_conversation(agent_id);
+        // The harness behind the parked call has gone, so nothing can answer it now.
+        self.close_asks(agent_id, AskClosed::Gone);
         if let Some((client, _)) = self.conversation_owners.get(&agent_id).copied() {
             self.host.send(
                 To::Client(client),
@@ -3849,6 +3965,7 @@ impl Coordinator {
         // A pending agent has no `Conversation` and no run directory yet — closed here, this
         // already covers "closed before it ever launched" without a second path.
         self.pending_conversations.remove(&agent_id);
+        self.close_asks(agent_id, AskClosed::Gone);
         if let Some((_, project_id)) = self.conversation_owners.remove(&agent_id) {
             self.work.lock().remove_live_agent(project_id, agent_id);
         }

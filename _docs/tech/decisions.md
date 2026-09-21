@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-09-19
-verified: 2026-09-19
+updated: 2026-09-21
+verified: 2026-09-21
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -1796,24 +1796,36 @@ one that must not regress while the ACP path matures.
 
 ### D94 — No region is furniture: every edge region opens empty, and is remembered from the first time it is asked for
 
-`ModeLayout::default_for` answers every region flag `false`, in every rail mode, replacing a rule
-that opened the IDE's left and right regions with the window. A mode or a project never arranged
-before opens on the centre alone — no explorer, no chat, no pane region — and `settle_mode()` forces
-those defaults on every entry rather than leaving whatever tree the last mode or project happened to
-have on screen. This generalises `D50`'s reasoning, which gave the pane region alone this posture, to
-the two regions that were still exempt from it.
+`ModeLayout::default_for` answers the pane region `false` in every rail mode, replacing a rule that
+opened the IDE's left and right regions with the window unconditionally. The other two edges are
+not blanket-closed: the modes whose left region *is* an explorer — the IDE, the knowledge base, the
+agents list — default it open, and Git defaults both left and right open because its refs and its
+changes are the screen (`D119`); every other region, in every other mode, defaults shut. A mode or a
+project never arranged before opens on those defaults and nothing more — no chat, no pane region,
+and no side region beyond the explorer a screen is read through — and `settle_mode()` forces them on
+every entry rather than leaving whatever tree the last mode or project happened to have on screen.
+This generalises `D50`'s reasoning, which gave the pane region alone this posture, to the two
+regions that were still exempt from it: an edge still has to earn a *panel*, it no longer has to
+earn being *on screen* where the mode's own screen is that panel.
 
-**Why:** an explorer and a chat tab nobody asked for are switches to undo before the first frame is
-legible, on every project a window has never arranged — which is every project, the first time it is
-opened, not an edge case. A region earns its place by being asked for, the same posture `D50` gave
-the pane region for the same reason; carrying it only that far left two of three edges still opening
-uninvited. Forcing a mode's defaults on every entry, rather than letting an empty region inherit
-whatever the last screen had open, closes the gap the backlog carried as `G88`.
+**Why:** a chat tab nobody asked for, or a pane region with nothing in it, are switches to undo
+before the first frame is legible, on every project a window has never arranged — which is every
+project, the first time it is opened, not an edge case. A region earns its place by being asked for,
+the same posture `D50` gave the pane region for the same reason; carrying it only that far left two
+of three edges still opening uninvited on modes with nothing of their own to put in them. Forcing a
+mode's defaults on every entry, rather than letting an empty region inherit whatever the last screen
+had open, closes the gap the backlog carried as `G88`. `default_for`'s three flags are read only
+once, at the moment a mode's own blob does not exist yet; a blob's own per-region flags are the
+truth from then on, and the three constants are otherwise inert (`G328`).
 
 **Cost:** an IDE window's first look is barer than the target layout
 (`_docs/design/ubiq-layout.png`, `D16`) shows, until the user reaches for a region — a real change to
 the first impression a project makes, traded for a window that never opens onto furniture nobody
 asked for.
+
+Which gesture is allowed to fill an empty region, and which is not, is `D156`'s question, not this
+one: this decision is only that a region starts closed and stays remembered from the first time it
+is asked for.
 
 ### D96 — A palette is a registry row keyed by a slug, and the accent is a seed beside it
 
@@ -2486,6 +2498,13 @@ would restore them were hidden because they were IDE-only.
 **Cost:** a project that has never been arranged in Git opens onto two extra columns the user
 did not toggle. Closing them is the same titlebar switch as in IDE, and the choice is remembered
 from then on, so the cost is one first visit.
+
+The refs and the changes panel are not put in those regions by a rule that keeps re-filling them:
+`AppState::queue_git_furniture` queues both once, on entering Git with no saved blob, the same way
+`queue_kb_furniture` and `queue_mode_furniture` seed the knowledge base's and the board's own side
+furniture. A blob saved before either panel existed does not have them injected into it on a later
+visit — the region it left open and empty is closed instead (`D156`), and the titlebar's switch is
+what brings Git's furniture back.
 
 ### D120 — Task MCP tools share the work handle, and broadcast what they change
 
@@ -3359,6 +3378,120 @@ conversation. Every write and every record read the Teams screen makes needs a s
 `project_of_agent`, `teams_conversation`, `teams_agent` — and a reader added later that reaches for
 `self.project(cx)` is a bug that only appears with two projects open. And one more thing on screen
 that a link cannot carry: the span a canvas was arranged in is not recoverable from the link to it.
+
+### D155 — `ubiq-ask`'s parked calls reuse `D138`'s table, generalised to a human answer
+
+`crates/ubiq-host/src/ask.rs`'s `Asks` is `D138`'s pending-call design read again: a call with no
+local fact to answer from is held by id, off the thread serving it, until something else supplies
+the answer. `D138` built that shape for a drone tool waiting on a remote host; `ubiq-ask`'s
+`ask_user_question` is the first call to ship parking on a person instead — `super::server::handle`
+(`crates/ubiq-host/src/mcp/server.rs`) moves the request off the listener's own thread before
+calling into `mcp::ask::call`, on the reasoning `D138` states for its own case: every other agent's tool call
+comes through that one listener, and a parked one would hold all of them up. The coordinator answers
+it exactly as any other message — `Message::AnswerAsk` reaches `Asks::answer`, which releases the
+waiting thread and returns at once, with neither side blocking on the other.
+
+**A parked call must still end when nobody ever answers, which the drone's table had no need to
+say out loud** — a remote host either replies or the connection drops, but a person may simply never
+come back to the tab. `ASK_TIMEOUT_SECS` (`crates/ubiq-proto/src/ask.rs`, one hour) is `Asks::wait`'s
+own bound, releasing the call as `AskClosed::Timeout`; a conversation ending, unloading or dying
+releases every ask it parked as `AskClosed::Gone` through `Asks::end_for_agent`, so a wedged tool
+call is never the price of a closed tab, and a table dropped out from under a waiter reads the same
+way, `Gone`, rather than hanging it.
+
+**Cost:** a second table shaped like the drone's rather than one generic pending-call type shared
+between the two — `Asks` carries an `AgentId` for `end_for_agent`'s sake and nothing the drone's
+table needs — so a third parking reader faces the same choice again: copy the shape, or find what
+the two have in common worth lifting into one type.
+
+### D156 — A mode or a project switch is not an event that opens anything
+
+Two bugs shared one cause: switching rail mode or switching project could re-open an edge region
+and re-add Search, Logs or Help, and the dock's own `LayoutChanged` subscription then wrote that
+arrangement back into the project's per-mode prefs, so the corruption stuck. The fix is one rule,
+applied at both switches: **a switch opens no region and adds no panel.** Only a gesture aimed at
+one — a click on a region's switch, a search, opening the console, asking for help — is allowed to.
+
+`AppState::settle_layout`'s leftover-restore loop (`crates/ubiq/src/app/panels.rs`) is where the
+region half of this held wrong: a panel the window still held that the restored blob did not name
+was put back with `dock::reveal`, which opens the region it lands in. It uses `dock::add` instead,
+which does not, and which regions were open right after the restore is read and forced back
+afterwards — adding into a region no blob named creates one, and a created one is open, so a region
+the restored blob left shut has to be shut again by hand. `AppState::sweep_furniture` is the panel
+half: it takes `Search` and `Logs` out of the tree on both a project switch and a mode switch alike,
+and takes `Help` out as well unless `Help::follow` is on, because a panel that followed the
+switch would read to the next arrangement as though it belonged there. All three are asked for by a
+gesture, for one project on one mode, and none is inherited — a mode that had one open when it was
+left named it in its own blob, and the restore is what brings it back.
+
+**Nothing is swept that nothing could put back.** `remember_view` writes nothing for a window
+pointed at no project, so there is no blob and no restore there — while the rail still draws every
+mode and the console and help are both legitimately usable. A projectless window therefore sweeps
+nothing at all. Nor does a switch the window made rather than the user: `reveal_pane_region` sends a
+pane's runner to the IDE when the mode it is in has no pane region, and hiding the mode the window
+is in moves the window on, and neither is the user asking for the console to go.
+`AppState::enter_rail_mode` is told which of the two a switch is, and `AppState::set_rail_mode` is
+the name the user's own gestures call.
+
+**Follow mode's help is the one panel a switch puts on screen**, and the one exception to the rule
+above. Leaving it in the tree is not enough — a leftover is *added*, and an add into an existing
+region that is shut leaves it shut, so help would follow the reader into a mode and be invisible
+there, and then be written into that mode's blob that way. It is revealed instead, queued so it
+lands after the restore and after the regions the restore settled on have been forced back. A panel
+whose whole contract is to keep up with the reader is a user gesture deferred; nothing else is.
+
+**A chat tab is placed by the user, never by a switch.** A conversation is drawn on every screen
+about a project, so a tab open in the IDE is a leftover everywhere, and two doors had to be shut
+rather than one. The leftover loop keeps a chat panel and drops only its *placement* — the entity is
+the one thing a rebuild cannot make again, because a `ChatId` is minted fresh every process and a
+saved leaf naming one this window no longer holds names nothing. `AppState::is_idle_chat` is the
+other door: `sync_chat_panels` queues an `Open` for every tab the project has each time a project or
+a mode settles, and an unattached tab goes in only where the right region is open **and empty**,
+which is `toggle_region`'s own gesture. It used to go in wherever that region happened to be open,
+which is how Git's blob acquired a chat tab beside its changes panel.
+
+**A region the settle closed is not the user's choice and is not written down as one.**
+`collapse_empty_regions` closing an empty region is a dock edit like any other, so `LayoutChanged`
+fired and the subscription wrote the closure into the mode's blob — the stale blob rewritten rather
+than repaired, which is this decision's own pathology in the code that implements it.
+`AppState::note_settled` records the arrangement each settle ends on, and the subscription skips
+`remember_view` while the window is still wearing exactly that. **Comparing the arrangement is the
+mechanism rather than a flag** because it has to be: the dock's event is delivered after the update
+that caused it, so a flag set across the settle is cleared again before anything could read it. The blob is left saying what the user left it saying, and is repaired the first time they
+arrange anything themselves.
+
+**The IDE's explorer is mode-owned** (`PanelKind::is_mode_owned`) alongside Git's four, the
+knowledge base's explorer, the board's task and the agents list. `is_drawn` hides it outside IDE,
+so the omission cost nothing visible — but the leftover restore was putting it into Git's, the
+knowledge base's and the agents' left regions and from there into their blobs, and making it that
+mode's furniture is what made the omission load-bearing.
+
+The other side of the same rule is `AppState::toggle_region`, which keeps the one fill this decision
+allows: a click on a region's own switch is a gesture, and `mode_side_furniture` is what answers it.
+`AppState::refill_mode_sides`, deleted along with its call in `app/shell.rs`'s render, is what carried
+the bug: it ran every frame and queued a mode's own furniture into any of that mode's side regions
+that was open and empty, which is what let a restore or a switch that left a region open with
+nothing in it get refilled instead of staying empty. `collapse_empty_regions` /
+`hide_emptied_regions` close such a region instead, the same way they close one the user emptied by
+hand.
+
+**Why:** `D94` gave a region a starting posture — closed until asked for — but said nothing about
+what a switch is allowed to do to a region that has been asked for once. Reading a switch as a gesture
+that could reopen or refill things left the sticky-prefs bug a standing invitation: any code path
+that ran on a switch and touched the dock would eventually write its own side effect down as the
+user's arrangement, because `LayoutChanged` cannot tell a rearrangement the window made from one the
+user made. The fix is not a special case in the persistence layer — it is removing every place a
+switch could act like a gesture.
+
+**Cost:** a mode whose blob predates one of its own side panels — Git's refs and changes before
+`D119`, the board's task, the agents list, the IDE's own explorer default — no longer has that panel
+injected into a stale layout on the visit that first notices it is missing; the region it left open
+and empty is closed instead, and the titlebar's switch is what brings the mode's furniture back. That
+is one click, once per stale blob, traded for an arrangement that no longer drifts on every switch.
+The blob itself is not repaired either — the write-back guard above leaves it saying what the user
+left it saying — so the stale entry survives until they arrange something, and the collapse is paid
+for again on every visit until then. A click on a region switch whose furniture the user has dragged
+to the other edge does nothing visible, which is the honest answer but a silent one.
 
 ## Related docs
 

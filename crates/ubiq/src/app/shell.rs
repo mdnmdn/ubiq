@@ -144,6 +144,9 @@ impl AppState {
         if self.active_seen == Some(project) {
             self.active_seen = None;
         }
+        // The project's conversations left with it, and a dialog standing on one of their asks
+        // would be an empty modal holding `Layer::Ask` over an otherwise usable window.
+        self.settle_ask_dialog(cx);
         cx.notify();
     }
 
@@ -202,6 +205,9 @@ impl AppState {
         if self.active_seen == Some(project) {
             self.active_seen = None;
         }
+        // The conversations travel with the project, so an ask dialog over one of them stops
+        // naming anything this window holds.
+        self.settle_ask_dialog(cx);
         cx.notify();
         Some(HandedOffProject { open, shown })
     }
@@ -301,6 +307,10 @@ impl AppState {
             self.queue_mode_furniture(view.rail_mode);
         }
         self.reset_furniture = true;
+        // The search results go with the panel the sweep above takes out: they are one project's
+        // hits, and the next project is not the one they are about. A mode switch inside one
+        // project keeps them, which is why this is here and not in `sweep_furniture`.
+        self.search.reset();
         self.sync_file_panels(project);
         self.sync_chat_panels(project);
         // The one exception to a project opening with the right region closed: a persistent
@@ -658,7 +668,24 @@ impl AppState {
         }
     }
 
+    /// Move the window to another rail mode, because the user asked for it — the rail, the mode
+    /// menu, a `ctrl-`digit.
     pub fn set_rail_mode(&mut self, mode: RailMode, cx: &mut Context<Self>) {
+        self.enter_rail_mode(mode, true, cx);
+    }
+
+    /// [`Self::set_rail_mode`], told whether the user is the one who asked.
+    ///
+    /// **Only a switch the user made sweeps the window's furniture** (`D156`). The window moves
+    /// itself in two places — a pane started from a mode with no pane region, and the mode the
+    /// window is in being hidden — and taking the log console off screen because a runner needed
+    /// the IDE is the same class of unasked-for rearrangement the sweep exists to stop.
+    pub(super) fn enter_rail_mode(
+        &mut self,
+        mode: RailMode,
+        by_user: bool,
+        cx: &mut Context<Self>,
+    ) {
         if mode == self.workbench.rail_mode {
             return;
         }
@@ -667,6 +694,18 @@ impl AppState {
         self.remember_view(cx);
         self.workbench.rail_mode = mode;
         self.workbench.open_menu = None;
+        // Search, the log and — unless it is following the reader — help are the window's
+        // furniture and not any one mode's, so they go before the incoming arrangement lands
+        // (`D156`). A mode that had one of them open named it in its own blob, and the restore is
+        // the only thing that brings it back.
+        //
+        // **With no project there is no blob and so no restore**: `remember_view` writes nothing
+        // for a projectless window, and a console or a help page swept here would be gone for
+        // good, with the rail still drawing every mode. Nothing that cannot be put back is taken
+        // away, so the sweep waits for a project.
+        if by_user && self.project(cx).is_some() {
+            self.reset_furniture = true;
+        }
 
         if let Some(project) = self.project(cx)
             && let Some(open) = self.projects.get(&project)
@@ -835,6 +874,12 @@ impl AppState {
         if menu != MenuId::Explorer {
             self.drop_explorer_menu(cx);
         }
+        // Exactly one menu is open at a time, so opening one ends whatever the last one was
+        // showing. The preview is cleared here as well as in `close_menu` because its own state
+        // claims the invariant "`Some` exactly while `MenuId::AttachmentPreview` is open": a
+        // panel left behind by a menu opened straight over it makes the next Escape close
+        // something invisible. `open_attachment_preview` sets its own after this call.
+        self.workbench.attachment_preview = None;
         self.workbench.open_menu = Some(menu);
         cx.notify();
     }
@@ -881,6 +926,7 @@ impl AppState {
             (Layer::DroneStop, s.drone_stop.is_some()),
             (Layer::Clone, w.clone_project.is_some()),
             (Layer::Feedback, w.feedback.is_some()),
+            (Layer::Ask, w.ask.is_some()),
             (Layer::AllProjects, w.all_projects.is_some()),
             (Layer::FileDialog, w.file_dialog.is_some()),
             (Layer::SizeNaming, w.size_prompt.is_some()),
@@ -1021,6 +1067,11 @@ impl AppState {
             self.decline_paste_image(cx);
         } else if self.workbench.file_dialog.is_some() {
             self.close_file_dialog(cx);
+        } else if self.workbench.ask.is_some() {
+            // Escape puts an agent's question away and sends nothing — what was filled in stays on
+            // the ask's own record, and the transcript entry reopens it. Dismissing is not
+            // answering, so the harness is still parked and the entry is still there to say so.
+            self.close_ask(window, cx);
         } else if self.workbench.feedback.is_some() {
             // Before the clone modal, in reverse paint order: `ui::shell` draws feedback after it,
             // and the balloon is reachable from the titlebar with anything already up.
@@ -1105,6 +1156,7 @@ impl AppState {
         self.workbench.new_project_menu = None;
         self.workbench.run_tool_menu = None;
         self.workbench.conversation_menu = None;
+        self.workbench.attachment_preview = None;
         self.sink.settings.menu = None;
         self.drop_explorer_menu(cx);
         self.drop_kb_menu(cx);
@@ -1272,7 +1324,9 @@ impl AppState {
         if self.workbench.rail_mode == mode
             && let Some(next) = RailMode::every().find(|m| self.mode_enabled(*m, cx))
         {
-            self.set_rail_mode(next, cx);
+            // Hiding the mode the window is in moves the window; the user asked for the mode to
+            // go, not for the console to go with it, so this sweeps nothing (`D156`).
+            self.enter_rail_mode(next, false, cx);
         }
         self.remember(id, cx);
         cx.notify();
@@ -1406,7 +1460,6 @@ impl Render for AppState {
         self.settle_visibility(cx);
         self.settle_mode(window, cx);
         self.settle_layout(window, cx);
-        self.refill_mode_sides(cx);
         self.settle_panels(window, cx);
         self.take_focus(window, cx);
         self.attach_arrived_files(window, cx);
@@ -1422,6 +1475,7 @@ impl Render for AppState {
         self.fill_task_form(window, cx);
         self.fill_columns(window, cx);
         self.fill_project_form(window, cx);
+        self.fill_ask_fields(window, cx);
         // Kept in step with the sources while the dialog holding them is up; a settings row for a
         // source with no field yet would have nothing to type into. No `cx.notify()` —
         // `settle_nav`'s discipline, run from the same place.

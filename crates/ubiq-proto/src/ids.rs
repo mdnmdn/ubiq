@@ -264,3 +264,13 @@ ulid_id! {
     /// fetched source's clone folder under the config root all reference.
     KbSourceId
 }
+
+ulid_id! {
+    /// One question an agent asked the user, from the tool call that parked on it to the answer,
+    /// the refusal or the timeout that ends it. Minted **host-side**, by the MCP listener that
+    /// took the call — the half that holds the parked call is the half that names it — and it is
+    /// what the dialog, the transcript's entry and the answer coming back all reference. An
+    /// answer naming an ask the host no longer holds is discarded, [`FeedbackId`]'s discipline in
+    /// the other direction.
+    AskId
+}

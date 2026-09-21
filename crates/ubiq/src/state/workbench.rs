@@ -268,6 +268,9 @@ pub enum MenuId {
     /// The style reference's demo dropdown. It picks nothing: the sink is where a control is
     /// looked at, and one menu in the window has to be openable with no project behind it.
     SinkPicker,
+    /// The style reference's demo multi-select. Its own id beside `SinkPicker` because both are
+    /// drawn on the same page and only one menu in the window is open at a time.
+    SinkMulti,
     /// The A2UI page's example picker: which surface the preview draws.
     SinkA2ui,
     /// The script page's example picker: which starter the buffers are seeded from.
@@ -315,6 +318,11 @@ pub enum MenuId {
     /// rather than a stage of it. Drawn only when the window holds more than one project: a
     /// choice of one is not a choice, and there the button raises the form outright.
     TeamsAddAgent,
+    /// The Teams toolbar's states filter: which buckets the canvas draws. A `kit::MultiPicker`
+    /// rather than the pill row it replaces — the buckets are the one filter on that row where
+    /// several values are on at once, and four pills were four controls saying what one summary
+    /// says. Its own id because the row's other two filters are not menus at all.
+    TeamsBuckets,
     /// One conversation's three-dots lifecycle menu (Stop, Unload, Resume, Delete), by the agent
     /// it belongs to — several conversations can be on screen at once, each with its own. Where
     /// it opened is `WorkbenchState::conversation_menu`.
@@ -334,6 +342,41 @@ pub enum MenuId {
     /// The status bar's file-kind readout: which viewer draws the open tab. It hangs off its own
     /// trigger and carries no position, and the override it picks lasts only as long as the tab.
     ViewerKind,
+    /// The picture behind a chip on a sent turn. A menu rather than a modal because it answers
+    /// nothing and blocks nothing — the same Escape and the same outside click peel it as every
+    /// other anchored panel, so it needs no rung in `cancel_dialog`. What it is showing is
+    /// `WorkbenchState::attachment_preview`.
+    AttachmentPreview,
+}
+
+/// The file a chip on a sent turn was clicked to look at, and what has arrived of it.
+///
+/// **The bytes are not held by the transcript.** A sent attachment is a path, and the picture
+/// behind it is read on demand and kept only while the panel is up: a transcript that carried
+/// every image it had ever mentioned would grow without bound for a panel the reader opens once.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AttachmentPreview {
+    /// Which conversation's turn the chip is on, and which entry of it — what the element id the
+    /// panel anchors to is built from, so two transcripts on screen cannot both claim it.
+    pub agent: AgentId,
+    pub attachment: u64,
+    /// Which project was asked to read it, where one was — `None` for an absolute path, which is
+    /// read here and asks nobody.
+    ///
+    /// **The path alone does not identify the answer.** `src/lib.rs` is a path two open projects
+    /// can both have, and a late `ProjectFileContents` for the one this panel is not about would
+    /// otherwise fill it with the wrong file's bytes.
+    pub project: Option<ProjectId>,
+    /// The path as the attachment holds it: project-relative, or absolute for a file that was
+    /// pasted in from outside every project this window holds.
+    pub path: String,
+    /// How big the attachment said it was, for the note drawn when there is no picture.
+    pub size: Option<u64>,
+    /// What the read answered. `None` is still in flight, and is drawn as such rather than as an
+    /// empty panel — an empty panel and a file that never arrived look identical.
+    pub bytes: Option<Vec<u8>>,
+    /// Why there is nothing to draw, where the read said so.
+    pub failed: Option<String>,
 }
 
 /// One row of the new-pane control's menu, in the order it is drawn.
@@ -600,6 +643,10 @@ pub struct WorkbenchState {
     /// runs. Off until the host answers, which is what keeps the send button disabled in a build
     /// that has no destination.
     pub feedback_offer: ubiq_proto::feedback::FeedbackOffer,
+    /// Which agent's question is on screen, while the ask dialog is up. Only the view: what has
+    /// been filled in lives on the conversation's own record, which is what lets the dialog be
+    /// closed and reopened with the drafts intact. See `crate::state::ask`.
+    pub ask: Option<crate::state::ask::AskDialog>,
     /// The "All projects" modal, while it is up. Raised from the picker's History group when it
     /// hides more than it shows — beside `clone_project` for the same reason: a question raised
     /// over the window, answered from its own state rather than the picker's.
@@ -681,6 +728,9 @@ pub struct WorkbenchState {
     /// `MenuId::ConversationLifecycle(_)` — the agent it belongs to is carried on that `MenuId`
     /// itself rather than duplicated here.
     pub conversation_menu: Option<(f32, f32)>,
+    /// The attachment whose preview panel is up. `Some` exactly while `open_menu` is
+    /// `MenuId::AttachmentPreview`.
+    pub attachment_preview: Option<AttachmentPreview>,
     /// The conversation Delete asked to confirm — destructive and irreversible, so it is not fired
     /// on the click. `None` when no confirm is up.
     pub confirm_end_conversation: Option<AgentId>,
@@ -769,6 +819,7 @@ impl Default for WorkbenchState {
             clone_project: None,
             feedback: None,
             feedback_offer: ubiq_proto::feedback::FeedbackOffer::default(),
+            ask: None,
             all_projects: None,
             new_agent: None,
             kb_source: None,
@@ -789,6 +840,7 @@ impl Default for WorkbenchState {
             run_tool_menu: None,
             new_agent_menu: None,
             conversation_menu: None,
+            attachment_preview: None,
             confirm_end_conversation: None,
             confirm_close_pane: None,
             shells: Vec::new(),

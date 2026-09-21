@@ -333,6 +333,16 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .as_ref()
                 .map(|_| crate::ui::feedback::render(app, window, cx)),
         )
+        // An agent's question, over the feedback modal on the same terms — except that it is
+        // never actually raised over anything: an ask arriving while any layer is up leaves a
+        // notification and a transcript entry instead, and the entry's button is what raises it
+        // once the screen is clear. See `app::ask`.
+        .children(
+            app.workbench
+                .ask
+                .as_ref()
+                .map(|_| crate::ui::ask::render(app, window, cx)),
+        )
         // The "All projects" modal, raised from the picker's History group — painted here on the
         // same terms as the clone modal just above.
         .children(

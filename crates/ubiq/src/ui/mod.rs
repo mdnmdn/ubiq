@@ -10,6 +10,7 @@ pub mod a2ui;
 pub mod acp_capabilities;
 pub mod agents;
 pub mod all_projects;
+pub mod ask;
 pub mod board;
 pub mod chat;
 pub mod clone;

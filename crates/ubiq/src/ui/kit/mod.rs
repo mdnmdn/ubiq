@@ -54,14 +54,17 @@ pub use colour::{HsvAction, colour_picker};
 pub use controls::{
     badge, card, check_box, choice_pill, disclosure, elided, elided_with, field, ghost_button,
     icon_button, meter, mono, pill, primary_button, progress_ring, progress_ring_in,
-    progress_ring_pair, removable_tag, section_label, slab, state_chip, status_dot, stepper,
+    progress_ring_pair, removable_tag, section_label, slab, state_chip, status_dot, stepper, tag,
     toggle_pill,
 };
 pub use files::{
     file_row, filter_bar, kind_icon, row_font, row_height, row_indent, twisty, view_switch,
 };
 pub use icons::UbiqIcon;
-pub use menu::{ContextItem, Picker, PickerStyle, context_menu, context_panel};
+pub use menu::{
+    ContextItem, MultiPicker, Picker, PickerStyle, context_menu, context_panel, multi_label,
+    multi_order,
+};
 pub use overlay::{confirm_modal, modal, modal_note, modal_sized, prompt_modal};
 pub use panel::{Tab, panel, panel_header, tab_strip};
 pub use popover::popover;

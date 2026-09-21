@@ -35,8 +35,10 @@ pub fn resolve(root: &Path, rel_path: &str) -> Result<PathBuf, FileError> {
 ///
 /// The **parent** must exist and be contained, because a write creates the leaf and cannot
 /// canonicalise it; the leaf must not be a symlink, since a write through a link is a write
-/// wherever the link points; and no folder is ever created to make the path valid — the mirror of
-/// `AddProject` never creating one.
+/// wherever the link points; and no folder is ever created to make the path valid. A write that
+/// names a version says the file is already on disk, so a folder of its own missing is a fact
+/// about the world the interface's tab no longer matches — inventing one would hide that.
+/// [`resolve_for_create`] is the one door that makes folders, and only a creation takes it.
 pub fn resolve_for_write(root: &Path, rel_path: &str) -> Result<PathBuf, FileError> {
     let parts = components(rel_path)?;
     let Some(leaf) = parts.file_name().map(|name| name.to_owned()) else {
@@ -63,6 +65,42 @@ pub fn resolve_for_write(root: &Path, rel_path: &str) -> Result<PathBuf, FileErr
         ));
     }
     Ok(target)
+}
+
+/// The same as [`resolve_for_write`], bringing the folders the path names into existence.
+///
+/// **Only a creation takes this door** — a write naming no version, which is the interface saying
+/// this buffer has never been on disk. That is the whole difference: a save-as asks the user for a
+/// project-relative *path*, so the folders in it are part of the file being created, and refusing
+/// the write because one of them is not there yet reports a file that never existed as one that
+/// went away. An overwrite and a versioned save both name something that is supposed to exist
+/// already, and they keep refusing (see [`resolve_for_write`]) — the protection this relaxes is
+/// only ever relaxed where there is nothing on disk to protect.
+///
+/// The boundary is unchanged: every level is created **one at a time under an already-contained
+/// canonical ancestor**, and each one is canonicalised and contained again before the next is
+/// joined onto it, so an existing component that is a symlink out of the root is refused exactly as
+/// it would be by [`resolve_for_write`]. Nothing is created outside the root, and the root itself
+/// is never created.
+pub fn resolve_for_create(root: &Path, rel_path: &str) -> Result<PathBuf, FileError> {
+    let parts = components(rel_path)?;
+    let Some(parent_parts) = parts.parent() else {
+        return resolve_for_write(root, rel_path);
+    };
+
+    let root = canonical(root)?;
+    let mut dir = root.clone();
+    for component in parent_parts.components() {
+        let next = dir.join(component);
+        match std::fs::create_dir(&next) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(super::from_io(error)),
+        }
+        dir = contain(&root, canonical(&next)?)?;
+    }
+
+    resolve_for_write(&root, rel_path)
 }
 
 /// The same as [`resolve`], refusing the project's own root.

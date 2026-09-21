@@ -5,8 +5,8 @@ kind: wip
 status: current
 summary: How the Teams screen draws every open project's agents at once — a second rail entry in the APP group that the span is read off, one merged projection built from each project's `live_work`, an owner map that answers "whose agent is this" for every write the screen makes, and what the rail, the titlebar and a `ubiq://` link keep meaning when the canvas is about more than one project.
 read_when: you are changing what the Teams screen is scoped to, or adding a reader that must work when the canvas spans several projects
-updated: 2026-09-20
-verified: 2026-09-20
+updated: 2026-09-21
+verified: 2026-09-21
 code_anchors: [crates/ubiq/src/state/teams.rs, crates/ubiq/src/app/teams.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/ui/teams/mod.rs, crates/ubiq/src/ui/teams/graph.rs, crates/ubiq/src/ui/teams/inspector.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/tests/teams.rs]
 depends_on: [feat-workbench, tech-ui, wip-teams-layout-spike]
 ---
@@ -156,8 +156,28 @@ wears its colour are the pattern, and this is one more.
 The session pills carry the same chip, because two projects can name a session the same thing and a
 row of bare names would be two pills that look like one.
 
-Under the project span the canvas is unchanged, chip and all: a screen about one project does not
-need to say which.
+**The chip is not the whole story: the canvas is fenced by project too.** A chip answers "whose is
+this card" one card at a time, which is the wrong shape for the question the window span actually
+raises — *where does this project's work stop*. So under the window span every top-level thing on
+the canvas wears a dashed fence in `ProjectFace`'s tint: a task container takes the colour of the
+project that owns it, and a card no container encloses gets a fence of its own. Nothing is fenced
+twice — a card inside a container is not fenced again, because the box round it already carries the
+colour — and a project the registry cannot face draws no fence rather than a colourless one.
+
+**The drop state still wins the container's outline.** A container lit as a drop target, or being
+carried, keeps `accent` and the heavier dashes `Fence`'s `active` draws: "let go here" is an answer
+the canvas gives for a moment and the project's colour is one every card inside it already gives.
+The project tint is therefore the resting colour, in place of `theme::border`.
+
+Both readings live in `state::teams` — `TeamsView::fenced_tasks` names the containers and the card
+each takes its colour from, `TeamsView::fenced_alone` names the loose cards, and `solo_bounds`
+measures a lone fence with a container's padding so the two sit the same distance from what they
+hold. Both answer with nothing under `TeamsSpan::Project`, which is how "the project span is
+unchanged" is a claim `crates/ubiq/tests/teams.rs` makes without a frame. The colour stays in
+`ui::teams::graph`, which is the rule that module has always kept: state names no colour.
+
+Under the project span the canvas is unchanged, chip, fences and all: a screen about one project
+does not need to say which, and one colour repeated over every card is not a distinction.
 
 ## What the rail, the titlebar and a link keep meaning
 

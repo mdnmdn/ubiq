@@ -619,6 +619,70 @@ fn an_untitled_buffer_asks_where_to_be_saved(cx: &mut TestAppContext) {
     );
 }
 
+/// A pasted picture is a file that has never been on disk, so its save is a creation — even when
+/// the path the user types names a folder that is not there yet.
+///
+/// The bug: the save came back `Missing`, drawn as "no longer there" in the **Not saved** modal,
+/// over a picture that had never been anywhere. The interface's half of that round trip is this
+/// one message; the host's half — making the folders a creation names — is in
+/// `crates/ubiq-host/tests/files.rs`.
+#[gpui::test]
+fn a_pasted_picture_is_saved_as_a_creation(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let _ = fixture.said();
+
+    let picture = image::RgbaImage::from_pixel(8, 8, image::Rgba([255, 255, 255, 255]));
+    let mut png = Vec::new();
+    picture
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .expect("an in-memory encode succeeds");
+    cx.update(|cx| {
+        cx.write_to_clipboard(gpui::ClipboardItem::new_image(&gpui::Image::from_bytes(
+            gpui::ImageFormat::Png,
+            png,
+        )));
+    });
+    fixture.with(cx, |state, window, cx| {
+        state.paste_clipboard_image(&ubiq::app::PasteClipboardImage, window, cx)
+    });
+    assert_eq!(open_paths(&fixture, cx), vec!["capture-1.png".to_string()]);
+
+    fixture.with(cx, |state, window, cx| {
+        state.save_active_file(&ubiq::app::SaveFile, window, cx)
+    });
+    assert_eq!(
+        fixture.dialog(cx),
+        Some(FileDialog::SaveAs {
+            key: "capture-1.png".to_string()
+        }),
+        "a picture that was never on disk is asked where to go"
+    );
+    assert!(
+        writes(&fixture.said()).is_empty(),
+        "and nothing is written yet"
+    );
+
+    fixture.confirm("shots/new/capture-1.png", cx);
+    let written = writes(&fixture.said());
+    assert!(
+        matches!(
+            written.as_slice(),
+            [Message::WriteProjectFile {
+                rel_path,
+                expected: None,
+                overwrite: false,
+                ..
+            }] if rel_path == "shots/new/capture-1.png"
+        ),
+        "the flatten goes out as a creation, whatever folders the path names: {written:?}"
+    );
+    assert_eq!(
+        open_paths(&fixture, cx),
+        vec!["shots/new/capture-1.png".to_string()],
+        "the tab is retitled on the click, the same bet opening one makes"
+    );
+}
+
 /// Every `WriteProjectFile` the window has said, in order.
 fn writes(said: &[Message]) -> Vec<Message> {
     said.iter()

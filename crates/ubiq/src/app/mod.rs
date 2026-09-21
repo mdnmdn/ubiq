@@ -65,11 +65,11 @@ use crate::state::vim::VimState;
 use crate::state::web_panel::WebPanels;
 use crate::state::work::WorkProjection;
 use crate::state::{
-    ActiveSearch, ChatId, ChatTab, EditorPaneState, ExplorerAction, ExplorerKey, ExplorerPressed,
-    ExplorerState, ExplorerView, FileBody, FileDialog, FileLanguage, Follow, KbDocKey, KbPressed,
-    KbState, LogState, MenuId, NewAgentMenu, NewAgentSurface, NewPaneRow, NewProjectRow, OpenFile,
-    OverflowRow, PanelKind, ProjectSettings, ProjectSettingsMode, RailMode, Region, SearchState,
-    Toggle, WindowRegistry, WorkbenchState, kb_parent_path, prefs,
+    ActiveSearch, AttachmentPreview, ChatId, ChatTab, EditorPaneState, ExplorerAction, ExplorerKey,
+    ExplorerPressed, ExplorerState, ExplorerView, FileBody, FileDialog, FileLanguage, Follow,
+    KbDocKey, KbPressed, KbState, LogState, MenuId, NewAgentMenu, NewAgentSurface, NewPaneRow,
+    NewProjectRow, OpenFile, OverflowRow, PanelKind, ProjectSettings, ProjectSettingsMode,
+    RailMode, Region, SearchState, Toggle, WindowRegistry, WorkbenchState, kb_parent_path, prefs,
 };
 use crate::theme::{self, Mode, ThemeId};
 use crate::ui;
@@ -95,8 +95,8 @@ use ubiq_proto::connectors::{AuthKind, ConnectStage, ProviderId, origin};
 use ubiq_proto::files::{DiffBase, FileContents, FileError, PathOp};
 use ubiq_proto::git::{GitEntry, GitError as GitFailure, GitNested, GitWriteOp, RepoOverview};
 use ubiq_proto::ids::{
-    AiProviderId, ConnectId, ConnectionId, KbSourceId, OauthAppId, PaneId, ProjectId, SearchId,
-    SessionId, SshProfileId, StepId, SuggestId, TaskId, ToolId,
+    AiProviderId, AskId, ConnectId, ConnectionId, KbSourceId, OauthAppId, PaneId, ProjectId,
+    SearchId, SessionId, SshProfileId, StepId, SuggestId, TaskId, ToolId,
 };
 use ubiq_proto::kb::{KbAccess, KbSource, KbStore};
 use ubiq_proto::messages::{
@@ -153,6 +153,7 @@ gpui::actions!(
         SaveFile,
         NewFile,
         PasteClipboardImage,
+        PasteIntoComposer,
         CaptureWindow,
         CloseEditor,
         ZoomIn,
@@ -434,6 +435,18 @@ fn seeded_chats(saved: &[String]) -> Vec<ChatTab> {
     tabs
 }
 
+/// Whether anything in this window is drawing one conversation: the tab a column of the agents
+/// screen has up, or a chat tab attached to it.
+///
+/// **It says a surface exists, never that the user is looking at it** — the window may be behind
+/// another, on another screen, or scrolled away from the line in question. That is the whole
+/// reading, and every caller is somewhere deciding whether to interrupt: the bell for a finished
+/// turn, and whether an agent's question opens its dialog or leaves a notification.
+fn conversation_shown(open: &OpenProject, id: AgentId) -> bool {
+    (0..open.agents.columns.len()).any(|column| open.agents.active_agent(column) == Some(id))
+        || open.chats.iter().any(|tab| tab.attached == Some(id))
+}
+
 /// Write what a conversation derives onto the agent record the rest of the window reads.
 ///
 /// The badge, the ring and the token count are readings of the stream the window already holds, so
@@ -493,6 +506,22 @@ struct KbArrival {
     project_id: ProjectId,
     key: KbDocKey,
     contents: FileContents,
+}
+
+/// One pasted picture whose write into `.ubiq/pasted/` has not been answered yet.
+///
+/// **A pasted attachment is optimistic, so its failure has to be tracked.** The chip goes up on
+/// the send rather than on the host's answer, and `AppState::file_failed` only reacts to a path
+/// the editor has open — which `.ubiq/pasted/…` never is. Without this row a refused write is a
+/// `tracing::warn!` and an `@path` the harness then cannot open, with nothing on screen saying
+/// so. See `AppState::attach_pasted_image` and `AppState::pasted_write_failed`.
+struct PastedWrite {
+    project: ProjectId,
+    rel_path: String,
+    /// The conversation the chip went up on, and which entry of its list — what a failure takes
+    /// back off again.
+    agent: AgentId,
+    attachment: u64,
 }
 
 pub struct AppState {
@@ -581,6 +610,11 @@ pub struct AppState {
     /// A rail-mode switch whose mode had no arrangement to restore: which edge regions that mode's
     /// defaults put on screen, for the frame that has a window to force them with.
     pending_regions: Option<(bool, bool, bool)>,
+    /// The arrangement the last settle installed. A `LayoutChanged` that finds the window still
+    /// wearing exactly this is the settle's own echo — the window having rearranged itself — and
+    /// is not written back over the mode's blob as the user's choice (`D156`). See
+    /// [`Self::note_settled`].
+    settled_layout: Option<prefs::ModeLayout>,
     /// A runner asked for the bottom region to be on screen. Answered by
     /// [`Self::settle_pane_region`] at the end of the frame rather than at the ask, because a
     /// mode switch and an emptied region both move that region later in the same frame.
@@ -682,6 +716,12 @@ pub struct AppState {
     /// Knowledge-base documents the host answered that still need a window to become a buffer.
     /// Drained in `render`, beside `pending_files`.
     pending_kb_docs: Vec<KbArrival>,
+    /// Pasted pictures whose writes are still outstanding. See [`PastedWrite`].
+    pasted_writes: Vec<PastedWrite>,
+    /// Projects this window has already asked to write `.ubiq/pasted/.gitignore` into, so the
+    /// self-ignoring folder costs one refused write per project per run rather than one per
+    /// picture.
+    pasted_ignored: HashSet<ProjectId>,
 
     /// Every diagram this window has drawn, by content key — the cache's memory tier. **Behind a
     /// cell because a viewer meets it mid-frame**: the element tree is built from `&AppState`, and
@@ -948,6 +988,12 @@ pub struct AppState {
     /// into the form per keystroke, because what the send button does is decided by the title.
     pub feedback_title_input: Entity<InputState>,
     pub feedback_description: Entity<TextareaState>,
+    /// The ask dialog's two free-text fields: what the user wrote under "Other", and the notes
+    /// every question takes. **Two fields, not two per question** — one tab is on screen at a
+    /// time, and what was typed lives on the ask's own drafts, so switching tab re-points these
+    /// rather than growing a pool of inputs the size of the ask.
+    pub ask_other_input: Entity<InputState>,
+    pub ask_notes_input: Entity<TextareaState>,
     /// The connect modal's three fields. Read at send time rather than mirrored per keystroke,
     /// for the reason `begin_harness_login` gives: a value the interface copies into its own
     /// state is a second copy that can disagree with the one on screen.
@@ -1081,12 +1127,17 @@ pub struct AppState {
     /// The project settings dialog owes its fields the path, name and colour it was opened with.
     /// Drained in `render` for the same reason as `refill_fields`: `set_value` needs a window.
     fill_project_form: bool,
+    /// The ask dialog was taken away by a message rather than a gesture — the conversation it was
+    /// filed on went — so its two fields still hold what was typed. Drained in `render` for
+    /// `fill_project_form`'s reason.
+    refill_ask_fields: bool,
     _subscriptions: Vec<Subscription>,
 }
 
 // The screen-sized halves of `AppState`. Each is one `impl AppState` block; the struct,
 // its companions and the free window functions stay here.
 mod agents;
+mod ask;
 mod board;
 mod boot;
 mod capture;
@@ -1215,6 +1266,14 @@ pub fn install_key_bindings(cx: &mut App) {
         // so this only ever sees the clipboard outside one.
         gpui::KeyBinding::new("cmd-v", PasteClipboardImage, Some("Workbench")),
         gpui::KeyBinding::new("ctrl-v", PasteClipboardImage, Some("Workbench")),
+        // Paste *inside* a field means an attachment when the board carries a file or a picture.
+        // `InputState::paste` binds the same chord in the `Input` context — the deepest node —
+        // and would swallow it, so this is bound for `Workbench > Input`, which matches at the
+        // same depth and wins the tie by being registered later: this function runs after
+        // `gpui_component::init`. A board with only text on it is handed straight back
+        // (`cx.propagate`), and the field's own paste runs unchanged.
+        gpui::KeyBinding::new("cmd-v", PasteIntoComposer, Some("Workbench > Input")),
+        gpui::KeyBinding::new("ctrl-v", PasteIntoComposer, Some("Workbench > Input")),
         gpui::KeyBinding::new("ctrl-s", SaveFile, Some("Workbench")),
         gpui::KeyBinding::new("cmd-w", CloseEditor, Some("Workbench")),
         gpui::KeyBinding::new("ctrl-w", CloseEditor, Some("Workbench")),
