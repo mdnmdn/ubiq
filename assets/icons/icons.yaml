@@ -62,6 +62,12 @@ categories:
   # keep the dot. These four are the states a reader acts on, so they get a shape.
   pane:
     pane-thinking: the harness is working, with no measurable progress to report
+    pane-writing:
+      goal: the harness is composing its reply
+      keywords: [writing, composing, reply, typing, answer]
+    pane-tools:
+      goal: the harness is running a tool
+      keywords: [tool, running, executing, working]
     pane-awaiting:
       goal: the harness has stopped and is waiting for the reader to answer
       keywords: [permission, prompt, blocked, question, waiting]

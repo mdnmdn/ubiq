@@ -170,6 +170,11 @@ gpui::actions!(
         RejectPermission,
         ImageUndo,
         ImageRedo,
+        // The ask modal's option list — see `ui::ask` and `app::ask`.
+        AskMoveUp,
+        AskMoveDown,
+        AskToggle,
+        AskFieldNext,
         // The Nth project the rail's badges show, `cmd-1`..`cmd-9` — see
         // `AppState::activate_project_slot`.
         ProjectSlot1,
@@ -518,10 +523,21 @@ struct KbArrival {
 struct PastedWrite {
     project: ProjectId,
     rel_path: String,
+    /// What the picture was pasted into, which decides what this row is *for*.
+    into: PastedInto,
+}
+
+/// Where a pasted picture is going, and therefore what its write's answer means.
+///
+/// The two destinations bet opposite ways on the same round trip, which is the whole reason the
+/// distinction is carried: a composer's chip is up already and a failure takes it off, while a
+/// task's attachment is not sent until the write lands. See `AppState::paste_into_task`.
+enum PastedInto {
     /// The conversation the chip went up on, and which entry of its list — what a failure takes
     /// back off again.
-    agent: AgentId,
-    attachment: u64,
+    Composer { agent: AgentId, attachment: u64 },
+    /// The task whose stored attachment list the path joins, once the write is answered.
+    Task(TaskId),
 }
 
 pub struct AppState {
@@ -850,6 +866,25 @@ pub struct AppState {
     pub step_title_input: Entity<InputState>,
     pub new_step_input: Entity<InputState>,
     pub new_comment_input: Entity<InputState>,
+    /// The annotation panel's one field: a fresh thread on a block, or a reply to one, whichever
+    /// `DocumentEditor::composer` says it is answering. One at a time, `new_comment_input`'s own
+    /// arrangement.
+    pub annotation_composer_input: Entity<InputState>,
+    /// The annotated document's buffer — one per window, because one document is open at a time.
+    /// It is the same `EditorState` a file tab is drawn with, seeded from the host's body and
+    /// written back by `save_document`, so the plan is edited on the tree's own editor rather
+    /// than on a second one built for a modal.
+    pub plan_editor: Entity<EditorState>,
+    /// The annotated passages, as one decoration collection over that buffer. Kept because the
+    /// library hands a collection out once per buffer; `None` until the first document is drawn.
+    plan_marks: Option<gpui_component::input::TextDecorationCollection>,
+    /// The second layer over the same buffer: per-line edit provenance, from `ListPlanChanges`.
+    /// Its own collection rather than more marks in the first, because the two answer different
+    /// questions and arrive on different messages — and because the library layers collections in
+    /// creation order and lets the first win a property, so the layers must not share one.
+    /// Provenance paints an underline and annotations paint a background, which is what keeps a
+    /// changed line inside an annotated passage readable as both.
+    plan_change_marks: Option<gpui_component::input::TextDecorationCollection>,
     /// The titlebar's command field: shortcuts and search, in the middle of the window.
     pub command_input: Entity<InputState>,
     /// The project menu's own search field.
@@ -871,6 +906,9 @@ pub struct AppState {
     /// path a grant is added from. Both commit on Enter and on blur, the two search lists' rule.
     pub agent_home_input: Entity<InputState>,
     pub grant_path_input: Entity<InputState>,
+    /// The application-wide word for a mission — `HostSettings::mission_term`. Commits on Enter
+    /// and on blur, the same rule `agent_home_input` follows.
+    pub mission_term_input: Entity<InputState>,
     /// The tool editor's four fields, shared by the machine-wide and per-project tools panels:
     /// the name the tab says, the command, its parameters, and the environment as one
     /// `KEY=VALUE` per line. They commit on Save rather than on Enter or blur, because a tool
@@ -898,6 +936,10 @@ pub struct AppState {
     /// overwrites it in `fill_project_form`. Empty means no override, and the rail falls back to
     /// the name's own first letter.
     pub project_initials_input: Entity<InputState>,
+    /// The project settings dialog's own word for a mission, shown only while the override is
+    /// active — filled by `fill_project_form` the way `project_initials_input` is, and committed
+    /// on Enter and on blur, the same rule `mission_term_input` follows.
+    pub project_mission_term_input: Entity<InputState>,
     /// The "Add source" modal's two typed fields: what the source is called, and — for a git
     /// source — the repository URL the Check button asks about. They live on the window rather
     /// than on the form because every field in this crate does: the form is redrawn from state on
@@ -971,6 +1013,11 @@ pub struct AppState {
     /// The model is free text rather than a picker — the conversation's own model list is the
     /// harness's answer, and it is offered where a conversation starts.
     pub profile_id_input: Entity<InputState>,
+    /// The new-mission dialog's two typed fields — title and description, on the same contract as
+    /// `task_title_input`/`task_description_input`: they belong to the window, and what is typed
+    /// into them mirrors into `workbench.new_mission`'s own form.
+    pub new_mission_title_input: Entity<InputState>,
+    pub new_mission_description_input: Entity<TextareaState>,
     /// The opening prompt, shared by the New agent modal and the profile form — only one of the
     /// two is ever up, and a second field would be a second thing to keep in step.
     pub new_agent_prompt: Entity<TextareaState>,
@@ -994,6 +1041,10 @@ pub struct AppState {
     /// rather than growing a pool of inputs the size of the ask.
     pub ask_other_input: Entity<InputState>,
     pub ask_notes_input: Entity<TextareaState>,
+    /// Where the keyboard rests for the ask modal's option list — up/down/space navigate and pick
+    /// against this handle rather than "Other" or "Notes", which keep typing normally while either
+    /// of them holds the keyboard instead. See `ui::ask` and `AppState::show_ask`.
+    pub ask_focus: FocusHandle,
     /// The connect modal's three fields. Read at send time rather than mirrored per keystroke,
     /// for the reason `begin_harness_login` gives: a value the interface copies into its own
     /// state is a second copy that can disagree with the one on screen.
@@ -1131,6 +1182,10 @@ pub struct AppState {
     /// filed on went — so its two fields still hold what was typed. Drained in `render` for
     /// `fill_project_form`'s reason.
     refill_ask_fields: bool,
+    /// The ask dialog just opened on a path with no `Window` in hand — `raise_fresh_ask`'s, the
+    /// host's own task rather than a gesture — so the keyboard grab onto `ask_focus` is queued and
+    /// drained in `fill_ask_fields` the next time the window renders.
+    pending_ask_focus: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -1168,9 +1223,11 @@ mod kb;
 mod mark;
 mod nav;
 mod new_agent;
+mod new_mission;
 mod notifications;
 mod panels;
 mod picker;
+mod plan;
 mod projects;
 mod remote_connect;
 mod remote_hosts;
@@ -1378,6 +1435,7 @@ pub fn install_key_bindings(cx: &mut App) {
     cx.bind_keys(crate::ui::file_picker::key_bindings());
     cx.bind_keys(crate::ui::navigator::key_bindings());
     cx.bind_keys(crate::ui::explorer::key_bindings());
+    cx.bind_keys(crate::ui::ask::key_bindings());
     gpui_terminal::install_key_bindings(cx);
 }
 

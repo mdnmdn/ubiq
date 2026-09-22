@@ -112,6 +112,32 @@ impl AppState {
         let new_comment_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("Add a comment\u{2026}"));
 
+        // The plan annotation panel's one field — a fresh annotation on a block or a reply to a
+        // thread, whichever the panel's own composer is answering.
+        let annotation_composer_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Write a comment\u{2026}"));
+
+        // The annotated document's buffer: the file editor's own `EditorState`, built once for
+        // the window and re-seeded each time a document is opened in it. `/` is a completion
+        // trigger here and nowhere else in the tree — `ui::editor::SlashCommands` is the only
+        // `CompletionProvider` Ubiq implements.
+        let plan_editor = cx.new(|cx| {
+            let mut state = EditorState::new(window, cx)
+                .language(ui::editor::highlighter_language(
+                    crate::state::editor::FileLanguage::Markdown,
+                ))
+                .line_number(true)
+                .folding(true)
+                .show_whitespaces(false)
+                .soft_wrap(true)
+                .tab_size(TabSize {
+                    tab_size: 2,
+                    ..Default::default()
+                });
+            state.lsp_mut().completion_provider = Some(std::rc::Rc::new(ui::editor::SlashCommands));
+            state
+        });
+
         let command_input = cx.new(|cx| {
             InputState::new(window, cx).placeholder("Search files, or run a command\u{2026}")
         });
@@ -139,6 +165,9 @@ impl AppState {
             cx.new(|cx| InputState::new(window, cx).placeholder("agents\u{2026}"));
         let grant_path_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("~/.cache/shared\u{2026}"));
+        // Seeded from the host's answer too — see `sync_settings_fields`.
+        let mission_term_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Mission\u{2026}"));
 
         // The tool editor's fields, filled when a row is picked for editing and read on Save.
         let tool_name_input =
@@ -170,6 +199,8 @@ impl AppState {
             ))
         });
         let project_initials_input = cx.new(|cx| InputState::new(window, cx).placeholder("Auto"));
+        let project_mission_term_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Mission\u{2026}"));
         let kb_name_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("What the source is called"));
         let kb_url_input =
@@ -316,6 +347,15 @@ impl AppState {
         // values when one is being edited.
         let profile_id_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("reviewer, planner\u{2026}"));
+        // The new-mission dialog's title and description. Seeded empty on every open — a mission
+        // draft holds nothing worth restoring if the dialog is dismissed.
+        let new_mission_title_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Mission title"));
+        let new_mission_description_input = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .placeholder("Describe the mission in Markdown\u{2026}")
+                .auto_grow(3, 14)
+        });
         // The opening prompt, for the New agent modal and the profile form alike. Seeded when
         // either opens: empty for a bare harness, the profile's own words when one is picked.
         let new_agent_prompt = cx.new(|cx| {
@@ -1000,6 +1040,31 @@ impl AppState {
             },
         ));
 
+        // The application-wide mission term, on the same rule as `agent_home_input`.
+        subscriptions.push(cx.subscribe_in(
+            &mission_term_input,
+            window,
+            |this, input, event: &InputEvent, _window, cx| {
+                if matches!(event, InputEvent::PressEnter { .. } | InputEvent::Blur) {
+                    let term = input.read(cx).value().to_string();
+                    this.set_mission_term(term, cx);
+                }
+            },
+        ));
+
+        // The project settings dialog's own mission term, only ever read while the override is
+        // active — the field the pill in `mission_term_row` reveals.
+        subscriptions.push(cx.subscribe_in(
+            &project_mission_term_input,
+            window,
+            |this, input, event: &InputEvent, _window, cx| {
+                if matches!(event, InputEvent::PressEnter { .. } | InputEvent::Blur) {
+                    let term = input.read(cx).value().to_string();
+                    this.set_project_mission_term_from_field(term, cx);
+                }
+            },
+        ));
+
         // No `PressEnter` arm, and no `Blur` arm: Enter is a newline here, and a blur would commit
         // on the very click that asks for the preview.
         subscriptions.push(cx.subscribe_in(
@@ -1010,6 +1075,36 @@ impl AppState {
                     let text = input.read(cx).value().to_string();
                     if let Some(board) = this.board_mut(cx) {
                         board.form.description = text;
+                    }
+                    cx.notify();
+                }
+            },
+        ));
+
+        // The new-mission dialog's title, on the same contract as the task title above.
+        subscriptions.push(cx.subscribe_in(
+            &new_mission_title_input,
+            window,
+            |this, input, event: &InputEvent, _window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    let text = input.read(cx).value().to_string();
+                    if let Some(form) = this.workbench.new_mission.as_mut() {
+                        form.title = text;
+                    }
+                    cx.notify();
+                }
+            },
+        ));
+
+        // And its description, on the same "Enter is a newline" contract as the task's.
+        subscriptions.push(cx.subscribe_in(
+            &new_mission_description_input,
+            window,
+            |this, input, event: &InputEvent, _window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    let text = input.read(cx).value().to_string();
+                    if let Some(form) = this.workbench.new_mission.as_mut() {
+                        form.description = text;
                     }
                     cx.notify();
                 }
@@ -1057,6 +1152,37 @@ impl AppState {
                     }
                 }
                 InputEvent::PressEnter { shift: false, .. } => this.add_task_comment(window, cx),
+                _ => {}
+            },
+        ));
+
+        // The document's own buffer: what was typed is compared against what the host last
+        // stated, which is what makes the Save affordance and the close question mean anything.
+        subscriptions.push(cx.subscribe_in(
+            &plan_editor,
+            window,
+            |this, buffer, event: &InputEvent, _window, cx| {
+                if !matches!(event, InputEvent::Change) {
+                    return;
+                }
+                let typed = buffer.read(cx).value().to_string();
+                this.plan_editor_changed(&typed, cx);
+            },
+        ));
+
+        subscriptions.push(cx.subscribe_in(
+            &annotation_composer_input,
+            window,
+            |this, input, event: &InputEvent, window, cx| match event {
+                InputEvent::Change => {
+                    let text = input.read(cx).value().to_string();
+                    if let Some(plan) = this.workbench.plan.as_mut() {
+                        plan.composer_text = text;
+                    }
+                }
+                InputEvent::PressEnter { shift: false, .. } => {
+                    this.submit_annotation_composer(window, cx)
+                }
                 _ => {}
             },
         ));
@@ -1271,6 +1397,8 @@ impl AppState {
             login_command_input.read(cx).focus_handle(cx),
             profile_id_input.read(cx).focus_handle(cx),
             new_agent_prompt.read(cx).focus_handle(cx),
+            new_mission_title_input.read(cx).focus_handle(cx),
+            new_mission_description_input.read(cx).focus_handle(cx),
             account_rename_input.read(cx).focus_handle(cx),
             connect_instance_input.read(cx).focus_handle(cx),
             connect_client_id_input.read(cx).focus_handle(cx),
@@ -1465,6 +1593,10 @@ impl AppState {
             step_title_input,
             new_step_input,
             new_comment_input,
+            annotation_composer_input,
+            plan_editor,
+            plan_marks: None,
+            plan_change_marks: None,
             command_input,
             project_search,
             all_projects_search,
@@ -1474,6 +1606,7 @@ impl AppState {
             search_fallbacks_input,
             agent_home_input,
             grant_path_input,
+            mission_term_input,
             tool_name_input,
             tool_command_input,
             tool_args_input,
@@ -1484,6 +1617,7 @@ impl AppState {
             project_exclude_input,
             project_path_input,
             project_initials_input,
+            project_mission_term_input,
             kb_name_input,
             kb_url_input,
             kb_filter_inputs: HashMap::new(),
@@ -1505,6 +1639,8 @@ impl AppState {
             login_command_input,
             profile_id_input,
             new_agent_prompt,
+            new_mission_title_input,
+            new_mission_description_input,
             account_rename_input,
             clone_filter_input,
             clone_url_input,
@@ -1513,6 +1649,7 @@ impl AppState {
             feedback_description,
             ask_other_input,
             ask_notes_input,
+            ask_focus: cx.focus_handle(),
             connect_instance_input,
             connect_client_id_input,
             connect_secret_input,
@@ -1568,6 +1705,7 @@ impl AppState {
             refill_columns: false,
             fill_project_form: false,
             refill_ask_fields: false,
+            pending_ask_focus: false,
             _subscriptions: subscriptions,
         };
 

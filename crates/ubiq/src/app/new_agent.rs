@@ -306,6 +306,15 @@ impl AppState {
         cx.notify();
     }
 
+    /// Flip whether this setup is fit to run as a planning assistant. Drawn only under
+    /// `Purpose::Profile` — see `ui::new_agent::body`'s mission-assistant row.
+    pub fn toggle_new_agent_mission_assistant(&mut self, cx: &mut Context<Self>) {
+        if let Some(form) = self.new_agent_form_mut() {
+            form.mission_assistant = !form.mission_assistant;
+        }
+        cx.notify();
+    }
+
     /// Open one of the form's lists, or close it if it is the one already down — exactly one is
     /// ever open, and the filter field they share is cleared and focused on the way, the rule
     /// [`Self::open_picker_menu`] says once for every picker that opts into search.

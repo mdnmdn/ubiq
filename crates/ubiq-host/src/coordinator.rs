@@ -20,7 +20,7 @@ use ubiq_proto::conversation::{
 };
 use ubiq_proto::files::FileError;
 use ubiq_proto::ids::{
-    KbSourceId, PaneId, ProjectId, SearchId, SessionId, SshProfileId, SuggestId, ToolId,
+    KbSourceId, PaneId, ProjectId, SearchId, SessionId, SshProfileId, SuggestId, TaskId, ToolId,
 };
 use ubiq_proto::messages::{AgentPicks, CatalogueModel, Message, Secret, WorkspaceInfo};
 use ubiq_proto::projects::{IndexLevel, ProjectHealth, Scope};
@@ -147,6 +147,9 @@ struct Coordinator {
     /// Each project's tasks, and the sessions and agents the two screens over the work draw.
     /// Shared with the MCP listener as [`crate::work::Handle`].
     work: crate::work::Handle,
+    /// A task's plan, one markdown document per mission. Shared with the MCP listener's
+    /// `ubiq-plan` server as [`crate::plan::Handle`], on [`Self::work`]'s own footing.
+    plans: crate::plan::Handle,
     /// Application settings: the Ui layer opaque, the Host layer parsed. Shared, because a
     /// connector flow on its own thread writes the same record — [`Settings::update_host`] is what
     /// makes that safe.
@@ -754,6 +757,14 @@ impl Coordinator {
         // Shared with the MCP listener so an agent can read and write the same board a window
         // does, without asking this thread a question (`D120`).
         let work = crate::work::Handle::new(work);
+        // The plan store has exactly one implementation, so it is built here rather than handed
+        // in — [`Kb`] and [`Help`] below are on the same footing. It holds its own clone of `work`
+        // to check a task's level before it hands out or accepts a plan; see `crate::plan`'s
+        // module doc for why that does not mean `crate::mcp::PlanReach` holds one too.
+        let plans = crate::plan::Handle::new(crate::plan::Plans::open(
+            crate::store::plan::FilePlanStore::new(root.path.clone()),
+            work.clone(),
+        ));
         // Ubiq's own MCP servers, on one loopback port for every agent this process will start.
         // Bound *before* the agents are built, because the URL a run is composed with is written
         // into the harness's configuration and never revisited — there is no later moment to tell
@@ -779,6 +790,10 @@ impl Coordinator {
             host.voice(),
             Some(crate::mcp::WorkAccess {
                 work: work.clone(),
+                everyone: host.mailbox(To::Everyone),
+            }),
+            Some(crate::mcp::PlanReach {
+                plans: plans.clone(),
                 everyone: host.mailbox(To::Everyone),
             }),
             Some(crate::mcp::KbReach {
@@ -893,6 +908,7 @@ impl Coordinator {
             root,
             projects,
             work,
+            plans,
             settings,
             connectors,
             repos,
@@ -1436,6 +1452,7 @@ impl Coordinator {
                 custom_colour,
                 search_excludes,
                 index,
+                mission_term,
                 tools,
                 managed_repos,
                 lanes,
@@ -1449,6 +1466,7 @@ impl Coordinator {
                     custom_colour,
                     search_excludes,
                     index,
+                    mission_term,
                     tools,
                     managed_repos,
                     lanes,
@@ -2226,6 +2244,13 @@ impl Coordinator {
                 task_id,
             } => {
                 self.work_job(client, project_id, |work| work.delete(project_id, task_id));
+                // A deleted task must not leave its plan orphaned on disk. Guarded the same way
+                // `work_job` guards every other plan-family arm below: a project the catalogue
+                // does not hold gets nothing written under it, plan included.
+                if self.projects.record(project_id).is_some() {
+                    let replies = self.plans.lock().delete(project_id, task_id);
+                    self.answer(client, replies);
+                }
             }
             Message::AddStep {
                 project_id,
@@ -2304,6 +2329,107 @@ impl Coordinator {
             } => {
                 self.work_job(client, project_id, |work| {
                     work.send_to_agent(project_id, agent_id, text)
+                });
+            }
+
+            // ── the plan family ─────────────────────────────────────
+            // A plan belongs to any task carrying a level — the level check itself lives in
+            // `crate::plan::Plans`, not here, on `work_job`'s own footing: this decides only
+            // whether the project exists.
+            Message::LoadPlan {
+                project_id,
+                task_id,
+            } => {
+                self.plan_job(client, project_id, |plans| plans.load(project_id, task_id));
+            }
+            Message::SavePlan {
+                project_id,
+                task_id,
+                body,
+            } => {
+                // `SavePlan` is the interface's message and nothing else sends it, so the origin
+                // is settled here and never looked at again. An agent's save arrives through
+                // `ubiq-plan`'s `write_plan` and never becomes this message.
+                self.plan_job(client, project_id, |plans| {
+                    plans.save(project_id, task_id, body, &crate::plan::Saver::human())
+                });
+            }
+            Message::DeletePlan {
+                project_id,
+                task_id,
+            } => {
+                self.plan_job(client, project_id, |plans| {
+                    plans.delete(project_id, task_id)
+                });
+            }
+            Message::ExportPlan {
+                project_id,
+                task_id,
+                rel_path,
+            } => {
+                self.export_plan(client, project_id, task_id, rel_path);
+            }
+            Message::ListPlanAnnotations {
+                project_id,
+                task_id,
+            } => {
+                self.plan_job(client, project_id, |plans| {
+                    plans.annotations(project_id, task_id)
+                });
+            }
+            // The author is stamped from the path the message arrived on and never read off the
+            // wire — `D121`'s rule for a task's comments, and a window is a user by construction.
+            Message::AnnotatePlan {
+                project_id,
+                task_id,
+                block_id,
+                quote,
+                text,
+            } => {
+                self.plan_job(client, project_id, |plans| {
+                    plans.annotate(
+                        project_id,
+                        task_id,
+                        block_id,
+                        quote,
+                        ubiq_proto::work::CommentAuthor::User,
+                        text,
+                    )
+                });
+            }
+            Message::ReplyToAnnotation {
+                project_id,
+                task_id,
+                annotation_id,
+                text,
+            } => {
+                self.plan_job(client, project_id, |plans| {
+                    plans.reply_to(
+                        project_id,
+                        task_id,
+                        annotation_id,
+                        ubiq_proto::work::CommentAuthor::User,
+                        text,
+                    )
+                });
+            }
+            Message::ResolveAnnotation {
+                project_id,
+                task_id,
+                annotation_id,
+                resolved,
+            } => {
+                self.plan_job(client, project_id, |plans| {
+                    plans.resolve(project_id, task_id, annotation_id, resolved)
+                });
+            }
+            Message::ListPlanChanges {
+                project_id,
+                task_id,
+                since_revision,
+            } => {
+                self.plan_job(client, project_id, |plans| {
+                    plans.changes(project_id, task_id, since_revision)
                 });
             }
 
@@ -2939,6 +3065,9 @@ impl Coordinator {
                 thinking: thinking.clone(),
                 mode,
                 profile: pending.profile.clone(),
+                // Which profiles this run can even see: the project's own, over the global
+                // ones. A conversation always belongs to a project, so this is never absent.
+                project: Some(pending.project_id),
                 prompt: first_prompt,
                 resume: pending.resume.clone(),
                 mcps: pending.mcps.clone(),
@@ -4016,6 +4145,90 @@ impl Coordinator {
         self.answer(client, replies);
     }
 
+    /// Hand one plan-family message to the plans, [`Self::work_job`]'s own shape: a project the
+    /// catalogue does not hold gets no file written under it, plan included.
+    fn plan_job(
+        &mut self,
+        client: ClientId,
+        project_id: ProjectId,
+        change: impl FnOnce(&mut crate::plan::Plans) -> Vec<Reply>,
+    ) {
+        if self.projects.record(project_id).is_none() {
+            self.host.send(
+                To::Client(client),
+                Message::PlanError {
+                    project_id,
+                    task_id: None,
+                    error: "no such project".to_string(),
+                },
+            );
+            return;
+        }
+        let replies = change(&mut self.plans.lock());
+        self.answer(client, replies);
+    }
+
+    /// Write a copy of a task's plan into the project's own working tree, at `rel_path`.
+    ///
+    /// An explicit, one-shot action — never a continuous mirror — so it happens synchronously on
+    /// this thread rather than through [`Self::files`]'s worker: the body is already in hand from
+    /// [`crate::plan::Plans`] (itself an in-process read, the same footing [`Self::work_job`]'s
+    /// direct calls into `Work` stand on), and one small write costs nothing the coordinator's own
+    /// stores do not already pay on every save. `resolve_for_create` both contains the path inside
+    /// the project and creates the folders it names, because the export is what brings the file
+    /// into being — [`crate::files::path::resolve_for_create`]'s own reasoning for a save-as.
+    fn export_plan(
+        &mut self,
+        client: ClientId,
+        project_id: ProjectId,
+        task_id: TaskId,
+        rel_path: String,
+    ) {
+        let error = |error: String| Message::PlanError {
+            project_id,
+            task_id: Some(task_id),
+            error,
+        };
+
+        let Some(record) = self.projects.record(project_id) else {
+            self.host
+                .send(To::Client(client), error("no such project".to_string()));
+            return;
+        };
+        let root = PathBuf::from(&record.path);
+
+        let body = match self.plans.lock().body(project_id, task_id) {
+            Ok(body) => body,
+            Err(message) => {
+                self.host.send(To::Client(client), error(message));
+                return;
+            }
+        };
+
+        let dest = match files::path::resolve_for_create(&root, &rel_path) {
+            Ok(dest) => dest,
+            Err(file_error) => {
+                self.host
+                    .send(To::Client(client), error(file_error.to_string()));
+                return;
+            }
+        };
+
+        match crate::store::plan::export_to(&dest, &body) {
+            Ok(()) => self.host.send(
+                To::Client(client),
+                Message::PlanExported {
+                    project_id,
+                    task_id,
+                    rel_path,
+                },
+            ),
+            Err(store_error) => self
+                .host
+                .send(To::Client(client), error(store_error.to_string())),
+        }
+    }
+
     /// Hand one file-family request to the worker.
     ///
     /// The only thing this decides is which folder the request is against; a project the catalogue
@@ -4759,6 +4972,9 @@ impl Coordinator {
             thinking: picks.thinking,
             mode: picks.mode,
             profile: picks.profile,
+            // A terminal pane runs in a project's folder, so a profile scoped to that project
+            // resolves here exactly as it does for a conversation.
+            project: Some(project_id),
             mcps: picks.mcps,
             prompt: None,
             resume: None,
@@ -5111,11 +5327,28 @@ impl Coordinator {
 
     /// Tell one window which profiles exist. References only, the same rule as
     /// [`Self::send_accounts`] — a profile names an account, it never carries one.
+    ///
+    /// Both scopes, in one list: the global profiles, then every project's own, each stamped
+    /// with the project it belongs to. The window already holds every project, so a scope is a
+    /// field to filter on rather than a second ask — and a project whose profiles cannot be
+    /// read contributes none rather than emptying the list.
     fn send_profiles(&mut self, client: ClientId) {
         match self.agents.profiles() {
-            Ok(profiles) => self
-                .host
-                .send(To::Client(client), Message::Profiles { profiles }),
+            Ok(mut profiles) => {
+                let ids: Vec<ProjectId> = self.projects.records().iter().map(|it| it.id).collect();
+                for project in ids {
+                    match self.agents.project_profiles(project) {
+                        Ok(scoped) => profiles.extend(scoped),
+                        Err(error) => {
+                            tracing::warn!(
+                                "the profiles of project {project} could not be read: {error:#}"
+                            );
+                        }
+                    }
+                }
+                self.host
+                    .send(To::Client(client), Message::Profiles { profiles })
+            }
             Err(error) => {
                 tracing::warn!("the profiles could not be read: {error:#}");
                 self.host.send(

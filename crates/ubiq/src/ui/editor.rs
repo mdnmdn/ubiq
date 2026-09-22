@@ -9,10 +9,18 @@
 //! the two things its tab asks of the file it names: [`label`] and [`state_colour`]. The centre
 //! panel keeps only the page that says no file is open, which is what it is in IDE mode.
 
-use gpui::{AnyElement, Context, IntoElement, ParentElement, Rgba, SharedString, Styled, div, px};
+use anyhow::Result;
+use gpui::{
+    AnyElement, Context, IntoElement, ParentElement, Rgba, SharedString, Styled, Task, div, px,
+};
 use gpui_component::highlighter::{Language, LanguageConfig, LanguageRegistry};
+use gpui_component::input::{CompletionProvider, Rope, RopeExt as _};
+use lsp_types::{
+    CompletionContext, CompletionItem, CompletionResponse, CompletionTextEdit, InsertReplaceEdit,
+};
 
 use crate::app::AppState;
+use crate::state::document;
 use crate::state::{FileBody, FileLanguage, OpenFile, SaveState};
 use crate::theme;
 use crate::ui::kit::mono;
@@ -160,4 +168,64 @@ fn note(text: impl Into<SharedString>, colour: Rgba) -> AnyElement {
         .justify_center()
         .child(mono(text, colour))
         .into_any_element()
+}
+
+/// The `/` menu in the annotated-document editor.
+///
+/// **The only [`CompletionProvider`] Ubiq implements.** The menu itself is the library's — it is
+/// drawn, keyboard-driven and dismissed by the editor already — so what is written here is the
+/// answer to "what does `/` offer", and nothing else. The commands are plain data in
+/// [`crate::state::document::SLASH_COMMANDS`]; this is the mapping onto LSP's vocabulary.
+///
+/// It is installed on the document buffer alone (`app/boot.rs`), never on a file tab: `/` is a
+/// path separator in most of what the editor opens, and a menu over every slash typed into a
+/// source file would be a bug rather than a feature.
+pub struct SlashCommands;
+
+impl CompletionProvider for SlashCommands {
+    fn completions(
+        &self,
+        text: &Rope,
+        offset: usize,
+        _trigger: CompletionContext,
+        _window: &mut gpui::Window,
+        _cx: &mut gpui::App,
+    ) -> Task<Result<CompletionResponse>> {
+        let source = text.to_string();
+        let Some(typed) = document::slash_prefix(&source, offset) else {
+            return Task::ready(Ok(CompletionResponse::Array(Vec::new())));
+        };
+        let start = offset.saturating_sub(typed.len());
+        let range = lsp_types::Range::new(
+            text.offset_to_position(start),
+            text.offset_to_position(offset),
+        );
+        let items = document::slash_commands(typed)
+            .into_iter()
+            .map(|command| slash_item(&range, command))
+            .collect();
+        Task::ready(Ok(CompletionResponse::Array(items)))
+    }
+
+    /// The typed character opens the menu, and the letters after it keep filtering. Anything that
+    /// is not in a `/word` answers with an empty list above, so a generous trigger costs one
+    /// synchronous scan of the line rather than a wrong menu.
+    fn is_completion_trigger(&self, _offset: usize, new_text: &str, _cx: &mut gpui::App) -> bool {
+        new_text == "/" || new_text.chars().all(|ch| ch.is_alphanumeric())
+    }
+}
+
+fn slash_item(replace: &lsp_types::Range, command: &document::SlashCommand) -> CompletionItem {
+    CompletionItem {
+        label: command.label.to_string(),
+        kind: Some(lsp_types::CompletionItemKind::SNIPPET),
+        detail: Some(command.detail.to_string()),
+        text_edit: Some(CompletionTextEdit::InsertAndReplace(InsertReplaceEdit {
+            new_text: command.insert.to_string(),
+            insert: *replace,
+            replace: *replace,
+        })),
+        insert_text: None,
+        ..Default::default()
+    }
 }

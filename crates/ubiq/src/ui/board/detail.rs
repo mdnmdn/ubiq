@@ -285,6 +285,11 @@ fn body(
                 .gap_1()
                 .child(fact("Key", form::key(app, task, window, cx)))
                 .child(fact("Link", form::link(app, task, window, cx)))
+                .child(fact(
+                    "Level",
+                    form::level_pill(task, &app.mission_term(cx), cx),
+                ))
+                .child(fact("Parent", form::parent(app, task, cx)))
                 .child(fact("Kind", form::kind_pills(task, cx)))
                 .child(fact("Complexity", form::complexity_pills(task, cx)))
                 .child(fact(
@@ -292,6 +297,8 @@ fn body(
                     form::assigned_to(app, task, window, cx),
                 ))
                 .child(fact("Labels", form::labels(app, task, cx)))
+                .child(fact("References", form::references(app, task, cx)))
+                .child(fact("Attachments", form::attachments(task, cx)))
                 .child(fact("Colour", form::colour(task, cx)))
                 .child(fact("Now", now)),
         )
@@ -466,6 +473,18 @@ fn footer(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> impl
                 Some(IconName::Inbox),
                 format!("Open {name}'s chat"),
                 cx.listener(move |this, _, _, cx| this.open_task_chat(agent, cx)),
+            )
+        }))
+        // A plan belongs to any task carrying a `level` — not to an ordinary task, and not to
+        // some special mission subtype. A task with no `level` has no plan and offers none, the
+        // affordance's own posture rather than a click the host would refuse.
+        .children(task.level.is_some().then(|| {
+            let task_id = task.id;
+            ghost_button(
+                "board-open-plan",
+                Some(IconName::FileText),
+                "Open plan",
+                cx.listener(move |this, _, _, cx| this.open_plan(task_id, cx)),
             )
         }))
         .child(div().flex_1().min_w(px(0.)))

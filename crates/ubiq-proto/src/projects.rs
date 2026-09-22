@@ -50,6 +50,14 @@ pub struct ProjectRecord {
     /// project that never said otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub index: Option<IndexLevel>,
+    /// This project's own word for [`crate::work::Level::Mission`], or `None` to follow the
+    /// application-wide default in [`crate::settings::HostSettings::mission_term`].
+    ///
+    /// An override rather than a value, the same reason [`Self::index`] is: "follow the default"
+    /// and "happens to equal the default today" are different answers, so changing the
+    /// application setting must move every project that never said otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mission_term: Option<String>,
     /// The repositories *inside* this project the user has taken on, project-relative and
     /// forward-slashed, as [`crate::git::GitNested::rel_path`] spells them.
     ///
@@ -257,6 +265,28 @@ impl IndexChange {
     }
 }
 
+/// What to do with [`ProjectRecord::mission_term`]. The same shape as [`IndexChange`], for the
+/// same reason: three states have to cross the wire — leave it alone, clear it, set it — and
+/// `Option<Option<String>>` cannot carry them, so the outer `Option` on
+/// [`crate::messages::Message::UpdateProject`] means *was anything said*, and this says what.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MissionTermChange {
+    /// Drop the override and follow the application-wide default.
+    Inherit,
+    /// Pin this project to a word of its own.
+    Set(String),
+}
+
+impl MissionTermChange {
+    /// The override this change leaves behind.
+    pub fn resolve(self) -> Option<String> {
+        match self {
+            Self::Inherit => None,
+            Self::Set(term) => Some(term),
+        }
+    }
+}
+
 /// What the host found when it last looked at the folder.
 ///
 /// A record is never removed because its folder went away — an unplugged drive, a network mount
@@ -360,6 +390,7 @@ mod tests {
             last_opened_at: None,
             search_excludes: vec![],
             index: None,
+            mission_term: None,
             managed_repos: vec![],
             tools: vec![],
             lanes: vec![],

@@ -181,6 +181,7 @@ mod tests {
                 last_opened_at: None,
                 search_excludes: vec![],
                 index: None,
+                mission_term: None,
                 managed_repos: vec![],
                 tools: vec![],
                 lanes: vec![],

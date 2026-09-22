@@ -26,7 +26,8 @@ use gpui_component::input::{Input, InputState, Textarea};
 use gpui_component::text::TextView;
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
-use ubiq_proto::work::{Complexity, Kind, Priority, Shape, TaskRecord};
+use ubiq_proto::ids::TaskId;
+use ubiq_proto::work::{Complexity, Kind, Level, Priority, Shape, TaskRecord};
 
 use crate::app::{AppState, SubmitSearch};
 use crate::state::MenuId;
@@ -190,6 +191,27 @@ pub fn kind_pills(task: &TaskRecord, cx: &mut Context<AppState>) -> AnyElement {
         ))
         .children(kinds)
         .into_any_element()
+}
+
+/// What level the task sits at: an ordinary task, or a mission — a task allowed to have children
+/// and to carry a plan. A single switch rather than a row of pills, on `toggle_pill`'s footing:
+/// `level` is a fact independent of everything else on the card, not one of a set to choose
+/// between. `term` is the word this project uses for it, resolved app-wide or overridden —
+/// [`crate::state::work::mission_term`] — so the control reads in the user's own vocabulary. `level`
+/// is an ordinary field: this both promotes an existing task to a mission and demotes it back.
+pub fn level_pill(task: &TaskRecord, term: &str, cx: &mut Context<AppState>) -> AnyElement {
+    let is_mission = task.level == Some(Level::Mission);
+    toggle_pill(
+        "board-level-mission",
+        term.to_string(),
+        theme::accent(),
+        is_mission,
+        cx.listener(move |this, _, _, cx| {
+            let level = (!is_mission).then_some(Level::Mission);
+            this.set_task_level(level, cx)
+        }),
+    )
+    .into_any_element()
 }
 
 /// How complex the task is: three fixed values behind the same `not set`, for the same reason.
@@ -580,6 +602,226 @@ pub fn session(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) ->
             let session = index.checked_sub(1).and_then(|ix| ids.get(ix).copied());
             this.set_task_session(session, cx);
         }))
+        .into_any_element()
+}
+
+/// The task this one belongs to, or none. The same picker idiom as [`session`]: a list that grows
+/// with the project rather than a fixed set of pills. The list it offers is
+/// [`crate::state::work::WorkProjection::eligible_parents`], computed once by the projection, so
+/// this never lists a task the host would refuse — a task with no [`Level`], the task itself, one
+/// already somebody else's child, or any choice at all once the open task already has children of
+/// its own.
+pub fn parent(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> AnyElement {
+    let Some(work) = app.work(cx) else {
+        return div().into_any_element();
+    };
+    let view = cx.entity().clone();
+
+    let eligible = work.eligible_parents(task);
+    let ids: Vec<TaskId> = eligible.iter().map(|t| t.id).collect();
+    let mut items: Vec<SharedString> = vec!["no parent".into()];
+    items.extend(eligible.iter().map(|t| SharedString::from(t.title.clone())));
+
+    let selected = task
+        .parent
+        .and_then(|id| ids.iter().position(|t| *t == id))
+        .map(|ix| ix + 1)
+        .unwrap_or(0);
+    let label = items
+        .get(selected)
+        .cloned()
+        .unwrap_or_else(|| "no parent".into());
+
+    Picker::new("board-parent-pick", label)
+        .items(items.iter().map(|item| item.to_string()))
+        .selected(selected)
+        .style(PickerStyle::Chip)
+        .open(app.workbench.open_menu == Some(MenuId::TaskParent))
+        .on_toggle(handler(&view, |this, _, cx| {
+            this.open_menu(MenuId::TaskParent, cx)
+        }))
+        .on_dismiss(handler(&view, |this, _, cx| this.close_menu(cx)))
+        .on_pick(indexed(&view, move |this, index, _, cx| {
+            // Index zero is "no parent", so everything below it is one off the eligible list.
+            let parent = index.checked_sub(1).and_then(|ix| ids.get(ix).copied());
+            this.set_task_parent(parent, cx);
+        }))
+        .into_any_element()
+}
+
+/// The other tasks this one names — a symmetric, untyped list, drawn as chips that navigate to the
+/// other card. The `+` opens a picker of what
+/// [`crate::state::work::WorkProjection::eligible_references`] offers: every other task not
+/// already held, computed once rather than walked at every draw.
+pub fn references(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> AnyElement {
+    let Some(work) = app.work(cx) else {
+        return div().into_any_element();
+    };
+    let open = app.workbench.open_menu == Some(MenuId::TaskReferences);
+
+    let chips: Vec<AnyElement> = task
+        .references
+        .iter()
+        .filter_map(|id| work.task(*id))
+        .map(|other| {
+            let navigate = other.id;
+            let drop = other.id;
+            removable_tag(
+                eid("board-reference", other.id),
+                eid("board-reference-drop", other.id),
+                other.title.clone(),
+                format!("Open {}", other.title),
+                theme::surface(),
+                theme::text_muted(),
+                theme::text_muted(),
+                cx.listener(move |this, _, _, cx| this.select_task(navigate, cx)),
+                cx.listener(move |this, _, _, cx| this.remove_task_reference(drop, cx)),
+            )
+            .into_any_element()
+        })
+        .collect();
+
+    let mut root = div().flex().flex_col().gap_1p5().child(
+        div()
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .gap_1p5()
+            .children(chips)
+            .children(task.references.is_empty().then(|| {
+                mono("no references", theme::text_faint())
+                    .text_size(theme::font(Family::Chrome, Role::Body))
+            }))
+            .child(icon_button(
+                "board-reference-add",
+                IconName::Plus,
+                open,
+                cx.listener(move |this, _, _, cx| match open {
+                    true => this.close_menu(cx),
+                    false => this.open_menu(MenuId::TaskReferences, cx),
+                }),
+            )),
+    );
+
+    if open {
+        root = root.child(reference_picker(app, task, cx));
+    }
+
+    root.into_any_element()
+}
+
+/// What the reference `+` opens: every other task not already held, as pills that add on a click.
+fn reference_picker(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> AnyElement {
+    let Some(work) = app.work(cx) else {
+        return div().into_any_element();
+    };
+
+    let known: Vec<AnyElement> = work
+        .eligible_references(task)
+        .into_iter()
+        .map(|other| {
+            let id = other.id;
+            toggle_pill(
+                eid("board-reference-pick", other.id),
+                other.title.clone(),
+                theme::accent(),
+                false,
+                cx.listener(move |this, _, _, cx| {
+                    this.add_task_reference(id, cx);
+                    this.close_menu(cx);
+                }),
+            )
+            .into_any_element()
+        })
+        .collect();
+    let empty = known.is_empty();
+
+    div()
+        .flex()
+        .flex_col()
+        .gap_1p5()
+        .p_2()
+        .bg(theme::surface_raised())
+        .border_l(px(theme::accent_edge()))
+        .border_color(theme::accent())
+        .children((!empty).then(|| {
+            div()
+                .flex()
+                .flex_wrap()
+                .items_center()
+                .gap_1p5()
+                .children(known)
+        }))
+        .children(empty.then(|| {
+            mono("nothing else in this project", theme::text_faint())
+                .text_size(theme::font(Family::Chrome, Role::Body))
+        }))
+        .into_any_element()
+}
+
+/// The files and knowledge-base documents hung on this task, as chips that open what they point
+/// at, with two ways to add one.
+///
+/// **These are stored, unlike a conversation's** — see `ubiq_proto::work::Attachment`. So there is
+/// no local list to draw from: every chip is read off the record, and adding or dropping one is a
+/// `SetTaskField` that comes back as a `TaskChanged`.
+///
+/// `+` raises the file picker over the project tree **and** the knowledge base
+/// (`AppState::raise_task_attachment_picker`); the clipboard control takes what is on the
+/// pasteboard, which is a path for a copied file and a picture written into `.ubiq/pasted/` for a
+/// screenshot. A knowledge-base chip is drawn in the accent, because "attached from the KB" is the
+/// one thing about an attachment a reader cannot get from the file's name.
+pub fn attachments(task: &TaskRecord, cx: &mut Context<AppState>) -> AnyElement {
+    let chips: Vec<AnyElement> = task
+        .attachments
+        .iter()
+        .enumerate()
+        .map(|(ix, attachment)| {
+            let open = attachment.target.clone();
+            let drop = attachment.target.clone();
+            removable_tag(
+                ("board-attachment", ix),
+                ("board-attachment-drop", ix),
+                attachment.name().to_string(),
+                format!("Open {}", attachment.target),
+                theme::surface(),
+                match attachment.is_kb() {
+                    true => theme::accent(),
+                    false => theme::text_muted(),
+                },
+                theme::text_muted(),
+                cx.listener(move |this, _, _, cx| this.open_task_attachment(open.clone(), cx)),
+                cx.listener(move |this, _, _, cx| this.remove_task_attachment(drop.clone(), cx)),
+            )
+            .into_any_element()
+        })
+        .collect();
+
+    let picked = task.id;
+    div()
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .gap_1p5()
+        .children(chips)
+        .children(task.attachments.is_empty().then(|| {
+            mono("nothing attached", theme::text_faint())
+                .text_size(theme::font(Family::Chrome, Role::Body))
+        }))
+        .child(icon_button(
+            "board-attachment-add",
+            IconName::Plus,
+            false,
+            cx.listener(move |this, _, window, cx| {
+                this.raise_task_attachment_picker(picked, window, cx)
+            }),
+        ))
+        .child(icon_button(
+            "board-attachment-paste",
+            IconName::Copy,
+            false,
+            cx.listener(move |this, _, _, cx| this.paste_into_task(picked, cx)),
+        ))
         .into_any_element()
 }
 

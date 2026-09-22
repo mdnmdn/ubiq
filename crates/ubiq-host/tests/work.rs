@@ -22,8 +22,8 @@ use ubiq_host::work::{Work, mock};
 use ubiq_proto::ids::{ProjectId, SessionId, StepId, TaskId};
 use ubiq_proto::messages::{Message, TaskField};
 use ubiq_proto::work::{
-    AgentId, Comment, CommentAuthor, Complexity, Kind, Label, Priority, Shape, Speaker, Status,
-    Step, StepState, TaskRecord, WorkAgent, WorkSession,
+    AgentId, Attachment, Comment, CommentAuthor, Complexity, Kind, Label, Priority, Shape, Speaker,
+    Status, Step, StepState, TaskRecord, WorkAgent, WorkSession,
 };
 
 // ── the store, against a real file ──────────────────────────────────
@@ -150,6 +150,110 @@ fn a_task_file_written_before_a_field_existed_still_loads() {
     assert_eq!(tasks.len(), 1);
     assert_eq!(tasks[0].complexity, None);
     assert_eq!(tasks[0].assigned_to, None);
+    assert!(
+        tasks[0].attachments.is_empty(),
+        "a task written before attachments existed carries none, and the envelope did not move"
+    );
+}
+
+/// The two forms an attachment target takes, through a real file and back.
+///
+/// The point is that the host stores both and parses neither: a `kb:` address survives the round
+/// trip as the string the interface wrote, and `Attachment::kb_address` — the one thing that reads
+/// it — splits on the first colon, so a path holding colons still comes back whole.
+#[test]
+fn an_attachment_keeps_its_target_whole_through_the_file() {
+    let dir = TempDir::new().unwrap();
+    let store = file_store(&dir);
+    let project = ProjectId::generate();
+    let mut task = record("carries attachments");
+    task.attachments = vec![
+        Attachment::new("docs/spec.md"),
+        Attachment {
+            target: "kb:01J0000000000000000000000B:notes/a:b.md".to_string(),
+            label: Some("the odd one".to_string()),
+        },
+    ];
+
+    store.save(project, std::slice::from_ref(&task)).unwrap();
+    let back = store.load(project).unwrap().expect("just written");
+
+    assert_eq!(back[0].attachments, task.attachments);
+    assert!(!back[0].attachments[0].is_kb());
+    assert_eq!(back[0].attachments[0].name(), "spec.md");
+    assert_eq!(
+        back[0].attachments[1].kb_address(),
+        Some(("01J0000000000000000000000B", "notes/a:b.md"))
+    );
+    assert_eq!(back[0].attachments[1].name(), "the odd one");
+}
+
+/// `TaskField::Attachments` replaces the whole set, trimmed, with empty targets dropped and a
+/// repeated target collapsed to the first — the posture `Labels` and `References` already take.
+#[test]
+fn setting_attachments_replaces_the_set_and_cleans_it() {
+    let project = ProjectId::generate();
+    let mut work = Work::open(Box::new(MemoryTaskStore::default()));
+    let task = created(&work.create(project, "attach".to_string(), None));
+
+    let after = changed(&work.set_field(
+        project,
+        task.id,
+        TaskField::Attachments(vec![
+            Attachment::new("  docs/spec.md  "),
+            Attachment {
+                target: "docs/spec.md".to_string(),
+                label: Some("a second name for the same file".to_string()),
+            },
+            Attachment::new("   "),
+            Attachment {
+                target: "kb:src:notes.md".to_string(),
+                label: Some("   ".to_string()),
+            },
+        ]),
+    ));
+
+    assert_eq!(
+        after
+            .attachments
+            .iter()
+            .map(|a| a.target.as_str())
+            .collect::<Vec<_>>(),
+        vec!["docs/spec.md", "kb:src:notes.md"],
+        "trimmed, empties dropped, and the first of a repeated target kept"
+    );
+    assert_eq!(
+        after.attachments[1].label, None,
+        "a label that is only whitespace is no label"
+    );
+
+    // The whole set, replaced: the old one is not merged into the new.
+    let replaced = changed(&work.set_field(
+        project,
+        task.id,
+        TaskField::Attachments(vec![Attachment::new("README.md")]),
+    ));
+    assert_eq!(
+        replaced
+            .attachments
+            .iter()
+            .map(|a| a.target.as_str())
+            .collect::<Vec<_>>(),
+        vec!["README.md"]
+    );
+
+    // And a set that already matches costs no write, like every other field.
+    let again = work.set_field(
+        project,
+        task.id,
+        TaskField::Attachments(vec![Attachment::new("README.md")]),
+    );
+    assert!(
+        !again
+            .iter()
+            .any(|reply| matches!(reply.message(), Message::TaskChanged { .. })),
+        "a set that already matches is not a change"
+    );
 }
 
 #[test]
@@ -1243,6 +1347,14 @@ fn every_field_a_task_carries_survives_being_dropped_and_reopened() {
         project,
         task.id,
         TaskField::Labels(vec![Label::new("urgent".to_string(), 3)]),
+    ));
+    changed(&work.set_field(
+        project,
+        task.id,
+        TaskField::Attachments(vec![
+            Attachment::new("docs/spec.md"),
+            Attachment::new("kb:01J0000000000000000000000B:notes/plan.md"),
+        ]),
     ));
     changed(&work.set_field(project, task.id, TaskField::Colour(Some(3))));
     changed(&work.add_step(project, task.id, "step one".to_string()));

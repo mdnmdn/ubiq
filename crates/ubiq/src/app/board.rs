@@ -3,7 +3,7 @@ use super::*;
 use crate::state::board::PendingTask;
 use ubiq_proto::messages::TaskField;
 use ubiq_proto::projects::LanePref;
-use ubiq_proto::work::{Complexity, Kind, Label};
+use ubiq_proto::work::{Attachment, Complexity, Kind, Label, Level};
 
 impl AppState {
     /// Open one of the panel's fields.
@@ -264,6 +264,12 @@ impl AppState {
         self.set_task_field(TaskField::Kind(kind), cx);
     }
 
+    /// What level the task sits at — a mission, or an ordinary task. An ordinary field, not fixed
+    /// at creation: this promotes an existing task to a mission and demotes it back the same way.
+    pub fn set_task_level(&mut self, level: Option<Level>, cx: &mut Context<Self>) {
+        self.set_task_field(TaskField::Level(level), cx);
+    }
+
     /// How complex the task is, or nobody has said.
     pub fn set_task_complexity(&mut self, complexity: Option<Complexity>, cx: &mut Context<Self>) {
         self.set_task_field(TaskField::Complexity(complexity), cx);
@@ -340,6 +346,149 @@ impl AppState {
             session,
         });
         cx.notify();
+    }
+
+    /// Give the open task a parent, or take it back. The picker offers only eligible choices, so
+    /// this exists to send the pick; the host answers with [`Message::WorkError`] if a race made
+    /// the choice stale between the draw and the click.
+    pub fn set_task_parent(&mut self, parent: Option<TaskId>, cx: &mut Context<Self>) {
+        self.close_menu(cx);
+        self.set_task_field(TaskField::Parent(parent), cx);
+    }
+
+    /// Link another task onto the open task's reference list, keeping the ones already there. The
+    /// whole list is sent, the same posture [`Self::add_task_label`] takes — a reference list is
+    /// short and is edited as a set.
+    pub fn add_task_reference(&mut self, task_id: TaskId, cx: &mut Context<Self>) {
+        let Some((_, current, _)) = self.open_task_form(cx) else {
+            return;
+        };
+        let Some(mut references) = self
+            .work(cx)
+            .and_then(|work| work.task(current))
+            .map(|task| task.references.clone())
+        else {
+            return;
+        };
+        if task_id == current || references.contains(&task_id) {
+            return;
+        }
+        references.push(task_id);
+        self.close_menu(cx);
+        self.set_task_field(TaskField::References(references), cx);
+    }
+
+    /// Take one task off the open task's reference list, by the id its chip carries.
+    pub fn remove_task_reference(&mut self, task_id: TaskId, cx: &mut Context<Self>) {
+        let Some((_, current, _)) = self.open_task_form(cx) else {
+            return;
+        };
+        let Some(references) = self
+            .work(cx)
+            .and_then(|work| work.task(current))
+            .map(|task| task.references.clone())
+        else {
+            return;
+        };
+        let before = references.len();
+        let kept: Vec<TaskId> = references.into_iter().filter(|id| *id != task_id).collect();
+        // Naming a reference the task does not carry asks for nothing: the message set is for acts.
+        if kept.len() == before {
+            return;
+        }
+        self.set_task_field(TaskField::References(kept), cx);
+    }
+
+    /// Hang files or knowledge-base documents on a task, keeping the ones already there.
+    ///
+    /// **The whole list is sent**, the posture [`Self::add_task_reference`] and
+    /// [`Self::add_task_label`] take: an attachment list is short and is edited as a set, so a
+    /// delta would be a second message and an ordering rule to save a handful of bytes.
+    ///
+    /// Named rather than taken from the selection: the picker that answers here was raised over
+    /// one card and may outlive the click that selected it, so the task it belongs to travels with
+    /// the request (`state::file_picker::PickerOwner::TaskAttachment`). A target already on the
+    /// record is not added twice — the host would collapse it anyway, and sending it would be a
+    /// write that changes nothing.
+    pub fn add_task_attachments(
+        &mut self,
+        task_id: TaskId,
+        targets: Vec<String>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(project_id) = self.project(cx) else {
+            return;
+        };
+        let Some(mut attachments) = self
+            .work(cx)
+            .and_then(|work| work.task(task_id))
+            .map(|task| task.attachments.clone())
+        else {
+            return;
+        };
+        let before = attachments.len();
+        for target in targets {
+            let target = target.trim().to_string();
+            if target.is_empty() || attachments.iter().any(|held| held.target == target) {
+                continue;
+            }
+            attachments.push(Attachment::new(target));
+        }
+        if attachments.len() == before {
+            return;
+        }
+        self.bus.send(Message::SetTaskField {
+            project_id,
+            task_id,
+            field: TaskField::Attachments(attachments),
+        });
+        cx.notify();
+    }
+
+    /// Open what one attachment points at, in whichever surface owns it.
+    ///
+    /// The two forms part company here and nowhere else: a `kb:{source}:{path}` address is the
+    /// knowledge base's own key space and opens as a KB document, everything else is a path in
+    /// this project and opens as an editor tab. An address naming a source this window does not
+    /// hold does nothing — a source can be removed after a task named a document in it.
+    pub fn open_task_attachment(&mut self, target: String, cx: &mut Context<Self>) {
+        let attachment = Attachment::new(target);
+        match attachment.kb_address() {
+            Some((source, path)) => {
+                let Ok(source) = source.parse() else {
+                    return;
+                };
+                if self.kb(cx).is_some_and(|kb| kb.source(source).is_some()) {
+                    self.click_kb_row(source, path.to_string(), cx);
+                }
+            }
+            None => self.select_file(attachment.target, cx),
+        }
+    }
+
+    /// Take one attachment off the open task, by the target its chip carries.
+    pub fn remove_task_attachment(&mut self, target: String, cx: &mut Context<Self>) {
+        let Some((_, current, _)) = self.open_task_form(cx) else {
+            return;
+        };
+        let Some(attachments) = self
+            .work(cx)
+            .and_then(|work| work.task(current))
+            .map(|task| task.attachments.clone())
+        else {
+            return;
+        };
+        let before = attachments.len();
+        let kept: Vec<Attachment> = attachments
+            .into_iter()
+            .filter(|held| held.target != target)
+            .collect();
+        // Naming an attachment the task does not carry asks for nothing: the message set is for
+        // acts, the same reasoning `remove_task_reference` states.
+        if kept.len() == before {
+            return;
+        }
+        self.set_task_field(TaskField::Attachments(kept), cx);
     }
 
     /// Add a sub-task and keep the field, so several can be typed in a row.

@@ -152,8 +152,11 @@ The load-bearing points:
 
 **A new composition knob** (a skill set, an MCP server, an instruction): it belongs on the
 `Profile`, resolved by `resolve`. `agent.rs` needs no change — that is the point of the split.
-What the *interface* can set today is four fields (harness, account, model, mode); the rest is
-written by hand because nothing lists the catalog on the wire — a backlog row, not a hedge.
+What the *interface* can set today is harness, account, model, mode, thinking, `max_subagents`,
+an opening prompt, and an explicit MCP tick-list: the launch form draws an MCP checklist and
+`Message::StartConversation` carries an `mcps: Vec<String>` alongside `account`/`profile`/`model`/
+`thinking`/`mode`. `ProfileInfo` mirrors the same set (plus `mission_assistant`, a filter-only flag
+the interface reads but never composes a run from) for what a saved profile remembers.
 
 ## Verifying
 

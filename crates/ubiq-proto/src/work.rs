@@ -181,6 +181,23 @@ impl Complexity {
     }
 }
 
+/// What level a task sits at, as distinct from [`Kind`] — [`Kind`] answers *what sort of work*,
+/// this answers *what level*. Optional, like `kind`: `None` is an ordinary task, which is what
+/// every task is until somebody says otherwise.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub enum Level {
+    /// A task allowed to have children and to carry a plan. The board draws it, filters by it and
+    /// offers a different creation path to it. The word shown for it is display text — see
+    /// [`crate::settings::HostSettings::mission_term`] — and nothing here reads it.
+    Mission,
+}
+
+impl Level {
+    pub fn all() -> [Level; 1] {
+        [Level::Mission]
+    }
+}
+
 /// One colour label on a task, named by the user.
 ///
 /// The colour is an index into the interface's own swatches, exactly as
@@ -380,6 +397,73 @@ impl Comment {
     }
 }
 
+/// One thing hung on a task: **a reference, never the content**.
+///
+/// The difference from a conversation's attachment is the whole reason this type exists. A chat's
+/// attachment never crosses the bus — it is interface state, folded into the prompt as `@path` at
+/// send time and gone with the draft. A task's attachment is *stored*: it lives on the record, it
+/// survives a restart, and an agent that never saw the interface reads it back out of
+/// `tasks.toml`. So it has to be a wire type, and it has to hold something an agent can resolve on
+/// its own — which a byte blob in the tasks file would not be, and which is why nothing here is
+/// content.
+///
+/// [`Self::target`] is one of two things, told apart by the `kb:` prefix and nothing else:
+///
+/// - a **project-relative path**, `docs/spec.md` or `.ubiq/pasted/2026-…png`, resolved against the
+///   task's own project the same way a harness resolves an `@path`;
+/// - a **knowledge-base address**, `kb:{source}:{path}`, which is the key space
+///   `crates/ubiq/src/state/kb.rs` already serialises a KB tab under. The host stores it and never
+///   parses or fetches it, the same discipline [`TaskRecord::link`] follows.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Attachment {
+    /// What it points at — see the type's own doc for the two forms.
+    pub target: String,
+    /// What to call it, where anybody said. `None` is the usual case: the interface draws the last
+    /// segment of [`Self::target`], which is the file's name and is what the user recognises.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+}
+
+/// What every knowledge-base target starts with, the one thing that tells the two forms apart.
+const KB_TARGET_PREFIX: &str = "kb:";
+
+impl Attachment {
+    /// An attachment with no label, which is how every one the picker and the paste make arrives.
+    pub fn new(target: impl Into<String>) -> Self {
+        Self {
+            target: target.into(),
+            label: None,
+        }
+    }
+
+    /// Whether this points into the knowledge base rather than at a file in the project.
+    pub fn is_kb(&self) -> bool {
+        self.target.starts_with(KB_TARGET_PREFIX)
+    }
+
+    /// The source and the path inside it, for a knowledge-base target; `None` for a project path.
+    ///
+    /// Split on the *first* colon after the prefix: a source id never holds one and a path may.
+    pub fn kb_address(&self) -> Option<(&str, &str)> {
+        self.target
+            .strip_prefix(KB_TARGET_PREFIX)
+            .and_then(|rest| rest.split_once(':'))
+    }
+
+    /// What to call it on screen: the label where there is one, the last segment of the target
+    /// otherwise.
+    pub fn name(&self) -> &str {
+        if let Some(label) = self.label.as_deref().filter(|label| !label.is_empty()) {
+            return label;
+        }
+        let tail = match self.kb_address() {
+            Some((_, path)) => path,
+            None => self.target.as_str(),
+        };
+        tail.rsplit('/').next().unwrap_or(tail)
+    }
+}
+
 /// A task as it is written down. Everything here survives a restart.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskRecord {
@@ -398,6 +482,31 @@ pub struct TaskRecord {
     /// What kind of work it is, where anybody has said.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kind: Option<Kind>,
+    /// What level this task sits at — a different axis from [`Self::kind`]. `None` is an ordinary
+    /// task, which is what every task written before this field existed already means.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub level: Option<Level>,
+    /// The task this one is a child of. One writer per fact: the parent carries no list of its
+    /// children, which is derived on read by scanning for this field instead.
+    ///
+    /// Depth is capped at one — a task that has a parent may not itself be a parent, and only a
+    /// task carrying a [`Self::level`] may be a parent at all — which the host enforces when a
+    /// parent is set (`crates/ubiq-host/src/work/mod.rs`) and is what removes any cycle check.
+    /// A parent id naming no task in the project is dropped on read, the same as an unknown label
+    /// would be.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<TaskId>,
+    /// Other tasks this one references — symmetric and untyped, drawn as a chip list that
+    /// navigates to the other card. No cycle rule and no deletion semantics beyond dropping a
+    /// dangling id on read, the same as [`Self::parent`].
+    #[serde(default, rename = "reference", skip_serializing_if = "Vec::is_empty")]
+    pub references: Vec<TaskId>,
+    /// The files and knowledge-base documents hung on this task, in the order they were added.
+    ///
+    /// Stored, unlike a conversation's attachments, which never cross the bus at all — see
+    /// [`Attachment`] for why that difference is the point of the type.
+    #[serde(default, rename = "attachment", skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<Attachment>,
     /// How hard it is judged to be, where anybody has said. `None` is a task nobody has sized.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub complexity: Option<Complexity>,
@@ -452,6 +561,10 @@ impl TaskRecord {
             priority: Priority::Normal,
             shape: None,
             kind: None,
+            level: None,
+            parent: None,
+            references: Vec::new(),
+            attachments: Vec::new(),
             complexity: None,
             assigned_to: None,
             key: None,

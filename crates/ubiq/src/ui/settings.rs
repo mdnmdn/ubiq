@@ -714,6 +714,23 @@ fn editor(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                 |this, choice, cx| this.set_agent_chat_close(choice, cx),
             ),
         ),
+        heading(
+            "Board",
+            "What the tasks board calls things, application-wide. A project may override this in \
+             its own settings.",
+        ),
+        setting_row(
+            "Mission term",
+            "The word for a task allowed to have children and to carry a plan \u{2014} mission, \
+             epic, user story, whatever this team calls it. The board's mission cards, filters \
+             and creation path all read it from here.",
+            field(theme::border(), false)
+                .h(px(30.))
+                .w(px(220.))
+                .px_2()
+                .child(Input::new(&app.mission_term_input).appearance(false))
+                .into_any_element(),
+        ),
     ])
 }
 
@@ -1371,7 +1388,7 @@ fn harnesses(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                 "app-settings-add-profile",
                 Some(IconName::Plus),
                 "Add profile",
-                cx.listener(|this, _, window, cx| this.open_profile_form(None, window, cx)),
+                cx.listener(|this, _, window, cx| this.open_profile_form(None, None, window, cx)),
             ))
             .into_any_element(),
     );
@@ -1692,7 +1709,7 @@ fn profile_row(app: &AppState, profile: &ProfileInfo, cx: &mut Context<AppState>
             None,
             "Edit",
             cx.listener(move |this, _, window, cx| {
-                this.open_profile_form(Some(edit.clone()), window, cx)
+                this.open_profile_form(Some(edit.clone()), None, window, cx)
             }),
         ))
         .into_any_element()

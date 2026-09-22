@@ -80,6 +80,10 @@ fn task(
         // no claim about its shape, its kind or what tracker it came from.
         shape: None,
         kind: None,
+        level: None,
+        parent: None,
+        references: Vec::new(),
+        attachments: Vec::new(),
         complexity: None,
         key: None,
         link: None,

@@ -133,6 +133,25 @@ ulid_id! {
 }
 
 ulid_id! {
+    /// One block of a plan's markdown — a heading, a paragraph, a fence, a list item. Minted by
+    /// the host when a block first appears in a saved plan and carried forward on every later save
+    /// by matching the parsed document against the previous one, so an annotation anchors to this
+    /// and never to a character offset, which any insertion above it would move
+    /// (`_docs/wip/planning-system.md`, decision 4).
+    ///
+    /// It is **not written into the markdown**: the plan body on disk stays plain markdown any
+    /// editor and any agent can rewrite, and the id-to-block index lives in the sidecar beside it.
+    BlockId
+}
+
+ulid_id! {
+    /// One annotation on a plan: a block, an optional quoted span inside it, and the thread of
+    /// comments hanging off it. Addressed by this rather than by its place in the list, for
+    /// [`CommentId`]'s reason.
+    AnnotationId
+}
+
+ulid_id! {
     /// One project in the catalogue. Stable across rename, recolour and a move on disk — the path
     /// is a uniqueness key, never the identity.
     ProjectId

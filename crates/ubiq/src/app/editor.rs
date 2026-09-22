@@ -1069,6 +1069,13 @@ impl AppState {
     /// bytes that never arrived, a read the host cut short, a guest file — says so in a modal
     /// instead, because a ⌘S that quietly does nothing is indistinguishable from a save.
     pub fn save_active_file(&mut self, _: &SaveFile, window: &mut Window, cx: &mut Context<Self>) {
+        // An annotated document is raised over the window and holds the focus while it is up, so
+        // ⌘S means *that* document rather than whatever tab is behind it. One key, one meaning:
+        // the surface is the editor, not a dialog with a Save button.
+        if self.workbench.plan.is_some() {
+            self.save_document(window, cx);
+            return;
+        }
         let Some(project) = self.project(cx) else {
             return;
         };

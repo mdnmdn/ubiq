@@ -221,6 +221,47 @@ impl WorkProjection {
         worst
     }
 
+    /// Every task naming `id` as its [`TaskRecord::parent`]. Derived on read, the same as the host
+    /// derives it: the parent carries no list of its own, so this scan is the one place either
+    /// side keeps one.
+    pub fn children_of(&self, id: TaskId) -> impl Iterator<Item = &TaskRecord> {
+        self.tasks.iter().filter(move |t| t.parent == Some(id))
+    }
+
+    /// How many children a task has — the mission card's own count.
+    pub fn child_count(&self, id: TaskId) -> usize {
+        self.children_of(id).count()
+    }
+
+    /// The tasks `task` could be given as a parent, computed once so no draw site walks the task
+    /// list on its own.
+    ///
+    /// Mirrors `crates/ubiq-host/src/work/mod.rs`'s `parent_refusal` exactly, so the picker never
+    /// offers a choice the host would refuse: a candidate needs a [`ubiq_proto::work::Level`], is
+    /// never `task` itself, and must not already have a parent of its own — depth is capped at
+    /// one. `task` itself is excluded from having any eligible parent at all once it already has
+    /// children, for the same reason: it would become both a parent and a child.
+    pub fn eligible_parents(&self, task: &TaskRecord) -> Vec<&TaskRecord> {
+        if self.children_of(task.id).next().is_some() {
+            return Vec::new();
+        }
+        self.tasks
+            .iter()
+            .filter(|t| t.id != task.id && t.level.is_some() && t.parent.is_none())
+            .collect()
+    }
+
+    /// The tasks `task` could add to its reference list: every other task it does not already
+    /// name. References are symmetric and untyped, so there is no level or parent rule here — only
+    /// not naming `task` itself and not naming one it already holds, which the host would drop as a
+    /// no-op anyway.
+    pub fn eligible_references<'a>(&'a self, task: &TaskRecord) -> Vec<&'a TaskRecord> {
+        self.tasks
+            .iter()
+            .filter(|t| t.id != task.id && !task.references.contains(&t.id))
+            .collect()
+    }
+
     /// Every label anybody has used in this project, most-used first and then by name.
     ///
     /// There is no registry: a label is the name and the colour together, written on whichever
@@ -275,5 +316,52 @@ pub fn fraction(task: &TaskRecord) -> f32 {
 
 /// The token count as the card prints it.
 pub fn tokens_label(agent: &WorkAgent) -> String {
-    format!("{:.1}K", agent.tokens / 1000.0)
+    format_tokens(agent.tokens.max(0.0).round() as u64)
+}
+
+/// A token count in its shortest legible form: a plain integer under a thousand, then a compact
+/// suffix scaled to one decimal place — `k` for thousands, `M` for millions, `G` for billions.
+///
+/// The one formatting a raw token count goes through everywhere a ring or a pill states one: the
+/// footer's `tot` and `ctx` pills and their tooltips, and this card's own reading. A second
+/// spelling of "how big is this number" per surface is exactly the drift a shared helper exists to
+/// rule out.
+pub fn format_tokens(value: u64) -> String {
+    const UNITS: [(u64, &str); 3] = [(1_000_000_000, "G"), (1_000_000, "M"), (1_000, "k")];
+    for (scale, suffix) in UNITS {
+        if value >= scale {
+            return format!("{:.1}{suffix}", value as f64 / scale as f64);
+        }
+    }
+    value.to_string()
+}
+
+#[cfg(test)]
+mod format_tokens_tests {
+    use super::format_tokens;
+
+    #[test]
+    fn a_count_under_a_thousand_is_the_plain_number() {
+        assert_eq!(format_tokens(0), "0");
+        assert_eq!(format_tokens(999), "999");
+    }
+
+    #[test]
+    fn a_count_of_a_thousand_or_more_takes_a_compact_suffix() {
+        assert_eq!(format_tokens(1_000), "1.0k");
+        assert_eq!(format_tokens(12_345), "12.3k");
+        assert_eq!(format_tokens(1_000_000), "1.0M");
+        assert_eq!(format_tokens(2_500_000), "2.5M");
+        assert_eq!(format_tokens(1_000_000_000), "1.0G");
+        assert_eq!(format_tokens(3_400_000_000), "3.4G");
+    }
+}
+
+/// The word this project uses for [`ubiq_proto::work::Level::Mission`] — the project's own
+/// override if it has one, else the application-wide default. Resolved once, here, so the board
+/// reads a word and nothing else in the tree learns it exists.
+pub fn mission_term(project_override: Option<&str>, host_default: &str) -> String {
+    project_override
+        .map(str::to_string)
+        .unwrap_or_else(|| host_default.to_string())
 }

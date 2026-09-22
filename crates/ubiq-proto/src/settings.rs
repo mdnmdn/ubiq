@@ -117,6 +117,11 @@ pub struct HostSettings {
     /// match is what most projects want, and the symbol half costs a parse of every file.
     #[serde(default)]
     pub index_level: IndexLevel,
+    /// The display word for a task at [`crate::work::Level::Mission`] — *mission*, *epic*, *user
+    /// story*, whatever the user calls it. Display text alone: nothing but the interface reads it,
+    /// and a project may override it in its own [`crate::projects::ProjectRecord::mission_term`].
+    #[serde(default = "mission_term_default")]
+    pub mission_term: String,
     /// The folder a clone lands in. `None` is the built-in default, which the host resolves — the
     /// contract does not name a path, and this one is no exception.
     #[serde(default)]
@@ -542,6 +547,10 @@ fn search_fallbacks_default() -> Vec<String> {
     ["ag", "grep"].into_iter().map(String::from).collect()
 }
 
+fn mission_term_default() -> String {
+    "Mission".to_string()
+}
+
 impl Default for HostSettings {
     fn default() -> Self {
         Self {
@@ -557,6 +566,7 @@ impl Default for HostSettings {
             search_excludes: search_excludes_default(),
             search_fallbacks: search_fallbacks_default(),
             index_level: IndexLevel::default(),
+            mission_term: mission_term_default(),
             projects_root: None,
             ephemeral_root: None,
             connections: Vec::new(),

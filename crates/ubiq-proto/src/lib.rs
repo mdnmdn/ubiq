@@ -26,6 +26,7 @@
 //! - `stats`: one reading of the host, and the usage meter's buckets
 //! - `notifications`: what a subsystem raises for the bell, and how it is silenced
 //! - `work`: a task as it is written down, and the sessions and agents doing it
+//! - `plan`: a plan's annotations — the block one anchors to, its thread, and its state
 //! - `conversation`: what a live agent says, in the Agent Client Protocol's vocabulary
 //! - `bus`: the switchboard between the one host and the windows attached to it
 //! - `log`: the process-wide sink every subsystem writes its diagnostics to
@@ -50,6 +51,7 @@ pub mod log;
 pub mod mcp;
 pub mod messages;
 pub mod notifications;
+pub mod plan;
 pub mod projects;
 pub mod quota;
 pub mod repos;

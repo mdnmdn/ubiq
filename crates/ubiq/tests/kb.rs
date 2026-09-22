@@ -15,17 +15,19 @@ use chrono::Utc;
 use gpui::{AppContext as _, Entity, TestAppContext, WindowHandle};
 use gpui_component::Root;
 use ubiq::app::{AppState, BusHub};
+use ubiq::state::file_picker::{KB_FOLDER_NAME, PickerView};
 use ubiq::state::sink::ProjectNav;
 use ubiq::state::{
     FileBody, KbAction, KbKind, KbMenuRow, SaveState, WindowRegistry, kb_menu_entries, kb_tab_key,
 };
 use ubiq_proto::bus::{self, FromClient, To};
 use ubiq_proto::files::{DirEntry, DirListing, EntryKind, FileContents, FileError, HostDirEntry};
-use ubiq_proto::ids::{KbSourceId, ProjectId, RepoQueryId};
+use ubiq_proto::ids::{KbSourceId, ProjectId, RepoQueryId, TaskId};
 use ubiq_proto::kb::{KbAccess, KbOrigin, KbSource, KbSourceState, KbSourceStatus, KbStore};
-use ubiq_proto::messages::Message;
+use ubiq_proto::messages::{Message, TaskField};
 use ubiq_proto::projects::{ProjectHealth, ProjectRecord, ProjectSnapshot};
 use ubiq_proto::repos::RepoSource;
+use ubiq_proto::work::TaskRecord;
 
 const PATIENCE: Duration = Duration::from_millis(500);
 
@@ -142,6 +144,7 @@ fn a_project() -> ProjectSnapshot {
             last_opened_at: None,
             search_excludes: Vec::new(),
             index: None,
+            mission_term: None,
             tools: Vec::new(),
             managed_repos: Vec::new(),
             lanes: Vec::new(),
@@ -1103,4 +1106,118 @@ fn a_dirty_writable_document_saves_and_a_refusal_keeps_the_buffer(cx: &mut TestA
             "a `KbChanged` for the file's own directory confirms the save"
         );
     });
+}
+
+// ── the knowledge base in the task attachment picker ────────────────
+
+/// The attachment picker a task raises offers the knowledge base as a folder, and what is picked
+/// under it is the `kb:{source}:{path}` address the record stores.
+///
+/// **This is the thing task attachments needed that nothing else did.** A task's attachment is
+/// stored — `ubiq_proto::work::Attachment`, one `SetTaskField` away from `tasks.toml` — and a
+/// knowledge-base document is named by an address rather than a path, so a dialog that only ever
+/// walked the project tree could not reach half of what a task may carry. The picker itself is
+/// told nothing: it is handed one more root whose rows happen to carry addresses, exactly as it is
+/// handed project-relative paths by the explorer and absolute ones by a host browse.
+#[gpui::test]
+fn the_task_attachment_picker_offers_the_knowledge_base(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let source = fixture.seed_source("docs", cx);
+    fixture.deliver(
+        Message::KbTreeListing {
+            project_id: fixture.project,
+            source,
+            rel_path: String::new(),
+            listings: vec![
+                listing("", vec![dir("", "notes")]),
+                listing("notes", vec![file("notes", "a.md")]),
+            ],
+        },
+        cx,
+    );
+    let task = TaskId::generate();
+    fixture.deliver(
+        Message::WorkList {
+            project_id: fixture.project,
+            sessions: Vec::new(),
+            agents: Vec::new(),
+            tasks: vec![a_task(task)],
+        },
+        cx,
+    );
+    let _ = fixture.said();
+
+    fixture.with(cx, |state, window, cx| {
+        state.raise_task_attachment_picker(task, window, cx)
+    });
+
+    // The knowledge base is a root of its own beside the project's, and it is a way in rather than
+    // an answer: this picker asks for files, so no container row can be picked.
+    let address = kb_tab_key(source, "notes/a.md");
+    fixture.with(cx, |state, _, _| {
+        let picker = state.file_picker.as_mut().expect("the dialog is up");
+        let rows = picker.rows();
+        assert!(
+            rows.iter().any(|row| row.name == KB_FOLDER_NAME),
+            "the knowledge base is offered: {:?}",
+            rows.iter().map(|row| &row.name).collect::<Vec<_>>()
+        );
+        // The flat arrangement is every match under the root, so it reaches the document without
+        // walking three folders open to get at it.
+        picker.set_view(PickerView::List);
+        let rows = picker.rows();
+        let found = rows
+            .iter()
+            .find(|row| row.path == address)
+            .unwrap_or_else(|| {
+                panic!(
+                    "the document is reachable under its source; rows are {:?}",
+                    rows.iter().map(|row| &row.path).collect::<Vec<_>>()
+                )
+            });
+        assert_eq!(found.name, "a.md");
+        picker.click("kb:");
+        assert!(
+            !picker.picked().iter().any(|held| held == "kb:"),
+            "the knowledge base's own row names no document and is never an answer"
+        );
+    });
+
+    // And what is picked crosses the bus, which is the whole difference from a chat's attachment.
+    fixture.with(cx, |state, window, cx| {
+        state.file_picker.as_mut().unwrap().pick(&address);
+        state.commit_file_picker(window, cx);
+    });
+    let said = fixture.said();
+    let set = said
+        .iter()
+        .find_map(|message| match message {
+            Message::SetTaskField {
+                task_id,
+                field: TaskField::Attachments(attachments),
+                ..
+            } if *task_id == task => Some(attachments),
+            _ => None,
+        })
+        .expect("the pick became a stored attachment");
+    assert_eq!(set.len(), 1);
+    assert_eq!(set[0].target, address);
+    let named = source.to_string();
+    assert_eq!(
+        set[0].kb_address(),
+        Some((named.as_str(), "notes/a.md")),
+        "the address the record keeps is the one the knowledge base answers to"
+    );
+    fixture.state.read_with(cx, |state, _| {
+        assert!(
+            state.file_picker.is_none(),
+            "committing takes the dialog down"
+        )
+    });
+}
+
+fn a_task(id: TaskId) -> TaskRecord {
+    let mut task = TaskRecord::new("attach things to me".to_string(), None, Utc::now());
+    task.id = id;
+    task
 }

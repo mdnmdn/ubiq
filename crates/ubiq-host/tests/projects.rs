@@ -34,6 +34,7 @@ fn record(name: &str, path: &str) -> ProjectRecord {
         last_opened_at: None,
         search_excludes: Vec::new(),
         index: None,
+        mission_term: None,
         managed_repos: Vec::new(),
         tools: Vec::new(),
         lanes: Vec::new(),
@@ -144,6 +145,7 @@ fn updating_a_project_sets_its_drone_origin() {
         None,
         None,
         None,
+        None,
         Some(DroneChange::Set(origin.clone())),
     );
 
@@ -164,6 +166,7 @@ fn an_update_that_says_nothing_about_the_drone_keeps_it() {
         None,
         None,
         None,
+        None,
         Some(DroneChange::Set(origin.clone())),
     );
 
@@ -171,6 +174,7 @@ fn an_update_that_says_nothing_about_the_drone_keeps_it() {
     projects.update(
         id,
         Some("renamed".to_string()),
+        None,
         None,
         None,
         None,
@@ -199,11 +203,13 @@ fn updating_a_project_can_bring_it_back_home() {
         None,
         None,
         None,
+        None,
         Some(DroneChange::Set(origin())),
     );
 
     projects.update(
         id,
+        None,
         None,
         None,
         None,

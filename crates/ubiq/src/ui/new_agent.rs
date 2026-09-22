@@ -400,7 +400,7 @@ pub fn body(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> 
                 &form,
                 "new-agent-target",
                 "Choose\u{2026}",
-                target_rows(app, &form),
+                target_rows(app, &form, cx),
                 form.target.clone(),
                 OpenList::Target,
                 true,
@@ -542,6 +542,34 @@ pub fn body(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> 
         )),
     );
 
+    // 5b ─ the one flag a saved setup can carry that a bare start cannot: whether this is fit to
+    // run as a planning assistant. Only the profile form asks — a start form has nothing to save
+    // the answer onto — and the new-mission dialog's picker is what reads it back.
+    if matches!(form.purpose, Purpose::Profile) {
+        rows = rows.child(
+            div().when(!live, |this| this.opacity(0.5)).child(hint_row(
+                "new-agent-mission-assistant-hint",
+                "Mission assistant",
+                "Offered in the new-mission dialog's assistant picker.",
+                div()
+                    .flex()
+                    .flex_none()
+                    .justify_end()
+                    .w(px(CONTROL_WIDTH))
+                    .child(check_box(
+                        "new-agent-mission-assistant",
+                        form.mission_assistant,
+                        cx.listener(move |this, _, _, cx| {
+                            if live {
+                                this.toggle_new_agent_mission_assistant(cx);
+                            }
+                        }),
+                    ))
+                    .into_any_element(),
+            )),
+        );
+    }
+
     // 6 ─ the subagent ceiling. Never a launch flag: it is written into the preamble the first
     // turn carries, which is the only place a harness would read it.
     let mut subagent_rows: Vec<(String, Option<Option<u8>>)> =
@@ -610,12 +638,20 @@ pub fn body(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> 
 /// other harness list in the window read the same rows in the same order. A pair whose harness is
 /// not installed here is drawn disabled rather than dropped: "not installed" is worth saying, and
 /// installing it is the fix.
-fn target_rows(app: &AppState, form: &NewAgentForm) -> Vec<(String, Option<Target>)> {
-    let profiles = &app.workbench.settings.profiles;
+fn target_rows(app: &AppState, form: &NewAgentForm, cx: &App) -> Vec<(String, Option<Target>)> {
+    // Which project this start is aimed at — the Teams toolbar's override, else the window's
+    // active project — because that is what decides which profiles exist for it. A project's own
+    // setups are offered here and in no other project, and a global one of the same name is the
+    // one they shadow, exactly as the host will resolve the launch.
+    let project = app
+        .new_agent_project
+        .filter(|id| app.window_projects(cx).contains(id))
+        .or_else(|| app.project(cx));
+    let profiles = app.workbench.settings.profiles_in(project);
     // A profile is a saved answer to this form, so a profile form does not offer one as its own
     // starting point.
     let offered: &[ubiq_proto::messages::ProfileInfo] = match form.purpose {
-        Purpose::Start => profiles,
+        Purpose::Start => &profiles,
         Purpose::Profile => &[],
     };
     app.workbench
@@ -632,9 +668,16 @@ fn target_rows(app: &AppState, form: &NewAgentForm) -> Vec<(String, Option<Targe
                 });
                 Some((format!("{} \u{00b7} {account}", harness.label), target))
             }
-            HarnessChoice::Profile(index) => offered
-                .get(index)
-                .map(|it| (it.id.clone(), Some(Target::Profile(it.id.clone())))),
+            // A project's own setup says so in the row: the same name may mean a different
+            // profile in the next project, and "visible only in the project it was created in"
+            // is only readable if the row admits which one it is.
+            HarnessChoice::Profile(index) => offered.get(index).map(|it| {
+                let label = match it.project {
+                    Some(_) => format!("{} \u{00b7} this project", it.id),
+                    None => it.id.clone(),
+                };
+                (label, Some(Target::Profile(it.id.clone())))
+            }),
             // Never offered: a bare harness with no identity is what this form is for asking about,
             // not something to start.
             HarnessChoice::Harness(_) => None,

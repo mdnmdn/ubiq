@@ -45,6 +45,7 @@ fn snapshot(id: ProjectId, name: &str, path: &str, opened: Option<u32>) -> Proje
             last_opened_at: opened.map(at),
             search_excludes: Vec::new(),
             index: None,
+            mission_term: None,
             tools: Vec::new(),
             managed_repos: Vec::new(),
             lanes: Vec::new(),

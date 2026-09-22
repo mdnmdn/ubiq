@@ -158,6 +158,11 @@ impl AppState {
             // The folder a knowledge base source reads from. Written into the "Add source" form
             // rather than sent anywhere: the source is committed when that form is confirmed, as
             // one whole-list `SetKbSources`, not one folder at a time.
+            // The one answer that leaves the window: a task's attachments are stored, so what was
+            // picked becomes a `SetTaskField` rather than interface state.
+            PickerOwner::TaskAttachment { task } => {
+                self.add_task_attachments(task, picked, cx);
+            }
             PickerOwner::KbFolder => {
                 if let Some(path) = picked.into_iter().next() {
                     self.accept_kb_source_folder(path, window, cx);
@@ -209,6 +214,75 @@ impl AppState {
         )
         .kind(PickKind::Either);
         self.open_file_picker(request, forest, PickerView::Tree, window, cx);
+    }
+
+    /// Raise the picker over the project **and the knowledge base**, to be answered onto a task.
+    ///
+    /// **This is the one picker that offers two key spaces at once.** A task attachment is either
+    /// a project-relative path or a `kb:{source}:{path}` address
+    /// (`ubiq_proto::work::Attachment`), and both have to be reachable from one dialog or
+    /// "attach from the knowledge base" becomes a second control that does nearly the same thing.
+    /// So the explorer's forest gets one more top-level folder —
+    /// `state::file_picker::forest_from_kb` — whose every row already carries the address the
+    /// record stores. Nothing in the picker knows: a path is a path.
+    ///
+    /// Files only, unlike the composer's `+`: a folder here is a way to the documents under it,
+    /// and picking one would let the knowledge base's own container rows — which name no
+    /// document — reach a record.
+    ///
+    /// Nothing happens with neither a project tree nor a source: an empty dialog would say the
+    /// project has no files rather than that none have been listed.
+    pub fn raise_task_attachment_picker(
+        &mut self,
+        task: TaskId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let mut forest = self
+            .explorer(cx)
+            .map(|explorer| crate::state::file_picker::forest_from_explorer(&explorer.root))
+            .unwrap_or_default();
+        forest.extend(
+            self.kb(cx)
+                .and_then(|kb| crate::state::file_picker::forest_from_kb(&kb.sources)),
+        );
+        if forest.is_empty() {
+            return;
+        }
+        let request = crate::state::file_picker::PickerRequest::new(
+            PickerOwner::TaskAttachment { task },
+            "Attach files or knowledge-base documents to this task",
+        )
+        .kind(PickKind::Files);
+        self.open_file_picker(request, forest, PickerView::Tree, window, cx);
+    }
+
+    /// The task panel's paste: put what is on the board onto the task, or do nothing.
+    ///
+    /// The same two cases the composer's paste has — a copied file attaches by its path, a copied
+    /// picture has none and is written into `.ubiq/pasted/` first — with one difference that
+    /// follows from a task attachment being *stored*: the picture's attachment goes up when the
+    /// write is **answered**, not when it is sent. The composer bets the other way because its
+    /// chip sits in a draft the user is still writing and a round trip would land after the turn;
+    /// a record that outlives the window has no such hurry, and a dangling path written into
+    /// `tasks.toml` would outlive the mistake.
+    pub fn paste_into_task(&mut self, task: TaskId, cx: &mut Context<Self>) {
+        let Some(found) = clipboard::clipboard_attachment(cx) else {
+            return;
+        };
+        match found {
+            clipboard::PastedAttachment::Path(path) => {
+                let named = match self.project_relative(&path, cx) {
+                    Some((holder, rel)) if Some(holder) == self.project(cx) => rel,
+                    _ => path.to_string_lossy().into_owned(),
+                };
+                self.add_task_attachments(task, vec![named], cx);
+            }
+            clipboard::PastedAttachment::Image { bytes, format } => {
+                self.paste_image_into_task(task, bytes, format, cx)
+            }
+        }
+        cx.notify();
     }
 
     /// Hang what was picked on the conversation as attachments, one tag each.
@@ -355,6 +429,58 @@ impl AppState {
         let Some(project) = self.project_of_agent(agent, cx) else {
             return;
         };
+        let (rel_path, size) = self.write_pasted_image(project, bytes, format);
+        let attachment = self
+            .projects
+            .get_mut(&project)
+            .and_then(|open| open.conversations.get_mut(&agent))
+            .and_then(|conversation| conversation.attach(rel_path.clone(), Some(size)));
+        if let Some(attachment) = attachment {
+            self.pasted_writes.push(PastedWrite {
+                project,
+                rel_path,
+                into: PastedInto::Composer { agent, attachment },
+            });
+        }
+    }
+
+    /// The same picture, written for a task instead of a turn.
+    ///
+    /// **The attachment waits for the answer**, which is the one place this parts company with
+    /// [`Self::attach_pasted_image`] — see [`Self::paste_into_task`] for why a stored record does
+    /// not take the composer's bet. So nothing is sent to the board here: the row on
+    /// `pasted_writes` is the whole of it, and [`Self::pasted_write_settled`] sends the
+    /// `SetTaskField` once the file is really there.
+    fn paste_image_into_task(
+        &mut self,
+        task: TaskId,
+        bytes: Vec<u8>,
+        format: gpui::ImageFormat,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        let (rel_path, _) = self.write_pasted_image(project, bytes, format);
+        self.pasted_writes.push(PastedWrite {
+            project,
+            rel_path,
+            into: PastedInto::Task(task),
+        });
+    }
+
+    /// Put a pasted picture in the project under `clipboard::PASTED_DIR`, and say what it is
+    /// called and how big it is. The half both paste destinations share.
+    ///
+    /// **The format may not be the board's.** A screenshot arrives as TIFF on macOS and as a DIB
+    /// on Windows, and the only reason to write it at all is for something to open it later — see
+    /// `clipboard::pasted_image_bytes`.
+    fn write_pasted_image(
+        &mut self,
+        project: ProjectId,
+        bytes: Vec<u8>,
+        format: gpui::ImageFormat,
+    ) -> (String, u64) {
         let stamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|since| since.as_millis())
@@ -370,19 +496,7 @@ impl AppState {
             expected: None,
             overwrite: false,
         });
-        let attachment = self
-            .projects
-            .get_mut(&project)
-            .and_then(|open| open.conversations.get_mut(&agent))
-            .and_then(|conversation| conversation.attach(rel_path.clone(), Some(size)));
-        if let Some(attachment) = attachment {
-            self.pasted_writes.push(PastedWrite {
-                project,
-                rel_path,
-                agent,
-                attachment,
-            });
-        }
+        (rel_path, size)
     }
 
     /// Make the pasted folder ignore itself, the first time this window writes into one.
@@ -435,12 +549,20 @@ impl AppState {
         };
         let write = self.pasted_writes.remove(ix);
         let Some(reason) = failure else {
+            // A task's picture waits for this answer rather than anticipating it, so the write
+            // landing is what puts it on the record. A composer's chip was already up.
+            if let PastedInto::Task(task) = write.into {
+                self.add_task_attachments(task, vec![rel_path.to_string()], cx);
+            }
             return true;
         };
-        if let Some(open) = self.projects.get_mut(&project)
-            && let Some(conversation) = open.conversations.get_mut(&write.agent)
+        // The composer's optimistic chip is the only thing there is to take back off: a task's
+        // was never put up.
+        if let PastedInto::Composer { agent, attachment } = write.into
+            && let Some(open) = self.projects.get_mut(&project)
+            && let Some(conversation) = open.conversations.get_mut(&agent)
         {
-            conversation.detach(write.attachment);
+            conversation.detach(attachment);
         }
         self.raise_notification(
             NotificationRequest::warning(
@@ -608,7 +730,10 @@ impl AppState {
             }
             // Nothing to write back here either — closing the dialog with nothing chosen leaves
             // no project to open, and no folder for the form behind it.
-            PickerOwner::HostProject | PickerOwner::KbFolder => {}
+            // Nor here: a task keeps exactly the attachments it already carried.
+            PickerOwner::HostProject
+            | PickerOwner::KbFolder
+            | PickerOwner::TaskAttachment { .. } => {}
         }
         self.close_host_browse();
         cx.notify();

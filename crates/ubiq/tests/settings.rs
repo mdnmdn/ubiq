@@ -157,6 +157,22 @@ impl Fixture {
         }
     }
 
+    /// Run `f` against the window's own state, with a `Window` in hand.
+    fn with<R>(
+        &self,
+        cx: &mut TestAppContext,
+        f: impl FnOnce(&mut AppState, &mut gpui::Window, &mut gpui::Context<AppState>) -> R,
+    ) -> R {
+        let out = self
+            .window
+            .update(cx, |_, window, cx| {
+                self.state.update(cx, |state, cx| f(state, window, cx))
+            })
+            .expect("the window is open");
+        cx.run_until_parked();
+        out
+    }
+
     /// Everything the window has said so far, in order.
     fn said(&self) -> Vec<Message> {
         let mut said = Vec::new();
@@ -182,6 +198,7 @@ fn a_project() -> ProjectSnapshot {
             last_opened_at: None,
             search_excludes: Vec::new(),
             index: None,
+            mission_term: None,
             tools: Vec::new(),
             managed_repos: Vec::new(),
             lanes: Vec::new(),
@@ -906,4 +923,154 @@ fn drone_version_skew_compares_against_this_build() {
     assert!(settings::drone_version_skew(
         "0.0.1-definitely-not-this-build"
     ));
+}
+
+/// A profile the host answered with, in the scope it was found in.
+fn a_profile(id: &str, project: Option<ProjectId>) -> ubiq_proto::messages::ProfileInfo {
+    ubiq_proto::messages::ProfileInfo {
+        id: id.to_string(),
+        agent_type: "claude-code".to_string(),
+        account: None,
+        model: None,
+        mode: None,
+        thinking: None,
+        max_subagents: None,
+        prompt: None,
+        mcps: Vec::new(),
+        mission_assistant: None,
+        project,
+    }
+}
+
+/// A project's own profiles are offered in that project and listed nowhere else.
+///
+/// The two scopes ride in one `Profiles`, and the window splits them on arrival: the app-wide
+/// settings screen draws `settings.profiles`, which stays global, and anything that means "what
+/// can start here" asks `profiles_in`. A profile of another project is never on offer, and a
+/// project profile of the same name as a global one shadows it — the rule the host resolves the
+/// launch by, so the picker and the launch cannot disagree.
+#[gpui::test]
+fn project_profiles_are_offered_in_their_project_and_not_globally(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let project = fixture
+        .state
+        .read_with(cx, |state, cx| state.project(cx))
+        .expect("the window holds a project");
+    let elsewhere = ProjectId::generate();
+
+    fixture.host.send(
+        To::Everyone,
+        Message::Profiles {
+            profiles: vec![
+                a_profile("standard", None),
+                a_profile("shared", None),
+                a_profile("reviewer", Some(project)),
+                a_profile("shared", Some(project)),
+                a_profile("theirs", Some(elsewhere)),
+            ],
+        },
+    );
+    cx.run_until_parked();
+
+    let (global, offered, outside, other) = fixture.state.read_with(cx, |state, _| {
+        let settings = &state.workbench.settings;
+        let ids = |list: Vec<ubiq_proto::messages::ProfileInfo>| {
+            list.into_iter().map(|it| it.id).collect::<Vec<_>>()
+        };
+        (
+            ids(settings.profiles.clone()),
+            ids(settings.profiles_in(Some(project))),
+            ids(settings.profiles_in(None)),
+            ids(settings.profiles_in(Some(elsewhere))),
+        )
+    });
+
+    assert_eq!(
+        global,
+        vec!["standard".to_string(), "shared".to_string()],
+        "the global list is global: no project's profile is in it"
+    );
+    assert_eq!(
+        offered,
+        vec![
+            "reviewer".to_string(),
+            "shared".to_string(),
+            "standard".to_string()
+        ],
+        "inside the project: its own, then the global ones it does not shadow"
+    );
+    assert_eq!(
+        outside,
+        vec!["standard".to_string(), "shared".to_string()],
+        "with no project in hand, only the global ones"
+    );
+    assert!(
+        !other.contains(&"reviewer".to_string()),
+        "another project is offered none of this one's setups"
+    );
+}
+
+/// Add profile inside a project writes a project profile; the settings screen's own writes a
+/// global one. The scope is the surface the form was opened from, never a pick inside it — and
+/// an edit keeps the scope its profile was found in.
+#[gpui::test]
+fn the_profile_form_carries_the_scope_it_was_opened_from(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let project = fixture
+        .state
+        .read_with(cx, |state, cx| state.project(cx))
+        .expect("the window holds a project");
+
+    fixture.with(cx, |state, window, cx| {
+        state.open_profile_form(None, Some(project), window, cx)
+    });
+    let scoped = fixture.state.read_with(cx, |state, _| {
+        let form = state
+            .workbench
+            .settings
+            .profile_form
+            .as_ref()
+            .expect("the form is up");
+        form.as_profile("reviewer".to_string()).project
+    });
+    assert_eq!(
+        scoped,
+        Some(project),
+        "a project's form writes a project profile"
+    );
+
+    fixture.with(cx, |state, window, cx| {
+        state.open_profile_form(None, None, window, cx)
+    });
+    let global = fixture.state.read_with(cx, |state, _| {
+        state
+            .workbench
+            .settings
+            .profile_form
+            .as_ref()
+            .expect("the form is up")
+            .as_profile("standard".to_string())
+            .project
+    });
+    assert_eq!(global, None, "the settings screen writes a global profile");
+
+    // Editing keeps the scope the profile was found in, whatever the surface passes.
+    fixture.with(cx, |state, window, cx| {
+        state.open_profile_form(Some(a_profile("reviewer", Some(project))), None, window, cx)
+    });
+    let edited = fixture.state.read_with(cx, |state, _| {
+        state
+            .workbench
+            .settings
+            .profile_form
+            .as_ref()
+            .expect("the form is up")
+            .as_profile("reviewer".to_string())
+            .project
+    });
+    assert_eq!(
+        edited,
+        Some(project),
+        "an edit saves the profile back where it came from"
+    );
 }

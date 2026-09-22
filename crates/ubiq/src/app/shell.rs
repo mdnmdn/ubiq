@@ -898,6 +898,7 @@ impl AppState {
             || self
                 .new_agent_form()
                 .is_some_and(|form| form.open.is_some())
+            || w.new_mission.as_ref().is_some_and(|form| form.open)
             || s.ai_form.as_ref().is_some_and(|form| form.open.is_some())
             || s.app_form.as_ref().is_some_and(|form| form.open)
             || self.notifications.muting.is_some();
@@ -912,6 +913,7 @@ impl AppState {
                 Layer::NewAgentNaming,
                 w.new_agent.as_ref().is_some_and(|form| form.naming),
             ),
+            (Layer::NewMission, w.new_mission.is_some()),
             (Layer::ProfileForm, s.profile_form.is_some()),
             (Layer::AccountDialog, s.dialog.is_some()),
             (Layer::Connect, s.connect.is_some()),
@@ -942,6 +944,7 @@ impl AppState {
             (Layer::RemoteManager, w.remote_manager.open),
             (Layer::RemoteConnect, w.remote_connect.is_some()),
             (Layer::Notifications, self.notifications.open),
+            (Layer::Plan, w.plan.is_some()),
             (Layer::Dropdown, dropdown),
             (Layer::HelpTarget, w.help_target.is_some()),
         ]
@@ -1021,6 +1024,16 @@ impl AppState {
             self.toggle_new_agent_list(list, window, cx);
             return;
         }
+        // The new-mission dialog's own assistant picker, on the same terms.
+        if self
+            .workbench
+            .new_mission
+            .as_ref()
+            .is_some_and(|form| form.open)
+        {
+            self.toggle_new_mission_assistant_list(cx);
+            return;
+        }
         // And again for the "Add source" form, whose pickers keep their open state on the form for
         // exactly the same reason.
         if let Some(list) = self.workbench.kb_source.as_ref().and_then(|form| form.open) {
@@ -1067,6 +1080,10 @@ impl AppState {
             self.decline_paste_image(cx);
         } else if self.workbench.file_dialog.is_some() {
             self.close_file_dialog(cx);
+        } else if self.workbench.plan.is_some() {
+            // Below the file question in paint order: the plan modal's own Export raises one
+            // over it, so Escape takes that first and leaves the plan open underneath.
+            self.close_plan(cx);
         } else if self.workbench.ask.is_some() {
             // Escape puts an agent's question away and sends nothing — what was filled in stays on
             // the ask's own record, and the transcript entry reopens it. Dismissing is not
@@ -1108,6 +1125,8 @@ impl AppState {
             // Painted over the settings page and everything it raises, so it is peeled first of
             // the forms.
             self.close_new_agent(cx);
+        } else if self.workbench.new_mission.is_some() {
+            self.close_new_mission(cx);
         } else if settings.profile_form.is_some() {
             self.close_profile_form(cx);
         } else if settings.login.is_some() {
@@ -1221,6 +1240,16 @@ impl AppState {
         self.project_snapshot(cx)
             .map(|p| p.record.name.clone())
             .unwrap_or_else(|| "No project".to_string())
+    }
+
+    /// The word this project's board uses for a mission — its own override, or the application
+    /// wide default. See [`crate::state::work::mission_term`].
+    pub fn mission_term(&self, cx: &App) -> String {
+        let project_override = self
+            .project_snapshot(cx)
+            .and_then(|p| p.record.mission_term.as_deref());
+        let default = &self.workbench.settings.host.mission_term;
+        crate::state::work::mission_term(project_override, default)
     }
 
     /// Rebuild the Markdown previews once the zoom stops moving. See [`AppState::md_reflow`].
@@ -1464,6 +1493,10 @@ impl Render for AppState {
         self.take_focus(window, cx);
         self.attach_arrived_files(window, cx);
         self.attach_kb_docs(window, cx);
+        // The annotated document's buffer is seeded and its decorations painted here for the
+        // reason `attach_arrived_files` is: both need a `Window`, and the host's answer arrives
+        // without one.
+        self.settle_plan_editor(window, cx);
         // A web panel's edits go into the buffer `attach_arrived_files` made, so they follow it,
         // and the sessions and browsers they arrive through are settled first.
         self.settle_web_panels(window, cx);

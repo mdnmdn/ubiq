@@ -16,8 +16,8 @@ use chrono::Utc;
 use ubiq_proto::ids::{ProjectId, SessionId, StepId, TaskId};
 use ubiq_proto::messages::{Message, TaskField};
 use ubiq_proto::work::{
-    AgentId, Comment, CommentAuthor, Label, Priority, Speaker, Status, Step, StepState, TaskRecord,
-    Turn, WorkAgent, WorkSession,
+    AgentId, Attachment, Comment, CommentAuthor, Label, Priority, Speaker, Status, Step, StepState,
+    TaskRecord, Turn, WorkAgent, WorkSession,
 };
 
 use crate::reply::Reply;
@@ -133,7 +133,8 @@ impl Work {
         }
 
         match self.tasks.load(project) {
-            Ok(Some(list)) => {
+            Ok(Some(mut list)) => {
+                sanitize_relations(&mut list);
                 self.loaded.insert(project, list);
                 Vec::new()
             }
@@ -382,9 +383,10 @@ impl Work {
             if self.sealed.contains(&project) || self.warned.contains(&project) {
                 continue;
             }
-            let Ok(Some(list)) = self.tasks.load(project) else {
+            let Ok(Some(mut list)) = self.tasks.load(project) else {
                 continue;
             };
+            sanitize_relations(&mut list);
             if self.loaded.get(&project).is_some_and(|held| *held == list) {
                 continue;
             }
@@ -530,6 +532,13 @@ impl Work {
     /// collapsed to the first — a label list is short and edited as a set, so there is no delta
     /// worth a message of its own.
     pub fn set_field(&mut self, project: ProjectId, task: TaskId, field: TaskField) -> Vec<Reply> {
+        if let TaskField::Parent(Some(parent)) = field {
+            let mut replies = self.prepare(project);
+            if let Some(refusal) = self.parent_refusal(project, task, parent) {
+                replies.push(Reply::Asker(work_error(project, Some(task), refusal)));
+                return replies;
+            }
+        }
         self.with_task(project, task, |record| {
             let changed = match field {
                 TaskField::Shape(shape) => {
@@ -540,6 +549,48 @@ impl Work {
                 TaskField::Kind(kind) => {
                     let changed = record.kind != kind;
                     record.kind = kind;
+                    changed
+                }
+                TaskField::Level(level) => {
+                    let changed = record.level != level;
+                    record.level = level;
+                    changed
+                }
+                TaskField::Parent(parent) => {
+                    let changed = record.parent != parent;
+                    record.parent = parent;
+                    changed
+                }
+                TaskField::References(references) => {
+                    let mut seen = HashSet::new();
+                    let references: Vec<TaskId> = references
+                        .into_iter()
+                        .filter(|id| *id != record.id && seen.insert(*id))
+                        .collect();
+                    let changed = record.references != references;
+                    record.references = references;
+                    changed
+                }
+                // The whole list, replaced, exactly as `References` above: trimmed, empties
+                // dropped, and the first of a repeated target kept. Nothing here parses the
+                // target — a `kb:` address and a project path are both strings the host stores.
+                TaskField::Attachments(attachments) => {
+                    let mut seen = HashSet::new();
+                    let attachments: Vec<Attachment> = attachments
+                        .into_iter()
+                        .filter_map(|mut attachment| {
+                            attachment.target = attachment.target.trim().to_string();
+                            attachment.label = attachment
+                                .label
+                                .map(|label| label.trim().to_string())
+                                .filter(|label| !label.is_empty());
+                            (!attachment.target.is_empty()
+                                && seen.insert(attachment.target.clone()))
+                            .then_some(attachment)
+                        })
+                        .collect();
+                    let changed = record.attachments != attachments;
+                    record.attachments = attachments;
                     changed
                 }
                 TaskField::Complexity(complexity) => {
@@ -726,9 +777,38 @@ impl Work {
             project_id: project,
             task_id: task,
         }));
+        replies.extend(self.orphan_children(project, task));
         replies.extend(self.keep(project));
         replies.extend(self.unlink(project, task));
         replies
+    }
+
+    /// Clear `parent` on every task that named the one just deleted, and say so.
+    ///
+    /// Deleting a parent orphans its children rather than refusing the delete or cascading it —
+    /// refusing makes a board unclearable, cascading deletes work the user did not select. Each
+    /// orphaned child gets its own [`Message::TaskChanged`] so a window's board redraws it without
+    /// the parent breadcrumb, not just the store losing the link underneath it.
+    fn orphan_children(&mut self, project: ProjectId, parent: TaskId) -> Vec<Reply> {
+        let Some(list) = self.loaded.get_mut(&project) else {
+            return Vec::new();
+        };
+        let now = Utc::now();
+        let mut changed = Vec::new();
+        for record in list.iter_mut().filter(|t| t.parent == Some(parent)) {
+            record.parent = None;
+            record.updated_at = now;
+            changed.push(record.clone());
+        }
+        changed
+            .into_iter()
+            .map(|task| {
+                Reply::Asker(Message::TaskChanged {
+                    project_id: project,
+                    task,
+                })
+            })
+            .collect()
     }
 
     pub fn add_step(&mut self, project: ProjectId, task: TaskId, title: String) -> Vec<Reply> {
@@ -999,6 +1079,34 @@ impl Work {
             .is_some_and(|mock| mock.sessions.iter().any(|s| s.id == session));
         (!known).then_some("no such session")
     }
+
+    /// Why `task` cannot be given `parent`, if there is a reason.
+    ///
+    /// **Call `prepare` first** — like [`Self::no_such_session`], this reads the loaded list
+    /// rather than minting it. Depth is capped at one: `parent` must not itself have a parent, and
+    /// `task` must not already be somebody else's parent, which between them removes the need for
+    /// any cycle check — a chain three deep would need one of the two to be both a parent and a
+    /// child, and both are refused. Only a task carrying a [`crate::work::Level`] may be a parent
+    /// at all.
+    fn parent_refusal(&self, project: ProjectId, task: TaskId, parent: TaskId) -> Option<String> {
+        if parent == task {
+            return Some("a task cannot be its own parent".to_string());
+        }
+        let list = self.loaded.get(&project)?;
+        let Some(parent_record) = list.iter().find(|t| t.id == parent) else {
+            return Some("no such task".to_string());
+        };
+        if parent_record.level.is_none() {
+            return Some("only a task with a level can be a parent".to_string());
+        }
+        if parent_record.parent.is_some() {
+            return Some("a task with a parent cannot itself be a parent".to_string());
+        }
+        if list.iter().any(|t| t.parent == Some(task)) {
+            return Some("a task with children cannot itself become a child".to_string());
+        }
+        None
+    }
 }
 
 /// Give each mock agent the task its session is working on, and no task at all when its session is
@@ -1023,6 +1131,20 @@ fn link(agents: &mut [WorkAgent], tasks: &[TaskRecord]) {
                     && matches!(t.status, Status::InProgress | Status::InReview)
             })
             .map(|t| t.id);
+    }
+}
+
+/// Drop a `parent` or a `reference` naming no task in the list, the way an unknown label would be
+/// handled — existence is all this checks. Depth and the level rule are enforced only where a live
+/// edit sets a parent, in [`Work::parent_refusal`], so data written before that rule existed, or
+/// hand-edited into something it no longer satisfies, still loads rather than being refused.
+fn sanitize_relations(list: &mut [TaskRecord]) {
+    let ids: HashSet<TaskId> = list.iter().map(|t| t.id).collect();
+    for task in list.iter_mut() {
+        if task.parent.is_some_and(|parent| !ids.contains(&parent)) {
+            task.parent = None;
+        }
+        task.references.retain(|id| ids.contains(id));
     }
 }
 

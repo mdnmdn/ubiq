@@ -141,6 +141,22 @@ form asks, since a profile is a saved answer to them. The skills, MCP servers, h
 isolation and `extends` chain a `Profile` can carry are still written by hand, because nothing
 lists the catalog on the wire.
 
+**A profile can belong to a project, and belonging is a location** (`D158`). Beside the global
+root there is one store per project, rooted at `<root>/projects/<id>/profiles`, and nothing about
+the record says which — `Agents::project_profiles` stamps `ProfileInfo::project` from the root it
+read, and `save_profile` writes into the root that field names. Forgetting a project already
+removes `<root>/projects/<id>` whole, so its profiles go with it without `Projects::forget`
+knowing they were there.
+
+`compose_run` is handed **both**, as one `agent_manager::profile::ScopedProfileStore` over the
+global store and — when the run belongs to a project — that project's: a name resolves in the
+project first and in the global root second, so a project profile shadows a global one of the same
+name inside that project and nowhere else. `ConverseOptions::project` is what says which project,
+and `None` (a login pane, anything outside a project) is the global root alone, exactly as before
+this existed. The library resolves the `extends` chain through the same pair, which is where a
+global profile naming a project-scoped parent is refused — beside the cycle and depth refusals, in
+`profile::resolve_chain`, and never here.
+
 **A workspace has two faces, and `agent.rs` composes both.** `Agents::compose` is the terminal one:
 `IoModes::Passthrough`, and a launch to exec under a pseudo-terminal. `Agents::converse` is the
 other: `IoModes::Structured`, and a `structured_bridge` over the harness's own JSON instead of a

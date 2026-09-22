@@ -3493,6 +3493,77 @@ left it saying — so the stale entry survives until they arrange something, and
 for again on every visit until then. A click on a region switch whose furniture the user has dragged
 to the other edge does nothing visible, which is the honest answer but a silent one.
 
+### D157 — A plan's edit provenance is a per-line stamp in the annotations sidecar, and its origin is fixed at the entry point
+
+A plan editor a human types in raises a question the annotation layer is built not to answer: *where
+has a person changed the plan I wrote?* `D`ecision 4's block matcher deliberately carries a block's
+id across a rewording — that is the whole point of it, and why an annotation survives its passage
+being edited — so "this block is the same block" and "nobody touched this block" are the same
+answer, and one of them is wrong. Provenance therefore counts **lines**, beside the block layer
+rather than on top of it.
+
+**The origin is established where the save enters the host and never inferred.**
+`Message::SavePlan` is the interface's message and nothing else sends one, so the host stamps
+`Human` on arrival; `ubiq-plan`'s `write_plan` is the only route to `Agent`, and stamps it with the
+calling agent's own key. `SavePlan` carries no origin field and must never grow one — a field would
+be a request, and an agent could then ask to be recorded as a person. `crate::plan::Saver` exists to
+make that structural rather than conventional: its only constructors are `human()` and `agent(key)`,
+there are exactly two call sites, and nothing downstream has either the information or the
+opportunity to decide differently.
+
+**The stored form is one stamp per line, rebased on every save, not a log replayed on demand.** A
+changed-line run recorded at revision *N* is numbered in revision *N*'s body, and every later edit
+above it moves it; answering "what changed since revision *N*" from such a log means replaying every
+intervening diff on every query. Instead each save walks the new body once — a touched line takes
+the new stamp, a line that merely moved carries its old one along the diff's own old-to-new mapping
+— so the accumulation is paid once per save, is always expressed in the *current* body's line
+numbers, and is what a window can decorate from with no further work. It is kept as runs rather than
+one record per line, which is the same information in a file a person can still read.
+
+**It goes in the existing `<TaskId>.annotations.json`**, as three additive `serde(default)` fields,
+not a sibling file. `store/plan.rs` argues the block index and the threads are one fact and
+must be written together; the provenance is a third reading of the *same* comparison — a save
+re-matches blocks and re-stamps lines against one previous body — so a sibling file buys nothing and
+risks the two being a save apart. The envelope version is unchanged, and an older sidecar loads with
+revision `0` and no stamps.
+
+**Cost:** three of them. An unstamped line is not a changed line, so every plan that existed before
+this layer reports "nothing known to have changed" until someone saves it — the honest answer, but a
+silent one, and it means the layer is only as old as its adoption. A pure deletion has no line left
+in the new body to stamp, so it marks the surviving neighbour below it; the count is exact but the
+*place* is approximate by one line, which was judged better than a human deleting a paragraph being
+invisible to the agent that wrote it. And the per-save counts are capped at the last 500 revisions,
+so `human_revisions` for a watermark older than that is short — the stamps that answer *where* are
+complete for all time, but the tally that answers *how much* is not.
+
+### D158 — A profile's scope is where it is stored, and inheritance may only point outwards
+
+A profile can be written inside a project and is then offered there and nowhere else. Two ways to
+say so: a `project` field on the record in one flat store, or a second store rooted under the
+project's own directory. **The location is the scope.** A project profile is deleted when the
+project is, and copied when the project is, because it sits under `<config root>/projects/<id>/
+profiles/` — and a file whose location *is* its scope cannot contradict itself, where a
+`project = X` field can sit in the global root and lie. `ProfileInfo` still gains a `project` field,
+because the interface has to label a row it did not read off a path; that field is the host
+reporting a location, never a record claiming one.
+
+**Inheritance points outwards only.** A project profile may `extends` a global one — specialising
+the standard setup is the obvious want — and may extend another in the same project. A global
+profile extending a project-scoped one is **refused**, in `profile::resolve_chain`, beside the
+cycle and depth refusals and in the same voice: a global profile resolves everywhere, and a
+dependency on a project that may not exist on this machine, or may be forgotten tomorrow, would
+make it compose in one place and fail in another. Across projects is not a rule at all but an
+impossibility: a run resolves through one project's store, so another project's profile is not a
+name it can see.
+
+**Cost:** three. The refusal can only be *reached* by a hand-edited `profile.toml` — Ubiq's own
+form writes no `extends` — so it surfaces as a launch failing with that sentence rather than as a
+form refusing to save, which is late. A project profile is invisible to every surface that has no
+project in hand, including the new-mission dialog's assistant picker, so a project-scoped assistant
+cannot be picked there yet (`_docs/backlog.md`). And two roots mean two traversals for one list:
+`Message::Profiles` carries every project's profiles to every window, which is one message rather
+than a per-project ask, and is only cheap while a catalogue holds tens of projects.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce

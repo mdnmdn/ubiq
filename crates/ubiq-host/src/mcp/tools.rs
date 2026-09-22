@@ -26,10 +26,10 @@ use ubiq_proto::messages::Message;
 use ubiq_proto::notifications::{Family, Level, NotificationRequest};
 
 use super::catalogue::{
-    MANAGE_UBIQ_TASKS, PROJECT_INFO, TEST, UBIQ_ASK, UBIQ_HELP, UBIQ_KB, USE_TASK,
+    MANAGE_UBIQ_TASKS, PROJECT_INFO, TEST, UBIQ_ASK, UBIQ_HELP, UBIQ_KB, UBIQ_PLAN, USE_TASK,
 };
 use super::registry::AgentFacts;
-use super::{AskReach, HelpReach, KbReach, WorkAccess};
+use super::{AskReach, HelpReach, KbReach, PlanReach, WorkAccess};
 
 /// Call one tool. `server` and `tool` have already been matched against the catalogue's server;
 /// the tool has not, so an unknown one ends here as the in-band error a model sees.
@@ -41,6 +41,7 @@ pub fn call(
     facts: &AgentFacts,
     voice: &Voice,
     work: Option<&WorkAccess>,
+    plan: Option<&PlanReach>,
     kb: Option<&KbReach>,
     help: Option<&HelpReach>,
     ask: Option<&AskReach>,
@@ -59,6 +60,11 @@ pub fn call(
             let access =
                 work.ok_or_else(|| "this host has no task board for agents to use".to_string())?;
             super::tasks::use_call(tool, arguments, facts, access)
+        }
+        (UBIQ_PLAN, _) => {
+            let reach =
+                plan.ok_or_else(|| "this host has no plan store for agents to reach".to_string())?;
+            super::plan::call(tool, arguments, facts, reach)
         }
         (UBIQ_KB, _) => {
             let reach = kb

@@ -207,6 +207,27 @@ pub fn render_linked(
         .into_any_element()
 }
 
+/// One block's own markdown, drawn standalone rather than as part of a whole document.
+///
+/// The plan annotation panel's own unit (`ui/plan.rs`): a task's plan arrives from the host
+/// already split into [`ubiq_proto::plan::PlanBlock`]s, and each is rendered through this rather
+/// than through [`render`] so that a block can be its own clickable, hit-testable element — the
+/// granularity `_docs/wip/planning-system.md` (staging slice 4) settles for, in place of a
+/// character-range selection model. It shares [`render`]'s fence support: a block that is itself a
+/// ` ```mermaid ` fence still resolves and draws through `super::diagram`, keyed on its own id so
+/// it does not collide with the whole document's scan.
+///
+/// Not scrollable and not padded like a full document — a block is short by construction, and it
+/// sits inside a container the caller already gives padding and a click target.
+pub fn render_block(app: &AppState, key: &str, text: &str) -> AnyElement {
+    let (_, body) = scan_and_publish(app, key, text);
+    TextView::markdown(eid("md-block", key), body)
+        .markdown_extensions(extensions().clone())
+        .text_size(theme::font(theme::Family::Content, theme::Role::Body))
+        .selectable(true)
+        .into_any_element()
+}
+
 /// Split YAML frontmatter from the Markdown body.
 ///
 /// Returns `(Some(yaml), body)` when the source opens with `---\n`, or `(None, source)` when it

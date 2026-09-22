@@ -53,16 +53,25 @@ pub struct AskRecord {
     /// One per question, in step with [`Self::questions`].
     pub drafts: Vec<AskDraft>,
     pub stage: AskStage,
+    /// How many blocks the conversation held when this ask was filed — `conversation.blocks.len()`
+    /// at that moment, not this ask's own position in [`Conversation::asks`].
+    ///
+    /// The transcript row this ask draws is placed just before the first block-anchored row whose
+    /// block index is `>= at_block`, which is what puts it where it actually arrived rather than
+    /// always at the tail: a block appended later has a higher index, so the row stays put as the
+    /// transcript grows underneath it.
+    pub at_block: usize,
 }
 
 impl AskRecord {
-    pub fn new(ask_id: AskId, questions: Vec<AskQuestion>) -> Self {
+    pub fn new(ask_id: AskId, questions: Vec<AskQuestion>, at_block: usize) -> Self {
         let drafts = vec![AskDraft::default(); questions.len()];
         Self {
             ask_id,
             questions,
             drafts,
             stage: AskStage::Waiting,
+            at_block,
         }
     }
 
@@ -169,4 +178,8 @@ pub struct AskDialog {
     pub ask_id: AskId,
     /// Which question's tab is up.
     pub tab: usize,
+    /// The option the keyboard is on, for the current tab — `options.len()` is "Other". Reset to
+    /// `0` on every tab switch, since a cursor left where the previous question's list ended would
+    /// read as a pick on a question it never visited.
+    pub cursor: usize,
 }

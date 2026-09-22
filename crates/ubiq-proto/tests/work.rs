@@ -12,8 +12,8 @@ use chrono::{DateTime, Utc};
 use ubiq_proto::ids::{ProjectId, SessionId, StepId, TaskId, WorkspaceId};
 use ubiq_proto::messages::Message;
 use ubiq_proto::work::{
-    Activity, AgentId, Bucket, Comment, CommentAuthor, Complexity, Kind, Label, Priority, Shape,
-    Speaker, Status, Step, StepState, TaskRecord,
+    Activity, AgentId, Attachment, Bucket, Comment, CommentAuthor, Complexity, Kind, Label, Level,
+    Priority, Shape, Speaker, Status, Step, StepState, TaskRecord,
 };
 
 /// A fixed instant, so the record under test is the same one on every run.
@@ -51,6 +51,16 @@ fn a_task_with_everything_on_it_survives_the_wire_unchanged() {
         priority: Priority::High,
         shape: Some(Shape::Coordinated),
         kind: Some(Kind::Feature),
+        level: Some(Level::Mission),
+        parent: Some(TaskId::generate()),
+        references: vec![TaskId::generate(), TaskId::generate()],
+        attachments: vec![
+            Attachment::new("docs/spec.md"),
+            Attachment {
+                target: "kb:01JABCDEF0123456789ABCDEFG:notes/plan.md".to_string(),
+                label: Some("the plan".to_string()),
+            },
+        ],
         complexity: Some(Complexity::Medium),
         assigned_to: Some("ada".to_string()),
         key: Some("UBQ-1".to_string()),
@@ -126,6 +136,14 @@ fn what_a_task_does_not_have_is_absent_from_the_encoding_rather_than_null() {
     assert!(
         !json.contains("assigned_to"),
         "a task nobody has claimed names nobody: {json}"
+    );
+    assert!(
+        !json.contains("parent"),
+        "a task nobody made a child names no parent: {json}"
+    );
+    assert!(
+        !json.contains("reference"),
+        "no references is no array, not an empty one: {json}"
     );
     // The keys that are always there, so the absences above are absences and not a typo.
     for key in ["id", "status", "priority", "title", "created_at"] {

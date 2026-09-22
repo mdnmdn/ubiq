@@ -19,8 +19,8 @@ use crate::state::RailMode;
 use crate::theme;
 use crate::ui::sink::project as project_settings;
 use crate::ui::{
-    git, handler, kit, new_agent, rail, remote_connect, remote_hosts, ribbon, settings, status_bar,
-    titlebar,
+    git, handler, kit, new_agent, new_mission, rail, remote_connect, remote_hosts, ribbon,
+    settings, status_bar, titlebar,
 };
 
 pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> impl IntoElement {
@@ -207,6 +207,14 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .as_ref()
                 .map(|_| new_agent::render(app, window, cx)),
         )
+        // The new-mission dialog, raised from the tasks board's toolbar rather than from
+        // anything drawn here — painted at the window root the same way the New agent modal is.
+        .children(
+            app.workbench
+                .new_mission
+                .as_ref()
+                .map(|_| new_mission::render(app, window, cx)),
+        )
         // The profile form, painted beside the login modal: both are raised from the harnesses
         // section, and only one is ever up.
         .children(
@@ -350,6 +358,14 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .all_projects
                 .as_ref()
                 .map(|_| crate::ui::all_projects::render(app, window, cx)),
+        )
+        // A task's plan, read as rendered markdown — raised from the task panel, over whatever
+        // else is up, on the same terms the modals above it are.
+        .children(
+            app.workbench
+                .plan
+                .as_ref()
+                .map(|_| crate::ui::plan::render(app, window, cx)),
         )
         // The file question a gesture in the explorer or a save on an untitled buffer asked —
         // painted here rather than from either, because both raise the same one.

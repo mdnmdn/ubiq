@@ -5,10 +5,8 @@
 //! shape beside it, it does not add a vocabulary. Six states share four colours, and the glyph is
 //! what tells `Thinking` from `Tools` and `Idle` from `Needs you`.
 //!
-//! **No glyph is invented at draw time.** Four come from the registry's `pane` set, which was
-//! drawn for exactly these readings; the rest are Lucide's, taken as they come. Two of them —
-//! `Writing` and `Tools` — are the closest existing mark rather than one drawn for the state, and
-//! are the set's outstanding gap.
+//! **No glyph is invented at draw time.** Six come from the registry's `pane` set, which was
+//! drawn for exactly these readings; the rest are Lucide's, taken as they come.
 
 use gpui::{
     ElementId, InteractiveElement as _, IntoElement, ParentElement, Rgba,
@@ -29,8 +27,8 @@ pub fn status_icon(status: AgentStatus) -> Icon {
         // The harness is working with nothing measurable to report — the goal `pane-thinking` was
         // drawn for.
         AgentStatus::Thinking => Icon::new(UbiqIcon::PaneThinking),
-        AgentStatus::Writing => Icon::new(IconName::FileText),
-        AgentStatus::Tools => Icon::new(IconName::SquareTerminal),
+        AgentStatus::Writing => Icon::new(UbiqIcon::PaneWriting),
+        AgentStatus::Tools => Icon::new(UbiqIcon::PaneTools),
         // The one state a reader has to act on, and the one mark the window already uses for it.
         AgentStatus::NeedsYou => Icon::new(UbiqIcon::PaneAwaiting),
         AgentStatus::Idle => Icon::new(IconName::Pause),

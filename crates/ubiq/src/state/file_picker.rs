@@ -20,9 +20,11 @@
 
 use std::collections::HashSet;
 
+use ubiq_proto::ids::TaskId;
 use ubiq_proto::work::AgentId;
 
 use crate::state::explorer::{FileNode, NodeKind};
+use crate::state::kb::{KbSourceView, kb_tab_key};
 
 /// What the picker hands back.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -110,6 +112,14 @@ pub enum PickerOwner {
     /// Carries no host and no path for exactly `HostProject`'s reason — `crate::app::host_browse`
     /// holds the session, and the answer is folded into the "Add source" form rather than sent.
     KbFolder,
+    /// A task's stored attachment list, which is the one picker whose answer **crosses the bus**:
+    /// a conversation's attachments are folded into the prompt text and die with the draft, and a
+    /// task's live on the record (`ubiq_proto::work::Attachment`). Carries the task because the
+    /// answer becomes a `SetTaskField` and has to name one, and nothing else maps a picker back to
+    /// the card that raised it.
+    TaskAttachment {
+        task: TaskId,
+    },
 }
 
 /// Everything a caller says when it raises a picker.
@@ -317,6 +327,69 @@ pub fn forest_from_explorer(nodes: &[FileNode]) -> Vec<PickerNode> {
             ),
             children: match &node.kind {
                 NodeKind::Dir { children, .. } => Some(forest_from_explorer(children)),
+                NodeKind::File => None,
+            },
+        })
+        .collect()
+}
+
+/// What the knowledge base's folder is called in a picker that offers one.
+pub const KB_FOLDER_NAME: &str = "Knowledge base";
+
+/// The knowledge base as one folder in a picker forest, or `None` when no source is configured.
+///
+/// **A KB document is picked by its address, not by a path.** Every node under here carries
+/// `kb:{source}:{path}` — the same key space [`crate::state::kb::kb_tab_key`] gives a KB tab, and
+/// exactly what `ubiq_proto::work::Attachment` stores — so the answer that comes back out of the
+/// dialog is already the thing that goes on the record. The picker itself learns nothing: it is
+/// told a path is a path, the way it is told the explorer's are project-relative and a host
+/// browse's are absolute.
+///
+/// **The container rows are not answers.** This folder and each source's own row exist to be
+/// walked into; they are never picked, because a caller raising this asks for
+/// [`PickKind::Files`]. That is what keeps `kb:` and `kb:{source}:` — which name no document —
+/// from ever reaching a record.
+///
+/// Only what the KB panel has already listed is in it, on exactly
+/// [`forest_from_explorer`]'s reasoning: this reads the window's own tree and asks the host for
+/// nothing.
+pub fn forest_from_kb(sources: &[KbSourceView]) -> Option<PickerNode> {
+    if sources.is_empty() {
+        return None;
+    }
+    let children = sources
+        .iter()
+        .map(|source| {
+            PickerNode::dir(
+                source.name(),
+                &kb_tab_key(source.id(), ""),
+                kb_children(source.id(), &source.children),
+            )
+        })
+        .collect();
+    Some(PickerNode::dir(KB_FOLDER_NAME, "kb:", children))
+}
+
+/// One source's listed tree, with every path rewritten into its knowledge-base address.
+fn kb_children(source: ubiq_proto::ids::KbSourceId, nodes: &[FileNode]) -> Vec<PickerNode> {
+    nodes
+        .iter()
+        .map(|node| PickerNode {
+            name: node.name.clone(),
+            path: kb_tab_key(source, &node.path),
+            size: node.size,
+            readable: node.readable,
+            hidden: node.name.starts_with('.'),
+            listed: true,
+            truncated: matches!(
+                &node.kind,
+                NodeKind::Dir {
+                    truncated: true,
+                    ..
+                }
+            ),
+            children: match &node.kind {
+                NodeKind::Dir { children, .. } => Some(kb_children(source, children)),
                 NodeKind::File => None,
             },
         })

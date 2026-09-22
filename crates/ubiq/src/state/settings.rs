@@ -646,7 +646,16 @@ pub struct SettingsState {
     pub accounts: Vec<AccountInfo>,
     /// The saved setups the host holds — a harness plus the identity, model and mode to start it
     /// with. References only, like `accounts`, and only ever what the host last said.
+    ///
+    /// **The global ones only.** A profile written inside a project is visible only there, so it
+    /// is held separately in [`Self::project_profiles`] rather than filtered out of this list at
+    /// every read: this field is what the app-wide settings screen lists and what every surface
+    /// with no project in hand offers, and both are right without knowing scoping exists.
     pub profiles: Vec<ProfileInfo>,
+    /// The project-scoped setups, every project's in one list, each carrying its own
+    /// [`ProfileInfo::project`]. Read through [`Self::profiles_in`], never directly — a surface
+    /// that means "the profiles on offer here" wants the global ones too.
+    pub project_profiles: Vec<ProfileInfo>,
     /// The profile form, while one is up. The same form the New agent modal is drawn from — a
     /// profile is a saved answer to the same questions — with the name read out of its field at
     /// save time, the way the login modal reads its own.
@@ -834,6 +843,33 @@ impl SettingsState {
             .collect()
     }
 
+    /// The profiles on offer inside `project`: that project's own first, then every global one
+    /// it does not shadow by name.
+    ///
+    /// `None` — a surface with no project in hand — is the global list alone, which is what the
+    /// app-wide settings screen draws and what every start outside a project sees. This is the
+    /// interface's copy of the rule the host resolves a run by, so a name means the same thing
+    /// in the picker as it does at launch.
+    pub fn profiles_in(&self, project: Option<ProjectId>) -> Vec<ProfileInfo> {
+        let Some(project) = project else {
+            return self.profiles.clone();
+        };
+        let scoped: Vec<ProfileInfo> = self
+            .project_profiles
+            .iter()
+            .filter(|it| it.project == Some(project))
+            .cloned()
+            .collect();
+        let mut offered = scoped.clone();
+        offered.extend(
+            self.profiles
+                .iter()
+                .filter(|global| !scoped.iter().any(|it| it.id == global.id))
+                .cloned(),
+        );
+        offered
+    }
+
     /// One configured provider by id, for a form, a test or a removal that holds only the id.
     /// Absent for a provider another window has since removed, which is what keeps a stale
     /// dialog from drawing a record that no longer exists.
@@ -884,6 +920,7 @@ impl Default for SettingsState {
             host: HostSettings::default(),
             accounts: Vec::new(),
             profiles: Vec::new(),
+            project_profiles: Vec::new(),
             profile_form: None,
             bundled: Vec::new(),
             app_form: None,
@@ -1071,9 +1108,10 @@ pub fn quota_tip(snapshot: &QuotaSnapshot, now_ms: i64) -> String {
         }
     }
 
-    match &snapshot.plan {
-        Some(plan) => tip.push_str(&format!(" \u{b7} plan {plan}")),
-        None => tip.push_str(" \u{b7} plan not stated"),
+    // A plan the provider never named is not drawn as a guess — no placeholder, no dash, nothing
+    // where the sentence would otherwise have said what it does not know.
+    if let Some(plan) = &snapshot.plan {
+        tip.push_str(&format!(" \u{b7} plan {plan}"));
     }
     if snapshot.as_of > 0 {
         tip.push_str(&format!(
@@ -1327,7 +1365,7 @@ mod tests {
         assert_eq!(
             quota_tip(&snapshot, HOUR),
             "claude-code \u{b7} work \u{2014} 5 hours: 7% used \u{b7} resets in 1 hour; \
-             Week: 88% used \u{b7} plan not stated \u{b7} pushed by this turn"
+             Week: 88% used \u{b7} pushed by this turn"
         );
     }
 
@@ -1344,8 +1382,24 @@ mod tests {
         };
         assert_eq!(
             quota_tip(&snapshot, 0),
-            "codex \u{b7} work \u{2014} no limit stated \u{b7} plan not stated \u{b7} \
-             pushed by this turn"
+            "codex \u{b7} work \u{2014} no limit stated \u{b7} pushed by this turn"
+        );
+    }
+
+    /// A plan the provider never named draws nothing for it at all — no placeholder, no dash,
+    /// where a plan it did name would have read `plan max`.
+    #[test]
+    fn a_tip_with_no_plan_says_nothing_about_one() {
+        let snapshot = QuotaSnapshot {
+            account: "work".to_string(),
+            harness: "claude-code".to_string(),
+            plan: None,
+            gauges: Vec::new(),
+            as_of: 0,
+        };
+        assert_eq!(
+            quota_tip(&snapshot, 0),
+            "claude-code \u{b7} work \u{2014} no limit stated \u{b7} pushed by this turn"
         );
     }
 }

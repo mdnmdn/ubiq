@@ -25,6 +25,9 @@
 //! - `tools`: what the built-in tools actually do
 //! - `tasks`: the `manage-ubiq-tasks` server, talking to [`crate::work::Work`] through a shared
 //!   handle
+//! - `plan`: the `ubiq-plan` server, reading and writing a task's plan through
+//!   [`crate::plan::Plans`] on the same shape — its own server rather than more tools on
+//!   `manage-ubiq-tasks`, so that one keeps a name that still describes it
 //! - `kb`: the `ubiq-kb` server, reaching the project's knowledge base through [`crate::kb`] and
 //!   its `ops` on the same shape
 //! - `help`: the `ubiq-help` server, reaching Ubiq's own documentation through [`crate::help`] —
@@ -43,6 +46,7 @@ mod ask;
 pub mod catalogue;
 mod help;
 mod kb;
+mod plan;
 pub mod registry;
 pub mod server;
 mod tasks;
@@ -64,6 +68,20 @@ pub use server::{Serving, start};
 /// coordinator uses, so an agent and a window never disagree about what the file holds.
 pub struct WorkAccess {
     pub work: work::Handle,
+    pub everyone: Mailbox,
+}
+
+/// How the `ubiq-plan` tools reach a task's plan, and how they tell every window what changed.
+///
+/// **Just the plan store, deliberately.** The level check every plan operation needs — a plan
+/// belongs to any task carrying a [`ubiq_proto::work::Level`], not to an ordinary task — happens
+/// inside [`crate::plan::Plans`] itself, which holds its own [`work::Handle`] for exactly that.
+/// The tool handlers in [`super::plan`] never see a work handle at all: they call
+/// [`crate::plan::Plans::load`] / [`crate::plan::Plans::save`] and read the refusal, if any, back
+/// out of the [`crate::reply::Reply`] list those already return. On the decision recorded in
+/// `_docs/wip/planning-system.md` — `PlanReach` holds the plan store, not the work handle.
+pub struct PlanReach {
+    pub plans: crate::plan::Handle,
     pub everyone: Mailbox,
 }
 

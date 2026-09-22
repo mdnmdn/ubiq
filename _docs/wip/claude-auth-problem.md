@@ -3,7 +3,7 @@ id: wip-claude-auth-problem
 title: Claude credentials vanish from a run directory
 kind: wip
 status: current
-summary: A Claude Code pane loses its OAuth login after some hours. Root cause found: Claude Code stores the login in a macOS keychain item keyed by sha256 of $CLAUDE_CONFIG_DIR whenever the keychain is reachable, migrating the seeded .credentials.json into it and deleting the file, so every refresh is invisible to agent-manager and a per-run config dir makes the key per-run. The fix denies a Claude run the login keychain. This is the full record — evidence, the discarded hypotheses, the fix as landed, and what to check if it is not resolutive.
+summary: "A Claude Code pane loses its OAuth login after some hours. Root cause found: Claude Code stores the login in a macOS keychain item keyed by sha256 of $CLAUDE_CONFIG_DIR whenever the keychain is reachable, migrating the seeded .credentials.json into it and deleting the file, so every refresh is invisible to agent-manager and a per-run config dir makes the key per-run. The fix denies a Claude run the login keychain. This is the full record — evidence, the discarded hypotheses, the fix as landed, and what to check if it is not resolutive."
 read_when: you are working on Claude account credentials, the per-run config directory, the isol8 policy a run gets, or the token write-back
 updated: 2026-09-14
 verified: 2026-09-14

@@ -40,7 +40,7 @@ use gpui_component::input::Input;
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use ubiq_proto::ids::TaskId;
-use ubiq_proto::work::{Status, TaskRecord};
+use ubiq_proto::work::{Level, Status, TaskRecord};
 
 use crate::app::AppState;
 use crate::state::work;
@@ -249,6 +249,15 @@ fn toolbar(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl 
             Some(IconName::Plus),
             "New agent",
             cx.listener(|this, _, window, cx| this.open_new_agent_direct(window, cx)),
+        ))
+        // The mission dialog's own entry point, beside the ordinary ways a task is made — labelled
+        // with the project's own word for a mission, the same reading `ui::board::detail` already
+        // gives the level chip.
+        .child(ghost_button(
+            "board-new-mission",
+            Some(IconName::Plus),
+            format!("New {}", app.mission_term(cx).to_lowercase()),
+            cx.listener(|this, _, window, cx| this.open_new_mission(window, cx)),
         ))
         .child(primary_button(
             "board-new-task",
@@ -557,6 +566,19 @@ fn task_card(
                 .flex_none()
                 .items_center()
                 .gap_1p5()
+                // A mission leads the row, in the accent colour and the project's own word for it,
+                // so it reads as a mission before anything else on the card is read.
+                .children(
+                    (task.level == Some(Level::Mission))
+                        .then(|| chip(app.mission_term(cx), theme::accent())),
+                )
+                // How many children it has, beside the mission chip that makes it eligible to
+                // have any — a mission with none draws no chip, the same as every other mark
+                // here that has nothing to say.
+                .children({
+                    let count = work.child_count(id);
+                    (count > 0).then(|| chip(format!("{count}"), theme::text_muted()))
+                })
                 // What the task is called elsewhere, what kind of work it is and what it is
                 // labelled: three facts a card draws only where somebody has filled them in. A
                 // card with none of them is a title and its marks, which is what most of them are.

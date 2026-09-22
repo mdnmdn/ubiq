@@ -6,7 +6,7 @@ status: draft
 summary: A proposal for the planning flow — a mission/epic/user-story task type whose term is a setting, parent/child and task-to-task references, task attachments that cross the bus, a plan document stored beside the tasks carrying human and agent annotations, the editor that has to support selection, annotation and `/` commands, the MCP surface agents answer annotations through, the new-mission dialog that launches a planning assistant, a `mission assistant` profile flag and project-scoped profiles — each piece costed, with the decisions to take and a staging order.
 read_when: you are deciding how the planning flow is shaped, or picking the first slice of it to build
 updated: 2026-09-21
-code_anchors: [crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/mcp/server.rs, crates/agent-manager/src/profile.rs, crates/ubiq-host/src/agent.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/state/dock.rs]
+code_anchors: [crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/mcp/server.rs, crates/agent-manager/src/profile.rs, crates/ubiq-host/src/agent.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/state/dock.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/plan/blocks.rs, crates/ubiq-host/src/plan/lines.rs, crates/ubiq-host/src/plan/provenance.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq/src/app/plan.rs, crates/ubiq/src/state/plan.rs, crates/ubiq/src/state/document.rs, crates/ubiq/src/ui/plan.rs, crates/ubiq/src/ui/editor.rs]
 depends_on: [feat-workbench, tech-transport, tech-decisions, wip-kb, wip-web-panel-phase6]
 ---
 
@@ -169,18 +169,18 @@ The record needs a reference, not content — a project-relative path, or a KB a
 `kb:{source}:{path}` form the interface already serialises, plus an optional label. A pasted image
 reuses the chat's own path: written through `WriteProjectFile` into `.ubiq/pasted/`, then attached by
 path. The one genuinely new interface work is the picker: attaching from the knowledge base needs the
-file picker to offer KB sources, which it does not do today.
-
-Agents adding further references is the same `SetTaskField` from the MCP side, which is free once the
-field exists.
+file picker to offer KB sources, which it does not do today. Agents adding further references is the
+same `SetTaskField` from the MCP side, free once the field exists.
 
 **Complexity: medium.** The field and its `TaskField` arm are small; the KB-aware picker is the cost,
 and it is interface-only work in `crates/ubiq/src/app/picker.rs` and the file picker state.
 
 ### The plan document
 
-A plan is a markdown document that belongs to a mission, exports as plain markdown, and carries
-annotations — ranges of the document with a thread of comments from humans and agents attached.
+A plan is a markdown document that belongs to any task carrying a `level` — not only to a mission
+subtype, and refused for a task with none — exports as plain markdown, on request rather than as a
+continuous mirror, and carries annotations — ranges of the document with a thread of comments from
+humans and agents attached.
 
 The card is explicit that the plan is stored **near the tasks, not inside the tasks file**, and that
 is right for a reason beyond taste: `tasks.toml` is rewritten whole on every mutation, so putting a
@@ -270,7 +270,6 @@ checkbox, one filter. `crates/agent-manager` gains no UI dependency, so `just co
 supports this today: the store root is `<config root>/profiles`, and neither `Profile` nor
 `ProfileInfo` carries a project id. Two routes in decision 8 — a second store rooted under the
 project's own directory, or a `project: Option<ProjectId>` field on the record with one flat store.
-
 Either way the consumers multiply: profile listing, the settings screen, `compose_run`'s resolution,
 and `extends` — a project profile extending a global one is the obvious want, and a global one
 extending a project one has to be refused.
@@ -302,7 +301,7 @@ naturally: only a record with a `level` may be a parent.
 The display term is app-wide with a per-project override, and `ProjectRecord::index` is exactly that
 shape already.
 
-**Recommendation: `HostSettings::mission_term: String` with a default, and
+**Recommendation: `HostSettings::mission_term: String` defaulting to `"Mission"`, and
 `ProjectRecord::mission_term: Option<String>` where `None` means follow the app-wide value.** Copy
 `index`'s optionality rather than `search_excludes`'s union — a term is a value, not a set. The board
 reads it through the projection and nothing else in the tree knows the word exists.
@@ -424,33 +423,73 @@ different root, which is the cheapest half of the work either way.
 
 Each slice stands alone and is useful on the day it lands.
 
-1. **The mission task type and its term.** `level` on the record, the `TaskField` arm, the board's
-   card treatment, the app-wide setting and the project override. The board gains a mission that is
-   visibly a mission, and every later slice has something to hang off. Decisions 1 and 2 only.
-   *Unlocks: everything.*
-2. **Parent, children and references.** The `parent` field with the one-level rule, the reference
-   list, the child count on the card and the parent breadcrumb on the child. The board becomes a
-   two-level board and a mission becomes worth creating. Decision 3. *Unlocks: the mission dialog's
-   reason to exist.*
-3. **The plan as a stored markdown document, read-only in the interface.** The plan store, the
-   message family, a rendered markdown tab, and the `ubiq-plan` MCP server with read and write tools
-   and no annotations yet. An agent writes the plan, the user reads it, the mission has a document.
-   Decisions 4 (body half), 5 and 7. *Unlocks: the annotation layer, and it is the slice that proves
-   the storage choice before the editor is committed to.*
-4. **Annotations without an editor.** The sidecar format, block ids assigned on save, annotation
-   threads listed in a panel beside the rendered plan, and the MCP tools to list, reply and resolve —
-   with the `ubiq-ask` parking trick so an agent waits for the human inside its turn. Selections come
-   from the rendered view at whatever granularity the renderer allows; a whole block is enough to be
-   useful. Decision 4 in full. *Unlocks: the planning loop, complete except for the writing surface.*
-5. **The new-mission dialog and the assistant.** The modal, the `mission assistant` flag on `Profile`,
-   the filtered assistant picker, and the composed create-then-launch action with the briefing and the
-   MCP ticks. The flow the card opens with finally exists end to end. *Unlocks: the ask as written.*
-6. **The plan editor.** The plan as an editable text tab on the existing `EditorState`, annotated
-   ranges as a `TextDecorationCollection`, the thread popover over `range_to_bounds`, and `/`
-   commands as a `CompletionProvider`. Decision 6, taken with four slices of evidence behind it
-   instead of none.
-7. **Task attachments and project-scoped profiles.** Both are independent of the rest and can move
-   earlier if something else wants them; neither blocks anything above. Decision 8.
+1. **Built. The mission task type and its term.** `level: Option<Level>` on `TaskRecord`,
+   `TaskField::Level` promoting and demoting a task, the board card's leading accent chip and the
+   task panel's own Level switch, `HostSettings::mission_term` for the app-wide word and
+   `ProjectRecord::mission_term` for a project's own override, drawn as a Default/Custom pill pair
+   in the project's Tasks tab. Decisions 1 and 2, taken as recommended. The board draws a mission
+   that reads as one, and every later slice has something to hang off. *Unlocks: everything.*
+2. **Built. Parent, children and references.** `parent: Option<TaskId>` on the child and nothing on
+   the parent, `TaskField::Parent` enforcing the one-level rule host-side and refusing with
+   `WorkError` where it does not hold, `references: Vec<TaskId>` and `TaskField::References`
+   replacing the whole set, the board card's child-count chip beside the mission chip, and the task
+   panel's Parent picker and References chip list. Deleting a mission orphans its children rather
+   than cascading or refusing the delete. Decision 3, taken as recommended. The board is a two-level
+   board and a mission is worth creating. *Unlocks: the mission dialog's reason to exist.*
+3. **Built. The plan as a stored markdown document, read-only in the interface.** `FilePlanStore`
+   (`crates/ubiq-host/src/store/plan.rs`) writes one file per plan at
+   `<config root>/projects/<ProjectId>/plans/<TaskId>.md`; `crate::plan::Plans` holds the level
+   check and refuses the family for a task carrying no `level`, on `Work::parent_refusal`'s own
+   posture. `LoadPlan`, `SavePlan`, `DeletePlan` and `ExportPlan` cross the bus, answered by `Plan`,
+   `PlanDeleted`, `PlanExported`, `PlanChanged` and `PlanError`. A mission's task panel opens the
+   plan in a read-only modal over the tree's own Markdown renderer, rather than the rendered tab
+   first sketched — with an Export action writing an explicit one-shot copy into the project's
+   tree, never a continuous mirror. The `ubiq-plan` MCP server carries `read_plan` and `write_plan`.
+   Decisions 4 (body half), 5 and 7 as recommended, and decision 6's read-only middle position in
+   place of an editor. *Unlocks: the annotation layer, and it proved the storage choice first.*
+4. **Built. Annotations without an editor.** `PlanBlock`/`Annotation`/`AnnotationState`
+   (`crates/ubiq-proto/src/plan.rs`); `crates/ubiq-host/src/plan/blocks.rs` matches blocks across a
+   save (identical text, then word-Dice similarity, nearest in document order breaking ties) and
+   orphans, never deletes, a vanished block's annotations. The sidecar carries the index and the
+   threads; `ListPlanAnnotations`, `AnnotatePlan`, `ReplyToAnnotation` and `ResolveAnnotation` cross
+   the bus. `ubiq-plan` gains `list_annotations`, `reply_annotation` and `resolve_annotation` — no
+   `annotate_plan`, and the `ubiq-ask` parking trick below was **not built**: an agent answers a
+   thread a human opened and does not wait inside its turn. The plan modal gains a thread panel
+   beside clickable block cards, whole-block selection only. Decision 4 short that trick.
+5. **Built. The new-mission dialog and the assistant.** `Profile::mission_assistant: Option<bool>`
+   folds in `flatten()` beside `max_subagents`, mirrored on `ProfileInfo` and a `Mission assistant`
+   checkbox under `Purpose::Profile`; `state/new_mission.rs::assistants()` filters the picker to
+   profiles ticked true, and `mission_briefing()` is the one place the opening turn's text lives.
+   `start_new_mission()` composes the launch from existing messages — `CreateTask`, then on
+   `TaskCreated` a `SetTaskField(Level::Mission)`, the description's `UpdateTask`, a
+   `StartConversation` ticking `manage-ubiq-tasks` and `ubiq-plan`, and the briefing's `PromptAgent`
+   — parked on `BoardState::pending_mission` the way `PendingTask` parks an ordinary draft, needing
+   no wait between the two steps because the window mints the agent id and `launch_pending` launches
+   on the first prompt. Built on the reading that `require plan` is a reminder the briefing states,
+   not a gate. *Unlocks: the ask as written.*
+6. **Built. The plan editor.** Decision 6 taken as recommended, native on the existing editor, and
+   built **generic over a document rather than over a `TaskId`**: `crate::state::document`'s
+   `DocumentEditor` and `DocumentHandle` are the surface, the plan is the handle's one variant, and
+   `app/plan.rs`'s `impl DocumentHandle` is the only place a handle becomes a message. The window's
+   `plan_editor` is an ordinary `EditorState` with Source/Split/Preview on the file viewer's own
+   `ViewLayout`; `SavePlan` has its first caller (⌘S and Save), and an unsaved edit is never lost to
+   a concurrent write — the surface reports the other copy moved and keeps what was typed.
+   Annotated passages are one `TextDecorationCollection` painted from `block_ranges()`, which joins
+   the host's block ids to buffer offsets by a forward scan; a click inside one opens its thread
+   anchored by `range_to_bounds`; a selection in Source annotates with the passage as its quote, and
+   the preview keeps whole-block granularity. `/` is `ui::editor::SlashCommands`, the tree's only
+   `CompletionProvider`. **Not built: a second document.** Annotating an arbitrary project `.md`
+   needs a store for its body and a sidecar for its threads, and a sidecar inside a user's git
+   repository is a decision nobody has taken — the seam is the handle's second variant and nothing
+   else. *Unlocks: the planning loop with a writing surface in it.*
+   **Its proto and host half is built — edit provenance** (`D157`): a monotonic
+   `revision`, a `SaveOrigin` fixed at the entry point, a per-line stamp rebased on every save into
+   the same sidecar, `ListPlanChanges`/`PlanChanges`, and `ubiq-plan`'s `plan_changes`. Counted in
+   lines, because a reworded block keeps its id; nothing in `crates/ubiq` reads it yet.
+7. **Built, the profiles half.** A store per project under `<config root>/projects/<id>/profiles`,
+   read with the global one as a `ScopedProfileStore`; written from the project's Integrations tab,
+   deleted with the project. Decision 8 as recommended; `D158` rules `extends`. Attachments: the
+   other half.
 
 Slice 1 is one field, one enum, one setting and one card affordance. Slice 3 is the first one that
 costs a week.
@@ -459,21 +498,11 @@ costs a week.
 
 Each of these moves on a short answer.
 
-- **The term's default** — *mission*, *epic* or *user story*?
 - **Does `require plan` do anything mechanical**, or is it a reminder? It could gate the mission out
   of `Done` until a plan exists, or it could be a flag the assistant reads in its briefing.
-- **Can an ordinary task be promoted to a mission** after the fact, or is `level` fixed at creation?
 - **Does a child inherit anything from its parent** — labels, colour, session, assignee?
-- **Does a plan belong only to a mission**, or may any task carry one?
-- **Who may resolve an annotation** — only its author, or anyone? An agent?
-- **Is a plan exported on demand**, or mirrored into the project's working tree continuously?
-- **Does a project-scoped profile appear in the global settings screen at all**, labelled, or only
-  inside its project?
-- **May a project profile `extends` a global one?** The reverse must be refused either way.
-- **The `ubiq-agents` skill is stale** where it says the launch form sets only four
-  fields — the form draws the MCP checklist and `StartConversation` carries an `mcps` list. The code
-  is authoritative; the skill is what gets fixed, and this proposal's slice 5 is the change that will
-  touch it.
+- ~~Where a project-scoped profile appears, and which way `extends` may point~~ — answered by
+  `D158`: only inside its project, and outwards only.
 
 ## Related docs
 

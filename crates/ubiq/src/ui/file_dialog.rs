@@ -101,6 +101,24 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
             window,
             cx,
         ),
+        // The plan modal's Export, over it: a project-relative path to write the plan to,
+        // explicit and one-shot, the way `SaveAs` above already asks the same question for an
+        // untitled buffer.
+        Some(FileDialog::ExportPlan { .. }) => prompt_modal(
+            "app-plan-export",
+            "Export plan",
+            Some("Where in the project this plan is written, as plain markdown."),
+            "Path",
+            &app.file_name,
+            "Export",
+            !typed.is_empty(),
+            crate::ui::handler(&view, |this, window, cx| {
+                this.confirm_file_dialog(window, cx)
+            }),
+            crate::ui::handler(&view, |this, _, cx| this.close_file_dialog(cx)),
+            window,
+            cx,
+        ),
         // The image Text tool's click, waiting on its string. Answered into the capture;
         // an empty string leaves the question up rather than annotating nothing.
         Some(FileDialog::ImageText { .. }) => prompt_modal(

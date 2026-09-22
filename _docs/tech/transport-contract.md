@@ -5,9 +5,9 @@ kind: tech
 status: draft
 summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, quota, profile, command-line, host browse, connector, repository, assist, notification, web asset and carrier families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
-updated: 2026-09-20
-verified: 2026-09-20
-code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ask.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/feedback.rs, crates/ubiq-host/src/feedback/mod.rs, crates/ubiq-host/src/feedback/api.rs, crates/ubiq-host/src/feedback/issues.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq-drone/src/search.rs]
+updated: 2026-09-22
+verified: 2026-09-22
+code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ask.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/feedback.rs, crates/ubiq-host/src/feedback/mod.rs, crates/ubiq-host/src/feedback/api.rs, crates/ubiq-host/src/feedback/issues.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq-drone/src/search.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
 ---
@@ -127,7 +127,7 @@ recolour and a move on disk.
 | `ListProjects` | UI → host | — | `ProjectList` |
 | `AddProject` | UI → host | `path`, `name?`, `colour?`, `custom_colour?`, `temporary` | `ProjectAdded` or `ProjectError` |
 | `ForgetProject` | UI → host | `project_id` | `ProjectForgotten` |
-| `UpdateProject` | UI → host | `project_id`, `name?`, `colour?`, `custom_colour?`, `search_excludes?`, `index?`, `tools?`, `managed_repos?`, `lanes?`, `runs_on?` | `ProjectChanged` |
+| `UpdateProject` | UI → host | `project_id`, `name?`, `colour?`, `custom_colour?`, `search_excludes?`, `index?`, `mission_term?`, `tools?`, `managed_repos?`, `lanes?`, `runs_on?` | `ProjectChanged` |
 | `SetProjectInitials` | UI → host | `project_id`, `initials` | `ProjectChanged` |
 | `LocateProject` | UI → host | `project_id`, `path` | `ProjectChanged` or `ProjectError` |
 | `OpenedProject` | UI → host | `project_id` | `ProjectChanged` |
@@ -847,6 +847,106 @@ variant — so an unboxed one makes every message on the bus that wide, includin
 on the hot path. `Message` is 192 bytes with the box and 288 without it. The wire form is the same
 either way, because a `Box` serialises as what is inside it.
 
+## The plan family
+
+A family of its own beside the work family it extends, sized for what it does: four variants out,
+five back. **Every variant names a project and a task**, because a plan belongs to one task, the
+same way the work family's own variants do.
+
+| Message | Direction | Payload | Responds with |
+|---|---|---|---|
+| `LoadPlan` | UI → host | `project_id`, `task_id` | `Plan` or `PlanError` |
+| `SavePlan` | UI → host | `project_id`, `task_id`, `body` | `Plan` (asker) and `PlanChanged` (everyone), or `PlanError` |
+| `DeletePlan` | UI → host | `project_id`, `task_id` | `PlanDeleted` (everyone, only if a file existed) or `PlanError` |
+| `ExportPlan` | UI → host | `project_id`, `task_id`, `rel_path` | `PlanExported` or `PlanError` |
+| `Plan` | host → UI | `project_id`, `task_id`, `body`, `revision` | — |
+| `PlanDeleted` | host → UI | `project_id`, `task_id` | — |
+| `PlanExported` | host → UI | `project_id`, `task_id`, `rel_path` | — |
+| `PlanChanged` | host → UI | `project_id`, `task_id`, `revision`, `origin` | — |
+| `ListPlanAnnotations` | UI → host | `project_id`, `task_id` | `PlanAnnotations` or `PlanError` |
+| `AnnotatePlan` | UI → host | `project_id`, `task_id`, `block_id`, `quote?`, `text` | `PlanAnnotations` (asker) and `PlanAnnotationsChanged` (everyone), or `PlanError` |
+| `ReplyToAnnotation` | UI → host | `project_id`, `task_id`, `annotation_id`, `text` | `PlanAnnotations` (asker) and `PlanAnnotationsChanged` (everyone), or `PlanError` |
+| `ResolveAnnotation` | UI → host | `project_id`, `task_id`, `annotation_id`, `resolved` | `PlanAnnotations` (asker) and `PlanAnnotationsChanged` (everyone), or `PlanError` |
+| `PlanAnnotations` | host → UI | `project_id`, `task_id`, `blocks`, `annotations` | — |
+| `PlanAnnotationsChanged` | host → UI | `project_id`, `task_id` | — |
+| `ListPlanChanges` | UI → host | `project_id`, `task_id`, `since_revision?` | `PlanChanges` or `PlanError` |
+| `PlanChanges` | host → UI | `project_id`, `task_id`, `regions`, `stats` | — |
+| `PlanError` | host → UI | `project_id`, `task_id?`, `error` | — |
+
+**A plan belongs to any task carrying a `level`, not to a fixed mission subtype.** The host refuses
+every variant here with `PlanError` for a task whose `level` is `None`, the work family's own
+`parent_refusal` posture. `DeletePlan` is not in this family — a plan is removed only as a
+consequence of `Message::DeleteTask`, so nothing here orphans a plan the way `Work::orphan_children`
+orphans a child task's `parent`.
+
+**`Plan` carries the whole body and answers only the asker.** The body can be long, so unlike
+`WorkList` it is not broadcast; every other window showing that plan hears `PlanChanged`, which
+carries no body, and re-asks with `LoadPlan` if it still cares — `KbChanged`'s own economy.
+`PlanDeleted` is broadcast rather than answered only to the asker, because a plan may be open for
+reading in more than one window's viewer at once, unlike a task.
+
+**`ExportPlan` is an explicit, one-shot write, never a continuous mirror.** It copies the plan's
+current body to a project-relative `rel_path`, resolved and contained the way
+`Message::WriteProjectFile`'s is, and creates the folders it names the way a save-as's does. Nothing else in the family writes outside the plan's own store.
+
+**Read-only from `crates/ubiq`'s side this slice.** The interface sends `LoadPlan` and `ExportPlan`
+only; `SavePlan` exists on the wire for the `ubiq-plan` MCP server's `write_plan` tool and for the
+editor a later slice adds, and `DeletePlan` for the same tool's future use — neither is called from
+`crates/ubiq` yet.
+
+Stored at `<config root>/projects/<ProjectId>/plans/<TaskId>.md`, plain markdown, one file per plan,
+beside `tasks.toml` and `kb.toml` — kept out of the user's repository on `D30`'s rule about
+workspace state.
+
+**Annotations are a sub-family with their own records, `PlanBlock` and `Annotation`.** A block is
+the unit an annotation anchors to — `id` (a `BlockId` the host assigns on save by matching the
+document against its previous version), `kind` (the parsed node kind, a heading's depth folded in)
+and `text`. An annotation is `id`, `block_id`, an optional `quote` (the passage inside the block,
+where the interface had one to give — always absent this slice, since selection is whole-block
+only), `state` (`Open` or `Resolved`), `orphaned` (the block it named is gone from the plan) and
+`thread`, a `Comment` list on `AddComment`'s own author-stamping rule. `state` and `orphaned` are
+independent facts: resolving an orphaned thread does not un-orphan it, and a block reappearing does
+not reopen a resolved one. `PlanAnnotations` carries `blocks` alongside `annotations` because a
+`BlockId` is the host's to assign — a window annotating a passage has to be told which block it is,
+and an annotation it already holds is unreadable without the block index to name it against.
+`AnnotatePlan`'s `block_id` must be one the last `SavePlan` indexed; a stale one is refused with
+`PlanError` rather than creating an annotation orphaned on arrival. Every mutation is answered like
+`SavePlan`: the current whole to the asker as `PlanAnnotations`, and `PlanAnnotationsChanged` —
+carrying nothing — to every other window.
+
+**Edit provenance is a second sub-family, and it counts lines rather than blocks.** A plan carries
+a monotonic `revision` bumped on every save of its body, and every save records whether it was a
+person's or an agent's — the `SaveOrigin` record, `Human` or `Agent`. **The origin is settled at
+the entry point and never inferred**: `SavePlan` is the interface's message and nobody else sends
+one, so the host stamps `Human` on arrival; `ubiq-plan`'s `write_plan` is the only route to
+`Agent`. `SavePlan` therefore carries no origin field and must never grow one, or an agent could
+ask for the other stamp. The block layer cannot answer "where has a human been", because a block
+whose wording was tightened is the same block with the same id — which is exactly what the matcher
+is for — so this layer stamps lines.
+
+`Plan` and `PlanChanged` both carry `revision` so a reader can hold a watermark; `PlanChanged` adds
+`origin`, which with `revision` is two scalars rather than content, letting a window tell a
+person's save from an agent's and recognise its own echo without re-asking. `ListPlanChanges` reads
+the layer back, with `since_revision` absent meaning "from the beginning" and a watermark past the
+current revision clamped to it rather than treated as an error.
+
+`PlanChanges` answers with `regions` and `stats`. A `PlanChangedRegion` is a contiguous run of
+lines — `first_line`, `last_line`, 1-based and inclusive, numbering the body **as it stands now**
+so a window can decorate straight from it — plus the `revision` and `origin` that last touched
+them, the `text` now standing there, and `block_id` where one block contains the whole run (best
+effort: a run straddling two blocks has none, and the line numbers are the authoritative answer).
+A run breaks wherever the revision or origin changes, so those two fields describe every line in it.
+`PlanChangeStats` carries `since_revision`, `revision`, `lines_added`, `lines_removed`,
+`lines_modified`, `blocks_touched`, `human_revisions` and `agent_revisions`. The three line counts
+are summed over the revisions in the window rather than derived from the regions, so a line
+rewritten twice is two modifications and one region — deliberately two different readings.
+
+Stored in the same `<TaskId>.annotations.json` sidecar as the block index and the threads, as three
+additive `serde(default)` fields, so the envelope version is unchanged and a sidecar written before
+the layer existed loads with revision `0` and no stamps. **An unstamped line is never reported as
+changed**, so an older plan reports honestly that nothing is *known* to have changed rather than
+claiming whoever saves next rewrote the document.
+
 ## The conversation family
 
 The seventh family, and the only one whose vocabulary was borrowed rather than invented. **Every
@@ -1218,7 +1318,7 @@ Forty-seven records travel inside payloads.
 | `ToolDef` | `id`, `name`, `command`, `args`, `env`, `platforms[]`, `wait_on_exit`, `wait_on_error`, `single_instance` |
 | `ToolRun` | `scope`, `id` |
 | `ListedTool` | `scope`, `tool`, `applicable` |
-| `ProjectRecord` | `id`, `name`, `path`, `colour`, `custom_colour?`, `temporary`, `created_at`, `last_opened_at?`, `search_excludes[]`, `index?`, `tools[]`, `managed_repos[]`, `initials` |
+| `ProjectRecord` | `id`, `name`, `path`, `colour`, `custom_colour?`, `temporary`, `created_at`, `last_opened_at?`, `search_excludes[]`, `index?`, `mission_term?`, `tools[]`, `managed_repos[]`, `initials` |
 | `ProjectSnapshot` | a `ProjectRecord`, flattened, plus `health`, `open_panes`, `workarea` and `ephemeral` |
 | `DirEntry` | `name`, `rel_path`, `kind`, `size?`, `symlink` |
 | `DirListing` | `rel_path`, `entries[]`, `truncated` |
@@ -1227,11 +1327,12 @@ Forty-seven records travel inside payloads.
 | `DiffRow` | `kind`, `old_line?`, `new_line?`, `text` |
 | `DiffHunk` | `old_start`, `old_lines`, `new_start`, `new_lines`, `rows[]` |
 | `FileDiff` | `base`, `hunks[]`, `binary`, `truncated` |
-| `TaskRecord` | `id`, `session?`, `status`, `priority`, `shape?`, `kind?`, `complexity?`, `assigned_to?`, `key?`, `link?`, `labels[]`, `colour?`, `title`, `description`, `steps[]`, `comments[]`, `created_at`, `updated_at` |
+| `TaskRecord` | `id`, `session?`, `status`, `priority`, `shape?`, `kind?`, `level?`, `parent?`, `reference[]`, `attachment[]`, `complexity?`, `assigned_to?`, `key?`, `link?`, `labels[]`, `colour?`, `title`, `description`, `steps[]`, `comments[]`, `created_at`, `updated_at` |
 | `Step` | `id`, `title`, `state`, `owner?` |
 | `Label` | `name`, `colour` |
+| `Attachment` | `target`, `label?` |
 | `Comment` | `id`, `author`, `text`, `created_at` |
-| `TaskField` | one of `Shape?`, `Kind?`, `Complexity?`, `AssignedTo?`, `Key?`, `Link?`, `Labels[]`, `Colour?` |
+| `TaskField` | one of `Shape?`, `Kind?`, `Level?`, `Parent?`, `References[]`, `Attachments[]`, `Complexity?`, `AssignedTo?`, `Key?`, `Link?`, `Labels[]`, `Colour?` |
 | `WorkSession` | `id`, `name`, `branch`, `worktree` |
 | `WorkAgent` | `id`, `session`, `task?`, `parent?`, `name`, `summary?`, `role`, `activity`, `note`, `branch`, `tokens`, `harness`, `model`, `context_pct`, `persistent`, `accept_all`, `debug_dump?`, `run_dir?`, `config_dir?`, `thread[]` |
 | `Turn` | `from`, `text` |
@@ -1254,7 +1355,7 @@ Forty-seven records travel inside payloads.
 | `Notifications` | `items[]` newest first, `mutes[]` |
 | `McpInfo` | `name`, `title`, `description`, `tools[]` |
 | `McpToolInfo` | `name`, `description` |
-| `ProfileInfo` | `id`, `agent_type`, `account?`, `model?`, `mode?`, `thinking?`, `max_subagents?`, `prompt?`, `mcps` |
+| `ProfileInfo` | `id`, `agent_type`, `account?`, `model?`, `mode?`, `thinking?`, `max_subagents?`, `prompt?`, `mcps`, `mission_assistant?`, `project?` |
 | `PermissionOption` | `option_id`, `name`, `kind` |
 | `CliDir` | `path`, `exists`, `on_path` |
 | `PlanEntry` | `content`, `priority`, `status` |
@@ -1314,7 +1415,9 @@ boundary, not here. It also
 carries `projects_root` and `ephemeral_root`, the two folders a clone lands in: an absent or blank
 one means the host's own default under its config root, so the interface offers a placeholder rather
 than inventing a path it cannot read. `index_level` is how much of a project is indexed for every
-project that does not say otherwise, and is `light` when nothing says. `assist` is an
+project that does not say otherwise, and is `light` when nothing says. `mission_term` is the
+display word for a task at `work::Level::Mission` — *mission*, *epic*, *user story* — read only by
+the interface, and defaults to `"Mission"`. `assist` is an
 `AssistProvider`, the one setting the assist family reads, and `auto_name_conversations` is whether
 a conversation names itself once its agent has answered its opening prompt — **on by default, and
 that default changes nothing on its own**, because a naming runs through `assist`, which is `Off`
@@ -1337,6 +1440,50 @@ default moves every project that never overrode it. `UpdateProject` carries that
 `IndexChange` — `Inherit` or `Set(level)` — rather than an `Option<Option<IndexLevel>>`, because
 serde reads an absent field and an explicit `null` into the same outer `None` and "clear the
 override" would become indistinguishable from "say nothing about it".
+
+`ProjectRecord.mission_term` is an `Option<String>` on the same footing: absent follows
+`HostSettings.mission_term`, and `UpdateProject` carries the override as a `MissionTermChange` —
+`Inherit` or `Set(String)` — for the reason `IndexChange` is one. `work::Level` is the task-side
+axis this word names: one arm today, `Mission`, carried as `TaskRecord.level: Option<Level>` and
+set through `TaskField::Level`. Both are additions with `#[serde(default)]` — a `tasks.toml` or a
+`HostSettings` blob written before either existed still parses, `level` reading `None` and
+`mission_term` reading the default, so neither move bumps a schema.
+
+`TaskRecord.parent: Option<TaskId>` names the task this one belongs to; `TaskRecord.references:
+Vec<TaskId>` (serialised `reference`, one per line) names every other task this one points at,
+symmetric and untyped. Both live on the child or the referencing side only — the parent carries no
+list of its own children, and neither the host nor the UI keeps one; both derive it by scanning for
+the field on read. Both fields carry `#[serde(default)]`, and `references` also
+`skip_serializing_if = "Vec::is_empty"`, so a `tasks.toml` written before this pair existed loads
+unchanged with no envelope bump, the same as `level`. `TaskField::Parent(Option<TaskId>)` sets or
+clears the parent; `TaskField::References(Vec<TaskId>)` replaces the whole list, deduplicated and
+with any self-reference dropped, the same posture `TaskField::Labels` takes. Depth is capped at one
+level — a task with a parent may not itself be a parent, and only a task carrying `level` may be a
+parent at all — enforced only where a live `TaskField::Parent` set names one, in
+`Work::parent_refusal` (`crates/ubiq-host/src/work/mod.rs`), which answers `Message::WorkError` on
+refusal; the two checks together (parent has no parent, task has no children) remove any need to
+walk the tree for a cycle. `Work::sanitize_relations` runs on every load and poll and drops only a
+`parent` or a `reference` naming no task in the project — no depth or level re-check — so data
+written before the rule existed, or hand-edited into something it no longer satisfies, still loads.
+Deleting a task clears `parent` on every child that named it (`Work::orphan_children`) rather than
+deleting them or refusing the delete, each orphaned child getting its own `Message::TaskChanged`.
+
+`TaskRecord.attachments: Vec<Attachment>` (serialised `attachment`) is the one attachment in Ubiq
+that **crosses the bus**. A conversation's attachments never do — they are interface state, folded
+into the prompt as `@path` at send time and gone with the draft — so a task's had to be a wire type
+to live on the record, survive a restart and be readable by an agent that never saw the interface.
+Each is a reference and never content: `target` is either a project-relative path or a knowledge-base
+address in the `kb:{source}:{path}` form `crate::state::kb::kb_tab_key` gives a KB tab, told apart by
+the `kb:` prefix and nothing else, plus an optional `label`. The host stores the target and never
+parses or fetches it, the discipline `link` follows. The field carries `#[serde(default)]` and
+`skip_serializing_if = "Vec::is_empty"`, so a `tasks.toml` written before it existed loads unchanged
+with no envelope bump, the same as `level` and `references`.
+`TaskField::Attachments(Vec<Attachment>)` replaces the whole list, trimmed, with empty targets
+dropped and a repeated target collapsed to the first — `TaskField::Labels`' posture exactly. A
+pasted picture reuses the chat's own path, `Message::WriteProjectFile` into `.ubiq/pasted/` and then
+attached by path, so nothing new crosses the bus for it. On the MCP side `manage-ubiq-tasks`'
+`create_task` and `update_task` both take `attachments` — a bare string or a `{target, label}`
+object — and every task the task servers answer carries them, each tagged `kb` or `file`.
 
 `ProjectRecord.runs_on` is an `Option<DroneOrigin>` — an SSH profile id, the folder on the far
 machine, a `DronePreset` and an optional linger in seconds — and names the drone a project's folder
@@ -1635,7 +1782,15 @@ error variant.
 
 **There is no delete.** A profile is a saved setup, and a stale one costs a row in a list — not a
 credential on disk, which is what makes deleting an account worth a message and deleting a profile
-not.
+not. A *project's* profiles are deleted with the project, by the directory they live in going with
+it — `ProjectForgotten` is their delete, and it names none of them.
+
+**One list carries both scopes.** `ProfileInfo::project` is absent for a global profile and names
+the project for one written inside it (`D158`); the scope is where the host found the record, not
+something the record claims. `Profiles` carries the global profiles and every project's in one
+message — the window already holds every project, so filtering is cheaper than a per-project ask —
+and `SaveProfile` reads the same field as "which root to write into". The app-wide settings screen
+lists only the global ones; a project's own are offered in that project and labelled there.
 
 **References only, like the account family.** `ProfileInfo` names an account, a model, a reasoning
 level and a mode by id; nothing here is credential material or a path. `None` on a field means the
@@ -1646,7 +1801,10 @@ replace-by-default rule crossing the bus intact.
 `max_subagents` and `prompt` when the start form did: one form asks both, so anything the form can
 answer is something a profile can save. The last two are the interface's own — no harness has a
 subagent flag and an opening prompt is a turn, not a launch — so the library records them and
-never reads them, and it is the start that acts on them.
+never reads them, and it is the start that acts on them. `mission_assistant` is the same posture
+again, on a question no start asks at all: whether the new-mission dialog's assistant picker should
+offer this profile. The library folds it in `flatten()` alongside `max_subagents` and never reads
+it either; `None` and `Some(false)` both mean "not offered."
 
 **A profile named on `StartConversation` seeds the picker, it does not bypass it.** The host reads
 the profile's record and copies its model, level and mode into the pending conversation's picks, so the

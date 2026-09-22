@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: Editor-like chat tabs — many, movable to any dockable region, each a view onto a host-owned conversation or onto none, drawn by the composer, transcript and tool blocks the whole window shares.
 read_when: you are changing a chat tab, the control that starts or attaches a conversation, or which conversation a tab shows
-updated: 2026-09-21
-verified: 2026-09-21
+updated: 2026-09-22
+verified: 2026-09-22
 code_anchors: [crates/ubiq/src/ui/chat/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/conversation/info.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/ask.rs, crates/ubiq/src/app/ask.rs, crates/ubiq/src/ui/ask.rs, crates/ubiq-proto/src/ask.rs]
 depends_on: [feat-workbench]
 review_cycle: monthly
@@ -314,7 +314,28 @@ flag) plus an always-offered "Other" and a notes field; Confirm sends `AnswerAsk
 label, and "Chat about this" sends it with no question answered and lets the user type instead. Both
 are real answers, and either one moves the record out of `AskStage::Waiting` — after that, and after
 an `AskEnded` naming a timeout or a gone conversation, every later opening is the same dialog with no
-controls in it: the questions and what was chosen (or that nothing was), read-only.
+controls in it: the questions and what was chosen (or that nothing was), read-only. **No marker
+beside an option's label** — the whole card is the target and picked reads as the card's own fill
+and edge, the same rule `kit::card`'s `selected` draws everywhere else. The tab strip stays put while
+only the question below it scrolls, so a tall list of options never pushes the strip itself out of
+reach.
+
+**The transcript row reads as `warning` while it blocks the harness, and as `accent` once it
+does not.** `theme::warning`/`warning_soft` are the same tokens `ui::conversation::permission`
+draws its own "NEEDS YOU" row in — an unanswered ask is the same kind of thing a reader has to
+notice — and the row falls back to the ordinary accent shape the moment it leaves
+`AskStage::Waiting`, confirmed, chatted away, timed out or the conversation gone. **It is placed
+where the ask actually arrived, not pinned to the transcript's tail**: `AskRecord::at_block` is how
+many blocks the conversation held the instant the tool call parked, and `ui::conversation::plan_rows`
+inserts the row just before the first block-anchored row at or past that count — the point the ask
+interrupted — so it stays there as later turns land underneath it rather than trailing behind them.
+
+**Keyboard reaches the whole of it.** Up/down walk a cursor over the question on screen and space
+picks or unpicks wherever it sits, exactly as a click on that card would; plain `enter` does the
+same and moves on to the next question, and `⌘⏎` moves on by itself — confirming the dialog outright
+from the last one, since there is nowhere left to move to. None of the four fires while "Other" or
+"Notes" holds the keyboard, so typing a space or an arrow key in either still types; `tab` there
+moves between them instead, the modal's only pair of fields. This closed `G327`.
 
 **⌘⌥Y allows and ⌘⌥N rejects the oldest ask outstanding.** They answer the conversation being read —
 the active tab of the agents screen's focused column — with the first allow-kind or reject-kind
@@ -469,7 +490,14 @@ context window is *now* — a number that falls when the conversation is compact
 every token the conversation has ever billed, subagents included, which only grows. That is why one
 is a ring and the other a number, and every readout in the row says which it is on hover: the
 ring, `ctx`, `tot` with its per-way and per-subagent breakdown, and the composer's own identity,
-model, thinking and mode chips.
+model, thinking and mode chips. On the conversation's own transcript, `tot` also names the uncached
+part of it right beside the total — `X tot · Y in`, `in` being the fresh input tokens
+(`TokenSpend::input`) that were neither a cache read nor a cache write — the one figure the
+breakdown otherwise held back for the hover. A delegate's spend is banked by type with no such
+split behind it, so its `tot` stays a bare total. Every raw count in the row and its tooltips —
+`tot`, `ctx`, the cache ring's `cached X / Y` and the context ring's `X of Y tokens` — goes through
+`state::work::format_tokens`, the one place "how big is this number" is spelled: plain under a
+thousand, then `k`/`M`/`G` at one decimal place.
 
 **A second ring beside `tot` says how much of that total was read back out of the cache.** It sits
 at `cached_tokens` over `total_tokens`, in the `info` tokens rather than the accent ones — a second

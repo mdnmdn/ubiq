@@ -47,6 +47,7 @@ use crate::state::conversation::{
 };
 use crate::state::file_picker::{SizeReading, size_label, size_reading};
 use crate::state::settings::{quota_tip, snapshot_from_rate_limit};
+use crate::state::work::format_tokens;
 use crate::state::{AttachmentPreview, MenuId};
 use crate::theme;
 use crate::ui::kit::menu::MENU_ANCHOR_UP;
@@ -775,8 +776,9 @@ fn tail_signature(conversation: &Conversation, visible: &[usize]) -> u64 {
     // added, and a tail that did not notice would leave it under the fold.
     let run = conversation.run as u64;
     let pending = conversation.pending.len() as u64;
-    // And the asks, for `pending`'s reason exactly: an ask is a row at the end of the transcript
-    // that no block moved, and the one the reader most needs brought into view.
+    // And the asks, for `pending`'s reason exactly: a fresh one arrives with no block moving
+    // under it — it is filed on the conversation, not drawn from one — and it is the row the
+    // reader most needs brought into view.
     let asks = conversation
         .asks
         .iter()
@@ -810,6 +812,7 @@ enum RowKind {
     Adrift(usize),
     /// One structured question the agent asked the user, by its place in `asks`. Never attached to
     /// a block: an ask is the agent talking to the user through the host, not something it said.
+    /// Placed by `AskRecord::at_block` rather than always last — see `plan_rows`.
     Ask(usize),
     /// The note a transcript with nothing in it draws.
     Empty,
@@ -1068,22 +1071,34 @@ fn plan_rows(
         ));
     }
 
-    // Then the asks, oldest first — after the prompts, because a permission blocks the turn and a
-    // question does not, and a reader with both up should answer the blocking one first.
+    // Then the asks, oldest first, each placed where it actually arrived rather than pinned to
+    // the tail: `AskRecord::at_block` is how many blocks the conversation held the instant it was
+    // filed, and the row goes in right before the first block-anchored row at or past that count —
+    // the point in the transcript the ask interrupted. A block appended later has a higher index,
+    // so nothing already inserted has to move as the conversation goes on; a permission row
+    // (`RowKind::Adrift`, `anchor: None`) is transparent to the search, on the same reasoning that
+    // keeps it out of `block_shape`'s reach.
     for at in 0..conversation.asks.len() {
         let record = &conversation.asks[at];
         // The entry's own arithmetic: how tall it is depends on the stage it is in, and only the
         // module that draws it knows what it draws there.
         let lines = crate::ui::ask::entry_lines(record);
-        rows.push(row(
-            RowKind::Ask(at),
-            None,
-            (6, at),
-            (
-                hashed((at, record.live(), lines)),
-                crate::ui::ask::entry_height(record),
+        let insert_at = rows
+            .iter()
+            .position(|row| row.anchor.is_some_and(|anchor| anchor >= record.at_block))
+            .unwrap_or(rows.len());
+        rows.insert(
+            insert_at,
+            row(
+                RowKind::Ask(at),
+                None,
+                (6, at),
+                (
+                    hashed((at, record.live(), lines)),
+                    crate::ui::ask::entry_height(record),
+                ),
             ),
-        ));
+        );
     }
 
     // Last, so a transcript holding only an unattached prompt reads as the question it is.
@@ -2597,8 +2612,10 @@ fn delegate_spend_tip(
         return format!("{} \u{2014} nothing counted for it yet", tab.name);
     };
     let mut tip = format!(
-        "{total} tokens billed by {kind} delegates \u{b7} {cached} read back from cache \
-         \u{b7} a flow, only ever growing"
+        "{} tokens billed by {kind} delegates \u{b7} {} read back from cache \
+         \u{b7} a flow, only ever growing",
+        format_tokens(total),
+        format_tokens(cached)
     );
     // Counted per type, so a reader comparing two rows of the same type is looking at one number
     // twice. Said only where that is actually the case.
@@ -2637,15 +2654,15 @@ fn spend_tip(conversation: &Conversation) -> String {
         "Total \u{2014} \
          \u{b7} {} tokens \u{b7} in {} \u{b7} out {} \u{b7} thinking {} \u{b7} cache read {} \
          \u{b7} cache creation {}",
-        spend.total(),
-        spend.input,
-        spend.output,
-        spend.thinking,
-        spend.cache_read,
-        spend.cache_creation,
+        format_tokens(spend.total()),
+        format_tokens(spend.input),
+        format_tokens(spend.output),
+        format_tokens(spend.thinking),
+        format_tokens(spend.cache_read),
+        format_tokens(spend.cache_creation),
     );
     for (name, total) in conversation.subagent_spend() {
-        tip.push_str(&format!(" \u{b7} {name} {total}"));
+        tip.push_str(&format!(" \u{b7} {name} {}", format_tokens(total)));
     }
     tip
 }
@@ -2716,9 +2733,21 @@ fn footer(
     // conversation has spent millions and holds thousands. Drawn only where the harness counts it
     // — a pill with nothing behind it is not drawn.
     if let Some((total, _)) = spend {
+        // The uncached part of it, alongside the total — fresh input tokens, neither a cache read
+        // nor a cache write, the same figure `spend_tip`'s "in" already names. Only for the
+        // conversation's own transcript: a delegate's spend is banked by type with no such
+        // breakdown behind it (`Conversation::subagent_tokens`).
+        let label = match delegate.is_none().then(|| conversation.spend).flatten() {
+            Some(spend) => format!(
+                "{} tot \u{b7} {} in",
+                format_tokens(total),
+                format_tokens(spend.input)
+            ),
+            None => format!("{} tot", format_tokens(total)),
+        };
         row = row.child(tipped(
             view.eid("total-tokens"),
-            format!("{:.1}K tot", total as f32 / 1000.0),
+            label,
             spend_tip,
             theme::text_muted(),
         ));
@@ -2733,9 +2762,13 @@ fn footer(
         && total > 0
     {
         let pct = ((cached as f64 / total as f64) * 100.0).round() as u8;
+        let (cached_label, total_label) = (format_tokens(cached), format_tokens(total));
         let tip = match delegate {
-            Some(tab) => format!("cached {cached} / {total} {pct}% \u{2014} {}", tab.name),
-            None => format!("cached {cached} / {total} {pct}%"),
+            Some(tab) => format!(
+                "cached {cached_label} / {total_label} {pct}% \u{2014} {}",
+                tab.name
+            ),
+            None => format!("cached {cached_label} / {total_label} {pct}%"),
         };
         row = row.child(
             div()
@@ -2759,8 +2792,10 @@ fn footer(
         // they say the same sentence on hover. A level, not a total: it falls when the harness
         // compacts, which is exactly what tells it apart from `tot` beside it.
         let tip = format!(
-            "Context window \u{2014} {used} of {size} tokens in it right now, {pct}% full. \
-             A level, not a total: it falls when the conversation is compacted."
+            "Context window \u{2014} {} of {} tokens in it right now, {pct}% full. \
+             A level, not a total: it falls when the conversation is compacted.",
+            format_tokens(used),
+            format_tokens(size)
         );
         let ring_tip = tip.clone();
         row = row
@@ -2777,7 +2812,7 @@ fn footer(
             )
             .child(tipped(
                 view.eid("context-tokens"),
-                format!("{:.1}K ctx", used as f32 / 1000.0),
+                format!("{} ctx", format_tokens(used)),
                 tip,
                 theme::text_muted(),
             ));

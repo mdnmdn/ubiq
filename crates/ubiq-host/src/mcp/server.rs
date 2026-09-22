@@ -32,7 +32,7 @@ use ubiq_proto::bus::Voice;
 
 use super::catalogue::{self, ServerSpec};
 use super::registry::{AgentFacts, Registry};
-use super::{AskReach, HelpReach, KbReach, WorkAccess};
+use super::{AskReach, HelpReach, KbReach, PlanReach, WorkAccess};
 
 /// How often the serving thread wakes to check whether it should stop. Bounds shutdown latency
 /// without needing to unblock the listener.
@@ -89,10 +89,12 @@ impl Drop for Serving {
 /// Returns once the port is bound, so the caller can hand the URL to the first run it composes —
 /// which is why this happens before [`crate::agent::Agents`] is built rather than lazily on the
 /// first agent that asks for a server.
+#[allow(clippy::too_many_arguments)]
 pub fn start(
     registry: Registry,
     voice: Voice,
     work: Option<WorkAccess>,
+    plan: Option<PlanReach>,
     kb: Option<KbReach>,
     help: Option<HelpReach>,
     ask: Option<AskReach>,
@@ -109,7 +111,19 @@ pub fn start(
     let stop_thread = Arc::clone(&stop);
     let handle = std::thread::Builder::new()
         .name("ubiq-mcp".to_string())
-        .spawn(move || serve(http, registry, voice, work, kb, help, ask, stop_thread))
+        .spawn(move || {
+            serve(
+                http,
+                registry,
+                voice,
+                work,
+                plan,
+                kb,
+                help,
+                ask,
+                stop_thread,
+            )
+        })
         .expect("the MCP listener thread");
 
     Ok(Serving {
@@ -132,6 +146,7 @@ fn serve(
     registry: Registry,
     voice: Voice,
     work: Option<WorkAccess>,
+    plan: Option<PlanReach>,
     kb: Option<KbReach>,
     help: Option<HelpReach>,
     ask: Option<AskReach>,
@@ -144,6 +159,7 @@ fn serve(
                 &registry,
                 &voice,
                 work.as_ref(),
+                plan.as_ref(),
                 kb.as_ref(),
                 help.as_ref(),
                 ask.as_ref(),
@@ -162,6 +178,7 @@ fn handle(
     registry: &Registry,
     voice: &Voice,
     work: Option<&WorkAccess>,
+    plan: Option<&PlanReach>,
     kb: Option<&KbReach>,
     help: Option<&HelpReach>,
     ask: Option<&AskReach>,
@@ -222,7 +239,10 @@ fn handle(
         let spawned = std::thread::Builder::new()
             .name("ubiq-ask-call".to_string())
             .spawn(move || {
-                let result = dispatch("tools/call", params, spec, &facts, &voice, None, None, None, Some(&reach));
+                let result = dispatch(
+                    "tools/call", params, spec, &facts, &voice, None, None, None, None,
+                    Some(&reach),
+                );
                 let response = match result {
                     Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
                     Err((code, message)) => {
@@ -238,7 +258,9 @@ fn handle(
         return;
     }
 
-    let response = match dispatch(method, params, spec, &facts, voice, work, kb, help, ask) {
+    let response = match dispatch(
+        method, params, spec, &facts, voice, work, plan, kb, help, ask,
+    ) {
         Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
         Err((code, message)) => {
             json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}})
@@ -277,6 +299,7 @@ fn dispatch(
     facts: &AgentFacts,
     voice: &Voice,
     work: Option<&WorkAccess>,
+    plan: Option<&PlanReach>,
     kb: Option<&KbReach>,
     help: Option<&HelpReach>,
     ask: Option<&AskReach>,
@@ -295,7 +318,7 @@ fn dispatch(
                 .cloned()
                 .unwrap_or_else(|| json!({}));
             match super::tools::call(
-                spec.name, name, &arguments, facts, voice, work, kb, help, ask,
+                spec.name, name, &arguments, facts, voice, work, plan, kb, help, ask,
             ) {
                 Ok(value) => {
                     let text = serde_json::to_string(&value).unwrap_or_default();
@@ -378,8 +401,8 @@ mod tests {
         let (hub, host) = bus::hub();
         let registry = Registry::new();
         registry.register(facts());
-        let serving =
-            start(registry, host.voice(), None, None, None, None).expect("the listener binds");
+        let serving = start(registry, host.voice(), None, None, None, None, None)
+            .expect("the listener binds");
         (serving, hub, host)
     }
 
@@ -394,9 +417,57 @@ mod tests {
             work,
             everyone: host.mailbox(ubiq_proto::bus::To::Everyone),
         };
-        let serving = start(registry, host.voice(), Some(access), None, None, None)
+        let serving = start(registry, host.voice(), Some(access), None, None, None, None)
             .expect("the listener binds");
         (serving, hub, host)
+    }
+
+    /// A listener wired to a real `Plans`, with one mission already on the board — a level is
+    /// what lets it carry a plan at all. The `TempDir` rides along on [`crate::plan::Plans`]'s own
+    /// tests' footing: dropped, its directory goes with it, and the store must outlive the test.
+    #[allow(clippy::type_complexity)]
+    fn running_with_plan() -> (
+        Serving,
+        bus::Hub,
+        bus::HostEnd,
+        ubiq_proto::ids::TaskId,
+        crate::plan::Handle,
+        tempfile::TempDir,
+    ) {
+        let (hub, host) = bus::hub();
+        let registry = Registry::new();
+        registry.register(facts());
+        let project: ubiq_proto::ids::ProjectId = facts().project.id.parse().unwrap();
+        let work = crate::work::Handle::new(crate::work::Work::open(Box::new(
+            crate::store::memory::MemoryTaskStore::new(),
+        )));
+        let task = {
+            let mut work = work.lock();
+            let replies = work.create(project, "a mission".to_string(), None);
+            let task = replies
+                .iter()
+                .find_map(|reply| match reply.message() {
+                    Message::TaskCreated { task, .. } => Some(task.id),
+                    _ => None,
+                })
+                .expect("the task was created");
+            work.set_field(
+                project,
+                task,
+                ubiq_proto::messages::TaskField::Level(Some(ubiq_proto::work::Level::Mission)),
+            );
+            task
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::store::plan::FilePlanStore::new(dir.path().to_path_buf());
+        let plans = crate::plan::Handle::new(crate::plan::Plans::open(store, work));
+        let reach = PlanReach {
+            plans: plans.clone(),
+            everyone: host.mailbox(ubiq_proto::bus::To::Everyone),
+        };
+        let serving = start(registry, host.voice(), None, Some(reach), None, None, None)
+            .expect("the listener binds");
+        (serving, hub, host, task, plans, dir)
     }
 
     fn url(serving: &Serving, key: &str, server: &str) -> String {
@@ -846,6 +917,272 @@ mod tests {
     }
 
     #[test]
+    fn the_plan_server_reads_writes_lists_replies_and_resolves_annotations() {
+        let (serving, _hub, _host, task_id, plans, _dir) = running_with_plan();
+        let url = url(&serving, KEY, "ubiq-plan");
+
+        let list = post(
+            &url,
+            json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}),
+        );
+        let names: Vec<&str> = list["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|tool| tool["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "read_plan",
+                "write_plan",
+                "plan_changes",
+                "list_annotations",
+                "reply_annotation",
+                "resolve_annotation",
+            ]
+        );
+
+        let task_id = task_id.to_string();
+
+        let empty = answered(&call(&url, "read_plan", json!({"task_id": task_id})));
+        assert_eq!(empty["body"], "");
+        assert_eq!(
+            empty["revision"], 0,
+            "a plan nobody has written stands at revision 0",
+        );
+
+        let written = answered(&call(
+            &url,
+            "write_plan",
+            json!({"task_id": task_id, "body": "# Plan\n\nStep one.\n\nStep two."}),
+        ));
+        assert_eq!(written["body"], "# Plan\n\nStep one.\n\nStep two.");
+        assert_eq!(written["revision"], 1);
+
+        // No annotation yet: the list comes back empty rather than erroring.
+        let none_yet = answered(&call(&url, "list_annotations", json!({"task_id": task_id})));
+        assert_eq!(none_yet["annotations"].as_array().unwrap().len(), 0);
+
+        // The block ids are the host's, assigned on save — get them through the plan store the
+        // way an interface would only ever see through the (not yet built) UI panel. The test
+        // reaches in through the same `Plans` handle the tool used, on `plan/mod.rs`'s own
+        // footing, since annotating one is not itself a slice-4 tool.
+        let block = {
+            let (blocks, _) = plans
+                .lock()
+                .annotation_list(
+                    facts().project.id.parse().unwrap(),
+                    task_id.parse().unwrap(),
+                )
+                .expect("the plan reads");
+            blocks[1].id
+        };
+        let annotation_id = {
+            let mut plan_lock = plans.lock();
+            let replies = plan_lock.annotate(
+                facts().project.id.parse().unwrap(),
+                task_id.parse().unwrap(),
+                block,
+                Some("Step one".to_string()),
+                ubiq_proto::work::CommentAuthor::User,
+                "which one?".to_string(),
+            );
+            replies
+                .iter()
+                .find_map(|reply| match reply.message() {
+                    Message::PlanAnnotations { annotations, .. } => {
+                        Some(annotations[0].id.to_string())
+                    }
+                    _ => None,
+                })
+                .expect("the annotation was created")
+        };
+
+        let listed = answered(&call(&url, "list_annotations", json!({"task_id": task_id})));
+        let annotations = listed["annotations"].as_array().unwrap();
+        assert_eq!(annotations.len(), 1);
+        assert_eq!(annotations[0]["state"], "open");
+        assert_eq!(annotations[0]["orphaned"], false);
+        assert_eq!(annotations[0]["quote"], "Step one");
+        assert_eq!(annotations[0]["block_text"], "Step one.");
+        assert_eq!(annotations[0]["thread"][0]["text"], "which one?");
+        assert_eq!(annotations[0]["thread"][0]["author"], "user");
+
+        let replied = answered(&call(
+            &url,
+            "reply_annotation",
+            json!({"task_id": task_id, "annotation_id": annotation_id, "text": "the first one"}),
+        ));
+        assert_eq!(replied["thread"].as_array().unwrap().len(), 2);
+        assert_eq!(replied["thread"][1]["author"], "agent");
+        assert_eq!(replied["thread"][1]["text"], "the first one");
+
+        let resolved = answered(&call(
+            &url,
+            "resolve_annotation",
+            json!({"task_id": task_id, "annotation_id": annotation_id}),
+        ));
+        assert_eq!(resolved["state"], "resolved");
+
+        // Resolved is excluded by default, and comes back with `include_resolved`.
+        let open_only = answered(&call(&url, "list_annotations", json!({"task_id": task_id})));
+        assert_eq!(open_only["annotations"].as_array().unwrap().len(), 0);
+        let with_resolved = answered(&call(
+            &url,
+            "list_annotations",
+            json!({"task_id": task_id, "include_resolved": true}),
+        ));
+        assert_eq!(with_resolved["annotations"].as_array().unwrap().len(), 1);
+
+        let reopened = answered(&call(
+            &url,
+            "resolve_annotation",
+            json!({"task_id": task_id, "annotation_id": annotation_id, "resolved": false}),
+        ));
+        assert_eq!(reopened["state"], "open");
+
+        // Orphaning is one-way and visible: dropping step two's own block from the plan flags the
+        // step-two comment, not the one just re-tested above, which stays anchored.
+        let orphan_id = {
+            let mut plan_lock = plans.lock();
+            let block = {
+                let (blocks, _) = plan_lock
+                    .annotation_list(
+                        facts().project.id.parse().unwrap(),
+                        task_id.parse().unwrap(),
+                    )
+                    .unwrap();
+                blocks[2].id
+            };
+            let replies = plan_lock.annotate(
+                facts().project.id.parse().unwrap(),
+                task_id.parse().unwrap(),
+                block,
+                None,
+                ubiq_proto::work::CommentAuthor::User,
+                "about step two".to_string(),
+            );
+            replies
+                .iter()
+                .find_map(|reply| match reply.message() {
+                    Message::PlanAnnotations { annotations, .. } => Some(
+                        annotations
+                            .iter()
+                            .find(|annotation| annotation.block_id == block)
+                            .unwrap()
+                            .id
+                            .to_string(),
+                    ),
+                    _ => None,
+                })
+                .expect("the second annotation was created")
+        };
+        answered(&call(
+            &url,
+            "write_plan",
+            json!({"task_id": task_id, "body": "# Plan\n\nStep one."}),
+        ));
+        let after_edit = answered(&call(
+            &url,
+            "list_annotations",
+            json!({"task_id": task_id, "include_resolved": true}),
+        ));
+        let orphaned = after_edit["annotations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|annotation| annotation["id"] == orphan_id)
+            .unwrap();
+        assert_eq!(orphaned["orphaned"], true);
+        assert_eq!(orphaned["block_text"], Value::Null);
+    }
+
+    /// The edit-provenance half of the same server: the agent writes, a person edits two places
+    /// through the interface's own path, and `plan_changes` names exactly those two — defaulting
+    /// its watermark to the agent's own last write, with no revision passed in.
+    #[test]
+    fn plan_changes_reports_where_a_human_edited_what_this_agent_wrote() {
+        let (serving, _hub, _host, task_id, plans, _dir) = running_with_plan();
+        let url = url(&serving, KEY, "ubiq-plan");
+        let task_id = task_id.to_string();
+        let project: ubiq_proto::ids::ProjectId = facts().project.id.parse().unwrap();
+
+        let written = answered(&call(
+            &url,
+            "write_plan",
+            json!({"task_id": task_id, "body": "# Plan\n\nStep one.\n\nStep two."}),
+        ));
+        assert_eq!(written["revision"], 1);
+
+        // Nothing has happened since: the ordinary answer is an empty one, not an error.
+        let quiet = answered(&call(&url, "plan_changes", json!({"task_id": task_id})));
+        assert_eq!(quiet["regions"].as_array().unwrap().len(), 0);
+        assert_eq!(quiet["stats"]["human_revisions"], 0);
+
+        // A person edits two separate lines, through the path a `SavePlan` off the bus takes.
+        plans.lock().save(
+            project,
+            task_id.parse().unwrap(),
+            "# Plan\n\nStep one, revised.\n\nStep two, also revised.".to_string(),
+            &crate::plan::Saver::human(),
+        );
+
+        let changed = answered(&call(&url, "plan_changes", json!({"task_id": task_id})));
+        assert_eq!(
+            changed["since_revision"], 1,
+            "defaulted to this agent's own last write",
+        );
+        assert_eq!(changed["revision"], 2);
+
+        let regions = changed["regions"].as_array().unwrap();
+        assert_eq!(regions.len(), 2, "exactly the two places the human touched");
+        assert_eq!(regions[0]["first_line"], 3);
+        assert_eq!(regions[0]["last_line"], 3);
+        assert_eq!(regions[0]["origin"], "human");
+        assert_eq!(regions[0]["text"], "Step one, revised.");
+        assert_eq!(
+            regions[0]["block_text"], "Step one, revised.",
+            "the block is named, never a bare id",
+        );
+        assert_eq!(regions[1]["first_line"], 5);
+        assert_eq!(regions[1]["text"], "Step two, also revised.");
+
+        assert_eq!(changed["stats"]["lines_modified"], 2);
+        assert_eq!(changed["stats"]["lines_added"], 0);
+        assert_eq!(changed["stats"]["lines_removed"], 0);
+        assert_eq!(changed["stats"]["blocks_touched"], 2);
+        assert_eq!(changed["stats"]["human_revisions"], 1);
+        assert_eq!(changed["stats"]["agent_revisions"], 0);
+
+        // An explicit watermark of 0 takes in the agent's own opening write as well.
+        let everything = answered(&call(
+            &url,
+            "plan_changes",
+            json!({"task_id": task_id, "since_revision": 0}),
+        ));
+        assert_eq!(everything["stats"]["agent_revisions"], 1);
+        assert_eq!(everything["stats"]["human_revisions"], 1);
+        assert!(
+            everything["regions"].as_array().unwrap().len() >= 2,
+            "the agent's own untouched lines are in the window too",
+        );
+    }
+
+    #[test]
+    fn a_plan_tool_without_a_plan_store_fails_in_band() {
+        let (serving, _hub, _host) = running();
+        let response = call(&url(&serving, KEY, "ubiq-plan"), "read_plan", json!({}));
+        assert_eq!(response["result"]["isError"], true);
+        assert!(
+            response["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("no plan store")
+        );
+    }
+
+    #[test]
     fn a_body_that_will_not_parse_is_a_parse_error() {
         let (serving, _hub, _host) = running();
         let response = ureq::post(&url(&serving, KEY, "test"))
@@ -929,7 +1266,7 @@ mod tests {
             kb: kb.clone(),
             everyone: host.mailbox(ubiq_proto::bus::To::Everyone),
         };
-        let serving = start(registry, host.voice(), None, Some(reach), None, None)
+        let serving = start(registry, host.voice(), None, None, Some(reach), None, None)
             .expect("the listener binds");
         (
             serving,
@@ -1208,6 +1545,7 @@ mod tests {
         let serving = start(
             registry,
             host.voice(),
+            None,
             None,
             None,
             None,

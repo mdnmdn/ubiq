@@ -92,8 +92,12 @@ pub enum UbiqIcon {
     PanePersistent,
     /// the harness is working, with no measurable progress to report
     PaneThinking,
+    /// the harness is running a tool
+    PaneTools,
     /// a conversation that exists but has no process behind it
     PaneUnloaded,
+    /// the harness is composing its reply
+    PaneWriting,
     /// the node that investigates and reports, without the search field's icon
     RoleAnalyst,
     /// the node that plans and hands out work
@@ -190,7 +194,9 @@ impl IconNamed for UbiqIcon {
             Self::PaneAwaiting => "icons/pane-awaiting.svg",
             Self::PanePersistent => "icons/pane-persistent.svg",
             Self::PaneThinking => "icons/pane-thinking.svg",
+            Self::PaneTools => "icons/pane-tools.svg",
             Self::PaneUnloaded => "icons/pane-unloaded.svg",
+            Self::PaneWriting => "icons/pane-writing.svg",
             Self::RoleAnalyst => "icons/role-analyst.svg",
             Self::RoleManager => "icons/role-manager.svg",
             Self::RoleVerifier => "icons/role-verifier.svg",
@@ -262,7 +268,9 @@ pub const ALL: &[UbiqIcon] = &[
     UbiqIcon::PaneAwaiting,
     UbiqIcon::PanePersistent,
     UbiqIcon::PaneThinking,
+    UbiqIcon::PaneTools,
     UbiqIcon::PaneUnloaded,
+    UbiqIcon::PaneWriting,
     UbiqIcon::RoleAnalyst,
     UbiqIcon::RoleManager,
     UbiqIcon::RoleVerifier,
@@ -344,7 +352,9 @@ pub fn bytes(path: &str) -> Option<&'static [u8]> {
         "icons/pane-awaiting.svg" => ours!("pane-awaiting"),
         "icons/pane-persistent.svg" => ours!("pane-persistent"),
         "icons/pane-thinking.svg" => ours!("pane-thinking"),
+        "icons/pane-tools.svg" => ours!("pane-tools"),
         "icons/pane-unloaded.svg" => ours!("pane-unloaded"),
+        "icons/pane-writing.svg" => ours!("pane-writing"),
         "icons/role-analyst.svg" => ours!("role-analyst"),
         "icons/role-manager.svg" => ours!("role-manager"),
         "icons/role-verifier.svg" => ours!("role-verifier"),

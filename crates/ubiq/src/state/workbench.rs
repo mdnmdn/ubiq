@@ -13,7 +13,7 @@
 //! working-tree totals were invented, and a fact nobody can answer for is not drawn at all.
 
 use gpui::SharedString;
-use ubiq_proto::ids::{KbSourceId, PaneId, ProjectId};
+use ubiq_proto::ids::{KbSourceId, PaneId, ProjectId, TaskId};
 use ubiq_proto::mcp::McpInfo;
 use ubiq_proto::messages::{AccountInfo, AgentTypeInfo, ProfileInfo, ShellInfo};
 use ubiq_proto::tools::ListedTool;
@@ -255,6 +255,10 @@ pub enum MenuId {
     /// not exist yet and the swatch to give it. A menu rather than a pill row, because unlike a
     /// kind the list is as long as the project's own vocabulary and it grows.
     TaskLabels,
+    /// The task panel's parent breadcrumb: which eligible task to belong to, or none.
+    TaskParent,
+    /// The task panel's reference `+`: which other task to link as a reference.
+    TaskReferences,
     /// One agents-screen column's `+`: which benched agent to group into it. It carries the
     /// column, because a row of columns each has one and only one may be open.
     AgentBench(usize),
@@ -553,6 +557,10 @@ pub enum FileDialog {
     /// in the project menu takes the window's unsaved files, running terminals and running agents
     /// just as seriously, it only has one project to say it about.
     CloseProject { project: ProjectId },
+    /// Where to write a copy of the open plan into the project's working tree — an explicit,
+    /// one-shot action, never a continuous mirror. Raised from the plan modal, over it, on
+    /// `SaveAs`'s own terms: `rel_path` is resolved and refused the way a save-as's is.
+    ExportPlan { task_id: TaskId },
 }
 
 /// The brand mark's spin, on whichever empty page is drawing the mark.
@@ -651,10 +659,19 @@ pub struct WorkbenchState {
     /// hides more than it shows — beside `clone_project` for the same reason: a question raised
     /// over the window, answered from its own state rather than the picker's.
     pub all_projects: Option<AllProjectsState>,
+    /// The annotated document on screen — today always a task's plan, raised from the task panel
+    /// for a task carrying a [`ubiq_proto::work::Level`]. One at a time, like `feedback`:
+    /// opening another replaces whichever was open. The field keeps its name because the plan is
+    /// the only document there is; the type does not, because the surface is not. See
+    /// `crate::state::document`.
+    pub plan: Option<crate::state::document::DocumentEditor>,
     /// The New agent modal, while it is up. Beside `clone_project` because it is the same kind of
     /// thing: a question raised over the window, answered once, and carrying its own pickers'
     /// open state because a modal is redrawn from state on every frame.
     pub new_agent: Option<crate::state::new_agent::NewAgentForm>,
+    /// The new-mission dialog, while it is up. Beside `new_agent` for the same reason: a question
+    /// raised over the window, answered once, that ends in a start of its own.
+    pub new_mission: Option<crate::state::new_mission::NewMissionForm>,
     /// The "Add source" modal the knowledge base settings raise, while it is up. Beside
     /// `project_settings` rather than inside it for `new_agent`'s reason: it is a question raised
     /// over that page, painted after it, and it carries its own pickers' open state.
@@ -821,7 +838,9 @@ impl Default for WorkbenchState {
             feedback_offer: ubiq_proto::feedback::FeedbackOffer::default(),
             ask: None,
             all_projects: None,
+            plan: None,
             new_agent: None,
+            new_mission: None,
             kb_source: None,
             agent_preambles: Default::default(),
             remote_connect: None,
@@ -1057,6 +1076,8 @@ mod tests {
             max_subagents: None,
             prompt: None,
             mcps: Vec::new(),
+            mission_assistant: None,
+            project: None,
         }
     }
 

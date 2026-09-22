@@ -5,9 +5,9 @@ kind: feature
 status: draft
 summary: The window's shell — the activity rail and its modes, the dock of movable panels the user arranges around the centre, the file explorer and editor a project owns, the Git screen of refs, history and uncommitted changes, the agents screen of parallel columns, the Teams and `[Teams]` graphs and the tasks board the rail's other built modes hold, the kitchen sink the application tests itself against, the file picker any screen raises to choose a path, the empty state a window with no project shows, and the status bar that reports on all of it.
 read_when: you are changing the window layout, a rail mode, where a panel may sit or when it is drawn, the explorer, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, capturing the window or annotating a capture, saving a file, the Git screen's refs, history, change lists or diff, the agents screen's columns, what a tab drag means or what the bench is, the Teams or `[Teams]` screen's graph, how it arranges itself, its inspector or its tasks, the tasks board's columns, cards or task panel, the kitchen sink's pages or fixtures, the file picker a screen raises to choose a path, cloning a project, application settings, vim mode, or the status bar
-updated: 2026-09-21
-verified: 2026-09-21
-code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/teams.rs, crates/ubiq/src/app/teams_span.rs, crates/ubiq/src/state/teams.rs, crates/ubiq/src/ui/project_face.rs, crates/ubiq/src/ui/teams/mod.rs, crates/ubiq/src/ui/teams/graph.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/src/ui/teams/inspector.rs, crates/ubiq/src/ui/teams/tasks.rs, crates/ubiq/tests/teams.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/src/ui/new_project_menu.rs, crates/ubiq/tests/new_project.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/mark.rs, crates/ubiq/src/app/mark.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/feedback.rs, crates/ubiq/src/state/feedback.rs, crates/ubiq/src/ui/feedback.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/tests/image_gestures.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/app/sink.rs, crates/ubiq/src/state/a2ui.rs, crates/ubiq/src/state/a2ui/value.rs, crates/ubiq/src/state/a2ui/eval.rs, crates/ubiq/src/state/a2ui/action.rs, crates/ubiq/src/state/a2ui/live.rs, crates/ubiq/src/state/a2ui/svg.rs, crates/ubiq/src/state/a2ui/path.rs, crates/ubiq/src/state/a2ui/ubiq-catalog.json, crates/ubiq/src/ui/a2ui.rs, crates/ubiq/src/ui/a2ui/registry.rs, crates/ubiq/src/ui/a2ui/svg.rs, crates/ubiq/src/ui/a2ui/path.rs, crates/ubiq/src/ui/sink/a2ui.rs, crates/ubiq/tests/a2ui.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/sink/script.rs, crates/ubiq/src/state/script.rs, crates/ubiq/src/ui/sink/teamsim.rs, crates/ubiq/src/state/teamsim.rs, crates/ubiq/src/ui/kit/blocks.rs, _tools/teamsim/FORMAT.md, crates/ubiq/tests/script.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/stats.rs, crates/ubiq/src/ui/stats.rs, crates/ubiq/src/app/stats.rs, crates/ubiq/tests/stats.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/src/ui/git/repo_selector.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/app/new_agent.rs, crates/ubiq/src/ui/new_agent.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/app/graph.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/ui/web_view.rs, crates/ubiq/src/ui/viewer/web.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/state/web_panel.rs, crates/ubiq/src/app/explorer.rs, crates/ubiq/src/state/explorer/menu.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/app/board.rs, crates/ubiq/tests/prefs.rs, crates/ubiq/tests/viewer_kind.rs]
+updated: 2026-09-22
+verified: 2026-09-22
+code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/teams.rs, crates/ubiq/src/app/teams_span.rs, crates/ubiq/src/state/teams.rs, crates/ubiq/src/ui/project_face.rs, crates/ubiq/src/ui/teams/mod.rs, crates/ubiq/src/ui/teams/graph.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/src/ui/teams/inspector.rs, crates/ubiq/src/ui/teams/tasks.rs, crates/ubiq/tests/teams.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/src/ui/new_project_menu.rs, crates/ubiq/tests/new_project.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/mark.rs, crates/ubiq/src/app/mark.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/feedback.rs, crates/ubiq/src/state/feedback.rs, crates/ubiq/src/ui/feedback.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/tests/image_gestures.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/app/sink.rs, crates/ubiq/src/state/a2ui.rs, crates/ubiq/src/state/a2ui/value.rs, crates/ubiq/src/state/a2ui/eval.rs, crates/ubiq/src/state/a2ui/action.rs, crates/ubiq/src/state/a2ui/live.rs, crates/ubiq/src/state/a2ui/svg.rs, crates/ubiq/src/state/a2ui/path.rs, crates/ubiq/src/state/a2ui/ubiq-catalog.json, crates/ubiq/src/ui/a2ui.rs, crates/ubiq/src/ui/a2ui/registry.rs, crates/ubiq/src/ui/a2ui/svg.rs, crates/ubiq/src/ui/a2ui/path.rs, crates/ubiq/src/ui/sink/a2ui.rs, crates/ubiq/tests/a2ui.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/sink/script.rs, crates/ubiq/src/state/script.rs, crates/ubiq/src/ui/sink/teamsim.rs, crates/ubiq/src/state/teamsim.rs, crates/ubiq/src/ui/kit/blocks.rs, _tools/teamsim/FORMAT.md, crates/ubiq/tests/script.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/stats.rs, crates/ubiq/src/ui/stats.rs, crates/ubiq/src/app/stats.rs, crates/ubiq/tests/stats.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/src/ui/git/repo_selector.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/app/new_agent.rs, crates/ubiq/src/ui/new_agent.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/app/graph.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/ui/web_view.rs, crates/ubiq/src/ui/viewer/web.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/state/web_panel.rs, crates/ubiq/src/app/explorer.rs, crates/ubiq/src/state/explorer/menu.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/app/board.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq/tests/prefs.rs, crates/ubiq/tests/viewer_kind.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/plan/blocks.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq/src/app/plan.rs, crates/ubiq/src/state/plan.rs, crates/ubiq/src/ui/plan.rs, crates/ubiq/tests/plan.rs, crates/ubiq/src/state/new_mission.rs, crates/ubiq/src/app/new_mission.rs, crates/ubiq/src/ui/new_mission.rs, crates/ubiq/tests/new_mission.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
 ---
@@ -293,7 +293,9 @@ that menu offers the terminals that are not agents, and starting one is this for
 survives that filter is
 grouped into a `Configured` heading with one row per `(harness, account)` pair and a `Defined`
 heading with one row per saved profile, `HarnessChoice::Profile(usize)` indexing the list settings
-holds; a group with nothing in it is omitted whole, heading and separator together, rather than
+holds — the global profiles plus the ones saved inside the project this start is aimed at, each of
+those labelled `· this project`, and a project profile of the same name as a global one
+standing in its place here and in no other project (`D158`); a group with nothing in it is omitted whole, heading and separator together, rather than
 drawn empty. **A bare harness is not a row.** Starting one with nothing else answered is what the
 form is for, and it asks the identity, the model, the level and the mode in the same breath — a
 row that launched on whatever the library happened to resolve was that same launch with every
@@ -671,8 +673,8 @@ the record only for an agent it holds no conversation with; `[Teams]` reads
 for it. `ui::teams::status` puts a glyph beside each of the seven, coloured from the same bucket
 token `ui::work` defines rather than a vocabulary of its own: `status_chip` carries the glyph ahead
 of the word, and the card's left edge and its role mark take the same colour, so a card cannot show
-one state in colour and another in words. `Writing` and `Tools` wear the closest mark the icon registry holds
-rather than one drawn for either (`G278`). A delegate's card wears the same kind of glyph, read off
+one state in colour and another in words. `Writing` and `Tools` wear `UbiqIcon::PaneWriting` and
+`UbiqIcon::PaneTools`, drawn in the registry's `pane` set for exactly these readings. A delegate's card wears the same kind of glyph, read off
 its own `ToolStatus` and its `waiting` count, in place of a fixed effort dot; its tooltip leads with
 the state's word ahead of the delegate's name, type, model and thinking level, and a delegate whose
 spawning call never reached the transcript draws no mark at all — the data says nothing, so nothing
@@ -830,6 +832,16 @@ existing conversation to the surface that raised it, and the board draws no agen
 No project step either — the board is one project's work, so there is nothing to choose between. Starting an agent from here answers "who should work on this"
 without leaving the board to do it; the task the agent ends up working still needs its own card.
 
+**`New mission`, beside them both, writes a card and launches its assistant in the same act.** The
+dialog asks a title, a description, a `require plan` flag and an assistant, picked from whichever
+profiles are marked fit to run one — the empty case reads as a sentence pointing at the profile
+editor rather than as an empty picker. Start is refused until a title is typed and an assistant is
+chosen. On Start the task is created, promoted to a mission and given its description, and the
+chosen profile is launched with `manage-ubiq-tasks` and `ubiq-plan` ticked and an opening turn
+carrying the mission's title, id and description — the `require plan` flag adds one more sentence to
+that turn, a reminder rather than anything the host enforces. The button is labelled with the
+project's own word for a mission, the same reading the board's level chip already gives it.
+
 **A card written as a description names itself.** A draft with a description and no title is
 created under a stand-in — the first line of that description, taken as plain text, cut to sixty
 characters on a word boundary — and then asks the host's own assistance for a written one through
@@ -865,11 +877,79 @@ the foot is not drawn at all, rather than a row of two absences. This is `Priori
 the one value with no word — applied to every optional fact on the record: a board where every card
 recites what it does not know says nothing.
 
+**A mission leads the row it sits in.** A task allowed to have children and to carry a plan carries
+an accent chip ahead of its key and kind, naming it in the project's own word for the level rather
+than a fixed label — the project's override if it set one, else the application-wide default. A
+task is a mission or it is not; nothing about the record fixes that at creation, and the panel's
+Level control both promotes and demotes it the same way any other field changes.
+
+**A mission's card counts what it has spawned.** A muted chip beside the mission chip names how
+many children it has, drawn only where that count is over zero — the same absent-when-unset rule as
+every other mark. Depth is capped at one: a task that already has a parent may not itself be given
+one, and a task that already has children may not be made a child — together the two rules are what
+removes any need to walk the tree for a cycle, and only a mission may be a parent at all. Deleting a
+mission orphans its children rather than taking them with it or refusing the delete: each keeps
+everything it has and simply loses the parent it named, because cascading would delete work the
+user never selected and refusing would leave a board that can never be cleared.
+
+**A mission's panel offers its plan; an ordinary task's does not.** The affordance is drawn only for
+a task carrying a `level` — a task with `level: None` has no plan and the panel offers no route to
+one. Opening it raises the document over the whole window, two columns: the plan on the window's
+own text editor — the same buffer, highlighter, line numbers, soft wrap and undo history a `.md`
+tab gets, toggled between Source, Split and Preview on the file viewer's own pills — and beside it
+the rail of threads, plus an Export action that writes an explicit, one-shot copy into the
+project's working tree at a path the user picks, never a continuous mirror. A mission nobody has
+planned says so instead of reporting an error, the same way a task with no sub-tasks does.
+
+**The plan is written here, not only read.** ⌘S and the Save button send `SavePlan` with the whole
+buffer; the host answers with the document it stored, which is what settles the surface clean. An
+edit is never thrown away to win a race: a plan that changed elsewhere — another window's save, an
+agent's `write_plan` — while the buffer held an unsaved edit keeps the edit and says the other copy
+moved, and Escape over unsaved work asks once before discarding. **Nor does a stale buffer replace
+the newer copy without being told to.** The buffer holds the `revision` of the body it was seeded
+from; when the host has moved past it, the first Save writes nothing — it names who moved the copy
+and which revision, the button becomes *Overwrite*, and the second press sends. Every character
+typed survives the question, and a further save landing under it asks again, because one
+confirmation covers one revision. This is a confirmation, not a lock: `SavePlan` replaces the body
+whole and carries no expected revision, so a save landing between the question and the answer is
+still overwritten (`G330` in the backlog). `/` at the start of a word opens a
+menu of markdown the planner types over and over (a heading, a step, a checklist item, a table),
+which is the editor's own completion popover rather than a menu of this screen's.
+
+**The editor says which lines a human wrote and which the agent did.** Every body the host states
+is followed by a `ListPlanChanges` with no watermark — the whole history, which is what makes a
+plan an agent wrote from nothing read as agent lines throughout with the human's edits standing
+out against them — and the runs that come back are underlined in the buffer: `edit_human`, solid,
+against `edit_agent`, wavy, so the two are told apart by shape as well as hue. The footer counts
+what changed beside the saved/unsaved word — lines added, removed and modified, and how many blocks
+were touched — with a dot for each origin that is actually on screen. Counts, not a report: the
+revision split `PlanChangeStats` also carries stays off the status line. The runs are painted
+against the body they were counted over, so an answer arriving while the buffer holds an unsaved
+edit waits for it to settle; the decorations already on screen move with the typing, which the
+editor's own collections do.
+
+**An annotated passage is drawn over the live text**, and clicking one opens its thread anchored to
+the passage itself; the rail lists every thread, hides the resolved ones behind a count, and its
+Show takes the reader to the passage. In Preview the granularity is a block, because a rendered
+document has no offsets: each block is a clickable card. In Source a selection can be annotated,
+and the passage selected rides along as the thread's quote — the anchor is still the block, whose
+id is the host's, so a passage typed since the last save says to save first rather than posting a
+thread that would be orphaned on arrival. A block already carrying threads shows how many are open
+and how many are resolved. A thread shows the passage it names, its replies, and one composer to add another —
+resolving or reopening it is one button, offered to anyone looking, not gated to whoever opened it.
+**A thread that has lost its block is marked, never dropped**: an orphan banner says so, and the
+thread keeps its replies and its state exactly as they were, because a passage rewritten out of
+existence is not the same fact as an answered question. An agent answers what the user opened
+through the `ubiq-plan` MCP server's `list_annotations`, `reply_annotation` and
+`resolve_annotation` — there is no tool that opens one, so a thread always starts on this side of
+the glass.
+
 **The task panel reports one task whole, and edits it in place.** Where it has got to and how much
 it matters share the top line, the first written where a column is named and the second right up
 against the other edge, because those are the two questions asked of a card before any other. Under
-them the facts that identify it — its key, its kind, its complexity, who it is assigned to, the
-issue it stands for and its labels — then
+them the facts that identify it — its key, whether it is a mission, its parent, its kind, its
+complexity, who it is assigned to, the issue it stands for, its labels, what it references and what is
+attached to it — then
 its description, then every sub-task with the agent that has it and where that has got to. Ticking
 a sub-task is a change to the task rather than to the view of it; unticking lands on idle, because
 nothing here can know what its owner would go back to doing. **A sub-task nobody has picked up says
@@ -885,13 +965,39 @@ set` is a pill in the row beside the three, the way handing a task to no session
 that picker rather than an absence the user has to find the way back to.
 
 **The form edits everything about a task except where it has got to.** Its title, its description,
-its priority, its key, its kind, its complexity, who it is assigned to, its link, its labels, its
-colour, its shape and its session, its sub-tasks — added at the foot of the list, renamed in place,
-ticked and removed — and a comment left at the foot of that list. Priority, kind, complexity and
-shape are rows of pills, which are the report and the control at once because each has a handful of
-fixed values; who it is assigned to is free text, like a key or a link — there is no roster to pick
-from; the colour is a row of swatches behind a `none`; the session is a picker, because that list is
-as long as the project has sessions and it grows.
+its priority, its key, its level, its parent, its kind, its complexity, who it is assigned to, its
+link, its labels, its references, its colour, its shape and its session, its sub-tasks — added at
+the foot of the list, renamed in place, ticked and removed — and a comment left at the foot of that
+list. Priority, kind, complexity and shape are rows of pills, which are the report and the control
+at once because each has a handful of fixed values; level is a single switch rather than a row,
+because a task either is a mission or it is not, and there is no third value to choose between; who
+it is assigned to is free text, like a key or a link — there is no roster to pick from; the colour
+is a row of swatches behind a `none`; the session and the parent are pickers, because both lists are
+as long as the project itself and grow with it — the parent's offers only what the task could
+legally be given, a mission with no parent of its own; references are a chip list with a `+` that
+opens the same idiom, offering every other task not already held, because a reference is symmetric
+and untyped and carries no rule beyond not naming the task itself or one it already holds.
+
+**A task's attachments are stored, and a conversation's are not.** That one difference is the whole
+design: a chat's attachment is folded into the prompt as `@path` at send and dies with the draft,
+while a task's lives on the record, survives a restart and is read back by an agent that never saw
+the interface. So the panel's attachment row draws what the record says and nothing local — every
+add and every drop is a message, and the chips come back on the answer. A chip names the file, opens
+it on a click, and is drawn in the accent when it points into the knowledge base, because *attached
+from the KB* is the one thing about an attachment its file name cannot say. Two controls add one:
+`+` raises the file picker, and the clipboard control takes what is on the pasteboard — a copied
+file by its path, a screenshot written into `.ubiq/pasted/` first, exactly as a composer's paste
+does it.
+
+**The attachment picker is the one that offers two key spaces at once.** A task may point at a
+project file or at a knowledge-base document, so the dialog carries the explorer's forest with the
+knowledge base beside it as one more root, each row under it already carrying the
+`kb:{source}:{path}` address the record stores. The picker itself learns nothing — it is told a path
+is a path, the way it is told the explorer's are project-relative and a host browse's are absolute.
+It asks for files only, unlike the composer's `+`: a folder here is the way to the documents under
+it, and picking one would let the container rows, which name no document, reach a record. **The
+chat's own attach picker still offers the project only** — the same dialog, one forest short — which
+is a card of its own rather than something this one changed.
 
 **A label is named once and offered ever after.** Adding one lists every label the project already
 uses before offering to make a new one, because two cards spelled `infra` and `Infra` are two labels
@@ -1221,8 +1327,21 @@ which of them no record names.
 The path stays as it is: "Project path" is a read-only field rather than a plain label, so a long
 path can be scrolled and selected instead of overflowing, and the home directory is abbreviated to
 `~` for display (`ui/sink/project.rs::home_abbreviated`; nothing stored or sent is ever the
-abbreviated form). Documentation and Integrations are drawn and disabled. Save writes the name and
-colour through `UpdateProject`.
+abbreviated form). Documentation is drawn and disabled; Integrations is a fixture too, apart from
+the profiles block below it. Save writes the name and colour through `UpdateProject`.
+
+**Integrations is where a project's own profiles are written.** A profile saved here belongs to the
+project, which is a fact about where it is stored and not a field it carries (`D158`): the host
+keeps it under that project's own directory, offers it when an agent starts in that project, and
+deletes it with the project — forgetting the project takes the whole directory, profiles included,
+and nothing asks first. `Add profile` raises the same profile form the settings page raises, aimed
+at this project; `Edit` on a row reopens it in the scope it was found in, because Edit is not a
+way to move a profile between roots. **These rows appear nowhere else.** The application's own
+Harnesses section lists the global profiles only — "visible only in the project they were created
+in" is the ask, and a second listing under Settings would contradict it. The cost of reading it
+that way is that a surface holding no project offers none of them: the new-mission dialog's
+assistant picker is the one that bites, so a project-scoped profile cannot be a mission assistant
+yet — a row in the backlog rather than a hedge here.
 
 **Tasks says which lanes this project's board draws.** Every one of the seven statuses is listed —
 hidden ones included, since a page that dropped them would be a page with no way back — with two
@@ -1594,6 +1713,14 @@ watch runs at every level, Off included** — what a level decides is what Ubiq 
 notices — so a project that is not indexed still refreshes its explorer and its Git state. Nothing
 is written into the project's own folder at any level.
 
+**What the board calls a mission is a word, not a fixed label, on the same application-wide-default-
+with-a-per-project-override shape the indexing level takes.** Application settings' new Board
+section offers one field, seeded "Mission" — *mission*, *epic*, *user story*, whatever the team
+calls a task allowed to have children and to carry a plan — and a project's own Tasks tab offers a
+Default pill naming that word and a Custom pill that reveals a field of the project's own. A change
+takes effect at once: the board's mission chips, its task panel and its settings row all read the
+resolved word the moment it is typed, with no restart and no per-window drift.
+
 **The browser button starts the web-export server and opens the project in it.** Drawn only with a
 project open, it starts the local, on-demand `tiny_http` server on first use (or reuses it if
 already running), registers the active project under a slug, and opens the returned URL in the
@@ -1857,6 +1984,13 @@ the level are drawn from `HarnessCatalogue`, asked for as the form opens, so a m
 the harness's real list here as it is at a start. Save is dimmed until the profile is named and a
 target is chosen; everything else may be left unset, because "no answer" is a real answer a profile
 can hold.
+
+**A `Mission assistant` checkbox sits under `Purpose::Profile` only**, beside `persistent`, and
+answers one question a start never asks: whether this profile should be offered by the new-mission
+dialog's assistant picker. Ticking it writes `Profile::mission_assistant`, read forward from the
+opened profile so a save never silently clears a flag already set. `None` and untucked both read as
+"not an assistant" to every filter over the field — the distinction exists only so a profile
+extending one that is ticked can un-mention it.
 
 **The Isolation section is the one the host acts on**, so its three rows are the only ones that write
 the Host layer rather than the interface's own — an agent runs under a policy, and the half that
@@ -2926,6 +3060,17 @@ the records — which column an agent's conversation is drawn in, and where a ca
 family, with its payloads and its rules, is
 [`../tech/transport-contract.md`](../tech/transport-contract.md).
 
+**A task's plan is a family of its own.** `LoadPlan`, `SavePlan`, `DeletePlan` and `ExportPlan` go
+out; `Plan`, `PlanDeleted`, `PlanExported`, `PlanChanged` and `PlanError` come back. The host
+refuses every one of them for a task with no `level`. `SavePlan` is the editor's: the window sends
+it with the whole buffer, and the host's `Plan` in reply is what the surface settles against.
+`PlanChanged` carries no body: a window with that plan open re-asks with `LoadPlan` rather than
+being sent content it may not have open.
+Annotations are their own sub-family: `ListPlanAnnotations`, `AnnotatePlan`, `ReplyToAnnotation` and
+`ResolveAnnotation` go out; `PlanAnnotations` answers the asker with the block index and every
+thread, and `PlanAnnotationsChanged` tells every other window to re-ask if it still cares. The full
+family is in `tech/transport-contract.md`, with the rest.
+
 **A live conversation is a family of its own, and every message in it names an agent.** Going out:
 `StartConversation`, `PromptAgent`, `CancelTurn`, `AnswerPermission`, `SetAgentConfig` and
 `EndConversation`, with `ListAgentTypes` behind the `New agent` menu. Coming back:
@@ -2998,6 +3143,7 @@ saying no file is open, because the files are panels of their own:
 | Script page | `ui/sink/script.rs` | The kitchen sink, on its last page | Fills it; the settings panel discloses under the chrome, the console scrolls under the two editors, and the right half switches between the reference and the declared panel | `script_buffer` and `script_prelude` on `AppState`, and `SinkState::script` — the last `ScriptOutcome`, the `OxcOptions`, and the `Live` a declared panel draws into |
 | New agent form | `ui/new_agent.rs` | A modal over the whole window, above the settings overlay | `MODAL_WIDTH`; its body scrolls inside it | `WorkbenchState::new_agent`, or the settings page's `profile_form` — one `NewAgentForm` either way |
 | Add KB source form | `ui/kb/source_form.rs` | A modal over the whole window, above the project settings overlay that raises it | `MODAL_WIDTH`; its body scrolls inside it | `WorkbenchState::kb_source`, one `KbSourceForm` |
+| Plan editor | `ui/plan.rs` | A surface over the whole window, raised from a mission's task panel | `DOC_WIDTH` + `RAIL_WIDTH` by `DOC_HEIGHT`; the document and the thread rail each scroll inside it | `WorkbenchState::plan`, one `DocumentEditor`, over the window's `plan_editor` buffer |
 | File picker | `ui/file_picker.rs` | Over the whole window, wherever it was raised | `DEFAULT_WIDTH` by `DEFAULT_HEIGHT`, resized from its corner grip and floored at `MIN_WIDTH`/`MIN_HEIGHT` | `AppState::file_picker`, and the window's `picker_filter` |
 | Stats screen | `ui/stats.rs` | The centre panel in Control mode, project or no project | Fills it; its page strip takes the tab strip's own height, and its table scrolls both ways | `StatsState`, on the window rather than on a project |
 | KB document | `ui/kb/` | The centre panel in `KB` mode | A flush header naming the document, then the body fills the rest and scrolls | `KbState::doc`, the one document the explorer selected |
@@ -3378,6 +3524,142 @@ owning one open index per project, fed by the same walk content search runs and 
 own batches, handing out a read handle that carries no writer. It lives in a host-owned `index/`
 directory beside the interface's `ui/` workarea, which Forget and the orphan collector already
 remove.
+
+The mission term is the same shape again: `HostSettings::mission_term` for the application-wide
+default (`String`, defaulting to `"Mission"`) and `ProjectRecord::mission_term: Option<String>` for
+a project's override, sent as a `MissionTermChange` (`Inherit` | `Set`) on `Message::UpdateProject`
+— the same three-state discipline `IndexChange` uses, and for the same reason: the outer `Option`
+says whether anything was said, the inner enum says what. `crate::state::work::mission_term`
+resolves the two into the word a window draws; `AppState::mission_term` is the one call site every
+other reader goes through. `ui/settings.rs`'s `mission_term_input` and
+`app/settings.rs::set_mission_term` carry the application-wide field; `ui/sink/project.rs`'s
+`mission_term_row()` draws the project's Default/Custom pill pair, and
+`app/projects.rs::set_project_mission_term` sends the change and updates the window's own snapshot
+at once, on `set_project_index`'s rule, so a board's mission chips relabel before the host echoes
+back. `TaskField::Level(Option<Level>)` carries the task's own axis — `ubiq_proto::work::Level` has
+one arm, `Mission` — set from the panel's `form::level_pill()` and drawn first in
+`ui/board/mod.rs::task_card()`'s marks row.
+
+`TaskRecord::parent: Option<TaskId>` lives on the child only — the parent carries no list of its
+own, and both sides derive it the same way: `WorkProjection::children_of()` and `::child_count()` on
+the UI side, a plain scan over `self.loaded` on the host's in `Work::orphan_children`. Both fields
+are `#[serde(default)]` and absent when empty (`references` renamed `reference` in the file, one per
+line), so a `tasks.toml` written before this slice loads unchanged with no envelope bump.
+`TaskField::Parent` and `TaskField::References` carry the edits — the References arm replaces the
+whole set, dropping a self-reference and a duplicate, the same posture `Labels` takes. The host is
+the one place the one-level rule is enforced: `Work::parent_refusal()`
+(`crates/ubiq-host/src/work/mod.rs`) refuses a `Parent` set with a `Message::WorkError` when the
+named parent carries no task, has no `Level`, is itself somebody's child, or when the task being
+given a parent already has children — the two depth checks between them are what removes any need
+for a cycle walk, since a chain three deep would need one of the two ends to be both a parent and a
+child, and both are refused. `Work::sanitize_relations()` runs on every load and poll and only drops
+a parent or a reference naming no task in the project — no depth or level re-check — so data
+hand-edited into something the live rule would refuse still loads rather than being rejected wholesale.
+
+`TaskRecord::attachments: Vec<Attachment>` is a reference and never content — a project-relative
+path, or a `kb:{source}:{path}` address, plus an optional label — and is `#[serde(default)]` and
+absent when empty (renamed `attachment` in the file), so a `tasks.toml` written before this slice
+loads unchanged with no envelope bump, the same as `references`.
+`TaskField::Attachments(Vec<Attachment>)` replaces the whole set, trimmed and deduplicated by
+target, `Labels`' posture again. The interface side is `app/board.rs::add_task_attachments()` /
+`::remove_task_attachment()` / `::open_task_attachment()` — the last is the only place the two forms
+part company, a `kb:` address opening through `click_kb_row()` and everything else through
+`select_file()` — with `ui/board/form.rs::attachments()` drawing the row.
+`state/file_picker.rs::forest_from_kb()` builds the knowledge-base root and
+`PickerOwner::TaskAttachment { task }` carries the card back to the commit, which is the one picker
+owner whose answer leaves the window. A pasted picture takes the opposite bet from a composer's:
+`app/picker.rs::paste_image_into_task()` sends the `WriteProjectFile` and attaches nothing, and the
+`SetTaskField` goes out from `pasted_write_settled()` once the write is answered — a chip in a draft
+can be taken back off, a path written into `tasks.toml` outlives the mistake. On the MCP side
+`manage-ubiq-tasks`' `create_task` and `update_task` both take `attachments`, so an agent adds one
+with the same verb a human does.
+`Work::orphan_children()` runs on delete, clearing `parent` on every child and sending each its own
+`TaskChanged` so a window's board redraws it without the breadcrumb, rather than the store losing the
+link silently underneath it. On the UI side, `WorkProjection::eligible_parents()` and
+`::eligible_references()` (`crates/ubiq/src/state/work.rs`) mirror the host's rule exactly so neither
+picker ever offers a choice the host would refuse: `form::parent()` draws the parent picker on
+`session()`'s idiom, and `form::references()` / `form::reference_picker()` draw the chip list and its
+`+` menu, wired through `AppState::set_task_parent()`, `::add_task_reference()` and
+`::remove_task_reference()` (`crates/ubiq/src/app/board.rs`). The card's child-count chip is
+`ui/board/mod.rs::task_card()` reading `WorkProjection::child_count()`.
+
+A plan is stored as one markdown file, `<config root>/projects/<ProjectId>/plans/<TaskId>.md`,
+beside `tasks.toml` and `kb.toml` — `crates/ubiq-host/src/store/plan.rs`'s `FilePlanStore`, written
+and read whole, atomically, with a corrupt file preserved aside rather than clobbered. The level
+check is not the store's: `crates/ubiq-host/src/plan/mod.rs`'s `Plans` holds a `work::Handle`
+alongside the store and refuses `load`, `save` and `body` with `Message::PlanError` for a task with
+no `level`, the same posture `Work::parent_refusal` takes; `delete` skips that check on purpose,
+because `Work::delete` calls it to keep a removed task's plan from being orphaned on disk, and a
+task already gone cannot be asked what its `level` was. `crate::plan::Handle` mirrors
+`crate::work::Handle`'s own shape — an `Arc<Mutex<Plans>>` clone held by the coordinator and by the
+MCP listener's `ubiq-plan` server. The coordinator's `plan_job()` (`crates/ubiq-host/src/coordinator.rs`)
+answers `LoadPlan`, `SavePlan` and `DeletePlan` on `work_job()`'s own footing; `export_plan()` reads
+the body through `Plans::body()` and writes a copy through `crate::store::plan::export_to()`
+wherever `ExportPlan::rel_path` resolves to, the same containment `WriteProjectFile`'s path already
+gets. On the interface side the surface is **generic over a document**: `crate::state::document`'s
+`DocumentEditor` holds a `DocumentHandle`, a `DocumentBody` (`Loading`, `Loaded`, `Failed`), the
+text the host last stated, and the flags that make a save mean something (`dirty`, `stale`,
+`saving`); `DocumentHandle` has one variant, `Plan { project_id, task_id }`, and `app/plan.rs`'s
+`impl DocumentHandle` is the only place a handle becomes a message. `app/plan.rs::open_plan()`
+sends `LoadPlan` through it and `app/wire.rs` folds `Plan`, `PlanDeleted`, `PlanExported`,
+`PlanChanged` and `PlanError` back — a `PlanChanged` for the open plan re-sends `LoadPlan` rather
+than trusting a body it was not given, and `plan_body_arrived()` reads the answer against what the
+buffer holds so an unsaved edit is reported rather than overwritten. The buffer itself is the
+window's `plan_editor`, one `EditorState` built in `app/boot.rs` with `ui::editor::SlashCommands`
+installed as its completion provider; `settle_plan_editor()` seeds it and repaints its decorations
+in `render`, where there is a `Window`, for the reason `attach_arrived_files` does. `ui/plan.rs::render()`
+draws the surface over `ui/viewer::buffer()` and `ui/viewer/markdown::render()`, and
+`open_export_plan_dialog()` raises `FileDialog::ExportPlan` over it, `SaveAs`'s own route. The
+`ubiq-plan` MCP server (`crates/ubiq-host/src/mcp/plan.rs`, catalogued as `mcp::catalogue::UBIQ_PLAN`)
+carries `read_plan` and `write_plan` over the same `Plans`, reached through `PlanReach`, which holds
+the plan handle and nothing else — not a `work::Handle` of its own, since `Plans` already carries
+one.
+
+Annotations hang off the same `Plans`: its block index and its threads live in a sidecar,
+`<TaskId>.annotations.json` beside the `.md` (`crates/ubiq-host/src/store/plan.rs`'s
+`PlanSidecar`/`FilePlanStore::save_sidecar`), so the markdown itself stays untouched by anything of
+Ubiq's. `crates/ubiq-host/src/plan/blocks.rs::match_blocks()` re-indexes the document on every
+save — identical blocks keep their id, an edited block keeps it by word-overlap similarity, and a
+block nothing matches is reported in `Matching::vanished` so `Plans::save()` can flag its
+annotations `orphaned` rather than drop them. `Plans::annotations()`, `::annotate()`, `::reply_to()`
+and `::resolve()` answer `ListPlanAnnotations`, `AnnotatePlan`, `ReplyToAnnotation` and
+`ResolveAnnotation` with `Message::PlanAnnotations`, broadcasting `PlanAnnotationsChanged` to every
+other window. On the interface side, `crate::state::document::AnnotationsBody` and `ComposerTarget`
+track the block index, the threads and which composer (if any) is open. The block ids are the
+host's and the offsets are the buffer's, so `state::document::block_ranges()` joins them with a
+forward scan in document order and `annotation_range()` narrows a thread to its quote where the
+quote is still there; `app/plan.rs::paint_annotation_marks()` turns the result into one
+`TextDecorationCollection` over the buffer — bookmarks' own machinery (`app/nav.rs`) — and
+`::paint_change_marks()` is the second collection beside it, holding the edit provenance.
+Two collections rather than one because the library lets the first collection win a property they
+share: annotations paint a background, provenance paints an underline, so a changed line inside an
+annotated passage reads as both. `ui/plan.rs::thread_popover()`
+anchors a thread over its passage with `EditorState::range_to_bounds`, `document_clicked()` is what
+a click inside a decorated range opens, `annotate_selection()` quotes the selection, and
+`block_card()` is the preview's whole-block route. `app/plan.rs::compose_annotation()`,
+`::compose_reply()` and `::set_annotation_resolved()` send the mutating messages. The `ubiq-plan` MCP server adds `list_annotations`, `reply_annotation` and
+`resolve_annotation` (`crates/ubiq-host/src/mcp/plan.rs`) over the same `Plans` — no tool opens an
+annotation; an agent only answers or closes one a window already started.
+
+The new-mission dialog is three modules on the New agent form's own division: `state/new_mission.rs`'s
+`NewMissionForm` holds what was typed and `ready()`, plus `assistants()` — profiles filtered to
+`ProfileInfo::mission_assistant == Some(true)` — and `mission_briefing()`, the one place the opening
+turn's text is built, so the reminder `require_plan` adds is cheap to change if it turns out to be
+more than that. `assistants()` itself is scope-blind; `ui/new_mission.rs` is what hands it
+`SettingsState::profiles_in(app.project(cx))` rather than the global list alone, so a profile scoped
+to the dialog's own project is offered beside the global ones, and `app/new_mission.rs`'s
+`settle_new_mission()` resolves the picked id through the same `profiles_in(project_id)` at launch
+time. `ui/new_mission.rs` draws it, titled with `AppState::mission_term`. `app/new_mission.rs`
+carries the mutators and `start_new_mission()`, which composes the launch out of messages that already
+exist rather than adding one: a `CreateTask` first, and the rest — `SetTaskField(Level::Mission)`, the
+description's `UpdateTask`, `StartConversation` and the briefing's `PromptAgent` — waits on the id
+`TaskCreated` answers with, parked on `BoardState::pending_mission` the way `PendingTask` already
+parks an ordinary draft, and run once by `settle_new_mission()` from `TaskCreated`'s arm. No wait is
+needed between starting the conversation and prompting it: `StartConversation.agent_id` is minted by
+the window (`AgentId::generate()`, `start_new_agent`'s own convention), so `PromptAgent` can name it
+immediately, and the coordinator's `launch_pending` already launches a pending conversation on its
+first prompt (`crates/ubiq-host/src/coordinator.rs`) — the host's own supported path, not a race.
+`Layer::NewMission` raises the dialog over the board.
 
 The same dialog's General page carries the rail's badge override: a two-character field,
 `AppState::project_initials_input`, clamped as it is typed rather than only on Save. Empty is "no
@@ -3778,7 +4060,7 @@ a handler that sends and waits: `begin_task_edit()` opens a field and gives it t
 `commit_step_title()` refuse an empty title and send nothing when the value has not changed,
 `commit_task_description()` allows an empty one, `commit_task_assigned()` follows the key and link
 fields' own rule for an empty value, `set_task_priority()`, `set_task_shape()`,
-`set_task_complexity()` and `set_task_session()` send on the click, `add_task_step()` keeps its field so several can be typed in
+`set_task_complexity()`, `set_task_level()` and `set_task_session()` send on the click, `add_task_step()` keeps its field so several can be typed in
 a row, `remove_task_step()` goes straight through, `delete_task()` asks the first time and sends the
 second, `withdraw_task_delete()` takes the question back, and `toggle_description_preview()` swaps
 the markdown for the source. `new_task()` is where the filter field becomes a title and the task is
@@ -4233,6 +4515,11 @@ field's, instead of landing in the middle of the centred row and covering the te
 | The host refuses a change to the work | The panel says what it would not do, puts the open field away, takes the waiting mark off, gives up on a `New task` that never arrived and withdraws a pending delete. The next thing the host confirms clears the sentence |
 | The selected task is absent from a fresh listing | The panel closes rather than reporting a task nobody holds. The selection is left as it was, so the panel returns if a later listing carries the task again |
 | A project's tasks cannot be written | The change holds for the session and one refusal says once that it is not durable. The card moves, so the board and the store disagree until a write succeeds |
+| A plan is asked for or saved against a task with no `level` | The host refuses with `PlanError`; the modal is never offered for such a task in the first place |
+| A mission has never had a plan written | The modal reports no plan rather than an error, the same posture an untasked mission's sub-task list takes |
+| Exporting a plan fails, or the destination cannot be written | The modal's banner names the reason, in the same place a successful export reports its path |
+| A block a save's matching could not carry forward | Its annotations are flagged `orphaned` rather than deleted, and the thread panel shows the banner instead of silently losing the comment |
+| An annotation names a block the index no longer has | The host refuses with `PlanError` rather than creating one already orphaned |
 | A project's folder is deleted, renamed or unmounted | The next probe marks the row; the record stays and the window keeps its last screen |
 | A marked project is located again | The record keeps its id, colour and history; only its path moves |
 | A folder already in the catalogue is added again | The picker points at the project that is there; no duplicate appears |

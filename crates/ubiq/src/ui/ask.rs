@@ -5,10 +5,11 @@
 //! each with its own options and its own free text, and a modal that stacked them would be a form.
 //! One at a time, labelled by the header the agent wrote.
 //!
-//! **Every option is a card.** Picking is the card's own click, so the whole row is the target and
-//! the marker beside the label only reports — a square where several may be picked, a circle where
-//! one may. "Other" is the last card of every question and is picked the same way; what it opens
-//! under itself is the only field on the page that decides whether Confirm is enabled.
+//! **Every option is a card, and the card is the whole answer.** Picking is the card's own click,
+//! so the whole row is the target and there is no marker beside the label to keep in step with
+//! it — picked reads as the card's own fill and edge instead. "Other" is the last card of every
+//! question and is picked the same way; what it opens under itself is the only field on the page
+//! that decides whether Confirm is enabled.
 //!
 //! **An ask that has ended is the same dialog with no controls in it.** Confirmed, chatted away or
 //! timed out, the questions and what was chosen are still worth reading, so the body draws the
@@ -16,13 +17,15 @@
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, Context, Focusable, IntoElement, ParentElement, StatefulInteractiveElement, Styled,
-    Window, div, px,
+    AnyElement, Context, Focusable, InteractiveElement, IntoElement, KeyBinding, ParentElement,
+    StatefulInteractiveElement, Styled, Window, div, px,
 };
 use gpui_component::input::{Input, Textarea};
 use ubiq_proto::ask::{AskAnswer, AskClosed, AskQuestion};
 
-use crate::app::AppState;
+use crate::app::{
+    AppState, AskFieldNext, AskMoveDown, AskMoveUp, AskToggle, DialogConfirm, SubmitSearch,
+};
 use crate::state::Layer;
 use crate::state::ask::{AskRecord, AskStage};
 use crate::theme;
@@ -33,6 +36,32 @@ use crate::ui::{eid, eid2, indexed};
 /// Wider than a plain modal: an option carries a label, a sentence under it and sometimes a
 /// snippet, and three of those stacked in `MODAL_WIDTH` is a column of wrapped fragments.
 const ASK_WIDTH: f32 = 560.0;
+
+/// The key context the modal answers to, and the one the component library gives "Other" and
+/// "Notes" — both fields the whole modal wraps, so every action registered here is one the
+/// dialog sees while either field holds the keyboard too.
+const CONTEXT: &str = "Ask";
+const FIELD_CONTEXT: &str = "Ask > Input";
+
+/// The keys the dialog answers to that are not already global.
+///
+/// `enter` (`DialogConfirm`) and `⌘⏎` (`SubmitSearch`) need no binding here — both are already
+/// bound at `Workbench` (and, for `⌘⏎`, `Input` too), on `new_agent.rs`'s device, and this
+/// module's own `render` intercepts them before they reach anything else. Up, down, space and
+/// tab are this dialog's own: the first three are deliberately *not* bound inside a field, so
+/// typing in "Other" or "Notes" keeps doing what typing does, and `tab` is bound twice, on
+/// `navigator.rs`'s device, because the component library's own field already claims it for
+/// indentation at the same depth — registered here, after `gpui_component::init`, so this one
+/// wins the tie.
+pub fn key_bindings() -> Vec<KeyBinding> {
+    vec![
+        KeyBinding::new("up", AskMoveUp, Some(CONTEXT)),
+        KeyBinding::new("down", AskMoveDown, Some(CONTEXT)),
+        KeyBinding::new("space", AskToggle, Some(CONTEXT)),
+        KeyBinding::new("tab", AskFieldNext, Some(CONTEXT)),
+        KeyBinding::new("tab", AskFieldNext, Some(FIELD_CONTEXT)),
+    ]
+}
 
 pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> AnyElement {
     let Some((dialog, record)) = app.open_ask(cx) else {
@@ -66,13 +95,27 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
             None,
             None,
         )))
-        .children(record.questions.get(tab).map(|question| match live {
-            true => asking(record, question, tab, app, window, cx),
-            false => answered(record, question, tab),
-        }))
+        // Its own scroll, under the strip rather than folded into the modal's whole-body one: a
+        // tall question — four options, "Other" open under it, notes under that — must not push
+        // the tab strip itself off screen with it. `feedback.rs`'s own body carries the same
+        // `id` + `flex_1` + `min_h(0)` + `overflow_y_scroll` shape.
+        .child(
+            div()
+                .id("ask-answers")
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_h(px(0.))
+                .gap_3()
+                .overflow_y_scroll()
+                .children(record.questions.get(tab).map(|question| match live {
+                    true => asking(record, question, tab, dialog.cursor, app, window, cx),
+                    false => answered(record, question, tab),
+                })),
+        )
         .into_any_element();
 
-    modal_sized(
+    let modal = modal_sized(
         "ask-modal",
         theme::accent(),
         ASK_WIDTH,
@@ -84,7 +127,32 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
             this.close_ask(window, cx)
         }),
         window,
-    )
+    );
+
+    // The keyboard's own layer over the modal: a cursor for the option list, on `navigator.rs`'s
+    // device rather than the modal's own focus, because `kit::modal` owns no focus of its own —
+    // see `ui/kit/overlay.rs`'s own doc comment. `DialogConfirm` and `SubmitSearch` are already
+    // global (`app::install_key_bindings`); intercepted here rather than left to whatever else
+    // might answer them, on `new_agent.rs::confirmable`'s device.
+    div()
+        .key_context(CONTEXT)
+        .track_focus(&app.ask_focus)
+        .on_action(cx.listener(|this, _: &AskMoveUp, _, cx| this.move_ask_cursor(-1, cx)))
+        .on_action(cx.listener(|this, _: &AskMoveDown, _, cx| this.move_ask_cursor(1, cx)))
+        .on_action(cx.listener(|this, _: &AskToggle, _, cx| this.toggle_ask_cursor(cx)))
+        .on_action(
+            cx.listener(|this, _: &AskFieldNext, window, cx| this.ask_next_field(window, cx)),
+        )
+        .on_action(
+            cx.listener(|this, _: &DialogConfirm, window, cx| {
+                this.advance_ask_question(window, cx)
+            }),
+        )
+        .on_action(
+            cx.listener(|this, _: &SubmitSearch, window, cx| this.confirm_ask_step(window, cx)),
+        )
+        .child(modal)
+        .into_any_element()
 }
 
 /// One question, while it can still be answered: what was asked, what may be picked, and the notes
@@ -93,6 +161,7 @@ fn asking(
     record: &AskRecord,
     question: &AskQuestion,
     at: usize,
+    cursor: usize,
     app: &AppState,
     window: &Window,
     cx: &mut Context<AppState>,
@@ -118,7 +187,7 @@ fn asking(
                 &option.description,
                 preview.as_deref(),
                 record.picked(at, ix),
-                question.multi_select,
+                ix == cursor,
                 cx,
             )
         })
@@ -132,7 +201,7 @@ fn asking(
         "Say it in your own words.",
         None,
         picked_other,
-        question.multi_select,
+        other_at == cursor,
         cx,
     ));
 
@@ -201,8 +270,11 @@ fn asking(
 
 /// One option, as a card that is its own click target.
 ///
-/// The marker reports rather than acts — a second click target inside the row would hand the same
-/// gesture to two handlers — and its shape is what says whether one or several may be picked.
+/// **No marker beside the label.** The row is the whole target and the row is the whole answer:
+/// picked reads as the card's own fill and edge (`kit::card`'s `selected`), and there is nothing
+/// second to keep in step with it. `at_cursor` is the keyboard's own reading — up/down walk it,
+/// space and enter act on it — drawn as a hover-toned card the same way a mouse resting on one
+/// unpicked would be, so the keyboard's position on the list reads exactly like the mouse's would.
 #[allow(clippy::too_many_arguments)]
 fn option_card(
     question: usize,
@@ -211,74 +283,58 @@ fn option_card(
     description: &str,
     preview: Option<&str>,
     picked: bool,
-    multi: bool,
+    at_cursor: bool,
     cx: &mut Context<AppState>,
 ) -> AnyElement {
-    let mut marker = div()
-        .size(px(14.))
-        .flex_none()
-        .mt(px(2.))
-        .border_1()
-        .border_color(match picked {
-            true => theme::accent(),
-            false => theme::border(),
-        });
-    if !multi {
-        marker = marker.rounded_full();
-    }
-    if picked {
-        marker = marker.bg(theme::accent());
-    }
-
-    card(
+    let mut root = card(
         eid2("ask-option", question, option),
         theme::border(),
         picked,
-    )
-    .px_2()
-    .py_1p5()
-    .flex()
-    .items_start()
-    .gap_2()
-    .child(marker)
-    .child(
-        div()
-            .flex()
-            .flex_col()
-            .flex_1()
-            .min_w(px(0.))
-            .gap_0p5()
-            .child(
-                div()
-                    .text_size(theme::font(theme::Family::Chrome, theme::Role::Body))
-                    .text_color(theme::text())
-                    .child(label.to_string()),
-            )
-            .when(!description.trim().is_empty(), |this| {
-                this.child(
+    );
+    if at_cursor && !picked {
+        root = root.bg(theme::hover());
+    }
+
+    root.px_2()
+        .py_1p5()
+        .flex()
+        .items_start()
+        .gap_2()
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_w(px(0.))
+                .gap_0p5()
+                .child(
                     div()
-                        .text_size(theme::font(theme::Family::Chrome, theme::Role::Label))
-                        .text_color(theme::text_muted())
-                        .child(description.to_string()),
+                        .text_size(theme::font(theme::Family::Chrome, theme::Role::Body))
+                        .text_color(theme::text())
+                        .child(label.to_string()),
                 )
-            })
-            .children(preview.map(|preview| {
-                div()
-                    .px_2()
-                    .py_1()
-                    .bg(theme::app_bg())
-                    .border_l(px(theme::accent_edge()))
-                    .border_color(theme::border())
-                    .child(
-                        mono(preview.to_string(), theme::text_muted()).text_size(theme::font(
-                            theme::Family::Conversation,
-                            theme::Role::Label,
-                        )),
+                .when(!description.trim().is_empty(), |this| {
+                    this.child(
+                        div()
+                            .text_size(theme::font(theme::Family::Chrome, theme::Role::Label))
+                            .text_color(theme::text_muted())
+                            .child(description.to_string()),
                     )
-            })),
-    )
-    .on_click(cx.listener(move |this, _, _, cx| this.toggle_ask_option(option, cx)))
-    .into_any_element()
+                })
+                .children(preview.map(|preview| {
+                    div()
+                        .px_2()
+                        .py_1()
+                        .bg(theme::app_bg())
+                        .border_l(px(theme::accent_edge()))
+                        .border_color(theme::border())
+                        .child(mono(preview.to_string(), theme::text_muted()).text_size(
+                            theme::font(theme::Family::Conversation, theme::Role::Label),
+                        ))
+                })),
+        )
+        .on_click(cx.listener(move |this, _, _, cx| this.toggle_ask_option(option, cx)))
+        .into_any_element()
 }
 
 /// One question, once the ask has ended: what was asked, and what was said about it.
@@ -468,9 +524,14 @@ pub fn transcript_entry(
 ) -> AnyElement {
     let ask_id = record.ask_id;
     let live = record.live();
-    let (marker, edge) = match live {
-        true => ("ASK FOR FEEDBACK", theme::accent()),
-        false => ("ASKED FOR FEEDBACK", theme::text_faint()),
+    // Warning while it blocks the harness — the same visual language `ui::conversation::permission`
+    // draws its own "NEEDS YOU" row in, because an unanswered ask is the same kind of thing a
+    // reader has to notice. Answered, chatted away, timed out or the conversation gone, it reads
+    // as an ordinary entry again: back to the neutral accent every ask started life in, before
+    // this row existed to say it still needed someone.
+    let (marker, bg, edge) = match live {
+        true => ("ASK FOR FEEDBACK", theme::warning_soft(), theme::warning()),
+        false => ("ASKED FOR FEEDBACK", theme::accent_soft(), theme::accent()),
     };
 
     // One block per question: its header, and — once the ask has ended — what was said about it.
@@ -499,7 +560,7 @@ pub fn transcript_entry(
         .flex_none()
         .flex_col()
         .gap_2()
-        .bg(theme::accent_soft())
+        .bg(bg)
         .border_l(px(theme::accent_edge()))
         .border_color(edge)
         .child(

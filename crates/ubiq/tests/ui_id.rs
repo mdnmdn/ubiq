@@ -686,6 +686,7 @@ fn render_real_shell(cx: &mut gpui::TestAppContext) -> Vec<UiMark> {
             last_opened_at: None,
             search_excludes: Vec::new(),
             index: None,
+            mission_term: None,
             tools: Vec::new(),
             managed_repos: Vec::new(),
             lanes: Vec::new(),

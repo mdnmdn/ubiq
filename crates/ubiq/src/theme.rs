@@ -392,6 +392,13 @@ pub struct StatusColors {
     pub warning_soft: Rgba,
     pub info: Rgba,
     pub info_soft: Rgba,
+    /// Who last rewrote a line of an annotated document — the plan's edit-provenance layer, drawn
+    /// as an underline under the changed lines. Two hues nothing else on that surface uses:
+    /// annotated passages are already `info_soft` and `success_soft` behind the text, so
+    /// provenance takes a different channel *and* a different family, and a reader never has to
+    /// decide whether a green run is a resolved thread or an edit.
+    pub edit_human: Rgba,
+    pub edit_agent: Rgba,
     /// The build-channel ribbon in the window's bottom-left corner: its two bands, and the ink
     /// its word is written in. Fixed in both palettes — the ribbon marks the build, not the mood.
     pub ribbon_alpha: Rgba,
@@ -1564,6 +1571,22 @@ pub fn info_soft() -> Rgba {
     Theme::current().palette.status.info_soft
 }
 
+/// A line of an annotated document a person last rewrote.
+pub fn edit_human() -> Rgba {
+    Theme::current().palette.status.edit_human
+}
+
+/// A line of an annotated document an agent last rewrote.
+pub fn edit_agent() -> Rgba {
+    Theme::current().palette.status.edit_agent
+}
+
+/// The colour of one edit's provenance, so the underline in the buffer and the legend in the
+/// footer can never disagree about which hue means whom.
+pub fn edit_origin(human: bool) -> Rgba {
+    if human { edit_human() } else { edit_agent() }
+}
+
 /// How full a plan reads, as a colour: fine under 75%, warning from 75, danger from 90.
 ///
 /// A status colour rather than the accent, because a quota is something *reported* about the
@@ -1748,6 +1771,8 @@ const DARK: Palette = Palette {
         warning_soft: rgba_hex_a(0xef9f2a, 0.16),
         info: rgba_hex(0x4a9eff),
         info_soft: rgba_hex_a(0x4a9eff, 0.16),
+        edit_human: rgba_hex(0xc77dd6),
+        edit_agent: rgba_hex(0x3fbfa8),
         ribbon_alpha: rgba_hex(0xf5c518),
         ribbon_beta: rgba_hex(0xf5a04a),
         ribbon_ink: rgba_hex(0x1b1b1b),
@@ -1821,6 +1846,8 @@ const LIGHT: Palette = Palette {
         warning_soft: rgba_hex_a(0xd48a1e, 0.14),
         info: rgba_hex(0x0066ff),
         info_soft: rgba_hex_a(0x0066ff, 0.10),
+        edit_human: rgba_hex(0x9333a8),
+        edit_agent: rgba_hex(0x0e8a76),
         ribbon_alpha: rgba_hex(0xf5c518),
         ribbon_beta: rgba_hex(0xf5a04a),
         ribbon_ink: rgba_hex(0x1b1b1b),
@@ -1952,6 +1979,8 @@ const EMBER_DARK: Palette = Palette {
         warning_soft: rgba_hex_a(0xe0a94a, 0.16),
         info: rgba_hex(0x86a6bf),
         info_soft: rgba_hex_a(0x86a6bf, 0.16),
+        edit_human: rgba_hex(0xbf8fb5),
+        edit_agent: rgba_hex(0x6fae9f),
         ribbon_alpha: RIBBON_ALPHA,
         ribbon_beta: RIBBON_BETA,
         ribbon_ink: RIBBON_INK,
@@ -2005,6 +2034,8 @@ const EMBER_LIGHT: Palette = Palette {
         warning_soft: rgba_hex_a(0xb27d1c, 0.14),
         info: rgba_hex(0x3d7594),
         info_soft: rgba_hex_a(0x3d7594, 0.10),
+        edit_human: rgba_hex(0x8e4a80),
+        edit_agent: rgba_hex(0x2f7a68),
         ribbon_alpha: RIBBON_ALPHA,
         ribbon_beta: RIBBON_BETA,
         ribbon_ink: RIBBON_INK,
@@ -2059,6 +2090,8 @@ const CONTRAST_DARK: Palette = Palette {
         warning_soft: rgba_hex_a(0xffd400, 0.22),
         info: rgba_hex(0x6cb6ff),
         info_soft: rgba_hex_a(0x6cb6ff, 0.22),
+        edit_human: rgba_hex(0xff7ae0),
+        edit_agent: rgba_hex(0x2ee6cf),
         ribbon_alpha: RIBBON_ALPHA,
         ribbon_beta: RIBBON_BETA,
         ribbon_ink: RIBBON_INK,
@@ -2112,6 +2145,8 @@ const CONTRAST_LIGHT: Palette = Palette {
         warning_soft: rgba_hex_a(0x8a5a00, 0.16),
         info: rgba_hex(0x0040c0),
         info_soft: rgba_hex_a(0x0040c0, 0.16),
+        edit_human: rgba_hex(0x8a0080),
+        edit_agent: rgba_hex(0x005f57),
         ribbon_alpha: RIBBON_ALPHA,
         ribbon_beta: RIBBON_BETA,
         ribbon_ink: RIBBON_INK,
@@ -2166,6 +2201,8 @@ const NAVY_DARK: Palette = Palette {
         warning_soft: rgba_hex_a(0xef9f2a, 0.16),
         info: rgba_hex(0x4a9eff),
         info_soft: rgba_hex_a(0x4a9eff, 0.16),
+        edit_human: rgba_hex(0xc77dd6),
+        edit_agent: rgba_hex(0x3fbfa8),
         ribbon_alpha: RIBBON_ALPHA,
         ribbon_beta: RIBBON_BETA,
         ribbon_ink: RIBBON_INK,
@@ -2219,6 +2256,8 @@ const NAVY_LIGHT: Palette = Palette {
         warning_soft: rgba_hex_a(0xd48a1e, 0.14),
         info: rgba_hex(0x0066ff),
         info_soft: rgba_hex_a(0x0066ff, 0.10),
+        edit_human: rgba_hex(0x9333a8),
+        edit_agent: rgba_hex(0x0e8a76),
         ribbon_alpha: RIBBON_ALPHA,
         ribbon_beta: RIBBON_BETA,
         ribbon_ink: RIBBON_INK,
@@ -2273,6 +2312,8 @@ const VIOLET_DARK: Palette = Palette {
         warning_soft: rgba_hex_a(0xef9f2a, 0.16),
         info: rgba_hex(0x82a8e8),
         info_soft: rgba_hex_a(0x82a8e8, 0.16),
+        edit_human: rgba_hex(0xe07ab0),
+        edit_agent: rgba_hex(0x3fbfa8),
         ribbon_alpha: RIBBON_ALPHA,
         ribbon_beta: RIBBON_BETA,
         ribbon_ink: RIBBON_INK,
@@ -2326,6 +2367,8 @@ const VIOLET_LIGHT: Palette = Palette {
         warning_soft: rgba_hex_a(0xd48a1e, 0.14),
         info: rgba_hex(0x3d5fb0),
         info_soft: rgba_hex_a(0x3d5fb0, 0.10),
+        edit_human: rgba_hex(0xa8347a),
+        edit_agent: rgba_hex(0x0e8a76),
         ribbon_alpha: RIBBON_ALPHA,
         ribbon_beta: RIBBON_BETA,
         ribbon_ink: RIBBON_INK,

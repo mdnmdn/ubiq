@@ -265,6 +265,7 @@ impl AppState {
             custom_colour: custom,
             search_excludes: None,
             index: None,
+            mission_term: None,
             tools: None,
             managed_repos: None,
             lanes: None,
@@ -292,12 +293,96 @@ impl AppState {
             custom_colour: None,
             search_excludes: None,
             index: Some(index),
+            mission_term: None,
             tools: None,
             managed_repos: None,
             lanes: None,
             runs_on: None,
         });
         cx.notify();
+    }
+
+    /// This project's own word for a mission, or a return to the application-wide default.
+    ///
+    /// The same immediacy `set_project_index` gives the index pill: the host acts on it at once,
+    /// and the snapshot every window redraws from is updated here rather than waiting for the
+    /// host's echo, so the board's mission cards relabel the moment the choice is made.
+    pub fn set_project_mission_term(
+        &mut self,
+        project: ProjectId,
+        change: ubiq_proto::projects::MissionTermChange,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(mut snapshot) = WindowRegistry::read(cx).project(project).cloned() else {
+            return;
+        };
+        snapshot.record.mission_term = change.clone().resolve();
+        self.bus.send(Message::UpdateProject {
+            project_id: project,
+            name: None,
+            colour: None,
+            custom_colour: None,
+            search_excludes: None,
+            index: None,
+            mission_term: Some(change),
+            tools: None,
+            managed_repos: None,
+            lanes: None,
+            runs_on: None,
+        });
+        cx.global_mut::<WindowRegistry>().apply(snapshot);
+        cx.notify();
+    }
+
+    /// Reveal the project settings dialog's own mission-term field, seeded with whatever word is
+    /// held today — the override if there is one, else the application-wide default — and pin the
+    /// project to it at once. `mission_term_row`'s "Custom" pill calls this; typing into the field
+    /// afterwards goes through `set_project_mission_term_from_field`.
+    pub fn begin_project_mission_term_override(
+        &mut self,
+        project: ProjectId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(record) = WindowRegistry::read(cx)
+            .project(project)
+            .map(|s| s.record.clone())
+        else {
+            return;
+        };
+        let seed = record
+            .mission_term
+            .unwrap_or_else(|| self.workbench.settings.host.mission_term.clone());
+        let input = self.project_mission_term_input.clone();
+        input.update(cx, |state, cx| {
+            state.set_value(&seed, window, cx);
+            state.focus(window, cx);
+        });
+        self.set_project_mission_term(
+            project,
+            ubiq_proto::projects::MissionTermChange::Set(seed),
+            cx,
+        );
+    }
+
+    /// Rename the project's own mission term. Ignored unless the override is what is showing —
+    /// the field is only drawn then — and an empty word falls back to the application-wide
+    /// default rather than being stored, on `set_agent_home_name`'s rule.
+    pub fn set_project_mission_term_from_field(&mut self, term: String, cx: &mut Context<Self>) {
+        let Some(project) = self.editing_project() else {
+            return;
+        };
+        let is_override = WindowRegistry::read(cx)
+            .project(project)
+            .is_some_and(|s| s.record.mission_term.is_some());
+        if !is_override {
+            return;
+        }
+        let change = match term.trim() {
+            "" => ubiq_proto::projects::MissionTermChange::Inherit,
+            trimmed => ubiq_proto::projects::MissionTermChange::Set(trimmed.to_string()),
+        };
+        self.set_project_mission_term(project, change, cx);
     }
 
     /// Where this project's folder lives: on a drone, or here.
@@ -327,6 +412,7 @@ impl AppState {
             custom_colour: None,
             search_excludes: None,
             index: None,
+            mission_term: None,
             tools: None,
             managed_repos: None,
             lanes: None,
@@ -358,6 +444,7 @@ impl AppState {
             custom_colour: None,
             search_excludes: Some(excludes),
             index: None,
+            mission_term: None,
             tools: None,
             managed_repos: None,
             lanes: None,
@@ -393,6 +480,7 @@ impl AppState {
             custom_colour: None,
             search_excludes: None,
             index: None,
+            mission_term: None,
             tools: None,
             managed_repos: None,
             lanes: Some(lanes),
@@ -423,6 +511,7 @@ impl AppState {
             custom_colour: None,
             search_excludes: None,
             index: None,
+            mission_term: None,
             tools: Some(tools),
             managed_repos: None,
             lanes: None,
@@ -454,6 +543,7 @@ impl AppState {
             custom_colour: None,
             search_excludes: None,
             index: None,
+            mission_term: None,
             tools: None,
             managed_repos: Some(repos),
             lanes: None,
@@ -856,6 +946,14 @@ impl AppState {
                 .map(|origin| origin.root.clone())
                 .unwrap_or_default(),
         };
+        // Create has no record yet to carry an override, on `initials`'s rule.
+        let mission_term = match &settings.mode {
+            ProjectSettingsMode::Create { .. } => String::new(),
+            ProjectSettingsMode::Edit { project } => WindowRegistry::read(cx)
+                .project(*project)
+                .and_then(|entry| entry.record.mission_term.clone())
+                .unwrap_or_default(),
+        };
         if let Some(settings) = self.workbench.project_settings.as_mut() {
             settings.colour.seed_hsv();
         }
@@ -868,6 +966,8 @@ impl AppState {
         about.update(cx, |input, cx| input.set_value("", window, cx));
         let initials_input = self.project_initials_input.clone();
         initials_input.update(cx, |input, cx| input.set_value(&initials, window, cx));
+        let mission_term_input = self.project_mission_term_input.clone();
+        mission_term_input.update(cx, |input, cx| input.set_value(&mission_term, window, cx));
         let path_input = self.project_path_input.clone();
         path_input.update(cx, |input, cx| {
             input.set_value(

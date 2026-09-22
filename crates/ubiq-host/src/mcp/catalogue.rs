@@ -31,6 +31,11 @@ pub const MANAGE_UBIQ_TASKS: &str = "manage-ubiq-tasks";
 /// The slug of the thinner server an agent uses to look up a task, move it, and leave a comment.
 pub const USE_TASK: &str = "use-task";
 
+/// The slug of the server that reads and writes a task's plan. Its own server rather than more
+/// tools on [`MANAGE_UBIQ_TASKS`], which already carries twelve and would stop describing itself
+/// with plan tools added — see `_docs/wip/planning-system.md` decision 7.
+pub const UBIQ_PLAN: &str = "ubiq-plan";
+
 /// The slug of the server that reads and writes this project's knowledge base.
 pub const UBIQ_KB: &str = "ubiq-kb";
 
@@ -262,6 +267,23 @@ pub const SERVERS: &[ServerSpec] = &[
                             "type": "array",
                             "items": {"type": "string"},
                             "description": "Tag names to put on the card."
+                        },
+                        "attachments": {
+                            "type": "array",
+                            "items": {
+                                "oneOf": [
+                                    {"type": "string"},
+                                    {
+                                        "type": "object",
+                                        "properties": {
+                                            "target": {"type": "string"},
+                                            "label": {"type": "string"}
+                                        },
+                                        "required": ["target"]
+                                    }
+                                ]
+                            },
+                            "description": "Files and knowledge-base documents to hang on the card, as references not content. Each is a project-relative path (docs/spec.md) or a knowledge-base address (kb:{source}:{path}), optionally with a label."
                         }
                     },
                     "required": ["title"]
@@ -297,6 +319,23 @@ pub const SERVERS: &[ServerSpec] = &[
                             "type": "array",
                             "items": {"type": "string"},
                             "description": "The full tag set. Omit or null to leave tags alone; [] clears them."
+                        },
+                        "attachments": {
+                            "type": "array",
+                            "items": {
+                                "oneOf": [
+                                    {"type": "string"},
+                                    {
+                                        "type": "object",
+                                        "properties": {
+                                            "target": {"type": "string"},
+                                            "label": {"type": "string"}
+                                        },
+                                        "required": ["target"]
+                                    }
+                                ]
+                            },
+                            "description": "The full attachment set, replaced — send every one the card should have. Each is a project-relative path (docs/spec.md) or a knowledge-base address (kb:{source}:{path}), optionally with a label. Omit or null to leave them alone; [] clears them."
                         }
                     },
                     "required": ["task_id"]
@@ -422,6 +461,93 @@ pub const SERVERS: &[ServerSpec] = &[
             ADD_TODO,
             UPDATE_TODO,
             DELETE_TODO,
+        ],
+    },
+    ServerSpec {
+        name: UBIQ_PLAN,
+        title: "Plan",
+        description: "Read and write the plan document for a mission — a task carrying a level — and answer the annotations left on it.",
+        tools: &[
+            ToolSpec {
+                name: "read_plan",
+                description: "A task's plan, as markdown, with the revision it stands at. Empty for a mission that has not been planned yet. Refused for a task with no level: only a task carrying a level can have a plan. Keep the revision if you intend to come back: plan_changes uses it to tell you what changed while you were away.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "task_id": {"type": "string"}
+                    },
+                    "required": ["task_id"]
+                }"#,
+            },
+            ToolSpec {
+                name: "write_plan",
+                description: "Replace a task's plan, whole, with the markdown given. There is no partial edit: send the full document every time. Refused for a task with no level.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "task_id": {"type": "string"},
+                        "body": {"type": "string", "description": "The plan's full markdown body."}
+                    },
+                    "required": ["task_id", "body"]
+                }"#,
+            },
+            ToolSpec {
+                name: "plan_changes",
+                description: "Where the plan has been edited since you last wrote it, and by how much. Call this before rewriting a plan you wrote earlier: it returns each changed run of lines with its line numbers, the text now standing there, who changed it (human or agent) and the block it falls in, plus counts of lines added, removed and modified, blocks touched, and how many saves each side made. Defaults to your own last write_plan; pass since_revision to ask from a different point. Returns no regions when nothing has changed, which is the ordinary answer and not an error.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "task_id": {"type": "string"},
+                        "since_revision": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "description": "Report changes made after this revision. Defaults to the revision of your own last write_plan; 0 means everything that is known."
+                        }
+                    },
+                    "required": ["task_id"]
+                }"#,
+            },
+            ToolSpec {
+                name: "list_annotations",
+                description: "The plan's annotations, open ones by default, each with the text of the block it is about so you do not have to guess what the comment refers to. An annotation whose block has vanished from the plan comes back with orphaned true and block_text null: do not try to answer that one, the passage it named is gone.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "task_id": {"type": "string"},
+                        "include_resolved": {
+                            "type": "boolean",
+                            "description": "Also return annotations already resolved. Defaults to false."
+                        }
+                    },
+                    "required": ["task_id"]
+                }"#,
+            },
+            ToolSpec {
+                name: "reply_annotation",
+                description: "Append a reply to an annotation's thread, as this agent.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "task_id": {"type": "string"},
+                        "annotation_id": {"type": "string"},
+                        "text": {"type": "string"}
+                    },
+                    "required": ["task_id", "annotation_id", "text"]
+                }"#,
+            },
+            ToolSpec {
+                name: "resolve_annotation",
+                description: "Close an annotation, or reopen one. resolved defaults to true. Anyone may resolve an annotation, including the agent that answered it — there is no author check.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "task_id": {"type": "string"},
+                        "annotation_id": {"type": "string"},
+                        "resolved": {"type": "boolean"}
+                    },
+                    "required": ["task_id", "annotation_id"]
+                }"#,
+            },
         ],
     },
     ServerSpec {

@@ -84,6 +84,7 @@ fn a_project() -> ProjectSnapshot {
             last_opened_at: None,
             search_excludes: Vec::new(),
             index: None,
+            mission_term: None,
             tools: Vec::new(),
             managed_repos: Vec::new(),
             lanes: Vec::new(),

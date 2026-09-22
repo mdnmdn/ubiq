@@ -1423,15 +1423,23 @@ impl AppState {
                 // the id it was going to be given — the same mechanism `AppState::adding` uses to
                 // open the project an `AddProject` answers with.
                 let mut pending = None;
+                let mut pending_mission = None;
                 if open.board.awaiting_new {
                     open.board.awaiting_new = false;
                     open.board.select(id);
                     // The rest of the draft: a `CreateTask` carries a title and a session, so a
                     // description and a title that has to be written both wait for the id.
                     pending = open.board.pending.take();
+                    // The new-mission dialog's own rest of the draft — the promotion, the
+                    // description and the assistant launch. Never both `Some`: one `CreateTask`
+                    // answers one `New task` or one `New mission` click, never both at once.
+                    pending_mission = open.board.pending_mission.take();
                 }
                 if let Some(pending) = pending {
                     self.settle_new_task(project_id, id, pending);
+                }
+                if let Some(pending_mission) = pending_mission {
+                    self.settle_new_mission(project_id, id, pending_mission);
                 }
                 self.settle_window_layout(false, cx);
                 cx.notify();
@@ -1505,6 +1513,183 @@ impl AppState {
                     self.refill_columns = true;
                 }
                 self.settle_window_layout(false, cx);
+                cx.notify();
+            }
+
+            // ── Plan family ────────────────────────────────────────────
+            // Answers to `LoadPlan`/`SavePlan`, sent only to whoever asked — the plan modal is
+            // the one place in the tree that holds one, so the reply either lands there or is
+            // stale and dropped.
+            Message::Plan {
+                project_id,
+                task_id,
+                body,
+                revision,
+            } => {
+                if self.workbench.plan.as_ref().is_some_and(|plan| {
+                    plan.project_id() == project_id && plan.task_id() == Some(task_id)
+                }) {
+                    // Not an assignment: the answer is read against what the buffer holds, so an
+                    // unsaved edit is kept and reported rather than lost to a race. `revision` is
+                    // the watermark the buffer carries from here on — a buffer that keeps an
+                    // unsaved edit stays behind at the one it was seeded with, which is what the
+                    // save guard asks about. See `DocumentEditor::set_loaded`.
+                    self.plan_body_arrived(body, revision, cx);
+                    self.ask_for_plan_changes();
+                }
+                cx.notify();
+            }
+
+            // Broadcast: a plan may be open for reading in more than one window, so every one of
+            // them hears its own plan go away rather than only the window that deleted it.
+            Message::PlanDeleted {
+                project_id,
+                task_id,
+            } => {
+                if self.workbench.plan.as_ref().is_some_and(|plan| {
+                    plan.project_id() == project_id && plan.task_id() == Some(task_id)
+                }) {
+                    // A deleted plan reads as "nothing here yet" — and, when the buffer is
+                    // holding an unsaved edit, as that edit over a document that no longer
+                    // exists, which is what keeps the work recoverable by saving it back.
+                    self.plan_body_arrived(String::new(), 0, cx);
+                    if let Some(plan) = self.workbench.plan.as_mut() {
+                        // The annotations went with it — a deleted plan has no blocks to anchor
+                        // to.
+                        plan.set_annotations(crate::state::document::AnnotationsBody::Loaded {
+                            blocks: Vec::new(),
+                            annotations: Vec::new(),
+                        });
+                        // And so did the provenance: a plan that is gone has no lines anybody
+                        // changed.
+                        plan.set_changes(Vec::new(), ubiq_proto::plan::PlanChangeStats::default());
+                        plan.composer = None;
+                        plan.thread = None;
+                    }
+                }
+                cx.notify();
+            }
+
+            Message::PlanExported {
+                project_id,
+                task_id,
+                rel_path,
+            } => {
+                if let Some(plan) = self.workbench.plan.as_mut()
+                    && plan.project_id() == project_id
+                    && plan.task_id() == Some(task_id)
+                {
+                    plan.notice = Some(crate::state::document::Notice::Ok(format!(
+                        "Exported to {rel_path}."
+                    )));
+                }
+                cx.notify();
+            }
+
+            // Another window's save, or an agent's `write_plan` through `ubiq-plan` — no body
+            // travels with it, so a window showing that plan re-asks with `LoadPlan` rather than
+            // being handed content it may not even have open, `KbChanged`'s own economy.
+            // `revision` and `origin` ride along as two scalars, and the surface reads both before
+            // the body it re-asks for arrives: `origin` is who the stale banner names, and
+            // `revision` is how far behind the buffer's watermark now is.
+            Message::PlanChanged {
+                project_id,
+                task_id,
+                revision,
+                origin,
+            } => {
+                if let Some(plan) = self.workbench.plan.as_mut()
+                    && plan.project_id() == project_id
+                    && plan.task_id() == Some(task_id)
+                {
+                    if revision != plan.revision {
+                        plan.stale_origin = Some(origin);
+                    }
+                    self.bus.send(Message::LoadPlan {
+                        project_id,
+                        task_id,
+                    });
+                    cx.notify();
+                }
+            }
+
+            // Where the document was edited since the beginning, and by how much — the answer to
+            // the `ListPlanChanges` every body arrival asks. Sent only to whoever asked, and the
+            // regions are in the current body's line numbers, so the next frame paints them.
+            Message::PlanChanges {
+                project_id,
+                task_id,
+                regions,
+                stats,
+            } => {
+                if self.workbench.plan.as_ref().is_some_and(|plan| {
+                    plan.project_id() == project_id && plan.task_id() == Some(task_id)
+                }) {
+                    self.plan_changes_arrived(regions, stats);
+                }
+                cx.notify();
+            }
+
+            // The answer to `ListPlanAnnotations` and to every mutation in the family —
+            // `Message::Plan`'s own discipline, sent only to whoever asked.
+            Message::PlanAnnotations {
+                project_id,
+                task_id,
+                blocks,
+                annotations,
+            } => {
+                if let Some(plan) = self.workbench.plan.as_mut()
+                    && plan.project_id() == project_id
+                    && plan.task_id() == Some(task_id)
+                {
+                    plan.set_annotations(crate::state::document::AnnotationsBody::Loaded {
+                        blocks,
+                        annotations,
+                    });
+                }
+                cx.notify();
+            }
+
+            // Another window's comment, an agent's reply through `ubiq-plan`, or a `SavePlan`
+            // whose block matching orphaned or re-anchored a thread — no body travels with it, so
+            // a window showing that plan's annotations re-asks, `Message::PlanChanged`'s own
+            // economy. This is the seam an agent's MCP reply refreshes an open panel through.
+            Message::PlanAnnotationsChanged {
+                project_id,
+                task_id,
+            } => {
+                self.reload_plan_annotations(project_id, task_id);
+                cx.notify();
+            }
+
+            // One error shape for the whole family — a load, a save, an export, or one of the
+            // annotation verbs the host refused. `open_plan` sends `LoadPlan` and
+            // `ListPlanAnnotations` together, so both arrive `Loading` at once and either may
+            // answer first; `Loading` fields are claimed before the failure falls through to the
+            // export, which is the only thing left once both have a body.
+            Message::PlanError {
+                project_id,
+                task_id,
+                error,
+            } => {
+                if let Some(plan) = self.workbench.plan.as_mut()
+                    && plan.project_id() == project_id
+                    && task_id.map(|id| Some(id) == plan.task_id()).unwrap_or(true)
+                {
+                    // A refused save is the one failure that leaves the buffer as it is: the edit
+                    // is still the user's, and the banner says why it did not land.
+                    plan.saving = false;
+                    if matches!(plan.body, crate::state::document::DocumentBody::Loading) {
+                        plan.body = crate::state::document::DocumentBody::Failed(error);
+                    } else if matches!(
+                        plan.annotations,
+                        crate::state::document::AnnotationsBody::Loading
+                    ) {
+                        plan.annotations = crate::state::document::AnnotationsBody::Failed(error);
+                    } else {
+                        plan.notice = Some(crate::state::document::Notice::Err(error));
+                    }
+                }
                 cx.notify();
             }
 
@@ -2170,8 +2355,14 @@ impl AppState {
             // The saved setups, replaced whole for the reason the accounts are: the host's
             // answer is the list. It also closes the form, since a `Profiles` right after a
             // `SaveProfile` is what says the write landed.
+            // Split by scope on arrival rather than at every read: `settings.profiles` is the
+            // global list every surface without a project already draws, and the project-scoped
+            // ones are only ever reached through `profiles_in`.
             Message::Profiles { profiles } => {
-                self.workbench.settings.profiles = profiles;
+                let (scoped, global): (Vec<_>, Vec<_>) =
+                    profiles.into_iter().partition(|it| it.project.is_some());
+                self.workbench.settings.profiles = global;
+                self.workbench.settings.project_profiles = scoped;
                 self.workbench.settings.profile_form = None;
                 cx.notify();
             }

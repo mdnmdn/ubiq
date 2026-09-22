@@ -69,6 +69,12 @@ gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "
 ] }
 gpui-component-assets = { git = "https://github.com/longbridge/gpui-component", rev = "df1d07b212e21217b1168e1728293b3e0c48e5a3" }
 
+# The LSP vocabulary gpui-component's provider traits are written in — a `CompletionProvider`
+# answers with `lsp_types::CompletionResponse`, so the `/` menu in `ui/editor.rs` has to name the
+# same crate the component does. Pinned to gpui-component's own version and features; Cargo
+# unifies the two, so this is one crate and not a second copy.
+lsp-types = { version = "0.97.0", features = ["proposed"] }
+
 # The same Markdown parser gpui-component's text view runs, named directly so the fence scan in
 # `ui/viewer/markdown.rs` produces the *same* fence body the view's block parser is handed — a
 # hand-rolled second scanner drifted from it by a trailing newline and the diagram cache never hit.

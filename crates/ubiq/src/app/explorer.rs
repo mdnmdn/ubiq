@@ -931,6 +931,16 @@ impl AppState {
                 }
                 self.commit_image_text(&key, typed, cx);
             }
+            FileDialog::ExportPlan { task_id } => {
+                if typed.is_empty() {
+                    return;
+                }
+                self.bus.send(Message::ExportPlan {
+                    project_id: project,
+                    task_id,
+                    rel_path: typed,
+                });
+            }
             FileDialog::PasteImage => {
                 // Re-read: the board may have changed under the question, and then the
                 // keystroke falls back to what it has always meant.

@@ -76,8 +76,10 @@ impl AppState {
             agent_id,
             ask_id,
             tab: 0,
+            cursor: 0,
         });
         self.set_ask_fields(window, cx);
+        self.pending_ask_focus = true;
         cx.notify();
     }
 
@@ -92,7 +94,11 @@ impl AppState {
             agent_id,
             ask_id,
             tab: 0,
+            cursor: 0,
         });
+        // No `Window` on this path — see `fill_ask_fields`'s own reason — so the grab is queued
+        // and drained the next time the window renders.
+        self.pending_ask_focus = true;
         cx.notify();
     }
 
@@ -132,18 +138,27 @@ impl AppState {
     /// in `render` for `fill_project_form`'s reason: `set_value` needs a window, and the message
     /// that took the conversation away does not carry one.
     pub(super) fn fill_ask_fields(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.refill_ask_fields {
-            return;
+        if self.refill_ask_fields {
+            self.refill_ask_fields = false;
+            self.set_ask_fields(window, cx);
         }
-        self.refill_ask_fields = false;
-        self.set_ask_fields(window, cx);
+        // Queued by `show_ask` and `raise_fresh_ask`, neither of which is guaranteed a `Window` —
+        // the second arrives on the host's own task. Drained here, the one place both paths are
+        // sure to reach a frame with one.
+        if self.pending_ask_focus {
+            self.pending_ask_focus = false;
+            self.ask_focus.clone().focus(window, cx);
+        }
     }
 
     /// Switch question. The drafts are already current — every keystroke is mirrored as it is
-    /// typed — so this only has to point the two fields at the question now on screen.
+    /// typed — so this only has to point the two fields at the question now on screen, and put
+    /// the keyboard cursor back on the first option: a cursor left where the last question's list
+    /// ended would read as a pick on a question the reader never visited.
     pub fn set_ask_tab(&mut self, tab: usize, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(dialog) = self.workbench.ask.as_mut() {
             dialog.tab = tab;
+            dialog.cursor = 0;
         }
         self.set_ask_fields(window, cx);
         cx.notify();
@@ -177,6 +192,107 @@ impl AppState {
             record.toggle(tab, option);
         }
         cx.notify();
+    }
+
+    // ── The keyboard ────────────────────────────────────────────────
+    //
+    // `AskMoveUp` / `AskMoveDown` walk the cursor over the question on screen; `AskToggle` (space)
+    // picks or unpicks wherever it sits, the same thing a click on that card does. Plain `enter`
+    // (`DialogConfirm`) does that and moves on to the next question, and `⌘⏎` (`SubmitSearch`)
+    // does the moving on its own — confirming the dialog outright on the last question, since
+    // there is nowhere left to move to. None of the four fires while a field has the keyboard:
+    // `DialogConfirm` and `AskMoveUp`/`AskMoveDown`/`AskToggle` are bound only outside `Input`, on
+    // `new_agent.rs`'s reasoning, so typing a space or an arrow key in "Other" or "Notes" still
+    // does what typing does. `⌘⏎` is the one exception, bound inside a field too, because it is
+    // the platform's usual "send this" chord and a note half-written is still worth submitting
+    // from.
+
+    /// Move the keyboard cursor over the question on screen, clamped to its own option list
+    /// — `options.len()` is "Other", the last stop either direction can reach.
+    pub fn move_ask_cursor(&mut self, delta: i32, cx: &mut Context<Self>) {
+        let Some((tab, record)) = self.dialog_record_mut() else {
+            return;
+        };
+        let last = record.other_at(tab);
+        let Some(dialog) = self.workbench.ask.as_mut() else {
+            return;
+        };
+        dialog.cursor = dialog
+            .cursor
+            .saturating_add_signed(delta as isize)
+            .min(last);
+        cx.notify();
+    }
+
+    /// Space: pick or unpick whatever the cursor is on, exactly as clicking that card would.
+    pub fn toggle_ask_cursor(&mut self, cx: &mut Context<Self>) {
+        let Some(dialog) = self.workbench.ask else {
+            return;
+        };
+        self.toggle_ask_option(dialog.cursor, cx);
+    }
+
+    /// Plain `enter`: pick the cursor's option, then move to the next question — the one thing
+    /// left for a reader who never touches the mouse. Does nothing further on the last question;
+    /// `⌘⏎` is what confirms from there.
+    pub fn advance_ask_question(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(dialog) = self.workbench.ask else {
+            return;
+        };
+        self.toggle_ask_option(dialog.cursor, cx);
+        let Some((tab, record)) = self.dialog_record_mut() else {
+            return;
+        };
+        if tab + 1 < record.questions.len() {
+            self.set_ask_tab(tab + 1, window, cx);
+        }
+    }
+
+    /// `⌘⏎`: move to the next question, or confirm the dialog outright from the last one — the
+    /// keyboard's way through the whole ask without a click.
+    pub fn confirm_ask_step(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((tab, record)) = self.dialog_record_mut() else {
+            return;
+        };
+        if tab + 1 < record.questions.len() {
+            self.set_ask_tab(tab + 1, window, cx);
+        } else {
+            self.confirm_ask(window, cx);
+        }
+    }
+
+    /// `tab`, while "Other" or "Notes" has the keyboard: hand it to the other one. The question's
+    /// only two fields, so this is the whole of "next" — nothing to do where neither is focused.
+    pub fn ask_next_field(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let other_focused = self
+            .ask_other_input
+            .read(cx)
+            .focus_handle(cx)
+            .is_focused(window);
+        let notes_focused = self
+            .ask_notes_input
+            .read(cx)
+            .focus_handle(cx)
+            .is_focused(window);
+        if other_focused {
+            self.ask_notes_input
+                .clone()
+                .update(cx, |input, cx| input.focus(window, cx));
+            return;
+        }
+        if notes_focused {
+            let Some(dialog) = self.workbench.ask else {
+                return;
+            };
+            let picked_other = self
+                .ask_record(dialog.agent_id, dialog.ask_id, cx)
+                .is_some_and(|record| record.picked(dialog.tab, record.other_at(dialog.tab)));
+            if picked_other {
+                self.ask_other_input
+                    .clone()
+                    .update(cx, |input, cx| input.focus(window, cx));
+            }
+        }
     }
 
     pub fn retype_ask_other(&mut self, typed: String, cx: &mut Context<Self>) {
@@ -303,7 +419,10 @@ impl AppState {
             .map(|question| question.header.clone())
             .collect();
         if let Some(conversation) = open.conversations.get_mut(&agent_id) {
-            conversation.file_ask(AskRecord::new(ask_id, questions));
+            // How many blocks the transcript held the instant this ask landed, which is where its
+            // row is drawn — see `AskRecord::at_block`.
+            let at_block = conversation.blocks.len();
+            conversation.file_ask(AskRecord::new(ask_id, questions, at_block));
         }
 
         // A dialog already up counts as "the agent is not visible": whatever the user is doing,

@@ -25,16 +25,21 @@ use crate::git::{
 };
 use crate::help::HelpCatalog;
 use crate::ids::{
-    AiProviderId, AskId, CloneId, ConnectId, ConnectionId, KbSourceId, NotificationId, OauthAppId,
-    PaneId, ProjectId, RepoQueryId, SearchId, SessionId, SshProfileId, StepId, SuggestId, TaskId,
-    ToolId,
+    AiProviderId, AnnotationId, AskId, BlockId, CloneId, ConnectId, ConnectionId, KbSourceId,
+    NotificationId, OauthAppId, PaneId, ProjectId, RepoQueryId, SearchId, SessionId, SshProfileId,
+    StepId, SuggestId, TaskId, ToolId,
 };
 use crate::kb::{KbSource, KbSourceState, KbSourceStatus};
 use crate::mcp::McpInfo;
 use crate::notifications::{
     Level, MuteFor, MuteScope, Notification, NotificationRequest, Notifications,
 };
-use crate::projects::{DroneChange, IndexChange, LanePref, ProjectSnapshot, Scope};
+use crate::plan::{
+    Annotation, PlanBlock, PlanChangeStats, PlanChangedRegion, PlanRevision, SaveOrigin,
+};
+use crate::projects::{
+    DroneChange, IndexChange, LanePref, MissionTermChange, ProjectSnapshot, Scope,
+};
 use crate::quota::{QuotaSnapshot, QuotaSource};
 use crate::repos::{CloneError, CloneRequest, CloneStage, RemoteRepo, RepoSource};
 use crate::search::{self, Batch, Query, Source};
@@ -460,6 +465,10 @@ pub enum Message {
     ListProfiles,
     /// The profiles the host holds. A profile names an account, a model and a mode — every
     /// field a reference, the same rule as [`Message::Accounts`].
+    ///
+    /// Both scopes ride in one list: the global profiles and every project's own, each saying
+    /// which it is through [`ProfileInfo::project`]. One message rather than a per-project ask
+    /// because the interface already holds every project, and a scope is a field to filter on.
     Profiles {
         profiles: Vec<ProfileInfo>,
     },
@@ -468,8 +477,13 @@ pub enum Message {
     /// name a directory can carry — profiles are stored beside accounts and fail the same
     /// way, which is why they share the error rather than minting a second one.
     ///
+    /// [`ProfileInfo::project`] says which root it is written into: absent is the global one,
+    /// present is that project's own, and the two are separate namespaces — the same name in
+    /// both is a project profile shadowing a global one inside that project only.
+    ///
     /// There is deliberately no delete: a profile is a saved setup, and a stale one costs a
-    /// row in a list.
+    /// row in a list. A project's profiles are deleted with the project, by the directory they
+    /// live in going with it.
     SaveProfile {
         profile: ProfileInfo,
     },
@@ -760,6 +774,10 @@ pub enum Message {
         /// [`IndexChange`] for why this is not an `Option<Option<_>>`.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         index: Option<IndexChange>,
+        /// What to do with the project's own word for a mission. Absent leaves it as it is; see
+        /// [`MissionTermChange`] for why this is not an `Option<Option<_>>`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mission_term: Option<MissionTermChange>,
         /// The project's own runnable tools. Absent leaves them as they are; `Some` replaces
         /// the whole list.
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1490,6 +1508,198 @@ pub enum Message {
     /// project, no such task, no such step, a store that will not write — comes down to saying so
     /// once, where the user is looking.
     WorkError {
+        project_id: ProjectId,
+        task_id: Option<TaskId>,
+        error: String,
+    },
+
+    // ── Plan family: UI → host ────────────────────────────────────────
+    // A plan belongs to any task carrying a [`crate::work::Level`] — not to ordinary tasks, and
+    // not to some special mission subtype. The host refuses every variant here for a task whose
+    // `level` is `None`, with [`Message::PlanError`], the same posture [`Message::WorkError`]
+    // already takes with a task that is not there at all.
+    //
+    // Stored at `<config root>/projects/<ProjectId>/plans/<TaskId>.md`, beside `tasks.toml` and
+    // `kb.toml` rather than inside either — a plan is markdown, long, and edited on its own
+    // schedule, and putting it inside `tasks.toml` would mean every checkbox tick on the board
+    // rewrites the plan too. Read-only in the interface this slice: the write half exists for
+    // `ubiq-plan`'s MCP tools and for [`Message::SavePlan`] itself, which nothing in
+    // `crates/ubiq` calls yet.
+    /// Read a task's plan. Answered with [`Message::Plan`], carrying an empty body for a task that
+    /// has none yet — a mission nobody has planned is not an error, the same way a project with no
+    /// tasks yet is not.
+    LoadPlan {
+        project_id: ProjectId,
+        task_id: TaskId,
+    },
+    /// Replace a task's plan, whole. There is no partial edit on the wire: the body is markdown a
+    /// human or an agent rewrites in full, the same discipline [`Message::UpdateTask::description`]
+    /// already keeps.
+    ///
+    /// **This message is what makes a save a human's.** It carries no origin field and must never
+    /// grow one: only the interface sends it, so the host stamps
+    /// [`crate::plan::SaveOrigin::Human`] on arrival and an agent has no way to ask for the other
+    /// stamp. The agent's path is `ubiq-plan`'s `write_plan`, which never becomes this message.
+    SavePlan {
+        project_id: ProjectId,
+        task_id: TaskId,
+        body: String,
+    },
+    /// Delete a task's plan. Not an error when there was none — the same posture
+    /// [`Message::DeleteKbEntry`] takes: asking for an absent thing to be gone is already
+    /// satisfied.
+    DeletePlan {
+        project_id: ProjectId,
+        task_id: TaskId,
+    },
+    /// Write a copy of a task's plan into the project's own working tree, at a project-relative
+    /// path — an explicit, one-shot action the user asks for, never a continuous mirror and never
+    /// written to on a save the user did not request. `rel_path` is resolved and refused the way
+    /// [`Message::WriteProjectFile`]'s is; the folders it names are created, the way a save-as's
+    /// are, because the export is what brings the file into being.
+    ExportPlan {
+        project_id: ProjectId,
+        task_id: TaskId,
+        rel_path: String,
+    },
+    /// Every annotation on a task's plan, open, resolved and orphaned alike. Answered with
+    /// [`Message::PlanAnnotations`]; the filtering is the interface's, because a panel that hides
+    /// resolved threads still has to be able to show them on a toggle without a second round trip.
+    ListPlanAnnotations {
+        project_id: ProjectId,
+        task_id: TaskId,
+    },
+    /// Open an annotation on one block of a task's plan.
+    ///
+    /// `block_id` comes from the block index the last [`Message::SavePlan`] assigned — the
+    /// interface never mints one — and an id no longer in the plan is refused with
+    /// [`Message::PlanError`] rather than creating an annotation that is orphaned on arrival.
+    /// `quote` is the passage inside the block the user selected, where the surface had one to
+    /// give; a whole-block annotation leaves it absent.
+    AnnotatePlan {
+        project_id: ProjectId,
+        task_id: TaskId,
+        block_id: BlockId,
+        quote: Option<String>,
+        text: String,
+    },
+    /// Append to an annotation's thread.
+    ReplyToAnnotation {
+        project_id: ProjectId,
+        task_id: TaskId,
+        annotation_id: AnnotationId,
+        text: String,
+    },
+    /// Close an annotation, or reopen one. **Anyone may resolve an annotation, including an
+    /// agent** — a planning assistant that answers a comment can close it — so there is no author
+    /// check here and no author on the wire; the host stamps the comments and nothing else.
+    ResolveAnnotation {
+        project_id: ProjectId,
+        task_id: TaskId,
+        annotation_id: AnnotationId,
+        resolved: bool,
+    },
+    /// Where a task's plan has been edited since a revision, and by how much. Answered with
+    /// [`Message::PlanChanges`].
+    ///
+    /// The one message in the family that reads the edit-provenance layer. It exists so the
+    /// editor can decorate the lines a human changed since the agent last wrote — the same
+    /// question `ubiq-plan`'s `plan_changes` tool answers for an agent, over the same records, so
+    /// the two can never disagree about what changed.
+    ///
+    /// `since_revision` absent means "since the beginning", which for a plan with any history is
+    /// every line that was ever written and is a deliberate, boring answer rather than an error.
+    ListPlanChanges {
+        project_id: ProjectId,
+        task_id: TaskId,
+        since_revision: Option<PlanRevision>,
+    },
+
+    // ── Plan family: host → UI ──────────────────────────────────────
+    /// A task's plan, whole — the answer to [`Message::LoadPlan`] and [`Message::SavePlan`] alike,
+    /// on [`Message::TaskChanged`]'s discipline of answering with the current whole rather than a
+    /// diff. Sent only to whoever asked: the body can be long, and every other window hears
+    /// [`Message::PlanChanged`] instead and asks again if it still cares.
+    ///
+    /// `revision` is the watermark the reader holds on to. A caller that wants to know what
+    /// changed while it was away sends it back in [`Message::ListPlanChanges`]; a plan whose body
+    /// has never been written answers `0`, which is the watermark meaning "nothing yet".
+    Plan {
+        project_id: ProjectId,
+        task_id: TaskId,
+        body: String,
+        revision: PlanRevision,
+    },
+    /// A task's plan is gone. Broadcast, on [`Message::TaskDeleted`]'s reasoning turned up one
+    /// notch: unlike a task, a plan may be open for reading in more than one window's viewer at
+    /// once, so every window is told rather than only the one that asked.
+    PlanDeleted {
+        project_id: ProjectId,
+        task_id: TaskId,
+    },
+    /// The plan was written into the project's tree, at the path it was asked to go to.
+    PlanExported {
+        project_id: ProjectId,
+        task_id: TaskId,
+        rel_path: String,
+    },
+    /// A task's plan changed by some route other than the window's own request — another window's
+    /// save, or an agent's `write_plan` call through `ubiq-plan`. Broadcast, carrying no body: a
+    /// window showing that plan re-asks with [`Message::LoadPlan`] rather than being sent content
+    /// it may not even have open, the same economy [`Message::KbChanged`] already banks.
+    ///
+    /// It does carry `revision` and `origin`, which are two scalars rather than content: a window
+    /// holding a watermark can tell from this alone whether the save was a person's or an agent's
+    /// and how far it has fallen behind, and decide whether re-asking is worth it. A window
+    /// hearing its *own* save echoed back reads the same two fields to recognise it.
+    PlanChanged {
+        project_id: ProjectId,
+        task_id: TaskId,
+        revision: PlanRevision,
+        origin: SaveOrigin,
+    },
+    /// A task's annotations, whole — the answer to [`Message::ListPlanAnnotations`] and to every
+    /// mutation in the family alike, on [`Message::Plan`]'s own discipline of answering with the
+    /// current whole rather than a diff. Sent only to whoever asked; every other window hears
+    /// [`Message::PlanAnnotationsChanged`].
+    ///
+    /// The block index rides with it because a [`crate::ids::BlockId`] is the host's to assign: a
+    /// window annotating a passage has to be told which block that passage is, and an annotation
+    /// it already holds is unreadable without the block it names. `blocks` is in document order,
+    /// as of the last [`Message::SavePlan`].
+    PlanAnnotations {
+        project_id: ProjectId,
+        task_id: TaskId,
+        blocks: Vec<PlanBlock>,
+        annotations: Vec<Annotation>,
+    },
+    /// A task's annotations changed by some route other than this window's own request — another
+    /// window's comment, an agent's reply through `ubiq-plan`, or a [`Message::SavePlan`] whose
+    /// block matching orphaned or re-anchored a thread. Broadcast, carrying nothing, on
+    /// [`Message::PlanChanged`]'s economy: a window showing that plan re-asks with
+    /// [`Message::ListPlanAnnotations`] if it still cares.
+    PlanAnnotationsChanged {
+        project_id: ProjectId,
+        task_id: TaskId,
+    },
+    /// Where a task's plan changed since a watermark, and by how much — the answer to
+    /// [`Message::ListPlanChanges`]. Sent only to whoever asked: the regions carry the text
+    /// standing at those lines, so this is as long as the edits were.
+    ///
+    /// `regions` is in document order and describes the body **as it is now**, so a window can
+    /// decorate straight from it without re-deriving anything. It is empty when nothing changed
+    /// in the window, which is the ordinary case and not an error — `stats` then reads all zeroes
+    /// with `since_revision` equal to `revision`.
+    PlanChanges {
+        project_id: ProjectId,
+        task_id: TaskId,
+        regions: Vec<PlanChangedRegion>,
+        stats: PlanChangeStats,
+    },
+    /// Something went wrong with one task's plan, or with the family as a whole when the task id
+    /// is absent — [`Message::WorkError`]'s own shape, for the reason it gives: every failure here
+    /// comes down to saying so once, where the user is looking.
+    PlanError {
         project_id: ProjectId,
         task_id: Option<TaskId>,
         error: String,
@@ -2230,6 +2440,23 @@ impl Message {
             | Message::TaskDeleted { project_id, .. }
             | Message::AgentChanged { project_id, .. }
             | Message::WorkError { project_id, .. }
+            | Message::LoadPlan { project_id, .. }
+            | Message::SavePlan { project_id, .. }
+            | Message::DeletePlan { project_id, .. }
+            | Message::ExportPlan { project_id, .. }
+            | Message::ListPlanAnnotations { project_id, .. }
+            | Message::AnnotatePlan { project_id, .. }
+            | Message::ReplyToAnnotation { project_id, .. }
+            | Message::ResolveAnnotation { project_id, .. }
+            | Message::ListPlanChanges { project_id, .. }
+            | Message::Plan { project_id, .. }
+            | Message::PlanAnnotations { project_id, .. }
+            | Message::PlanAnnotationsChanged { project_id, .. }
+            | Message::PlanChanges { project_id, .. }
+            | Message::PlanDeleted { project_id, .. }
+            | Message::PlanExported { project_id, .. }
+            | Message::PlanChanged { project_id, .. }
+            | Message::PlanError { project_id, .. }
             | Message::StartConversation { project_id, .. }
             | Message::ReviveConversation { project_id, .. }
             | Message::ConversationStarted { project_id, .. }
@@ -2267,6 +2494,19 @@ impl Message {
 pub enum TaskField {
     Shape(Option<Shape>),
     Kind(Option<Kind>),
+    /// What level this task sits at — see [`crate::work::Level`].
+    Level(Option<crate::work::Level>),
+    /// The task this one is a child of, or `None` to clear it — see
+    /// [`crate::work::TaskRecord::parent`]. The host may refuse this with [`Message::WorkError`]:
+    /// depth is capped at one, and only a task carrying a [`crate::work::Level`] may be a parent.
+    Parent(Option<TaskId>),
+    /// The whole reference list, replaced — see [`crate::work::TaskRecord::references`]. Untyped
+    /// and symmetric, the same posture as [`Self::Labels`].
+    References(Vec<TaskId>),
+    /// The whole attachment list, replaced — see [`crate::work::TaskRecord::attachments`]. The
+    /// same posture as [`Self::References`] and [`Self::Labels`], for the same reason: a short
+    /// list edited as a set, where a delta would cost a second message and an ordering rule.
+    Attachments(Vec<crate::work::Attachment>),
     Complexity(Option<Complexity>),
     /// Who has the task, as free text. A trimmed empty string is the clear, as on [`Self::Key`].
     AssignedTo(Option<String>),
@@ -2479,6 +2719,26 @@ pub struct ProfileInfo {
     /// already lives by.
     #[serde(default)]
     pub mcps: Vec<String>,
+    /// Whether this profile is fit to run as a planning assistant. The new-mission dialog's
+    /// assistant picker filters to profiles carrying `true`; every other screen ignores it.
+    /// `None`/`Some(false)` read the same to a filter — the distinction between them exists only
+    /// on disk, so an inherited profile can un-mention it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mission_assistant: Option<bool>,
+    /// The project this setup belongs to, when it belongs to one. `None` is a global profile —
+    /// every profile written before this field existed, and every one the app-wide settings
+    /// screen writes.
+    ///
+    /// The scope is not a preference the record carries: it is **where the profile is stored**
+    /// (`<config root>/projects/<id>/profiles/` against the global `profiles/`), so a record
+    /// cannot claim a scope its location contradicts, and forgetting a project takes its
+    /// profiles with it. This field is the host reporting which root a profile came from, and —
+    /// on [`Message::SaveProfile`] — the interface saying which root to write it into.
+    ///
+    /// A project profile is offered inside its project and nowhere else; the app-wide settings
+    /// screen lists only the global ones.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<ProjectId>,
 }
 
 /// Secret material as it crosses the bus.

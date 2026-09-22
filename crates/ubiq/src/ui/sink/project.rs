@@ -17,7 +17,8 @@ use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use ubiq_proto::ids::ProjectId;
 use ubiq_proto::kb::KbSourceState;
-use ubiq_proto::projects::{IndexChange, IndexLevel};
+use ubiq_proto::messages::ProfileInfo;
+use ubiq_proto::projects::{IndexChange, IndexLevel, MissionTermChange};
 use ubiq_proto::settings::DronePreset;
 use ubiq_proto::work::Status;
 
@@ -407,11 +408,11 @@ fn body(app: &AppState, window: &Window, cx: &mut Context<AppState>, form: Form)
     let content = match nav {
         ProjectNav::General => general(app, window, cx, form),
         ProjectNav::Tools => project_tools(app, cx, form),
-        ProjectNav::Tasks => tasks(app, cx, form),
+        ProjectNav::Tasks => tasks(app, window, cx, form),
         ProjectNav::Remote => remote(app, cx, form),
         ProjectNav::Kb => kb(app, form, window, cx),
         ProjectNav::Documentation => documentation(),
-        ProjectNav::Integrations => integrations(),
+        ProjectNav::Integrations => integrations(app, form, window, cx),
     };
     let prefix = form.prefix();
 
@@ -669,6 +670,69 @@ fn index_row(app: &AppState, project: ProjectId, cx: &mut Context<AppState>) -> 
                     current,
                 ))
                 .into_any_element(),
+        )
+        .into_any_element(),
+    )
+}
+
+/// This project's own word for a mission: the application-wide default, or a word of its own —
+/// [`MissionTermChange`]'s shape, the same pair of answers [`index_row`] draws for the indexing
+/// level. "Default" sends `Inherit` at once, the way every pill here does; "Custom" seeds the
+/// field with what is held today and reveals it, and typing into the field commits on Enter and
+/// on blur through `AppState::set_project_mission_term_from_field`.
+fn mission_term_row(
+    app: &AppState,
+    project: ProjectId,
+    window: &Window,
+    cx: &mut Context<AppState>,
+) -> Option<AnyElement> {
+    let record = WindowRegistry::read(cx).project(project)?.record.clone();
+    let default = app.workbench.settings.host.mission_term.clone();
+    let overriding = record.mission_term.is_some();
+
+    let mut column = div().flex().flex_col().gap_1p5().child(
+        div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap_1()
+            .child(choice_pill(
+                "project-mission-term-default",
+                format!("Default ({default})"),
+                !overriding,
+                cx.listener(move |this, _, _, cx| {
+                    this.set_project_mission_term(project, MissionTermChange::Inherit, cx)
+                }),
+            ))
+            .child(choice_pill(
+                "project-mission-term-custom",
+                "Custom",
+                overriding,
+                cx.listener(move |this, _, window, cx| {
+                    this.begin_project_mission_term_override(project, window, cx)
+                }),
+            )),
+    );
+    if overriding {
+        column = column.child(
+            framed_active(
+                theme::border(),
+                input_on(&app.project_mission_term_input, window, cx),
+            )
+            .h(px(30.))
+            .w(px(220.))
+            .items_center()
+            .px_2()
+            .child(Input::new(&app.project_mission_term_input).appearance(false)),
+        );
+    }
+
+    Some(
+        setting_row(
+            "Mission term",
+            "What this project calls a mission, overriding the application-wide word. Follow the \
+             default to always match it, even when it changes.",
+            column.into_any_element(),
         )
         .into_any_element(),
     )
@@ -1341,7 +1405,7 @@ fn remote(app: &AppState, cx: &mut Context<AppState>, form: Form) -> AnyElement 
 /// Sent on the click, the same rule `index_row`'s pills follow — see `AppState::set_project_lanes`.
 /// A lane preference hangs off a record, so the Sink form and the Create mode draw the explanation
 /// instead: there is no project for a lane to belong to yet.
-fn tasks(app: &AppState, cx: &mut Context<AppState>, form: Form) -> AnyElement {
+fn tasks(app: &AppState, window: &Window, cx: &mut Context<AppState>, form: Form) -> AnyElement {
     let heading_block = heading(
         "Tasks",
         "Which lanes this project's board draws, and which of them get out of the way when they \
@@ -1460,6 +1524,7 @@ fn tasks(app: &AppState, cx: &mut Context<AppState>, form: Form) -> AnyElement {
                      nothing is moved — the board simply stops drawing it.",
                 ),
         )
+        .children(mission_term_row(app, project, window, cx))
         .into_any_element()
 }
 
@@ -1481,7 +1546,12 @@ fn documentation() -> AnyElement {
         .into_any_element()
 }
 
-fn integrations() -> AnyElement {
+fn integrations(
+    app: &AppState,
+    form: Form,
+    window: &Window,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
     div()
         .flex()
         .flex_col()
@@ -1496,7 +1566,107 @@ fn integrations() -> AnyElement {
                 .text_color(theme::text_muted())
                 .child("One integration in the fixture. Wiring it is the host's."),
         )
+        .children(project_profiles(app, form, window, cx))
         .into_any_element()
+}
+
+/// The setups written inside this project: offered when a start is aimed here, and nowhere else.
+///
+/// The app-wide settings screen lists the global profiles and never these — "visible only in the
+/// project they were created in" is the ask, and a second listing of them under Settings would
+/// contradict it. A profile of the same name as a global one shadows it here, which is the rule
+/// the host resolves a launch by.
+///
+/// Absent entirely for a folder that is not yet a project in the catalogue: a profile is filed
+/// under a project id, so there is nowhere to put one until the project exists.
+fn project_profiles(
+    app: &AppState,
+    form: Form,
+    window: &Window,
+    cx: &mut Context<AppState>,
+) -> Option<AnyElement> {
+    let _ = window;
+    let project = form_project(app, form, cx)?;
+    let profiles: Vec<ProfileInfo> = app
+        .workbench
+        .settings
+        .project_profiles
+        .iter()
+        .filter(|it| it.project == Some(project))
+        .cloned()
+        .collect();
+
+    let rows: Vec<AnyElement> = profiles
+        .iter()
+        .map(|profile| {
+            let edit = profile.clone();
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap_2()
+                .py_1()
+                .child(
+                    div()
+                        .text_size(theme::font(Family::Chrome, Role::Body))
+                        .text_color(theme::text())
+                        .child(SharedString::from(format!(
+                            "{} \u{2014} {}",
+                            profile.id, profile.agent_type
+                        ))),
+                )
+                .child(ghost_button(
+                    ElementId::Name(format!("project-profile-{}-edit", profile.id).into()),
+                    None,
+                    "Edit",
+                    cx.listener(move |this, _, window, cx| {
+                        this.open_profile_form(Some(edit.clone()), None, window, cx)
+                    }),
+                ))
+                .into_any_element()
+        })
+        .collect();
+
+    Some(
+        div()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .pt_2()
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .gap_2()
+                    .child(
+                        div()
+                            .text_size(theme::font(Family::Chrome, Role::Label))
+                            .text_color(theme::text_muted())
+                            .child("Profiles"),
+                    )
+                    .child(ghost_button(
+                        "project-profile-add",
+                        None,
+                        "Add profile",
+                        cx.listener(move |this, _, window, cx| {
+                            this.open_profile_form(None, Some(project), window, cx)
+                        }),
+                    )),
+            )
+            .children(rows)
+            .child(
+                div()
+                    .text_size(theme::font(Family::Chrome, Role::Meta))
+                    .text_color(theme::text_faint())
+                    .child(
+                        "A setup saved here is offered when an agent starts in this project, and \
+                         is not listed in the application's own settings. Forgetting the project \
+                         deletes it.",
+                    ),
+            )
+            .into_any_element(),
+    )
 }
 
 fn footer(app: &AppState, form: Form, cx: &mut Context<AppState>) -> AnyElement {

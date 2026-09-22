@@ -36,6 +36,8 @@ pub enum Layer {
     NewAgent,
     /// Its "Save profile" name prompt, painted over it.
     NewAgentNaming,
+    /// The new-mission dialog, raised from the tasks board's toolbar.
+    NewMission,
     /// The profile form, beside the login modal.
     ProfileForm,
     /// The accounts section's rename, delete or sign-out question.
@@ -71,7 +73,11 @@ pub enum Layer {
     Ask,
     /// The "All projects" modal.
     AllProjects,
-    /// The file question — new, rename, save-as and the rest.
+    /// A task's plan, read as rendered markdown — raised from the task panel.
+    Plan,
+    /// The file question — new, rename, save-as and the rest, and the plan modal's own Export
+    /// prompt, painted over it on the same terms `FileDialog` already sits over everything else
+    /// that can raise it.
     FileDialog,
     /// The size preset's name prompt. Above the settings page because the Size section raises it,
     /// and it is drawn at the window root because the status bar's popover raises the same one.

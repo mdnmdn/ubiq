@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 use ubiq_proto::ids::{ProjectId, StepId, TaskId};
 use ubiq_proto::messages::{Message, TaskField};
 use ubiq_proto::work::{
-    Comment, CommentAuthor, Complexity, Kind, Label, Priority, Status, Step, TaskRecord,
+    Attachment, Comment, CommentAuthor, Complexity, Kind, Label, Priority, Status, Step, TaskRecord,
 };
 
 use super::WorkAccess;
@@ -213,6 +213,7 @@ fn create_task(
     let key = opt_str(arguments, "key")?.map(str::to_string);
     let link = opt_str(arguments, "link")?.map(str::to_string);
     let labels = opt_str_list(arguments, "labels")?;
+    let attachments = opt_attachments(arguments, "attachments")?;
 
     let messages = mutate(access, |work| {
         let mut replies = work.create(project, title.to_string(), None);
@@ -240,6 +241,9 @@ fn create_task(
         if let Some(names) = labels.clone() {
             let labels = labels_from_names(work, project, names);
             replies.extend(work.set_field(project, id, TaskField::Labels(labels)));
+        }
+        if let Some(attachments) = attachments.clone() {
+            replies.extend(work.set_field(project, id, TaskField::Attachments(attachments)));
         }
         if let Some(status) = status {
             replies.extend(work.move_task(project, id, status, None));
@@ -271,6 +275,7 @@ fn update_task(
     let key = opt_str(arguments, "key")?.map(str::to_string);
     let link = opt_str(arguments, "link")?.map(str::to_string);
     let labels = opt_str_list(arguments, "labels")?;
+    let attachments = opt_attachments(arguments, "attachments")?;
 
     let messages = mutate(access, |work| {
         let mut replies = Vec::new();
@@ -295,6 +300,9 @@ fn update_task(
         if let Some(names) = labels.clone() {
             let labels = labels_from_names(work, project, names);
             replies.extend(work.set_field(project, id, TaskField::Labels(labels)));
+        }
+        if let Some(attachments) = attachments.clone() {
+            replies.extend(work.set_field(project, id, TaskField::Attachments(attachments)));
         }
         if let Some(status) = status {
             replies.extend(work.move_task(project, id, status, None));
@@ -579,6 +587,7 @@ fn task_json(task: &TaskRecord) -> Value {
         "key": task.key,
         "link": task.link,
         "labels": task.labels.iter().map(label_json).collect::<Vec<_>>(),
+        "attachments": task.attachments.iter().map(attachment_json).collect::<Vec<_>>(),
         "todos": task.steps.iter().map(todo_json).collect::<Vec<_>>(),
         "comments": task.comments.iter().map(comment_json).collect::<Vec<_>>(),
         "created_at": task.created_at.to_rfc3339(),
@@ -616,6 +625,16 @@ fn comment_json(comment: &Comment) -> Value {
         "author": comment.author.label(),
         "text": comment.text,
         "created_at": comment.created_at.to_rfc3339(),
+    })
+}
+
+/// One attachment as a model reads it. `kind` is the one thing the JSON says that the target does
+/// not spell out for a reader skimming it: whether to open the path or ask `ubiq-kb` for it.
+fn attachment_json(attachment: &Attachment) -> Value {
+    json!({
+        "target": attachment.target,
+        "label": attachment.label,
+        "kind": if attachment.is_kb() { "kb" } else { "file" },
     })
 }
 
@@ -716,6 +735,45 @@ fn opt_str_list(arguments: &Value, key: &str) -> Result<Option<Vec<String>>, Str
         }
         Some(Value::String(value)) => Ok(Some(vec![value.clone()])),
         Some(_) => Err(format!("{key} must be an array of names")),
+    }
+}
+
+/// The whole attachment list a model sent, in either of the two shapes it may write it.
+///
+/// A bare string is the target; an object may carry a `label` beside it. `None` is "leave them
+/// alone" and `Some(vec![])` clears them, the same distinction `labels` draws. Nothing here
+/// validates the target — a project path and a `kb:{source}:{path}` address are both strings the
+/// host stores and never resolves (see [`Attachment`]).
+fn opt_attachments(arguments: &Value, key: &str) -> Result<Option<Vec<Attachment>>, String> {
+    let malformed = || format!("{key} must be an array of paths or {{target, label}} objects");
+    match arguments.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(value)) => Ok(Some(vec![Attachment::new(value.clone())])),
+        Some(Value::Array(items)) => {
+            let mut values = Vec::new();
+            for item in items {
+                match item {
+                    Value::String(value) => values.push(Attachment::new(value.clone())),
+                    Value::Object(object) => {
+                        let target = object
+                            .get("target")
+                            .or_else(|| object.get("path"))
+                            .and_then(Value::as_str)
+                            .ok_or_else(|| format!("{key} entries need a target"))?;
+                        values.push(Attachment {
+                            target: target.to_string(),
+                            label: object
+                                .get("label")
+                                .and_then(Value::as_str)
+                                .map(str::to_string),
+                        });
+                    }
+                    _ => return Err(malformed()),
+                }
+            }
+            Ok(Some(values))
+        }
+        Some(_) => Err(malformed()),
     }
 }
 

@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use chrono::Utc;
 use ubiq_proto::ids::ProjectId;
 use ubiq_proto::projects::{
-    DroneChange, IndexChange, LanePref, ProjectRecord, ProjectSnapshot, Scope,
+    DroneChange, IndexChange, LanePref, MissionTermChange, ProjectRecord, ProjectSnapshot, Scope,
 };
 use ubiq_proto::tools::ToolDef;
 
@@ -311,6 +311,7 @@ impl Projects {
                     None,
                     None,
                     None,
+                    None,
                 );
             }
             // The path is a uniqueness key, not an identity: this is the project that is there.
@@ -336,6 +337,7 @@ impl Projects {
             last_opened_at: None,
             search_excludes: Vec::new(),
             index: None,
+            mission_term: None,
             managed_repos: Vec::new(),
             tools: Vec::new(),
             lanes: Vec::new(),
@@ -365,6 +367,7 @@ impl Projects {
         custom_colour: Option<u32>,
         search_excludes: Option<Vec<String>>,
         index: Option<IndexChange>,
+        mission_term: Option<MissionTermChange>,
         tools: Option<Vec<ToolDef>>,
         managed_repos: Option<Vec<String>>,
         lanes: Option<Vec<LanePref>>,
@@ -387,6 +390,9 @@ impl Projects {
         }
         if let Some(index) = index {
             record.index = index.resolve();
+        }
+        if let Some(mission_term) = mission_term {
+            record.mission_term = mission_term.resolve();
         }
         if let Some(tools) = tools {
             record.tools = tools;
@@ -476,6 +482,7 @@ impl Projects {
         custom_colour: Option<u32>,
         search_excludes: Option<Vec<String>>,
         index: Option<IndexChange>,
+        mission_term: Option<MissionTermChange>,
         tools: Option<Vec<ToolDef>>,
         managed_repos: Option<Vec<String>>,
         lanes: Option<Vec<LanePref>>,
@@ -494,6 +501,7 @@ impl Projects {
                 custom_colour,
                 search_excludes,
                 index,
+                mission_term,
                 tools,
                 managed_repos,
                 lanes,
@@ -513,6 +521,9 @@ impl Projects {
         }
         if let Some(index) = index {
             record.index = index.resolve();
+        }
+        if let Some(mission_term) = mission_term {
+            record.mission_term = mission_term.resolve();
         }
         if let Some(tools) = tools {
             record.tools = tools;

@@ -25,6 +25,8 @@
 //! - `git`: a project's repository, observed off the coordinator's thread (behind `git`)
 //! - `work`: the tasks a project has written down, and the sessions and agents doing them (behind
 //!   `harness`)
+//! - `plan`: a task's plan — one markdown document per mission, kept beside its tasks (behind
+//!   `harness`)
 //! - `reply`: what a service wants said, before the coordinator addresses it
 //! - `coordinator`: the run loop that starts harnesses, supervises them, and answers the bus
 //!   (behind `full`)
@@ -99,6 +101,8 @@ pub mod links;
 pub mod mcp;
 #[cfg(feature = "desktop")]
 pub mod notifications;
+#[cfg(feature = "harness")]
+pub mod plan;
 pub mod projects;
 pub mod pty;
 #[cfg(feature = "harness")]

@@ -567,6 +567,20 @@ impl AppState {
         cx.notify();
     }
 
+    /// The application-wide word for [`ubiq_proto::work::Level::Mission`] — *mission*, *epic*,
+    /// *user story*. Every project that has not overridden it reads this. Blank is ignored rather
+    /// than stored, on `set_agent_home_name`'s rule: a board with no word for the thing it draws
+    /// is not a state to leave it in.
+    pub fn set_mission_term(&mut self, term: String, cx: &mut Context<Self>) {
+        let term = term.trim().to_string();
+        if term.is_empty() || term == self.workbench.settings.host.mission_term {
+            return;
+        }
+        self.workbench.settings.host.mission_term = term;
+        self.remember_host_settings();
+        cx.notify();
+    }
+
     /// Add the path in the grants field, read-only. Read-write is a second gesture on the chip,
     /// so the safer half of the choice is never the one made by accident.
     pub fn add_extra_grant(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -935,6 +949,10 @@ impl AppState {
                 self.workbench.settings.host.search_fallbacks.join(", "),
             ),
             (self.agent_home_input.clone(), home),
+            (
+                self.mission_term_input.clone(),
+                self.workbench.settings.host.mission_term.clone(),
+            ),
         ] {
             if !field.read(cx).focus_handle(cx).is_focused(window)
                 && field.read(cx).value() != wanted.as_str()
@@ -1410,16 +1428,24 @@ impl AppState {
     /// It is the New agent form with [`Purpose::Profile`]: the same questions, so the same rows,
     /// and every pick below the name is answered by that form's own mutators. The two typed
     /// fields are seeded here, the way the rename dialog seeds its own.
+    ///
+    /// `project` is the scope a *new* setup is written into: `None` from the app-wide settings
+    /// screen, `Some` from a project's own. An edit keeps the scope its profile was found in and
+    /// ignores this, because moving a profile between roots is not what Edit means.
     pub fn open_profile_form(
         &mut self,
         profile: Option<ProfileInfo>,
+        project: Option<ProjectId>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let form = match &profile {
+        let mut form = match &profile {
             Some(profile) => NewAgentForm::from_profile(profile, Purpose::Profile),
             None => NewAgentForm::new(Purpose::Profile),
         };
+        if profile.is_none() {
+            form.project = project;
+        }
         let id = profile.as_ref().map(|it| it.id.clone()).unwrap_or_default();
         let prompt = form.prompt.clone();
         self.profile_id_input

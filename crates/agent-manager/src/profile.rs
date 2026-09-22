@@ -79,6 +79,13 @@ pub struct Profile {
     /// harness has one: this is only where the number is recorded, never read by the library.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_subagents: Option<u8>,
+    /// Whether this profile is fit to run as a planning assistant — the new-mission dialog
+    /// filters its assistant picker to profiles carrying `true`. Never read by the library
+    /// itself, the same posture as `max_subagents`: this is only where the fact is recorded,
+    /// for the embedder to act on. `None` and `Some(false)` are the same profile to a filter,
+    /// the "not mentioned" and "said no" distinction existing only so a leaf can un-mention it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mission_assistant: Option<bool>,
 }
 
 /// The `[defaults]` sub-table of a profile: the composition a run overlays.
@@ -226,6 +233,20 @@ impl<'de> Deserialize<'de> for ProfileIsolate {
     }
 }
 
+/// How widely a profile is visible — the fact a store answers about its own entries.
+///
+/// The library never says *which* project a [`ProfileScope::Project`] profile belongs to: that is
+/// the embedder's id, and a store rooted inside one project's directory already is the answer.
+/// What the library needs the distinction for is one rule, enforced in [`resolve_chain`]: a
+/// global profile may not `extends` a project-scoped one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProfileScope {
+    /// Visible everywhere. The only scope a single-rooted store has.
+    Global,
+    /// Visible only inside the project whose directory the store is rooted in.
+    Project,
+}
+
 /// A source of [`Profile`]s, resolved by id.
 pub trait ProfileStore {
     /// All profiles, sorted by id.
@@ -233,6 +254,11 @@ pub trait ProfileStore {
     /// One profile by exact id.
     fn profile(&self, id: &str) -> Result<Option<Profile>> {
         Ok(self.profiles()?.into_iter().find(|p| p.id == id))
+    }
+    /// How widely `id` is visible. Default: [`ProfileScope::Global`] — a store with one root
+    /// holds one scope, and only [`ScopedProfileStore`] holds two.
+    fn scope(&self, _id: &str) -> ProfileScope {
+        ProfileScope::Global
     }
     /// The config-overlay base content for `id` + `harness`, if present.
     ///
@@ -373,6 +399,80 @@ impl ProfileStore for FsProfileStore {
     }
 }
 
+/// Two stores read as one: a project's own profiles over the global ones.
+///
+/// A project profile is *where it is*, not what it says — path scoping, so a record cannot
+/// contradict its own location. This is the store a run composed inside a project resolves
+/// through: an id is looked for in the project first and in the global root second, so a project
+/// profile shadows a global one of the same name inside that project and nowhere else.
+///
+/// Because it is one project's store and not every project's, a profile of *another* project is
+/// not reachable here at all — "across projects" needs no rule, it is unsayable.
+pub struct ScopedProfileStore<'a> {
+    global: &'a dyn ProfileStore,
+    project: Option<&'a dyn ProfileStore>,
+}
+
+impl<'a> ScopedProfileStore<'a> {
+    /// A global root with one project's root layered over it. `None` for the project is the
+    /// plain global store, which is what a run outside any project resolves through.
+    pub fn new(global: &'a dyn ProfileStore, project: Option<&'a dyn ProfileStore>) -> Self {
+        ScopedProfileStore { global, project }
+    }
+
+    /// Whether the project store holds `id`. A store that cannot be read answers "no" rather
+    /// than failing the lookup: a missing project directory is the ordinary case.
+    fn in_project(&self, id: &str) -> bool {
+        self.project
+            .is_some_and(|store| store.profile(id).ok().flatten().is_some())
+    }
+}
+
+impl ProfileStore for ScopedProfileStore<'_> {
+    fn profiles(&self) -> Result<Vec<Profile>> {
+        let project = match self.project {
+            Some(store) => store.profiles()?,
+            None => Vec::new(),
+        };
+        let mut all = self.global.profiles()?;
+        all.retain(|global| !project.iter().any(|it| it.id == global.id));
+        all.extend(project);
+        all.sort_by(|a, b| a.id.cmp(&b.id));
+        Ok(all)
+    }
+
+    fn profile(&self, id: &str) -> Result<Option<Profile>> {
+        if let Some(store) = self.project
+            && let Some(found) = store.profile(id)?
+        {
+            return Ok(Some(found));
+        }
+        self.global.profile(id)
+    }
+
+    fn scope(&self, id: &str) -> ProfileScope {
+        if self.in_project(id) {
+            ProfileScope::Project
+        } else {
+            ProfileScope::Global
+        }
+    }
+
+    fn base_source(&self, id: &str, harness: &str) -> Option<Source> {
+        match self.project {
+            Some(store) if self.in_project(id) => store.base_source(id, harness),
+            _ => self.global.base_source(id, harness),
+        }
+    }
+
+    fn put_base(&self, id: &str, harness: &str, from: &Path) -> Result<()> {
+        match self.project {
+            Some(store) if self.in_project(id) => store.put_base(id, harness, from),
+            _ => self.global.put_base(id, harness, from),
+        }
+    }
+}
+
 /// The default profiles root: `~/.config/agent-manager/profiles` — the same
 /// base dir as `config.toml` and `accounts/`
 /// ([`crate::settings::default_config_dir`]). Overridable by `AM_PROFILES` (see
@@ -394,7 +494,14 @@ pub fn resolve_profiles_root(explicit: Option<PathBuf>) -> Option<PathBuf> {
 /// last).
 ///
 /// Errors if `name` or any named parent is missing, if a cycle is detected (the
-/// message names the cycle), or if the chain exceeds [`MAX_EXTENDS_DEPTH`].
+/// message names the cycle), if the chain exceeds [`MAX_EXTENDS_DEPTH`], or if a
+/// **global profile extends a project-scoped one**.
+///
+/// That last rule is the only direction that is refused. A project profile may extend a global
+/// one — specialising the standard setup is the obvious want — and a project profile may extend
+/// another in the same project. The reverse cannot be allowed: a global profile is resolvable
+/// everywhere, and a dependency on a project that may not exist, or may be deleted tomorrow,
+/// would make it resolve in one place and fail in another.
 pub fn resolve_chain(store: &dyn ProfileStore, name: &str) -> Result<Vec<Profile>> {
     let mut chain: Vec<Profile> = Vec::new();
     let mut visited: Vec<String> = Vec::new();
@@ -424,10 +531,20 @@ pub fn resolve_chain(store: &dyn ProfileStore, name: &str) -> Result<Vec<Profile
         visited.push(current.clone());
 
         let parent = profile.extends.clone();
+        let scope = store.scope(&current);
         chain.push(profile);
 
         match parent {
-            Some(next) => current = next,
+            Some(next) => {
+                if scope == ProfileScope::Global && store.scope(&next) == ProfileScope::Project {
+                    bail!(
+                        "profile '{current}' is global and cannot extend '{next}', which \
+                         belongs to a project: a global profile has to resolve everywhere, and \
+                         a project's profile is only there while the project is"
+                    );
+                }
+                current = next;
+            }
             None => break,
         }
     }
@@ -459,6 +576,9 @@ pub fn flatten(chain: &[Profile]) -> Profile {
         }
         if profile.max_subagents.is_some() {
             acc.max_subagents = profile.max_subagents;
+        }
+        if profile.mission_assistant.is_some() {
+            acc.mission_assistant = profile.mission_assistant;
         }
         acc.defaults.overlay(&profile.defaults);
     }
@@ -574,6 +694,44 @@ instructions = "/etc/work-instructions.md"
         let store = FsProfileStore::new(root);
         let err = store.profiles().expect_err("should error on collision");
         assert!(err.to_string().contains("collision"), "message was: {err}");
+        temp.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn fs_profile_store_old_file_without_mission_assistant_still_loads() -> Result<()> {
+        let temp = tempfile::TempDir::new()?;
+        let root = temp.path();
+        // A profile file predating the `mission_assistant` flag: no such key at all.
+        write_profile(root, "legacy", "account = \"me\"\nharness = \"claude\"\n");
+
+        let store = FsProfileStore::new(root);
+        let legacy = store.profile("legacy")?.expect("legacy profile");
+        assert_eq!(legacy.mission_assistant, None);
+        temp.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn fs_profile_store_mission_assistant_round_trips() -> Result<()> {
+        let temp = tempfile::TempDir::new()?;
+        let root = temp.path().join("profiles");
+
+        let profile = Profile {
+            id: "planner".to_string(),
+            harness: Some("claude".to_string()),
+            mission_assistant: Some(true),
+            ..Default::default()
+        };
+
+        let store = FsProfileStore::new(&root);
+        store.save(&profile)?;
+
+        let loaded = FsProfileStore::new(&root)
+            .profile("planner")?
+            .expect("saved profile should be found");
+        assert_eq!(loaded.mission_assistant, Some(true));
+
         temp.close()?;
         Ok(())
     }
@@ -757,6 +915,121 @@ thinking = "high"
             err.to_string().contains("maximum depth"),
             "message was: {err}"
         );
+        temp.close()?;
+        Ok(())
+    }
+
+    /// A global root and one project root, each with a profile written into it.
+    fn scoped_roots() -> Result<(tempfile::TempDir, FsProfileStore, FsProfileStore)> {
+        let temp = tempfile::TempDir::new()?;
+        let global_root = temp.path().join("profiles");
+        let project_root = temp.path().join("projects").join("P1").join("profiles");
+        std::fs::create_dir_all(&global_root)?;
+        std::fs::create_dir_all(&project_root)?;
+        Ok((
+            temp,
+            FsProfileStore::new(global_root),
+            FsProfileStore::new(project_root),
+        ))
+    }
+
+    #[test]
+    fn scoped_store_lists_both_roots_and_reports_each_scope() -> Result<()> {
+        let (temp, global, project) = scoped_roots()?;
+        write_profile(global.root.as_path(), "standard", "harness = \"claude\"\n");
+        write_profile(project.root.as_path(), "reviewer", "harness = \"codex\"\n");
+
+        let scoped = ScopedProfileStore::new(&global, Some(&project));
+        let ids: Vec<String> = scoped.profiles()?.into_iter().map(|p| p.id).collect();
+        assert_eq!(ids, vec!["reviewer".to_string(), "standard".to_string()]);
+        assert_eq!(scoped.scope("standard"), ProfileScope::Global);
+        assert_eq!(scoped.scope("reviewer"), ProfileScope::Project);
+        // The same store with no project is the global root, unchanged.
+        let global_only = ScopedProfileStore::new(&global, None);
+        let ids: Vec<String> = global_only.profiles()?.into_iter().map(|p| p.id).collect();
+        assert_eq!(ids, vec!["standard".to_string()]);
+        assert!(global_only.profile("reviewer")?.is_none());
+
+        temp.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn a_project_profile_shadows_a_global_one_of_the_same_name() -> Result<()> {
+        let (temp, global, project) = scoped_roots()?;
+        write_profile(global.root.as_path(), "review", "harness = \"claude\"\n");
+        write_profile(project.root.as_path(), "review", "harness = \"codex\"\n");
+
+        let scoped = ScopedProfileStore::new(&global, Some(&project));
+        assert_eq!(scoped.profiles()?.len(), 1);
+        let found = scoped.profile("review")?.expect("review");
+        assert_eq!(found.harness.as_deref(), Some("codex"));
+
+        temp.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn a_project_profile_may_extend_a_global_one() -> Result<()> {
+        let (temp, global, project) = scoped_roots()?;
+        write_profile(
+            global.root.as_path(),
+            "standard",
+            "harness = \"claude\"\naccount = \"work\"\n\n[defaults]\nmodel = \"sonnet\"\n",
+        );
+        write_profile(
+            project.root.as_path(),
+            "reviewer",
+            "extends = \"standard\"\n\n[defaults]\nmodel = \"opus\"\n",
+        );
+
+        let scoped = ScopedProfileStore::new(&global, Some(&project));
+        let flat = resolve_flattened(&scoped, "reviewer")?;
+        assert_eq!(flat.id, "reviewer");
+        // Inherited from the global parent, overridden where the leaf mentions the axis.
+        assert_eq!(flat.harness.as_deref(), Some("claude"));
+        assert_eq!(flat.account.as_deref(), Some("work"));
+        assert_eq!(flat.defaults.model.as_deref(), Some("opus"));
+
+        temp.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn a_project_profile_may_extend_another_in_the_same_project() -> Result<()> {
+        let (temp, global, project) = scoped_roots()?;
+        write_profile(project.root.as_path(), "base", "harness = \"codex\"\n");
+        write_profile(
+            project.root.as_path(),
+            "leaf",
+            "extends = \"base\"\nmode = \"plan\"\n",
+        );
+
+        let scoped = ScopedProfileStore::new(&global, Some(&project));
+        let flat = resolve_flattened(&scoped, "leaf")?;
+        assert_eq!(flat.harness.as_deref(), Some("codex"));
+        assert_eq!(flat.mode.as_deref(), Some("plan"));
+
+        temp.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn a_global_profile_extending_a_project_one_is_refused() -> Result<()> {
+        let (temp, global, project) = scoped_roots()?;
+        write_profile(project.root.as_path(), "local", "harness = \"codex\"\n");
+        write_profile(global.root.as_path(), "everywhere", "extends = \"local\"\n");
+
+        let scoped = ScopedProfileStore::new(&global, Some(&project));
+        let err = resolve_chain(&scoped, "everywhere").expect_err("should refuse");
+        let message = err.to_string();
+        assert!(message.contains("'everywhere'"), "message was: {message}");
+        assert!(message.contains("'local'"), "message was: {message}");
+        assert!(
+            message.contains("belongs to a project"),
+            "message was: {message}"
+        );
+
         temp.close()?;
         Ok(())
     }

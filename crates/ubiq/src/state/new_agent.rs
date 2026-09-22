@@ -6,6 +6,7 @@
 //! readings of it: no element, no colour, and nothing that names a message.
 
 use ubiq_proto::conversation::ConfigChoice;
+use ubiq_proto::ids::ProjectId;
 use ubiq_proto::messages::{AgentTypeInfo, CatalogueModel, ProfileInfo};
 
 /// What the form is for. The same fields answer both questions, so the same form asks them.
@@ -78,6 +79,10 @@ pub struct NewAgentForm {
     /// Always false, and the control is disabled: an agent that survives a restart is not built
     /// yet, and a checkbox that lied about it would be worse than one that says "not yet".
     pub persistent: bool,
+    /// Whether this setup is fit to run as a planning assistant — [`ProfileInfo::mission_assistant`].
+    /// Drawn only under [`Purpose::Profile`]: a bare start has nothing to save the flag onto, and
+    /// the new-mission dialog's picker is what reads it back.
+    pub mission_assistant: bool,
     /// The subagent ceiling this start asks for. `None` says nothing about it at all; `Some(0)`
     /// asks for none, which is a real answer and states itself.
     pub max_subagents: Option<u8>,
@@ -101,6 +106,12 @@ pub struct NewAgentForm {
     /// Whether a catalogue has been asked for and not yet answered. The model row says so rather
     /// than drawing an empty list, which would read as a harness with no models.
     pub probing: bool,
+    /// The project a [`Purpose::Profile`] form writes its profile into, when it was opened from
+    /// one. `None` — the app-wide settings screen — writes a global profile, which is every
+    /// profile that existed before scoping. Never a pick inside the form: where a profile lives
+    /// is settled by where the user asked for it, and a saved profile is edited in the scope it
+    /// was written in ([`ProfileInfo::project`]).
+    pub project: Option<ProjectId>,
 }
 
 impl NewAgentForm {
@@ -114,6 +125,7 @@ impl NewAgentForm {
             thinking: None,
             mode: None,
             persistent: false,
+            mission_assistant: false,
             max_subagents: Some(DEFAULT_SUBAGENTS),
             mcps: Vec::new(),
             prompt: String::new(),
@@ -121,6 +133,7 @@ impl NewAgentForm {
             naming: false,
             models: Vec::new(),
             probing: false,
+            project: None,
         }
     }
 
@@ -143,6 +156,11 @@ impl NewAgentForm {
             max_subagents: profile.max_subagents,
             mcps: profile.mcps.clone(),
             prompt: profile.prompt.clone().unwrap_or_default(),
+            mission_assistant: profile.mission_assistant.unwrap_or(false),
+            // Editing keeps the scope it was found in: a project profile saved from its own
+            // project's settings goes back where it came from, and the global form never
+            // acquires a project it was not opened with.
+            project: profile.project,
             ..Self::new(purpose)
         }
     }
@@ -160,6 +178,13 @@ impl NewAgentForm {
             max_subagents: self.max_subagents,
             prompt: (!self.prompt.trim().is_empty()).then(|| self.prompt.trim().to_string()),
             mcps: self.mcps.clone(),
+            // Ticked is written down; unticked writes `None` rather than `Some(false)` — the two
+            // read the same to every filter, and `None` is the ordinary "says nothing" shape every
+            // other optional field here already uses.
+            mission_assistant: self.mission_assistant.then_some(true),
+            // Which root the host writes it into. The scope is not a field the user picks; it
+            // is the surface the form was opened from.
+            project: self.project,
         }
     }
 
@@ -364,6 +389,56 @@ mod tests {
             form.as_profile("saved".to_string()).mcps,
             vec!["test"],
             "what is ticked is what is written down"
+        );
+    }
+
+    fn a_profile(mission_assistant: Option<bool>) -> ProfileInfo {
+        ProfileInfo {
+            id: "reviewer".to_string(),
+            agent_type: "claude-code".to_string(),
+            account: None,
+            model: None,
+            mode: None,
+            thinking: None,
+            max_subagents: None,
+            prompt: None,
+            mcps: Vec::new(),
+            mission_assistant,
+            project: None,
+        }
+    }
+
+    #[test]
+    fn saving_a_profile_carries_the_mission_assistant_flag_forward() {
+        // The bug this closes: a profile already marked as a mission assistant, opened and saved
+        // again through the form with nothing touched, must not come back out unmarked.
+        let form = NewAgentForm::from_profile(&a_profile(Some(true)), Purpose::Profile);
+        assert!(form.mission_assistant, "the form reads the profile's flag");
+        assert_eq!(
+            form.as_profile("reviewer".to_string()).mission_assistant,
+            Some(true),
+            "and writes it back rather than dropping it"
+        );
+    }
+
+    #[test]
+    fn ticking_it_from_a_profile_with_none_writes_it_down() {
+        let mut form = NewAgentForm::from_profile(&a_profile(None), Purpose::Profile);
+        assert!(!form.mission_assistant);
+        form.mission_assistant = true;
+        assert_eq!(
+            form.as_profile("reviewer".to_string()).mission_assistant,
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn an_unticked_flag_writes_none_not_false() {
+        let form = NewAgentForm::new(Purpose::Profile);
+        assert_eq!(
+            form.as_profile("fresh".to_string()).mission_assistant,
+            None,
+            "None and Some(false) read the same to a filter, and None is the ordinary shape"
         );
     }
 

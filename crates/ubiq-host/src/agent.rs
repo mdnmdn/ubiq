@@ -22,7 +22,9 @@ use agent_manager::credentials::login_digest;
 use agent_manager::harness::{self, Launch, ModelInfo};
 use agent_manager::io::IoBridge;
 use agent_manager::isolate::{self, Confined, IsolateOptions};
-use agent_manager::profile::{FsProfileStore, Profile, ProfileDefaults, ProfileStore};
+use agent_manager::profile::{
+    FsProfileStore, Profile, ProfileDefaults, ProfileStore, ScopedProfileStore,
+};
 use agent_manager::provision;
 use agent_manager::registry::FsRegistry;
 use agent_manager::resolve;
@@ -32,7 +34,7 @@ use agent_manager::source::Source;
 use agent_manager::spec::{ConfigStrategy, IoModes, Isolation, McpRef, Policy};
 use anyhow::{Context, Result, anyhow, bail};
 use ubiq_proto::conversation::ConfigChoice;
-use ubiq_proto::ids::PaneId;
+use ubiq_proto::ids::{PaneId, ProjectId};
 use ubiq_proto::messages::{AccountInfo, AgentTypeInfo, LoginStatus, ProfileInfo};
 use ubiq_proto::settings::{AgentHome, Grant};
 use ubiq_proto::work::AgentId;
@@ -119,6 +121,12 @@ pub struct ConverseOptions {
     pub mode: Option<String>,
     /// The saved setup the picks above sit on top of.
     pub profile: Option<String>,
+    /// The project this run belongs to, when it belongs to one. Not a pick: it is what decides
+    /// **which profiles exist** for this run — that project's own are resolvable here and
+    /// nowhere else, and they shadow a global profile of the same name. `None` (a login pane, a
+    /// run outside any project) resolves against the global root alone, which is what every run
+    /// did before project scoping.
+    pub project: Option<ProjectId>,
     /// The first turn's text, for a **one-shot** harness whose prompt is argv rather than a frame
     /// on a pipe. Left `None` for a multi-turn harness, which is prompted over its bridge after
     /// it is running — putting a prompt here for one of those would run its first turn twice.
@@ -456,20 +464,48 @@ impl Agents {
             .collect()
     }
 
-    /// The profile store, over Ubiq's own root. Built per call, for the same reason
+    /// The global profile store, over Ubiq's own root. Built per call, for the same reason
     /// [`account_store`](Self::account_store) is.
     fn profile_store(&self) -> FsProfileStore {
         FsProfileStore::new(self.root.join("profiles"))
     }
 
-    /// Every profile Ubiq knows: a saved setup, flattened to the four references the
+    /// One project's own profile store, under the directory that project already owns.
+    ///
+    /// A project profile **is** its location (decision 8): the scope cannot contradict the
+    /// record, and `Projects::forget` removing `<root>/projects/<id>` takes these with it
+    /// without knowing they are there — the same way it already takes the plans and the index.
+    fn project_profile_store(&self, project: ProjectId) -> FsProfileStore {
+        FsProfileStore::new(
+            self.root
+                .join("projects")
+                .join(project.to_string())
+                .join("profiles"),
+        )
+    }
+
+    /// Every global profile Ubiq knows: a saved setup, flattened to the four references the
     /// interface shows. A profile with no harness pin is skipped — the interface offers
     /// profiles per harness row, and one that names none belongs to no row.
     pub fn profiles(&self) -> Result<Vec<ProfileInfo>> {
-        Ok(self
-            .profile_store()
-            .profiles()
-            .context("reading the profiles Ubiq knows")?
+        let store = self.profile_store();
+        Ok(Self::infos(&store, None).context("reading the profiles Ubiq knows")?)
+    }
+
+    /// One project's own profiles, each carrying the project it is scoped to. Empty for a
+    /// project that has none, which is every project until one is written there.
+    pub fn project_profiles(&self, project: ProjectId) -> Result<Vec<ProfileInfo>> {
+        let store = self.project_profile_store(project);
+        Self::infos(&store, Some(project))
+            .with_context(|| format!("reading the profiles of project {project}"))
+    }
+
+    /// One store's profiles as the interface is told them, stamped with the scope they were
+    /// found in. The one place a `Profile` becomes a `ProfileInfo`, so the two scopes cannot
+    /// drift into two answers.
+    fn infos(store: &FsProfileStore, project: Option<ProjectId>) -> Result<Vec<ProfileInfo>> {
+        Ok(store
+            .profiles()?
             .into_iter()
             .filter_map(|profile| {
                 Some(ProfileInfo {
@@ -485,6 +521,8 @@ impl Agents {
                     // same row in a checklist, so the interface is told the empty list for both.
                     // The distinction still matters on disk — see [`save_profile`](Self::save_profile).
                     mcps: profile.defaults.mcps.unwrap_or_default(),
+                    mission_assistant: profile.mission_assistant,
+                    project,
                 })
             })
             .collect())
@@ -493,11 +531,16 @@ impl Agents {
     /// What a profile saved under `defaults.mcps`, or `None` when it mentioned none — the
     /// distinction the library's own merge turns on, kept rather than flattened to a list.
     ///
+    /// Resolved through the run's own scope: inside a project, that project's profile of this
+    /// name answers before the global one, exactly as it will when the run is composed.
+    ///
     /// The named profile's own row, not its inheritance chain: Ubiq writes no parent, and
     /// flattening one here would be this module holding a second answer to a question
     /// `resolve` already answers.
-    fn profile_mcps(&self, id: &str) -> Option<Vec<String>> {
-        self.profile_store()
+    fn profile_mcps(&self, id: &str, project: Option<ProjectId>) -> Option<Vec<String>> {
+        let global = self.profile_store();
+        let scoped = project.map(|project| self.project_profile_store(project));
+        ScopedProfileStore::new(&global, scoped.as_ref().map(|it| it as &dyn ProfileStore))
             .profile(id)
             .ok()
             .flatten()
@@ -514,7 +557,14 @@ impl Agents {
     /// ticked is the first of those. Nothing in Ubiq's own interface can express the second, and
     /// inventing it here would mean every profile saved through this window silently overriding a
     /// default it was never shown.
+    /// Which root it lands in is [`ProfileInfo::project`]: the global one when absent, that
+    /// project's own when present. The two are separate namespaces, so saving `review` into a
+    /// project never overwrites the global `review` — it shadows it, inside that project.
     pub fn save_profile(&self, profile: ProfileInfo) -> Result<()> {
+        let store = match profile.project {
+            Some(project) => self.project_profile_store(project),
+            None => self.profile_store(),
+        };
         let record = Profile {
             id: profile.id,
             harness: Some(profile.agent_type),
@@ -528,9 +578,10 @@ impl Agents {
             },
             mode: profile.mode,
             max_subagents: profile.max_subagents,
+            mission_assistant: profile.mission_assistant,
             ..Default::default()
         };
-        self.profile_store()
+        store
             .save(&record)
             .with_context(|| format!("saving profile '{}'", record.id))?;
         Ok(())
@@ -941,7 +992,7 @@ impl Agents {
         let catalog_mcps = options
             .profile
             .as_deref()
-            .and_then(|profile| self.profile_mcps(profile))
+            .and_then(|profile| self.profile_mcps(profile, options.project))
             .map(|saved| {
                 saved
                     .into_iter()
@@ -992,12 +1043,28 @@ impl Agents {
             resume: options.resume,
             ..Default::default()
         };
+        // Two profile stores, read as one: this project's own over the global root. Which of the
+        // two a name resolves in is the whole of what "project-scoped" means — the record says
+        // nothing about a project, its location does. `None` for a run belonging to no project
+        // is the global root alone, which is every run's answer before and after this.
+        //
+        // The library resolves the `extends` chain through the same pair, so a project profile
+        // may specialise a global one, and a global profile naming a project's is refused there
+        // rather than here (`agent_manager::profile::resolve_chain`).
+        let global_profiles = self.profile_store();
+        let project_profiles = options
+            .project
+            .map(|project| self.project_profile_store(project));
+        let profiles = ScopedProfileStore::new(
+            &global_profiles,
+            project_profiles.as_ref().map(|it| it as &dyn ProfileStore),
+        );
         let mut spec = resolve::resolve(
             &flags,
             &Settings::default(),
             &FsRegistry::new(self.root.join("catalog")),
             &FsAccountStore::new(self.root.join("accounts")),
-            &FsProfileStore::new(self.root.join("profiles")),
+            &profiles,
         )
         .with_context(|| format!("composing a {agent_type} run"))?;
 
@@ -1971,6 +2038,126 @@ mod tests {
             assert!(agents.converses(id), "{id} should converse");
             assert!(agents.multi_turn(id), "{id} should take a second turn");
         }
+    }
+
+    /// A profile written into a project is offered in that project and nowhere else, and a
+    /// global-only setup is untouched by the second store existing at all.
+    #[test]
+    fn a_project_profile_is_listed_in_its_project_and_not_globally() {
+        let root = tempfile::TempDir::new().unwrap();
+        let agents = Agents::new(root.path(), false);
+        let project = ProjectId::generate();
+        let other = ProjectId::generate();
+
+        let info = |id: &str, project: Option<ProjectId>| ProfileInfo {
+            id: id.to_string(),
+            agent_type: "claude-code".to_string(),
+            account: None,
+            model: None,
+            mode: None,
+            thinking: None,
+            max_subagents: None,
+            prompt: None,
+            mcps: Vec::new(),
+            mission_assistant: None,
+            project,
+        };
+
+        agents.save_profile(info("standard", None)).unwrap();
+        agents
+            .save_profile(info("reviewer", Some(project)))
+            .unwrap();
+
+        let global: Vec<String> = agents
+            .profiles()
+            .unwrap()
+            .into_iter()
+            .map(|it| it.id)
+            .collect();
+        assert_eq!(
+            global,
+            vec!["standard".to_string()],
+            "global list is global"
+        );
+
+        let scoped = agents.project_profiles(project).unwrap();
+        assert_eq!(scoped.len(), 1);
+        assert_eq!(scoped[0].id, "reviewer");
+        assert_eq!(
+            scoped[0].project,
+            Some(project),
+            "a project profile says which project it is in"
+        );
+        assert!(
+            agents.project_profiles(other).unwrap().is_empty(),
+            "another project sees none of it"
+        );
+
+        // On disk under the project's own directory, which is what `Projects::forget`
+        // removes whole — so forgetting the project takes the profile with it.
+        let dir = root
+            .path()
+            .join("projects")
+            .join(project.to_string())
+            .join("profiles")
+            .join("reviewer");
+        assert!(dir.join("profile.toml").is_file());
+        std::fs::remove_dir_all(root.path().join("projects").join(project.to_string())).unwrap();
+        assert!(agents.project_profiles(project).unwrap().is_empty());
+        assert_eq!(
+            agents.profiles().unwrap().len(),
+            1,
+            "the global root stands"
+        );
+    }
+
+    /// The two stores read as one at composition time: inside a project, that project's profile
+    /// of a name answers before the global one; outside it, the global one does. Asserted
+    /// through `profile_mcps`, which is the one place `compose_run` asks a profile a question
+    /// and needs no harness binary to answer.
+    #[test]
+    fn a_project_profile_shadows_a_global_one_only_inside_its_project() {
+        let root = tempfile::TempDir::new().unwrap();
+        let agents = Agents::new(root.path(), false);
+        let project = ProjectId::generate();
+        let other = ProjectId::generate();
+
+        let info = |mcps: &[&str], project: Option<ProjectId>| ProfileInfo {
+            id: "review".to_string(),
+            agent_type: "claude-code".to_string(),
+            account: None,
+            model: None,
+            mode: None,
+            thinking: None,
+            max_subagents: None,
+            prompt: None,
+            mcps: mcps.iter().map(|it| it.to_string()).collect(),
+            mission_assistant: None,
+            project,
+        };
+
+        agents
+            .save_profile(info(&["manage-ubiq-tasks"], None))
+            .unwrap();
+        agents
+            .save_profile(info(&["ubiq-plan"], Some(project)))
+            .unwrap();
+
+        assert_eq!(
+            agents.profile_mcps("review", Some(project)),
+            Some(vec!["ubiq-plan".to_string()]),
+            "inside the project, the project's profile answers"
+        );
+        assert_eq!(
+            agents.profile_mcps("review", Some(other)),
+            Some(vec!["manage-ubiq-tasks".to_string()]),
+            "another project sees the global one"
+        );
+        assert_eq!(
+            agents.profile_mcps("review", None),
+            Some(vec!["manage-ubiq-tasks".to_string()]),
+            "a run in no project sees the global one"
+        );
     }
 
     /// An id the library does not know converses no more than one it knows cannot. Refusing is
