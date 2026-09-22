@@ -244,6 +244,8 @@ const TRIMS: &[(f32, &str)] = &[
 
 fn appearance(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     let palette = app.workbench.theme_id;
+    let view = cx.entity();
+    let algo = app.workbench.settings.ui.teams_algo;
 
     column(vec![
         heading(
@@ -308,6 +310,33 @@ fn appearance(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                 cx.listener(|this, _, _, cx| this.toggle_cache_ring(cx)),
             )
             .into_any_element(),
+        ),
+        setting_row(
+            "Teams arrangement",
+            "How a fresh Teams graph lays itself out, in every project this window takes on from \
+             now. A canvas already open, and the toolbar's own arrangement control on it, are \
+             untouched \u{2014} this only seeds what a new one opens in.",
+            Picker::new("app-settings-teams-algo", algo.label())
+                .icon(IconName::LayoutDashboard)
+                .items(
+                    crate::state::layout::Algo::ALL
+                        .map(|a| format!("{} \u{2014} {}", a.label(), a.hint())),
+                )
+                .selected(
+                    crate::state::layout::Algo::ALL
+                        .iter()
+                        .position(|&a| a == algo)
+                        .unwrap_or(0),
+                )
+                .open(app.workbench.open_menu == Some(crate::state::MenuId::TeamsDefaultAlgo))
+                .on_toggle(crate::ui::handler(&view, |this, _, cx| {
+                    this.open_menu(crate::state::MenuId::TeamsDefaultAlgo, cx)
+                }))
+                .on_dismiss(crate::ui::handler(&view, |this, _, cx| this.close_menu(cx)))
+                .on_pick(crate::ui::indexed(&view, |this, index, _, cx| {
+                    this.set_teams_default_algo(index, cx)
+                }))
+                .into_any_element(),
         ),
     ])
 }
@@ -1335,6 +1364,7 @@ fn grant_chips(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                 fill,
                 colour,
                 colour,
+                false,
                 cx.listener(move |this, _, _, cx| this.toggle_grant_write(index, cx)),
                 cx.listener(move |this, _, _, cx| this.remove_extra_grant(index, cx)),
             )

@@ -61,6 +61,15 @@ fn read_plan(arguments: &Value, project: ProjectId, reach: &PlanReach) -> Result
 /// default to "since I last wrote this" rather than to some other agent's write. This is the only
 /// path to [`ubiq_proto::plan::SaveOrigin::Agent`]; the interface's [`Message::SavePlan`] is the
 /// only path to the other, and neither can reach the other's stamp.
+///
+/// **`expected_revision` is optional here and mandatory on the wire**, which is the one place the
+/// two write paths differ. A window always holds a watermark — it cannot have a body without
+/// having been told the revision it came at — so naming one costs it nothing and the check is free
+/// to be unconditional. An agent may legitimately have none: writing a plan for a mission nobody
+/// has planned is a first call with nothing read beforehand, and refusing it for want of a number
+/// it was never given would be a worse failure than the race it guards. An agent that *did* read
+/// the plan first should pass the revision `read_plan` handed it, and then gets the same refusal a
+/// window gets.
 fn write_plan(
     arguments: &Value,
     facts: &AgentFacts,
@@ -69,6 +78,14 @@ fn write_plan(
 ) -> Result<Value, String> {
     let task = task_id(arguments)?;
     let body = required_str(arguments, "body")?;
+    let expected =
+        match arguments.get("expected_revision") {
+            None | Some(Value::Null) => None,
+            Some(Value::Number(number)) => Some(number.as_u64().ok_or_else(|| {
+                "expected_revision must be a whole number, zero or more".to_string()
+            })?),
+            Some(_) => return Err("expected_revision must be a number".to_string()),
+        };
     let replies = {
         let mut plans = reach.plans.lock();
         plans.save(
@@ -76,6 +93,7 @@ fn write_plan(
             task,
             body.to_string(),
             &Saver::agent(facts.key.clone()),
+            expected,
         )
     };
     for reply in &replies {
@@ -287,6 +305,17 @@ fn plan_result(task: TaskId, replies: &[Reply]) -> Result<Value, String> {
                     "body": body,
                     "revision": revision,
                 }));
+            }
+            // A refused save is a sentence here rather than a structured refusal: an agent has no
+            // second press to make, and what it has to do — re-read the plan, redo the edit
+            // against what is there now, and write again naming that revision — is a sentence's
+            // worth of instruction. The revision it needs is in it.
+            Message::PlanConflict { revision, .. } => {
+                return Err(format!(
+                    "the plan has moved on and now stands at revision {revision}: nothing was \
+                     written. Read it again, redo your edit against what is there now, and write \
+                     with expected_revision {revision}."
+                ));
             }
             Message::PlanError { error, .. } => return Err(error.clone()),
             _ => {}

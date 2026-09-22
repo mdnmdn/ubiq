@@ -222,7 +222,7 @@ fn the_remote_nav_needs_a_record_to_attach_to(cx: &mut gpui::TestAppContext) {
     });
 }
 
-/// The dialog's rail-initials override: prefilled from the record's own on open, clamped to two
+/// The dialog's rail-initials override: prefilled from the record's own on open, clamped to three
 /// characters as it is typed rather than only refused on Save, and sent as `SetProjectInitials`
 /// alongside the rename's own `UpdateProject` — never before, because a project being created has
 /// no record yet for an override to belong to.
@@ -268,7 +268,7 @@ fn the_initials_field_prefills_clamps_and_saves(cx: &mut gpui::TestAppContext) {
         assert_eq!(state.project_initials_input.read(cx).value(), "u");
     });
 
-    // Typed past two characters, it is clamped as it is typed, not only refused on Save.
+    // Typed past three characters, it is clamped as it is typed, not only refused on Save.
     // `set_value` itself is the silent, programmatic setter used above for the prefill — it
     // deliberately does not raise `InputEvent::Change` — so a typed keystroke is modelled the same
     // way the field's own `PressEnter` gesture is modelled elsewhere: set the text, then raise the
@@ -278,7 +278,7 @@ fn the_initials_field_prefills_clamps_and_saves(cx: &mut gpui::TestAppContext) {
             state.update(cx, |state, cx| {
                 let input = state.project_initials_input.clone();
                 input.update(cx, |input, cx| {
-                    input.set_value("xyz", window, cx);
+                    input.set_value("wxyz", window, cx);
                     cx.emit(InputEvent::Change);
                 });
             });
@@ -286,7 +286,7 @@ fn the_initials_field_prefills_clamps_and_saves(cx: &mut gpui::TestAppContext) {
         .expect("the window is open");
     cx.run_until_parked();
     state.update(cx, |state, cx| {
-        assert_eq!(state.project_initials_input.read(cx).value(), "xy");
+        assert_eq!(state.project_initials_input.read(cx).value(), "wxy");
     });
 
     // Save sends the clamped override alongside the rename's own `UpdateProject`.
@@ -306,7 +306,7 @@ fn the_initials_field_prefills_clamps_and_saves(cx: &mut gpui::TestAppContext) {
             } = message
         {
             assert_eq!(project_id, project);
-            assert_eq!(initials, "xy");
+            assert_eq!(initials, "wxy");
             saw_initials = true;
         }
     }

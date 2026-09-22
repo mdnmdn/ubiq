@@ -251,6 +251,15 @@ impl ExplorerState {
         asking
     }
 
+    /// Whether a project-relative path is something the tree currently holds — read-only, unlike
+    /// [`Self::reopen`], which opens folders and starts listings. A task attachment's chip calls
+    /// this every frame it is drawn, so it must never disturb what the user has expanded.
+    ///
+    /// See [`locate`] for what the three answers mean.
+    pub fn presence(&self, path: &str) -> Presence {
+        locate(&self.root, self.root_listed, path)
+    }
+
     /// Shut every folder, keeping what the host has already said about them. Collapsing is not
     /// forgetting: reopening one draws immediately rather than asking again.
     pub fn collapse_all(&mut self) {

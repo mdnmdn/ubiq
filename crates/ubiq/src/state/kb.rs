@@ -525,6 +525,24 @@ impl KbState {
         self.sources.iter_mut().find(|view| view.id() == source)
     }
 
+    /// Whether a knowledge-base address is something this window can currently show — on
+    /// [`super::explorer::locate`]'s own three-way reasoning, over this source's own lazily-listed
+    /// tree.
+    ///
+    /// `Presence::Dead` for the source itself only once `self.loaded` is true: a project whose
+    /// configuration has not answered yet has an empty `sources`, and that must read the same as
+    /// "not knowable" rather than as every source in it having been removed.
+    pub fn presence(&self, source: KbSourceId, path: &str) -> crate::state::explorer::Presence {
+        let Some(view) = self.source(source) else {
+            return if self.loaded {
+                crate::state::explorer::Presence::Dead
+            } else {
+                crate::state::explorer::Presence::Unknown
+            };
+        };
+        super::explorer::locate(&view.children, view.listed, path)
+    }
+
     /// The sources as the settings form edits them.
     pub fn configured(&self) -> Vec<KbSource> {
         self.sources
@@ -1115,5 +1133,74 @@ mod tests {
         kb.merge(id, listing("", &[]));
         kb.source_changed(id, KbSourceState::Ready);
         assert!(!kb.sources[0].listed);
+    }
+
+    // ── presence — a task attachment's dead chip (T-84) ────────────────────
+
+    /// A document a listed source actually holds reads as present.
+    #[test]
+    fn presence_is_live_for_a_document_the_source_holds() {
+        let mut kb = KbState::default();
+        let one = status("docs");
+        let id = one.source.id;
+        kb.accept(vec![one]);
+        kb.merge(id, listing("", &[("guide.md", EntryKind::File)]));
+        assert_eq!(kb.presence(id, "guide.md"), crate::state::explorer::Presence::Live);
+    }
+
+    /// A name a listed source's tree does not hold is gone.
+    #[test]
+    fn presence_is_dead_for_a_name_a_listed_source_does_not_hold() {
+        let mut kb = KbState::default();
+        let one = status("docs");
+        let id = one.source.id;
+        kb.accept(vec![one]);
+        kb.merge(id, listing("", &[("guide.md", EntryKind::File)]));
+        assert_eq!(
+            kb.presence(id, "never-existed.md"),
+            crate::state::explorer::Presence::Dead
+        );
+    }
+
+    /// The source itself is gone — removed from the project's configuration — once the
+    /// configuration has actually answered and no longer names it. That is a real dead source,
+    /// not an unlisted folder.
+    #[test]
+    fn presence_is_dead_for_a_source_the_configuration_no_longer_names() {
+        let mut kb = KbState::default();
+        let one = status("docs");
+        let id = one.source.id;
+        kb.accept(vec![one]);
+        kb.accept(vec![]);
+        assert_eq!(
+            kb.presence(id, "guide.md"),
+            crate::state::explorer::Presence::Dead
+        );
+    }
+
+    /// Before the configuration has answered at all, an empty `sources` must not read as every
+    /// source having been removed — that is "not knowable yet", the same as an unlisted folder.
+    #[test]
+    fn presence_is_unknown_before_the_configuration_has_answered() {
+        let kb = KbState::default();
+        assert_eq!(
+            kb.presence(KbSourceId::generate(), "guide.md"),
+            crate::state::explorer::Presence::Unknown
+        );
+    }
+
+    /// A path below a folder the source has not listed yet is not knowable, and must not read as
+    /// dead just because this window has not looked.
+    #[test]
+    fn presence_is_unknown_below_a_folder_the_source_has_not_listed() {
+        let mut kb = KbState::default();
+        let one = status("docs");
+        let id = one.source.id;
+        kb.accept(vec![one]);
+        kb.merge(id, listing("", &[("notes", EntryKind::Dir)]));
+        assert_eq!(
+            kb.presence(id, "notes/a.md"),
+            crate::state::explorer::Presence::Unknown
+        );
     }
 }

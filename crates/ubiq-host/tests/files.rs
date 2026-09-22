@@ -823,3 +823,120 @@ fn a_trash_hands_the_path_to_the_platform() {
         "the trash left the file where it was"
     );
 }
+
+// ── host writes ─────────────────────────────────────────────────────
+// The write half of a guest tab (`crates/ubiq/src/app/mod.rs::read_guest_file`): an absolute
+// path, with no project root to bound it against. `files::save`'s containment guard has nothing
+// to check here, so `files::write_host_file` substitutes a narrower one instead — the target must
+// already exist as a regular file, unlinked from a symlink, and its version must match exactly.
+// There is no creation door and no `overwrite` flag: every write here is an overwrite of a file
+// already read, never the creation of one merely named.
+
+/// What `read_guest_file` would have recorded, so a test can hand `write_host_file` back exactly
+/// the version its own read produced.
+fn stat_version(path: &std::path::Path) -> FileVersion {
+    let stat = fs::metadata(path).unwrap();
+    FileVersion {
+        len: stat.len(),
+        modified: stat
+            .modified()
+            .ok()
+            .map(chrono::DateTime::<chrono::Utc>::from),
+    }
+}
+
+#[test]
+fn a_host_write_replaces_the_contents_and_answers_the_new_version() {
+    let dir = TempDir::new().unwrap();
+    let target = dir.path().join("file.txt");
+    fs::write(&target, b"hello\n").unwrap();
+    let expected = stat_version(&target);
+
+    let version =
+        files::write_host_file(&target.to_string_lossy(), b"rewritten\n", expected).unwrap();
+    assert_eq!(fs::read(&target).unwrap(), b"rewritten\n");
+    assert_eq!(version.len, 10);
+}
+
+#[test]
+fn a_host_write_with_a_stale_version_is_a_conflict_and_the_file_is_untouched() {
+    let dir = TempDir::new().unwrap();
+    let target = dir.path().join("file.txt");
+    fs::write(&target, b"hello\n").unwrap();
+    let stale = FileVersion {
+        len: 999,
+        modified: None,
+    };
+
+    assert_eq!(
+        files::write_host_file(&target.to_string_lossy(), b"clobbered\n", stale).unwrap_err(),
+        FileError::Conflict
+    );
+    assert_eq!(fs::read(&target).unwrap(), b"hello\n");
+}
+
+#[test]
+fn a_host_write_onto_a_file_that_went_away_is_missing_rather_than_a_resurrection() {
+    let dir = TempDir::new().unwrap();
+    let target = dir.path().join("file.txt");
+    fs::write(&target, b"hello\n").unwrap();
+    let expected = stat_version(&target);
+    fs::remove_file(&target).unwrap();
+
+    assert_eq!(
+        files::write_host_file(&target.to_string_lossy(), b"back\n", expected).unwrap_err(),
+        FileError::Missing
+    );
+    assert!(!target.exists());
+}
+
+#[test]
+fn a_host_write_onto_a_directory_is_the_wrong_kind() {
+    let dir = TempDir::new().unwrap();
+    let expected = FileVersion {
+        len: 0,
+        modified: None,
+    };
+
+    assert_eq!(
+        files::write_host_file(&dir.path().to_string_lossy(), b"x", expected).unwrap_err(),
+        FileError::WrongKind
+    );
+}
+
+#[test]
+fn a_host_write_never_writes_through_a_symlink() {
+    let dir = TempDir::new().unwrap();
+    let victim = dir.path().join("victim");
+    fs::write(&victim, b"untouched\n").unwrap();
+    let link = dir.path().join("link");
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&victim, &link).unwrap();
+    #[cfg(windows)]
+    std::os::windows::fs::symlink_file(&victim, &link).unwrap();
+    let expected = stat_version(&victim);
+
+    let error =
+        files::write_host_file(&link.to_string_lossy(), b"clobbered\n", expected).unwrap_err();
+    assert!(matches!(error, FileError::Refused(_)), "answered {error:?}");
+    assert_eq!(fs::read(&victim).unwrap(), b"untouched\n");
+}
+
+// The executable bit is a Unix idea; keeping it across a host write is tested where it exists.
+#[cfg(unix)]
+#[test]
+fn a_host_write_keeps_the_file_executable() {
+    let dir = TempDir::new().unwrap();
+    let script = dir.path().join("run.sh");
+    fs::write(&script, b"#!/bin/sh\ntrue\n").unwrap();
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+    let expected = stat_version(&script);
+
+    files::write_host_file(&script.to_string_lossy(), b"#!/bin/sh\nfalse\n", expected).unwrap();
+
+    let mode = fs::metadata(&script).unwrap().permissions().mode() & 0o777;
+    assert_eq!(
+        mode, 0o755,
+        "the rename replaced the inode and lost the mode"
+    );
+}

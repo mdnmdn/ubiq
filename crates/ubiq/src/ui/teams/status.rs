@@ -1,65 +1,66 @@
-//! What a Teams card's state looks like: the colour it takes and the glyph it wears.
+//! What a Teams card's state looks like: the mark it wears and the chip beside it.
 //!
-//! **The colour is [`crate::ui::work`]'s, unchanged.** A state reads in its bucket's token here
-//! exactly as it does on the agents screen, the board and the status bar — this module adds a
-//! shape beside it, it does not add a vocabulary. Six states share four colours, and the glyph is
-//! what tells `Thinking` from `Tools` and `Idle` from `Needs you`.
+//! **The vocabulary is [`crate::state::status`]'s and the colours are [`crate::ui::work`]'s.**
+//! This module adds a *shape* — the hexagon — and a chip; it adds no state and no token. An agent
+//! and a delegate go through the same two functions here, because since the dictionaries were
+//! unified there is nothing left to tell them apart at this layer.
 //!
-//! **No glyph is invented at draw time.** Six come from the registry's `pane` set, which was
-//! drawn for exactly these readings; the rest are Lucide's, taken as they come.
+//! **No glyph is invented at draw time.** The `pane` set was drawn for exactly these readings;
+//! the rest are Lucide's, taken as they come.
 
 use gpui::{
-    ElementId, InteractiveElement as _, IntoElement, ParentElement, Rgba,
+    ElementId, InteractiveElement as _, IntoElement, ParentElement,
     StatefulInteractiveElement as _, Styled, div, px,
 };
-use gpui_component::{Icon, IconName, Sizable as _, tooltip::Tooltip};
+use gpui_component::{Sizable as _, tooltip::Tooltip};
 
-use crate::state::teams::{AgentStatus, DelegateStatus};
+use crate::state::status::Status;
 use crate::theme;
 use crate::theme::{Family, Role};
-use crate::ui::kit::{UbiqIcon, mono, pill};
+use crate::ui::kit::{hex_mark, mono, pill};
 use crate::ui::project_face::ProjectFace;
-use crate::ui::work::bucket_colour;
+use crate::ui::work::{doing_colour, lifecycle_colour, status_colour, status_icon};
 
-/// The glyph a card's state wears.
-pub fn status_icon(status: AgentStatus) -> Icon {
-    match status {
-        // The harness is working with nothing measurable to report — the goal `pane-thinking` was
-        // drawn for.
-        AgentStatus::Thinking => Icon::new(UbiqIcon::PaneThinking),
-        AgentStatus::Writing => Icon::new(UbiqIcon::PaneWriting),
-        AgentStatus::Tools => Icon::new(UbiqIcon::PaneTools),
-        // The one state a reader has to act on, and the one mark the window already uses for it.
-        AgentStatus::NeedsYou => Icon::new(UbiqIcon::PaneAwaiting),
-        AgentStatus::Idle => Icon::new(IconName::Pause),
-        // The same mark the conversation header draws for a harness that has gone.
-        AgentStatus::Ended => Icon::new(IconName::CircleX),
-        AgentStatus::Failed => Icon::new(IconName::TriangleAlert),
-    }
-}
-
-pub fn status_colour(status: AgentStatus) -> Rgba {
-    bucket_colour(status.bucket())
+/// The hexagonal status mark — the one mark an agent card and a delegate card both wear, top-left,
+/// before the name.
+///
+/// **Two readings in one glyph.** The transparent outer border is the lifecycle: whether this
+/// execution can still do anything. The inner fill is the activity, or — once the lifecycle is
+/// `Ended` — the result it came back with. So a completed delegate is a grey outline round a green
+/// core: stopped, and stopped well. An execution whose activity nothing reports is the outline
+/// alone.
+pub fn status_mark(status: Status, side: f32) -> impl IntoElement {
+    let fill = status
+        .doing
+        .ne(&crate::state::status::Doing::Unknown)
+        .then(|| doing_colour(status.doing));
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .child(hex_mark(lifecycle_colour(status.lifecycle), fill, side))
 }
 
 /// The chip a card carries: the state's glyph, then the word for it.
 ///
 /// [`crate::ui::kit::state_chip`] with a shape in place of its dot — colour and wording together
-/// is the rule, and the glyph is the third reading, for the states that share a colour.
-pub fn status_chip(status: AgentStatus, zoom: f32) -> impl IntoElement {
+/// is the rule, and the glyph is the third reading, for the states that share a colour. The chip
+/// says the *compact* reading (`done`, `tools`, `needs you`); the precise pair is the card's
+/// tooltip, which is what [`Status::label`] is for.
+pub fn status_chip(status: Status, zoom: f32) -> impl IntoElement {
     let colour = status_colour(status);
     pill(colour)
         .h(px(22. * zoom))
         .px(px(6. * zoom))
         .gap(px(5. * zoom))
-        .child(
-            status_icon(status)
-                .with_size(theme::icon_sm() * zoom)
+        .children(status_icon(status).map(|icon| {
+            icon.with_size(theme::icon_sm() * zoom)
                 .flex_none()
-                .text_color(colour),
-        )
+                .text_color(colour)
+        }))
         .child(
-            mono(status.label(), theme::text())
+            mono(status.chip(), theme::text())
                 .text_size(theme::font(Family::Chrome, Role::Meta) * zoom),
         )
 }
@@ -88,55 +89,7 @@ pub fn project_chip(id: impl Into<ElementId>, face: &ProjectFace, zoom: f32) -> 
         .tooltip(move |window, cx| Tooltip::new(name.clone()).build(window, cx))
 }
 
-/// The glyph a delegate's box wears, and the colour it takes.
-///
-/// `None` is [`DelegateStatus::Unknown`] — a spawning call the transcript does not hold, which the
-/// box draws as no mark rather than as a guess.
-pub fn delegate_icon(status: DelegateStatus) -> Option<Icon> {
-    Some(match status {
-        DelegateStatus::Queued => Icon::new(IconName::Pause),
-        DelegateStatus::Working => Icon::new(UbiqIcon::PaneThinking),
-        DelegateStatus::NeedsYou => Icon::new(UbiqIcon::PaneAwaiting),
-        DelegateStatus::Done => Icon::new(IconName::CircleCheck),
-        DelegateStatus::Failed => Icon::new(IconName::TriangleAlert),
-        DelegateStatus::Unknown => return None,
-    })
-}
-
-pub fn delegate_colour(status: DelegateStatus) -> Rgba {
-    bucket_colour(status.bucket())
-}
-
-/// The one mark a delegate's box has room for. About sixty pixels wide holds a glyph and a name,
-/// so the word for the state goes in the box's tooltip and this is the glyph.
-pub fn delegate_mark(status: DelegateStatus, zoom: f32) -> Option<impl IntoElement> {
-    let icon = delegate_icon(status)?;
-    Some(
-        div().flex().flex_none().child(
-            icon.with_size(theme::icon_sm() * zoom)
-                .flex_none()
-                .text_color(delegate_colour(status)),
-        ),
-    )
-}
-
-/// The chip a delegate card carries, at the full size the card now draws at: the state's glyph,
-/// then the word for it. [`status_chip`] at a delegate's grain — a delegate is another agent doing
-/// another piece of the work, and the one thing that told the two apart used to be that only the
-/// agent card wore a chip at all.
-pub fn delegate_chip(status: DelegateStatus, zoom: f32) -> impl IntoElement {
-    let colour = delegate_colour(status);
-    pill(colour)
-        .h(px(22. * zoom))
-        .px(px(6. * zoom))
-        .gap(px(5. * zoom))
-        .children(delegate_icon(status).map(|icon| {
-            icon.with_size(theme::icon_sm() * zoom)
-                .flex_none()
-                .text_color(colour)
-        }))
-        .child(
-            mono(status.label(), theme::text())
-                .text_size(theme::font(Family::Chrome, Role::Meta) * zoom),
-        )
-}
+// A delegate has no presentation of its own any more. It reads the same [`Status`] an agent does,
+// through [`status_mark`] and [`status_chip`] above — which is the whole point of unifying the
+// dictionaries, and the reason `delegate_icon`, `delegate_colour`, `delegate_mark` and
+// `delegate_chip` are gone rather than kept as aliases.

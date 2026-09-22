@@ -27,7 +27,7 @@ pub struct ProjectFace {
 
 /// What a project looks like at that size, or `None` when the registry has never heard of it.
 ///
-/// **An override wins outright** — 1 or 2 characters, shown as the project settings field holds
+/// **An override wins outright** — 1 to 3 characters, shown as the project settings field holds
 /// them. Empty is "no override", which is the name's own first letter, the way it always read.
 pub fn project_face(id: ProjectId, cx: &App) -> Option<ProjectFace> {
     let project = WindowRegistry::read(cx).project(id)?;

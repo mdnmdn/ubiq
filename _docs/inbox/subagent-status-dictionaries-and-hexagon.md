@@ -6,7 +6,7 @@ status: proposal
 summary: A precise lifecycle/activity model shared by agents and subagents, with a hexagonal UI mark and reliable Claude completion readings.
 read_when: you are changing agent or subagent status vocabulary, status indicators, Teams blocks, or delegate completion handling
 updated: 2026-09-21
-verified: 2026-09-21
+verified: 2026-09-22
 code_anchors: [crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/state/teams.rs, crates/ubiq/src/ui/teams/graph.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq-host/src/conversation.rs, crates/agent-manager/src/io/jsonl.rs]
 depends_on: [feat-chat, tech-transport-contract, tech-ui-and-design]
 review_cycle: monthly
@@ -256,3 +256,8 @@ last result remains available in the transcript and is not relabelled as a succe
 - Correct Claude delayed delegate completion and add regression fixtures.
 - Implement the reusable transparent-border hexagon and preserve status chips.
 - Add state and UI coverage for ended, failed, waiting and unreported delegate states.
+- A Teams card and its delegate blocks were reworked (top-left mark, harness/model, title or
+  command, and a footer of context/spend rings) ahead of this proposal landing. The mark today is
+  `ui::teams::graph::status_mark`, a square over the single existing `AgentStatus`/`DelegateStatus`
+  vocabulary — a stand-in for the hexagonal, dual-dictionary mark this document specifies, and the
+  spot it should land in once it does.

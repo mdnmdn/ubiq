@@ -373,17 +373,21 @@ This is the one path in the contract the interface acts on directly rather than 
 
 ## The host browse family
 
-The fourteenth family, and the smallest: one request and two possible answers, about browsing the
-host's own filesystem before any project exists. It names no project, no pane and no path relative
-to anything — the file family's `rel_path` only makes sense once a project's root is known, and this
-is what lets a picker find that root in the first place, including on a host the interface has never
-seen the disk of.
+The fourteenth family: about the host's own filesystem addressed by an absolute path, with no
+project in scope. It names no project, no pane and no path relative to anything — the file family's
+`rel_path` only makes sense once a project's root is known. Most of it is browsing, before any
+project exists, so a picker can find a root in the first place, including on a host the interface
+has never seen the disk of; `WriteHostFile` is the one write, and it exists for a project that
+already exists but this path is not inside — a guest tab.
 
 | Message | Direction | Payload | Responds with |
 |---|---|---|---|
 | `BrowseHostDir` | UI → host | `path?` | `HostDirListing` or `HostDirError` |
 | `HostDirListing` | host → UI | `path`, `parent?`, `entries[]`, `truncated` | — |
 | `HostDirError` | host → UI | `path?`, `error` | — |
+| `WriteHostFile` | UI → host | `path`, `bytes`, `expected` | `HostFileWritten` or `HostFileError` |
+| `HostFileWritten` | host → UI | `path`, `version` | — |
+| `HostFileError` | host → UI | `path`, `error` | — |
 
 **`path` absent asks for a sensible starting place, not a listing of one the interface named.** The
 host decides — the user's home directory, the same source the CLI shortcut and the config root
@@ -423,6 +427,19 @@ being asked to list something that is not a folder.
 **This family is a deliberate departure from `D32`'s plan**, which expected a future host-side
 listing to extend `AddProject` and `LocateProject` rather than add a new message family — `D82`
 records why it went the other way instead, and what that costs.
+
+**`WriteHostFile` is the write half of a guest tab** — a file the interface opened from outside
+every project (`../features/workbench.md`'s guest tab, read with `std::fs` rather than a
+`ReadProjectFile` round trip, one of the two places the interface reads disk itself). It answers
+with `FileError`, not `HostPathError`, because unlike a listing this family's one write can land on
+somebody else's change and needs `Conflict` to say so. `expected` is not optional the way
+`WriteProjectFile`'s is: there is no project root here to bound a *creation* against, so there is no
+creation door and no `overwrite` flag — every `WriteHostFile` is refused unless it lands on exactly
+the file whose version this names, checked again by `files::write_host_file` (`crates/ubiq-host/src/files/mod.rs`)
+against a fresh stat rather than trusted from the read. The target must already be a regular file
+and must not be a symlink — the same refusal `files::path::resolve_for_write` gives a project write
+through a link — so this never silently turns a link into a plain file, even though there is no
+project root here for the link to have escaped.
 
 ## The file family
 
@@ -856,7 +873,7 @@ same way the work family's own variants do.
 | Message | Direction | Payload | Responds with |
 |---|---|---|---|
 | `LoadPlan` | UI → host | `project_id`, `task_id` | `Plan` or `PlanError` |
-| `SavePlan` | UI → host | `project_id`, `task_id`, `body` | `Plan` (asker) and `PlanChanged` (everyone), or `PlanError` |
+| `SavePlan` | UI → host | `project_id`, `task_id`, `body`, `expected` | `Plan` (asker) and `PlanChanged` (everyone), or `PlanConflict` / `PlanError` (asker) |
 | `DeletePlan` | UI → host | `project_id`, `task_id` | `PlanDeleted` (everyone, only if a file existed) or `PlanError` |
 | `ExportPlan` | UI → host | `project_id`, `task_id`, `rel_path` | `PlanExported` or `PlanError` |
 | `Plan` | host → UI | `project_id`, `task_id`, `body`, `revision` | — |
@@ -871,6 +888,7 @@ same way the work family's own variants do.
 | `PlanAnnotationsChanged` | host → UI | `project_id`, `task_id` | — |
 | `ListPlanChanges` | UI → host | `project_id`, `task_id`, `since_revision?` | `PlanChanges` or `PlanError` |
 | `PlanChanges` | host → UI | `project_id`, `task_id`, `regions`, `stats` | — |
+| `PlanConflict` | host → UI | `project_id`, `task_id`, `revision`, `origin` | — |
 | `PlanError` | host → UI | `project_id`, `task_id?`, `error` | — |
 
 **A plan belongs to any task carrying a `level`, not to a fixed mission subtype.** The host refuses
@@ -889,10 +907,28 @@ reading in more than one window's viewer at once, unlike a task.
 current body to a project-relative `rel_path`, resolved and contained the way
 `Message::WriteProjectFile`'s is, and creates the folders it names the way a save-as's does. Nothing else in the family writes outside the plan's own store.
 
-**Read-only from `crates/ubiq`'s side this slice.** The interface sends `LoadPlan` and `ExportPlan`
-only; `SavePlan` exists on the wire for the `ubiq-plan` MCP server's `write_plan` tool and for the
-editor a later slice adds, and `DeletePlan` for the same tool's future use — neither is called from
-`crates/ubiq` yet.
+**`SavePlan` names the revision it expects to replace, and the host is the arbiter.** `expected` is
+mandatory and there is no force flag — `WriteHostFile`'s discipline, for the same reason: two
+windows cannot see each other, so a window is the wrong place to decide a race. The host compares
+`expected` against the plan's current revision and, on a mismatch, writes nothing and answers
+`PlanConflict` with the revision the plan actually stands at and the `SaveOrigin` that put it there.
+`0` is the watermark of a plan whose body has never been written, so a first save names it and is
+refused if somebody wrote one first.
+
+**The deliberate override is a re-expectation, not a flag.** The editor's *Overwrite* press sends
+the same body against the newest revision the host has stated, which is the copy the user was shown
+and agreed to replace — so every save on the wire names the revision it truly expects, and a third
+save landing between the question and the answer is refused in turn rather than silently beaten.
+A determined user still gets there, one honest expectation at a time.
+
+`PlanConflict` is its own variant rather than a `PlanError` sentence because it is the one failure
+the interface does something other than report: it says where the plan stands and who moved it,
+which is exactly what the surface needs to ask its question again and what the next save has to
+name. `write_plan`'s `expected_revision` is **optional**, which is the one place the two write paths
+differ: a window always holds a watermark, while an agent writing a plan for a mission nobody has
+planned legitimately has none, and refusing that for want of a number it was never given would be
+the worse failure. An agent that read the plan first passes the revision it read and gets the same
+refusal, as a sentence naming the revision to retry against.
 
 Stored at `<config root>/projects/<ProjectId>/plans/<TaskId>.md`, plain markdown, one file per plan,
 beside `tasks.toml` and `kb.toml` — kept out of the user's repository on `D30`'s rule about

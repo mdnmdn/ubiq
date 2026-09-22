@@ -46,6 +46,7 @@ pub mod settings;
 pub mod shapes;
 pub mod sink;
 pub mod stats;
+pub mod status;
 pub mod teams;
 pub mod teamsim;
 pub mod ui_id;
@@ -96,6 +97,7 @@ pub use sink::{
     SCRIPT_EXAMPLES, ScriptDemo, ScriptExample, ScriptPane, SinkDoc, SinkModal, SinkSection,
     SinkState,
 };
+pub use status::{Doing, Lifecycle, Status};
 pub use teams::{TeamsCarry, TeamsGrain, TeamsHeld, TeamsInspectorTab, TeamsSelection, TeamsView};
 pub use teamsim::{Scenario, Sim, TeamsimCarry, TeamsimDemo, TeamsimHeld};
 pub use ui_id::{MarkRect, MarkRegistry, UiId, UiMark};

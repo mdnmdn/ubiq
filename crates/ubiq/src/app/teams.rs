@@ -2,14 +2,19 @@ use super::*;
 
 impl AppState {
     /// Point the screen at a session, at one agent, or at one of that agent's delegates. All three
-    /// are selections, and everything else on the screen — the graph's session, the inspector, the
-    /// tasks drawer — is a function of this one field.
+    /// are selections, and everything else on the screen — the graph's session and the tasks
+    /// drawer — is a function of this one field.
     ///
     /// **Selecting a delegate points its parent's transcript at it.** Which subagent is being read
     /// is the conversation's own field, shared by every surface showing it ([`Self::
     /// view_conversation_agent`]), so the selection sets it rather than keeping a second answer —
     /// a canvas saying "this delegate" over a thread showing another would be two readings of one
     /// question.
+    ///
+    /// **Selecting a block opens it in the right dock.** There is no inline detail area on this
+    /// canvas any more — a card is a map pin, not a page of its own — so picking an agent or a
+    /// delegate is also [`Self::open_teams_agent_panel`]'s cue to put that agent's conversation in
+    /// front of the reader. A session has no workspace behind it and opens nothing.
     pub fn select_in_teams(&mut self, selection: TeamsSelection, cx: &mut Context<Self>) {
         let thread = match &selection {
             TeamsSelection::Session(_) => None,
@@ -21,12 +26,70 @@ impl AppState {
         }
         if let Some((agent, subagent)) = thread {
             self.view_conversation_agent(agent, subagent, cx);
+            self.open_teams_agent_panel(agent, cx);
         }
         cx.notify();
     }
 
+    /// Put one agent's conversation in front of the reader, in the right dock.
+    ///
+    /// **Reuses the first chat tab the project already holds**, the way a fresh project's
+    /// persistent agent claims one ([`Self::settle_persistent_chat`]) — a canvas full of agents
+    /// opens one panel and re-aims it rather than growing a tab per card clicked. A project with no
+    /// tab yet is given one. Either way the panel is revealed, which is what brings the region back
+    /// if it was closed and what focuses it if another panel was in front.
+    ///
+    /// The project is the **agent's own**, read through [`Self::project_of_agent`] rather than
+    /// assumed to be the one on screen — the window span draws cards from several projects at
+    /// once, and a tab minted against the wrong one would be attached to an id its `chats` never
+    /// held.
+    pub fn open_teams_agent_panel(&mut self, agent: AgentId, cx: &mut Context<Self>) {
+        let Some(project) = self.project_of_agent(agent, cx) else {
+            return;
+        };
+        let Some(open) = self.projects.get_mut(&project) else {
+            return;
+        };
+        let Some(id) = reuse_or_mint_chat(open) else {
+            return;
+        };
+        if let Some(open) = self.projects.get_mut(&project)
+            && let Some(tab) = open.chats.iter_mut().find(|tab| tab.id == id)
+        {
+            tab.attached = Some(agent);
+        }
+        self.pending_panels
+            .push(PanelEdit::Reveal(PanelKind::Chat(id)));
+        cx.notify();
+    }
+
+    /// The right dock's `+`: put a chat panel in front of the reader with nothing attached yet,
+    /// so its own header offers exactly the choice starting an agent from a card skips — *New
+    /// agent* or *attach existing* — through the chevron [`crate::ui::chat::sidebar::header`]
+    /// already draws on every chat tab. Copies the IDE and KB dock headers' own `+`, which raises
+    /// the same choice on a tab their panel always has one of; the Teams screen has none until a
+    /// card is clicked, which is the gap this closes.
+    ///
+    /// **Shares [`Self::open_teams_agent_panel`]'s reuse-or-mint step** rather than duplicating it
+    /// — this is the same panel, only revealed with no agent to point it at yet, so a tab already
+    /// open (attached or not) is reused rather than growing a second one.
+    pub fn open_teams_new_agent_panel(&mut self, cx: &mut Context<Self>) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        let Some(open) = self.projects.get_mut(&project) else {
+            return;
+        };
+        let Some(id) = reuse_or_mint_chat(open) else {
+            return;
+        };
+        self.pending_panels
+            .push(PanelEdit::Reveal(PanelKind::Chat(id)));
+        cx.notify();
+    }
+
     /// Draw one session's agents, or every session's. It does not move the selection: what the
-    /// inspector and the drawer report on is a separate question from what the canvas draws.
+    /// right dock and the drawer report on is a separate question from what the canvas draws.
     pub fn show_teams_session(&mut self, session: Option<SessionId>, cx: &mut Context<Self>) {
         if let Some(graph) = self.teams_mut(cx) {
             graph.show_session(session);
@@ -101,13 +164,6 @@ impl AppState {
         cx.notify();
     }
 
-    pub fn toggle_teams_inspector(&mut self, cx: &mut Context<Self>) {
-        if let Some(graph) = self.teams_mut(cx) {
-            graph.show_inspector = !graph.show_inspector;
-        }
-        cx.notify();
-    }
-
     pub fn toggle_teams_tasks_drawer(&mut self, cx: &mut Context<Self>) {
         if let Some(graph) = self.teams_mut(cx) {
             graph.tasks_open = !graph.tasks_open;
@@ -115,19 +171,9 @@ impl AppState {
         cx.notify();
     }
 
-    /// Select one agent and put the inspector on its thread — what the `chat` affordance on a card
-    /// does, and the one place the screen changes two things at once, because a card asking for a
-    /// conversation with the panel shut has asked for nothing.
-    pub fn open_teams_chat(&mut self, agent: AgentId, cx: &mut Context<Self>) {
-        if let Some(graph) = self.teams_mut(cx) {
-            graph.tab = TeamsInspectorTab::Chat;
-            graph.show_inspector = true;
-        }
-        self.select_in_teams(TeamsSelection::Agent(agent), cx);
-    }
-
-    /// The same, for one box in a card's ring: select that delegate, and open the inspector on its
-    /// parent's thread with the delegate's own turns showing.
+    /// The same as [`Self::select_in_teams`], for one box in a card's ring: select that delegate,
+    /// which opens its parent's conversation in the right dock with the delegate's own turns
+    /// showing.
     ///
     /// **A delegate has no conversation of its own.** It is a stamp on the lines of the one its
     /// parent is holding, so what opens here is that conversation — the shared view, on the
@@ -138,30 +184,15 @@ impl AppState {
         subagent: String,
         cx: &mut Context<Self>,
     ) {
-        if let Some(graph) = self.teams_mut(cx) {
-            graph.tab = TeamsInspectorTab::Chat;
-            graph.show_inspector = true;
-        }
         self.select_in_teams(TeamsSelection::Subagent { agent, subagent }, cx);
-    }
-
-    pub fn select_teams_inspector_tab(&mut self, index: usize, cx: &mut Context<Self>) {
-        if let Some(graph) = self.teams_mut(cx) {
-            graph.tab = if index == 0 {
-                TeamsInspectorTab::Chat
-            } else {
-                TeamsInspectorTab::Tasks
-            };
-        }
-        cx.notify();
     }
 
     /// Pick a card or a container up.
     ///
     /// A card selects itself on the way up, because what is being moved is what the user is
-    /// looking at, and a drag that left the inspector on something else would be reporting on the
-    /// wrong agent. A container does not: dragging a box to make room is not a claim about what
-    /// the user wants to read.
+    /// looking at, and a drag that left the right dock's panel pointed at something else would be
+    /// reporting on the wrong agent. A container does not: dragging a box to make room is not a
+    /// claim about what the user wants to read.
     pub fn start_teams_carry(&mut self, held: TeamsHeld, grab: (f32, f32), cx: &mut Context<Self>) {
         // What picking a thing up says about what the reader is looking at, decided before the
         // carry takes the value: a card selects itself, a delegate selects itself inside its
@@ -304,9 +335,10 @@ impl AppState {
 
     /// Age the drag trail by one frame, and answer whether it still owes the window another.
     ///
-    /// A drag that ended outside the graph — on the inspector, or off the window — never reaches
-    /// the canvas's drop handler, so a carry with no live drag behind it is put down here. That is
-    /// what stops a card sticking to the pointer after the button came up somewhere else.
+    /// A drag that ended outside the graph — on the tasks drawer, the right dock, or off the
+    /// window — never reaches the canvas's drop handler, so a carry with no live drag behind it is
+    /// put down here. That is what stops a card sticking to the pointer after the button came up
+    /// somewhere else.
     pub(super) fn settle_teams(&mut self, cx: &mut Context<Self>) {
         // Which delegates each card wears a ring for. Nothing on the wire says a subagent
         // exists — it is a stamp on the lines of a transcript — so the ids are read off the
@@ -385,4 +417,25 @@ impl AppState {
     // Every one of these asks and waits. The panel goes on reporting the task the host last
     // confirmed, so a refusal leaves nothing to unwind — which is the same reason a pane is drawn
     // when the coordinator answers rather than when the interface asked.
+}
+
+/// The chat tab a reveal points at: the project's first, or a freshly minted one where it holds
+/// none yet. Shared by [`AppState::open_teams_agent_panel`] and
+/// [`AppState::open_teams_new_agent_panel`] — both are "put a chat panel in front of the reader",
+/// and the only thing that differs between them is whether an agent is attached to it afterwards.
+fn reuse_or_mint_chat(open: &mut OpenProject) -> Option<ChatId> {
+    match open.chats.first() {
+        Some(tab) => Some(tab.id),
+        None => {
+            let slot = free_chat_slot(&open.chats)?;
+            let id = ChatId::generate();
+            open.chats.push(ChatTab {
+                id,
+                slot,
+                attached: None,
+                picker_open: false,
+            });
+            Some(id)
+        }
+    }
 }

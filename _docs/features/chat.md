@@ -366,8 +366,12 @@ request, and the bare words for one, because `need you 1` is a number nobody nee
 rather than beside: a delegate waiting on a human is not doing anything, so `running` and the
 question together would be one of them wrong. `Conversation::pending_count` counts, resolved onto
 `SubagentTab::waiting` beside the rest of the row, and the main agent's own row is read the same
-way. A subagent whose spawning call is not in the transcript reads `unknown` rather than being
-claimed to be running. Clicking a row switches the transcript to that agent and closes the panel;
+way. **Every other row says the precise pair** — `state::status::delegate_status` for a delegate,
+`conversation_status` for the main agent, rendered as `Status::label()`: `Working · Tools`,
+`Ended · Done`. A subagent whose spawning call is not in the transcript reads `Starting` rather than
+being claimed to be running, and one whose call reached `Completed` reads `Ended · Done` and drops
+out of the `active` half of the count above, because a delegate that came back is not running
+however long its row stays on the list. Clicking a row switches the transcript to that agent and closes the panel;
 the main agent's row closes it without switching. **A delegate says what it is answering with**: the
 reading strip above its transcript carries its model beside its name, its row carries the same model
 faint beside the name — a delegate is chiefly identified by what it answers with, and a reading only
@@ -414,6 +418,17 @@ does the same composition into the queued text and clears them: a queued prompt 
 queue row that carried its own tag list would need its own tag row, its own removes and its own
 colouring — a second composer. An edit brings those paths back into the field as the text they now
 are.
+
+**The typed text follows the same rule, through `Conversation::draft`.** Every keystroke in a
+column or chat composer mirrors into the addressed agent's own `draft` field
+(`AppState::remember_conversation_draft`), beside its attachments — not only into the composer
+slot's own copy, which is a fact about the window's furniture and is dropped whenever that slot is
+freed (a tab closed, a column an arrangement change moved the agent out of). Reattaching to that
+conversation — the chat header's *Attach running*, a bench pick into a column — puts it back
+(`AppState::restore_composer_draft`), only into an empty field, the same guard
+`recall_last_message` uses. A slot that keeps showing the same agent throughout — a mode switch, a
+region hidden and reopened — never touches either copy: the pooled `Entity<TextareaState>` itself
+is untouched by dock placement, so nothing is lost there in the first place.
 
 **Pasting into the composer attaches, when the board carries a file.** `⌘V`/`Ctrl+V` with the field
 focused reads the pasteboard before the field does: a copied *file* becomes a tag under its own path
@@ -550,12 +565,18 @@ share: a row that read `None` would report *off* for a flag that is on, and its 
 *enable* every time, leaving a flag that could never be turned back off.
 
 **The glyph says the conversation's state; the word lives in its tooltip.**
-`ui::conversation::lifecycle` reads `launched`, `run`, `pending`, `blocks`, `accepts_input` and
-`config` into one `Lifecycle` — Starting, Ready, Waiting, Working (carrying which `Activity`), Idle,
-Unloaded, or Ended — derived rather than stored, so nothing new sits on `Conversation` for it.
+`state::status::conversation_status` reads `launched`, `run`, `stop_reason`, `pending`, `blocks`,
+`accepts_input` and `config` into one `Status` — **a pair, not one enum**: a `Lifecycle` (Starting,
+Ready, Idle, Working, Waiting, Unloaded, Ended) saying whether the conversation can do anything
+next, and a `Doing` (Queued, Thinking, Writing, Tools, NeedsYou, Done, Failed, Unknown) saying what
+it is busy with or how it stopped. Both are derived rather than stored, so nothing new sits on
+`Conversation` for either. **The two dictionaries are the same ones a delegate speaks** — that is
+the point of them being in `state::status` rather than in a UI module — so a main agent, an agent
+card and a subagent row all report one vocabulary. `ui::conversation::lifecycle` is the first half
+alone, for the surfaces that draw a dot.
 `Waiting` outranks the turn it is blocking: a request outstanding is the one state that needs the
-reader to do something, so it is read before `run`, and `Working` therefore never carries
-`Activity::NeedsYou`. `Unloaded` and `Starting` are both `launched == false`; the transcript,
+reader to do something, so it is read before `run`, and the `Working` lifecycle therefore never
+carries `Doing::NeedsYou`. `Unloaded` and `Starting` are both `launched == false`; the transcript,
 `blocks`, is what tells them apart, because a harness that is gone still leaves what it said and one
 never started leaves nothing. The colour is `lifecycle_colour` — **yellow needs you, blue is
 working, green is idle, grey has stopped**, four readings and only four, since what a mark read at a
@@ -655,7 +676,9 @@ follows, so `state::chat::chat_picks` builds one list of `ChatPick`s — `New`, 
 that the frame draws and the click resolves against. A `New` raises the start form and writes down
 that this tab is where the conversation goes; the tab is attached when
 `Message::ConversationStarted` lands, so the id is never claimed by a form that was dismissed. An
-`Attach` is immediate: the conversation already exists.
+`Attach` is immediate: the conversation already exists — and `pick_chat_row` follows it with
+`restore_composer_draft`, putting back whatever that agent's own `Conversation::draft` is still
+holding.
 
 `crates/ubiq/src/app/panels.rs`'s `sync_chat_panels` is a chat tab's real population — squaring the
 dock's tree with `OpenProject::chats` — called whenever a project is entered, right after

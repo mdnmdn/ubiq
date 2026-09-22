@@ -15,6 +15,7 @@ use gpui_component::input::InputEvent;
 use ubiq::app::{AppState, BusHub};
 use ubiq::state::WindowRegistry;
 use ubiq::state::editor::{OpenFile, ViewLayout, ViewerKind};
+use ubiq::state::layout::Algo;
 use ubiq::state::nav::{Destination, Locus, View};
 use ubiq::state::prefs;
 use ubiq::state::settings::{self, MarkdownOpen, TabClose, UiSettings};
@@ -42,6 +43,7 @@ fn a_blob_survives_the_round_trip() {
         vim_mode: true,
         show_cache_ring: true,
         last_connection: Some("01J0".to_string()),
+        teams_algo: Algo::default(),
     };
     let back = settings::decode(&settings::encode(&settings)).expect("decodes");
     assert_eq!(back, settings);

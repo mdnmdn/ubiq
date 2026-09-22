@@ -547,7 +547,7 @@ impl Projects {
     }
 
     /// Override, or clear, the letters the rail's badge shows for this project. Trimmed and
-    /// capped at two characters here rather than trusted from the wire — a field this narrow is
+    /// capped at three characters here rather than trusted from the wire — a field this narrow is
     /// cheaper to enforce once, at the one place it is written, than to re-check at every draw.
     /// Its own message rather than a field on [`Message::UpdateProject`]; see
     /// [`Message::SetProjectInitials`].
@@ -559,7 +559,7 @@ impl Projects {
             return vec![Reply::Asker(message_error(Some(id), "no such project"))];
         };
         let mut record = record.clone();
-        record.initials = initials.trim().chars().take(2).collect();
+        record.initials = initials.trim().chars().take(3).collect();
 
         let snapshot = self.snapshot(&record);
         let mut replies = vec![Reply::Everyone(

@@ -5,8 +5,8 @@ kind: wip
 status: current
 summary: A project's knowledge base as it stands — a per-project list of sources persisted as one TOML file, a folder read where it lies, a git repository cloned and refreshed, an internal wiki, a host-side write half (`kb/ops.rs`) behind six new messages, the `ubiq-kb` MCP server that reaches it, the explorer's right-click menu that reaches it from the interface, and a document as a dock tab — the same `OpenFile` the IDE's editor uses, with its own Save gated on the source's write access.
 read_when: you are touching the knowledge base's sources, its git sync worker, its write half, its `ubiq-kb` MCP server, or its explorer panel or document tabs
-updated: 2026-09-20
-verified: 2026-09-20
+updated: 2026-09-22
+verified: 2026-09-22
 code_anchors: [crates/ubiq-proto/src/kb.rs, crates/ubiq-host/src/kb/mod.rs, crates/ubiq-host/src/kb/ops.rs, crates/ubiq-host/src/kb/store.rs, crates/ubiq-host/src/kb/sync.rs, crates/ubiq-host/src/mcp/kb.rs, crates/ubiq/src/state/kb.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/app/kb.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/ui/kb/mod.rs, crates/ubiq/src/ui/kb/source_form.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq-proto/src/messages.rs, crates/ubiq/tests/kb.rs]
 depends_on: [tech-architecture, tech-transport, feat-workbench, tech-decisions]
 ---
@@ -119,6 +119,12 @@ row whose read failed retries it. The settings mutators — `confirm_kb_source`,
 funnel through the one sender to `SetKbSources`; the host's `KbSourcesListed` answer is what actually
 moves `KbState`, on `KbState::accept`'s own merge, which keeps an already-open source's tree across a
 rename, drops only what a filter edit invalidates, and closes any tab whose source is gone.
+`KbState::presence(source, path)` is a second, read-only use of that same tree: the task board's
+`kb:{source}:{path}` attachments call it to tell a live document from a dead one without the host
+resolving anything (`T-84`) — `Dead` only once `KbState::loaded` is true and no source answers to the
+id, or once the source's own listed folder does not hold the name; `Unknown` — drawn the same as
+live — for a source not yet loaded or a folder not yet listed, on
+`state::explorer::locate()`'s shared reasoning with `ExplorerState::presence()`.
 
 **A source's folder is chosen on the host, through Ubiq's own picker.** `browse_kb_source_folder`
 opens a `PickKind::Folders` file picker owned by `PickerOwner::KbFolder` over a `host_browse` session

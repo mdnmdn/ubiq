@@ -5,9 +5,9 @@ kind: tech
 status: current
 summary: The reusable components Ubiq builds out of its own primitives — the floating popover, the multi-select dropdown a filter or a form narrows with, the activity bar a conversation heads with, the file picker any screen raises to choose a path, the viewer that draws one open file whole, the diff renderer two screens reach a change through, and the capabilities and tools panels each asked for by two surfaces — the state that drives them, and the discipline that keeps a compound a component rather than a one-off screen's decoration.
 read_when: you are building a control that floats above another, letting a screen choose several values at once, adding a second activity reading to a conversation's bar, wiring a screen to choose a path on the interface's or a host's filesystem, adding a file kind the viewer draws, reaching a diff or a harness's capabilities from a second screen, or reshaping something the kit's primitives are insufficient for and a one-off would have duplicated
-updated: 2026-09-21
-verified: 2026-09-21
-code_anchors: [crates/ubiq/src/ui/kit/popover.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/ui/teams/inspector.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/kb/mod.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/ui/tools.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/state/editor.rs]
+updated: 2026-09-22
+verified: 2026-09-22
+code_anchors: [crates/ubiq/src/ui/kit/popover.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/ui/teams/graph.rs, crates/ubiq/src/app/teams.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/kb/mod.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/ui/tools.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/state/editor.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
 ---
@@ -51,22 +51,22 @@ top edge, so the composer never moves under the cursor.
   then `… n more`; it is read-only, a replacement list the harness re-sends whole.
 
 `activity_bar` in `crates/ubiq/src/ui/conversation/mod.rs` draws it, so every surface that embeds
-`conversation::render` — the agents column, the chat tab and the Teams canvas inspector alike —
-gets both chips with no per-surface wiring. The state behind it is `panel_open: Option<ActivityPanel>` on the conversation
+`conversation::render` — the agents column and the chat tab alike — gets both chips with no
+per-surface wiring. The state behind it is `panel_open: Option<ActivityPanel>` on the conversation
 (`ActivityPanel::{Subagents, Todos}` in `crates/ubiq/src/state/conversation.rs`): **collapsed by
 default, and one panel at a time**, because both lists answer the same question and the bar they
 hang from is one line. Toggling a side while the other is open is a switch, never a second panel;
 picking a subagent row closes the list again.
 
-**Three surfaces host `conversation::render` today**, and what differs between them is the
+**Two surfaces host `conversation::render` today**, and what differs between them is the
 `ConversationView` they hand it and nothing else: the agents column
-(`crates/ubiq/src/ui/agents/column.rs`), the chat tab (`crates/ubiq/src/ui/chat/mod.rs`) and the
-Teams canvas inspector (`crates/ubiq/src/ui/teams/inspector.rs`). The inspector is the third and
-newest: it passes `header: true`, because it has no toolbar of its own to hang the lifecycle menu
-in, an element-id prefix of `teams-{agent}`, and `TEAMS_SLOT` — the composer the pool reserves for
-it, above the chat tabs' range and the sink bench's (`crates/ubiq/src/state/agents.rs`). A surface
-that wants a conversation widens that pool by one; it does not borrow another surface's slot,
-because a slot is what addresses a turn.
+(`crates/ubiq/src/ui/agents/column.rs`) and the chat tab (`crates/ubiq/src/ui/chat/mod.rs`). The
+Teams canvas is not a third: it has no conversation surface of its own — selecting a card points a
+`Chat` panel in the right dock at the agent (`AppState::open_teams_agent_panel`) rather than
+embedding the component itself, so what draws the transcript is still the chat tab, at that tab's
+own composer slot. A surface that wants a conversation of its own widens the composer pool by one
+slot (`crates/ubiq/src/state/agents.rs`); it does not borrow another surface's, because a slot is
+what addresses a turn.
 
 ## The popover
 

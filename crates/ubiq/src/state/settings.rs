@@ -23,6 +23,7 @@ use ubiq_proto::settings::{HostSettings, SshAuth, SshProfile};
 
 use crate::app::ssh_connect::{DroneState, HostCheck};
 use crate::state::editor::ViewLayout;
+use crate::state::layout::Algo;
 
 /// A running login's own output has offered this many links without one being clicked or
 /// copied yet. Capped so a misbehaving host cannot grow this state without bound — the host
@@ -252,6 +253,14 @@ pub struct UiSettings {
     /// may no longer hold that connection — an id nothing matches is simply not preselected.
     #[serde(default)]
     pub last_connection: Option<String>,
+    /// The arrangement a fresh Teams graph opens in — every project this window takes on, from
+    /// here on. `Algo::Flow` by default, the same arrangement the toolbar itself opens on. A
+    /// session already on screen keeps whatever it was set to: this seeds the field once, when a
+    /// project is entered ([`crate::app::AppState::sync_projects`]), not on every relayout — so
+    /// changing the default in settings does not silently pull the rug from under a canvas the
+    /// user has already repicked an arrangement for.
+    #[serde(default)]
+    pub teams_algo: Algo,
 }
 
 fn default_true() -> bool {
@@ -273,6 +282,7 @@ impl Default for UiSettings {
             vim_mode: false,
             show_cache_ring: false,
             last_connection: None,
+            teams_algo: Algo::default(),
         }
     }
 }

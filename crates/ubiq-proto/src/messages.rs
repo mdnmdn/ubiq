@@ -953,6 +953,37 @@ pub enum Message {
         error: HostPathError,
     },
 
+    // ── The host file family: UI → host ─────────────────────────────
+    /// Write a whole file at an absolute host path, with no project in scope — the write half of
+    /// a guest tab, whose read (`crates/ubiq/src/app/mod.rs::read_guest_file`) is one of the two
+    /// places the interface reads disk itself.
+    ///
+    /// Unlike [`Message::WriteProjectFile`] there is no project root to bound this against, so it
+    /// keeps no creation door and no `overwrite` escape hatch: `expected` is mandatory rather than
+    /// optional, and the write is refused unless it lands on exactly the file whose version this
+    /// names — an overwrite of something the interface already read, never the creation of
+    /// something new at a path it was merely told about.
+    WriteHostFile {
+        path: String,
+        // See the comment on `Message::TerminalOutput::bytes`: same reasoning, same fix.
+        #[serde(with = "serde_bytes")]
+        bytes: Vec<u8>,
+        expected: FileVersion,
+    },
+
+    // ── The host file family: host → UI ─────────────────────────────
+    /// The host file as it now is, so a guest tab's next save has a version to name. Sent in
+    /// answer to [`Message::WriteHostFile`].
+    HostFileWritten {
+        path: String,
+        version: FileVersion,
+    },
+    /// [`Message::WriteHostFile`] was refused. `path` echoes the request.
+    HostFileError {
+        path: String,
+        error: FileError,
+    },
+
     // ── File family: UI → host ──────────────────────────────────────
     /// One level of a project's tree. `rel_path` is empty for the root; `depth` is how many levels
     /// below it to list, clamped by the host, and one is what an expand asks for.
@@ -1540,10 +1571,23 @@ pub enum Message {
     /// grow one: only the interface sends it, so the host stamps
     /// [`crate::plan::SaveOrigin::Human`] on arrival and an agent has no way to ask for the other
     /// stamp. The agent's path is `ubiq-plan`'s `write_plan`, which never becomes this message.
+    ///
+    /// **`expected` is mandatory and there is no force flag** — [`Message::WriteHostFile`]'s
+    /// discipline, for the same reason: the host is the arbiter of a race, not the window. It is
+    /// the revision this body was written against, and the save is refused with
+    /// [`Message::PlanConflict`] unless the plan still stands there. A user who has been shown
+    /// whose copy they are about to replace and asked again does not get a flag that skips the
+    /// check; the second press names the revision the host has since stated, so **every save on
+    /// the wire names the revision it truly expects** and a third save landing between the
+    /// question and the answer is refused as well.
+    ///
+    /// `0` is the watermark of a plan whose body has never been written, so a first save names it
+    /// and is refused if somebody wrote one first.
     SavePlan {
         project_id: ProjectId,
         task_id: TaskId,
         body: String,
+        expected: PlanRevision,
     },
     /// Delete a task's plan. Not an error when there was none — the same posture
     /// [`Message::DeleteKbEntry`] takes: asking for an absent thing to be gone is already
@@ -1696,9 +1740,29 @@ pub enum Message {
         regions: Vec<PlanChangedRegion>,
         stats: PlanChangeStats,
     },
+    /// A [`Message::SavePlan`] was refused: the plan had already moved past the revision the save
+    /// named, so writing it would have replaced a copy its author never read. Sent only to whoever
+    /// asked, and **nothing was written** — the buffer is still theirs.
+    ///
+    /// Its own variant rather than a [`Message::PlanError`] sentence, because it is the one
+    /// failure in the family the interface does something other than report: it says where the
+    /// plan actually stands and who moved it there, which is exactly what the surface needs to ask
+    /// the overwrite question again and what the next save has to name to win. That is
+    /// [`Message::PlanError`]'s own test for when an enum — or here, a variant — earns its keep.
+    PlanConflict {
+        project_id: ProjectId,
+        task_id: TaskId,
+        /// The revision the plan stands at now, and therefore what a save that means to replace it
+        /// has to name.
+        revision: PlanRevision,
+        /// Who moved it there, so the banner names an agent or a person rather than "somebody".
+        origin: SaveOrigin,
+    },
     /// Something went wrong with one task's plan, or with the family as a whole when the task id
     /// is absent — [`Message::WorkError`]'s own shape, for the reason it gives: every failure here
     /// comes down to saying so once, where the user is looking.
+    ///
+    /// A stale save is **not** one of these: see [`Message::PlanConflict`].
     PlanError {
         project_id: ProjectId,
         task_id: Option<TaskId>,
@@ -2456,6 +2520,7 @@ impl Message {
             | Message::PlanDeleted { project_id, .. }
             | Message::PlanExported { project_id, .. }
             | Message::PlanChanged { project_id, .. }
+            | Message::PlanConflict { project_id, .. }
             | Message::PlanError { project_id, .. }
             | Message::StartConversation { project_id, .. }
             | Message::ReviveConversation { project_id, .. }

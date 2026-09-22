@@ -728,10 +728,13 @@ fn edit_and_save_sends_save_plan(cx: &mut TestAppContext) {
     assert_eq!(said.len(), 1);
     assert!(matches!(
         &said[0],
-        Message::SavePlan { project_id, task_id: t, body }
+        Message::SavePlan { project_id, task_id: t, body, expected }
             if *project_id == fixture.project
                 && *t == task
                 && body == "# The plan\n\nFirst step.\n"
+                // An ordinary save names the revision the buffer was seeded from, which is what
+                // the host checks the plan still stands at.
+                && *expected == 1
     ));
 
     fixture.deliver(
@@ -1179,8 +1182,12 @@ fn a_stale_buffer_asks_before_it_overwrites(cx: &mut TestAppContext) {
     assert_eq!(said.len(), 1);
     assert!(matches!(
         &said[0],
-        Message::SavePlan { project_id, task_id: t, body }
+        Message::SavePlan { project_id, task_id: t, body, expected }
             if *project_id == fixture.project && *t == task && body == "mine\n"
+                // A confirmed overwrite names the newest revision the host has stated — the copy
+                // the user was actually shown — and never the one the buffer was seeded from,
+                // which nothing would accept any more. There is no force flag on the wire.
+                && *expected == 3
     ));
 
     // And the host's answer to that save settles the surface at the new watermark.
@@ -1199,4 +1206,87 @@ fn a_stale_buffer_asks_before_it_overwrites(cx: &mut TestAppContext) {
         assert_eq!(plan.revision, 4);
         assert!(plan.stale_origin.is_none());
     });
+}
+
+/// **The guard is the host's, and this is what proves it.** A buffer that believes it is current
+/// still names the revision it was seeded from, and a save that lands in between is refused rather
+/// than overwritten — `PlanConflict`. The edit is kept to the character, the surface asks the
+/// overwrite question against the revision the refusal named, and the press that follows names
+/// *that*. There is no force flag to reach for.
+#[gpui::test]
+fn a_refused_save_keeps_the_edit_and_asks_again(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let task = fixture.seed_task(Some(Level::Mission), cx);
+    fixture.said();
+    fixture.with(cx, |state, _, cx| state.open_plan(task, cx));
+    fixture.deliver(
+        Message::Plan {
+            project_id: fixture.project,
+            task_id: task,
+            body: "original\n".to_string(),
+            revision: 1,
+        },
+        cx,
+    );
+    fixture.with(cx, |state, window, cx| state.settle_plan_editor(window, cx));
+    fixture.with(cx, |state, window, cx| {
+        let editor = state.plan_editor.clone();
+        editor.update(cx, |buffer, cx| buffer.set_value("mine\n", window, cx));
+        state.settle_plan_editor(window, cx);
+    });
+    fixture.said();
+
+    // The buffer believes it is current, so ⌘S writes on the first press — naming revision 1.
+    fixture.with(cx, |state, window, cx| state.save_document(window, cx));
+    let said = fixture.said();
+    assert_eq!(said.len(), 1);
+    assert!(matches!(
+        &said[0],
+        Message::SavePlan { expected, .. } if *expected == 1
+    ));
+
+    // Somebody else's save landed first. Nothing of this window's was written.
+    fixture.deliver(
+        Message::PlanConflict {
+            project_id: fixture.project,
+            task_id: task,
+            revision: 2,
+            origin: SaveOrigin::Human,
+        },
+        cx,
+    );
+    fixture.state.read_with(cx, |state, cx| {
+        assert_eq!(
+            state.plan_editor.read(cx).value().to_string(),
+            "mine\n",
+            "a refusal is the one failure that leaves the buffer exactly as it is",
+        );
+        let plan = state.workbench.plan.as_ref().expect("still open");
+        assert!(!plan.saving, "the save is over — it did not land");
+        assert!(plan.stale && plan.dirty);
+        assert_eq!(
+            plan.host_revision, 2,
+            "the host's word about where it stands"
+        );
+        assert_eq!(
+            plan.revision, 1,
+            "the buffer stayed at what it was seeded with"
+        );
+        assert_eq!(plan.stale_origin, Some(SaveOrigin::Human));
+        assert!(
+            !plan.confirm_overwrite,
+            "the question is asked about this revision, not the one already overtaken",
+        );
+    });
+
+    // Ask, then mean it — and the press that means it names what the refusal reported.
+    fixture.with(cx, |state, window, cx| state.save_document(window, cx));
+    assert!(fixture.said().is_empty());
+    fixture.with(cx, |state, window, cx| state.save_document(window, cx));
+    let said = fixture.said();
+    assert_eq!(said.len(), 1);
+    assert!(matches!(
+        &said[0],
+        Message::SavePlan { body, expected, .. } if body == "mine\n" && *expected == 2
+    ));
 }

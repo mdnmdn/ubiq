@@ -875,6 +875,47 @@ impl AppState {
                 error,
             } => self.file_failed(project_id, rel_path, error, cx),
 
+            // A guest tab's write landed. There is no `project_id` to look the tab up by — a
+            // guest file belongs to no project — so every open project's tabs are searched for
+            // the one this path and `guest` names, on `OpenFile::guest`'s own doc for why the tab
+            // key can be the absolute path safely. A tab that has since closed finds nothing here
+            // and the answer is simply dropped, the same as any other stale arrival.
+            Message::HostFileWritten { path, version } => {
+                let current = self
+                    .guest_file_mut(&path)
+                    .and_then(|file| file.buffer())
+                    .map(|buffer| buffer.read(cx).value().to_string())
+                    .unwrap_or_default();
+                if let Some(file) = self.guest_file_mut(&path) {
+                    file.saved(version, &current);
+                }
+                cx.notify();
+            }
+            Message::HostFileError { path, error } => {
+                let reason = describe(&error);
+                tracing::warn!("guest file {path}: {reason}");
+                // Only a write this tab actually had in flight is worth a modal, on
+                // `file_failed`'s own reasoning — there is no `FileDialog::OverwriteFile` here,
+                // because `WriteHostFile` always names a version and a `Conflict` on one always
+                // means the file changed, never that a path is merely taken.
+                let saving_key = self
+                    .guest_file_mut(&path)
+                    .filter(|file| file.is_saving())
+                    .map(|file| file.key());
+                if let Some(key) = saving_key {
+                    self.workbench.file_dialog = Some(FileDialog::SaveFailed {
+                        key,
+                        reason: reason.clone(),
+                    });
+                }
+                if let Some(file) = self.guest_file_mut(&path)
+                    && file.is_saving()
+                {
+                    file.save_failed(reason);
+                }
+                cx.notify();
+            }
+
             Message::ProjectFilesChanged {
                 project_id,
                 changed,
@@ -1659,6 +1700,25 @@ impl AppState {
                 task_id,
             } => {
                 self.reload_plan_annotations(project_id, task_id);
+                cx.notify();
+            }
+
+            // The host refused this window's save: the plan had moved past the revision the save
+            // named, and nothing was written. Sent only to whoever asked, because it is about one
+            // window's buffer and nobody else's. The edit is kept and the overwrite question is
+            // raised again against the revision named here — the second press names it, and is
+            // refused in turn if somebody moves the copy again first.
+            Message::PlanConflict {
+                project_id,
+                task_id,
+                revision,
+                origin,
+            } => {
+                if self.workbench.plan.as_ref().is_some_and(|plan| {
+                    plan.project_id() == project_id && plan.task_id() == Some(task_id)
+                }) {
+                    self.plan_save_refused(revision, origin);
+                }
                 cx.notify();
             }
 
@@ -2903,6 +2963,22 @@ impl AppState {
     /// next keystroke even cleared it. Where the refusal has an answer to offer, the modal asks it
     /// instead of reporting: a write that named no version and landed on something already there
     /// means the path is taken, which only the user can settle.
+    /// The open tab a guest write's answer belongs to, if its tab is still open.
+    ///
+    /// `Message::HostFileWritten`/`Message::HostFileError` carry no project id — a guest file
+    /// belongs to no project — so every project this window holds is searched for the tab
+    /// `OpenFile::guest` and this path name, on `open_guest_file`'s own reasoning for why the tab
+    /// key can be the absolute path safely. A closed tab finds nothing, and the answer is dropped
+    /// the same as any other stale arrival.
+    fn guest_file_mut(&mut self, path: &str) -> Option<&mut OpenFile> {
+        self.projects.values_mut().find_map(|open| {
+            open.editor
+                .open
+                .iter_mut()
+                .find(|file| file.guest && file.path == path)
+        })
+    }
+
     fn file_failed(
         &mut self,
         project: ProjectId,

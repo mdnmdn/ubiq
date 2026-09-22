@@ -94,8 +94,8 @@ pub fn highlighter_language(language: FileLanguage) -> Language {
 /// whether it is on its way to disk, whether that failed, and whether it holds an unsaved edit.
 pub fn dirty_colour(file: &OpenFile) -> Rgba {
     match (&file.save, &file.body) {
-        // A guest tab never saves, so nothing it shows here is a save state to report.
-        _ if file.guest => theme::text_faint(),
+        // A guest tab saves like any other now — `Message::WriteHostFile` rather than
+        // `Message::WriteProjectFile` — so its dot reports the same states below.
         (SaveState::Failed(_), _) => theme::danger(),
         (SaveState::Saving(_), _) => theme::info(),
         (_, FileBody::Failed(_)) => theme::danger(),

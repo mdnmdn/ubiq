@@ -6,7 +6,7 @@
 
 use ubiq::state::explorer::{
     ExplorerAction, ExplorerKey, ExplorerPressed, ExplorerState, ExplorerView, GitStatus, NodeKind,
-    Toggle, menu_entries,
+    Presence, Toggle, menu_entries,
 };
 use ubiq_proto::files::{DirEntry, DirListing, EntryKind};
 use ubiq_proto::git::{GitEntry, GitHead, GitMark, GitNested, GitPathChange, GitRollup};
@@ -1386,4 +1386,40 @@ fn the_delete_key_is_ignored_with_no_cursor() {
         tree.press(ExplorerKey::Delete, ""),
         ExplorerPressed::Ignored
     );
+}
+
+// ── presence — a task attachment's dead chip (T-84) ────────────────────────
+
+/// A path a listed folder actually holds reads as present.
+#[test]
+fn presence_is_live_for_a_path_the_tree_holds() {
+    let tree = listed();
+    assert_eq!(tree.presence("src/main.rs"), Presence::Live);
+    assert_eq!(tree.presence("justfile"), Presence::Live);
+}
+
+/// A name the listing that would hold it does not have is gone — the file moved or was deleted
+/// while nobody was looking, which is exactly what a task's dangling attachment describes.
+#[test]
+fn presence_is_dead_for_a_name_a_listed_folder_does_not_hold() {
+    let tree = listed();
+    assert_eq!(tree.presence("src/never-existed.rs"), Presence::Dead);
+    assert_eq!(tree.presence("never-existed.txt"), Presence::Dead);
+}
+
+/// A path below a folder nobody has expanded yet is not knowable — and must not be drawn dead
+/// just because this window has not looked. It reads exactly as `Live` does.
+#[test]
+fn presence_is_unknown_below_a_folder_nobody_has_listed() {
+    let mut tree = ExplorerState::empty();
+    tree.merge(listing("", vec![dir("", "docs"), file("", "justfile")]));
+    // "docs" is in the tree, but nothing under it has ever been listed.
+    assert_eq!(tree.presence("docs/spec.md"), Presence::Unknown);
+}
+
+/// Before the root itself has ever been listed, nothing can be said about anything in it.
+#[test]
+fn presence_is_unknown_before_the_root_is_listed() {
+    let tree = ExplorerState::empty();
+    assert_eq!(tree.presence("anything.rs"), Presence::Unknown);
 }

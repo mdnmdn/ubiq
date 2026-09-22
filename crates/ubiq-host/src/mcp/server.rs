@@ -1126,6 +1126,7 @@ mod tests {
             task_id.parse().unwrap(),
             "# Plan\n\nStep one, revised.\n\nStep two, also revised.".to_string(),
             &crate::plan::Saver::human(),
+            None,
         );
 
         let changed = answered(&call(&url, "plan_changes", json!({"task_id": task_id})));

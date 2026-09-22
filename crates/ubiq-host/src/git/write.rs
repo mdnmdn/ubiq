@@ -60,7 +60,7 @@ pub fn apply(
         GitWriteOp::StageAll => {
             let scope = super::observe::scope(root, repo)?;
             let pathspec = if scope.is_empty() {
-                "."
+                "*"
             } else {
                 scope.as_str()
             };
@@ -68,12 +68,7 @@ pub fn apply(
         }
         GitWriteOp::UnstageAll => {
             let scope = super::observe::scope(root, repo)?;
-            let pathspec = if scope.is_empty() {
-                "."
-            } else {
-                scope.as_str()
-            };
-            unstage_all(repo, pathspec)
+            unstage_all(repo, &scope)
         }
     }
 }
@@ -184,21 +179,36 @@ fn stage_all(repo: &Repository, pathspec: &str) -> Result<(), GitError> {
     Ok(())
 }
 
-fn unstage_all(repo: &Repository, pathspec: &str) -> Result<(), GitError> {
+/// `scope` is a project-relative directory (no wildcard, as [`super::observe::scope`] returns
+/// it), or empty for the whole repository.
+///
+/// `reset_default` diffs the commit tree against the index through libgit2's pathspec-*prefix*
+/// machinery, which treats a spec with no wildcard character as a literal string used to bound the
+/// tree iterator — `"."` for the whole repo, or a bare directory name like `"pkg"` for a scoped
+/// project, both match nothing there (`git_pathspec_prefix` needs an exact path match, not a
+/// directory prefix) and `reset_default` silently deltas zero entries. A glob (`"*"` whole-repo,
+/// `"{scope}/*"` scoped) is not a literal spec, so the prefix bound falls back to everything before
+/// the wildcard and the real match happens in `fnmatch`, which does treat it as a directory.
+fn unstage_all(repo: &Repository, scope: &str) -> Result<(), GitError> {
+    let reset_pathspec = if scope.is_empty() {
+        "*".to_string()
+    } else {
+        format!("{scope}/*")
+    };
     match repo.head() {
         Ok(head) => {
             let commit = head.peel_to_commit().map_err(map_error)?;
-            repo.reset_default(Some(commit.as_object()), [pathspec])
+            repo.reset_default(Some(commit.as_object()), [reset_pathspec.as_str()])
                 .map_err(map_error)?;
         }
         Err(error)
             if error.code() == ErrorCode::UnbornBranch || error.code() == ErrorCode::NotFound =>
         {
             let mut index = repo.index().map_err(map_error)?;
-            if pathspec == "." {
+            if scope.is_empty() {
                 index.clear().map_err(map_error)?;
             } else {
-                let prefix = pathspec.trim_end_matches('/');
+                let prefix = scope.trim_end_matches('/');
                 let victims: Vec<PathBuf> = index
                     .iter()
                     .filter_map(|entry| {

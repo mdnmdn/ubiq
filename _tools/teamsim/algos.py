@@ -1170,16 +1170,24 @@ def _arrange(
     """`Layout::arrange`: the loose block along the top, then the containers under it."""
     y = top
     by_id = {a.id: a for a in agents}
+    target = aspect_of(out.scenario)
 
     loose = [a for a in agents if a.session == session and a.task is None]
-    block = stack(loose, rings, algo.ring)
+    # The four original arrangements stack this row raw — one row per hand-off depth, however wide
+    # it runs — because that arithmetic is `ORIGINAL_KEYS`'s to keep. Every arrangement past it
+    # folds the row to its own `target` instead, the same fold a container's own cards get from
+    # `stack_aspect`: left unfolded, several top-level coordinators drew one unbroken row that only
+    # grew rightward, off the screen the containers below it were already wrapping to.
+    if algo.key in ORIGINAL_KEYS:
+        block = stack(loose, rings, algo.ring)
+    else:
+        block = stack_aspect(loose, rings, algo.ring, target)
     if block.cards:
         for agent, offset in block.cards:
             _card(out, by_id[agent], (LAYOUT_MARGIN + offset[0], y + offset[1]), algo)
         y += block.height + TASK_GAP
 
     boxes = [t for t in tasks if t.session == session]
-    target = aspect_of(out.scenario)
     contents = [algo.inside(t.id, agents, rings, algo.ring, target) for t in boxes]
     sizes: list[Size] = [
         (0.0, 0.0)
@@ -1321,6 +1329,10 @@ def wrap_at(room: float) -> int:
 
 #: The wrap on the canvas `LAYOUT_WIDTH` describes — what the arithmetic answers with no screen.
 WRAP = wrap_at(LAYOUT_WIDTH)
+
+#: The four that predate the layout spike, and the arithmetic none of the rest may disturb — the
+#: same set `Algo::ORIGINAL` names in the Rust.
+ORIGINAL_KEYS = {"flow", "packed", "tree", "columns"}
 
 
 def _drawn(out: Arrangement, session: str) -> list[TaskBox]:

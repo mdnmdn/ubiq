@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-09-21
-verified: 2026-09-21
+updated: 2026-09-22
+verified: 2026-09-22
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -885,14 +885,14 @@ family was designed whole rather than grown one at a time. And a conversation an
 spawn messages rather than one, which is the price of a record that does not carry geometry nobody
 set.
 
-### D54 — A dropped folder opens as a temporary project; a dropped file outside every project is a read-only guest tab
+### D54 — A dropped folder opens as a temporary project; a dropped file outside every project is a guest tab
 
 A folder dropped on the editor centre or a file tab opens immediately as a project — the host mints
 an ordinary `ProjectRecord` with a `temporary` flag and keeps it in memory only, never writing it to
 `projects.toml` — rather than opening project settings prefilled and waiting on `AddProject`. A file
-dropped that lands outside every open project opens as a read-only guest tab that the interface
-reads itself with `std::fs`, rather than through the host as a loose project. Both reverse rows (a)
-and (c) of `_docs/inbox/completed/shell-integration-proposal.md` §12, settled here 2026-09-03.
+dropped that lands outside every open project opens as a guest tab that the interface reads itself
+with `std::fs`, rather than through the host as a loose project. Both reverse rows (a) and (c) of
+`_docs/inbox/completed/shell-integration-proposal.md` §12, settled here 2026-09-03.
 
 **Why a temporary project instead of prefilled settings:** naming and colouring a folder before it
 has proven worth keeping is friction the drop was supposed to remove. Opening it at once and putting
@@ -903,19 +903,28 @@ in-memory lookup, temporary or not.
 
 **Why a guest tab instead of a loose project:** the direct read was rejected once, in the proposal's
 own §3, for what it costs — reimplementing `FileVersion`, `is_binary`, `truncated` and every
-`FileError` arm, or shipping an editor whose save can eat an agent's work. That argument holds; what
-is different is the answer to what a guest file may do with what it read. `OpenFile::savable()` also
-requires `version: Some(_)`, so a guest file — built with `version: None` — cannot reach a save at
-all. The failure §3 feared, a save landing on a change an agent made a second earlier, cannot happen
-to a buffer that has no save button. That is narrower than a loose project's read-write editor, and
-it is the whole of why the interface is allowed to read the bytes itself here: nothing it produces
-can be written back.
+`FileError` arm, or shipping an editor whose save can eat an agent's work. That argument held for the
+*read*: `read_guest_file` (`crates/ubiq/src/app/mod.rs`) reimplements the same stat guard, the same
+truncation ceiling and the same NUL sniff a host read would, so a guest tab is exactly as safe to
+open as a project one. It stopped holding for the *save*: `OpenFile::savable()` requires
+`version: Some(_)`, and `read_guest_file` computes one, on the same "absent only when truncated"
+rule the host's own `files::contents` uses, so a guest tab reaches a save exactly when a project tab
+would — never blindly, and never when the read was a prefix.
 
-**Cost:** two of them. `crates/ubiq/src/app/mod.rs` calls `Path::is_dir` and `std::fs::read` directly,
-which architecture rule 2 otherwise forbids the interface — see the exception recorded in
-[`architecture.md`](./architecture.md), rule 2. And a guest tab is read-only for good: promoting one
-to a real, savable file means dropping it again inside the project that holds it, not an in-place
-upgrade.
+**Why the save is still safe without a project root to bound it:** the failure §3 feared — a save
+landing on a change an agent made a second earlier — is what the version check refuses regardless of
+which message carries it. `WriteHostFile` (`tech/transport-contract.md`, host browse family) drops
+the one thing a project write has that this cannot: no root means no *creation* is safe to offer, so
+`expected` is mandatory rather than optional and there is no `overwrite` flag — every write here is
+an overwrite of exactly the file whose version this names, refused otherwise, and refused outright if
+the leaf is a symlink (`crates/ubiq-host/src/files/mod.rs::write_host_file`), the same refusal
+`files::path::resolve_for_write` gives a project write through a link.
+
+**Cost:** `crates/ubiq/src/app/mod.rs` calls `Path::is_dir`, `std::fs::read` and `std::fs`'s write
+metadata directly for the version, which architecture rule 2 otherwise forbids the interface —
+see the exception recorded in [`architecture.md`](./architecture.md), rule 2. Promoting a guest tab
+into the project that holds it is still not an in-place upgrade — its tab key is the absolute path,
+not a project-relative one, so a real save-inside-the-project still means dropping the file again.
 
 ### D55 — The web-export server lives in the interface, not the host, and reads project files itself
 
@@ -3563,6 +3572,54 @@ project in hand, including the new-mission dialog's assistant picker, so a proje
 cannot be picked there yet (`_docs/backlog.md`). And two roots mean two traversals for one list:
 `Message::Profiles` carries every project's profiles to every window, which is one message rather
 than a per-project ask, and is only cheap while a catalogue holds tens of projects.
+
+### D159 — A plan's annotations anchor to a stable block id kept in a sidecar, not a quoted-context match or a run-level id
+
+An annotation has to survive the document being edited — by a human in the editor, by an agent
+through `ubiq-plan`, or by a wholesale rewrite — and character offsets do not: an insertion
+anywhere above a range silently moves every annotation below it, with no signal that it happened.
+Two other shapes were weighed. Quoted-context anchors — store the annotated text plus a few words
+either side and re-find it on load — are cheap and format-free, and fail silently once the quoted
+text itself is edited, which is an open-ended fuzzy-matching problem. A per-inline-run id,
+CRDT-style, is precise but stops the document being plain markdown: every writer needs the
+library, and export becomes a render rather than a copy.
+
+**The chosen shape is a stable id per block, assigned by matching the parsed document against its
+previous version on every save** — identical text keeps its id, an edited block keeps it by
+word-overlap similarity (`crates/ubiq-host/src/plan/blocks.rs::match_blocks`), and a block nothing
+matches is reported as vanished rather than silently dropped. The body stays plain markdown on
+disk, which is the export for free and the form an agent can read and rewrite with ordinary file
+tools; the block index and the annotation threads live in a sidecar beside it,
+`<TaskId>.annotations.json` (`crates/ubiq-host/src/store/plan.rs`), so a plan opened in any other
+editor is undamaged.
+
+**Cost:** an edit inside a block keeps its annotations, and a deleted block orphans them
+explicitly rather than dropping them — a reportable state — but a save that rewrites a section
+wholesale reads as one vanished block and one new one however small the actual wording changed,
+because similarity is judged block by block and not across the document.
+
+### D160 — The plan editor is native, on the file viewer's existing editor, not a web-panel tenant
+
+Three surfaces were weighed for the plan editor. A web-panel tenant — riding the phase-6 machinery
+Excalidraw and draw.io use, an embedded webview, a chrome page, a bridge — turns a mature editor
+with comment threads and slash commands into a component rather than something to write, but
+forfeits Linux (`gpui-wry` builds on macOS and Windows only) and needs its own annotation frames
+and in-page block-id assignment, since the bridge carries only `document: String`. Web first, then
+native throws away six of the eight pieces the web route builds — the vendor mirror, the chrome
+page and its CSP, the annotation bridge, the in-page block-id assignment and its Rust twin, the
+`ViewerKind` arm and the Linux fallback — while paying the Linux forfeit for a release first.
+
+**The chosen surface is native, on `EditorState`, the engine every text buffer in the file viewer
+is drawn with.** It ships a selection range the application reads and writes, a Monaco-shaped
+decoration layer driving vim marks and bookmarks (`crates/ubiq/src/app/nav.rs`), and
+`CompletionProvider`/`HoverProvider` traits with their popovers drawn and no implementation behind
+them until this feature. Building the plan editor is then "implement one provider trait and one
+popover against an engine compiled into the tree" rather than "write a rich text editor" — the
+only route that works on every platform Ubiq builds for, and the plan is not a diagram: it is
+where the planning loop happens.
+
+**Cost:** the writing surface is markdown source with a preview, not WYSIWYG rich text — nobody
+asked for it, but the surface cannot grow into it later without becoming the web route instead.
 
 ## Related docs
 

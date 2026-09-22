@@ -809,6 +809,81 @@ fn unstage_all_restores_the_index_to_head() {
     assert_eq!(added.index, None);
 }
 
+/// The scoped branch of `StageAll`/`UnstageAll` builds a literal directory-prefix pathspec
+/// (`observe::scope`, no wildcard) rather than the whole-repo `"*"`. `reset_default` diffs the
+/// commit tree against the index through the same libgit2 pathspec-prefix machinery that made the
+/// whole-repo `"."` a silent no-op — this asserts the scoped case actually clears the index rather
+/// than trusting that a different pathspec string is fine by inspection.
+#[test]
+fn unstage_all_restores_the_index_to_head_when_scoped_to_a_nested_project() {
+    let dir = repository();
+    fs::create_dir(dir.path().join("pkg")).unwrap();
+    fs::write(dir.path().join("pkg/inner.txt"), b"inner\n").unwrap();
+    git(dir.path(), &["add", "pkg/inner.txt"]);
+    git(dir.path(), &["commit", "-q", "-m", "pkg"]);
+
+    let scoped_root = dir.path().join("pkg");
+    fs::write(scoped_root.join("inner.txt"), b"changed inner\n").unwrap();
+    fs::write(scoped_root.join("new.txt"), b"new\n").unwrap();
+    write::apply_at(&scoped_root, &[], &GitWriteOp::StageAll).unwrap();
+
+    // Assert staging actually happened before asserting unstaging undoes it, so a failure here
+    // points at the right half.
+    let repo = observe::open(&scoped_root).unwrap().expect("a repository");
+    let staged_after_stage: Vec<String> = repo
+        .index()
+        .unwrap()
+        .iter()
+        .filter_map(|e| std::str::from_utf8(&e.path).ok().map(str::to_string))
+        .collect();
+    assert!(
+        staged_after_stage.contains(&"pkg/new.txt".to_string()),
+        "scoped stage_all should have staged the new file: {staged_after_stage:?}"
+    );
+
+    write::apply_at(&scoped_root, &[], &GitWriteOp::UnstageAll).unwrap();
+
+    // Read the index directly through git2 rather than through the host's own `observe`, so the
+    // assertion does not share a bug with the code it is checking. `pkg/inner.txt` is a tracked
+    // file, so unstaging it resets its index blob back to HEAD's rather than removing the entry —
+    // the assertion is on content, not presence. `pkg/new.txt` was never in HEAD, so unstaging it
+    // does remove the entry.
+    let repo = observe::open(&scoped_root).unwrap().expect("a repository");
+    let index = repo.index().unwrap();
+    let entries: Vec<(String, git2::Oid)> = index
+        .iter()
+        .filter_map(|e| {
+            std::str::from_utf8(&e.path)
+                .ok()
+                .map(|path| (path.to_string(), e.id))
+        })
+        .collect();
+    let inner = entries
+        .iter()
+        .find(|(path, _)| path == "pkg/inner.txt")
+        .expect("pkg/inner.txt should still be tracked in the index");
+    let blob = repo.find_blob(inner.1).unwrap();
+    assert_eq!(
+        blob.content(),
+        b"inner\n",
+        "pkg/inner.txt's staged content should have reverted to HEAD's, not stayed at the \
+         working-tree edit"
+    );
+    assert!(
+        !entries.iter().any(|(path, _)| path == "pkg/new.txt"),
+        "pkg/new.txt is still staged after a scoped unstage-all: {entries:?}"
+    );
+
+    let found = observe(&scoped_root, 1, true, &[]).unwrap();
+    let tree = found.tree.expect("a working tree");
+    let modified = entry(&tree, "inner.txt");
+    assert_eq!(modified.index, None, "inner.txt should no longer be staged");
+    assert_eq!(modified.worktree, Some(GitPathChange::Modified));
+    let added = entry(&tree, "new.txt");
+    assert_eq!(added.index, None, "new.txt should no longer be staged");
+    assert_eq!(added.worktree, Some(GitPathChange::Untracked));
+}
+
 #[test]
 fn changed_lists_the_modified_path_between_two_commits() {
     let dir = repository();

@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: How the host reads a project's repositories and how the Git screen writes them — cloning, upward discovery and scope, the bounded downward walk that finds the repositories inside a project and merges them into one map, the git worker's two queues and its per-project caches, the three shapes it answers with, the commit-graph lane engine, the refresh discipline that narrows the staleness window, and the ceilings and assumptions the model rests on.
 read_when: you are extending version control, adding a write, touching how a clone runs, working on a project that holds more than one repository, or wondering why the commit graph's lane engine is hand-rolled rather than a dependency
-updated: 2026-09-14
-verified: 2026-09-14
+updated: 2026-09-22
+verified: 2026-09-22
 code_anchors: [crates/ubiq-proto/src/git.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/git/write.rs, crates/ubiq-host/src/git/nested.rs, crates/ubiq-host/src/git/history.rs, crates/ubiq-host/src/git/graph.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq-host/src/repos/list.rs]
 depends_on: [tech-architecture, tech-transport, tech-decisions, feat-workbench]
 review_cycle: monthly
@@ -34,6 +34,18 @@ the exception that mutates the repository the user asked it to. `D43` keeps `git
 library: no `git` subprocess, and gitoxide is not a second reader. Both are in
 [`decisions.md`](./decisions.md); `D9` is why the harness library, and not Ubiq, decides how an
 agent is launched into that same folder.
+
+**A stage-all or unstage-all's pathspec must be a glob, never a literal directory name, or
+libgit2 silently answers nothing.** `git_pathspec_prefix` treats a spec with no wildcard character
+as a literal string and uses it to bound the tree iterator `reset_default` diffs against; `"."`
+for the whole repository and a bare `"pkg"` for a project scoped to that folder (§2) both fail that
+literal match and `unstage_all` deltas zero entries — the call answers `Ok(())` and the index is
+untouched. `write.rs::unstage_all` uses `"*"` whole-repo and `"{scope}/*"` scoped for exactly this
+reason; `write.rs::stage_all` is unaffected because `index.add_all`/`update_all` walk the workdir
+rather than going through this prefix machinery, so the same literal scope works there. Both
+`crates/ubiq-host/tests/git.rs::unstage_all_restores_the_index_to_head` and its scoped sibling
+assert the index is actually cleared, not just that the call returned `Ok`, because that is exactly
+what this bug hid.
 
 **Cloning is the write that has no repository to corrupt.** A clone brings a repository into
 existence at a path where none was. `git2` is compiled with `https` for that clone and for fetch,

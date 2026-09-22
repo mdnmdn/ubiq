@@ -2005,11 +2005,25 @@ fn opening_a_project_starts_its_filesystem_watch() {
     let (project_id, path) = a_project(&ui);
 
     ui.send(Message::OpenedProject { project_id });
-    std::fs::write(path.join("fresh.txt"), b"new\n").unwrap();
 
+    // Nothing tells this test when `watch_project` has actually attached to the filesystem —
+    // there is no acknowledgement message for it (T-66), and adding one just for a test is not
+    // the fix. So the write is not a single perturbation but a poll: keep touching the file
+    // every so often until either the watch (once live) reports it, or `PATIENCE` runs out. A
+    // single write racing the watch's startup is exactly the flakiness this replaces.
     let deadline = std::time::Instant::now() + PATIENCE;
+    let mut next_write = std::time::Instant::now();
+    let mut attempt: u32 = 0;
     loop {
-        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        let now = std::time::Instant::now();
+        if now >= next_write {
+            attempt += 1;
+            std::fs::write(path.join("fresh.txt"), format!("new {attempt}\n")).unwrap();
+            next_write = now + Duration::from_millis(50);
+        }
+        let left = deadline
+            .saturating_duration_since(std::time::Instant::now())
+            .min(Duration::from_millis(50));
         match ui.from_host().recv_timeout(left) {
             Ok(Message::ProjectFilesChanged {
                 project_id: named,
@@ -2022,6 +2036,7 @@ fn opening_a_project_starts_its_filesystem_watch() {
                 }
             }
             Ok(_) => continue,
+            Err(_) if std::time::Instant::now() < deadline => continue,
             Err(_) => panic!("the watch never reported the new file"),
         }
     }

@@ -1143,7 +1143,7 @@ fn the_lifecycle_glyph_reads_launched_run_and_the_transcript() {
         },
         open: false,
     });
-    assert_eq!(lifecycle(&c), Lifecycle::Working(Activity::Tools));
+    assert_eq!(lifecycle(&c), Lifecycle::Working);
 
     // Loaded and between turns.
     let mut c = fresh();
@@ -1436,35 +1436,38 @@ fn the_always_option_is_the_one_that_both_allows_and_remembers() {
 /// nobody is looking at.
 #[test]
 fn a_pending_request_reads_waiting_and_outranks_the_turn_it_blocks() {
-    use ubiq::ui::conversation::{Lifecycle, lifecycle};
+    use ubiq::ui::conversation::{Doing, Lifecycle, Status, conversation_status, lifecycle};
 
     let mut c = a_conversation();
     c.launched = true;
     c.apply(1, chunk("working on it"));
     assert_eq!(
-        lifecycle(&c),
-        Lifecycle::Working(Activity::Writing),
+        conversation_status(&c),
+        Status::new(Lifecycle::Working, Doing::Writing),
         "a turn in flight and nothing blocking it"
     );
 
     c.apply(2, a_permission_request("r1", "never-announced"));
     assert_eq!(c.run, Run::Working, "the turn has not ended, only stalled");
     assert_eq!(
-        lifecycle(&c),
-        Lifecycle::Waiting,
+        conversation_status(&c),
+        Status::new(Lifecycle::Waiting, Doing::NeedsYou),
         "the question outranks the turn it is blocking"
     );
     assert_ne!(
         lifecycle(&c),
-        Lifecycle::Working(Activity::NeedsYou),
+        Lifecycle::Working,
         "a blocked turn is never drawn as a kind of working"
     );
-    assert_eq!(Lifecycle::Waiting.label(), "Needs you");
+    assert_eq!(
+        Status::new(Lifecycle::Waiting, Doing::NeedsYou).label(),
+        "Waiting \u{b7} Needs you"
+    );
 
     c.answered("r1");
     assert_eq!(
-        lifecycle(&c),
-        Lifecycle::Working(Activity::Writing),
+        conversation_status(&c),
+        Status::new(Lifecycle::Working, Doing::Writing),
         "answered, and back to whatever the turn was doing"
     );
 
@@ -1486,18 +1489,11 @@ fn the_lifecycle_dot_has_four_readings_and_working_is_one_of_them() {
 
     assert_eq!(lifecycle_colour(Lifecycle::Waiting), theme::warning());
 
-    for activity in [
-        Activity::Thinking,
-        Activity::Writing,
-        Activity::Tools,
-        Activity::NeedsYou,
-    ] {
-        assert_eq!(
-            lifecycle_colour(Lifecycle::Working(activity)),
-            theme::info(),
-            "every kind of working is the one working colour"
-        );
-    }
+    assert_eq!(
+        lifecycle_colour(Lifecycle::Working),
+        theme::info(),
+        "every kind of working is the one working colour — which kind is the activity half's"
+    );
 
     assert_eq!(lifecycle_colour(Lifecycle::Ready), theme::success());
     assert_eq!(lifecycle_colour(Lifecycle::Idle), theme::success());
@@ -1508,7 +1504,7 @@ fn the_lifecycle_dot_has_four_readings_and_working_is_one_of_them() {
 
     assert_ne!(
         lifecycle_colour(Lifecycle::Waiting),
-        lifecycle_colour(Lifecycle::Working(Activity::Thinking)),
+        lifecycle_colour(Lifecycle::Working),
         "the two states the reader has to tell apart at a glance are not the same colour"
     );
 }

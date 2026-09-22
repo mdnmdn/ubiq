@@ -481,12 +481,17 @@ pub const SERVERS: &[ServerSpec] = &[
             },
             ToolSpec {
                 name: "write_plan",
-                description: "Replace a task's plan, whole, with the markdown given. There is no partial edit: send the full document every time. Refused for a task with no level.",
+                description: "Replace a task's plan, whole, with the markdown given. There is no partial edit: send the full document every time. Refused for a task with no level. If you read the plan first, pass expected_revision: the write is refused, and nothing is overwritten, if somebody saved in between.",
                 schema: r#"{
                     "type": "object",
                     "properties": {
                         "task_id": {"type": "string"},
-                        "body": {"type": "string", "description": "The plan's full markdown body."}
+                        "body": {"type": "string", "description": "The plan's full markdown body."},
+                        "expected_revision": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "description": "The revision you read the plan at. The write is refused if the plan has moved past it, so your edit never silently replaces somebody else's save. Omit only when you are writing a plan you did not read."
+                        }
                     },
                     "required": ["task_id", "body"]
                 }"#,

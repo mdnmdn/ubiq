@@ -474,6 +474,62 @@ enum Reach {
     Gone,
 }
 
+/// Whether a path names something a lazily-listed tree currently holds — shared by
+/// [`ExplorerState::presence`] and `KbState::presence` (`crate::state::kb`) against their own
+/// forests, which have exactly the same shape: folders listed one level at a time, on request.
+///
+/// Three answers, not two, on [`Reach`]'s own reasoning, and for the same reason: a folder that
+/// *has* been listed and does not hold the name is gone, but a folder nobody has listed yet says
+/// nothing either way. Collapsing that second case into "gone" would be dishonest — "not in the
+/// part of the tree this window has seen" is not "does not exist" — so it reads as [`Self::Live`]
+/// instead, the same as a target this window can positively confirm. A task attachment's dead chip
+/// is built on this being conservative: false positives (a live target drawn dead) are the failure
+/// this type exists to rule out, not false negatives (a dead target not yet caught).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Presence {
+    /// Found in the tree.
+    Live,
+    /// A folder that has been listed does not hold this name.
+    Dead,
+    /// Below, or is, a folder nobody has listed yet — drawn the same as [`Self::Live`].
+    Unknown,
+}
+
+/// Walk `path` down `nodes`, telling [`Presence::Dead`] apart from [`Presence::Unknown`] by
+/// whether the folder that would hold the missing name has actually been listed. Never mutates —
+/// unlike `reach`, which this otherwise mirrors, this runs on every frame a chip is drawn and must
+/// not open folders or start listings.
+pub fn locate(nodes: &[FileNode], root_listed: bool, path: &str) -> Presence {
+    if path.is_empty() {
+        return Presence::Unknown;
+    }
+
+    let mut nodes = nodes;
+    let mut listed = root_listed;
+    let mut parts = path.split('/').peekable();
+
+    while let Some(name) = parts.next() {
+        let last = parts.peek().is_none();
+        let Some(node) = nodes.iter().find(|node| node.name == name) else {
+            return if listed { Presence::Dead } else { Presence::Unknown };
+        };
+        if last {
+            return Presence::Live;
+        }
+        match &node.kind {
+            NodeKind::Dir {
+                children, listed: child_listed, ..
+            } => {
+                listed = *child_listed;
+                nodes = children.as_slice();
+            }
+            // A file where a folder was named: what is on disk is not what the path describes.
+            NodeKind::File => return Presence::Dead,
+        }
+    }
+    Presence::Dead
+}
+
 pub struct ExplorerState {
     pub root: Arc<Vec<FileNode>>,
     /// The project's name, which is the tree's own first row. Empty until the window has the

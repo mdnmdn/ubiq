@@ -38,8 +38,14 @@ impl AppState {
             // The dotfile switch is the window's rather than the project's, so a tree opening now
             // is told what the setting already says.
             let hidden = self.workbench.settings.ui.explorer_hidden;
+            // The Teams graph opens in the arrangement the settings name, the same way a fresh
+            // explorer opens on the dotfile switch above — set once here rather than read every
+            // relayout, because a session the user has since repicked an arrangement for must not
+            // snap back to the default under it.
+            let teams_algo = self.workbench.settings.ui.teams_algo;
             if let Some(open) = self.projects.get_mut(&id) {
                 open.explorer.set_show_hidden(hidden);
+                open.teams.algo = teams_algo;
             }
             // The tree is the host's, and a project shows nothing until it answers. One level:
             // what is inside a folder is asked for when the folder is opened.

@@ -53,7 +53,12 @@ impl DocumentHandle {
         }
     }
 
-    pub(crate) fn save(&self, body: String) -> Message {
+    /// `expected` is the revision this body is meant to replace, and the host refuses the write if
+    /// the document no longer stands there. There is no force flag to leave out: an overwrite the
+    /// user has confirmed names the newest revision the host has stated instead of the one the
+    /// buffer was seeded from, so it is still an honest expectation and still refused if a third
+    /// save landed while the question was on screen.
+    pub(crate) fn save(&self, body: String, expected: PlanRevision) -> Message {
         match *self {
             DocumentHandle::Plan {
                 project_id,
@@ -62,6 +67,7 @@ impl DocumentHandle {
                 project_id,
                 task_id,
                 body,
+                expected,
             },
         }
     }
@@ -190,11 +196,17 @@ impl AppState {
     /// clears `saving` and re-seeds the buffer; the block re-index arrives separately.
     ///
     /// **A stale buffer does not save on the first ask.** The buffer was seeded at `revision` and
-    /// the host has moved past it, so this write would replace a save the user has not read —
-    /// `SavePlan` is a whole-body replacement and carries no expected revision, so nothing
-    /// downstream can refuse it. The first ask raises the question and keeps every character
-    /// typed; the second one means it. Whoever moved the copy is named in the banner, because
-    /// overwriting an agent and overwriting a colleague are not the same decision.
+    /// the host has moved past it, so this write would replace a save the user has not read. The
+    /// first ask raises the question and keeps every character typed; the second one means it.
+    /// Whoever moved the copy is named in the banner, because overwriting an agent and overwriting
+    /// a colleague are not the same decision.
+    ///
+    /// **That question is a courtesy and no longer the guard.** Every `SavePlan` names the
+    /// revision it expects to replace, and the host refuses it with `PlanConflict` if the document
+    /// has moved: a save landing between the question and the confirming press is refused rather
+    /// than overwritten, and two windows both confirming an overwrite cannot both win. What the
+    /// confirmation still decides is *which* revision this window is willing to replace — the one
+    /// it was seeded from, or the newer one it has been shown.
     pub fn save_document(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let body = self.plan_editor.read(cx).value().to_string();
         let Some(doc) = self.workbench.plan.as_mut() else {
@@ -212,13 +224,31 @@ impl AppState {
             cx.notify();
             return;
         }
+        // A confirmed overwrite replaces the copy the user was just shown, which is the newest one
+        // the host has stated — not the one the buffer was seeded from, which nothing would accept
+        // any more. An ordinary save has the two equal.
+        let expected = if doc.stale {
+            doc.host_revision
+        } else {
+            doc.revision
+        };
         doc.confirm_overwrite = false;
         doc.saving = true;
         doc.confirm_close = false;
         doc.notice = None;
         let handle = doc.doc;
-        self.bus.send(handle.save(body));
+        self.bus.send(handle.save(body, expected));
         cx.notify();
+    }
+
+    /// The host refused the save: the document had moved past the revision it named, and nothing
+    /// was written. The buffer is untouched — that is the whole point — and the surface asks the
+    /// overwrite question again about the revision it has now been told, so the next press names
+    /// it and either wins or is refused in turn.
+    pub(crate) fn plan_save_refused(&mut self, revision: PlanRevision, origin: SaveOrigin) {
+        if let Some(doc) = self.workbench.plan.as_mut() {
+            doc.save_refused(revision, origin);
+        }
     }
 
     /// The host stated a document's body. Handled here rather than assigned in `wire` because the

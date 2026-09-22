@@ -697,9 +697,9 @@ impl AppState {
         self.close_menu(cx);
     }
 
-    /// Open the previewed file properly: in the editor for a path inside a project, as a
-    /// read-only guest for one outside every project. Exactly what clicking an unsent tag does,
-    /// which is why the panel offers it rather than inventing a second way in.
+    /// Open the previewed file properly: in the editor for a path inside a project, as a guest
+    /// tab for one outside every project. Exactly what clicking an unsent tag does, which is why
+    /// the panel offers it rather than inventing a second way in.
     pub fn open_attachment(&mut self, path: String, cx: &mut Context<Self>) {
         self.close_attachment_preview(cx);
         let absolute = Path::new(&path);

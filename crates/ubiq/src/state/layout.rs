@@ -21,6 +21,8 @@
 
 use std::collections::HashMap;
 
+use serde::{Deserialize, Serialize};
+
 use ubiq_proto::ids::{SessionId, TaskId};
 use ubiq_proto::work::{AgentId, TaskRecord, WorkAgent};
 
@@ -392,7 +394,8 @@ pub const EPS: f32 = 0.01;
 /// arrangement wins: a canvas that fits on screen and a canvas that shows who spawned whom are
 /// different pictures of the same records. The choice is the user's, and it is remembered nowhere
 /// here — it arrives as an argument to every tidy.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Algo {
     #[default]
     Flow,
@@ -660,7 +663,18 @@ impl Layout {
         // Stacked whichever arrangement is chosen, because this block is the frame the session
         // hangs off — but it wears the arrangement's own ring, so a delegate up here is the shape
         // the packers below reserved for.
-        let Contents { cards, height, .. } = stack(&loose, rings, algo.ring());
+        //
+        // The four original arrangements stack this row raw — `stack`, one row per hand-off depth,
+        // however wide that row runs — because that arithmetic is the one `Algo::ORIGINAL` may not
+        // disturb. Every arrangement past it folds the row to its own `target` instead, the same
+        // fold a container's own cards get from `stack_aspect`: left unfolded, a session with
+        // several top-level coordinators drew one unbroken row that only grew rightward, off the
+        // screen the containers below it were already wrapping to.
+        let Contents { cards, height, .. } = if Algo::ORIGINAL.contains(&algo) {
+            stack(&loose, rings, algo.ring())
+        } else {
+            stack_aspect(&loose, rings, algo.ring(), algo.target())
+        };
         if !cards.is_empty() {
             for (agent, offset) in cards {
                 self.agents

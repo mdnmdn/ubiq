@@ -26,6 +26,8 @@ use ubiq_proto::conversation::{
 use ubiq_proto::ids::AskId;
 use ubiq_proto::work::{Activity, AgentId};
 
+use super::status::Doing;
+
 /// One thing in a transcript, in the order it was said.
 ///
 /// **Three of the four carry who said it.** A spawned subagent's prose, reasoning and tool calls
@@ -114,6 +116,15 @@ pub struct SubagentTab {
     /// thinking/writing where the line was prose. `None` where the transcript holds nothing of
     /// its own yet: a delegate with no lines is not doing anything this window can name.
     pub activity: Option<String>,
+    /// The same reading as [`Self::activity`], in the shared vocabulary rather than in the
+    /// harness's own words — which is what a mark can be drawn from and a prose title cannot.
+    /// [`Doing::Unknown`] where the delegate has no lines of its own yet, on the same rule:
+    /// nothing here guesses what an agent that has said nothing is busy with.
+    ///
+    /// It is the *activity* half only. Whether the delegate is still running is its spawning
+    /// call's word, and [`crate::state::status::delegate_status`] is where the two are put
+    /// together.
+    pub doing: Doing,
 }
 
 /// Which of the activity panels above the composer is open: the spawned-subagent
@@ -555,6 +566,7 @@ impl Conversation {
                     .find_map(|who| who.thinking.clone()),
                 waiting: self.pending_count(Some(id)),
                 activity: self.subagent_activity(id),
+                doing: self.subagent_doing(id),
             });
         }
         tabs
@@ -577,6 +589,26 @@ impl Conversation {
                 ConvBlock::Thought { .. } => Some("Thinking".to_string()),
                 ConvBlock::Agent { .. } => Some("Writing".to_string()),
                 ConvBlock::User { .. } | ConvBlock::Compacted => None,
+            })
+    }
+
+    /// The same last line [`Self::subagent_activity`] reads, in the shared [`Doing`] vocabulary:
+    /// a tool line is [`Doing::Tools`], a thought is [`Doing::Thinking`], prose is
+    /// [`Doing::Writing`], and a delegate with no lines of its own is [`Doing::Unknown`].
+    ///
+    /// Two readings of one scan rather than one reading used two ways: the mark needs the kind and
+    /// the row needs the words, and deriving one from the other would mean matching on a title the
+    /// harness wrote.
+    pub fn subagent_doing(&self, id: &str) -> Doing {
+        self.blocks
+            .iter()
+            .rev()
+            .find(|block| block.subagent_id() == Some(id))
+            .map_or(Doing::Unknown, |block| match block {
+                ConvBlock::Tool { .. } => Doing::Tools,
+                ConvBlock::Thought { .. } => Doing::Thinking,
+                ConvBlock::Agent { .. } => Doing::Writing,
+                ConvBlock::User { .. } | ConvBlock::Compacted => Doing::Unknown,
             })
     }
 

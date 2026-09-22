@@ -105,6 +105,9 @@ pub fn pill(edge: Rgba) -> Div {
 /// The label is elided rather than wrapped — a tag is one line high — and `tooltip` is what says
 /// it in full, the same bargain [`elided_with`] makes.
 ///
+/// `struck` draws the label struck through, on the sub-task list's own reasoning for a done row:
+/// a colour and a line together are one signal read at a glance, not two competing ones.
+///
 /// [`removable_tag`] is this with a dismiss beside it, built from this one rather than written
 /// twice: the two are the same object in two states of a list's life — before it is sent, and
 /// after — and a second copy of the pill is how they drift apart.
@@ -115,6 +118,7 @@ pub fn tag(
     fill: Rgba,
     edge: Rgba,
     colour: Rgba,
+    struck: bool,
     on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Div {
     let tip: SharedString = tooltip.into();
@@ -133,6 +137,7 @@ pub fn tag(
                 .text_size(theme::font(Family::Chrome, Role::Label))
                 .text_color(colour)
                 .truncate()
+                .when(struck, |this| this.line_through())
                 .cursor_pointer()
                 .child(label.into())
                 .tooltip(move |window, cx| {
@@ -157,10 +162,11 @@ pub fn removable_tag(
     fill: Rgba,
     edge: Rgba,
     colour: Rgba,
+    struck: bool,
     on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     on_remove: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Div {
-    tag(id, label, tooltip, fill, edge, colour, on_click).child(
+    tag(id, label, tooltip, fill, edge, colour, struck, on_click).child(
         div()
             .id(remove_id)
             .size(px(16.))
@@ -312,6 +318,69 @@ fn progress_rings(bands: Vec<(u8, Rgba)>, diameter: f32) -> impl IntoElement {
                 let radius = (diameter - stroke) / 2.0 - band as f32 * (stroke + gap);
                 arc(radius, 0.0, 1.0, track);
                 arc(radius, 0.0, (*pct as f32 / 100.0).clamp(0.0, 1.0), *fill);
+            }
+        },
+    ))
+}
+
+/// The status mark that carries two readings at once: a hexagon whose **border** is one colour
+/// and whose **inner fill** is another.
+///
+/// **The outer hexagon has no fill of its own.** It is a stroke and nothing else, so whatever the
+/// mark sits on shows through and the mark stays a mark rather than becoming a second background
+/// for the block it is on. That is what lets the two colours be read as two facts: the border is
+/// the execution's lifecycle, the fill is what it is doing or what came of it, and one changing
+/// does not destroy the other's reading.
+///
+/// `fill` is `None` where the inner half has nothing to say — an activity nothing reports draws as
+/// an empty outline, not as a guessed colour.
+///
+/// A hexagon rather than a circle or the window's own square: a status is the one mark on a card
+/// that is *not* a surface, and giving it the only non-rectilinear silhouette in the window is
+/// what makes it findable at a glance without a radius (this window draws no radii,
+/// `crates/ubiq/src/theme.rs`).
+pub fn hex_mark(border: Rgba, fill: Option<Rgba>, side: f32) -> impl IntoElement {
+    // A flat-top hexagon: it sits better beside a line of text than a pointy-top one, whose spare
+    // height would push the row it is in taller than the text beside it.
+    let stroke = (side * 0.1).max(1.0);
+    div().size(px(side)).flex_none().child(canvas(
+        |_, _, _| {},
+        move |bounds, _, window, _| {
+            let centre = bounds.origin + point(px(side / 2.0), px(side / 2.0));
+            let corners = |radius: f32| {
+                (0..6)
+                    .map(|i| {
+                        let angle = i as f32 * std::f32::consts::TAU / 6.0;
+                        centre + point(px(angle.cos() * radius), px(angle.sin() * radius))
+                    })
+                    .collect::<Vec<_>>()
+            };
+
+            // The outline, inset by half its own weight so the stroke lands inside the mark's box
+            // rather than straddling its edge.
+            let mut path = PathBuilder::stroke(px(stroke));
+            let outer = corners(side / 2.0 - stroke / 2.0);
+            path.move_to(outer[0]);
+            for p in outer.iter().skip(1) {
+                path.line_to(*p);
+            }
+            path.close();
+            if let Ok(path) = path.build() {
+                window.paint_path(path, border);
+            }
+
+            // The fill: the same hexagon at just over half the size, so the ring of ground between
+            // the two is wide enough to read as a gap at eighteen pixels.
+            let Some(fill) = fill else { return };
+            let mut inner = PathBuilder::fill();
+            let points = corners(side * 0.28);
+            inner.move_to(points[0]);
+            for p in points.iter().skip(1) {
+                inner.line_to(*p);
+            }
+            inner.close();
+            if let Ok(inner) = inner.build() {
+                window.paint_path(inner, fill);
             }
         },
     ))

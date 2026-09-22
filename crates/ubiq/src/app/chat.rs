@@ -124,7 +124,20 @@ impl AppState {
             return;
         };
         match row {
-            ChatPick::Attach(agent) => self.attach_chat(id, Some(agent), cx),
+            ChatPick::Attach(agent) => {
+                self.attach_chat(id, Some(agent), cx);
+                // Whatever this agent's own conversation was last holding unsent — a draft
+                // typed at a tab that got hidden and closed, most of all — comes back now that
+                // this tab is the one addressing it.
+                let slot = self
+                    .project(cx)
+                    .and_then(|project| self.projects.get(&project))
+                    .and_then(|open| open.chats.iter().find(|tab| tab.id == id))
+                    .map(|tab| tab.slot);
+                if let Some(slot) = slot {
+                    self.restore_composer_draft(agent, slot, window, cx);
+                }
+            }
             ChatPick::New => {
                 self.dismiss_chat_picker(id, cx);
                 self.start_new_agent_in_chat(id, window, cx);

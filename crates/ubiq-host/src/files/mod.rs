@@ -323,6 +323,67 @@ pub fn save(
     fs::metadata(&file).map(version_of).map_err(from_io)
 }
 
+/// Write a whole file at an absolute host path, atomically, refusing anything but an exact
+/// overwrite.
+///
+/// This is the write half of a guest tab — a file the interface opened from outside every project
+/// (`crates/ubiq/src/app/mod.rs::read_guest_file`, one of the two places the interface reads disk
+/// itself rather than going through this family, `D54`). [`save`]'s containment —
+/// [`path::resolve_for_write`], bounding the write to a project's root — has nothing to bound
+/// against here, so this keeps the narrowest guard that still lets a legitimate save through
+/// instead: the target must already exist as a regular file, it must not be a symlink (the same
+/// refusal [`path::resolve_for_write`] gives a project write, so a save never silently replaces a
+/// link with a plain file), and its version must match `expected` exactly. There is no creation
+/// door and no `overwrite` flag — unlike [`save`], `expected` is not optional, because without a
+/// root there is nothing this call could safely be allowed to bring into existence: every write
+/// here is an overwrite of a file the interface already read, never the creation of one it was
+/// merely told about.
+pub fn write_host_file(
+    path: &str,
+    bytes: &[u8],
+    expected: FileVersion,
+) -> Result<FileVersion, FileError> {
+    let target = crate::host_path::request_path(path);
+
+    if let Ok(link) = fs::symlink_metadata(&target)
+        && link.file_type().is_symlink()
+    {
+        return Err(FileError::Refused(
+            "that name is a symlink, and a write is never followed through one".to_string(),
+        ));
+    }
+
+    let stat = fs::metadata(&target).map_err(from_io)?;
+    if !stat.is_file() {
+        return Err(FileError::WrongKind);
+    }
+    if version_of(stat.clone()) != expected {
+        return Err(FileError::Conflict);
+    }
+
+    crate::atomic::write_atomic_with(&target, bytes, Some(stat.permissions())).map_err(from_io)?;
+    fs::metadata(&target).map(version_of).map_err(from_io)
+}
+
+/// Do one host-file write and say what the window is told.
+fn host_write_answer(path: &str, bytes: &[u8], expected: FileVersion) -> Message {
+    match write_host_file(path, bytes, expected) {
+        Ok(version) => Message::HostFileWritten {
+            path: path.to_string(),
+            version,
+        },
+        Err(error) => {
+            if let FileError::Refused(reason) = &error {
+                tracing::warn!("refused a host write to {path:?}: {reason}");
+            }
+            Message::HostFileError {
+                path: path.to_string(),
+                error,
+            }
+        }
+    }
+}
+
 /// The bytes a brand-new file of this path starts with.
 ///
 /// Plain text opens empty, which is the general case. `.excalidraw` and `.drawio` are not: each
@@ -563,6 +624,13 @@ pub enum JobKind {
     /// No project, no root: there is nothing yet to resolve against, which is the whole point of
     /// the family — see [`browse`].
     Browse { path: Option<String> },
+    /// One host-file write: an absolute path, with no project in scope, on
+    /// [`Self::Browse`]'s own reasoning — see [`write_host_file`].
+    HostWrite {
+        path: String,
+        bytes: Vec<u8>,
+        expected: FileVersion,
+    },
     /// One knowledge-base request, already resolved to a source.
     ///
     /// Only [`Request::Tree`] and [`Request::Read`] are legal here — a knowledge-base source is
@@ -623,6 +691,11 @@ fn answer(job: &Job) -> Message {
             request,
         } => file_answer(*project_id, root, request),
         JobKind::Browse { path } => browse::answer(path.as_deref()),
+        JobKind::HostWrite {
+            path,
+            bytes,
+            expected,
+        } => host_write_answer(path, bytes, *expected),
         JobKind::Kb {
             project_id,
             source,

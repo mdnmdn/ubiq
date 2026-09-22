@@ -540,15 +540,17 @@ impl AppState {
 
     pub fn set_sink_project_nav(&mut self, nav: ProjectNav, cx: &mut Context<Self>) {
         // The live dialog keeps its own nav on `ProjectSettings`: the sink page must not
-        // reopen wherever the dialog was left. Only an existing project can carry tools, a drone
-        // origin or a knowledge base, so those three are the navs a live dialog answers to besides
-        // General — a folder not yet in the catalogue has no record to attach any of them to, and
-        // stays there. The same three `ui::sink::project::nav` draws enabled.
+        // reopen wherever the dialog was left. Only an existing project can carry tools, a task
+        // board, a drone origin or a knowledge base, so those four are the navs a live dialog
+        // answers to besides General — a folder not yet in the catalogue has no record to attach
+        // any of them to, and stays there. The same four `ui::sink::project::nav` draws enabled.
         if let Some(settings) = self.workbench.project_settings.as_mut() {
             let editing = matches!(settings.mode, ProjectSettingsMode::Edit { .. });
             if nav == ProjectNav::General
-                || (matches!(nav, ProjectNav::Tools | ProjectNav::Remote | ProjectNav::Kb)
-                    && editing)
+                || (matches!(
+                    nav,
+                    ProjectNav::Tools | ProjectNav::Tasks | ProjectNav::Remote | ProjectNav::Kb
+                ) && editing)
             {
                 settings.nav = nav;
                 cx.notify();

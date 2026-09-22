@@ -5,9 +5,9 @@ kind: wip
 status: current
 summary: How the Teams screen draws every open project's agents at once — a second rail entry in the APP group that the span is read off, one merged projection built from each project's `live_work`, an owner map that answers "whose agent is this" for every write the screen makes, and what the rail, the titlebar and a `ubiq://` link keep meaning when the canvas is about more than one project.
 read_when: you are changing what the Teams screen is scoped to, or adding a reader that must work when the canvas spans several projects
-updated: 2026-09-21
-verified: 2026-09-21
-code_anchors: [crates/ubiq/src/state/teams.rs, crates/ubiq/src/app/teams.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/ui/teams/mod.rs, crates/ubiq/src/ui/teams/graph.rs, crates/ubiq/src/ui/teams/inspector.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/tests/teams.rs]
+updated: 2026-09-22
+verified: 2026-09-22
+code_anchors: [crates/ubiq/src/state/teams.rs, crates/ubiq/src/app/teams.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/ui/teams/mod.rs, crates/ubiq/src/ui/teams/graph.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/tests/teams.rs]
 depends_on: [feat-workbench, tech-ui, wip-teams-layout-spike]
 ---
 
@@ -125,9 +125,11 @@ are about, and each one asks `teams_owner`:
 - **`select_in_teams`** points the shared transcript at the selection through
   `view_conversation_agent`, which resolves the project with `project_of_agent` before it writes —
   pointing a foreign card's transcript at a delegate is a write into the project that holds it.
-- **`ui::teams::graph` and `ui::teams::inspector`** read `app.teams_conversation(agent, cx)` for the
-  rings and for the transcript, which resolves through the owner map under the window span and is
-  the active project's answer under the project span.
+- **`ui::teams::graph`** reads `app.teams_conversation(agent, cx)` for the rings, for a card's own
+  spend and context reading, and for a delegate's — which resolves through the owner map under the
+  window span and is the active project's answer under the project span. There is no Teams
+  inspector any more; the transcript itself is read by the ordinary `ui::conversation` component,
+  in whichever `Chat` panel `open_teams_agent_panel` pointed at the selection.
 - **`settle_teams`** gathers `conversation.subagents()` for the ring map. Under the window span it
   gathers from every held project rather than from `open_project(cx)`.
 
@@ -136,12 +138,25 @@ projection — write-if-changed, so a settled canvas does not touch state every 
 
 ## The composer
 
-**One selection, one composer, one slot.** `TEAMS_SLOT` is a single slot in the fixed
-`COMPOSER_SLOTS` pool and stays that way: the inspector reports on one selection whatever the span
-is, so there is nothing here that wants a slot per project. `agent_for_slot(TEAMS_SLOT)` already
-answers `teams(cx)?.agent_in_focus()`, which is the merged view's answer under the window span with
-no change at all. What does change is the send: the path behind the composer resolves the
-conversation's project through the owner map rather than assuming the active one.
+**Teams has no composer of its own any more.** Selecting a card is `select_in_teams`'s cue to call
+`open_teams_agent_panel`, which reuses the project's first `Chat` panel in the right dock — or
+mints one — and attaches it to the selection, revealing the dock if it was put away. From there the
+conversation is an ordinary chat tab: its composer is that tab's own slot in the `COLUMNS_MAX..
+COLUMNS_MAX + CHATS_MAX` pool, the same as any other chat tab, and nothing about it is Teams-only.
+`open_teams_agent_panel` resolves the project through `project_of_agent` before it touches
+`self.projects`, the same guard every other write on this screen follows — a tab minted against the
+active project rather than the selected card's own would be attached to an id that project's
+`chats` never held under the window span.
+
+**The toolbar's own `+` opens the same panel with nothing attached.** Before any card is picked the
+right dock holds no `Chat` panel at all under `Teams`, unlike the IDE and KB modes, where a
+persistent agent's tab joins that dock at project entry (`settle_persistent_chat`) whether or not
+the region is open. `open_teams_new_agent_panel` closes that gap: it resolves the project through
+`self.project(cx)` — the span's own answer is not in play here, the button is drawn on the active
+project's toolbar — and shares `open_teams_agent_panel`'s reuse-or-mint step (`reuse_or_mint_chat`)
+so the two never grow a second tab between them. The revealed tab's own header
+(`ui::chat::sidebar::header`) is what then offers *New agent* or *attach existing*, exactly as any
+other chat tab's does — nothing Teams-specific past getting the panel on screen.
 
 ## What a card says about its project
 
@@ -200,8 +215,9 @@ a link built while the window span is up is still a link somebody in the project
 
 ## The reach the span opens up
 
-The Teams inspector draws the whole conversation component at `TEAMS_SLOT`, so the window span puts
-a foreign agent behind every listener in `ui/conversation/`, not only behind the four writes above.
+The `Chat` panel `open_teams_agent_panel` points at the selection draws the whole conversation
+component, so the window span puts a foreign agent behind every listener in `ui/conversation/`, not
+only behind the four writes above.
 Each of those resolves the agent's own project: `app/agents.rs`'s queue trio, `cancel_turn`,
 `answer_permission`, `fork_conversation`, `reveal_permission`, `recall_last_message`, the config
 picker and the panel and disclosure toggles all take `project_of_agent`, and the three lifecycle

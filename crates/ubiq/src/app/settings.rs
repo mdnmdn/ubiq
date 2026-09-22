@@ -231,6 +231,14 @@ impl AppState {
             SettingsLayer::Ui => {
                 let Some(blob) = value else { return };
                 if let Some(ui) = ui_settings::decode(&blob) {
+                    // The window-span graph has no per-project open moment to seed from the way
+                    // `sync_projects` seeds each `OpenProject::teams` — it exists for the life of
+                    // the window — so it takes the settings default here instead, the one time the
+                    // blob can plausibly still be the compiled-in default: a canvas the user has
+                    // since repicked an arrangement for is left alone.
+                    if self.teams_window.algo == crate::state::layout::Algo::default() {
+                        self.teams_window.algo = ui.teams_algo;
+                    }
                     self.workbench.settings.ui = ui;
                     // The blob can land after a project is open, so the trees are told again.
                     self.sync_explorer_hidden(cx);
@@ -480,6 +488,22 @@ impl AppState {
 
     pub fn set_markdown_open(&mut self, choice: MarkdownOpen, cx: &mut Context<Self>) {
         self.workbench.settings.ui.markdown_open = choice;
+        self.remember_settings();
+        cx.notify();
+    }
+
+    /// Pick the settings page's own Teams-arrangement default, by its row in `Algo::ALL`.
+    ///
+    /// **Never relayouts anything on screen.** This is the value a fresh graph seeds from
+    /// ([`Self::sync_projects`], and the window-span graph's own catch-up in
+    /// [`Self::apply_settings`]) — a canvas already open keeps whatever arrangement it was set to,
+    /// the toolbar's own `Picker` included.
+    pub fn set_teams_default_algo(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.close_menu(cx);
+        let Some(algo) = crate::state::layout::Algo::ALL.get(index).copied() else {
+            return;
+        };
+        self.workbench.settings.ui.teams_algo = algo;
         self.remember_settings();
         cx.notify();
     }

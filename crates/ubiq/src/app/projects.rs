@@ -23,16 +23,16 @@ impl AppState {
         input.update(cx, |input, cx| input.set_value(&hex, window, cx));
     }
 
-    /// Keeps the rail-initials field at two characters as it is typed, rather than only refusing a
-    /// third at Save — a field that silently accepted a longer string until then would look like it
-    /// had taken it.
+    /// Keeps the rail-initials field at three characters as it is typed, rather than only refusing
+    /// a fourth at Save — a field that silently accepted a longer string until then would look
+    /// like it had taken it.
     pub(super) fn clamp_project_initials_input(
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let text = self.project_initials_input.read(cx).value().to_string();
-        let clamped: String = text.chars().take(2).collect();
+        let clamped: String = text.chars().take(3).collect();
         if clamped != text {
             let input = self.project_initials_input.clone();
             input.update(cx, |input, cx| input.set_value(&clamped, window, cx));

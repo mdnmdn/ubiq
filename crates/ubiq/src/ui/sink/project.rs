@@ -1132,7 +1132,7 @@ fn general(app: &AppState, window: &Window, cx: &mut Context<AppState>, form: Fo
         ))
         .child(setting_row(
             "Rail initials",
-            "Up to two letters for the rail's badge, in place of the name's own first letter. \
+            "Up to three letters for the rail's badge, in place of the name's own first letter. \
              Empty leaves it derived from the name.",
             framed_active(
                 theme::border(),

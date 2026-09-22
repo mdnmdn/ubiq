@@ -5,7 +5,7 @@ kind: tech
 status: current
 summary: The GPUI rendering model, the complete theme token set and the rule that no colour escapes it, how a palette is switched, the shape every surface, modal and dialog is drawn in, the page every primitive is looked at on, and the design assets screens are built against.
 read_when: you are building or restyling a screen, adding a colour or a size, switching or extending a palette, raising a modal or the file picker, looking at a primitive on the style reference, or looking for the wireframe a layout came from
-updated: 2026-09-21
+updated: 2026-09-22
 verified: 2026-09-22
 code_anchors: [crates/ubiq/src/theme.rs, assets/icons/icons.yaml, _tools/icons.py, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/mark.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/colour.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/blocks.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/state/overlay.rs, crates/ubiq/src/ui/kit/ribbon.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/src/ui/kit/popover.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/tests/dismiss.rs, crates/ubiq/src/ui/remote_hosts.rs]
 depends_on: [tech-architecture]
@@ -711,17 +711,34 @@ worth reading once. Both take an id, because a tooltip needs a stateful element 
 same bargain `kit::elided` makes.
 
 The state dot itself is what a conversation's lifecycle reading is drawn as — no primitive of its
-own. `ui::conversation::lifecycle` derives one `Lifecycle` from the conversation's own fields
-(Starting, Ready, Waiting, Working carrying an `Activity`, Idle, Unloaded, Ended), and
-`lifecycle_dot` puts `lifecycle_colour`'s answer on a `status_dot`, with the word in a tooltip, one
-or two of them, never a sentence.
+own. `state::status::conversation_status` derives a `Status` from the conversation's own fields —
+**a pair**: a `Lifecycle` (Starting, Ready, Idle, Working, Waiting, Unloaded, Ended) and a `Doing`
+(Queued, Thinking, Writing, Tools, NeedsYou, Done, Failed, Unknown) — and `lifecycle_dot` puts
+`lifecycle_colour`'s answer on a `status_dot`, with `Status::label`'s word in a tooltip, one or two
+of them, never a sentence. **One vocabulary for agents and delegates alike**, which is why it sits
+in `state::status` rather than in a UI module; `ui::work` is the only place it becomes a colour or
+a glyph, and `theme.rs` the only place a colour has a value.
+
+**Where a mark has room for both halves it is a hexagon, and that is `kit::hex_mark(border, fill,
+side)`.** The outer hexagon is a *stroke only* — it has no fill of its own, so whatever it sits on
+shows through and the mark cannot become a second background for the block it is on — and it takes
+the lifecycle's colour. A smaller filled hexagon inside it takes the activity's or the result's.
+The two readings are then independent: a lifecycle transition changes the border without destroying
+the activity reading, and a result changes the fill without claiming the execution is still going.
+`fill` is `None` where nothing reports an activity, which draws the outline alone rather than a
+guessed colour. It is flat-topped so it sits beside a line of text without pushing the row taller,
+and the hexagon is deliberately the only non-rectilinear silhouette in the window: this window draws
+no radii, so a status mark has no rounded badge to be told apart by and gets a shape instead.
+`ui::teams::status::status_mark` is the one caller today, on Teams agent cards and delegate cards.
 
 **A state dot has four readings and only four: `warning` wants you, `info` is working, `success` is
 idle, `text_faint` has stopped.** What a dot read at a glance across a window full of columns has
 to answer is whether that conversation wants the reader, and four colours is as many as the glance
-holds — so every working turn is one `info` rather than `Activity`'s own palette, which kind of work
-being a question the transcript beside it answers. Every value is a status token the window
-gives that meaning elsewhere, so a dot invents no colour.
+holds — so every working turn is one `info` rather than a palette per activity, which kind of work
+being the `Doing` half's question and answered beside the dot rather than inside it. Every value is
+a status token the window gives that meaning elsewhere, so a dot invents no colour.
+`ui::work::doing_colour` is the activity's own four — `info` moving, `warning` blocked, `success`
+returned, `danger` failed, `text_faint` queued or unreported — drawn from the same token set.
 
 **Two of the four move, and that is the fifth fact about the dot: `Waiting` and `Working` pulse, the
 other two are still.** `lifecycle_pulses` is the rule — those two are the readings something is

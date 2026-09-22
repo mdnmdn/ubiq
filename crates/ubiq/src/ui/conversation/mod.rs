@@ -224,79 +224,21 @@ pub fn render(
     root.into_any_element()
 }
 
-/// The conversation's state, as one glyph reads it — derived rather than stored, so `Conversation`
-/// carries no field for it beside `launched`, `run`, `blocks` and `accepts_input`: those are the one
-/// source of truth, and [`lifecycle`] is the one place that reads them into a single answer.
+/// The conversation's state, as one glyph reads it.
 ///
-/// **`Unloaded` and `Starting` are both `!launched`.** What tells them apart is `blocks`, not a flag
-/// of its own — a harness that is gone still leaves what it said; a harness never started leaves
-/// nothing. That is why [`lifecycle`] tests the transcript rather than adding a second flag next to
-/// `launched`.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Lifecycle {
-    /// A harness is being chosen: nothing has run, and its config has not arrived yet.
-    Starting,
-    /// Config is in hand and nothing blocks the next turn from launching one.
-    Ready,
-    /// A turn is in flight and blocked on a human. Outranks [`Self::Working`] because it is the
-    /// one state that needs the reader to do something, and the one the title's dot exists to
-    /// carry across a window they are not looking at.
-    Waiting,
-    /// A turn is in flight. Carries which kind, so the tooltip reads Thinking, Writing or Tools
-    /// rather than flattening every turn to one word. Never `Activity::NeedsYou` — a blocked turn
-    /// is [`Self::Waiting`], which is tested before this.
-    Working(Activity),
-    /// Loaded, and waiting on the next turn.
-    Idle,
-    /// The harness is gone; the transcript is not.
-    Unloaded,
-    /// Takes no more turns.
-    Ended,
-}
-
-impl Lifecycle {
-    /// The one or two words the tooltip says. Never a sentence — the whole point of a glyph
-    /// standing in for the prose P7 drew above the composer.
-    pub fn label(self) -> String {
-        match self {
-            Lifecycle::Starting => "Starting".to_string(),
-            Lifecycle::Ready => "Ready".to_string(),
-            Lifecycle::Waiting => "Needs you".to_string(),
-            Lifecycle::Working(activity) => format!("Working \u{b7} {}", activity.label()),
-            Lifecycle::Idle => "Idle".to_string(),
-            Lifecycle::Unloaded => "Unloaded".to_string(),
-            Lifecycle::Ended => "Ended".to_string(),
-        }
-    }
-}
-
-/// Read the conversation's own fields into the one state the glyph draws.
+/// **It is not this module's enum any more.** A main agent, an agent card and a delegate all
+/// report the same two things now — a lifecycle and an activity — and the dictionaries live in
+/// [`crate::state::status`], one layer below every surface that draws them. This module keeps the
+/// *presentation*: which glyph, which colour, which of them pulses, and the menu behind the mark.
 ///
-/// Order matters: ended outranks everything (a harness taking no more turns is not "working" just
-/// because a race left `run` behind), a question outranks the turn it is blocking, a turn in flight
-/// outranks idle, and only once none of those applies does whether it has ever launched — and, if
-/// not, whether it has a transcript — decide the rest.
+/// The pair, rather than one enum, is what lets `Ended \u{b7} Done` be drawn as a delegate that stopped
+/// *well* — the reading a single enum could only get by adding a state that meant two things.
+pub use crate::state::status::{Doing, Lifecycle, Status, conversation_status, delegate_status};
+
+/// The conversation's lifecycle alone, for the surfaces that draw a dot rather than a pair.
+/// [`conversation_status`] is the whole answer; this is its first half.
 pub fn lifecycle(conversation: &Conversation) -> Lifecycle {
-    if conversation.run == Run::Ended || !conversation.accepts_input {
-        return Lifecycle::Ended;
-    }
-    if !conversation.pending.is_empty() {
-        return Lifecycle::Waiting;
-    }
-    if conversation.run == Run::Working {
-        return Lifecycle::Working(conversation.activity());
-    }
-    if conversation.launched {
-        return Lifecycle::Idle;
-    }
-    if !conversation.blocks.is_empty() {
-        return Lifecycle::Unloaded;
-    }
-    if conversation.config.is_empty() {
-        Lifecycle::Starting
-    } else {
-        Lifecycle::Ready
-    }
+    conversation_status(conversation).lifecycle
 }
 
 /// Which row of [`lifecycle_menu_rows`] the dump toggle is. Named because [`lifecycle_menu`] has
@@ -553,32 +495,21 @@ pub fn lifecycle_menu(
 /// a tab's dot, the sidebar's dot — so this is that same mark, coloured and captioned by
 /// [`Lifecycle`].
 fn lifecycle_glyph(conversation: &Conversation, view: &ConversationView) -> AnyElement {
-    let state = lifecycle(conversation);
+    let status = conversation_status(conversation);
+    let state = status.lifecycle;
     let colour = lifecycle_colour(state);
-    let label = state.label();
+    // The precise pair, which is what the tooltip is for: `Working \u{b7} Tools` rather than the one
+    // word the glyph itself can carry.
+    let label = status.label();
     // The three quiet states keep the plain dot — colour alone answers them. The four a reader
     // acts on get the shape the registry drew for exactly this: `pane-awaiting` and
     // `pane-thinking` are canon, `pane-unloaded` and Lucide's own `CircleX` round out the set.
-    let mark = match state {
-        Lifecycle::Waiting => Icon::new(UbiqIcon::PaneAwaiting)
+    let mark = match crate::ui::work::lifecycle_icon(state) {
+        Some(icon) if state != Lifecycle::Idle && state != Lifecycle::Ready => icon
             .with_size(Size::XSmall)
             .text_color(colour)
             .into_any_element(),
-        Lifecycle::Working(_) => Icon::new(UbiqIcon::PaneThinking)
-            .with_size(Size::XSmall)
-            .text_color(colour)
-            .into_any_element(),
-        Lifecycle::Unloaded => Icon::new(UbiqIcon::PaneUnloaded)
-            .with_size(Size::XSmall)
-            .text_color(colour)
-            .into_any_element(),
-        Lifecycle::Ended => Icon::new(IconName::CircleX)
-            .with_size(Size::XSmall)
-            .text_color(colour)
-            .into_any_element(),
-        Lifecycle::Starting | Lifecycle::Ready | Lifecycle::Idle => {
-            status_dot(colour, theme::pane_bg()).into_any_element()
-        }
+        _ => status_dot(colour, theme::pane_bg()).into_any_element(),
     };
     div()
         .id(view.eid("lifecycle-glyph"))
@@ -680,25 +611,10 @@ pub fn persistence_mark(id: impl Into<ElementId>) -> AnyElement {
         .into_any_element()
 }
 
-/// The colour a lifecycle dot draws — four readings, and only four.
-///
-/// **Yellow needs you, blue is working, green is idle, grey is stopped.** The dot is read at a
-/// glance from across a window full of columns, so what it has to answer is "does this one want
-/// me", and four colours is as many as that glance can hold. `Working` is one blue rather than
-/// `Activity`'s own palette for the same reason: which *kind* of work is a question the reader is
-/// already looking at the transcript to answer, and spending the dot on it costs the one reading
-/// nothing else carries.
-///
-/// Every value is a status token the window already assigns this meaning, so a dot never invents
-/// a colour.
-pub fn lifecycle_colour(state: Lifecycle) -> Rgba {
-    match state {
-        Lifecycle::Waiting => theme::warning(),
-        Lifecycle::Working(_) => theme::info(),
-        Lifecycle::Ready | Lifecycle::Idle => theme::success(),
-        Lifecycle::Starting | Lifecycle::Unloaded | Lifecycle::Ended => theme::text_faint(),
-    }
-}
+/// The colour a lifecycle dot draws — [`crate::ui::work::lifecycle_colour`]'s, re-exported here
+/// because this module is where every surface that draws a conversation already looks. One
+/// function, so a chat tab's dot, a column's dot and a Teams hexagon's border cannot disagree.
+pub use crate::ui::work::lifecycle_colour;
 
 /// Whether the dot for a reading moves, which is the other half of what it says.
 ///
@@ -709,7 +625,7 @@ pub fn lifecycle_colour(state: Lifecycle) -> Rgba {
 /// at each call site, so a reader who asked for stillness gets the same still dot on every surface
 /// that draws one.
 pub fn lifecycle_pulses(state: Lifecycle, cx: &App) -> bool {
-    matches!(state, Lifecycle::Waiting | Lifecycle::Working(_)) && !cx.reduce_motion()
+    state.active() && !cx.reduce_motion()
 }
 
 /// The state dot itself — the one element every surface that reports a conversation draws.
@@ -1813,6 +1729,7 @@ fn sent_attachment_tags(
                 fill,
                 edge,
                 colour,
+                false,
                 cx.listener(move |this, _, _, cx| {
                     this.open_attachment_preview(agent, attachment, open.clone(), size, cx)
                 }),
@@ -3419,12 +3336,12 @@ fn activity_bar(
 
     let left = (!subagents.is_empty()).then(|| {
         let open = panel_open == Some(ActivityPanel::Subagents);
-        let state = lifecycle(conversation);
+        let state = conversation_status(conversation);
         let main_waiting = conversation.pending_count(None);
         let (main_status, main_colour) = if main_waiting > 0 {
             (needs_you_label(main_waiting), theme::warning())
         } else {
-            (state.label(), lifecycle_colour(state))
+            (state.label(), crate::ui::work::status_colour(state))
         };
         let mut rows: Vec<AnyElement> = vec![agent_row(
             view.eid("agent-tag-main"),
@@ -3445,14 +3362,14 @@ fn activity_bar(
         )];
         rows.extend(subagents.iter().map(|tab| {
             let target = tab.id.clone();
-            // A delegate waiting on a human says so in place of what it was doing.
+            // The same pair the main row above reads, off the delegate instead of the
+            // conversation. A delegate blocked on several questions says how many, which is the
+            // one thing the shared vocabulary has no room for.
+            let pair = delegate_status(tab);
             let (status, colour) = if tab.waiting > 0 {
                 (needs_you_label(tab.waiting), theme::warning())
             } else {
-                match tab.status {
-                    Some(status) => (status_label(status).to_string(), status_colour(status)),
-                    None => ("unknown".to_string(), theme::text_faint()),
-                }
+                (pair.label(), crate::ui::work::status_colour(pair))
             };
             agent_row(
                 view.eid(&format!("agent-tag-{}", tab.id)),
@@ -3473,14 +3390,13 @@ fn activity_bar(
         }));
 
         let count = subagents.len();
+        // What is still going. A delegate that came back is `Ended` whatever its result says, so
+        // it never lands in this count; one whose spawning call the transcript does not hold says
+        // nothing, so it does not either.
         let active = subagents
             .iter()
-            .filter(|tab| {
-                matches!(
-                    tab.status,
-                    Some(ToolStatus::Pending | ToolStatus::InProgress)
-                )
-            })
+            .map(delegate_status)
+            .filter(|pair| pair.lifecycle != Lifecycle::Ended && pair.doing != Doing::Unknown)
             .count();
         activity_chip(
             view.eid("agent-switcher-header"),
@@ -3826,6 +3742,7 @@ fn attachment_tags(
                 fill,
                 edge,
                 colour,
+                false,
                 cx.listener(move |this, _, _, cx| this.select_file(open.clone(), cx)),
                 cx.listener(move |this, _, _, cx| this.detach_file(agent_id, attachment, cx)),
             )

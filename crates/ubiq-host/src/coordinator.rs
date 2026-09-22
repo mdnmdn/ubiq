@@ -18,7 +18,7 @@ use ubiq_proto::bus::{ClientId, FromClient, HostEnd, MovingAddress, To};
 use ubiq_proto::conversation::{
     ConfigCategory, ConfigChoice, ConfigOption, ConfigValue, ConvUpdate, StopReason,
 };
-use ubiq_proto::files::FileError;
+use ubiq_proto::files::{FileError, FileVersion};
 use ubiq_proto::ids::{
     KbSourceId, PaneId, ProjectId, SearchId, SessionId, SshProfileId, SuggestId, TaskId, ToolId,
 };
@@ -1904,6 +1904,17 @@ impl Coordinator {
                 self.browse_job(client, path);
             }
 
+            // ── the host file family ─────────────────────────────────
+            // The write half of a guest tab: an absolute path, no project to look up either, so
+            // straight to the worker on `browse_job`'s own reasoning.
+            Message::WriteHostFile {
+                path,
+                bytes,
+                expected,
+            } => {
+                self.host_write_job(client, path, bytes, expected);
+            }
+
             // ── the file family ─────────────────────────────────────
             // Five arms, no syscall: the record is a lookup in memory and the work goes to the
             // worker with the root it resolved against.
@@ -2346,12 +2357,24 @@ impl Coordinator {
                 project_id,
                 task_id,
                 body,
+                expected,
             } => {
                 // `SavePlan` is the interface's message and nothing else sends it, so the origin
                 // is settled here and never looked at again. An agent's save arrives through
                 // `ubiq-plan`'s `write_plan` and never becomes this message.
+                //
+                // `expected` is mandatory on the wire and is passed straight through: the window
+                // never gets to skip the check, so a save made against a watermark somebody has
+                // moved past is refused here with `PlanConflict` rather than landing on top of a
+                // copy its author never read.
                 self.plan_job(client, project_id, |plans| {
-                    plans.save(project_id, task_id, body, &crate::plan::Saver::human())
+                    plans.save(
+                        project_id,
+                        task_id,
+                        body,
+                        &crate::plan::Saver::human(),
+                        Some(expected),
+                    )
                 });
             }
             Message::DeletePlan {
@@ -4372,6 +4395,25 @@ impl Coordinator {
     fn browse_job(&self, client: ClientId, path: Option<String>) {
         self.files.submit(files::Job {
             kind: files::JobKind::Browse { path },
+            reply_to: self.host.mailbox(To::Client(client)),
+        });
+    }
+
+    /// Hand one host-file write to the worker, on [`Self::browse_job`]'s own reasoning: no
+    /// project to look up, so nothing to refuse here before it reaches the thread that answers it.
+    fn host_write_job(
+        &self,
+        client: ClientId,
+        path: String,
+        bytes: Vec<u8>,
+        expected: FileVersion,
+    ) {
+        self.files.submit(files::Job {
+            kind: files::JobKind::HostWrite {
+                path,
+                bytes,
+                expected,
+            },
             reply_to: self.host.mailbox(To::Client(client)),
         });
     }

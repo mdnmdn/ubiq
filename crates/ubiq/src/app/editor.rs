@@ -456,6 +456,39 @@ impl AppState {
         self.close_editor_tabs_filtered(|ix, _| range.contains(&ix), cx);
     }
 
+    /// Send one text tab's write, `WriteHostFile` for a guest tab (an absolute path, no project
+    /// to name) and `WriteProjectFile` otherwise — the branch `OpenFile::guest`'s own doc points
+    /// at. `savable()` already required a version before either save path called this, so `guest`
+    /// with no `expected` is unreached; skipping rather than sending a message the host would
+    /// refuse anyway costs nothing and needs no `unwrap`.
+    fn send_file_write(
+        &self,
+        project: ProjectId,
+        guest: bool,
+        path: String,
+        bytes: Vec<u8>,
+        expected: Option<FileVersion>,
+    ) {
+        if guest {
+            let Some(expected) = expected else {
+                return;
+            };
+            self.bus.send(Message::WriteHostFile {
+                path,
+                bytes,
+                expected,
+            });
+        } else {
+            self.bus.send(Message::WriteProjectFile {
+                project_id: project,
+                rel_path: path,
+                bytes,
+                expected,
+                overwrite: false,
+            });
+        }
+    }
+
     /// Write the file behind one tab — not just the active one — back, so a context menu can save
     /// the tab it was opened on. The save is `save_active_file`'s, with the file named by its tab
     /// key instead of by whatever tab happens to be on screen.
@@ -493,19 +526,13 @@ impl AppState {
             return;
         };
         let text = buffer.read(cx).value().to_string();
-        let (rel_path, expected) = (file.path.clone(), file.version());
+        let (path, expected, guest) = (file.path.clone(), file.version(), file.guest);
         if let Some(open) = self.projects.get_mut(&project)
-            && let Some(file) = open.editor.find_mut(&rel_path)
+            && let Some(file) = open.editor.find_mut(&path)
         {
             file.mark_saving(text.clone());
         }
-        self.bus.send(Message::WriteProjectFile {
-            project_id: project,
-            rel_path,
-            bytes: text.into_bytes(),
-            expected,
-            overwrite: false,
-        });
+        self.send_file_write(project, guest, path, text.into_bytes(), expected);
         cx.notify();
     }
 
@@ -1107,20 +1134,14 @@ impl AppState {
             return;
         };
         let text = buffer.read(cx).value().to_string();
-        let (rel_path, expected) = (file.path.clone(), file.version());
+        let (path, expected, guest) = (file.path.clone(), file.version(), file.guest);
 
         if let Some(open) = self.projects.get_mut(&project)
-            && let Some(file) = open.editor.find_mut(&rel_path)
+            && let Some(file) = open.editor.find_mut(&path)
         {
             file.mark_saving(text.clone());
         }
-        self.bus.send(Message::WriteProjectFile {
-            project_id: project,
-            rel_path,
-            bytes: text.into_bytes(),
-            expected,
-            overwrite: false,
-        });
+        self.send_file_write(project, guest, path, text.into_bytes(), expected);
         cx.notify();
     }
 
@@ -1290,10 +1311,10 @@ impl AppState {
             .and_then(|file| {
                 file.image_edit().and_then(|edit| {
                     edit.flatten()
-                        .map(|png| (file.path.clone(), edit.version, png))
+                        .map(|png| (file.path.clone(), edit.version, file.guest, png))
                 })
             });
-        let Some((rel_path, expected, png)) = flat else {
+        let Some((path, expected, guest, png)) = flat else {
             if let Some(open) = self.projects.get_mut(&project)
                 && let Some(file) = open.editor.find_key_mut(key)
             {
@@ -1303,17 +1324,11 @@ impl AppState {
             return;
         };
         if let Some(open) = self.projects.get_mut(&project)
-            && let Some(file) = open.editor.find_mut(&rel_path)
+            && let Some(file) = open.editor.find_mut(&path)
         {
             file.mark_saving(String::new());
         }
-        self.bus.send(Message::WriteProjectFile {
-            project_id: project,
-            rel_path,
-            bytes: png,
-            expected,
-            overwrite: false,
-        });
+        self.send_file_write(project, guest, path, png, expected);
         cx.notify();
     }
 

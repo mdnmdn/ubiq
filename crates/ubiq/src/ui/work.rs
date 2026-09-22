@@ -11,6 +11,7 @@ use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use ubiq_proto::work::{Activity, Bucket};
 
+use crate::state::status::{Doing, Lifecycle, Status};
 use crate::theme;
 use crate::ui::kit::UbiqIcon;
 
@@ -41,6 +42,83 @@ pub fn role_icon(role: &str) -> Icon {
         "documentation" => Icon::new(IconName::BookOpen),
         _ => Icon::new(UbiqIcon::RoleWorker),
     }
+}
+
+/// What a [`Lifecycle`] reads as — four colours, and only four.
+///
+/// **Yellow needs you, blue is working, green is alive and idle, grey is stopped.** A lifecycle is
+/// read at a glance from across a window full of columns, so what it has to answer is "does this
+/// one want me". `Working` is one blue rather than a palette per activity for the same reason:
+/// *which kind* of work is the [`Doing`] half's question, and it is answered beside this, not
+/// instead of it.
+pub fn lifecycle_colour(state: Lifecycle) -> Rgba {
+    match state {
+        Lifecycle::Waiting => theme::warning(),
+        Lifecycle::Working => theme::info(),
+        Lifecycle::Ready | Lifecycle::Idle => theme::success(),
+        Lifecycle::Starting | Lifecycle::Unloaded | Lifecycle::Ended => theme::text_faint(),
+    }
+}
+
+/// What a [`Doing`] reads as. The three ways of working share one token, because they are one
+/// answer to "is it moving"; a result takes the token the window already gives that outcome
+/// everywhere else, so a delegate that came back is the same green as a passing check.
+pub fn doing_colour(doing: Doing) -> Rgba {
+    match doing {
+        Doing::Thinking | Doing::Writing | Doing::Tools => theme::info(),
+        Doing::NeedsYou => theme::warning(),
+        Doing::Done => theme::success(),
+        Doing::Failed => theme::danger(),
+        Doing::Queued | Doing::Unknown => theme::text_faint(),
+    }
+}
+
+/// The one colour a chip, a card's edge or a row takes for the pair: the activity's where there is
+/// one, the lifecycle's where the activity says nothing. A surface with room for two marks draws
+/// both halves — [`crate::ui::kit::hex_mark`] is the one that does — and a surface with room for
+/// one draws this.
+pub fn status_colour(status: Status) -> Rgba {
+    match status.doing {
+        Doing::Unknown => lifecycle_colour(status.lifecycle),
+        doing => doing_colour(doing),
+    }
+}
+
+/// The glyph an activity or a result wears. `None` is [`Doing::Unknown`]: an activity nothing
+/// reports is drawn as nothing rather than as a guess.
+pub fn doing_icon(doing: Doing) -> Option<Icon> {
+    Some(match doing {
+        Doing::Queued => Icon::new(IconName::Pause),
+        // The harness is working with nothing measurable to report — the goal `pane-thinking` was
+        // drawn for.
+        Doing::Thinking => Icon::new(UbiqIcon::PaneThinking),
+        Doing::Writing => Icon::new(UbiqIcon::PaneWriting),
+        Doing::Tools => Icon::new(UbiqIcon::PaneTools),
+        // The one state a reader has to act on, and the one mark the window already uses for it.
+        Doing::NeedsYou => Icon::new(UbiqIcon::PaneAwaiting),
+        Doing::Done => Icon::new(IconName::CircleCheck),
+        Doing::Failed => Icon::new(IconName::TriangleAlert),
+        Doing::Unknown => return None,
+    })
+}
+
+/// The glyph a lifecycle wears where the activity has none to lend.
+pub fn lifecycle_icon(state: Lifecycle) -> Option<Icon> {
+    Some(match state {
+        Lifecycle::Waiting => Icon::new(UbiqIcon::PaneAwaiting),
+        Lifecycle::Working => Icon::new(UbiqIcon::PaneThinking),
+        Lifecycle::Unloaded => Icon::new(UbiqIcon::PaneUnloaded),
+        // The same mark the conversation header draws for a harness that has gone.
+        Lifecycle::Ended => Icon::new(IconName::CircleX),
+        Lifecycle::Idle | Lifecycle::Ready => Icon::new(IconName::Pause),
+        Lifecycle::Starting => return None,
+    })
+}
+
+/// The pair's glyph: the activity's, falling back to the lifecycle's. `None` only where neither
+/// half has anything to say.
+pub fn status_icon(status: Status) -> Option<Icon> {
+    doing_icon(status.doing).or_else(|| lifecycle_icon(status.lifecycle))
 }
 
 /// A role's glyph, at the size a card, a column header and the inspector all draw it.

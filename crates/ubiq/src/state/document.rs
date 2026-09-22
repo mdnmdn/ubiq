@@ -156,10 +156,12 @@ pub struct DocumentEditor {
     pub stale_origin: Option<SaveOrigin>,
     /// The user has been shown what a stale save would overwrite and asked again anyway.
     ///
-    /// **This is the whole of the guard, and it is a confirmation rather than a lock**: `SavePlan`
-    /// carries no expected revision, so the host cannot refuse a save made against an old
-    /// watermark. Cleared whenever the host's copy moves again, so one confirmation covers one
-    /// revision and never the next one.
+    /// **This is a confirmation, not the guard.** The guard is on the wire: `SavePlan` names the
+    /// revision it expects to replace and the host refuses it with `PlanConflict` otherwise, so a
+    /// save landing between the question and the answer cannot be overwritten by it. What this
+    /// decides is only whether the next press names `revision` or `host_revision`. Cleared
+    /// whenever the host's copy moves again, so one confirmation covers one revision and never
+    /// the next one.
     pub confirm_overwrite: bool,
     /// A save is in flight: the surface waits for the host's answer before calling itself clean.
     pub saving: bool,
@@ -271,6 +273,23 @@ impl DocumentEditor {
         self.stale = false;
         self.confirm_close = false;
         self.decor_stale = true;
+    }
+
+    /// The host refused a save because the document had moved past the revision it named. Nothing
+    /// was written, so **the buffer is left exactly as it is** — that is the difference between
+    /// being refused and silently losing the work.
+    ///
+    /// The surface is put back where a third-party save would have put it: stale, holding an
+    /// unsaved edit, naming who moved the copy, and with the confirmation cleared so the question
+    /// is asked again about *this* revision. `revision` is taken as the host's word, so the press
+    /// that follows names it rather than something already overtaken.
+    pub fn save_refused(&mut self, revision: PlanRevision, origin: SaveOrigin) {
+        self.saving = false;
+        self.host_revision = revision;
+        self.stale = true;
+        self.dirty = true;
+        self.stale_origin = Some(origin);
+        self.confirm_overwrite = false;
     }
 
     /// The host restated the block index and the threads: the decorations are the join of the

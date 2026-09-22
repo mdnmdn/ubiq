@@ -1106,10 +1106,14 @@ pub struct Preset {
 
 /// Every scenario in `_tools/teamsim/scenarios/`, embedded. The Python tool beside them reads the
 /// same files, so a scenario added there is a preset in both halves of the spike.
-pub const PRESETS: [Preset; 7] = [
+pub const PRESETS: [Preset; 8] = [
     Preset {
         name: "solo",
         source: include_str!("../../../../_tools/teamsim/scenarios/solo.json"),
+    },
+    Preset {
+        name: "loose-coordinators",
+        source: include_str!("../../../../_tools/teamsim/scenarios/loose-coordinators.json"),
     },
     Preset {
         name: "chain",

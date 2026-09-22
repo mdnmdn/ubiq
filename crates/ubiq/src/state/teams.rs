@@ -27,11 +27,10 @@
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
-use ubiq_proto::conversation::ToolStatus;
 use ubiq_proto::ids::{ProjectId, SessionId, TaskId};
-use ubiq_proto::work::{Activity, AgentId, Bucket, TaskRecord, WorkAgent};
+use ubiq_proto::work::{AgentId, Bucket, TaskRecord, WorkAgent};
 
-use super::conversation::{Conversation, Run, SubagentTab};
+use super::conversation::SubagentTab;
 use super::work::WorkProjection;
 
 pub use super::layout::{
@@ -135,139 +134,17 @@ pub fn window_work(
     (merged, owner)
 }
 
-/// What a card says it is doing, at the grain the canvas can draw a mark for.
+/// What a card says it is doing — the *shared* vocabulary, not one of this mode's own.
 ///
-/// **One state more than [`Activity`] has, and it is one the data already carries.** The record's
-/// activity collapses "finished its turn and is waiting for you to type" into `Ended`, because the
-/// host classifies a conversation without knowing whether its harness is still there. The window
-/// does know — a live [`Conversation`] keeps [`Run`] beside its stop reason — so a card drawn in
-/// this mode tells the two apart: [`AgentStatus::Idle`] is a harness still running with nothing to
-/// do, [`AgentStatus::Ended`] is one that has gone.
-///
-/// Nothing beyond that is invented. Every other state is the activity the record or the live
-/// conversation already reports, renamed here so one enum covers both readings.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum AgentStatus {
-    Thinking,
-    Writing,
-    Tools,
-    NeedsYou,
-    /// Alive, its last turn finished, waiting on a human to say something next.
-    Idle,
-    Ended,
-    Failed,
-}
+/// **An agent and a delegate say the same things now.** They used to have an enum each, and the
+/// two disagreed about the one fact that matters most: a delegate reading `Done` was still counted
+/// as running. [`super::status`] holds the pair both speak, and this mode re-exports it so a
+/// reader of the canvas has one place to look.
+pub use super::status::{Doing, Lifecycle, Status, agent_status, delegate_status};
 
-impl AgentStatus {
-    pub fn label(self) -> &'static str {
-        match self {
-            AgentStatus::Idle => "Idle",
-            AgentStatus::Thinking => Activity::Thinking.label(),
-            AgentStatus::Writing => Activity::Writing.label(),
-            AgentStatus::Tools => Activity::Tools.label(),
-            AgentStatus::NeedsYou => Activity::NeedsYou.label(),
-            AgentStatus::Ended => Activity::Ended.label(),
-            AgentStatus::Failed => Activity::Failed.label(),
-        }
-    }
-
-    /// Which filter bucket — and so which colour — the state reads in. An idle agent is waiting on
-    /// the reader exactly as one asking a permission question is, so the two share a bucket and
-    /// are told apart by their glyph.
-    pub fn bucket(self) -> Bucket {
-        match self {
-            AgentStatus::Thinking | AgentStatus::Writing | AgentStatus::Tools => Bucket::Running,
-            AgentStatus::NeedsYou | AgentStatus::Idle => Bucket::Waiting,
-            AgentStatus::Ended => Bucket::Ended,
-            AgentStatus::Failed => Bucket::Error,
-        }
-    }
-
-    fn from_activity(activity: Activity) -> Self {
-        match activity {
-            Activity::Thinking => AgentStatus::Thinking,
-            Activity::Writing => AgentStatus::Writing,
-            Activity::Tools => AgentStatus::Tools,
-            Activity::NeedsYou => AgentStatus::NeedsYou,
-            Activity::Ended => AgentStatus::Ended,
-            Activity::Failed => AgentStatus::Failed,
-        }
-    }
-}
-
-/// What a card is doing, read off the live conversation where the window holds one and off the
-/// record where it does not.
-///
-/// The conversation is the better witness of the two — it is the stream itself, and the record is
-/// the host's periodic reading of it — so it wins wherever it exists, with the record as the
-/// honest fallback.
-pub fn agent_status(agent: &WorkAgent, conversation: Option<&Conversation>) -> AgentStatus {
-    let Some(conversation) = conversation else {
-        return AgentStatus::from_activity(agent.activity);
-    };
-    let status = AgentStatus::from_activity(conversation.activity());
-    // The one refinement: a turn that has stopped on a harness that has not.
-    match (status, conversation.run) {
-        (AgentStatus::Ended, Run::Idle) => AgentStatus::Idle,
-        _ => status,
-    }
-}
-
-/// What one delegate in a card's ring is doing.
-///
-/// **Only what the spawning call says.** A delegate is a stamp on a transcript's lines rather than
-/// a record of its own, so the states here are the four a [`ToolStatus`] has plus the permission
-/// count the tab already carries — and [`DelegateStatus::Unknown`], which is drawn as no mark at
-/// all, because a call that is not in the transcript tells the window nothing to draw.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum DelegateStatus {
-    Queued,
-    Working,
-    NeedsYou,
-    Done,
-    Failed,
-    Unknown,
-}
-
-impl DelegateStatus {
-    pub fn label(self) -> &'static str {
-        match self {
-            DelegateStatus::Queued => "Queued",
-            DelegateStatus::Working => "Working",
-            DelegateStatus::NeedsYou => "Needs you",
-            DelegateStatus::Done => "Done",
-            DelegateStatus::Failed => "Error",
-            DelegateStatus::Unknown => "Unknown",
-        }
-    }
-
-    pub fn bucket(self) -> Bucket {
-        match self {
-            DelegateStatus::Working => Bucket::Running,
-            DelegateStatus::Queued | DelegateStatus::NeedsYou => Bucket::Waiting,
-            DelegateStatus::Done | DelegateStatus::Unknown => Bucket::Ended,
-            DelegateStatus::Failed => Bucket::Error,
-        }
-    }
-}
-
-/// A delegate's state: the question it is blocked on if it has one, and otherwise what its
-/// spawning call last said.
-pub fn delegate_status(tab: &SubagentTab) -> DelegateStatus {
-    if tab.waiting > 0 {
-        return DelegateStatus::NeedsYou;
-    }
-    match tab.status {
-        Some(ToolStatus::Pending) => DelegateStatus::Queued,
-        Some(ToolStatus::InProgress) => DelegateStatus::Working,
-        Some(ToolStatus::Completed) => DelegateStatus::Done,
-        Some(ToolStatus::Failed) => DelegateStatus::Failed,
-        None => DelegateStatus::Unknown,
-    }
-}
-
-/// What the inspector and the tasks strip are about. A session, an agent and one of an agent's
-/// delegates are all selectable, and the three answer the same questions at different scales.
+/// What the right dock's conversation and the tasks strip are about. A session, an agent and one
+/// of an agent's delegates are all selectable, and the three answer the same questions at
+/// different scales.
 ///
 /// **A delegate is not an agent.** The host reports no `WorkAgent` for one — `parent` is always
 /// `None` on the wire — so a subagent is named by the conversation it spoke in plus the id of the
@@ -281,7 +158,10 @@ pub enum TeamsSelection {
     Subagent { agent: AgentId, subagent: String },
 }
 
-/// Which half of the inspector is showing.
+/// Which half of `[Teams]`'s inspector is showing. `Teams` has no inspector of its own — a
+/// selection opens a `Chat` panel in the right dock instead — but keeps the field for the link
+/// grammar `ubiq://` deep links share with `[Teams]` (`state/nav/text.rs`), and sets it to `Chat`
+/// wherever it points at an agent.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TeamsInspectorTab {
     Chat,
@@ -356,8 +236,8 @@ pub struct TeamsView {
 
     /// Which session the graph is drawing, or every one of them. Its own field rather than a
     /// reading of `selection`, because which session is *shown* and which is *selected* are two
-    /// questions: the inspector and the drawer report on the second, and clearing the first must
-    /// not throw the second away.
+    /// questions: the drawer reports on the second, and clearing the first must not throw the
+    /// second away.
     pub session: Option<SessionId>,
     /// Which buckets the graph is showing. **Empty is no filter, not nothing** — a card in a hidden
     /// bucket is not drawn, and neither are the connectors into it, so a row with every pill off
@@ -380,7 +260,6 @@ pub struct TeamsView {
     pub zoom: f32,
     pub selection: Option<TeamsSelection>,
     pub tab: TeamsInspectorTab,
-    pub show_inspector: bool,
     pub tasks_open: bool,
 
     /// Which delegates each card is drawing, in the order the transcript named them, as of the
@@ -399,8 +278,8 @@ pub struct TeamsView {
 }
 
 /// The screen as it opens: every session and every state showing, zoomed out far enough to see the
-/// work whole, the inspector up on the thread and the tasks drawer shut. Written out rather than
-/// derived, because the derived zero of a zoom is a graph nobody can see.
+/// work whole and the tasks drawer shut. Written out rather than derived, because the derived zero
+/// of a zoom is a graph nobody can see.
 impl Default for TeamsView {
     fn default() -> Self {
         Self {
@@ -414,7 +293,6 @@ impl Default for TeamsView {
             // selection at the first agent the moment the work arrives.
             selection: None,
             tab: TeamsInspectorTab::Chat,
-            show_inspector: true,
             tasks_open: false,
             rings: HashMap::new(),
             carry: None,
@@ -480,7 +358,7 @@ impl TeamsView {
     }
 
     /// Which workspace the screen is about — the selected card, or the card whose delegate is
-    /// selected. **The one answer**, so the composer, the inspector and the link a card copies
+    /// selected. **The one answer**, so the right dock's conversation and the link a card copies
     /// cannot disagree about whose conversation is on screen.
     pub fn agent_in_focus(&self) -> Option<AgentId> {
         match &self.selection {
@@ -631,8 +509,8 @@ impl TeamsView {
     }
 
     /// Which session the screen is *about*: the one selected, or the one the selected agent runs
-    /// in, falling back to the first so the inspector and the drawer always have something to
-    /// report. What the canvas *draws* is `session`, which is a separate question.
+    /// in, falling back to the first so the drawer always has something to report. What the canvas
+    /// *draws* is `session`, which is a separate question.
     pub fn active_session(&self, work: &WorkProjection) -> Option<SessionId> {
         match &self.selection {
             Some(TeamsSelection::Session(id)) => Some(*id),
@@ -659,7 +537,7 @@ impl TeamsView {
             return tabs;
         }
         tabs.into_iter()
-            .filter(|tab| delegate_status(tab) != DelegateStatus::Done)
+            .filter(|tab| delegate_status(tab).doing != Doing::Done)
             .collect()
     }
 
@@ -938,6 +816,7 @@ impl TeamsView {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ubiq_proto::conversation::ToolStatus;
     use ubiq_proto::work::Activity;
 
     fn a_delegate(id: &str, status: Option<ToolStatus>) -> SubagentTab {
@@ -950,6 +829,7 @@ mod tests {
             thinking: None,
             waiting: 0,
             activity: None,
+            doing: Doing::Unknown,
         }
     }
 

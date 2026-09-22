@@ -569,6 +569,7 @@ fn controls(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                     theme::surface(),
                     theme::border(),
                     theme::text_muted(),
+                    false,
                     |_, _, _| {},
                 ))
                 .child(tag(
@@ -578,6 +579,7 @@ fn controls(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                     theme::warning_soft(),
                     theme::warning(),
                     theme::warning(),
+                    false,
                     |_, _, _| {},
                 ))
                 .child(tag(
@@ -587,6 +589,7 @@ fn controls(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                     theme::danger_soft(),
                     theme::danger(),
                     theme::danger(),
+                    false,
                     |_, _, _| {},
                 ))
                 .into_any_element(),
@@ -605,6 +608,7 @@ fn controls(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                     theme::surface(),
                     theme::border(),
                     theme::text_muted(),
+                    false,
                     |_, _, _| {},
                     |_, _, _| {},
                 ))
@@ -616,6 +620,7 @@ fn controls(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                     theme::warning_soft(),
                     theme::warning(),
                     theme::warning(),
+                    false,
                     |_, _, _| {},
                     |_, _, _| {},
                 ))
@@ -627,6 +632,19 @@ fn controls(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                     theme::danger_soft(),
                     theme::danger(),
                     theme::danger(),
+                    false,
+                    |_, _, _| {},
+                    |_, _, _| {},
+                ))
+                .child(removable_tag(
+                    "sink-tag-dead",
+                    "sink-tag-dead-remove",
+                    "dead target",
+                    "A tag whose target this window cannot currently see — T-84's dead attachment",
+                    theme::surface(),
+                    theme::text_faint(),
+                    theme::text_faint(),
+                    true,
                     |_, _, _| {},
                     |_, _, _| {},
                 ))

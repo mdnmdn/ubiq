@@ -1,12 +1,12 @@
-//! The Teams screen: a graph of who is working on what, an inspector for whatever is selected in
-//! it, and the tasks belonging to that selection.
+//! The Teams screen: a graph of who is working on what, and the tasks belonging to whatever is
+//! selected in it.
 //!
 //! A clone of [`crate::ui::orchestration`] under the new rail mode — same shape, same rules,
 //! independent state. The sessions, agents and tasks it draws are the host's, projected into
 //! [`crate::state::work`]; what is selected in them, which states are showing and how far in it is
 //! zoomed are this window's, in [`crate::state::teams`]. Everything on it is live: the
 //! filters filter, the zoom zooms, a card is picked up and put down, and what is selected is what
-//! the inspector and the tasks drawer are about.
+//! the tasks drawer is about — and what the right dock opens a conversation on.
 //!
 //! This is the screen about *how the work is arranged* — who spawned whom, which task a card
 //! serves, what a hand-off looks like. The screen about *talking to the agents* is
@@ -24,11 +24,16 @@
 //! which of [`crate::state::layout::Algo`] does that, and throws every hand-placed position away to
 //! ask for it.
 //!
-//! Three files: the graph is [`graph`], the panel beside it is [`inspector`], the drawer under it
-//! is [`tasks`]. This module is the frame; what a state reads as is [`crate::ui::work`]'s.
+//! Two files: the graph is [`graph`], the drawer under it is [`tasks`]. This module is the frame;
+//! what a state reads as is [`crate::ui::work`]'s.
+//!
+//! **There is no inline detail area.** A card used to have a third column beside the graph
+//! reporting on whatever was selected; that panel is gone, and selecting a block now opens that
+//! agent's conversation in the right dock instead ([`crate::app::AppState::select_in_teams`]) —
+//! the same surface the chat tabs and the agents screen already share, so a card is a map pin
+//! rather than a page of its own.
 
 pub mod graph;
-pub mod inspector;
 pub mod status;
 pub mod tasks;
 
@@ -56,27 +61,9 @@ use crate::ui::{eid, handler, indexed};
 pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> impl IntoElement {
     // The screen is a view of one project's work, and the shell keeps a window with no project off
     // it entirely — so there is nothing here to draw rather than an empty graph to explain.
-    let Some(graph) = app.teams(cx) else {
+    if app.teams(cx).is_none() {
         return div().into_any_element();
     };
-
-    let mut body = div()
-        .flex()
-        .flex_1()
-        .min_h(px(0.))
-        .child(graph::render(app, window, cx).into_any_element());
-
-    if graph.show_inspector {
-        body = body.child(
-            div()
-                .w(px(theme::inspector_width()))
-                .flex()
-                .flex_none()
-                .border_l_1()
-                .border_color(theme::border())
-                .child(inspector::render(app, window, cx).into_any_element()),
-        );
-    }
 
     div()
         .flex()
@@ -86,7 +73,21 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         .min_h(px(0.))
         .bg(theme::app_bg())
         .child(toolbar(app, cx))
-        .child(body)
+        .child(
+            div()
+                .flex()
+                .flex_1()
+                // Both axes, not just the vertical one: the graph's own scroller already grows
+                // wider than the viewport once a wide arrangement is on it, and a flex item with
+                // no `min_w` refuses to shrink below its content's width — the standard
+                // refuses-to-shrink bug, on the axis that usually escapes notice because most
+                // panes only fill downward. Left off, the wide content pushes this row out
+                // instead of scrolling inside it, and a trackpad's horizontal gesture has nothing
+                // to act on.
+                .min_w(px(0.))
+                .min_h(px(0.))
+                .child(graph::render(app, window, cx).into_any_element()),
+        )
         .child(tasks::render(app, cx))
         .into_any_element()
 }
@@ -243,12 +244,40 @@ fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
             false,
             cx.listener(|this, _, _, cx| this.reset_teams_zoom(cx)),
         ))
-        .child(icon_button(
-            "teams-inspector",
-            IconName::PanelRight,
-            graph.show_inspector,
-            cx.listener(|this, _, _, cx| this.toggle_teams_inspector(cx)),
-        ))
+        .child(
+            icon_button(
+                "teams-rearrange",
+                IconName::RotateCw,
+                false,
+                cx.listener(|this, _, _, cx| this.tidy_teams(cx)),
+            )
+            .tooltip(|window, cx| {
+                gpui_component::tooltip::Tooltip::new("Rearrange \u{2014} lay the graph out again")
+                    .build(window, cx)
+            }),
+        )
+        .child(div().w(px(12.)).flex_none())
+        .child(
+            // The right dock's own `+`: the chat panel a card's selection opens
+            // (`AppState::open_teams_agent_panel`) has always offered *New agent* or *attach
+            // existing* through its own header the moment it is on screen — the IDE and KB modes
+            // get one for free because a persistent agent's tab joins that dock at project entry.
+            // Teams has nothing there until a card is clicked, so this reveals the same panel with
+            // no agent pointed at yet, through `AppState::open_teams_agent_panel`'s own
+            // reuse-or-mint step.
+            icon_button(
+                "teams-new-agent-panel",
+                IconName::Plus,
+                false,
+                cx.listener(|this, _, _, cx| this.open_teams_new_agent_panel(cx)),
+            )
+            .tooltip(|window, cx| {
+                gpui_component::tooltip::Tooltip::new(
+                    "Open the agent panel \u{2014} new agent or attach existing",
+                )
+                .build(window, cx)
+            }),
+        )
         .into_any_element()
 }
 

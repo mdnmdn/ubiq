@@ -1,6 +1,7 @@
 use super::*;
 
 use crate::state::board::PendingTask;
+use crate::state::explorer::Presence;
 use ubiq_proto::messages::TaskField;
 use ubiq_proto::projects::LanePref;
 use ubiq_proto::work::{Attachment, Complexity, Kind, Label, Level};
@@ -445,14 +446,46 @@ impl AppState {
         cx.notify();
     }
 
+    /// Whether an attachment's target is something this window can currently show — never
+    /// resolved by the host, on the card's ruling: `TaskRecord::attachments` stays an opaque
+    /// string as far as the host is concerned, and the interface tells live from dead itself by
+    /// asking the explorer forest or the knowledge base it already holds.
+    ///
+    /// `Presence::Unknown` — a tree not fully listed, a knowledge base not yet loaded — reads the
+    /// same as [`Presence::Live`] everywhere this is used: a target this window has not fully
+    /// looked at yet is not the same claim as one it has looked at and not found.
+    pub fn attachment_presence(&self, attachment: &Attachment, cx: &App) -> Presence {
+        match attachment.kb_address() {
+            Some((source, path)) => {
+                let Some(kb) = self.kb(cx) else {
+                    return Presence::Unknown;
+                };
+                match source.parse() {
+                    Ok(source) => kb.presence(source, path),
+                    Err(_) => Presence::Dead,
+                }
+            }
+            None => match self.explorer(cx) {
+                Some(explorer) => explorer.presence(&attachment.target),
+                None => Presence::Unknown,
+            },
+        }
+    }
+
     /// Open what one attachment points at, in whichever surface owns it.
     ///
     /// The two forms part company here and nowhere else: a `kb:{source}:{path}` address is the
     /// knowledge base's own key space and opens as a KB document, everything else is a path in
     /// this project and opens as an editor tab. An address naming a source this window does not
-    /// hold does nothing — a source can be removed after a task named a document in it.
+    /// hold does nothing — a source can be removed after a task named a document in it — and
+    /// nothing opens for a target [`Self::attachment_presence`] can positively say is dead either:
+    /// the chip already drew that, and following through would open an editor tab or a KB panel
+    /// for something that is not there, the "pretending" the card asked not to happen.
     pub fn open_task_attachment(&mut self, target: String, cx: &mut Context<Self>) {
         let attachment = Attachment::new(target);
+        if matches!(self.attachment_presence(&attachment, cx), Presence::Dead) {
+            return;
+        }
         match attachment.kb_address() {
             Some((source, path)) => {
                 let Ok(source) = source.parse() else {

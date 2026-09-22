@@ -315,11 +315,14 @@ def test_the_reserved_space_is_the_space_that_gets_drawn():
 #: Taken from the tree before the viewport work went in, and what makes "unchanged" checkable rather
 #: than asserted. A change here is either a port fix — then update the hash and say why — or a
 #: regression in the arrangements this spike promised not to touch.
+#: Re-taken when `loose-coordinators` joined the scenarios: `digest` sums over every scenario file,
+#: so a new file moves all four hashes without any arrangement moving. Checked before updating —
+#: over the scenarios that existed before it, all four still hash to their old values exactly.
 PRODUCTION = {
-    "flow": "86392e3e945c4cc7",
-    "packed": "e4dfc10c70234138",
-    "tree": "32e686e261efcf70",
-    "columns": "a9b39300f4814927",
+    "flow": "fbf3d2ffdf6fe641",
+    "packed": "e8c06f06daf2d805",
+    "tree": "52df27c9781aa47e",
+    "columns": "1a6c812b16c1d701",
 }
 
 

@@ -5,8 +5,8 @@ kind: wip
 status: current
 summary: Why the teams graph grows into a tower nobody can read in a rectangular viewport, what the two halves of the spike measured — a Python tool that renders an arrangement and scores it, and a teamsim section of the kitchen sink that drives the production arrangements from the same scenario file — what the measurements say to change, and what five further shapes (organic, multiradial, spider, hex, islands) came out at.
 read_when: you are changing how the teams graph arranges its blocks, adding an arrangement, or picking up what this spike left open
-updated: 2026-09-20
-verified: 2026-09-20
+updated: 2026-09-22
+verified: 2026-09-22
 code_anchors: [crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/teamsim.rs, crates/ubiq/src/ui/sink/teamsim.rs, crates/ubiq/src/ui/kit/blocks.rs, crates/ubiq/src/ui/teams/graph.rs, _tools/teamsim/algos.py, _tools/teamsim/shapes.py, _tools/teamsim/FORMAT.md]
 depends_on: [feat-workbench, tech-ui]
 ---
@@ -159,6 +159,30 @@ than 3 for the same reason: three 264pt delegates across is an 816pt ring under 
 The corpus is taller for it — `multiline` 9.95 screen-heights against the 9.41 a narrow delegate
 bought, `islands` 10.63 against 8.77 — and that is the price of the rule, paid deliberately. A
 canvas that reads at a glance is worth more than a canvas that fits because the blocks on it shrank.
+
+## The top-level row had the same bug the ring did
+
+The grid ring fixed a card's *own* delegates; it said nothing about the row of agents with no task
+of their own — a session's coordinators, or the window span's masters — which `Layout::arrange`
+lays out through the same `stack` every arrangement used before this spike: one row per hand-off
+depth, however wide it runs, never folded. Every arrangement past the four original ones already
+folds a *container's* cards to the screen's shape (`stack_aspect`, via `Algo::target`); the loose
+block above the containers did not, so a session with several top-level agents — `hex`, `islands`,
+`multiradial`, `spider`, `organic`, `adaptive` included — drew that row running straight off the
+right of the canvas while the containers under it were already wrapping correctly. This is what a
+user reported as "the top fences and agents are distributed horizontally so they easily go outside
+on the right" while the nested packing read fine.
+
+The fix is one `if`: `Algo::ORIGINAL` (`Flow`, `Packed`, `Tree`, `Columns`) keeps the raw `stack`,
+because that arithmetic is the one nothing may disturb; every other arrangement folds the loose
+block with `stack_aspect` at its own `target`, the same call a container's cards already get.
+`_tools/teamsim/scenarios/loose-coordinators.json` is the scenario that exercises it — nine agents
+with no task, nothing else — and it is what shows the difference: every arrangement drew it at
+2676 × 476 (1.67 screens wide) before the fix, and `hex`/`islands`/`multiradial`/`spider`/`organic`
+fold it to 900 × 844 (0.56 screens wide) after. `flow`/`packed`/`tree`/`columns` are unchanged, by
+design; `adaptive` is unchanged too, but only because the Python tool's `adaptive` key is the
+incremental placer this spike built (`grow`, below), not the static `Algo::Adaptive` `_arrange`
+takes in the Rust — the Rust one is folded like every other non-original arrangement.
 
 ## What this spike did not fix
 

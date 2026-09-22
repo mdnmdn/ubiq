@@ -647,7 +647,9 @@ impl AppState {
         ));
 
         // One subscription per column composer, each carrying the slot it belongs to. What is
-        // typed lands in that slot of the project's drafts; a bare Enter steers the column.
+        // typed lands in that slot of the project's drafts, and in the agent's own conversation —
+        // see `AppState::remember_conversation_draft` — so it survives whatever happens to the
+        // slot; a bare Enter steers the column.
         for (slot, input) in column_inputs.iter().enumerate() {
             subscriptions.push(cx.subscribe_in(
                 input,
@@ -656,7 +658,10 @@ impl AppState {
                     InputEvent::Change => {
                         let draft = input.read(cx).value().to_string();
                         if let Some(agents) = this.agents_mut(cx) {
-                            agents.set_draft(slot, draft);
+                            agents.set_draft(slot, draft.clone());
+                        }
+                        if let Some(agent_id) = this.agent_for_slot(slot, cx) {
+                            this.remember_conversation_draft(agent_id, draft, cx);
                         }
                         cx.notify();
                     }

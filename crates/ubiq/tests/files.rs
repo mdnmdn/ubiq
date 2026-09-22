@@ -1123,3 +1123,85 @@ fn home_abbreviated_replaces_only_the_home_directory_prefix() {
         "a sibling that merely starts with the home path is not a child of it"
     );
 }
+
+/// A guest tab — a file opened from outside every project (`OpenFile::guest`) — saves over
+/// `Message::WriteHostFile`, an absolute path with no project id, rather than
+/// `Message::WriteProjectFile`. `open_guest_file` reads straight off disk (`D54`), so this drives
+/// a real temp file rather than delivering a fake `ReadProjectFile` reply the way every other test
+/// in this file does.
+#[gpui::test]
+fn a_guest_tab_saves_over_write_host_file(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let _ = fixture.said();
+
+    let dir = tempfile::TempDir::new().unwrap();
+    let outside = dir.path().join("outside.txt");
+    std::fs::write(&outside, "hello\n").unwrap();
+    let abs = outside.to_string_lossy().into_owned();
+
+    fixture.with(cx, |state, _, cx| state.open_guest_file(&outside, cx));
+    assert_eq!(
+        open_paths(&fixture, cx),
+        vec![abs.clone()],
+        "the tab's key is the absolute path itself"
+    );
+    // The read never touches the bus (`D54`) — nothing about it is a `ReadProjectFile`.
+    assert!(
+        fixture
+            .said()
+            .iter()
+            .all(|message| !matches!(message, Message::ReadProjectFile { .. })),
+    );
+
+    // Marked dirty directly rather than by typing, on `an_unsaved_tab_is_asked_about_before_it_closes`'s
+    // own precedent: what is under test is the save wiring, not the widget's keystroke path.
+    fixture.with(cx, |state, _, cx| {
+        let open = state.open_project_mut(cx).expect("the project is open");
+        let tab = open.editor.find_mut(&abs).expect("the guest tab is open");
+        assert!(
+            tab.savable(),
+            "an untruncated, versioned guest read is savable"
+        );
+        tab.refresh_dirty("hello, edited\n");
+        assert!(tab.dirty());
+    });
+
+    fixture.with(cx, |state, window, cx| {
+        state.save_active_file(&ubiq::app::SaveFile, window, cx)
+    });
+    let said = fixture.said();
+    let written: Vec<&Message> = said
+        .iter()
+        .filter(|message| matches!(message, Message::WriteHostFile { .. }))
+        .collect();
+    assert!(
+        matches!(
+            written.as_slice(),
+            [Message::WriteHostFile { path, .. }] if *path == abs
+        ),
+        "a dirty, savable guest tab writes over WriteHostFile: {written:?}"
+    );
+    assert!(
+        said.iter()
+            .all(|message| !matches!(message, Message::WriteProjectFile { .. })),
+        "a guest tab never writes as a project file"
+    );
+
+    // The host answers, and the tab's version and baseline land.
+    let version = ubiq_proto::files::FileVersion {
+        len: 6,
+        modified: None,
+    };
+    fixture.deliver(
+        Message::HostFileWritten {
+            path: abs.clone(),
+            version,
+        },
+        cx,
+    );
+    fixture.with(cx, |state, _, cx| {
+        let open = state.open_project_mut(cx).expect("the project is open");
+        let tab = open.editor.find_mut(&abs).expect("still open");
+        assert_eq!(tab.version(), Some(version));
+    });
+}

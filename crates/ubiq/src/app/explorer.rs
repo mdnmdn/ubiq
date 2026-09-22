@@ -1083,9 +1083,10 @@ impl AppState {
     }
 
     /// Open a file from outside every project this window holds — dropped in, not opened from the
-    /// tree. It is read-only and hosted by the active project so it has somewhere to live among
-    /// the panels, but the bus is never asked: there is no project to answer for a path outside
-    /// its own.
+    /// tree. It is hosted by the active project so it has somewhere to live among the panels, but
+    /// the read never asks the bus: there is no project to answer for a path outside its own.
+    /// Savable all the same, once its bytes have arrived — a save is `Message::WriteHostFile`
+    /// rather than a project-scoped write, on `OpenFile::guest`'s own doc.
     ///
     /// The tab key is the absolute path itself: `tab_key` is `subject.tag() + path` and
     /// `Subject::File`'s tag is empty, so a project-relative path (which never starts with `/`)
@@ -1167,7 +1168,7 @@ impl AppState {
 
     /// A drop from outside the app: a folder becomes a project (temporary, until kept from the
     /// titlebar), a file under a project this window holds opens there, a file with a project open
-    /// but outside all of them opens as a read-only guest, and a file with none open takes its
+    /// but outside all of them opens as a guest tab, and a file with none open takes its
     /// folder in as a project and waits to select the file once the host answers.
     pub fn deliver_paths(&mut self, paths: &[PathBuf], cx: &mut Context<Self>) {
         for path in paths {

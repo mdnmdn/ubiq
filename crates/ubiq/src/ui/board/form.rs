@@ -32,6 +32,7 @@ use ubiq_proto::work::{Complexity, Kind, Level, Priority, Shape, TaskRecord};
 use crate::app::{AppState, SubmitSearch};
 use crate::state::MenuId;
 use crate::state::board::Field;
+use crate::state::explorer::Presence;
 use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::kit::{
@@ -396,6 +397,7 @@ pub fn labels(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> 
                 theme::surface(),
                 colour,
                 colour,
+                false,
                 cx.listener(move |this, _, _, cx| this.toggle_board_label(&lit, cx)),
                 cx.listener(move |this, _, _, cx| this.remove_task_label(&dropped, cx)),
             )
@@ -674,6 +676,7 @@ pub fn references(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>)
                 theme::surface(),
                 theme::text_muted(),
                 theme::text_muted(),
+                false,
                 cx.listener(move |this, _, _, cx| this.select_task(navigate, cx)),
                 cx.listener(move |this, _, _, cx| this.remove_task_reference(drop, cx)),
             )
@@ -771,7 +774,12 @@ fn reference_picker(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState
 /// pasteboard, which is a path for a copied file and a picture written into `.ubiq/pasted/` for a
 /// screenshot. A knowledge-base chip is drawn in the accent, because "attached from the KB" is the
 /// one thing about an attachment a reader cannot get from the file's name.
-pub fn attachments(task: &TaskRecord, cx: &mut Context<AppState>) -> AnyElement {
+///
+/// **A dead target is struck through and stays on the record**, never dropped — see
+/// `AppState::attachment_presence` for how live is told from dead: the host never resolves a
+/// target, so this reads the explorer forest and the knowledge base this window already holds,
+/// and a target it has not fully looked at yet draws exactly as a live one would. T-84.
+pub fn attachments(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> AnyElement {
     let chips: Vec<AnyElement> = task
         .attachments
         .iter()
@@ -779,17 +787,28 @@ pub fn attachments(task: &TaskRecord, cx: &mut Context<AppState>) -> AnyElement 
         .map(|(ix, attachment)| {
             let open = attachment.target.clone();
             let drop = attachment.target.clone();
+            let dead = matches!(app.attachment_presence(attachment, cx), Presence::Dead);
+            let tooltip = if dead {
+                format!("Missing: {}", attachment.target)
+            } else {
+                format!("Open {}", attachment.target)
+            };
             removable_tag(
                 ("board-attachment", ix),
                 ("board-attachment-drop", ix),
                 attachment.name().to_string(),
-                format!("Open {}", attachment.target),
+                tooltip,
                 theme::surface(),
-                match attachment.is_kb() {
-                    true => theme::accent(),
+                match (dead, attachment.is_kb()) {
+                    (true, _) => theme::text_faint(),
+                    (false, true) => theme::accent(),
+                    (false, false) => theme::text_muted(),
+                },
+                match dead {
+                    true => theme::text_faint(),
                     false => theme::text_muted(),
                 },
-                theme::text_muted(),
+                dead,
                 cx.listener(move |this, _, _, cx| this.open_task_attachment(open.clone(), cx)),
                 cx.listener(move |this, _, _, cx| this.remove_task_attachment(drop.clone(), cx)),
             )

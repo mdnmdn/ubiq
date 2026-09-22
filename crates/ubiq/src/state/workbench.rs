@@ -335,6 +335,11 @@ pub enum MenuId {
     /// itself out in. No position of its own — one menu in the window is open at a time, and this
     /// one hangs off its own trigger.
     GraphLayout,
+    /// The settings page's own arrangement dropdown: which of `layout::Algo` a fresh Teams graph
+    /// opens in. Its own id rather than `GraphLayout` reused — that one names the toolbar's own
+    /// trigger, and the two can never be open together anyway, but conflating a live pick with a
+    /// stored default is the kind of thing worth a name of its own.
+    TeamsDefaultAlgo,
     /// The git repository selector: which repository's git view to show when a project has multiple
     /// repositories (submodules or nested repositories).
     GitRepo,

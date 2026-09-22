@@ -92,7 +92,7 @@ use ubiq_proto::assist::{
 };
 use ubiq_proto::bus;
 use ubiq_proto::connectors::{AuthKind, ConnectStage, ProviderId, origin};
-use ubiq_proto::files::{DiffBase, FileContents, FileError, PathOp};
+use ubiq_proto::files::{DiffBase, FileContents, FileError, FileVersion, PathOp};
 use ubiq_proto::git::{GitEntry, GitError as GitFailure, GitNested, GitWriteOp, RepoOverview};
 use ubiq_proto::ids::{
     AiProviderId, AskId, ConnectId, ConnectionId, KbSourceId, OauthAppId, PaneId, ProjectId,
@@ -931,7 +931,7 @@ pub struct AppState {
     /// than typed into — so a long path can be scrolled and selected instead of overflowing a
     /// label.
     pub project_path_input: Entity<InputState>,
-    /// The project settings dialog's rail-initials override: capped at two characters, shared by
+    /// The project settings dialog's rail-initials override: capped at three characters, shared by
     /// the sink fixture and the live dialog the way `project_path_input` is — the live dialog
     /// overwrites it in `fill_project_form`. Empty means no override, and the rail falls back to
     /// the name's own first letter.
@@ -1266,9 +1266,12 @@ fn leaf_name(path: &str) -> &str {
 
 /// Read a guest file's prefix, since there is no host round trip for a path outside every project.
 /// Mirrors `ubiq_host::files::contents`: the same stat guard against a FIFO or a device blocking
-/// this thread forever, the same truncation ceiling, and the same NUL sniff for binary. There is no
-/// version, because there is no project record to keep one consistent against — `OpenFile::savable`
-/// is what turns that absence into an unwritable tab rather than a merely unwritten one.
+/// this thread forever, the same truncation ceiling, the same NUL sniff for binary, and the same
+/// rule for `version` — present exactly when the read was not cut short, taken after the read
+/// rather than before, since a file being written while it is read cannot be made consistent here
+/// either. A guest tab's save (`Message::WriteHostFile`) is this file's version, checked again by
+/// the host at write time — the same discipline `OpenFile::savable` already gives an ordinary
+/// project file, now true for a guest one too instead of being permanently withheld.
 fn read_guest_file(path: &Path) -> Result<FileContents, String> {
     let stat = fs::metadata(path).map_err(|error| error.to_string())?;
     if !stat.is_file() {
@@ -1286,6 +1289,17 @@ fn read_guest_file(path: &Path) -> Result<FileContents, String> {
     }
     const SNIFF_BYTES: usize = 8 * 1024;
     let is_binary = bytes[..SNIFF_BYTES.min(bytes.len())].contains(&0);
+    let version = if truncated {
+        None
+    } else {
+        fs::metadata(path).ok().map(|stat| FileVersion {
+            len: stat.len(),
+            modified: stat
+                .modified()
+                .ok()
+                .map(chrono::DateTime::<chrono::Utc>::from),
+        })
+    };
     let len = fs::metadata(path).map(|m| m.len()).unwrap_or(stat.len());
 
     Ok(FileContents {
@@ -1293,7 +1307,7 @@ fn read_guest_file(path: &Path) -> Result<FileContents, String> {
         len,
         truncated,
         is_binary,
-        version: None,
+        version,
     })
 }
 

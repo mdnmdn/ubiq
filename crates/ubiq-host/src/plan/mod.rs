@@ -182,10 +182,31 @@ impl Plans {
             .unwrap_or_default()
     }
 
+    /// Who made the plan's most recent save — what a refused save names so the banner can say
+    /// whether an agent or a person moved the copy. [`SaveOrigin::Human`] when there is no history
+    /// to read, on [`SaveOrigin`]'s own default: attributing an unknown save to the person is the
+    /// reading that never tells an agent it wrote something it did not.
+    fn latest_origin(&mut self, project: ProjectId, task: TaskId) -> SaveOrigin {
+        self.store
+            .load_sidecar(project, task)
+            .ok()
+            .flatten()
+            .and_then(|sidecar| sidecar.history.last().map(|entry| entry.origin))
+            .unwrap_or_default()
+    }
+
     /// Replace a task's plan, whole. The asker gets the body back as confirmation; every window
     /// hears [`Message::PlanChanged`] so a viewer already open on this plan knows to re-ask.
     ///
     /// `by` says whose save this is, and is the only thing that ever decides it — see [`Saver`].
+    ///
+    /// `expected` is the revision the body was written against, and **this is where a race is
+    /// arbitrated**: a save naming a revision the plan has already moved past writes nothing and
+    /// answers [`Message::PlanConflict`] with where the plan actually stands. The host decides it
+    /// rather than the window because two windows cannot see each other, and because the gap
+    /// between a window asking its user "overwrite?" and the user answering is exactly long enough
+    /// for a third save to land. `None` skips the check, for a caller that has no watermark to
+    /// name — see `crate::mcp::plan::write_plan`.
     ///
     /// **The previous body is read before the new one is written**, because both the block
     /// matching and the line diff compare against it. That read is the one ordering constraint in
@@ -196,9 +217,21 @@ impl Plans {
         task: TaskId,
         body: String,
         by: &Saver,
+        expected: Option<PlanRevision>,
     ) -> Vec<Reply> {
         if let Some(refusal) = self.refusal(project, task) {
             return vec![Reply::Asker(plan_error(project, Some(task), refusal))];
+        }
+        if let Some(expected) = expected {
+            let current = self.revision(project, task);
+            if current != expected {
+                return vec![Reply::Asker(Message::PlanConflict {
+                    project_id: project,
+                    task_id: task,
+                    revision: current,
+                    origin: self.latest_origin(project, task),
+                })];
+            }
         }
         let previous = match self.store.load(project, task) {
             Ok(previous) => previous.unwrap_or_default(),
@@ -676,6 +709,7 @@ mod tests {
             task,
             "# Plan\n\nStep one.".to_string(),
             &Saver::human(),
+            None,
         );
         assert!(
             replies
@@ -704,7 +738,7 @@ mod tests {
         let (mut plans, work, project, _dir) = plans_with_work();
         let task = make_ordinary_task(&work, project);
 
-        let replies = plans.save(project, task, "body".to_string(), &Saver::human());
+        let replies = plans.save(project, task, "body".to_string(), &Saver::human(), None);
         let error = replies
             .iter()
             .map(Reply::message)
@@ -750,6 +784,7 @@ mod tests {
             task,
             "# Plan\n\nStep one.".to_string(),
             &Saver::human(),
+            None,
         );
         let block = block_ids(&mut plans, project, task)[1];
 
@@ -797,7 +832,7 @@ mod tests {
         let (mut plans, work, project, _dir) = plans_with_work();
         let task = make_mission(&work, project);
         let body = "# Plan\n\nStep one.";
-        plans.save(project, task, body.to_string(), &Saver::human());
+        plans.save(project, task, body.to_string(), &Saver::human(), None);
         let block = block_ids(&mut plans, project, task)[1];
         plans.annotate(
             project,
@@ -825,6 +860,7 @@ mod tests {
             task,
             "# Plan\n\nStep one.\n\nStep two.".to_string(),
             &Saver::human(),
+            None,
         );
         let block = block_ids(&mut plans, project, task)[2];
         plans.annotate(
@@ -842,6 +878,7 @@ mod tests {
             task,
             "# Plan\n\nA preamble.\n\nStep one.\n\nStep two, revised.".to_string(),
             &Saver::human(),
+            None,
         );
 
         let annotations = annotations_of(&mut plans, project, task);
@@ -867,6 +904,7 @@ mod tests {
             task,
             "# Plan\n\nStep one.\n\nStep two.".to_string(),
             &Saver::human(),
+            None,
         );
         let block = block_ids(&mut plans, project, task)[2];
         plans.annotate(
@@ -883,6 +921,7 @@ mod tests {
             task,
             "# Plan\n\nStep one.".to_string(),
             &Saver::human(),
+            None,
         );
         assert!(
             replies.iter().any(|reply| matches!(
@@ -907,7 +946,7 @@ mod tests {
     fn an_annotation_on_a_block_the_plan_does_not_have_is_refused() {
         let (mut plans, work, project, _dir) = plans_with_work();
         let task = make_mission(&work, project);
-        plans.save(project, task, "# Plan".to_string(), &Saver::human());
+        plans.save(project, task, "# Plan".to_string(), &Saver::human(), None);
 
         let replies = plans.annotate(
             project,
@@ -951,6 +990,7 @@ mod tests {
             task,
             "# Plan\n\nStep one.".to_string(),
             &Saver::human(),
+            None,
         );
         let block = block_ids(&mut plans, project, task)[1];
         plans.annotate(
@@ -980,7 +1020,7 @@ mod tests {
     fn deleting_a_task_with_a_plan_broadcasts_that_it_is_gone() {
         let (mut plans, work, project, _dir) = plans_with_work();
         let task = make_mission(&work, project);
-        plans.save(project, task, "body".to_string(), &Saver::human());
+        plans.save(project, task, "body".to_string(), &Saver::human(), None);
 
         let replies = plans.delete(project, task);
         assert!(
@@ -1026,8 +1066,13 @@ mod tests {
         let (mut plans, work, project, _dir) = plans_with_work();
         let task = make_mission(&work, project);
 
-        let written =
-            revision_of(&plans.save(project, task, PLANNED.to_string(), &Saver::agent("agent-1")));
+        let written = revision_of(&plans.save(
+            project,
+            task,
+            PLANNED.to_string(),
+            &Saver::agent("agent-1"),
+            None,
+        ));
         assert_eq!(written, 1, "the first save is revision 1");
 
         // A person reworks line 3 and line 5, and leaves lines 1, 2 and 4 alone.
@@ -1036,6 +1081,7 @@ mod tests {
             task,
             "# Plan\n\nStep one, revised.\n\nStep two, also revised.".to_string(),
             &Saver::human(),
+            None,
         );
 
         let report = plans
@@ -1089,12 +1135,19 @@ mod tests {
         let (mut plans, work, project, _dir) = plans_with_work();
         let task = make_mission(&work, project);
 
-        plans.save(project, task, PLANNED.to_string(), &Saver::agent("agent-1"));
+        plans.save(
+            project,
+            task,
+            PLANNED.to_string(),
+            &Saver::agent("agent-1"),
+            None,
+        );
         plans.save(
             project,
             task,
             "# Plan\n\nStep one, revised.\n\nStep two.".to_string(),
             &Saver::human(),
+            None,
         );
 
         assert_eq!(
@@ -1114,12 +1167,19 @@ mod tests {
         let (mut plans, work, project, _dir) = plans_with_work();
         let task = make_mission(&work, project);
 
-        plans.save(project, task, PLANNED.to_string(), &Saver::agent("agent-1"));
+        plans.save(
+            project,
+            task,
+            PLANNED.to_string(),
+            &Saver::agent("agent-1"),
+            None,
+        );
         plans.save(
             project,
             task,
             "# Plan\n\nStep one, revised.\n\nStep two.".to_string(),
             &Saver::human(),
+            None,
         );
 
         let raw = std::fs::read_to_string(plans.store.annotations_path(project, task)).unwrap();
@@ -1150,7 +1210,13 @@ mod tests {
         let (mut plans, work, project, _dir) = plans_with_work();
         let task = make_mission(&work, project);
 
-        let replies = plans.save(project, task, PLANNED.to_string(), &Saver::agent("agent-1"));
+        let replies = plans.save(
+            project,
+            task,
+            PLANNED.to_string(),
+            &Saver::agent("agent-1"),
+            None,
+        );
         let announced = replies
             .iter()
             .find_map(|reply| match reply {
@@ -1175,7 +1241,7 @@ mod tests {
             "a plan nobody has written stands at revision 0",
         );
 
-        plans.save(project, task, PLANNED.to_string(), &Saver::human());
+        plans.save(project, task, PLANNED.to_string(), &Saver::human(), None);
         assert_eq!(revision_of(&plans.load(project, task)), 1);
     }
 
@@ -1183,8 +1249,13 @@ mod tests {
     fn a_watermark_at_the_current_revision_reports_no_change() {
         let (mut plans, work, project, _dir) = plans_with_work();
         let task = make_mission(&work, project);
-        let written =
-            revision_of(&plans.save(project, task, PLANNED.to_string(), &Saver::agent("agent-1")));
+        let written = revision_of(&plans.save(
+            project,
+            task,
+            PLANNED.to_string(),
+            &Saver::agent("agent-1"),
+            None,
+        ));
 
         let report = plans
             .change_report(project, task, Some(written))
@@ -1198,8 +1269,13 @@ mod tests {
     fn a_deletion_is_reported_where_it_happened_rather_than_not_at_all() {
         let (mut plans, work, project, _dir) = plans_with_work();
         let task = make_mission(&work, project);
-        let written =
-            revision_of(&plans.save(project, task, PLANNED.to_string(), &Saver::agent("agent-1")));
+        let written = revision_of(&plans.save(
+            project,
+            task,
+            PLANNED.to_string(),
+            &Saver::agent("agent-1"),
+            None,
+        ));
 
         // The human deletes "Step one." and the blank line under it.
         plans.save(
@@ -1207,6 +1283,7 @@ mod tests {
             task,
             "# Plan\n\nStep two.".to_string(),
             &Saver::human(),
+            None,
         );
 
         let report = plans
@@ -1230,7 +1307,7 @@ mod tests {
 
         // Write the body and let the block index be built, then hand-write the older sidecar
         // shape over the top of it: version, blocks and annotations, and nothing else.
-        plans.save(project, task, PLANNED.to_string(), &Saver::human());
+        plans.save(project, task, PLANNED.to_string(), &Saver::human(), None);
         let block = block_ids(&mut plans, project, task)[1];
         plans.annotate(
             project,
@@ -1280,6 +1357,7 @@ mod tests {
             task,
             "# Plan\n\nStep one, revised.\n\nStep two.".to_string(),
             &Saver::human(),
+            None,
         );
         let report = plans
             .change_report(project, task, Some(0))
@@ -1296,9 +1374,15 @@ mod tests {
     fn a_save_that_changes_nothing_still_takes_a_revision_and_reports_no_change() {
         let (mut plans, work, project, _dir) = plans_with_work();
         let task = make_mission(&work, project);
-        let first =
-            revision_of(&plans.save(project, task, PLANNED.to_string(), &Saver::agent("agent-1")));
-        let second = revision_of(&plans.save(project, task, PLANNED.to_string(), &Saver::human()));
+        let first = revision_of(&plans.save(
+            project,
+            task,
+            PLANNED.to_string(),
+            &Saver::agent("agent-1"),
+            None,
+        ));
+        let second =
+            revision_of(&plans.save(project, task, PLANNED.to_string(), &Saver::human(), None));
 
         assert_eq!(
             (first, second),
@@ -1314,6 +1398,142 @@ mod tests {
             report.stats.human_revisions, 1,
             "though the save itself is still on the record",
         );
+    }
+
+    // ── the expected revision ───────────────────────────────────────
+
+    fn conflict_of(replies: &[Reply]) -> Option<(PlanRevision, SaveOrigin)> {
+        replies.iter().find_map(|reply| match reply.message() {
+            Message::PlanConflict {
+                revision, origin, ..
+            } => Some((*revision, *origin)),
+            _ => None,
+        })
+    }
+
+    /// Two windows editing the same plan from the same watermark. The first save lands; the
+    /// second, made against a revision that no longer stands, is **refused** rather than written
+    /// over the first — which is the whole difference between losing the work and being told.
+    ///
+    /// And the loser is not stuck: naming the revision the refusal reported is what a confirmed
+    /// *Overwrite* does, and it wins. There is no force flag anywhere in this test because there
+    /// is none on the wire.
+    #[test]
+    fn two_windows_racing_one_save_wins_and_the_other_is_refused() {
+        let (mut plans, work, project, _dir) = plans_with_work();
+        let task = make_mission(&work, project);
+        let seeded = revision_of(&plans.save(
+            project,
+            task,
+            "# Plan\n\nAs it was.".to_string(),
+            &Saver::human(),
+            None,
+        ));
+
+        // Both windows hold `seeded` and both mean to replace it.
+        let first = plans.save(
+            project,
+            task,
+            "# Plan\n\nThe first window's.".to_string(),
+            &Saver::human(),
+            Some(seeded),
+        );
+        let landed = revision_of(&first);
+        assert_eq!(landed, seeded + 1, "the first save is an ordinary one");
+        assert!(conflict_of(&first).is_none());
+
+        let second = plans.save(
+            project,
+            task,
+            "# Plan\n\nThe second window's.".to_string(),
+            &Saver::human(),
+            Some(seeded),
+        );
+        assert_eq!(
+            conflict_of(&second),
+            Some((landed, SaveOrigin::Human)),
+            "the loser is told where the plan actually stands, and who moved it",
+        );
+        assert!(
+            !second
+                .iter()
+                .any(|reply| matches!(reply, Reply::Everyone(_))),
+            "a refused save is nobody else's business — nothing was written",
+        );
+        assert_eq!(
+            plans.body(project, task).expect("the body reads"),
+            "# Plan\n\nThe first window's.",
+            "and the winner's body is untouched",
+        );
+
+        // The second window is shown that, presses Overwrite, and names what it was told.
+        let again = plans.save(
+            project,
+            task,
+            "# Plan\n\nThe second window's.".to_string(),
+            &Saver::human(),
+            Some(landed),
+        );
+        assert!(
+            conflict_of(&again).is_none(),
+            "a determined user gets there"
+        );
+        assert_eq!(revision_of(&again), landed + 1);
+        assert_eq!(
+            plans.body(project, task).expect("the body reads"),
+            "# Plan\n\nThe second window's.",
+        );
+    }
+
+    /// An agent's `write_plan` is the other racer, and the refusal names it as one — the banner
+    /// the window draws says "an agent" or "somebody else", and it reads that from here.
+    #[test]
+    fn a_refusal_names_an_agent_that_moved_the_copy() {
+        let (mut plans, work, project, _dir) = plans_with_work();
+        let task = make_mission(&work, project);
+        let seeded =
+            revision_of(&plans.save(project, task, PLANNED.to_string(), &Saver::human(), None));
+        plans.save(
+            project,
+            task,
+            "# Plan\n\nThe agent's.".to_string(),
+            &Saver::agent("agent-1"),
+            None,
+        );
+
+        let refused = plans.save(
+            project,
+            task,
+            "mine".to_string(),
+            &Saver::human(),
+            Some(seeded),
+        );
+        assert_eq!(
+            conflict_of(&refused),
+            Some((seeded + 1, SaveOrigin::Agent)),
+            "overwriting an agent and overwriting a colleague are not the same decision",
+        );
+    }
+
+    /// A first save against a plan nobody has written names `0`, and is refused if somebody got
+    /// there first — the watermark meaning "nothing yet" is a watermark like any other.
+    #[test]
+    fn a_first_save_names_the_empty_watermark_and_is_refused_if_beaten_to_it() {
+        let (mut plans, work, project, _dir) = plans_with_work();
+        let task = make_mission(&work, project);
+
+        let fresh = plans.save(project, task, "mine".to_string(), &Saver::human(), Some(0));
+        assert!(conflict_of(&fresh).is_none(), "nothing stood there");
+        assert_eq!(revision_of(&fresh), 1);
+
+        let beaten = plans.save(
+            project,
+            task,
+            "also mine".to_string(),
+            &Saver::human(),
+            Some(0),
+        );
+        assert_eq!(conflict_of(&beaten).map(|(revision, _)| revision), Some(1));
     }
 
     #[test]

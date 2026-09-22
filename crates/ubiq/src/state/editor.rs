@@ -421,9 +421,12 @@ pub struct OpenFile {
     /// a stable identity across a restart, so this is the one pin that is written down; see
     /// `ViewPrefs::pinned_files`.
     pub pinned: bool,
-    /// A file dropped in from outside every open project: read-only, hosted by the active project
-    /// rather than its own. Exists so the tab can be drawn differently; `savable` — not this — is
-    /// what actually refuses the write.
+    /// A file dropped in from outside every open project: hosted by the active project rather
+    /// than its own, and read with `std::fs` rather than a `ReadProjectFile` round trip. Exists so
+    /// the tab draws differently and so a save on it takes a different message
+    /// (`Message::WriteHostFile`, an absolute path, rather than `Message::WriteProjectFile`, a
+    /// project id and a relative one) — `savable`, not this, is what actually decides whether the
+    /// write can go out at all.
     pub guest: bool,
     /// A buffer that has never been written anywhere: the tab a new-file keystroke opens. Beside
     /// `guest` and for the same reason — the tab draws differently — and a save on one asks where
@@ -733,8 +736,8 @@ impl OpenFile {
 
     /// Whether a save would be honest. A truncated read is a prefix, and writing a prefix back
     /// would shorten the file. A buffer with no version has nothing to hand back either, and a
-    /// write naming no version is refused anyway — under a real host reply the two conditions
-    /// coincide, but a guest file is the first case that is un-truncated and version-less both.
+    /// write naming no version is refused anyway — a guest file carries a version exactly like a
+    /// project one, computed by `read_guest_file` on the same "absent only when truncated" rule.
     pub fn savable(&self) -> bool {
         match &self.body {
             FileBody::Text {
@@ -760,10 +763,11 @@ impl OpenFile {
     /// A buffer that is version-less but whole is deliberately *not* refused here. It was never
     /// read from disk, so its save is a creation — which is what lets a tab whose save-as was
     /// refused be saved again instead of being stuck unsavable for the rest of the session.
+    ///
+    /// `guest` carries no refusal of its own: a guest tab is savable exactly when an ordinary one
+    /// would be, on the same truncated/version checks below — `save_file` is what sends its write
+    /// as `Message::WriteHostFile` instead of `Message::WriteProjectFile`.
     pub fn save_refusal(&self) -> Option<&'static str> {
-        if self.guest {
-            return Some("it was dropped in from outside every open project, and is read-only");
-        }
         match &self.body {
             FileBody::Text {
                 truncated: true, ..

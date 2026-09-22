@@ -81,6 +81,17 @@ impl AppState {
         self.clear_picker_search(window, cx);
         if let Some(id) = picked {
             self.group_agent_into(column, id, cx);
+            // The column's own slot, read after the move rather than assumed: `column` is a
+            // position in the row, not a slot, and grouping never renumbers the row for a pick
+            // off the bench (nothing was displaced), but reading it back is what
+            // `restore_composer_draft` addresses.
+            let slot = self
+                .agents(cx)
+                .and_then(|agents| agents.columns.get(column))
+                .map(|col| col.slot);
+            if let Some(slot) = slot {
+                self.restore_composer_draft(id, slot, window, cx);
+            }
         }
     }
 
@@ -202,6 +213,62 @@ impl AppState {
             .iter()
             .find(|column| column.slot == slot)
             .and_then(|column| column.active_agent())
+    }
+
+    /// Fold what is typed into the agent's own conversation, beside its attachments and its
+    /// queue — [`Conversation::draft`] — rather than only the composer slot's own mirror.
+    ///
+    /// A slot is a place in the window's furniture; an agent's unsent draft is a fact about the
+    /// conversation, so it has to survive whatever happens to the slot that was drawing it — a
+    /// chat tab hidden and reopened, a column an arrangement change moved the agent out of. This
+    /// is the write side of that; [`Self::restore_composer_draft`] is the read side.
+    pub(super) fn remember_conversation_draft(
+        &mut self,
+        agent_id: AgentId,
+        text: String,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(project_id) = self.project_of_agent(agent_id, cx) else {
+            return;
+        };
+        if let Some(open) = self.projects.get_mut(&project_id)
+            && let Some(conversation) = open.conversations.get_mut(&agent_id)
+        {
+            conversation.draft = text;
+        }
+    }
+
+    /// Put an agent's own unsent draft back into the composer now addressing it, so reattaching to
+    /// a conversation — the chat panel's *Attach running*, most of all — picks up where the last
+    /// surface that had it open left off. Only when the field is empty, the same guard
+    /// [`Self::recall_last_message`] uses: a composer already being written into is never
+    /// overwritten by a fact from elsewhere.
+    pub(super) fn restore_composer_draft(
+        &mut self,
+        agent_id: AgentId,
+        slot: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(input) = self.column_inputs.get(slot).cloned() else {
+            return;
+        };
+        if !input.read(cx).value().is_empty() {
+            return;
+        }
+        let Some(draft) = self
+            .teams_conversation(agent_id, cx)
+            .map(|conversation| conversation.draft.clone())
+            .filter(|draft| !draft.is_empty())
+        else {
+            return;
+        };
+        input.update(cx, |state, cx| {
+            state.set_value(&draft, window, cx);
+        });
+        if let Some(agents) = self.agents_mut(cx) {
+            agents.set_draft(slot, draft);
+        }
     }
 
     /// What one composer sends, to the agent its slot is addressed at.
@@ -1252,6 +1319,11 @@ impl AppState {
     fn clear_composer(&mut self, slot: usize, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(agents) = self.agents_mut(cx) {
             agents.clear_draft(slot);
+        }
+        // The slot's mirror is cleared above; the conversation's own copy — what survives a
+        // reattach — goes with it, a sent or queued turn leaving nothing behind to restore.
+        if let Some(agent_id) = self.agent_for_slot(slot, cx) {
+            self.remember_conversation_draft(agent_id, String::new(), cx);
         }
         let Some(input) = self.column_inputs.get(slot).cloned() else {
             return;
