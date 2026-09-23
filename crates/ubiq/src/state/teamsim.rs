@@ -31,7 +31,8 @@ use ubiq_proto::ids::{SessionId, TaskId};
 use ubiq_proto::work::{Activity, AgentId, Priority, Shape, Status, TaskRecord, WorkAgent};
 
 use super::layout::{
-    Algo, CARD_HEIGHT, CARD_WIDTH, GROUP_LABEL, GROUP_PAD, Layout, Rings, SUB_BOX, fence, sub_slot,
+    Algo, CARD_WIDTH, GROUP_LABEL, GROUP_PAD, Layout, Rings, SUB_BOX, TEAMS_CARD_HEIGHT, fence,
+    sub_slot,
 };
 
 /// The one format string this reader knows. A file that says anything else is refused rather than
@@ -499,6 +500,7 @@ impl Sim {
             &self.projection.tasks,
             self.algo,
             &self.projection.rings,
+            (CARD_WIDTH, TEAMS_CARD_HEIGHT),
         );
         self.drift = Drift::default();
     }
@@ -648,6 +650,7 @@ impl Sim {
             &self.projection.tasks,
             self.algo,
             &self.projection.rings,
+            (CARD_WIDTH, TEAMS_CARD_HEIGHT),
         );
     }
 
@@ -742,7 +745,7 @@ impl Sim {
         let at = self.card_at(ix)?;
         Some(match fence(at, &self.subs_at(ix)) {
             Some((x, y, w, h)) => (x, y, x + w, y + h),
-            None => (at.0, at.1, at.0 + CARD_WIDTH, at.1 + CARD_HEIGHT),
+            None => (at.0, at.1, at.0 + CARD_WIDTH, at.1 + TEAMS_CARD_HEIGHT),
         })
     }
 
@@ -810,7 +813,7 @@ impl Sim {
             let Some(at) = self.card_at(ix) else { continue };
             drawing.cards.push(Card {
                 agent: ix,
-                rect: (at.0, at.1, CARD_WIDTH, CARD_HEIGHT),
+                rect: (at.0, at.1, CARD_WIDTH, TEAMS_CARD_HEIGHT),
             });
 
             let spots = self.subs_at(ix);
@@ -824,7 +827,7 @@ impl Sim {
                     rect: (spot.0, spot.1, self.sub_box().0, self.sub_box().1),
                 });
                 drawing.edges.push(Edge {
-                    from: (at.0 + CARD_WIDTH / 2.0, at.1 + CARD_HEIGHT),
+                    from: (at.0 + CARD_WIDTH / 2.0, at.1 + TEAMS_CARD_HEIGHT),
                     to: (spot.0 + self.sub_box().0 / 2.0, spot.1),
                     kind: EdgeKind::Delegate,
                 });
@@ -835,7 +838,7 @@ impl Sim {
                 && let Some(from) = self.index_of(parent).and_then(|up| self.card_at(up))
             {
                 drawing.edges.push(Edge {
-                    from: (from.0 + CARD_WIDTH / 2.0, from.1 + CARD_HEIGHT),
+                    from: (from.0 + CARD_WIDTH / 2.0, from.1 + TEAMS_CARD_HEIGHT),
                     to: (at.0 + CARD_WIDTH / 2.0, at.1),
                     kind: EdgeKind::Parent,
                 });
@@ -861,7 +864,7 @@ impl Sim {
                 continue;
             };
             drawing.edges.push(Edge {
-                from: (from.0 + CARD_WIDTH / 2.0, from.1 + CARD_HEIGHT),
+                from: (from.0 + CARD_WIDTH / 2.0, from.1 + TEAMS_CARD_HEIGHT),
                 to: (to.0 + CARD_WIDTH / 2.0, to.1),
                 kind: EdgeKind::Extra(link.kind),
             });

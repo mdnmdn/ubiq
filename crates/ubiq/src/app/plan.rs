@@ -15,124 +15,89 @@ use super::*;
 
 use std::ops::Range;
 
-use gpui_component::input::{TextDecoration, TextDecorationCollection};
+use gpui_component::input::{TextDecoration, TextDecorationCollection, TextareaState};
 
 use crate::state::document::{
-    AnnotationsBody, ComposerTarget, DocumentEditor, DocumentHandle, Notice, annotation_range,
-    block_ranges, change_ranges,
+    AnnotationsBody, ComposerTarget, DocumentEditor, DocumentHandle, Notice, Presentation,
+    SectionEdit, annotation_range, block_ranges, change_ranges, heading_sections,
+    parse_section_blocks, splice_section, thread_marks,
 };
-use crate::state::plan::plan_document;
+use crate::state::plan::{file_document, plan_document};
 use crate::state::workbench::FileDialog;
-use ubiq_proto::ids::{AnnotationId, BlockId, ProjectId, TaskId};
+use ubiq_proto::ids::{AnnotationId, BlockId, TaskId};
 use ubiq_proto::plan::{PlanChangeStats, PlanChangedRegion, PlanRevision, SaveOrigin};
 
-/// The wire, per document kind. The interface never invents a route: every arm here is a message
-/// that already exists in `crates/ubiq-proto/src/messages.rs`.
-impl DocumentHandle {
-    pub(crate) fn load(&self) -> Message {
-        match *self {
-            DocumentHandle::Plan {
-                project_id,
-                task_id,
-            } => Message::LoadPlan {
-                project_id,
-                task_id,
-            },
-        }
-    }
-
-    pub(crate) fn list_annotations(&self) -> Message {
-        match *self {
-            DocumentHandle::Plan {
-                project_id,
-                task_id,
-            } => Message::ListPlanAnnotations {
-                project_id,
-                task_id,
-            },
-        }
-    }
-
+/// The wire, for any annotated document. The interface never invents a route: every method here
+/// is a message that already exists in `crates/ubiq-proto/src/messages.rs`, and the handle is the
+/// whole of what it names — there is no per-kind arm left to write, because the *host* is what
+/// answers a handle with a place on disk.
+///
+/// A trait rather than an inherent `impl` only because [`DocumentHandle`] is the contract's type
+/// and this crate does not own it.
+pub(crate) trait DocumentWire {
+    fn load(&self) -> Message;
+    fn list_annotations(&self) -> Message;
     /// `expected` is the revision this body is meant to replace, and the host refuses the write if
     /// the document no longer stands there. There is no force flag to leave out: an overwrite the
     /// user has confirmed names the newest revision the host has stated instead of the one the
     /// buffer was seeded from, so it is still an honest expectation and still refused if a third
     /// save landed while the question was on screen.
-    pub(crate) fn save(&self, body: String, expected: PlanRevision) -> Message {
-        match *self {
-            DocumentHandle::Plan {
-                project_id,
-                task_id,
-            } => Message::SavePlan {
-                project_id,
-                task_id,
-                body,
-                expected,
-            },
-        }
-    }
-
-    pub(crate) fn annotate(
-        &self,
-        block_id: BlockId,
-        quote: Option<String>,
-        text: String,
-    ) -> Message {
-        match *self {
-            DocumentHandle::Plan {
-                project_id,
-                task_id,
-            } => Message::AnnotatePlan {
-                project_id,
-                task_id,
-                block_id,
-                quote,
-                text,
-            },
-        }
-    }
-
-    pub(crate) fn reply(&self, annotation_id: AnnotationId, text: String) -> Message {
-        match *self {
-            DocumentHandle::Plan {
-                project_id,
-                task_id,
-            } => Message::ReplyToAnnotation {
-                project_id,
-                task_id,
-                annotation_id,
-                text,
-            },
-        }
-    }
-
+    fn save(&self, body: String, expected: PlanRevision) -> Message;
+    fn annotate(&self, block_id: BlockId, quote: Option<String>, text: String) -> Message;
+    fn reply(&self, annotation_id: AnnotationId, text: String) -> Message;
     /// Where the document has been edited, and by whom. `since` absent asks for the whole history,
     /// which is what an editor opening a document wants: a plan an agent wrote from nothing reads
     /// as agent lines throughout, and the human lines stand out against them.
-    pub(crate) fn list_changes(&self, since: Option<PlanRevision>) -> Message {
-        match *self {
-            DocumentHandle::Plan {
-                project_id,
-                task_id,
-            } => Message::ListPlanChanges {
-                project_id,
-                task_id,
-                since_revision: since,
-            },
+    fn list_changes(&self, since: Option<PlanRevision>) -> Message;
+    fn resolve(&self, annotation_id: AnnotationId, resolved: bool) -> Message;
+}
+
+impl DocumentWire for DocumentHandle {
+    fn load(&self) -> Message {
+        Message::LoadPlan { doc: self.clone() }
+    }
+
+    fn list_annotations(&self) -> Message {
+        Message::ListPlanAnnotations { doc: self.clone() }
+    }
+
+    fn save(&self, body: String, expected: PlanRevision) -> Message {
+        Message::SavePlan {
+            doc: self.clone(),
+            body,
+            expected,
         }
     }
 
-    pub(crate) fn resolve(&self, annotation_id: AnnotationId, resolved: bool) -> Message {
-        match *self {
-            DocumentHandle::Plan {
-                project_id,
-                task_id,
-            } => Message::ResolveAnnotation {
-                project_id,
-                task_id,
-                annotation_id,
-                resolved,
-            },
+    fn annotate(&self, block_id: BlockId, quote: Option<String>, text: String) -> Message {
+        Message::AnnotatePlan {
+            doc: self.clone(),
+            block_id,
+            quote,
+            text,
+        }
+    }
+
+    fn reply(&self, annotation_id: AnnotationId, text: String) -> Message {
+        Message::ReplyToAnnotation {
+            doc: self.clone(),
+            annotation_id,
+            text,
+        }
+    }
+
+    fn list_changes(&self, since: Option<PlanRevision>) -> Message {
+        Message::ListPlanChanges {
+            doc: self.clone(),
+            since_revision: since,
+        }
+    }
+
+    fn resolve(&self, annotation_id: AnnotationId, resolved: bool) -> Message {
+        Message::ResolveAnnotation {
+            doc: self.clone(),
+            annotation_id,
+            resolved,
         }
     }
 }
@@ -145,14 +110,57 @@ impl AppState {
         let Some(project_id) = self.project(cx) else {
             return;
         };
-        self.open_document(plan_document(project_id, task_id), cx);
+        self.open_document(plan_document(project_id, task_id), Presentation::Modal, cx);
+    }
+
+    /// Open a project markdown file as an annotated document, for a tab put into
+    /// `ViewLayout::Annotation` — [`crate::state::plan::file_document`]'s one caller.
+    ///
+    /// Idempotent: a tab redrawn, or the layout pressed twice, must not re-ask for a document that
+    /// is already open, because the second `LoadPlan` would arrive while a section edit was in the
+    /// buffer.
+    pub fn open_file_document(&mut self, rel_path: &str, cx: &mut Context<Self>) {
+        let Some(project_id) = self.project(cx) else {
+            return;
+        };
+        let doc = file_document(project_id, rel_path);
+        if self
+            .workbench
+            .plan
+            .as_ref()
+            .is_some_and(|open| open.doc == doc)
+        {
+            return;
+        }
+        self.open_document(doc, Presentation::Viewer, cx);
+    }
+
+    /// Put away a document a tab opened, when the tab leaves annotation mode. The dialog's own
+    /// document is never touched by this: closing the plan editor is [`Self::close_plan`]'s.
+    pub fn close_file_document(&mut self, cx: &mut Context<Self>) {
+        if self
+            .workbench
+            .plan
+            .as_ref()
+            .is_some_and(|doc| !doc.is_modal())
+        {
+            self.workbench.plan = None;
+            self.plan_marks = None;
+            self.plan_change_marks = None;
+            cx.notify();
+        }
     }
 
     /// Open any annotated document: ask for its body and its threads in the same breath.
-    pub fn open_document(&mut self, doc: DocumentHandle, cx: &mut Context<Self>) {
-        self.workbench.plan = Some(DocumentEditor::loading(doc));
+    pub fn open_document(
+        &mut self,
+        doc: DocumentHandle,
+        presentation: Presentation,
+        cx: &mut Context<Self>,
+    ) {
         self.bus.send(doc.load());
         self.bus.send(doc.list_annotations());
+        self.workbench.plan = Some(DocumentEditor::loading(doc, presentation));
         cx.notify();
     }
 
@@ -183,13 +191,130 @@ impl AppState {
         self.close_plan(cx);
     }
 
-    /// Which of source, preview and both the document is drawn in — the file editor's own toggle,
-    /// on the same enum.
-    pub fn set_document_layout(&mut self, layout: ViewLayout, cx: &mut Context<Self>) {
+    /// Open one section as raw markdown — what a double-click on a rendered section does, and the
+    /// edit affordance beside it.
+    ///
+    /// The field is seeded from the **document**, not from the block index: the slice of the body
+    /// the block occupies is what the reader is looking at, and the index is only how it is found.
+    /// A section the host has not indexed cannot be located in the body and is refused where the
+    /// user is looking, the way an unanchorable annotation is.
+    pub fn begin_section_edit(
+        &mut self,
+        block_id: BlockId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let body = self.plan_editor.read(cx).value().to_string();
+        let Some(doc) = self.workbench.plan.as_ref() else {
+            return;
+        };
+        let found = block_ranges(&body, doc.annotations.blocks())
+            .into_iter()
+            .find(|(id, _)| *id == block_id)
+            .map(|(_, range)| range);
+        let Some(range) = found else {
+            if let Some(doc) = self.workbench.plan.as_mut() {
+                doc.notice = Some(Notice::Err(
+                    "This section is not in the saved document yet \u{2014} save the plan before \
+                     editing it."
+                        .to_string(),
+                ));
+            }
+            cx.notify();
+            return;
+        };
+        let text = body[range].to_string();
+        let input = cx.new(|cx| TextareaState::new(window, cx).auto_grow(3, 24));
+        input.update(cx, |state, cx| {
+            state.set_value(&text, window, cx);
+            state.focus(window, cx);
+        });
         if let Some(doc) = self.workbench.plan.as_mut() {
-            doc.layout = layout;
+            doc.section_edit = Some(SectionEdit { block_id, input });
+            doc.notice = None;
+            // The first press of a double-click claimed the section for a thread. Editing it is
+            // the answer the second press gave, so the composer that opened on the way here goes.
+            doc.composer = None;
+            doc.composer_quote = None;
         }
         cx.notify();
+    }
+
+    /// Leave the section as it was. The field is dropped with the edit: nothing survives a cancel.
+    pub fn cancel_section_edit(&mut self, cx: &mut Context<Self>) {
+        if let Some(doc) = self.workbench.plan.as_mut() {
+            doc.section_edit = None;
+        }
+        cx.notify();
+    }
+
+    /// Put the typed markdown back into the document, and save.
+    ///
+    /// **A section edit is an ordinary whole-document save**, and that is what keeps every piece
+    /// of tracking working. The buffer's slice for this block is replaced by what was typed, the
+    /// body goes out as `SavePlan`, and the host does the rest:
+    ///
+    /// - it re-indexes the blocks and **matches them against the previous save** — an unchanged
+    ///   block keeps its id, an edited one keeps its id while it still resembles itself, and text
+    ///   that has become several blocks leaves the anchor on the one that still matches while the
+    ///   rest are minted fresh. So a split keeps the annotations on the part they were about
+    ///   rather than orphaning them;
+    /// - it records the save's provenance as a human edit, which is what an agent reads back
+    ///   through `ListPlanChanges` and what the change underlines draw.
+    ///
+    /// The window invents none of that: it never mints a block id and never writes a section on
+    /// its own. **An all-whitespace section is removed rather than saved as an empty one** —
+    /// [`splice_section`] closes the gap it leaves — and either way the block cache is patched
+    /// immediately: see [`DocumentEditor::replace_cached_block`] for why the preview cannot simply
+    /// wait for the host's answer the way everything else here does, and for how a section that
+    /// parsed into several blocks is cached as several rather than as one holding embedded
+    /// newlines.
+    pub fn confirm_section_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let body = self.plan_editor.read(cx).value().to_string();
+        let Some(doc) = self.workbench.plan.as_ref() else {
+            return;
+        };
+        let Some(edit) = doc.section_edit.as_ref() else {
+            return;
+        };
+        let block_id = edit.block_id;
+        let typed = edit.input.read(cx).value().to_string();
+        let found = block_ranges(&body, doc.annotations.blocks())
+            .into_iter()
+            .find(|(id, _)| *id == block_id)
+            .map(|(_, range)| range);
+        let Some(range) = found else {
+            if let Some(doc) = self.workbench.plan.as_mut() {
+                doc.section_edit = None;
+                doc.notice = Some(Notice::Err(
+                    "This section has moved in the document \u{2014} the edit was not applied."
+                        .to_string(),
+                ));
+            }
+            cx.notify();
+            return;
+        };
+        let emptied = typed.trim().is_empty();
+        let next = splice_section(&body, range, &typed);
+        if let Some(doc) = self.workbench.plan.as_mut() {
+            doc.section_edit = None;
+        }
+        if next == body {
+            cx.notify();
+            return;
+        }
+        let editor = self.plan_editor.clone();
+        editor.update(cx, |state, cx| state.set_value(&next, window, cx));
+        if let Some(doc) = self.workbench.plan.as_mut() {
+            doc.refresh_dirty(&next);
+            let parsed = if emptied {
+                Vec::new()
+            } else {
+                parse_section_blocks(typed.trim())
+            };
+            doc.replace_cached_block(block_id, parsed);
+        }
+        self.save_document(window, cx);
     }
 
     /// Write the buffer back, whole. The host answers with the document's own body, which is what
@@ -236,7 +361,7 @@ impl AppState {
         doc.saving = true;
         doc.confirm_close = false;
         doc.notice = None;
-        let handle = doc.doc;
+        let handle = doc.doc.clone();
         self.bus.send(handle.save(body, expected));
         cx.notify();
     }
@@ -285,6 +410,33 @@ impl AppState {
     ) {
         if let Some(doc) = self.workbench.plan.as_mut() {
             doc.set_changes(regions, stats);
+        }
+    }
+
+    /// Keep the one annotated document in step with what the editor's active tab is asking for
+    /// (T-124). In `render`, because entering the layout, leaving it, switching tab and closing
+    /// the tab are four routes to the same fact, and the tab's own layout is the fact.
+    ///
+    /// **The dialog wins while it is up.** A plan raised over a tab in annotation mode replaces
+    /// the document, exactly as opening a second plan does; the tab's own document is asked for
+    /// again on the frame after the dialog goes.
+    pub(crate) fn settle_annotation_document(&mut self, cx: &mut Context<Self>) {
+        if self
+            .workbench
+            .plan
+            .as_ref()
+            .is_some_and(|doc| doc.is_modal())
+        {
+            return;
+        }
+        let wanted = self
+            .editor(cx)
+            .and_then(|editor| editor.active_file())
+            .filter(|file| file.layout.is_annotation() && file.annotatable())
+            .map(|file| file.path.clone());
+        match wanted {
+            Some(path) => self.open_file_document(&path, cx),
+            None => self.close_file_document(cx),
         }
     }
 
@@ -495,8 +647,12 @@ impl AppState {
         cx.notify();
     }
 
-    /// Show a thread's popover over its own passage, and put the selection there so the passage
-    /// is what the eye lands on.
+    /// Show a thread's own passage — the "Show" button beside it in the rail. The preview draws a
+    /// section at a time rather than the buffer itself, so naming the passage is not enough on its
+    /// own any more: the section also has to be scrolled into view, which is what
+    /// `plan_preview_scroll` is for. The buffer's selection is still set alongside it — a section
+    /// opened for editing right after is a field over the live buffer, and that is what the
+    /// selection is read against.
     pub fn open_annotation_thread(&mut self, annotation_id: AnnotationId, cx: &mut Context<Self>) {
         if self.workbench.plan.is_none() {
             return;
@@ -510,10 +666,76 @@ impl AppState {
             self.plan_editor
                 .update(cx, |state, cx| state.set_selected_range(range, cx));
         }
+        let block_index = self.workbench.plan.as_ref().and_then(|doc| {
+            let block_id = doc.annotation(annotation_id)?.block_id;
+            doc.annotations
+                .blocks()
+                .iter()
+                .position(|block| block.id == block_id)
+        });
         if let Some(doc) = self.workbench.plan.as_mut() {
             doc.thread = Some(annotation_id);
         }
+        if let Some(index) = block_index {
+            self.plan_preview_scroll.scroll_to_item(index);
+        }
         cx.notify();
+    }
+
+    /// The heading navigator's own dropdown — opened and closed the way every other trigger in the
+    /// window is: a press opens it (never toggles, so a race with the panel's own outside-click
+    /// dismissal cannot reopen what the user meant to close), and the panel's outside click or a
+    /// row picked closes it.
+    pub fn open_plan_nav(&mut self, cx: &mut Context<Self>) {
+        if let Some(doc) = self.workbench.plan.as_mut() {
+            doc.nav_open = !doc.nav_open;
+        }
+        cx.notify();
+    }
+
+    pub fn close_plan_nav(&mut self, cx: &mut Context<Self>) {
+        if let Some(doc) = self.workbench.plan.as_mut() {
+            doc.nav_open = false;
+        }
+        cx.notify();
+    }
+
+    /// A row picked in the heading navigator: scroll the preview to that heading's own section and
+    /// put the composer's selection down, then close the list the way any dropdown row does.
+    pub fn select_plan_nav_heading(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(doc) = self.workbench.plan.as_ref() else {
+            return;
+        };
+        let entries = heading_sections(doc.annotations.blocks(), doc.annotations.annotations());
+        if let Some(entry) = entries.get(index) {
+            let block_id = entry.block_id;
+            if let Some(block_index) = doc
+                .annotations
+                .blocks()
+                .iter()
+                .position(|block| block.id == block_id)
+            {
+                self.plan_preview_scroll.scroll_to_item(block_index);
+            }
+        }
+        if let Some(doc) = self.workbench.plan.as_mut() {
+            doc.nav_open = false;
+        }
+        cx.notify();
+    }
+
+    /// A mark picked in the minimap: resolve it back to the thread it stands for — the same index
+    /// into [`thread_marks`]'s own answer the strip was drawn from — and show it exactly the way
+    /// the rail's own "Show" button does.
+    pub fn select_plan_minimap_mark(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(doc) = self.workbench.plan.as_ref() else {
+            return;
+        };
+        let marks = thread_marks(doc.annotations.blocks(), doc.annotations.annotations());
+        let Some(mark) = marks.get(index) else {
+            return;
+        };
+        self.open_annotation_thread(mark.annotation_id, cx);
     }
 
     pub fn close_annotation_thread(&mut self, cx: &mut Context<Self>) {
@@ -601,6 +823,9 @@ impl AppState {
         doc.composer = Some(target);
         doc.composer_text.clear();
         doc.notice = None;
+        // A fresh composer starts the rail's focus mode over — the override from a previous thread
+        // does not carry into this one.
+        doc.thread_focus_override = false;
         let input = self.annotation_composer_input.clone();
         input.update(cx, |state, cx| {
             state.set_value("", window, cx);
@@ -617,8 +842,19 @@ impl AppState {
         doc.composer = None;
         doc.composer_quote = None;
         doc.composer_text.clear();
+        doc.thread_focus_override = false;
         let input = self.annotation_composer_input.clone();
         input.update(cx, |state, cx| state.set_value("", window, cx));
+        cx.notify();
+    }
+
+    /// The rail's "Show all threads" button, up while a new thread's focus mode is hiding the
+    /// rest. View state only — never sent anywhere, and reset the moment the composer that put it
+    /// up leaves.
+    pub fn show_all_threads(&mut self, cx: &mut Context<Self>) {
+        if let Some(doc) = self.workbench.plan.as_mut() {
+            doc.thread_focus_override = true;
+        }
         cx.notify();
     }
 
@@ -635,7 +871,7 @@ impl AppState {
         if text.is_empty() {
             return;
         }
-        let handle = doc.doc;
+        let handle = doc.doc.clone();
         let quote = doc.composer_quote.clone();
         let message = match target {
             ComposerTarget::Block(block_id) => handle.annotate(block_id, quote, text),
@@ -662,17 +898,17 @@ impl AppState {
 
     /// Re-ask for a document's annotations, for a surface that is open and cares —
     /// `Message::PlanAnnotationsChanged`'s handler, on `Message::PlanChanged`'s own economy.
-    pub(crate) fn reload_plan_annotations(&mut self, project_id: ProjectId, task_id: TaskId) {
+    pub(crate) fn reload_plan_annotations(&mut self, changed: &DocumentHandle) {
         let Some(doc) = self.workbench.plan.as_mut() else {
             return;
         };
-        if doc.project_id() != project_id || doc.task_id() != Some(task_id) {
+        if doc.doc != *changed {
             return;
         }
         // A stale `Loaded` index must not sit under the decorations while the fresh one is in
         // flight.
         doc.annotations = AnnotationsBody::Loading;
-        let handle = doc.doc;
+        let handle = doc.doc.clone();
         self.bus.send(handle.list_annotations());
     }
 

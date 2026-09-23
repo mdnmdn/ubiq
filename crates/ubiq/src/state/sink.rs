@@ -1323,6 +1323,8 @@ pub struct SinkState {
     pub disclosed: bool,
     /// Which row of the demo menu was picked.
     pub picked: usize,
+    /// Which mark of the demo minimap was last clicked.
+    pub minimap_picked: usize,
     /// Which rows of the demo multi-select are ticked. Indices into [`MENU_ITEMS`], and the
     /// specimen's preselection: the page opens with two of them already on, because a control
     /// that only ever starts empty never shows the state a form loads it in.
@@ -1361,6 +1363,7 @@ impl Default for SinkState {
             level: 60,
             disclosed: true,
             picked: 0,
+            minimap_picked: 0,
             multi: vec![0, 2],
             files_tree: true,
             picker: PickerDemo::default(),
@@ -1389,9 +1392,12 @@ impl SinkState {
 
     /// Put a document into one of its viewer's layouts. A viewer with no preview keeps its source.
     pub fn set_layout(&mut self, doc: &SinkDoc, layout: ViewLayout) {
-        // The fixture page hosts no web session, so `Edit` is not one of its positions however a
-        // caller arrives at it.
-        if doc.viewer().has_preview() && layout != ViewLayout::Edit {
+        // The fixture page hosts no web session and no document handle, so `Edit` and `Annotation`
+        // are not among its positions however a caller arrives at them.
+        if doc.viewer().has_preview()
+            && layout != ViewLayout::Edit
+            && layout != ViewLayout::Annotation
+        {
             self.layouts.insert(doc.key, layout);
         }
     }

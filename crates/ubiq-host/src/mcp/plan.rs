@@ -20,7 +20,7 @@ use ubiq_proto::work::CommentAuthor;
 
 use super::PlanReach;
 use super::registry::AgentFacts;
-use crate::plan::Saver;
+use crate::plan::{Saver, Target};
 use crate::reply::Reply;
 
 pub fn call(
@@ -51,7 +51,7 @@ fn project_id(facts: &AgentFacts) -> Result<ProjectId, String> {
 
 fn read_plan(arguments: &Value, project: ProjectId, reach: &PlanReach) -> Result<Value, String> {
     let task = task_id(arguments)?;
-    let replies = reach.plans.lock().load(project, task);
+    let replies = reach.plans.lock().load(&Target::plan(project, task));
     plan_result(task, &replies)
 }
 
@@ -89,8 +89,7 @@ fn write_plan(
     let replies = {
         let mut plans = reach.plans.lock();
         plans.save(
-            project,
-            task,
+            &Target::plan(project, task),
             body.to_string(),
             &Saver::agent(facts.key.clone()),
             expected,
@@ -130,9 +129,9 @@ fn plan_changes(
     let mut plans = reach.plans.lock();
     let since = match asked {
         Some(since) => Some(since),
-        None => plans.last_written_by(project, task, &facts.key),
+        None => plans.last_written_by(&Target::plan(project, task), &facts.key),
     };
-    let report = plans.change_report(project, task, since)?;
+    let report = plans.change_report(&Target::plan(project, task), since)?;
     let stats = report.stats;
 
     let regions: Vec<Value> = report
@@ -186,7 +185,10 @@ fn list_annotations(
 ) -> Result<Value, String> {
     let task = task_id(arguments)?;
     let include_resolved = matches!(arguments.get("include_resolved"), Some(Value::Bool(true)));
-    let (blocks, annotations) = reach.plans.lock().annotation_list(project, task)?;
+    let (blocks, annotations) = reach
+        .plans
+        .lock()
+        .annotation_list(&Target::plan(project, task))?;
     let annotations: Vec<Value> = annotations
         .iter()
         .filter(|annotation| include_resolved || annotation.is_open())
@@ -206,8 +208,7 @@ fn reply_annotation(
     let replies = {
         let mut plans = reach.plans.lock();
         plans.reply_to(
-            project,
-            task,
+            &Target::plan(project, task),
             annotation,
             CommentAuthor::Agent,
             text.to_string(),
@@ -233,7 +234,7 @@ fn resolve_annotation(
     };
     let replies = {
         let mut plans = reach.plans.lock();
-        plans.resolve(project, task, annotation, resolved)
+        plans.resolve(&Target::plan(project, task), annotation, resolved)
     };
     annotation_result(annotation, &replies, reach)
 }

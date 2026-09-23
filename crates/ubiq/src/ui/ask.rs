@@ -47,17 +47,26 @@ const FIELD_CONTEXT: &str = "Ask > Input";
 ///
 /// `enter` (`DialogConfirm`) and `⌘⏎` (`SubmitSearch`) need no binding here — both are already
 /// bound at `Workbench` (and, for `⌘⏎`, `Input` too), on `new_agent.rs`'s device, and this
-/// module's own `render` intercepts them before they reach anything else. Up, down, space and
-/// tab are this dialog's own: the first three are deliberately *not* bound inside a field, so
-/// typing in "Other" or "Notes" keeps doing what typing does, and `tab` is bound twice, on
-/// `navigator.rs`'s device, because the component library's own field already claims it for
-/// indentation at the same depth — registered here, after `gpui_component::init`, so this one
-/// wins the tie.
+/// module's own `render` intercepts them before they reach anything else. Up and down are this
+/// dialog's own and need no field override: the component library's field already claims those
+/// inside itself, at the deepest node, so typing in "Other" or "Notes" keeps doing what typing
+/// does with no help from here (`ubiq-ui`'s "a key binding against a field must be registered
+/// late"). `tab` is bound twice, on `navigator.rs`'s device, because the field claims that one
+/// too, for indentation, and the dialog wants it moving focus instead — registered again at
+/// `FIELD_CONTEXT`, after `gpui_component::init`, so this one wins the tie.
+///
+/// **`space` needs the opposite treatment.** Nothing in the field claims it — a plain character
+/// has no binding of its own to win the depth tie — so with only `AskToggle` bound at `CONTEXT`,
+/// that one keeps firing even while a field holds the keyboard, and a space meant for "Other"'s
+/// free text never reaches it (T-97). `NoAction` at `FIELD_CONTEXT` is the fix: it outranks
+/// `AskToggle`'s shallower match without binding an action of its own, so the keystroke falls
+/// through to the field instead of being consumed.
 pub fn key_bindings() -> Vec<KeyBinding> {
     vec![
         KeyBinding::new("up", AskMoveUp, Some(CONTEXT)),
         KeyBinding::new("down", AskMoveDown, Some(CONTEXT)),
         KeyBinding::new("space", AskToggle, Some(CONTEXT)),
+        KeyBinding::new("space", gpui::NoAction, Some(FIELD_CONTEXT)),
         KeyBinding::new("tab", AskFieldNext, Some(CONTEXT)),
         KeyBinding::new("tab", AskFieldNext, Some(FIELD_CONTEXT)),
     ]

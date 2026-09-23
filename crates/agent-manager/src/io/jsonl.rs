@@ -2088,6 +2088,100 @@ mod tests {
         );
     }
 
+    /// The failure twin of `a_spawned_call_ends_when_the_turn_accounts_for_it`: `subagent_stats`
+    /// can account for a delegate by *failing* it rather than completing it
+    /// (`completed: 0, failed: 1`), and that must land `ToolStatus::Failed`, not `Completed` —
+    /// a delegate closed the wrong way reads `Ended · Done` when the work actually errored.
+    #[test]
+    fn a_spawned_call_that_failed_ends_as_failed_not_completed() {
+        let mut mapper = Mapper::default();
+        let mut map = |json: &str| mapper.map_event(&serde_json::from_str::<Value>(json).unwrap());
+
+        map(
+            r#"{"type":"user","message":{"content":[{"type":"tool_result",
+                "tool_use_id":"toolu_016Y","content":"Async agent launched successfully."}]},
+              "tool_use_result":{"isAsync":true,"status":"async_launched"}}"#,
+        );
+
+        let events = map(
+            r#"{"type":"result","subtype":"success","subagent_stats":{"spawned":1,
+                "completed":0,"failed":1}}"#,
+        );
+        assert_eq!(
+            events[0],
+            AgentEvent::ToolCallUpdate {
+                update: ToolCallUpdate::finished("toolu_016Y", ToolStatus::Failed),
+            },
+            "got {events:?}"
+        );
+    }
+
+    /// Two delegates launched from the same turn, deferred to different `result`s: the tally
+    /// covers only the calls it can account for, so the still-running one stays open while its
+    /// sibling closes — the turn is not "all or nothing" (`ponytail` in `finish_launched`'s
+    /// doc comment already flags the coarser mixed-outcome case; this is the simpler one, where
+    /// the running count alone gates it).
+    #[test]
+    fn one_of_two_spawned_calls_closes_before_its_sibling_does() {
+        let mut mapper = Mapper::default();
+        let mut map = |json: &str| mapper.map_event(&serde_json::from_str::<Value>(json).unwrap());
+
+        map(
+            r#"{"type":"user","message":{"content":[{"type":"tool_result",
+                "tool_use_id":"toolu_A","content":"Async agent launched successfully."}]},
+              "tool_use_result":{"isAsync":true,"status":"async_launched"}}"#,
+        );
+        map(
+            r#"{"type":"user","message":{"content":[{"type":"tool_result",
+                "tool_use_id":"toolu_B","content":"Async agent launched successfully."}]},
+              "tool_use_result":{"isAsync":true,"status":"async_launched"}}"#,
+        );
+
+        // Only one of the two spawned agents has completed: neither closes yet, since the
+        // stream names no call individually — see `finish_launched`'s `ponytail` note.
+        let events = map(
+            r#"{"type":"result","subtype":"success","subagent_stats":{"spawned":2,
+                "completed":1,"failed":0}}"#,
+        );
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, AgentEvent::ToolCallUpdate { .. })),
+            "a mixed turn cannot say which one finished, so neither is claimed yet: {events:?}"
+        );
+
+        // Both are now accounted for: both close, together.
+        let events = map(
+            r#"{"type":"result","subtype":"success","subagent_stats":{"spawned":2,
+                "completed":2,"failed":0}}"#,
+        );
+        let finished: Vec<_> = events
+            .iter()
+            .filter(|e| matches!(e, AgentEvent::ToolCallUpdate { .. }))
+            .collect();
+        assert_eq!(finished.len(), 2, "got {events:?}");
+    }
+
+    /// A delegate whose parent call never receives a terminal event — the harness ends the
+    /// session with no `result` accounting for it at all — is left `InProgress` rather than
+    /// guessed at. Silence is not proof of completion (see the proposal's "Failure" section).
+    #[test]
+    fn a_delegate_with_no_accounting_result_stays_open() {
+        let mut mapper = Mapper::default();
+        let mut map = |json: &str| mapper.map_event(&serde_json::from_str::<Value>(json).unwrap());
+
+        map(
+            r#"{"type":"user","message":{"content":[{"type":"tool_result",
+                "tool_use_id":"toolu_C","content":"Async agent launched successfully."}]},
+              "tool_use_result":{"isAsync":true,"status":"async_launched"}}"#,
+        );
+
+        assert!(
+            mapper.launched.contains(&"toolu_C".to_string()),
+            "nothing has accounted for the delegate yet, so it is still tracked as open"
+        );
+    }
+
     #[test]
     fn a_failed_result_ends_the_turn_with_its_reason() {
         let events = map(r#"{"type":"result","is_error":true,"result":"boom"}"#);

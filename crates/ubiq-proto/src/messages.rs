@@ -18,7 +18,7 @@ use crate::conversation::{ConfigChoice, ConvUpdate, StopReason};
 use crate::feedback::{FeedbackError, FeedbackOffer, FeedbackReceipt, FeedbackReport};
 use crate::files::{
     DiffBase, DirListing, EntryKind, FileContents, FileDiff, FileError, FileVersion, HostDirEntry,
-    HostPathError, PathOp,
+    HostPathError, PathOp, RelatedFile,
 };
 use crate::git::{
     self, GitChangedPath, GitCommit, GitEntry, GitNested, GitRef, GitRollup, RepoOverview,
@@ -35,7 +35,8 @@ use crate::notifications::{
     Level, MuteFor, MuteScope, Notification, NotificationRequest, Notifications,
 };
 use crate::plan::{
-    Annotation, PlanBlock, PlanChangeStats, PlanChangedRegion, PlanRevision, SaveOrigin,
+    Annotation, DocumentHandle, PlanBlock, PlanChangeStats, PlanChangedRegion, PlanRevision,
+    SaveOrigin,
 };
 use crate::projects::{
     DroneChange, IndexChange, LanePref, MissionTermChange, ProjectSnapshot, Scope,
@@ -1051,6 +1052,20 @@ pub enum Message {
         rel_path: String,
         to: Option<String>,
         op: PathOp,
+        /// Also apply this op to whatever [`Message::ProjectFileRelated`] would answer for
+        /// `rel_path` — the checkbox the explorer's rename and delete questions raise, default
+        /// checked. The host resolves the related files itself, again, rather than the interface
+        /// naming them: the answer it was shown may be stale by the time this lands, and the
+        /// resolver is the one place that rule lives. Meaningless, and ignored, for
+        /// [`PathOp::Create`] and [`PathOp::Copy`].
+        #[serde(default)]
+        carry_related: bool,
+    },
+    /// What else belongs to `rel_path` — the resolver's whole answer, asked before a rename, move
+    /// or delete is confirmed, so the question can say what else it would carry.
+    RelatedProjectFiles {
+        project_id: ProjectId,
+        rel_path: String,
     },
 
     // ── File family: host → UI ──────────────────────────────────────
@@ -1093,6 +1108,15 @@ pub enum Message {
         rel_path: String,
         to: Option<String>,
         op: PathOp,
+        #[serde(default)]
+        carry_related: bool,
+    },
+    /// The answer to [`Message::RelatedProjectFiles`]: everything the resolver found for
+    /// `rel_path`, empty when there is nothing to carry.
+    ProjectFileRelated {
+        project_id: ProjectId,
+        rel_path: String,
+        related: Vec<RelatedFile>,
     },
     /// Something went wrong for one path in one project.
     ///
@@ -1545,23 +1569,30 @@ pub enum Message {
     },
 
     // ── Plan family: UI → host ────────────────────────────────────────
-    // A plan belongs to any task carrying a [`crate::work::Level`] — not to ordinary tasks, and
-    // not to some special mission subtype. The host refuses every variant here for a task whose
-    // `level` is `None`, with [`Message::PlanError`], the same posture [`Message::WorkError`]
-    // already takes with a task that is not there at all.
+    // **Every variant here names a [`DocumentHandle`] and nothing else.** The family annotates a
+    // task's plan and an ordinary markdown file in the project's tree through the same messages,
+    // the same host-side block matcher and the same orphaning rule; the handle is the only thing
+    // that says which, and where the body and its sidecar sit is the host's answer to it. The
+    // names stayed `Plan*` because the records they carry are ([`PlanBlock`], [`PlanRevision`],
+    // [`PlanChangedRegion`]) and renaming half a vocabulary is not what makes a document generic.
     //
-    // Stored at `<config root>/projects/<ProjectId>/plans/<TaskId>.md`, beside `tasks.toml` and
-    // `kb.toml` rather than inside either — a plan is markdown, long, and edited on its own
-    // schedule, and putting it inside `tasks.toml` would mean every checkbox tick on the board
-    // rewrites the plan too. Read-only in the interface this slice: the write half exists for
-    // `ubiq-plan`'s MCP tools and for [`Message::SavePlan`] itself, which nothing in
-    // `crates/ubiq` calls yet.
-    /// Read a task's plan. Answered with [`Message::Plan`], carrying an empty body for a task that
-    /// has none yet — a mission nobody has planned is not an error, the same way a project with no
-    /// tasks yet is not.
+    // A **plan** belongs to any task carrying a [`crate::work::Level`] — not to ordinary tasks,
+    // and not to some special mission subtype. The host refuses every variant here for a task
+    // whose `level` is `None`, with [`Message::PlanError`], the same posture
+    // [`Message::WorkError`] already takes with a task that is not there at all. It is stored at
+    // `<config root>/projects/<ProjectId>/plans/<TaskId>.md`, beside `tasks.toml` and `kb.toml`
+    // rather than inside either — a plan is markdown, long, and edited on its own schedule, and
+    // putting it inside `tasks.toml` would mean every checkbox tick on the board rewrites the plan
+    // too.
+    //
+    // A **file** document is the project's own markdown, annotated in place: the body is the file
+    // itself and the sidecar is `<file>.md.annotation.json` beside it, inside the repository. The
+    // host refuses a path that is not markdown and one that does not land inside the project.
+    /// Read a document. Answered with [`Message::Plan`], carrying an empty body for one that does
+    /// not exist yet — a mission nobody has planned is not an error, the same way a project with
+    /// no tasks yet is not.
     LoadPlan {
-        project_id: ProjectId,
-        task_id: TaskId,
+        doc: DocumentHandle,
     },
     /// Replace a task's plan, whole. There is no partial edit on the wire: the body is markdown a
     /// human or an agent rewrites in full, the same discipline [`Message::UpdateTask::description`]
@@ -1584,17 +1615,19 @@ pub enum Message {
     /// `0` is the watermark of a plan whose body has never been written, so a first save names it
     /// and is refused if somebody wrote one first.
     SavePlan {
-        project_id: ProjectId,
-        task_id: TaskId,
+        doc: DocumentHandle,
         body: String,
         expected: PlanRevision,
     },
     /// Delete a task's plan. Not an error when there was none — the same posture
     /// [`Message::DeleteKbEntry`] takes: asking for an absent thing to be gone is already
     /// satisfied.
+    ///
+    /// **A file document is refused**: the body is the user's own file, and a message that
+    /// annotates it may not be the one that deletes it. Only a plan — a document Ubiq brought into
+    /// being under its own root — can be dropped this way.
     DeletePlan {
-        project_id: ProjectId,
-        task_id: TaskId,
+        doc: DocumentHandle,
     },
     /// Write a copy of a task's plan into the project's own working tree, at a project-relative
     /// path — an explicit, one-shot action the user asks for, never a continuous mirror and never
@@ -1602,16 +1635,14 @@ pub enum Message {
     /// [`Message::WriteProjectFile`]'s is; the folders it names are created, the way a save-as's
     /// are, because the export is what brings the file into being.
     ExportPlan {
-        project_id: ProjectId,
-        task_id: TaskId,
+        doc: DocumentHandle,
         rel_path: String,
     },
     /// Every annotation on a task's plan, open, resolved and orphaned alike. Answered with
     /// [`Message::PlanAnnotations`]; the filtering is the interface's, because a panel that hides
     /// resolved threads still has to be able to show them on a toggle without a second round trip.
     ListPlanAnnotations {
-        project_id: ProjectId,
-        task_id: TaskId,
+        doc: DocumentHandle,
     },
     /// Open an annotation on one block of a task's plan.
     ///
@@ -1621,16 +1652,14 @@ pub enum Message {
     /// `quote` is the passage inside the block the user selected, where the surface had one to
     /// give; a whole-block annotation leaves it absent.
     AnnotatePlan {
-        project_id: ProjectId,
-        task_id: TaskId,
+        doc: DocumentHandle,
         block_id: BlockId,
         quote: Option<String>,
         text: String,
     },
     /// Append to an annotation's thread.
     ReplyToAnnotation {
-        project_id: ProjectId,
-        task_id: TaskId,
+        doc: DocumentHandle,
         annotation_id: AnnotationId,
         text: String,
     },
@@ -1638,8 +1667,7 @@ pub enum Message {
     /// agent** — a planning assistant that answers a comment can close it — so there is no author
     /// check here and no author on the wire; the host stamps the comments and nothing else.
     ResolveAnnotation {
-        project_id: ProjectId,
-        task_id: TaskId,
+        doc: DocumentHandle,
         annotation_id: AnnotationId,
         resolved: bool,
     },
@@ -1654,8 +1682,7 @@ pub enum Message {
     /// `since_revision` absent means "since the beginning", which for a plan with any history is
     /// every line that was ever written and is a deliberate, boring answer rather than an error.
     ListPlanChanges {
-        project_id: ProjectId,
-        task_id: TaskId,
+        doc: DocumentHandle,
         since_revision: Option<PlanRevision>,
     },
 
@@ -1669,8 +1696,7 @@ pub enum Message {
     /// changed while it was away sends it back in [`Message::ListPlanChanges`]; a plan whose body
     /// has never been written answers `0`, which is the watermark meaning "nothing yet".
     Plan {
-        project_id: ProjectId,
-        task_id: TaskId,
+        doc: DocumentHandle,
         body: String,
         revision: PlanRevision,
     },
@@ -1678,13 +1704,11 @@ pub enum Message {
     /// notch: unlike a task, a plan may be open for reading in more than one window's viewer at
     /// once, so every window is told rather than only the one that asked.
     PlanDeleted {
-        project_id: ProjectId,
-        task_id: TaskId,
+        doc: DocumentHandle,
     },
     /// The plan was written into the project's tree, at the path it was asked to go to.
     PlanExported {
-        project_id: ProjectId,
-        task_id: TaskId,
+        doc: DocumentHandle,
         rel_path: String,
     },
     /// A task's plan changed by some route other than the window's own request — another window's
@@ -1697,8 +1721,7 @@ pub enum Message {
     /// and how far it has fallen behind, and decide whether re-asking is worth it. A window
     /// hearing its *own* save echoed back reads the same two fields to recognise it.
     PlanChanged {
-        project_id: ProjectId,
-        task_id: TaskId,
+        doc: DocumentHandle,
         revision: PlanRevision,
         origin: SaveOrigin,
     },
@@ -1712,8 +1735,7 @@ pub enum Message {
     /// it already holds is unreadable without the block it names. `blocks` is in document order,
     /// as of the last [`Message::SavePlan`].
     PlanAnnotations {
-        project_id: ProjectId,
-        task_id: TaskId,
+        doc: DocumentHandle,
         blocks: Vec<PlanBlock>,
         annotations: Vec<Annotation>,
     },
@@ -1723,8 +1745,7 @@ pub enum Message {
     /// [`Message::PlanChanged`]'s economy: a window showing that plan re-asks with
     /// [`Message::ListPlanAnnotations`] if it still cares.
     PlanAnnotationsChanged {
-        project_id: ProjectId,
-        task_id: TaskId,
+        doc: DocumentHandle,
     },
     /// Where a task's plan changed since a watermark, and by how much — the answer to
     /// [`Message::ListPlanChanges`]. Sent only to whoever asked: the regions carry the text
@@ -1735,8 +1756,7 @@ pub enum Message {
     /// in the window, which is the ordinary case and not an error — `stats` then reads all zeroes
     /// with `since_revision` equal to `revision`.
     PlanChanges {
-        project_id: ProjectId,
-        task_id: TaskId,
+        doc: DocumentHandle,
         regions: Vec<PlanChangedRegion>,
         stats: PlanChangeStats,
     },
@@ -1750,22 +1770,25 @@ pub enum Message {
     /// the overwrite question again and what the next save has to name to win. That is
     /// [`Message::PlanError`]'s own test for when an enum — or here, a variant — earns its keep.
     PlanConflict {
-        project_id: ProjectId,
-        task_id: TaskId,
+        doc: DocumentHandle,
         /// The revision the plan stands at now, and therefore what a save that means to replace it
         /// has to name.
         revision: PlanRevision,
         /// Who moved it there, so the banner names an agent or a person rather than "somebody".
         origin: SaveOrigin,
     },
-    /// Something went wrong with one task's plan, or with the family as a whole when the task id
-    /// is absent — [`Message::WorkError`]'s own shape, for the reason it gives: every failure here
-    /// comes down to saying so once, where the user is looking.
+    /// Something went wrong with one document, or with the family as a whole when `doc` is absent
+    /// — [`Message::WorkError`]'s own shape, for the reason it gives: every failure here comes
+    /// down to saying so once, where the user is looking.
+    ///
+    /// `project_id` rides beside `doc` rather than being read out of it, because the one failure
+    /// that has no document to name — a project the catalogue does not hold — still has to route
+    /// and still has to be reported against something.
     ///
     /// A stale save is **not** one of these: see [`Message::PlanConflict`].
     PlanError {
         project_id: ProjectId,
-        task_id: Option<TaskId>,
+        doc: Option<DocumentHandle>,
         error: String,
     },
 
@@ -2446,11 +2469,13 @@ impl Message {
             | Message::WriteProjectFile { project_id, .. }
             | Message::DiffProjectFile { project_id, .. }
             | Message::EditProjectPath { project_id, .. }
+            | Message::RelatedProjectFiles { project_id, .. }
             | Message::ProjectTreeListing { project_id, .. }
             | Message::ProjectFileContents { project_id, .. }
             | Message::ProjectFileWritten { project_id, .. }
             | Message::ProjectFileDiffed { project_id, .. }
             | Message::ProjectPathEdited { project_id, .. }
+            | Message::ProjectFileRelated { project_id, .. }
             | Message::ProjectFileError { project_id, .. }
             | Message::KbSources { project_id, .. }
             | Message::SetKbSources { project_id, .. }
@@ -2504,23 +2529,6 @@ impl Message {
             | Message::TaskDeleted { project_id, .. }
             | Message::AgentChanged { project_id, .. }
             | Message::WorkError { project_id, .. }
-            | Message::LoadPlan { project_id, .. }
-            | Message::SavePlan { project_id, .. }
-            | Message::DeletePlan { project_id, .. }
-            | Message::ExportPlan { project_id, .. }
-            | Message::ListPlanAnnotations { project_id, .. }
-            | Message::AnnotatePlan { project_id, .. }
-            | Message::ReplyToAnnotation { project_id, .. }
-            | Message::ResolveAnnotation { project_id, .. }
-            | Message::ListPlanChanges { project_id, .. }
-            | Message::Plan { project_id, .. }
-            | Message::PlanAnnotations { project_id, .. }
-            | Message::PlanAnnotationsChanged { project_id, .. }
-            | Message::PlanChanges { project_id, .. }
-            | Message::PlanDeleted { project_id, .. }
-            | Message::PlanExported { project_id, .. }
-            | Message::PlanChanged { project_id, .. }
-            | Message::PlanConflict { project_id, .. }
             | Message::PlanError { project_id, .. }
             | Message::StartConversation { project_id, .. }
             | Message::ReviveConversation { project_id, .. }
@@ -2531,6 +2539,25 @@ impl Message {
             | Message::SearchProgress { project_id, .. }
             | Message::SearchFinished { project_id, .. }
             | Message::SearchError { project_id, .. } => Some(*project_id),
+            // The annotation family names a document rather than a project, and the project is
+            // inside the handle — one arm for the whole family, on `Suggest`'s own reasoning.
+            Message::LoadPlan { doc }
+            | Message::SavePlan { doc, .. }
+            | Message::DeletePlan { doc }
+            | Message::ExportPlan { doc, .. }
+            | Message::ListPlanAnnotations { doc }
+            | Message::AnnotatePlan { doc, .. }
+            | Message::ReplyToAnnotation { doc, .. }
+            | Message::ResolveAnnotation { doc, .. }
+            | Message::ListPlanChanges { doc, .. }
+            | Message::Plan { doc, .. }
+            | Message::PlanAnnotations { doc, .. }
+            | Message::PlanAnnotationsChanged { doc }
+            | Message::PlanChanges { doc, .. }
+            | Message::PlanDeleted { doc }
+            | Message::PlanExported { doc, .. }
+            | Message::PlanChanged { doc, .. }
+            | Message::PlanConflict { doc, .. } => Some(doc.project_id()),
             // The project is inside the subject rather than beside it, so this arm stands alone.
             Message::Suggest {
                 subject:

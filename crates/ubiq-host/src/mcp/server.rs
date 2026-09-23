@@ -971,18 +971,20 @@ mod tests {
         let block = {
             let (blocks, _) = plans
                 .lock()
-                .annotation_list(
+                .annotation_list(&crate::plan::Target::plan(
                     facts().project.id.parse().unwrap(),
                     task_id.parse().unwrap(),
-                )
+                ))
                 .expect("the plan reads");
             blocks[1].id
         };
         let annotation_id = {
             let mut plan_lock = plans.lock();
             let replies = plan_lock.annotate(
-                facts().project.id.parse().unwrap(),
-                task_id.parse().unwrap(),
+                &crate::plan::Target::plan(
+                    facts().project.id.parse().unwrap(),
+                    task_id.parse().unwrap(),
+                ),
                 block,
                 Some("Step one".to_string()),
                 ubiq_proto::work::CommentAuthor::User,
@@ -1048,16 +1050,18 @@ mod tests {
             let mut plan_lock = plans.lock();
             let block = {
                 let (blocks, _) = plan_lock
-                    .annotation_list(
+                    .annotation_list(&crate::plan::Target::plan(
                         facts().project.id.parse().unwrap(),
                         task_id.parse().unwrap(),
-                    )
+                    ))
                     .unwrap();
                 blocks[2].id
             };
             let replies = plan_lock.annotate(
-                facts().project.id.parse().unwrap(),
-                task_id.parse().unwrap(),
+                &crate::plan::Target::plan(
+                    facts().project.id.parse().unwrap(),
+                    task_id.parse().unwrap(),
+                ),
                 block,
                 None,
                 ubiq_proto::work::CommentAuthor::User,
@@ -1122,8 +1126,7 @@ mod tests {
 
         // A person edits two separate lines, through the path a `SavePlan` off the bus takes.
         plans.lock().save(
-            project,
-            task_id.parse().unwrap(),
+            &crate::plan::Target::plan(project, task_id.parse().unwrap()),
             "# Plan\n\nStep one, revised.\n\nStep two, also revised.".to_string(),
             &crate::plan::Saver::human(),
             None,

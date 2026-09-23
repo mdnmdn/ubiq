@@ -6,7 +6,7 @@
 //! readings of it: no element, no colour, and nothing that names a message.
 
 use ubiq_proto::conversation::ConfigChoice;
-use ubiq_proto::ids::ProjectId;
+use ubiq_proto::ids::{ProjectId, TaskId};
 use ubiq_proto::messages::{AgentTypeInfo, CatalogueModel, ProfileInfo};
 
 /// What the form is for. The same fields answer both questions, so the same form asks them.
@@ -112,6 +112,52 @@ pub struct NewAgentForm {
     /// is settled by where the user asked for it, and a saved profile is edited in the scope it
     /// was written in ([`ProfileInfo::project`]).
     pub project: Option<ProjectId>,
+    /// The task this start is being assigned to, where the form was raised from the board's own
+    /// "Assign to an agent" button — `None` for every other way in. Drives the two checkboxes
+    /// `ui::new_agent` draws only here, and what [`task_assignment_prompt`] composes the opening
+    /// prompt from; nothing about the target, the MCP checklist or any other row changes on its
+    /// account — this is the one form both cards share, not a second one.
+    pub for_task: Option<TaskId>,
+    /// The task assignment's "ask for feedback" checkbox. Ticked is the safer default: an agent
+    /// that assumes rather than asks is the one that has to be told to stop later.
+    pub ask_for_feedback: bool,
+    /// The task assignment's "plan mode" checkbox. A prompt instruction only, for now — see
+    /// [`task_assignment_prompt`].
+    pub plan_mode: bool,
+}
+
+/// The MCP servers a task assignment preselects — mirrors
+/// `crates/ubiq-host/src/mcp/catalogue::{MANAGE_UBIQ_TASKS, UBIQ_ASK}` by slug. Duplicated as
+/// plain strings rather than named constants shared with the host: `crates/ubiq` does not depend
+/// on `crates/ubiq-host`, and the slug — not the constant — is the wire contract
+/// ([`ubiq_proto::mcp::McpInfo::name`]).
+pub const TASK_ASSIGN_MCPS: [&str; 2] = ["manage-ubiq-tasks", "ubiq-ask"];
+
+/// The opening prompt a task assignment starts the agent on: what to work on, and how it should
+/// handle a gap in what it knows.
+///
+/// **Recomposed whole, not patched**, whenever the task label or either checkbox changes — see
+/// `AppState::toggle_new_agent_ask_feedback` / `toggle_new_agent_plan_mode` — so what is in the
+/// field always matches what the checkboxes say. A user who has typed over it loses that edit on
+/// the next toggle; accepted for now, since the field is short and the checkboxes are answered
+/// before the prose usually is.
+///
+/// **`plan_mode` is a sentence, not a tool.** No MCP server is ticked for it — `TASK_ASSIGN_MCPS`
+/// carries only the board and the feedback tool — so an agent told to "work in plan mode" today
+/// has no `ubiq-plan` server to write one into. TODO: once T-64's plan-mode follow-up wires the
+/// plan tool into this form, tick `ubiq-plan` here too instead of leaving the instruction as
+/// words alone.
+pub fn task_assignment_prompt(task_label: &str, ask_for_feedback: bool, plan_mode: bool) -> String {
+    let mut prompt = format!("Start working on task {task_label}.");
+    if ask_for_feedback {
+        prompt.push_str(" Ask for feedback with the feedback tool whenever you need it.");
+    } else {
+        prompt.push_str(" Assume as much as you reasonably can rather than asking for feedback.");
+    }
+    if plan_mode {
+        prompt.push_str(" Work in plan mode: write out your plan before making changes.");
+    }
+    prompt
 }
 
 impl NewAgentForm {
@@ -134,6 +180,9 @@ impl NewAgentForm {
             models: Vec::new(),
             probing: false,
             project: None,
+            for_task: None,
+            ask_for_feedback: true,
+            plan_mode: false,
         }
     }
 
@@ -450,5 +499,32 @@ mod tests {
         );
         assert_eq!(fold_preamble("", "Do the thing."), "Do the thing.");
         assert_eq!(fold_preamble("Rule.", ""), "Rule.");
+    }
+
+    /// `T-64`'s two checkboxes each flip one sentence of the assignment prompt, independently —
+    /// every combination names the task once and adds exactly one clause per checkbox.
+    #[test]
+    fn the_task_assignment_prompt_answers_both_checkboxes() {
+        let ask = task_assignment_prompt("T-64", true, false);
+        assert!(ask.starts_with("Start working on task T-64."));
+        assert!(ask.contains("Ask for feedback"));
+        assert!(!ask.contains("Assume as much"));
+        assert!(!ask.contains("plan mode"));
+
+        let assume = task_assignment_prompt("T-64", false, false);
+        assert!(assume.contains("Assume as much"));
+        assert!(!assume.contains("Ask for feedback"));
+
+        let planning = task_assignment_prompt("T-64", true, true);
+        assert!(planning.contains("Ask for feedback"));
+        assert!(planning.contains("plan mode"));
+    }
+
+    /// The MCPs a task assignment preselects are the board and the one tool that waits for a
+    /// person — not the plan tool, which `task_assignment_prompt`'s doc comment leaves as a TODO
+    /// until a follow-up wires it in.
+    #[test]
+    fn task_assign_mcps_are_the_board_and_the_feedback_tool() {
+        assert_eq!(TASK_ASSIGN_MCPS, ["manage-ubiq-tasks", "ubiq-ask"]);
     }
 }

@@ -16,6 +16,7 @@ pub mod chat;
 pub mod clone;
 pub mod conversation;
 pub mod dock;
+pub mod document;
 pub mod editor;
 pub mod empty;
 pub mod explorer;

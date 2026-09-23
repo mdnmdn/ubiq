@@ -18,7 +18,8 @@ use ubiq::state::layout::Algo;
 use ubiq::state::nav::{Destination, View};
 use ubiq::state::new_agent::Target;
 use ubiq::state::teams::{
-    CARD_HEIGHT, CARD_WIDTH, TeamsHeld, TeamsInspectorTab, TeamsSelection, TeamsSpan, window_work,
+    CARD_WIDTH, TEAMS_CARD_HEIGHT, TeamsHeld, TeamsInspectorTab, TeamsSelection, TeamsSpan,
+    window_work,
 };
 use ubiq::state::work::WorkProjection;
 use ubiq::state::{RailMode, WindowRegistry};
@@ -896,7 +897,7 @@ fn a_card_is_never_filed_into_another_project_s_task(cx: &mut TestAppContext) {
                 .expect("the container is on the canvas");
             (
                 x + w / 2.0 - CARD_WIDTH / 2.0,
-                y + h / 2.0 - CARD_HEIGHT / 2.0,
+                y + h / 2.0 - TEAMS_CARD_HEIGHT / 2.0,
             )
         })
     };

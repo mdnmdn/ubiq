@@ -5,9 +5,9 @@ kind: wip
 status: draft
 summary: What landed in the round that made a login reach its harness's runtime, gave a conversation its model, thinking level and mode, turned the IDE chat into editor-like tabs, and gave every conversation a lifecycle — and what of it is verified against a running binary rather than only against tests.
 read_when: you are picking up this work, or you need to know which parts of it have been seen working and which have only been reasoned about
-updated: 2026-09-17
-verified: 2026-09-20
-code_anchors: [crates/agent-manager/src/isolate.rs, crates/agent-manager/src/harness/mod.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/store/harness.rs, crates/ubiq-host/src/shells.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/dock.rs]
+updated: 2026-09-23
+verified: 2026-09-23
+code_anchors: [crates/agent-manager/src/isolate.rs, crates/agent-manager/src/harness/mod.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/store/harness.rs, crates/ubiq-host/src/shells.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/ui/agents/column.rs]
 depends_on: [wip-agent-setup, tech-agent-manager, feat-chat, feat-workbench]
 review_cycle: monthly
 ---
@@ -104,9 +104,15 @@ another chat tab draws **greyed rather than hidden** — a row that vanishes rea
 that ended. That exclusivity is **per IDE chat surface only**: the workbench may show the same
 conversation at the same time, because a view was never the workspace.
 
-The lifecycle glyph, the three-dots menu and the two `+` controls share one toolbar row, icons only
-with tooltips. The shared conversation view gained a `header` flag beside `footer` and `composer`, so
-the agents column is unchanged and both surfaces still read one lifecycle rule rather than two.
+The three-dots menu and the two `+` controls share one toolbar row, icons only with tooltips. The
+shared conversation view gained a `header` flag beside `footer` and `composer`, so both surfaces
+still read one lifecycle rule rather than two. **T-102 later folded that row further**: the
+lifecycle glyph that used to sit beside the menu is gone from both surfaces — it moved onto the
+hexagon every tab now wears (T-99) — and `ui::conversation::lifecycle_header` became the one first
+line both the chat tab and the agents column draw, menu at the left, a current-action chip flush
+against the right edge, and an optional `switch` slot for the chat tab's own change-agent chevron
+that the agents column has no equivalent control for. See [`tech/ui-and-design.md`](../tech/ui-and-design.md)
+for the shape rule.
 
 ## 4. A conversation outlives its harness
 
@@ -121,6 +127,15 @@ destroying the launch recipe. Keeping it and flipping the prompt dispatch from "
 Conversations also name themselves now (D58) — the harness's command with a counter from the second,
 per project, first free name reused — and the harness list separates default from configured (D59),
 so signing an account in no longer removes the ability to start that harness zero-config.
+
+**Until a conversation names itself, T-102 gives its title one more source than the bare harness
+label.** `AppState::agent_title` (`crates/ubiq/src/app/agents.rs`) reads a session-only
+`agent_started_profile: HashMap<AgentId, String>` (`state::workbench::WorkbenchState`) — the
+profile a `Message::StartConversation` was launched from — and shows that name in place of the
+harness label for exactly as long as `WorkAgent::summary` stays `None`. A window reload, or an
+agent started with no profile, falls back to `WorkAgent::name` unchanged. Every surface that used to
+print `agent.name` or `agent.summary` directly — the dock tab, the agents column's tab and header —
+now reads this one function instead.
 
 ## What is verified, and what is not
 

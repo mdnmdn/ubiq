@@ -3,10 +3,10 @@ id: wip-planning-system
 title: The planning system — what remains open
 kind: wip
 status: draft
-summary: What is still undecided about the planning flow — missions, plans and their annotations — after all seven staged slices (T-56 through T-62) and the follow-on provenance work (T-94) shipped. The built design lives in `features/workbench.md`, `tech/transport-contract.md` and `tech/decisions.md` (`D157` through `D160`); this file is only the remainder.
-read_when: you are picking up T-74 or T-85, or deciding whether a mission should inherit anything from its parent, or whether `require plan` should gate anything
-updated: 2026-09-22
-code_anchors: [crates/ubiq/src/state/document.rs, crates/ubiq-host/src/store/plan.rs]
+summary: What is still undecided about the planning flow — missions, plans and their annotations — after all seven staged slices (T-56 through T-62) and the follow-on provenance work (T-94) shipped. The built design lives in `features/workbench.md`, `tech/transport-contract.md` and `tech/decisions.md` (`D157` through `D161`); this file is only the remainder.
+read_when: you are picking up T-85, or deciding whether a mission should inherit anything from its parent, or whether `require plan` should gate anything
+updated: 2026-09-23
+code_anchors: [crates/ubiq/src/state/document.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-proto/src/plan.rs]
 depends_on: [feat-workbench, tech-transport, tech-decisions, wip-kb]
 ---
 
@@ -21,23 +21,29 @@ project-scoped profiles — is built, across all seven staged slices plus the ed
 [`tech/transport-contract.md`](../tech/transport-contract.md) (the `Plan`, annotation and
 provenance message families) and [`tech/decisions.md`](../tech/decisions.md) — `D157` (edit
 provenance), `D158` (a profile's project scope), `D159` (the annotation anchor is a stable block
-id) and `D160` (the plan editor is native, not a web-panel tenant).
+id), `D160` (the plan editor is native, not a web-panel tenant) and `D161` (the family is keyed by
+a `DocumentHandle`, and a project file's sidecar lives beside the file).
 
-What remains is two blocked cards and two open questions.
+What remains is one blocked card and two open questions.
 
 ## Open items
 
-- **T-74 — where an annotation sidecar lives for a plan-shaped document inside the user's own git
-  repository.** The built annotation layer keeps its sidecar in the config root, beside the plan
-  itself: `<TaskId>.annotations.json` next to `<TaskId>.md`, both under
-  `<config root>/projects/<ProjectId>/plans/`, which is safe because a plan lives there too and
-  never in the user's tree. `crate::state::document::DocumentHandle`
-  (`crates/ubiq/src/state/document.rs`) has exactly one variant, `Plan`, for this reason: a second
-  variant that annotates an arbitrary project `.md` file needs its own answer for where the
-  matching sidecar goes, and writing Ubiq's bookkeeping into a repository the user did not ask to
-  have annotated is a decision nobody has taken. This is what blocks the second `DocumentHandle`
-  variant — the plan editor is presently the only implementation of the annotated-document surface.
-  Undecided.
+- **T-74 — where an annotation sidecar lives for a document inside the user's own git repository —
+  is decided and built (`D161`).** A project's markdown file is annotated in place: the body is the
+  file, and the sidecar is `<file>.md.annotation.json` beside it, inside the repository — a
+  deliberate, narrow exception to `D30`. The handle moved into the contract as
+  `ubiq_proto::plan::DocumentHandle` and grew its second variant, `File { project_id, rel_path }`,
+  so the whole family is keyed by a document rather than by `(project_id, task_id)`; the block
+  matcher, the orphaning rule, the conflict arbitration and the provenance layer are the plan's,
+  unchanged. A plan keeps its own `<TaskId>.annotations.json` under the config root — two spellings
+  for one format, kept rather than migrated.
+
+  **The interface half is built** (T-124): `ViewLayout::Annotation` is markdown's fourth position,
+  `crate::state::plan::file_document` is called from `AppState::open_file_document`, and the
+  surface a tab draws there is the plan editor's own — `ui/document.rs`, with `ui/plan.rs` reduced
+  to the dialog frame around it. Agent integration for a file document's annotations is still an
+  explicitly later card: in plan mode they feed the agents through `ubiq-plan`, for a file they
+  only sit there.
 - **T-85 — what a knowledge-base attachment becomes in a chat prompt.** Three candidates: a
   resolved temp file the prompt names by path, an inlined excerpt of the document's text folded
   into the prompt directly, or a reference the `ubiq-kb` MCP server resolves when the agent asks
@@ -52,8 +58,9 @@ What remains is two blocked cards and two open questions.
 - **Does a child inherit anything from its parent** — labels, colour, session, assignee? Nothing
   does today; `parent: Option<TaskId>` carries no propagation.
 
-The plan editor's own known gap — its provenance underlines drifting from the text while the
-buffer is dirty — is `G332` in [`backlog.md`](../backlog.md), not restated here.
+The plan editor's own known gaps — its decoration layers painting into a buffer the preview-only
+surface no longer draws, and the `/` menu that went with that buffer — are `G332` and `G333` in
+[`backlog.md`](../backlog.md), not restated here.
 
 ## Related docs
 
@@ -61,7 +68,7 @@ buffer is dirty — is `G332` in [`backlog.md`](../backlog.md), not restated her
   store, the plan editor and the annotation layer, built
 - [`../tech/transport-contract.md`](../tech/transport-contract.md) — the `Plan`, annotation and
   provenance message families
-- [`../tech/decisions.md`](../tech/decisions.md) — `D157`–`D160`, and `D30`, `D113`, `D121`,
+- [`../tech/decisions.md`](../tech/decisions.md) — `D157`–`D161`, and `D30`, `D113`, `D121`,
   `D138` this design builds on
 - [`kb.md`](./kb.md) — the knowledge base T-85's answer would point into
 - [`../backlog.md`](../backlog.md) — `G332`

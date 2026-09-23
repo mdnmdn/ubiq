@@ -20,7 +20,7 @@ use ubiq_proto::conversation::{
 };
 use ubiq_proto::files::{FileError, FileVersion};
 use ubiq_proto::ids::{
-    KbSourceId, PaneId, ProjectId, SearchId, SessionId, SshProfileId, SuggestId, TaskId, ToolId,
+    KbSourceId, PaneId, ProjectId, SearchId, SessionId, SshProfileId, SuggestId, ToolId,
 };
 use ubiq_proto::messages::{AgentPicks, CatalogueModel, Message, Secret, WorkspaceInfo};
 use ubiq_proto::projects::{IndexLevel, ProjectHealth, Scope};
@@ -1975,11 +1975,22 @@ impl Coordinator {
                 rel_path,
                 to,
                 op,
+                carry_related,
             } => {
                 let request = files::Request::Edit {
                     rel_path: rel_path.clone(),
                     to,
                     op,
+                    carry_related,
+                };
+                self.file_job(client, project_id, &rel_path, request);
+            }
+            Message::RelatedProjectFiles {
+                project_id,
+                rel_path,
+            } => {
+                let request = files::Request::Related {
+                    rel_path: rel_path.clone(),
                 };
                 self.file_job(client, project_id, &rel_path, request);
             }
@@ -2259,7 +2270,10 @@ impl Coordinator {
                 // `work_job` guards every other plan-family arm below: a project the catalogue
                 // does not hold gets nothing written under it, plan included.
                 if self.projects.record(project_id).is_some() {
-                    let replies = self.plans.lock().delete(project_id, task_id);
+                    let replies = self
+                        .plans
+                        .lock()
+                        .delete(&crate::plan::Target::plan(project_id, task_id));
                     self.answer(client, replies);
                 }
             }
@@ -2343,19 +2357,16 @@ impl Coordinator {
                 });
             }
 
-            // ── the plan family ─────────────────────────────────────
-            // A plan belongs to any task carrying a level — the level check itself lives in
-            // `crate::plan::Plans`, not here, on `work_job`'s own footing: this decides only
-            // whether the project exists.
-            Message::LoadPlan {
-                project_id,
-                task_id,
-            } => {
-                self.plan_job(client, project_id, |plans| plans.load(project_id, task_id));
+            // ── the annotated-document family ───────────────────────
+            // Every arm here names a `DocumentHandle` and nothing else. What this decides is only
+            // whether the project exists and where the document's body is — `plan_job` resolves
+            // the handle to a `plan::Target` once, at the edge, and the level check for a plan
+            // stays inside `crate::plan::Plans` on `work_job`'s own footing.
+            Message::LoadPlan { doc } => {
+                self.plan_job(client, &doc, |plans, target| plans.load(target));
             }
             Message::SavePlan {
-                project_id,
-                task_id,
+                doc,
                 body,
                 expected,
             } => {
@@ -2367,52 +2378,30 @@ impl Coordinator {
                 // never gets to skip the check, so a save made against a watermark somebody has
                 // moved past is refused here with `PlanConflict` rather than landing on top of a
                 // copy its author never read.
-                self.plan_job(client, project_id, |plans| {
-                    plans.save(
-                        project_id,
-                        task_id,
-                        body,
-                        &crate::plan::Saver::human(),
-                        Some(expected),
-                    )
+                self.plan_job(client, &doc, |plans, target| {
+                    plans.save(target, body, &crate::plan::Saver::human(), Some(expected))
                 });
             }
-            Message::DeletePlan {
-                project_id,
-                task_id,
-            } => {
-                self.plan_job(client, project_id, |plans| {
-                    plans.delete(project_id, task_id)
-                });
+            Message::DeletePlan { doc } => {
+                self.plan_job(client, &doc, |plans, target| plans.delete(target));
             }
-            Message::ExportPlan {
-                project_id,
-                task_id,
-                rel_path,
-            } => {
-                self.export_plan(client, project_id, task_id, rel_path);
+            Message::ExportPlan { doc, rel_path } => {
+                self.export_plan(client, &doc, rel_path);
             }
-            Message::ListPlanAnnotations {
-                project_id,
-                task_id,
-            } => {
-                self.plan_job(client, project_id, |plans| {
-                    plans.annotations(project_id, task_id)
-                });
+            Message::ListPlanAnnotations { doc } => {
+                self.plan_job(client, &doc, |plans, target| plans.annotations(target));
             }
             // The author is stamped from the path the message arrived on and never read off the
             // wire — `D121`'s rule for a task's comments, and a window is a user by construction.
             Message::AnnotatePlan {
-                project_id,
-                task_id,
+                doc,
                 block_id,
                 quote,
                 text,
             } => {
-                self.plan_job(client, project_id, |plans| {
+                self.plan_job(client, &doc, |plans, target| {
                     plans.annotate(
-                        project_id,
-                        task_id,
+                        target,
                         block_id,
                         quote,
                         ubiq_proto::work::CommentAuthor::User,
@@ -2421,15 +2410,13 @@ impl Coordinator {
                 });
             }
             Message::ReplyToAnnotation {
-                project_id,
-                task_id,
+                doc,
                 annotation_id,
                 text,
             } => {
-                self.plan_job(client, project_id, |plans| {
+                self.plan_job(client, &doc, |plans, target| {
                     plans.reply_to(
-                        project_id,
-                        task_id,
+                        target,
                         annotation_id,
                         ubiq_proto::work::CommentAuthor::User,
                         text,
@@ -2437,22 +2424,20 @@ impl Coordinator {
                 });
             }
             Message::ResolveAnnotation {
-                project_id,
-                task_id,
+                doc,
                 annotation_id,
                 resolved,
             } => {
-                self.plan_job(client, project_id, |plans| {
-                    plans.resolve(project_id, task_id, annotation_id, resolved)
+                self.plan_job(client, &doc, |plans, target| {
+                    plans.resolve(target, annotation_id, resolved)
                 });
             }
             Message::ListPlanChanges {
-                project_id,
-                task_id,
+                doc,
                 since_revision,
             } => {
-                self.plan_job(client, project_id, |plans| {
-                    plans.changes(project_id, task_id, since_revision)
+                self.plan_job(client, &doc, |plans, target| {
+                    plans.changes(target, since_revision)
                 });
             }
 
@@ -4168,26 +4153,47 @@ impl Coordinator {
         self.answer(client, replies);
     }
 
-    /// Hand one plan-family message to the plans, [`Self::work_job`]'s own shape: a project the
-    /// catalogue does not hold gets no file written under it, plan included.
+    /// Hand one annotated-document message to the plans, [`Self::work_job`]'s own shape: a project
+    /// the catalogue does not hold gets no file written under it, plan included.
+    ///
+    /// **This is where a [`ubiq_proto::plan::DocumentHandle`] becomes a [`crate::plan::Target`]**
+    /// — the one place a project-relative path is resolved and contained, so nothing below ever
+    /// sees one. A path that leaves the project, or names something that is not markdown, is
+    /// refused here and nothing is read or written.
     fn plan_job(
         &mut self,
         client: ClientId,
-        project_id: ProjectId,
-        change: impl FnOnce(&mut crate::plan::Plans) -> Vec<Reply>,
+        doc: &ubiq_proto::plan::DocumentHandle,
+        change: impl FnOnce(&mut crate::plan::Plans, &crate::plan::Target) -> Vec<Reply>,
     ) {
-        if self.projects.record(project_id).is_none() {
+        let project_id = doc.project_id();
+        let Some(record) = self.projects.record(project_id) else {
             self.host.send(
                 To::Client(client),
                 Message::PlanError {
                     project_id,
-                    task_id: None,
+                    doc: None,
                     error: "no such project".to_string(),
                 },
             );
             return;
-        }
-        let replies = change(&mut self.plans.lock());
+        };
+        let root = PathBuf::from(&record.path);
+        let target = match crate::plan::Target::resolve(doc, &root) {
+            Ok(target) => target,
+            Err(error) => {
+                self.host.send(
+                    To::Client(client),
+                    Message::PlanError {
+                        project_id,
+                        doc: Some(doc.clone()),
+                        error,
+                    },
+                );
+                return;
+            }
+        };
+        let replies = change(&mut self.plans.lock(), &target);
         self.answer(client, replies);
     }
 
@@ -4203,13 +4209,13 @@ impl Coordinator {
     fn export_plan(
         &mut self,
         client: ClientId,
-        project_id: ProjectId,
-        task_id: TaskId,
+        doc: &ubiq_proto::plan::DocumentHandle,
         rel_path: String,
     ) {
+        let project_id = doc.project_id();
         let error = |error: String| Message::PlanError {
             project_id,
-            task_id: Some(task_id),
+            doc: Some(doc.clone()),
             error,
         };
 
@@ -4219,8 +4225,15 @@ impl Coordinator {
             return;
         };
         let root = PathBuf::from(&record.path);
+        let target = match crate::plan::Target::resolve(doc, &root) {
+            Ok(target) => target,
+            Err(message) => {
+                self.host.send(To::Client(client), error(message));
+                return;
+            }
+        };
 
-        let body = match self.plans.lock().body(project_id, task_id) {
+        let body = match self.plans.lock().body(&target) {
             Ok(body) => body,
             Err(message) => {
                 self.host.send(To::Client(client), error(message));
@@ -4241,8 +4254,7 @@ impl Coordinator {
             Ok(()) => self.host.send(
                 To::Client(client),
                 Message::PlanExported {
-                    project_id,
-                    task_id,
+                    doc: doc.clone(),
                     rel_path,
                 },
             ),

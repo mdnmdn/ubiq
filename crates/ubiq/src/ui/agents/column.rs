@@ -7,15 +7,14 @@
 //! behind it. The left edge takes the active agent's activity colour, so a row of columns reads as
 //! a row of states from across the window.
 //!
-//! **The state dot is on the title, and on every tab.** Four readings and only four — yellow wants
-//! you, blue is working, green is idle, grey has stopped — from
-//! [`conversation::lifecycle_colour`], so the dot a column wears and the dot the chat panel wears
-//! are the same answer. It used to sit in the lifecycle strip under the title, which is a line
-//! below where a reader scanning a row of columns for the one that wants them actually looks. An
-//! agent the host is not streaming has no lifecycle to read and keeps its activity colour: a
-//! record is not idle, it is a record. The dot itself is
-//! [`conversation::lifecycle_dot`] — the same element a chat tab in the dock wears, blink
-//! included, so there is one dot in the window rather than one per surface that draws one.
+//! **The state hexagon is on every tab, and nowhere else (T-99/T-102).** It used to also sit
+//! beside the title, a line above the lifecycle strip's own reading of the same fact — two marks
+//! for one state, a line apart. `crate::ui::teams::status::status_mark` draws it: the outer
+//! hexagon is the lifecycle, the inner fill the activity or the result, gray through and through
+//! once a delegate — or here, an agent's own record — is done rather than merely stopped. The
+//! current-action chip beside the three-dots menu, on the line [`crate::ui::conversation`]'s
+//! shared header draws, is what a reader scanning for *what* an agent is doing reads now; the
+//! hexagon on the tab is *whether* it still can.
 //!
 //! **A tab is dragged, not reordered.** Dropped on another column it groups; dropped past the last
 //! one it splits off. Both are the same gesture from the user's side, and neither sends anything —
@@ -50,7 +49,7 @@ use crate::ui::agents::DraggedTab;
 use crate::ui::conversation::{self, ConversationView};
 use crate::ui::kit::{
     Picker, PickerStyle, field, ghost_button, harness_icon, mono, pill, progress_ring,
-    section_label, state_chip,
+    section_label,
 };
 use crate::ui::work::{activity_colour, role_mark};
 use crate::ui::{eid, handler, indexed};
@@ -115,18 +114,9 @@ pub fn render(
         .child(div().flex_1().min_w(px(0.)))
         .child(add_tab(app, column, window, cx));
 
-    // What the dot says, and whether it moves while saying it, where there is a conversation to
-    // say it about.
-    let state = app.conversation(agent.id, cx).map(|live| {
-        let state = conversation::lifecycle(live);
-        (
-            conversation::lifecycle_colour(state),
-            conversation::lifecycle_pulses(state, cx),
-        )
-    });
     let root = root
         .child(strip)
-        .child(header(agent, held.tabs.len(), work, colour, state));
+        .child(header(app, agent, held.tabs.len(), work, colour));
 
     // A live agent is drawn by the one conversation view every surface shares; a mock keeps the
     // thread and the composer it has always had. Both are on screen at once, and which it is comes
@@ -155,7 +145,7 @@ pub fn render(
     }
 }
 
-/// One tab: a state dot, the agent's name, and the close that benches it.
+/// One tab: a state hexagon, the agent's name, and the close that benches it.
 fn tab(
     app: &AppState,
     column: usize,
@@ -168,23 +158,15 @@ fn tab(
     let Some(agent) = app.work(cx).and_then(|work| work.agent(id)) else {
         return div().into_any_element();
     };
-    let name: SharedString = agent.name.clone().into();
+    let name = app.agent_title(agent);
     let ghost = name.clone();
     // What the conversation is about, where something has named it. A tab with no summary says
-    // nothing on hover: the name is printed in full beside the dot already.
+    // nothing on hover: the name is printed in full beside the mark already.
     let summary: Option<SharedString> = agent.summary.clone().map(SharedString::from);
-    // The same reading the title carries, so a grouped column's tabs and its title agree — the
-    // pulse included. A record with no live conversation behind it has no lifecycle to pulse.
-    let (colour, pulse) = app
-        .conversation(id, cx)
-        .map(|live| {
-            let state = conversation::lifecycle(live);
-            (
-                conversation::lifecycle_colour(state),
-                conversation::lifecycle_pulses(state, cx),
-            )
-        })
-        .unwrap_or_else(|| (activity_colour(agent.activity), false));
+    // The same reading the title carries, so a grouped column's tabs and its title agree. A
+    // record with no live conversation behind it reads `agent_status`'s own record fallback
+    // rather than nothing — the hexagon draws whatever the record can say either way.
+    let status = crate::state::status::agent_status(agent, app.conversation(id, cx));
 
     let mut row = div()
         .id(eid("agents-tab", id))
@@ -213,11 +195,10 @@ fn tab(
         row = row.bg(theme::app_bg());
     }
 
-    row.child(conversation::lifecycle_dot(
-        colour,
-        pulse,
-        theme::pane_bg(),
-        eid("agents-tab-dot", id),
+    row.child(crate::ui::teams::status::status_mark(
+        status,
+        14.0,
+        eid("agents-tab-mark", id),
     ))
     .child(
         div()
@@ -348,16 +329,22 @@ fn add_tab(
         .into_any_element()
 }
 
-/// What the agent in front is: its name, its role, what it is doing, and where it is working.
+/// What the agent in front is: its name, its role, and where it is working.
 ///
 /// The second line says how many agents share this column, because a grouped column is drawing one
 /// of them and the count is the only thing on screen that says the others are behind it.
+///
+/// **No state mark and no chip here any more (T-102).** The hexagon that used to sit beside the
+/// name moved to the tab strip's own tab, where the dot already lived too — one state reading is
+/// the same rule [`conversation::lifecycle_header`]'s own doc follows — and the activity chip is
+/// [`conversation::lifecycle_header`]'s, drawn on the line below by [`crate::ui::conversation`]'s
+/// shared render whenever `view.header` is set, so this row does not say the same fact twice.
 fn header(
+    app: &AppState,
     agent: &WorkAgent,
     tabs: usize,
     work: &work::WorkProjection,
     colour: gpui::Rgba,
-    state: Option<(gpui::Rgba, bool)>,
 ) -> AnyElement {
     let worktree = work
         .session(agent.session)
@@ -388,25 +375,6 @@ fn header(
                 .items_center()
                 .gap_2()
                 .child(role_mark(&agent.role, colour, 18.))
-                // Before the name, not after it: the dot is what the eye lands on first when it
-                // is scanning columns rather than reading one.
-                .when_some(state, |this, (colour, pulse)| {
-                    this.child(conversation::lifecycle_dot(
-                        colour,
-                        pulse,
-                        theme::pane_bg(),
-                        eid("agents-header-dot", agent.id),
-                    ))
-                })
-                // Beside the dot, not folded into it: the dot says what this agent is doing, and
-                // this says whether it will still be here after a restart. Only when it is kept —
-                // there is no mark for the ordinary case.
-                .when(agent.persistent, |this| {
-                    this.child(conversation::persistence_mark(eid(
-                        "agents-header-persistent",
-                        agent.id,
-                    )))
-                })
                 // The title says which conversation this is; the summary on hover says what it
                 // is about, and a conversation nothing has named has nothing to add.
                 .child(
@@ -414,7 +382,7 @@ fn header(
                         .id(eid("agents-header-name", agent.id))
                         .text_size(theme::font(theme::Family::Conversation, theme::Role::Title))
                         .text_color(theme::text())
-                        .child(SharedString::from(agent.name.clone()))
+                        .child(app.agent_title(agent))
                         .when_some(summary, |this, summary| {
                             this.tooltip(move |window, cx| {
                                 gpui_component::tooltip::Tooltip::new(summary.clone())
@@ -423,8 +391,7 @@ fn header(
                         }),
                 )
                 .child(section_label(&agent.role))
-                .child(div().flex_1().min_w(px(0.)))
-                .child(state_chip(agent.activity.label(), colour, 1.0)),
+                .child(div().flex_1().min_w(px(0.))),
         )
         .child(
             div()

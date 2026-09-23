@@ -44,6 +44,10 @@ fn a_blob_survives_the_round_trip() {
         show_cache_ring: true,
         last_connection: Some("01J0".to_string()),
         teams_algo: Algo::default(),
+        md_minimap: false,
+        md_minimap_side: ubiq::theme::MdMinimapSide::Right,
+        md_width: ubiq::theme::MdWidth::Wide,
+        md_density: ubiq::theme::MdDensity::Compact,
     };
     let back = settings::decode(&settings::encode(&settings)).expect("decodes");
     assert_eq!(back, settings);
@@ -67,6 +71,12 @@ fn missing_fields_open_on_defaults() {
     // A blob written before vim mode existed opens with it off, rather than being discarded.
     assert!(!back.vim_mode);
     assert!(!back.show_cache_ring);
+    // A blob written before the markdown minimap existed opens with it shown, on the left.
+    assert!(back.md_minimap);
+    assert_eq!(back.md_minimap_side, ubiq::theme::MdMinimapSide::Left);
+    // A blob written before the width/density popover existed opens on Readable/Comfortable.
+    assert_eq!(back.md_width, ubiq::theme::MdWidth::Readable);
+    assert_eq!(back.md_density, ubiq::theme::MdDensity::Comfortable);
 }
 
 #[test]

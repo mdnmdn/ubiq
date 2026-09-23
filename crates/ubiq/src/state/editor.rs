@@ -200,12 +200,20 @@ impl ViewerKind {
     /// toggle is `Edit` and `Preview`, and reading the raw bytes is what the general-purpose
     /// editor is for. Markdown and Mermaid keep all three, because their source *is* the thing an
     /// author writes.
+    /// **Markdown is the one viewer with a fourth position.** [`ViewLayout::Annotation`] is the
+    /// annotated-document surface — the same one the plan dialog hosts — pointed at this file
+    /// through `crate::state::plan::file_document`, and no other viewer has a document handle to
+    /// point it at.
     pub fn layouts(self) -> &'static [ViewLayout] {
         match self {
             ViewerKind::Excalidraw | ViewerKind::Drawio => &[ViewLayout::Edit, ViewLayout::Preview],
-            ViewerKind::Markdown | ViewerKind::Mermaid => {
-                &[ViewLayout::Source, ViewLayout::Preview, ViewLayout::Split]
-            }
+            ViewerKind::Markdown => &[
+                ViewLayout::Source,
+                ViewLayout::Split,
+                ViewLayout::Preview,
+                ViewLayout::Annotation,
+            ],
+            ViewerKind::Mermaid => &[ViewLayout::Source, ViewLayout::Preview, ViewLayout::Split],
             ViewerKind::Editor | ViewerKind::Image => &[],
         }
     }
@@ -258,6 +266,11 @@ pub enum ViewLayout {
     /// differently. With the container embedded in the panel there plainly is, and a document
     /// reopening in the layout it was left in is exactly what the dock already stores.
     Edit,
+    /// The annotated-document surface: the document read section by section, with its thread rail
+    /// beside it. Markdown's fourth position and nothing else's — the surface reads a
+    /// `DocumentHandle`, and a markdown file in the project's tree is the only one a tab can mint
+    /// (`crate::state::plan::file_document`).
+    Annotation,
 }
 
 impl ViewLayout {
@@ -268,18 +281,26 @@ impl ViewLayout {
             ViewLayout::Preview => "Preview",
             ViewLayout::Split => "Split",
             ViewLayout::Edit => "Editor",
+            ViewLayout::Annotation => "Annotation",
         }
     }
 
     /// Every variant, for a test that has to cover them all. **Not what a header draws** —
     /// which positions a viewer offers is [`ViewerKind::layouts`], and the two sets differ.
-    pub fn all() -> [ViewLayout; 4] {
+    pub fn all() -> [ViewLayout; 5] {
         [
             ViewLayout::Source,
             ViewLayout::Preview,
             ViewLayout::Split,
             ViewLayout::Edit,
+            ViewLayout::Annotation,
         ]
+    }
+
+    /// Whether this position is the annotated-document surface. Its own question rather than a
+    /// `matches!` at each call site, because four modules ask it.
+    pub fn is_annotation(self) -> bool {
+        matches!(self, ViewLayout::Annotation)
     }
 
     /// Whether the source half is drawn in this layout.
@@ -435,6 +456,10 @@ pub struct OpenFile {
     /// Whether the YAML frontmatter disclosure is open. Per-tab UI state that defaults to closed
     /// so newly opened documents start clean.
     pub frontmatter_open: bool,
+    /// The markdown preview's own scroll position (T-118) — tracked per tab, never shared, so two
+    /// markdown files open side by side cannot steer each other's minimap. Meaningless, and
+    /// harmless, for every other viewer.
+    pub md_scroll: gpui::ScrollHandle,
     /// Whether an image tab is showing its annotation tools. Per-tab UI state, not written down:
     /// a capture opens in Edit, a picture from the explorer opens in View and the header's toggle
     /// is what moves between them.
@@ -488,6 +513,7 @@ impl OpenFile {
             guest: false,
             untitled: false,
             frontmatter_open: false,
+            md_scroll: gpui::ScrollHandle::new(),
             image_editing: false,
             dirty: false,
             _change: None,
@@ -694,6 +720,31 @@ impl OpenFile {
         if matches!(self.save, SaveState::Failed(_)) {
             self.save = SaveState::Idle;
         }
+    }
+
+    /// Whether this tab can carry annotations — [`ViewLayout::Annotation`]'s precondition.
+    ///
+    /// A markdown file **in the project's own working tree**, and nothing else: the host resolves
+    /// a `DocumentHandle::File` against the project root, so a knowledge-base document (another
+    /// root), a guest file (outside every project) and an untitled buffer (nowhere at all) have no
+    /// handle to mint. A diff is a comparison rather than a file, so it has none either.
+    pub fn annotatable(&self) -> bool {
+        self.viewer == ViewerKind::Markdown
+            && matches!(self.subject, Subject::File)
+            && self.kb_source.is_none()
+            && !self.guest
+            && !self.untitled
+    }
+
+    /// Where a markdown file's annotations sit, as a project-relative path: the sidecar the host
+    /// writes beside the body, `<file>.md.annotation.json`.
+    ///
+    /// **The interface reads this name and never the file.** It is what the explorer is asked
+    /// about to know whether a document has been annotated without asking the host — which would
+    /// index the document and write that sidecar as a side effect. See
+    /// `crate::app::AppState::has_annotations`.
+    pub fn annotation_sidecar(&self) -> String {
+        format!("{}.annotation.json", self.path)
     }
 
     /// Whether the tab's bytes go to a viewer rather than into a buffer. A read still has to

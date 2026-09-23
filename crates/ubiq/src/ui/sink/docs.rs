@@ -93,8 +93,9 @@ fn body(app: &AppState, doc: &'static SinkDoc, cx: &mut Context<AppState>) -> An
     };
 
     match app.sink.layout(doc) {
-        // The fixture page hosts no web session, so its toggle never offers `Edit`.
-        ViewLayout::Source | ViewLayout::Edit => buffer(state),
+        // The fixture page hosts no web session and no document handle, so its toggle never offers
+        // `Edit` or `Annotation`.
+        ViewLayout::Source | ViewLayout::Edit | ViewLayout::Annotation => buffer(state),
         ViewLayout::Preview => drawn(),
         ViewLayout::Split => div()
             .flex()

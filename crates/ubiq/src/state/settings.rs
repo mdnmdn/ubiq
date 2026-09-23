@@ -261,6 +261,23 @@ pub struct UiSettings {
     /// user has already repicked an arrangement for.
     #[serde(default)]
     pub teams_algo: Algo,
+    /// The markdown minimap — the plan editor's thread strip and, since T-118, the standard
+    /// viewer's heading strip, one flag for both. On by default — the strip is thin enough that
+    /// hiding it is the exception, not the starting point. Named `plan_minimap` before T-118,
+    /// when only the plan modal drew one.
+    #[serde(default = "default_true")]
+    pub md_minimap: bool,
+    /// Which side of the pane the markdown minimap docks to (T-118, proposal §12). Left by
+    /// default — see `theme::MdMinimapSide`.
+    #[serde(default)]
+    pub md_minimap_side: crate::theme::MdMinimapSide,
+    /// The Markdown preview's text-column width preset (proposal §4.1, T-118). Window-global, not
+    /// per file type — see `AppState::set_md_width`.
+    #[serde(default)]
+    pub md_width: crate::theme::MdWidth,
+    /// The Markdown preview's density mode (proposal §7, T-118). Window-global, beside `md_width`.
+    #[serde(default)]
+    pub md_density: crate::theme::MdDensity,
 }
 
 fn default_true() -> bool {
@@ -283,6 +300,10 @@ impl Default for UiSettings {
             show_cache_ring: false,
             last_connection: None,
             teams_algo: Algo::default(),
+            md_minimap: true,
+            md_minimap_side: crate::theme::MdMinimapSide::default(),
+            md_width: crate::theme::MdWidth::default(),
+            md_density: crate::theme::MdDensity::default(),
         }
     }
 }

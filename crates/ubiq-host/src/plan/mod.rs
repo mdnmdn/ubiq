@@ -1,4 +1,11 @@
-//! A task's plan: a markdown document, kept beside its tasks and read or written whole.
+//! An annotated markdown document, read or written whole: a task's plan, or a file the project's
+//! own tree holds.
+//!
+//! **Which one is a [`Target`], and nothing below that type cares.** The wire names a
+//! [`DocumentHandle`]; the coordinator resolves it here, once, into the paths the body and the
+//! sidecar occupy; the block matcher, the orphaning rule, the conflict arbitration and the
+//! provenance layer are then written once and serve both. That is the whole of `D161` in code — a
+//! second matcher for a second kind of document is the failure this shape exists to prevent.
 //!
 //! **A plan belongs to any task carrying a [`ubiq_proto::work::Level`]** — not to ordinary tasks,
 //! and not only to some special mission subtype. Every method here that reads or writes a plan
@@ -31,19 +38,20 @@ pub mod blocks;
 pub mod lines;
 pub mod provenance;
 
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use chrono::Utc;
 use ubiq_proto::ids::{AnnotationId, BlockId, ProjectId, TaskId};
 use ubiq_proto::messages::Message;
 use ubiq_proto::plan::{
-    Annotation, AnnotationState, PlanBlock, PlanChangeStats, PlanChangedRegion, PlanRevision,
-    SaveOrigin,
+    Annotation, AnnotationState, DocumentHandle, PlanBlock, PlanChangeStats, PlanChangedRegion,
+    PlanRevision, SaveOrigin,
 };
 use ubiq_proto::work::CommentAuthor;
 
 use crate::reply::Reply;
-use crate::store::plan::{FilePlanStore, PlanSidecar};
+use crate::store::plan::{FilePlanStore, Placement, PlanSidecar, sidecar_beside};
 use crate::work;
 
 /// Who is saving a plan's body, established where the save enters the host and carried unchanged
@@ -97,6 +105,95 @@ pub struct ChangeReport {
     pub blocks: Vec<PlanBlock>,
 }
 
+/// A [`DocumentHandle`] with the host's own answer to it: where the body is, and therefore where
+/// the sidecar goes.
+///
+/// **The wire handle names no path and this one does.** Resolving a project-relative path against
+/// the project's root — and refusing one that does not land inside it — is
+/// [`crate::files::path`]'s job and the coordinator's to call, so the resolution happens once, at
+/// the edge, and nothing below this type ever sees a `rel_path` again. A plan resolves to nothing
+/// at all: its path is the store's, computed from two ids.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Target {
+    Plan {
+        project: ProjectId,
+        task: TaskId,
+    },
+    File {
+        project: ProjectId,
+        rel_path: String,
+        /// Absolute, canonical, and already contained inside the project.
+        body: PathBuf,
+    },
+}
+
+impl Target {
+    /// A task's plan — what every `ubiq-plan` MCP call resolves to, and what nothing has to
+    /// contain.
+    pub fn plan(project: ProjectId, task: TaskId) -> Self {
+        Target::Plan { project, task }
+    }
+
+    /// A wire handle against the project's own root.
+    ///
+    /// **Markdown only.** An annotation names a [`BlockId`], a block comes out of a markdown
+    /// parse, and a sidecar beside a `.png` would anchor to blocks that cannot exist — so the
+    /// extension is checked here rather than discovered as an empty block index later.
+    pub fn resolve(doc: &DocumentHandle, root: &Path) -> Result<Self, String> {
+        match doc {
+            DocumentHandle::Plan {
+                project_id,
+                task_id,
+            } => Ok(Target::plan(*project_id, *task_id)),
+            DocumentHandle::File {
+                project_id,
+                rel_path,
+            } => {
+                if !rel_path.to_ascii_lowercase().ends_with(".md") {
+                    return Err("only a markdown file can carry annotations".to_string());
+                }
+                let body = crate::files::path::resolve_for_write(root, rel_path)
+                    .map_err(|error| error.to_string())?;
+                Ok(Target::File {
+                    project: *project_id,
+                    rel_path: rel_path.clone(),
+                    body,
+                })
+            }
+        }
+    }
+
+    pub fn project(&self) -> ProjectId {
+        match self {
+            Target::Plan { project, .. } | Target::File { project, .. } => *project,
+        }
+    }
+
+    /// The handle this was resolved from — what every reply names, so a window matches an answer
+    /// against the document it has open without the host ever sending a path back.
+    pub fn handle(&self) -> DocumentHandle {
+        match self {
+            Target::Plan { project, task } => DocumentHandle::Plan {
+                project_id: *project,
+                task_id: *task,
+            },
+            Target::File {
+                project, rel_path, ..
+            } => DocumentHandle::File {
+                project_id: *project,
+                rel_path: rel_path.clone(),
+            },
+        }
+    }
+
+    fn placement(&self) -> Placement {
+        match self {
+            Target::Plan { .. } => Placement::ConfigRoot,
+            Target::File { .. } => Placement::InsideProject,
+        }
+    }
+}
+
 /// One project's plans.
 pub struct Plans {
     store: FilePlanStore,
@@ -132,11 +229,18 @@ impl Plans {
         Self { store, work }
     }
 
-    /// Why `task` may not carry a plan, if there is a reason: no such task in `project`, or a task
-    /// whose `level` is `None`.
-    fn refusal(&mut self, project: ProjectId, task: TaskId) -> Option<String> {
-        let (_, tasks) = self.work.lock().tasks(project);
-        let Some(record) = tasks.iter().find(|t| t.id == task) else {
+    /// Why this document may not be read or written, if there is a reason.
+    ///
+    /// A plan's reason is the task's: no such task, or a task whose `level` is `None`. A file
+    /// document has none left — being markdown and inside the project was settled when the
+    /// [`Target`] was resolved, and a file that is not there yet reads as an empty body the same
+    /// way an unplanned mission does.
+    fn refusal(&mut self, target: &Target) -> Option<String> {
+        let Target::Plan { project, task } = target else {
+            return None;
+        };
+        let (_, tasks) = self.work.lock().tasks(*project);
+        let Some(record) = tasks.iter().find(|t| t.id == *task) else {
             return Some("no such task".to_string());
         };
         if record.level.is_none() {
@@ -145,27 +249,59 @@ impl Plans {
         None
     }
 
+    /// Where the body sits — the store's own path for a plan, the resolved file for a document in
+    /// the project's tree.
+    fn body_path(&self, target: &Target) -> PathBuf {
+        match target {
+            Target::Plan { project, task } => self.store.path(*project, *task),
+            Target::File { body, .. } => body.clone(),
+        }
+    }
+
+    /// Where the sidecar sits: `<TaskId>.annotations.json` for a plan, `<file>.md.annotation.json`
+    /// for a document in the project's tree. **Two spellings, deliberately** — the plan's is the
+    /// one already on disk in every config root, and renaming it would be a migration for no gain.
+    fn sidecar_path(&self, target: &Target) -> PathBuf {
+        match target {
+            Target::Plan { project, task } => self.store.annotations_path(*project, *task),
+            Target::File { body, .. } => sidecar_beside(body),
+        }
+    }
+
+    fn read_body(&self, target: &Target) -> Result<String, String> {
+        crate::store::plan::load_body(&self.body_path(target))
+            .map(|body| body.unwrap_or_default())
+            .map_err(|error| error.to_string())
+    }
+
+    fn write_body(&self, target: &Target, body: &str) -> Result<(), String> {
+        crate::store::plan::save_body(&self.body_path(target), body, target.placement())
+            .map_err(|error| error.to_string())
+    }
+
+    fn read_sidecar(&self, target: &Target) -> Result<Option<PlanSidecar>, String> {
+        crate::store::plan::load_sidecar(&self.sidecar_path(target)).map_err(|e| e.to_string())
+    }
+
+    fn write_sidecar(&self, target: &Target, sidecar: &PlanSidecar) -> Result<(), String> {
+        crate::store::plan::save_sidecar(&self.sidecar_path(target), sidecar, target.placement())
+            .map_err(|error| error.to_string())
+    }
+
     /// A task's plan, whole. Answered with [`Message::Plan`], carrying an empty body for a task
     /// that has none yet — a mission nobody has planned is not an error.
-    pub fn load(&mut self, project: ProjectId, task: TaskId) -> Vec<Reply> {
-        if let Some(refusal) = self.refusal(project, task) {
-            return vec![Reply::Asker(plan_error(project, Some(task), refusal))];
+    pub fn load(&mut self, target: &Target) -> Vec<Reply> {
+        if let Some(refusal) = self.refusal(target) {
+            return vec![Reply::Asker(doc_error(target, refusal))];
         }
-        let body = match self.store.load(project, task) {
-            Ok(body) => body.unwrap_or_default(),
-            Err(error) => {
-                return vec![Reply::Asker(plan_error(
-                    project,
-                    Some(task),
-                    error.to_string(),
-                ))];
-            }
+        let body = match self.read_body(target) {
+            Ok(body) => body,
+            Err(error) => return vec![Reply::Asker(doc_error(target, error))],
         };
         vec![Reply::Asker(Message::Plan {
-            project_id: project,
-            task_id: task,
+            doc: target.handle(),
             body,
-            revision: self.revision(project, task),
+            revision: self.revision(target),
         })]
     }
 
@@ -173,9 +309,8 @@ impl Plans {
     /// written before the provenance layer existed, or a sidecar that will not read at all. A
     /// watermark is a convenience and never the reason a load fails, so this swallows the error
     /// the load path would already have reported.
-    fn revision(&mut self, project: ProjectId, task: TaskId) -> PlanRevision {
-        self.store
-            .load_sidecar(project, task)
+    fn revision(&mut self, target: &Target) -> PlanRevision {
+        self.read_sidecar(target)
             .ok()
             .flatten()
             .map(|sidecar| sidecar.revision)
@@ -186,9 +321,8 @@ impl Plans {
     /// whether an agent or a person moved the copy. [`SaveOrigin::Human`] when there is no history
     /// to read, on [`SaveOrigin`]'s own default: attributing an unknown save to the person is the
     /// reading that never tells an agent it wrote something it did not.
-    fn latest_origin(&mut self, project: ProjectId, task: TaskId) -> SaveOrigin {
-        self.store
-            .load_sidecar(project, task)
+    fn latest_origin(&mut self, target: &Target) -> SaveOrigin {
+        self.read_sidecar(target)
             .ok()
             .flatten()
             .and_then(|sidecar| sidecar.history.last().map(|entry| entry.origin))
@@ -213,71 +347,56 @@ impl Plans {
     /// here: everything else could happen in any order, and this could not.
     pub fn save(
         &mut self,
-        project: ProjectId,
-        task: TaskId,
+        target: &Target,
         body: String,
         by: &Saver,
         expected: Option<PlanRevision>,
     ) -> Vec<Reply> {
-        if let Some(refusal) = self.refusal(project, task) {
-            return vec![Reply::Asker(plan_error(project, Some(task), refusal))];
+        if let Some(refusal) = self.refusal(target) {
+            return vec![Reply::Asker(doc_error(target, refusal))];
         }
         if let Some(expected) = expected {
-            let current = self.revision(project, task);
+            let current = self.revision(target);
             if current != expected {
                 return vec![Reply::Asker(Message::PlanConflict {
-                    project_id: project,
-                    task_id: task,
+                    doc: target.handle(),
                     revision: current,
-                    origin: self.latest_origin(project, task),
+                    origin: self.latest_origin(target),
                 })];
             }
         }
-        let previous = match self.store.load(project, task) {
-            Ok(previous) => previous.unwrap_or_default(),
-            Err(error) => {
-                return vec![Reply::Asker(plan_error(
-                    project,
-                    Some(task),
-                    error.to_string(),
-                ))];
-            }
+        let previous = match self.read_body(target) {
+            Ok(previous) => previous,
+            Err(error) => return vec![Reply::Asker(doc_error(target, error))],
         };
-        if let Err(error) = self.store.save(project, task, &body) {
-            return vec![Reply::Asker(plan_error(
-                project,
-                Some(task),
-                error.to_string(),
-            ))];
+        if let Err(error) = self.write_body(target, &body) {
+            return vec![Reply::Asker(doc_error(target, error))];
         }
         // The body is on disk either way: a sidecar that will not be read or written leaves the
         // block index stale, which is worth saying out loud, but it is not a failed save.
-        let (revision, after) = match self.reindex(project, task, &previous, &body, by) {
+        let (revision, after) = match self.reindex(target, &previous, &body, by) {
             Ok((revision, true)) => (
                 revision,
                 vec![Reply::Everyone(Message::PlanAnnotationsChanged {
-                    project_id: project,
-                    task_id: task,
+                    doc: target.handle(),
                 })],
             ),
             Ok((revision, false)) => (revision, Vec::new()),
             // The sidecar did not take the stamp, so there is no revision to name. Reporting the
             // save at its previous revision would hand out a watermark that never existed.
             Err(error) => (
-                self.revision(project, task),
-                vec![Reply::Asker(plan_error(project, Some(task), error))],
+                self.revision(target),
+                vec![Reply::Asker(doc_error(target, error))],
             ),
         };
         let mut replies = vec![
             Reply::Asker(Message::Plan {
-                project_id: project,
-                task_id: task,
+                doc: target.handle(),
                 body,
                 revision,
             }),
             Reply::Everyone(Message::PlanChanged {
-                project_id: project,
-                task_id: task,
+                doc: target.handle(),
                 revision,
                 origin: by.origin,
             }),
@@ -291,20 +410,14 @@ impl Plans {
     /// `since` absent means from the beginning, which for a plan with provenance is every line
     /// ever stamped. The regions describe the body as it stands now — see
     /// [`provenance::regions`].
-    pub fn changes(
-        &mut self,
-        project: ProjectId,
-        task: TaskId,
-        since: Option<PlanRevision>,
-    ) -> Vec<Reply> {
-        match self.change_report(project, task, since) {
+    pub fn changes(&mut self, target: &Target, since: Option<PlanRevision>) -> Vec<Reply> {
+        match self.change_report(target, since) {
             Ok(report) => vec![Reply::Asker(Message::PlanChanges {
-                project_id: project,
-                task_id: task,
+                doc: target.handle(),
                 regions: report.regions,
                 stats: report.stats,
             })],
-            Err(error) => vec![Reply::Asker(plan_error(project, Some(task), error))],
+            Err(error) => vec![Reply::Asker(doc_error(target, error))],
         }
     }
 
@@ -314,23 +427,14 @@ impl Plans {
     /// about what changed.
     pub fn change_report(
         &mut self,
-        project: ProjectId,
-        task: TaskId,
+        target: &Target,
         since: Option<PlanRevision>,
     ) -> Result<ChangeReport, String> {
-        if let Some(refusal) = self.refusal(project, task) {
+        if let Some(refusal) = self.refusal(target) {
             return Err(refusal);
         }
-        let sidecar = self
-            .store
-            .load_sidecar(project, task)
-            .map_err(|error| error.to_string())?
-            .unwrap_or_default();
-        let body = self
-            .store
-            .load(project, task)
-            .map_err(|error| error.to_string())?
-            .unwrap_or_default();
+        let sidecar = self.read_sidecar(target)?.unwrap_or_default();
+        let body = self.read_body(target)?;
 
         // A watermark past the end is the caller's own revision arriving before it hears its own
         // save echoed, or a stale handle. Clamping answers "nothing since then", which is true,
@@ -346,14 +450,8 @@ impl Plans {
     }
 
     /// The revision an agent last wrote this plan at — `plan_changes`'s default watermark.
-    pub fn last_written_by(
-        &mut self,
-        project: ProjectId,
-        task: TaskId,
-        author: &str,
-    ) -> Option<PlanRevision> {
-        self.store
-            .load_sidecar(project, task)
+    pub fn last_written_by(&mut self, target: &Target, author: &str) -> Option<PlanRevision> {
+        self.read_sidecar(target)
             .ok()
             .flatten()
             .and_then(|sidecar| sidecar.last_written_by(author))
@@ -378,17 +476,12 @@ impl Plans {
     /// three counts at zero and stamps no line, so it costs a number and changes no answer.
     fn reindex(
         &mut self,
-        project: ProjectId,
-        task: TaskId,
+        target: &Target,
         previous: &str,
         body: &str,
         by: &Saver,
     ) -> Result<(PlanRevision, bool), String> {
-        let mut sidecar = self
-            .store
-            .load_sidecar(project, task)
-            .map_err(|error| error.to_string())?
-            .unwrap_or_default();
+        let mut sidecar = self.read_sidecar(target)?.unwrap_or_default();
 
         let matching = blocks::match_blocks(&sidecar.blocks, &blocks::blocks(body));
         let mut changed = false;
@@ -419,9 +512,7 @@ impl Plans {
         sidecar.revision = revision;
 
         sidecar.version = crate::store::plan::ANNOTATIONS_VERSION;
-        self.store
-            .save_sidecar(project, task, &sidecar)
-            .map_err(|error| error.to_string())?;
+        self.write_sidecar(target, &sidecar)?;
         Ok((revision, changed))
     }
 
@@ -430,19 +521,24 @@ impl Plans {
     /// orphaned on disk, and a task already gone from the board cannot be asked whether it still
     /// carries a level. Broadcast only when a file actually went away, so deleting the great
     /// majority of tasks — which never had a plan — costs nothing on the bus.
-    pub fn delete(&mut self, project: ProjectId, task: TaskId) -> Vec<Reply> {
+    /// **A file document is refused outright**: its body is the user's own file, and the message
+    /// that annotates a document may not be the one that deletes what the repository owns. The
+    /// explorer's own delete is how a project file goes away, sidecar and all.
+    pub fn delete(&mut self, target: &Target) -> Vec<Reply> {
+        let Target::Plan { project, task } = target else {
+            return vec![Reply::Asker(doc_error(
+                target,
+                "a project's own file is not deleted through the annotation family",
+            ))];
+        };
+        let (project, task) = (*project, *task);
         let existed = self.store.path(project, task).exists();
         match self.store.delete(project, task) {
             Ok(()) if existed => vec![Reply::Everyone(Message::PlanDeleted {
-                project_id: project,
-                task_id: task,
+                doc: target.handle(),
             })],
             Ok(()) => Vec::new(),
-            Err(error) => vec![Reply::Asker(plan_error(
-                project,
-                Some(task),
-                error.to_string(),
-            ))],
+            Err(error) => vec![Reply::Asker(doc_error(target, error.to_string()))],
         }
     }
 
@@ -451,46 +547,36 @@ impl Plans {
     /// index is what an annotation names, so a plan with a body and no index cannot be annotated
     /// at all, and re-deriving it here costs one parse on the first annotation instead of a
     /// migration.
-    fn sidecar(&mut self, project: ProjectId, task: TaskId) -> Result<PlanSidecar, String> {
-        let sidecar = self
-            .store
-            .load_sidecar(project, task)
-            .map_err(|error| error.to_string())?;
+    fn sidecar(&mut self, target: &Target) -> Result<PlanSidecar, String> {
+        let sidecar = self.read_sidecar(target)?;
         if let Some(sidecar) = sidecar
             .as_ref()
             .filter(|sidecar| !sidecar.blocks.is_empty())
         {
             return Ok(sidecar.clone());
         }
-        let body = self
-            .store
-            .load(project, task)
-            .map_err(|error| error.to_string())?
-            .unwrap_or_default();
+        let body = self.read_body(target)?;
         if body.trim().is_empty() {
             return Ok(sidecar.unwrap_or_default());
         }
         let mut sidecar = sidecar.unwrap_or_default();
         sidecar.blocks = blocks::match_blocks(&[], &blocks::blocks(&body)).blocks;
         sidecar.version = crate::store::plan::ANNOTATIONS_VERSION;
-        self.store
-            .save_sidecar(project, task, &sidecar)
-            .map_err(|error| error.to_string())?;
+        self.write_sidecar(target, &sidecar)?;
         Ok(sidecar)
     }
 
     /// Every annotation on a task's plan — open, resolved and orphaned alike — with the block
     /// index they anchor to. The filtering is the interface's; see
     /// [`Message::ListPlanAnnotations`].
-    pub fn annotations(&mut self, project: ProjectId, task: TaskId) -> Vec<Reply> {
-        match self.annotation_list(project, task) {
+    pub fn annotations(&mut self, target: &Target) -> Vec<Reply> {
+        match self.annotation_list(target) {
             Ok((blocks, annotations)) => vec![Reply::Asker(Message::PlanAnnotations {
-                project_id: project,
-                task_id: task,
+                doc: target.handle(),
                 blocks,
                 annotations,
             })],
-            Err(error) => vec![Reply::Asker(plan_error(project, Some(task), error))],
+            Err(error) => vec![Reply::Asker(doc_error(target, error))],
         }
     }
 
@@ -499,13 +585,12 @@ impl Plans {
     #[allow(clippy::type_complexity)]
     pub fn annotation_list(
         &mut self,
-        project: ProjectId,
-        task: TaskId,
+        target: &Target,
     ) -> Result<(Vec<PlanBlock>, Vec<Annotation>), String> {
-        if let Some(refusal) = self.refusal(project, task) {
+        if let Some(refusal) = self.refusal(target) {
             return Err(refusal);
         }
-        let sidecar = self.sidecar(project, task)?;
+        let sidecar = self.sidecar(target)?;
         Ok((sidecar.blocks, sidecar.annotations))
     }
 
@@ -514,20 +599,19 @@ impl Plans {
     /// which is a state to report, never one to create.
     pub fn annotate(
         &mut self,
-        project: ProjectId,
-        task: TaskId,
+        target: &Target,
         block: BlockId,
         quote: Option<String>,
         author: CommentAuthor,
         text: String,
     ) -> Vec<Reply> {
-        self.mutate(project, task, |sidecar| {
+        self.mutate(target, |sidecar| {
             let text = text.trim().to_string();
             if text.is_empty() {
                 return Err("an annotation needs some text".to_string());
             }
             if !sidecar.blocks.iter().any(|indexed| indexed.id == block) {
-                return Err("no such block in this plan".to_string());
+                return Err("no such block in this document".to_string());
             }
             sidecar.annotations.push(Annotation::new(
                 block,
@@ -545,13 +629,12 @@ impl Plans {
     /// Append to an annotation's thread.
     pub fn reply_to(
         &mut self,
-        project: ProjectId,
-        task: TaskId,
+        target: &Target,
         annotation: AnnotationId,
         author: CommentAuthor,
         text: String,
     ) -> Vec<Reply> {
-        self.mutate(project, task, |sidecar| {
+        self.mutate(target, |sidecar| {
             let text = text.trim().to_string();
             if text.is_empty() {
                 return Err("a reply needs some text".to_string());
@@ -570,12 +653,11 @@ impl Plans {
     /// including the agent that answered it.
     pub fn resolve(
         &mut self,
-        project: ProjectId,
-        task: TaskId,
+        target: &Target,
         annotation: AnnotationId,
         resolved: bool,
     ) -> Vec<Reply> {
-        self.mutate(project, task, |sidecar| {
+        self.mutate(target, |sidecar| {
             let found = sidecar
                 .annotations
                 .iter_mut()
@@ -595,38 +677,31 @@ impl Plans {
     /// asker gets the whole set back; every other window hears that it changed.
     fn mutate(
         &mut self,
-        project: ProjectId,
-        task: TaskId,
+        target: &Target,
         change: impl FnOnce(&mut PlanSidecar) -> Result<(), String>,
     ) -> Vec<Reply> {
-        if let Some(refusal) = self.refusal(project, task) {
-            return vec![Reply::Asker(plan_error(project, Some(task), refusal))];
+        if let Some(refusal) = self.refusal(target) {
+            return vec![Reply::Asker(doc_error(target, refusal))];
         }
-        let mut sidecar = match self.sidecar(project, task) {
+        let mut sidecar = match self.sidecar(target) {
             Ok(sidecar) => sidecar,
-            Err(error) => return vec![Reply::Asker(plan_error(project, Some(task), error))],
+            Err(error) => return vec![Reply::Asker(doc_error(target, error))],
         };
         if let Err(error) = change(&mut sidecar) {
-            return vec![Reply::Asker(plan_error(project, Some(task), error))];
+            return vec![Reply::Asker(doc_error(target, error))];
         }
         sidecar.version = crate::store::plan::ANNOTATIONS_VERSION;
-        if let Err(error) = self.store.save_sidecar(project, task, &sidecar) {
-            return vec![Reply::Asker(plan_error(
-                project,
-                Some(task),
-                error.to_string(),
-            ))];
+        if let Err(error) = self.write_sidecar(target, &sidecar) {
+            return vec![Reply::Asker(doc_error(target, error))];
         }
         vec![
             Reply::Asker(Message::PlanAnnotations {
-                project_id: project,
-                task_id: task,
+                doc: target.handle(),
                 blocks: sidecar.blocks,
                 annotations: sidecar.annotations,
             }),
             Reply::Everyone(Message::PlanAnnotationsChanged {
-                project_id: project,
-                task_id: task,
+                doc: target.handle(),
             }),
         ]
     }
@@ -634,23 +709,22 @@ impl Plans {
     /// A task's plan body, or the reason it may not be read — for a caller that wants the string
     /// itself rather than a `Message`: the MCP `read_plan` tool, and the coordinator's export
     /// handler.
-    pub fn body(&mut self, project: ProjectId, task: TaskId) -> Result<String, String> {
-        if let Some(refusal) = self.refusal(project, task) {
+    pub fn body(&mut self, target: &Target) -> Result<String, String> {
+        if let Some(refusal) = self.refusal(target) {
             return Err(refusal);
         }
-        self.store
-            .load(project, task)
-            .map(|body| body.unwrap_or_default())
-            .map_err(|error| error.to_string())
+        self.read_body(target)
     }
 }
 
-fn plan_error(project: ProjectId, task: Option<TaskId>, error: impl Into<String>) -> Message {
+/// One failure, named against the document it is about.
+pub fn doc_error(target: &Target, error: impl Into<String>) -> Message {
     let error = error.into();
-    tracing::warn!("{project}'s plan: {error}");
+    let project = target.project();
+    tracing::warn!("{project}'s document: {error}");
     Message::PlanError {
         project_id: project,
-        task_id: task,
+        doc: Some(target.handle()),
         error,
     }
 }
@@ -705,8 +779,7 @@ mod tests {
         let task = make_mission(&work, project);
 
         let replies = plans.save(
-            project,
-            task,
+            &Target::plan(project, task),
             "# Plan\n\nStep one.".to_string(),
             &Saver::human(),
             None,
@@ -722,7 +795,7 @@ mod tests {
                 .any(|reply| matches!(reply, Reply::Everyone(Message::PlanChanged { .. })))
         );
 
-        let replies = plans.load(project, task);
+        let replies = plans.load(&Target::plan(project, task));
         let Some(Message::Plan { body, .. }) = replies
             .iter()
             .map(Reply::message)
@@ -738,7 +811,12 @@ mod tests {
         let (mut plans, work, project, _dir) = plans_with_work();
         let task = make_ordinary_task(&work, project);
 
-        let replies = plans.save(project, task, "body".to_string(), &Saver::human(), None);
+        let replies = plans.save(
+            &Target::plan(project, task),
+            "body".to_string(),
+            &Saver::human(),
+            None,
+        );
         let error = replies
             .iter()
             .map(Reply::message)
@@ -749,7 +827,7 @@ mod tests {
             .expect("a task with no level is refused");
         assert!(error.contains("level"), "unexpected refusal: {error}");
 
-        let replies = plans.load(project, task);
+        let replies = plans.load(&Target::plan(project, task));
         assert!(
             replies
                 .iter()
@@ -760,7 +838,7 @@ mod tests {
     /// The block ids of a saved plan, in document order.
     fn block_ids(plans: &mut Plans, project: ProjectId, task: TaskId) -> Vec<BlockId> {
         plans
-            .sidecar(project, task)
+            .sidecar(&Target::plan(project, task))
             .expect("the sidecar reads")
             .blocks
             .iter()
@@ -770,7 +848,7 @@ mod tests {
 
     fn annotations_of(plans: &mut Plans, project: ProjectId, task: TaskId) -> Vec<Annotation> {
         plans
-            .annotation_list(project, task)
+            .annotation_list(&Target::plan(project, task))
             .expect("the annotations read")
             .1
     }
@@ -780,8 +858,7 @@ mod tests {
         let (mut plans, work, project, _dir) = plans_with_work();
         let task = make_mission(&work, project);
         plans.save(
-            project,
-            task,
+            &Target::plan(project, task),
             "# Plan\n\nStep one.".to_string(),
             &Saver::human(),
             None,
@@ -789,8 +866,7 @@ mod tests {
         let block = block_ids(&mut plans, project, task)[1];
 
         let replies = plans.annotate(
-            project,
-            task,
+            &Target::plan(project, task),
             block,
             Some("Step one".to_string()),
             CommentAuthor::User,
@@ -813,13 +889,12 @@ mod tests {
 
         // An agent replies and closes it: anyone may resolve an annotation.
         plans.reply_to(
-            project,
-            task,
+            &Target::plan(project, task),
             annotation.id,
             CommentAuthor::Agent,
             "The first one.".to_string(),
         );
-        plans.resolve(project, task, annotation.id, true);
+        plans.resolve(&Target::plan(project, task), annotation.id, true);
 
         let annotations = annotations_of(&mut plans, project, task);
         assert_eq!(annotations[0].thread.len(), 2);
@@ -832,11 +907,15 @@ mod tests {
         let (mut plans, work, project, _dir) = plans_with_work();
         let task = make_mission(&work, project);
         let body = "# Plan\n\nStep one.";
-        plans.save(project, task, body.to_string(), &Saver::human(), None);
+        plans.save(
+            &Target::plan(project, task),
+            body.to_string(),
+            &Saver::human(),
+            None,
+        );
         let block = block_ids(&mut plans, project, task)[1];
         plans.annotate(
-            project,
-            task,
+            &Target::plan(project, task),
             block,
             None,
             CommentAuthor::User,
@@ -856,16 +935,14 @@ mod tests {
         let (mut plans, work, project, _dir) = plans_with_work();
         let task = make_mission(&work, project);
         plans.save(
-            project,
-            task,
+            &Target::plan(project, task),
             "# Plan\n\nStep one.\n\nStep two.".to_string(),
             &Saver::human(),
             None,
         );
         let block = block_ids(&mut plans, project, task)[2];
         plans.annotate(
-            project,
-            task,
+            &Target::plan(project, task),
             block,
             None,
             CommentAuthor::User,
@@ -874,8 +951,7 @@ mod tests {
 
         // A paragraph inserted above, and step two itself reworded: neither moves the anchor.
         plans.save(
-            project,
-            task,
+            &Target::plan(project, task),
             "# Plan\n\nA preamble.\n\nStep one.\n\nStep two, revised.".to_string(),
             &Saver::human(),
             None,
@@ -900,16 +976,14 @@ mod tests {
         let (mut plans, work, project, _dir) = plans_with_work();
         let task = make_mission(&work, project);
         plans.save(
-            project,
-            task,
+            &Target::plan(project, task),
             "# Plan\n\nStep one.\n\nStep two.".to_string(),
             &Saver::human(),
             None,
         );
         let block = block_ids(&mut plans, project, task)[2];
         plans.annotate(
-            project,
-            task,
+            &Target::plan(project, task),
             block,
             Some("Step two".to_string()),
             CommentAuthor::User,
@@ -917,8 +991,7 @@ mod tests {
         );
 
         let replies = plans.save(
-            project,
-            task,
+            &Target::plan(project, task),
             "# Plan\n\nStep one.".to_string(),
             &Saver::human(),
             None,
@@ -946,11 +1019,15 @@ mod tests {
     fn an_annotation_on_a_block_the_plan_does_not_have_is_refused() {
         let (mut plans, work, project, _dir) = plans_with_work();
         let task = make_mission(&work, project);
-        plans.save(project, task, "# Plan".to_string(), &Saver::human(), None);
+        plans.save(
+            &Target::plan(project, task),
+            "# Plan".to_string(),
+            &Saver::human(),
+            None,
+        );
 
         let replies = plans.annotate(
-            project,
-            task,
+            &Target::plan(project, task),
             BlockId::generate(),
             None,
             CommentAuthor::User,
@@ -973,7 +1050,7 @@ mod tests {
         let (mut plans, work, project, _dir) = plans_with_work();
         let task = make_ordinary_task(&work, project);
 
-        let replies = plans.annotations(project, task);
+        let replies = plans.annotations(&Target::plan(project, task));
         assert!(
             replies
                 .iter()
@@ -986,23 +1063,21 @@ mod tests {
         let (mut plans, work, project, _dir) = plans_with_work();
         let task = make_mission(&work, project);
         plans.save(
-            project,
-            task,
+            &Target::plan(project, task),
             "# Plan\n\nStep one.".to_string(),
             &Saver::human(),
             None,
         );
         let block = block_ids(&mut plans, project, task)[1];
         plans.annotate(
-            project,
-            task,
+            &Target::plan(project, task),
             block,
             None,
             CommentAuthor::User,
             "a comment".to_string(),
         );
 
-        plans.delete(project, task);
+        plans.delete(&Target::plan(project, task));
         assert!(!plans.store.annotations_path(project, task).exists());
         assert!(annotations_of(&mut plans, project, task).is_empty());
     }
@@ -1012,7 +1087,7 @@ mod tests {
         let (mut plans, work, project, _dir) = plans_with_work();
         let task = make_mission(&work, project);
 
-        let replies = plans.delete(project, task);
+        let replies = plans.delete(&Target::plan(project, task));
         assert!(replies.is_empty());
     }
 
@@ -1020,16 +1095,21 @@ mod tests {
     fn deleting_a_task_with_a_plan_broadcasts_that_it_is_gone() {
         let (mut plans, work, project, _dir) = plans_with_work();
         let task = make_mission(&work, project);
-        plans.save(project, task, "body".to_string(), &Saver::human(), None);
+        plans.save(
+            &Target::plan(project, task),
+            "body".to_string(),
+            &Saver::human(),
+            None,
+        );
 
-        let replies = plans.delete(project, task);
+        let replies = plans.delete(&Target::plan(project, task));
         assert!(
             replies
                 .iter()
                 .any(|reply| matches!(reply, Reply::Everyone(Message::PlanDeleted { .. })))
         );
 
-        let replies = plans.load(project, task);
+        let replies = plans.load(&Target::plan(project, task));
         let Some(Message::Plan { body, .. }) = replies
             .iter()
             .map(Reply::message)
@@ -1067,8 +1147,7 @@ mod tests {
         let task = make_mission(&work, project);
 
         let written = revision_of(&plans.save(
-            project,
-            task,
+            &Target::plan(project, task),
             PLANNED.to_string(),
             &Saver::agent("agent-1"),
             None,
@@ -1077,15 +1156,14 @@ mod tests {
 
         // A person reworks line 3 and line 5, and leaves lines 1, 2 and 4 alone.
         plans.save(
-            project,
-            task,
+            &Target::plan(project, task),
             "# Plan\n\nStep one, revised.\n\nStep two, also revised.".to_string(),
             &Saver::human(),
             None,
         );
 
         let report = plans
-            .change_report(project, task, Some(written))
+            .change_report(&Target::plan(project, task), Some(written))
             .expect("the changes read");
 
         let places: Vec<(u32, u32, SaveOrigin)> = report
@@ -1136,27 +1214,25 @@ mod tests {
         let task = make_mission(&work, project);
 
         plans.save(
-            project,
-            task,
+            &Target::plan(project, task),
             PLANNED.to_string(),
             &Saver::agent("agent-1"),
             None,
         );
         plans.save(
-            project,
-            task,
+            &Target::plan(project, task),
             "# Plan\n\nStep one, revised.\n\nStep two.".to_string(),
             &Saver::human(),
             None,
         );
 
         assert_eq!(
-            plans.last_written_by(project, task, "agent-1"),
+            plans.last_written_by(&Target::plan(project, task), "agent-1"),
             Some(1),
             "the revision this agent last wrote at",
         );
         assert_eq!(
-            plans.last_written_by(project, task, "agent-2"),
+            plans.last_written_by(&Target::plan(project, task), "agent-2"),
             None,
             "an agent that never wrote this plan has no watermark of its own",
         );
@@ -1168,15 +1244,13 @@ mod tests {
         let task = make_mission(&work, project);
 
         plans.save(
-            project,
-            task,
+            &Target::plan(project, task),
             PLANNED.to_string(),
             &Saver::agent("agent-1"),
             None,
         );
         plans.save(
-            project,
-            task,
+            &Target::plan(project, task),
             "# Plan\n\nStep one, revised.\n\nStep two.".to_string(),
             &Saver::human(),
             None,
@@ -1211,8 +1285,7 @@ mod tests {
         let task = make_mission(&work, project);
 
         let replies = plans.save(
-            project,
-            task,
+            &Target::plan(project, task),
             PLANNED.to_string(),
             &Saver::agent("agent-1"),
             None,
@@ -1234,15 +1307,20 @@ mod tests {
         let (mut plans, work, project, _dir) = plans_with_work();
         let task = make_mission(&work, project);
 
-        let replies = plans.load(project, task);
+        let replies = plans.load(&Target::plan(project, task));
         assert_eq!(
             revision_of(&replies),
             0,
             "a plan nobody has written stands at revision 0",
         );
 
-        plans.save(project, task, PLANNED.to_string(), &Saver::human(), None);
-        assert_eq!(revision_of(&plans.load(project, task)), 1);
+        plans.save(
+            &Target::plan(project, task),
+            PLANNED.to_string(),
+            &Saver::human(),
+            None,
+        );
+        assert_eq!(revision_of(&plans.load(&Target::plan(project, task),)), 1);
     }
 
     #[test]
@@ -1250,15 +1328,14 @@ mod tests {
         let (mut plans, work, project, _dir) = plans_with_work();
         let task = make_mission(&work, project);
         let written = revision_of(&plans.save(
-            project,
-            task,
+            &Target::plan(project, task),
             PLANNED.to_string(),
             &Saver::agent("agent-1"),
             None,
         ));
 
         let report = plans
-            .change_report(project, task, Some(written))
+            .change_report(&Target::plan(project, task), Some(written))
             .expect("the changes read");
         assert!(report.regions.is_empty());
         assert!(report.stats.is_empty());
@@ -1270,8 +1347,7 @@ mod tests {
         let (mut plans, work, project, _dir) = plans_with_work();
         let task = make_mission(&work, project);
         let written = revision_of(&plans.save(
-            project,
-            task,
+            &Target::plan(project, task),
             PLANNED.to_string(),
             &Saver::agent("agent-1"),
             None,
@@ -1279,15 +1355,14 @@ mod tests {
 
         // The human deletes "Step one." and the blank line under it.
         plans.save(
-            project,
-            task,
+            &Target::plan(project, task),
             "# Plan\n\nStep two.".to_string(),
             &Saver::human(),
             None,
         );
 
         let report = plans
-            .change_report(project, task, Some(written))
+            .change_report(&Target::plan(project, task), Some(written))
             .expect("the changes read");
         assert_eq!(report.stats.lines_removed, 2);
         assert_eq!(
@@ -1307,11 +1382,15 @@ mod tests {
 
         // Write the body and let the block index be built, then hand-write the older sidecar
         // shape over the top of it: version, blocks and annotations, and nothing else.
-        plans.save(project, task, PLANNED.to_string(), &Saver::human(), None);
+        plans.save(
+            &Target::plan(project, task),
+            PLANNED.to_string(),
+            &Saver::human(),
+            None,
+        );
         let block = block_ids(&mut plans, project, task)[1];
         plans.annotate(
-            project,
-            task,
+            &Target::plan(project, task),
             block,
             None,
             CommentAuthor::User,
@@ -1344,7 +1423,7 @@ mod tests {
         );
 
         let report = plans
-            .change_report(project, task, None)
+            .change_report(&Target::plan(project, task), None)
             .expect("the changes read");
         assert!(
             report.regions.is_empty(),
@@ -1353,14 +1432,13 @@ mod tests {
 
         // The next save stamps only what it actually changed, and does not claim the rest.
         plans.save(
-            project,
-            task,
+            &Target::plan(project, task),
             "# Plan\n\nStep one, revised.\n\nStep two.".to_string(),
             &Saver::human(),
             None,
         );
         let report = plans
-            .change_report(project, task, Some(0))
+            .change_report(&Target::plan(project, task), Some(0))
             .expect("the changes read");
         assert_eq!(report.regions.len(), 1);
         assert_eq!(report.regions[0].first_line, 3);
@@ -1375,14 +1453,17 @@ mod tests {
         let (mut plans, work, project, _dir) = plans_with_work();
         let task = make_mission(&work, project);
         let first = revision_of(&plans.save(
-            project,
-            task,
+            &Target::plan(project, task),
             PLANNED.to_string(),
             &Saver::agent("agent-1"),
             None,
         ));
-        let second =
-            revision_of(&plans.save(project, task, PLANNED.to_string(), &Saver::human(), None));
+        let second = revision_of(&plans.save(
+            &Target::plan(project, task),
+            PLANNED.to_string(),
+            &Saver::human(),
+            None,
+        ));
 
         assert_eq!(
             (first, second),
@@ -1390,7 +1471,7 @@ mod tests {
             "the counter follows saves, so a watermark once handed out stays meaningful",
         );
         let report = plans
-            .change_report(project, task, Some(first))
+            .change_report(&Target::plan(project, task), Some(first))
             .expect("the changes read");
         assert!(report.regions.is_empty(), "nothing was rewritten");
         assert!(report.stats.is_empty(), "and nothing is counted");
@@ -1423,8 +1504,7 @@ mod tests {
         let (mut plans, work, project, _dir) = plans_with_work();
         let task = make_mission(&work, project);
         let seeded = revision_of(&plans.save(
-            project,
-            task,
+            &Target::plan(project, task),
             "# Plan\n\nAs it was.".to_string(),
             &Saver::human(),
             None,
@@ -1432,8 +1512,7 @@ mod tests {
 
         // Both windows hold `seeded` and both mean to replace it.
         let first = plans.save(
-            project,
-            task,
+            &Target::plan(project, task),
             "# Plan\n\nThe first window's.".to_string(),
             &Saver::human(),
             Some(seeded),
@@ -1443,8 +1522,7 @@ mod tests {
         assert!(conflict_of(&first).is_none());
 
         let second = plans.save(
-            project,
-            task,
+            &Target::plan(project, task),
             "# Plan\n\nThe second window's.".to_string(),
             &Saver::human(),
             Some(seeded),
@@ -1461,15 +1539,16 @@ mod tests {
             "a refused save is nobody else's business — nothing was written",
         );
         assert_eq!(
-            plans.body(project, task).expect("the body reads"),
+            plans
+                .body(&Target::plan(project, task),)
+                .expect("the body reads"),
             "# Plan\n\nThe first window's.",
             "and the winner's body is untouched",
         );
 
         // The second window is shown that, presses Overwrite, and names what it was told.
         let again = plans.save(
-            project,
-            task,
+            &Target::plan(project, task),
             "# Plan\n\nThe second window's.".to_string(),
             &Saver::human(),
             Some(landed),
@@ -1480,7 +1559,9 @@ mod tests {
         );
         assert_eq!(revision_of(&again), landed + 1);
         assert_eq!(
-            plans.body(project, task).expect("the body reads"),
+            plans
+                .body(&Target::plan(project, task),)
+                .expect("the body reads"),
             "# Plan\n\nThe second window's.",
         );
     }
@@ -1491,19 +1572,21 @@ mod tests {
     fn a_refusal_names_an_agent_that_moved_the_copy() {
         let (mut plans, work, project, _dir) = plans_with_work();
         let task = make_mission(&work, project);
-        let seeded =
-            revision_of(&plans.save(project, task, PLANNED.to_string(), &Saver::human(), None));
+        let seeded = revision_of(&plans.save(
+            &Target::plan(project, task),
+            PLANNED.to_string(),
+            &Saver::human(),
+            None,
+        ));
         plans.save(
-            project,
-            task,
+            &Target::plan(project, task),
             "# Plan\n\nThe agent's.".to_string(),
             &Saver::agent("agent-1"),
             None,
         );
 
         let refused = plans.save(
-            project,
-            task,
+            &Target::plan(project, task),
             "mine".to_string(),
             &Saver::human(),
             Some(seeded),
@@ -1522,13 +1605,17 @@ mod tests {
         let (mut plans, work, project, _dir) = plans_with_work();
         let task = make_mission(&work, project);
 
-        let fresh = plans.save(project, task, "mine".to_string(), &Saver::human(), Some(0));
+        let fresh = plans.save(
+            &Target::plan(project, task),
+            "mine".to_string(),
+            &Saver::human(),
+            Some(0),
+        );
         assert!(conflict_of(&fresh).is_none(), "nothing stood there");
         assert_eq!(revision_of(&fresh), 1);
 
         let beaten = plans.save(
-            project,
-            task,
+            &Target::plan(project, task),
             "also mine".to_string(),
             &Saver::human(),
             Some(0),
@@ -1536,12 +1623,151 @@ mod tests {
         assert_eq!(conflict_of(&beaten).map(|(revision, _)| revision), Some(1));
     }
 
+    // ── a project's own markdown file, annotated in place ─────────────
+
+    /// A project root with `notes.md` in it, and the target that names it. The plan store's own
+    /// temp directory rides along unused: a file document never touches it.
+    fn file_target(dir: &tempfile::TempDir, project: ProjectId, rel: &str) -> Target {
+        let doc = DocumentHandle::File {
+            project_id: project,
+            rel_path: rel.to_string(),
+        };
+        Target::resolve(&doc, dir.path()).expect("the path resolves inside the project")
+    }
+
+    #[test]
+    fn a_file_document_is_saved_in_place_with_its_sidecar_beside_it() {
+        let (mut plans, _work, project, _dir) = plans_with_work();
+        let repo = tempfile::tempdir().unwrap();
+        std::fs::write(repo.path().join("notes.md"), "").unwrap();
+        let target = file_target(&repo, project, "notes.md");
+
+        let replies = plans.save(
+            &target,
+            "# Notes\n\nFirst thought.".to_string(),
+            &Saver::human(),
+            Some(0),
+        );
+        assert_eq!(revision_of(&replies), 1);
+
+        // The body is the user's own file, written where it already was.
+        assert_eq!(
+            std::fs::read_to_string(repo.path().join("notes.md")).unwrap(),
+            "# Notes\n\nFirst thought."
+        );
+        // And the sidecar is beside it, named by appending rather than replacing the extension.
+        let sidecar = repo.path().join("notes.md.annotation.json");
+        assert!(sidecar.exists(), "the sidecar sits beside the file");
+        assert!(
+            !repo.path().join("notes.annotation.json").exists(),
+            "the `.md` was not substituted away",
+        );
+
+        // Nothing of Ubiq's went into the config root for a file document.
+        assert!(!_dir.path().join("projects").exists());
+
+        let (blocks, _) = plans
+            .annotation_list(&target)
+            .expect("the block index reads");
+        assert_eq!(blocks.len(), 2);
+    }
+
+    #[test]
+    fn a_file_documents_annotation_orphans_on_the_same_rule_as_a_plans() {
+        let (mut plans, _work, project, _dir) = plans_with_work();
+        let repo = tempfile::tempdir().unwrap();
+        std::fs::write(repo.path().join("notes.md"), "").unwrap();
+        let target = file_target(&repo, project, "notes.md");
+
+        plans.save(
+            &target,
+            "# Notes\n\nFirst thought.\n\nSecond thought.".to_string(),
+            &Saver::human(),
+            None,
+        );
+        let (blocks, _) = plans.annotation_list(&target).unwrap();
+        let second = blocks[2].id;
+        plans.annotate(
+            &target,
+            second,
+            Some("Second".to_string()),
+            CommentAuthor::User,
+            "is this still true?".to_string(),
+        );
+
+        // The passage goes away, and the thread is flagged rather than dropped — the matcher is
+        // the plan's own, so this is the plan's own behaviour.
+        plans.save(
+            &target,
+            "# Notes\n\nFirst thought.".to_string(),
+            &Saver::human(),
+            None,
+        );
+        let (_, annotations) = plans.annotation_list(&target).unwrap();
+        assert_eq!(annotations.len(), 1);
+        assert!(annotations[0].orphaned);
+        assert_eq!(annotations[0].quote.as_deref(), Some("Second"));
+
+        // The provenance layer rode in the same sidecar and answers for the same file.
+        let report = plans.change_report(&target, Some(1)).unwrap();
+        assert!(!report.regions.is_empty());
+    }
+
+    #[test]
+    fn a_file_document_arbitrates_a_race_the_way_a_plan_does() {
+        let (mut plans, _work, project, _dir) = plans_with_work();
+        let repo = tempfile::tempdir().unwrap();
+        std::fs::write(repo.path().join("notes.md"), "").unwrap();
+        let target = file_target(&repo, project, "notes.md");
+
+        plans.save(&target, "mine".to_string(), &Saver::human(), Some(0));
+        let beaten = plans.save(&target, "also mine".to_string(), &Saver::human(), Some(0));
+        assert_eq!(conflict_of(&beaten).map(|(revision, _)| revision), Some(1));
+    }
+
+    #[test]
+    fn only_a_markdown_file_inside_the_project_resolves() {
+        let repo = tempfile::tempdir().unwrap();
+        let project = ProjectId::generate();
+
+        let image = DocumentHandle::File {
+            project_id: project,
+            rel_path: "logo.png".to_string(),
+        };
+        assert!(Target::resolve(&image, repo.path()).is_err());
+
+        let outside = DocumentHandle::File {
+            project_id: project,
+            rel_path: "../elsewhere.md".to_string(),
+        };
+        assert!(Target::resolve(&outside, repo.path()).is_err());
+    }
+
+    #[test]
+    fn a_file_document_is_never_deleted_through_the_family() {
+        let (mut plans, _work, project, _dir) = plans_with_work();
+        let repo = tempfile::tempdir().unwrap();
+        std::fs::write(repo.path().join("notes.md"), "# Notes").unwrap();
+        let target = file_target(&repo, project, "notes.md");
+
+        let replies = plans.delete(&target);
+        assert!(
+            replies
+                .iter()
+                .any(|reply| matches!(reply.message(), Message::PlanError { .. }))
+        );
+        assert!(
+            repo.path().join("notes.md").exists(),
+            "the user's file is still there",
+        );
+    }
+
     #[test]
     fn a_task_with_no_level_is_refused_its_changes() {
         let (mut plans, work, project, _dir) = plans_with_work();
         let task = make_ordinary_task(&work, project);
 
-        let replies = plans.changes(project, task, None);
+        let replies = plans.changes(&Target::plan(project, task), None);
         assert!(
             replies
                 .iter()

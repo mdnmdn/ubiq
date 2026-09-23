@@ -456,6 +456,7 @@ fn footer(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> impl
         .work(cx)
         .and_then(|work| work.now(task))
         .map(|agent| (agent.id, agent.name.clone()));
+    let nobody_yet = now.is_none();
 
     div()
         .flex()
@@ -473,6 +474,20 @@ fn footer(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> impl
                 Some(IconName::Inbox),
                 format!("Open {name}'s chat"),
                 cx.listener(move |this, _, _, cx| this.open_task_chat(agent, cx)),
+            )
+        }))
+        // Nobody is on this task yet — the way in is the New agent dialog, pre-filled with this
+        // task's id, the board and feedback MCPs, and the two checkboxes `T-64` asks for. Once an
+        // agent is on it, "Open ⟨name⟩'s chat" above is the way back in, and this steps aside.
+        .children(nobody_yet.then(|| {
+            let task_id = task.id;
+            ghost_button(
+                "board-assign-agent",
+                Some(IconName::Plus),
+                "Assign to an agent",
+                cx.listener(move |this, _, window, cx| {
+                    this.assign_task_to_agent(task_id, window, cx)
+                }),
             )
         }))
         // A plan belongs to any task carrying a `level` — not to an ordinary task, and not to

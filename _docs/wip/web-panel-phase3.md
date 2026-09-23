@@ -6,7 +6,7 @@ status: current
 summary: Phase 3 of the web-panel proposal as built, Rust side only — a `shared_workarea` on `HostInfo` reserved at `<config root>/ui/`, a four-variant web asset message family, and `crates/ubiq-host/src/web_assets/` fetching a manifest's 554 files six at a time, verifying each against its SHA-256, and writing them into one compressed `.bundle` file whose rename over a `.part` sibling is the only proof of done. No interface wiring, which is a later unit.
 read_when: you are fetching or serving a vendor bundle, changing the shared workarea, or wiring the interface to `EnsureWebBundle`
 updated: 2026-09-12
-verified: 2026-09-17
+verified: 2026-09-23
 code_anchors: [crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-host/src/web_assets/archive.rs, crates/ubiq-host/src/web_assets/manifest.rs, crates/ubiq-host/src/projects.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/messages.rs]
 depends_on: [tech-architecture, tech-transport, wip-web-panel-phase2]
 ---

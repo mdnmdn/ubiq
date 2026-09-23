@@ -950,7 +950,12 @@ impl AppState {
             (Layer::RemoteManager, w.remote_manager.open),
             (Layer::RemoteConnect, w.remote_connect.is_some()),
             (Layer::Notifications, self.notifications.open),
-            (Layer::Plan, w.plan.is_some()),
+            // Only the dialog takes a rung: a document open inside a markdown tab's annotation
+            // layout is not an overlay, and Escape over it belongs to whatever is.
+            (
+                Layer::Plan,
+                w.plan.as_ref().is_some_and(|doc| doc.is_modal()),
+            ),
             (Layer::Dropdown, dropdown),
             (Layer::HelpTarget, w.help_target.is_some()),
         ]
@@ -1086,9 +1091,16 @@ impl AppState {
             self.decline_paste_image(cx);
         } else if self.workbench.file_dialog.is_some() {
             self.close_file_dialog(cx);
-        } else if self.workbench.plan.is_some() {
+        } else if self
+            .workbench
+            .plan
+            .as_ref()
+            .is_some_and(|doc| doc.is_modal())
+        {
             // Below the file question in paint order: the plan modal's own Export raises one
-            // over it, so Escape takes that first and leaves the plan open underneath.
+            // over it, so Escape takes that first and leaves the plan open underneath. Only the
+            // dialog: a document open inside a markdown tab is not an overlay and Escape there
+            // belongs to whatever is.
             self.close_plan(cx);
         } else if self.workbench.ask.is_some() {
             // Escape puts an agent's question away and sends nothing — what was filled in stays on
@@ -1499,6 +1511,9 @@ impl Render for AppState {
         self.take_focus(window, cx);
         self.attach_arrived_files(window, cx);
         self.attach_kb_docs(window, cx);
+        // Which document the annotation surface is pointed at follows the editor's active tab, so
+        // it is settled before the buffer that document is read into.
+        self.settle_annotation_document(cx);
         // The annotated document's buffer is seeded and its decorations painted here for the
         // reason `attach_arrived_files` is: both need a `Window`, and the host's answer arrives
         // without one.

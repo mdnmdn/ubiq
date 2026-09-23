@@ -5,17 +5,37 @@
 //! other's. Which one is up is `WorkbenchState::file_dialog`, and what is typed into any of them
 //! is the window's one `file_name` field.
 //!
-//! Every one of them is kit calls. The only hand-rolled body is the folder move's, because it is
-//! the one dialog with a control in it: a tick box that stops it asking again for ten minutes.
+//! Most of them are kit calls. The hand-rolled bodies are the folder move's — the one dialog with
+//! a control in it, a tick box that stops it asking again for ten minutes — and Rename's and
+//! Remove's own tick box: whether to carry a path's related files
+//! (`ubiq_proto::files::RelatedFile`, resolved host-side by `ubiq-host`'s `files::related`) along
+//! with it. `prompt_modal` and `confirm_modal` have no room for a second control, so the two grow
+//! the same body those primitives draw and add the row underneath it, in [`modal`] directly,
+//! rather than a kit primitive gaining a control only these two ever use.
 
-use gpui::{AnyElement, Context, IntoElement, ParentElement, Styled, Window, div, relative};
+use gpui::{
+    AnyElement, Context, Focusable, IntoElement, ParentElement, Styled, Window, div, px, relative,
+};
+use gpui_component::input::Input;
+use ubiq_proto::files::RelatedFile;
 
 use crate::app::AppState;
 use crate::state::FileDialog;
 use crate::theme;
 use crate::ui::kit::{
-    check_box, confirm_modal, ghost_button, modal, modal_note, primary_button, prompt_modal,
+    check_box, confirm_modal, field, ghost_button, label_block, modal, modal_note, primary_button,
+    prompt_modal,
 };
+
+/// What the tick box both Rename and Remove grow under their own body says — one file's own
+/// label, or a count once there is more than one. `verb` is what each question does to it:
+/// "rename" or "delete"/"trash".
+fn carry_related_label(verb: &str, related: &[RelatedFile]) -> String {
+    match related {
+        [one] => format!("Also {verb} {} ({})", one.rel_path, one.label),
+        many => format!("Also {verb} {} related files", many.len()),
+    }
+}
 
 pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> AnyElement {
     let view = cx.entity();
@@ -51,23 +71,104 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 cx,
             )
         }
-        Some(FileDialog::Rename { path }) => {
+        Some(FileDialog::Rename { path, related }) => {
             let leaf = leaf_of(&path).to_string();
-            prompt_modal(
-                "app-file-rename",
-                "Rename",
-                Some("Anything open on it follows the new name."),
-                "Name",
-                &app.file_name,
-                "Rename",
-                !typed.is_empty() && typed != leaf,
-                crate::ui::handler(&view, |this, window, cx| {
-                    this.confirm_file_dialog(window, cx)
-                }),
-                crate::ui::handler(&view, |this, _, cx| this.close_file_dialog(cx)),
-                window,
-                cx,
-            )
+            if related.is_empty() {
+                // No answer yet, or the resolver found nothing — the plain question, exactly as
+                // it always was.
+                prompt_modal(
+                    "app-file-rename",
+                    "Rename",
+                    Some("Anything open on it follows the new name."),
+                    "Name",
+                    &app.file_name,
+                    "Rename",
+                    !typed.is_empty() && typed != leaf,
+                    crate::ui::handler(&view, |this, window, cx| {
+                        this.confirm_file_dialog(window, cx)
+                    }),
+                    crate::ui::handler(&view, |this, _, cx| this.close_file_dialog(cx)),
+                    window,
+                    cx,
+                )
+            } else {
+                let focused = app.file_name.read(cx).focus_handle(cx).is_focused(window);
+                let body = div()
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .pt_3()
+                    .child(modal_note("Anything open on it follows the new name."))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .child(label_block("Name", ""))
+                            .child(
+                                field(theme::border(), focused)
+                                    .h(px(30.))
+                                    .px_2()
+                                    .child(Input::new(&app.file_name).appearance(false)),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .child(check_box(
+                                "app-file-carry-related",
+                                app.workbench.carry_related,
+                                cx.listener(|this, _, _, cx| this.toggle_carry_related(cx)),
+                            ))
+                            .child(
+                                div()
+                                    .w(relative(1.))
+                                    .text_size(theme::font(
+                                        theme::Family::Chrome,
+                                        theme::Role::Body,
+                                    ))
+                                    .text_color(theme::text_muted())
+                                    .child(carry_related_label("rename", &related)),
+                            ),
+                    )
+                    .into_any_element();
+
+                let confirm_enabled = !typed.is_empty() && typed != leaf;
+                let confirm = primary_button(
+                    "app-file-rename-confirm",
+                    None,
+                    "Rename",
+                    cx.listener(|this, _, window, cx| this.confirm_file_dialog(window, cx)),
+                );
+                let footer = div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(ghost_button(
+                        "app-file-rename-cancel",
+                        None,
+                        "Cancel",
+                        cx.listener(|this, _, _, cx| this.close_file_dialog(cx)),
+                    ))
+                    .child(if confirm_enabled {
+                        confirm
+                    } else {
+                        confirm.opacity(0.5)
+                    })
+                    .into_any_element();
+
+                modal(
+                    "app-file-rename",
+                    theme::accent(),
+                    "Rename",
+                    body,
+                    footer,
+                    crate::ui::handler(&view, |this, _, cx| this.close_file_dialog(cx)),
+                    window,
+                )
+            }
         }
         Some(FileDialog::RenameTab { .. }) => prompt_modal(
             "app-tab-rename",
@@ -215,27 +316,92 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 window,
             )
         }
-        Some(FileDialog::Remove { path, dir, trash }) => {
+        Some(FileDialog::Remove {
+            path,
+            dir,
+            trash,
+            related,
+        }) => {
             let contents = match dir {
                 true => " Everything inside it goes too.",
                 false => "",
             };
-            confirm_modal(
-                "app-file-remove",
-                if trash { "Move to Trash" } else { "Delete" },
-                &format!("{path}?{contents}"),
-                if trash {
-                    "Move to Trash"
-                } else {
-                    "Delete permanently"
-                },
-                true,
-                crate::ui::handler(&view, |this, window, cx| {
-                    this.confirm_file_dialog(window, cx)
-                }),
-                crate::ui::handler(&view, |this, _, cx| this.close_file_dialog(cx)),
-                window,
-            )
+            let title = if trash { "Move to Trash" } else { "Delete" };
+            let confirm_label = if trash {
+                "Move to Trash"
+            } else {
+                "Delete permanently"
+            };
+            if related.is_empty() {
+                confirm_modal(
+                    "app-file-remove",
+                    title,
+                    &format!("{path}?{contents}"),
+                    confirm_label,
+                    true,
+                    crate::ui::handler(&view, |this, window, cx| {
+                        this.confirm_file_dialog(window, cx)
+                    }),
+                    crate::ui::handler(&view, |this, _, cx| this.close_file_dialog(cx)),
+                    window,
+                )
+            } else {
+                let verb = if trash { "trash" } else { "delete" };
+                let body = div()
+                    .pt_3()
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .child(modal_note(&format!("{path}?{contents}")))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .child(check_box(
+                                "app-file-carry-related",
+                                app.workbench.carry_related,
+                                cx.listener(|this, _, _, cx| this.toggle_carry_related(cx)),
+                            ))
+                            .child(
+                                div()
+                                    .w(relative(1.))
+                                    .text_size(theme::font(
+                                        theme::Family::Chrome,
+                                        theme::Role::Body,
+                                    ))
+                                    .text_color(theme::text_muted())
+                                    .child(carry_related_label(verb, &related)),
+                            ),
+                    )
+                    .into_any_element();
+                let footer = div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(ghost_button(
+                        "app-file-remove-cancel",
+                        None,
+                        "Cancel",
+                        cx.listener(|this, _, _, cx| this.close_file_dialog(cx)),
+                    ))
+                    .child(primary_button(
+                        "app-file-remove-confirm",
+                        None,
+                        confirm_label,
+                        cx.listener(|this, _, window, cx| this.confirm_file_dialog(window, cx)),
+                    ))
+                    .into_any_element();
+                modal(
+                    "app-file-remove",
+                    theme::danger(),
+                    title,
+                    body,
+                    footer,
+                    crate::ui::handler(&view, |this, _, cx| this.close_file_dialog(cx)),
+                    window,
+                )
+            }
         }
         Some(FileDialog::DiscardChanges { key }) => {
             let name = app

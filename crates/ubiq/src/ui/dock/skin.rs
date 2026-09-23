@@ -44,6 +44,26 @@ pub type NewPaneRun = Rc<dyn Fn(&mut Window, &mut App)>;
 /// paints the menu over the window. The same crossing the pane `+`'s chevron already makes.
 pub type NewChatRun = Rc<dyn Fn(f32, f32, &mut Window, &mut App)>;
 
+/// Whether a tab group is the chat home region's, [`NewPaneRegion`]'s counterpart for the `+`
+/// that starts or attaches an agent.
+///
+/// A group already holding a chat draws the `+` on the strength of that alone (`hosts_chats`
+/// below); this is what keeps it there on a group that holds none yet — Tasks' right region is
+/// the task until a chat lands beside it, and without this the strip would offer no way to put
+/// one there at all.
+pub type NewChatRegion = Rc<dyn Fn(NodeId, &App) -> bool>;
+
+/// The window's "new chat" control, which lives on the strip of any group at the chat home
+/// region — beside [`NewPane`] for the same reason: the action and its availability are handed
+/// to the skin ready-made rather than recovered through a downcast.
+#[derive(Clone)]
+pub struct NewChat {
+    /// Ask for the `+` menu — *New agent* or *Attach existing agent* — anchored at the click.
+    pub run: NewChatRun,
+    /// Whether this group is the chat home region's, for the frames where it holds no chat yet.
+    pub region: NewChatRegion,
+}
+
 /// The right-click on a tab, handed across the renderer seam.
 ///
 /// The tab bar knows which tab and where the click went down; `AppState` knows what to offer on
@@ -137,12 +157,13 @@ pub struct Skin {
     /// The window's "new terminal" control, drawn at the right of the bottom region's tab bar.
     /// `None` in windows with no project, where there is nothing to spawn a pane for.
     new_pane: Option<NewPane>,
-    /// The chat panel's "new tab" control, drawn on the strip of any group holding a chat.
+    /// The chat panel's "new tab" control, drawn on the strip of any group holding a chat, or
+    /// sitting at the chat home region with none yet.
     ///
     /// Beside `new_pane` rather than folded into it: the two open different things — one starts a
     /// harness, the other opens a second view of conversations that already exist — and a group
     /// may hold chats and panes at once, in which case the strip honestly offers both.
-    new_chat: Option<NewChatRun>,
+    new_chat: Option<NewChat>,
     /// The tab right-click, so a tab can ask for its context menu. `None` where the skin has no
     /// project-facing window to hand the click to.
     tab_menu: Option<TabMenuRun>,
@@ -176,10 +197,11 @@ impl Skin {
         })
     }
 
-    /// Attach the "new chat tab" control to the strip of every group holding a chat.
-    pub fn with_new_chat(self: &Rc<Self>, run: NewChatRun) -> Rc<Self> {
+    /// Attach the "new chat tab" control to the strip of every group holding a chat, or sitting
+    /// at the chat home region.
+    pub fn with_new_chat(self: &Rc<Self>, chat: NewChat) -> Rc<Self> {
         Rc::new(Self {
-            new_chat: Some(run),
+            new_chat: Some(chat),
             ..(**self).clone()
         })
     }
@@ -440,11 +462,22 @@ impl TabGroupRenderer for Skin {
                     );
                 }
 
-                // The dot is the conversation view's, not the dock's: one element and one blink
-                // rule, so the dot on a chat tab here and the dot on an agents-mode column tab are
-                // the same answer drawn the same way. Its ring is the tab's own background, so a
-                // still dot reads exactly as it did before it was shared.
-                if let Some(colour) = info.dot_colour {
+                // A chat tab's hexagon (T-99/T-102) — the mark the agents-mode column's own tab
+                // wears, the same vocabulary and the same primitive, so the two cannot disagree
+                // about what one conversation is doing. Every other kind keeps the plain dot
+                // below: a terminal's running state or a file's dirty mark is not a lifecycle
+                // pair, and drawing one as a hexagon would be a shape borrowed for a state it
+                // was never built to say.
+                if let Some(status) = info.dot_status {
+                    tab = tab.child(crate::ui::teams::status::status_mark(
+                        status,
+                        14.0,
+                        ("ubiq-tab-mark", ix),
+                    ));
+                } else if let Some(colour) = info.dot_colour {
+                    // The dot is the conversation view's, not the dock's: one element and one
+                    // blink rule. Its ring is the tab's own background, so a still dot reads
+                    // exactly as it did before it was shared.
                     tab = tab.child(crate::ui::conversation::lifecycle_dot(
                         colour,
                         info.dot_pulse,
@@ -549,15 +582,21 @@ impl TabGroupRenderer for Skin {
             .as_ref()
             .filter(|action| hosts_panes || (action.region)(group.node(), cx));
         // The chat `+` follows the same rule the pane `+` does — it is offered where the thing it
-        // opens already lives — so a chat dragged into the editor region takes its control with
-        // it rather than leaving the gesture behind on a strip it is no longer on.
+        // opens already lives, so a chat dragged into the editor region takes its control with it
+        // rather than leaving the gesture behind on a strip it is no longer on — **or** where it
+        // has nowhere to live yet: the chat home region with no chat in it, Tasks' right region
+        // beside the task being the case that matters, the same way the pane `+` stays on an
+        // emptied pane region ([`NewPane::region`]).
         let hosts_chats = group.panels().iter().any(|panel| {
             panel
                 .view()
                 .downcast::<WorkbenchPanel>()
                 .is_ok_and(|panel| matches!(panel.read(cx).kind(), PanelKind::Chat(_)))
         });
-        let new_chat = self.new_chat.clone().filter(|_| hosts_chats);
+        let new_chat = self
+            .new_chat
+            .clone()
+            .filter(|chat| hosts_chats || (chat.region)(group.node(), cx));
 
         // Each tab bar scrolls on its own handle: the skin draws every group, and one shared
         // handle would give them one offset and one set of measured tab bounds — the last strip to
@@ -663,7 +702,8 @@ impl TabGroupRenderer for Skin {
                         window.refresh();
                     }),
             )
-            .when_some(new_chat, |this, run| {
+            .when_some(new_chat, |this, chat| {
+                let run = chat.run.clone();
                 this.child(
                     div()
                         .id("ubiq-tab-new-chat")

@@ -365,6 +365,9 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
             app.workbench
                 .plan
                 .as_ref()
+                // A document open in a markdown tab's annotation layout draws in the panel, not
+                // here: same surface, no modal around it.
+                .filter(|doc| doc.is_modal())
                 .map(|_| crate::ui::plan::render(app, window, cx)),
         )
         // The file question a gesture in the explorer or a save on an untitled buffer asked —

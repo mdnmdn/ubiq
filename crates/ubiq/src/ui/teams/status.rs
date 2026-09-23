@@ -9,12 +9,12 @@
 //! the rest are Lucide's, taken as they come.
 
 use gpui::{
-    ElementId, InteractiveElement as _, IntoElement, ParentElement,
+    ElementId, InteractiveElement as _, IntoElement, ParentElement, Rgba,
     StatefulInteractiveElement as _, Styled, div, px,
 };
 use gpui_component::{Sizable as _, tooltip::Tooltip};
 
-use crate::state::status::Status;
+use crate::state::status::{Doing, Lifecycle, Status};
 use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::kit::{hex_mark, mono, pill};
@@ -26,20 +26,48 @@ use crate::ui::work::{doing_colour, lifecycle_colour, status_colour, status_icon
 ///
 /// **Two readings in one glyph.** The transparent outer border is the lifecycle: whether this
 /// execution can still do anything. The inner fill is the activity, or — once the lifecycle is
-/// `Ended` — the result it came back with. So a completed delegate is a grey outline round a green
-/// core: stopped, and stopped well. An execution whose activity nothing reports is the outline
-/// alone.
-pub fn status_mark(status: Status, side: f32) -> impl IntoElement {
-    let fill = status
-        .doing
-        .ne(&crate::state::status::Doing::Unknown)
-        .then(|| doing_colour(status.doing));
+/// `Ended` — the result it came back with. A delegate that finished with an error keeps its danger
+/// core, because that is still the one thing worth an eye; a delegate that came back clean is grey
+/// through and through — it is not working any more, and a green core past that fact would read as
+/// still going. An execution whose activity nothing reports is the outline alone.
+///
+/// **The core pulses while there is somewhere to look.** Only [`Lifecycle::Working`] does — not
+/// idle, not done, not waiting on the reader, the three restful readings a moving core would cry
+/// wolf over. `id` names the animation, so two marks on the same canvas never share a clock.
+pub fn status_mark(status: Status, side: f32, id: impl Into<ElementId>) -> impl IntoElement {
+    let fill = match status.doing {
+        Doing::Unknown => None,
+        Doing::Done => Some(theme::text_faint()),
+        doing => Some(doing_colour(doing)),
+    };
+    let pulse = status.lifecycle == Lifecycle::Working;
     div()
         .flex()
         .flex_none()
         .items_center()
         .justify_center()
-        .child(hex_mark(lifecycle_colour(status.lifecycle), fill, side))
+        .child(hex_mark(
+            id,
+            lifecycle_colour(status.lifecycle),
+            fill,
+            side,
+            pulse,
+        ))
+}
+
+/// The colour a Teams card reads for its state, past [`status_mark`]'s own rule: gray once the
+/// card is [`Doing::Done`].
+///
+/// **The mark already draws it this way** — `Done`'s fill is [`theme::text_faint`], not the
+/// success green [`status_colour`] answers for it, because a finished delegate is spent rather
+/// than a passing check. [`status_chip`] and a card's own edge read the same [`Status`] the mark
+/// does, so they take the same answer here rather than disagreeing about what "done" looks like
+/// on the one surface that draws all three (`T-106`).
+pub fn card_colour(status: Status) -> Rgba {
+    match status.doing {
+        Doing::Done => theme::text_faint(),
+        _ => status_colour(status),
+    }
 }
 
 /// The chip a card carries: the state's glyph, then the word for it.
@@ -49,7 +77,7 @@ pub fn status_mark(status: Status, side: f32) -> impl IntoElement {
 /// says the *compact* reading (`done`, `tools`, `needs you`); the precise pair is the card's
 /// tooltip, which is what [`Status::label`] is for.
 pub fn status_chip(status: Status, zoom: f32) -> impl IntoElement {
-    let colour = status_colour(status);
+    let colour = card_colour(status);
     pill(colour)
         .h(px(22. * zoom))
         .px(px(6. * zoom))

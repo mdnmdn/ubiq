@@ -108,20 +108,15 @@ fn draw(entry: DiagramEntry, source: &str) -> AnyElement {
         // Drawn at the size the renderer measured, which is the size the SVG's own viewBox gives:
         // stretching a diagram to whatever box it landed in is what that field exists to prevent.
         // `img` and never `svg().data()`, which reduces the markup to an alpha mask and would draw
-        // every diagram in one colour.
-        DiagramEntry::Ready(picture) => div()
-            .flex()
-            .flex_col()
-            .flex_none()
-            .items_center()
-            .p_3()
-            .child(
-                img(ImageSource::Image(picture.image))
-                    .flex_none()
-                    .w(px(picture.width))
-                    .h(px(picture.height)),
-            )
-            .into_any_element(),
+        // every diagram in one colour. A diagram wider than the reading column scrolls inside
+        // `super::diagram_frame` (T-126) rather than spilling past the viewport.
+        DiagramEntry::Ready(picture) => super::diagram_frame(
+            source,
+            img(ImageSource::Image(picture.image))
+                .flex_none()
+                .w(px(picture.width))
+                .h(px(picture.height)),
+        ),
         DiagramEntry::Failed(reason) => failed(&reason, source),
     }
 }

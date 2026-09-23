@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-09-22
-verified: 2026-09-22
+updated: 2026-09-23
+verified: 2026-09-23
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -3620,6 +3620,40 @@ where the planning loop happens.
 
 **Cost:** the writing surface is markdown source with a preview, not WYSIWYG rich text — nobody
 asked for it, but the surface cannot grow into it later without becoming the web route instead.
+
+### D161 — The annotation family is keyed by a `DocumentHandle`, and a project file's sidecar lives beside the file
+
+The annotation layer was built for plans and serves **any** markdown document a project holds.
+Rather than a parallel `Document*` family beside the `Plan*` one — two
+sets of messages, two host services and, inevitably, two block matchers that drift — every variant
+in the family stopped naming `(project_id, task_id)` and names a `ubiq_proto::plan::DocumentHandle`
+instead: `Plan { project_id, task_id }` or `File { project_id, rel_path }`. One matcher, one
+orphaning rule, one provenance layer, one sidecar format. The host resolves the handle to a
+`plan::Target` once, in `Coordinator::plan_job`, which is where a `rel_path` is contained inside
+the project and refused if it is not markdown; nothing below that point sees a path.
+
+**A file document's sidecar is `<file>.md.annotation.json`, beside the file, inside the user's
+repository.** That is a deliberate exception to `D30` — the first one that writes Ubiq's own
+bookkeeping into a project tree — taken because an annotation on a file the repository owns is
+about that file, has to survive a clone, and has to be reviewable: a thread that lived in the
+config root would be invisible to everyone but the machine that wrote it. The exception is
+narrow: nothing is created to make the path valid, the file's mode is carried over the write, and
+`DeletePlan` refuses a file document outright, so the family that annotates a repository's file
+can never be the thing that removes it. (The plan's own sidecar keeps its existing
+`<TaskId>.annotations.json` spelling — plural, and under the config root. Two spellings for one
+format is a wart; renaming the deployed one would be a migration for no gain.)
+
+**The sidecar is committed to the repository, not gitignored.** It is not workspace state in
+`D30`'s sense — it is a shared artefact of the file it annotates, and a team reading a spec's
+history is meant to see a colleague's notes on it the same way they see the spec itself. That is
+the whole reason this is `D30`'s first exception rather than a quiet workaround of it: a
+gitignored sidecar would still be invisible to everyone but the machine that wrote it, exactly the
+failure the paragraph above already rejects.
+
+**Cost:** a repository acquires a file to gitignore, or to commit, which is exactly what `D30`
+existed to avoid; and the two sidecar spellings have to be remembered. In plan mode annotations
+also feed the agents through `ubiq-plan`; for a file document they only sit there until a later
+card gives them a reader.
 
 ## Related docs
 

@@ -174,6 +174,23 @@ pub struct FileContents {
     pub version: Option<FileVersion>,
 }
 
+/// What else belongs to a path — an answer [`crate::messages::Message::ProjectFileRelated`]
+/// carries, for the explorer to ask about before a rename, move or delete carries it along or
+/// leaves it behind.
+///
+/// **General on purpose.** The annotation sidecar (`D161`) is the first rule a resolver applies to
+/// a path, not the only one there will ever be — a `foo.ts` and its `foo.test.ts`, or a component
+/// and its stylesheet, are the same shape: something else on disk that means nothing once the file
+/// it is about is gone or renamed out from under it. Nothing on the wire says which rule found
+/// this; the host may grow more without the interface changing at all.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RelatedFile {
+    /// Project-relative, on the same rule every path in this family follows.
+    pub rel_path: String,
+    /// What the confirmation calls it — "annotations" today.
+    pub label: String,
+}
+
 /// What an edit to a path is.
 ///
 /// Every variant is a different thing for the interface to do once it has happened — a created file

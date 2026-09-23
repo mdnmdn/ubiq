@@ -17,7 +17,7 @@ use gpui_component::input::InputEvent;
 use ubiq::app::{AppState, BusHub, CloseEditor};
 use ubiq::state::{FileDialog, WindowRegistry};
 use ubiq_proto::bus::{self, FromClient, To};
-use ubiq_proto::files::{DirEntry, DirListing, EntryKind, PathOp};
+use ubiq_proto::files::{DirEntry, DirListing, EntryKind, PathOp, RelatedFile};
 use ubiq_proto::git::{GitHead, GitNested};
 use ubiq_proto::ids::ProjectId;
 use ubiq_proto::messages::Message;
@@ -290,6 +290,7 @@ fn a_new_file_is_named_then_created_then_opened(cx: &mut TestAppContext) {
             rel_path: "src/notes.md".to_string(),
             to: None,
             op: PathOp::Create { dir: false },
+            carry_related: false,
         },
         cx,
     );
@@ -337,6 +338,7 @@ fn a_new_folder_carries_dir_and_opens_nothing(cx: &mut TestAppContext) {
             rel_path: "notes".to_string(),
             to: None,
             op: PathOp::Create { dir: true },
+            carry_related: false,
         },
         cx,
     );
@@ -360,6 +362,7 @@ fn delete_asks_before_it_sends_and_trash_is_the_default(cx: &mut TestAppContext)
             path: "src/main.rs".to_string(),
             dir: false,
             trash: true,
+            related: Vec::new(),
         }),
         "no modifier held means the platform's Trash"
     );
@@ -372,6 +375,118 @@ fn delete_asks_before_it_sends_and_trash_is_the_default(cx: &mut TestAppContext)
     assert_eq!(
         edits(&fixture.said()),
         vec![("src/main.rs".to_string(), None, PathOp::Trash)]
+    );
+}
+
+/// Rename and Delete both ask the host what else a markdown file carries, and the question's own
+/// checkbox — default checked — is what tells the host to carry it along.
+#[gpui::test]
+fn a_rename_asks_what_it_carries_and_the_checkbox_defaults_checked(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    fixture.deliver(
+        Message::ProjectTreeListing {
+            project_id: fixture.project,
+            rel_path: "docs".to_string(),
+            listings: vec![listing("docs", vec![file("docs", "spec.md")])],
+        },
+        cx,
+    );
+    let _ = fixture.said();
+
+    fixture.pick(Some("docs/spec.md"), "Rename", cx);
+    assert_eq!(
+        fixture.dialog(cx),
+        Some(FileDialog::Rename {
+            path: "docs/spec.md".to_string(),
+            related: Vec::new(),
+        }),
+        "the question is up before the host answers what else the path carries"
+    );
+    let said = fixture.said();
+    assert!(
+        said.iter().any(|message| matches!(
+            message,
+            Message::RelatedProjectFiles { rel_path, .. } if rel_path == "docs/spec.md"
+        )),
+        "the question asks the host what else the path carries: {said:?}"
+    );
+
+    let related = vec![RelatedFile {
+        rel_path: "docs/spec.md.annotation.json".to_string(),
+        label: "annotations".to_string(),
+    }];
+    fixture.deliver(
+        Message::ProjectFileRelated {
+            project_id: fixture.project,
+            rel_path: "docs/spec.md".to_string(),
+            related: related.clone(),
+        },
+        cx,
+    );
+    assert_eq!(
+        fixture.dialog(cx),
+        Some(FileDialog::Rename {
+            path: "docs/spec.md".to_string(),
+            related: related.clone(),
+        }),
+        "the answer fills in the question that is still up"
+    );
+
+    fixture.confirm("notes.md", cx);
+    let said = fixture.said();
+    assert!(
+        said.iter().any(|message| matches!(
+            message,
+            Message::EditProjectPath {
+                carry_related: true,
+                op: PathOp::Move,
+                ..
+            }
+        )),
+        "the checkbox defaults to checked: {said:?}"
+    );
+}
+
+/// Unchecking the box before confirming is what leaves a related file behind.
+#[gpui::test]
+fn unchecking_carry_related_leaves_the_related_file_behind(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    fixture.deliver(
+        Message::ProjectTreeListing {
+            project_id: fixture.project,
+            rel_path: "docs".to_string(),
+            listings: vec![listing("docs", vec![file("docs", "spec.md")])],
+        },
+        cx,
+    );
+    let _ = fixture.said();
+
+    fixture.pick(Some("docs/spec.md"), "Delete", cx);
+    fixture.deliver(
+        Message::ProjectFileRelated {
+            project_id: fixture.project,
+            rel_path: "docs/spec.md".to_string(),
+            related: vec![RelatedFile {
+                rel_path: "docs/spec.md.annotation.json".to_string(),
+                label: "annotations".to_string(),
+            }],
+        },
+        cx,
+    );
+    fixture.with(cx, |state, _, cx| state.toggle_carry_related(cx));
+
+    fixture.confirm("", cx);
+    let said = fixture.said();
+    assert!(
+        said.iter().any(|message| matches!(
+            message,
+            Message::EditProjectPath {
+                carry_related: false,
+                op: PathOp::Trash,
+                ..
+            }
+        )),
+        "unchecking the box leaves the sidecar behind: {said:?}"
     );
 }
 
@@ -391,6 +506,7 @@ fn a_removed_path_closes_its_tabs_and_clears_the_clipboard(cx: &mut TestAppConte
             rel_path: "src".to_string(),
             to: None,
             op: PathOp::Delete,
+            carry_related: false,
         },
         cx,
     );
@@ -451,7 +567,8 @@ fn a_rename_moves_the_path_and_its_tabs_follow(cx: &mut TestAppContext) {
     assert_eq!(
         fixture.dialog(cx),
         Some(FileDialog::Rename {
-            path: "src".to_string()
+            path: "src".to_string(),
+            related: Vec::new(),
         })
     );
     fixture.confirm("lib", cx);
@@ -466,6 +583,7 @@ fn a_rename_moves_the_path_and_its_tabs_follow(cx: &mut TestAppContext) {
             rel_path: "src".to_string(),
             to: Some("lib".to_string()),
             op: PathOp::Move,
+            carry_related: false,
         },
         cx,
     );

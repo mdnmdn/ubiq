@@ -3,7 +3,8 @@
 //! Every colour in the UI comes from an accessor here. A literal colour anywhere else is a defect
 //! — see `_docs/tech/ui-and-design.md`, which owns the token set.
 
-use gpui::{App, Pixels, Rgba, SharedString, px};
+use gpui::{App, Pixels, Rems, Rgba, SharedString, px, rems};
+use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Mutex;
@@ -313,6 +314,193 @@ pub fn column_shut() -> f32 {
 
 pub fn task_panel_width() -> f32 {
     scaled(TASK_PANEL_WIDTH)
+}
+
+// ── Markdown preview typography ─────────────────────────────────────
+//
+// `_docs/inbox/markdown-improvement-proposal.md` §3–§7 (T-116). Every value here is a ratio over
+// the body font size (`font(Family::Content, Role::Body)`), so a font-size or zoom change scales
+// the whole preview rather than leaving one part of it behind — the proposal's principle 6.
+//
+// The upstream renderer (`gpui_component::text::TextView` / `TextViewStyle`, `longbridge/
+// gpui-component`) exposes exactly one vertical-rhythm knob that reaches every block —
+// `paragraph_gap`, applied as the *following* block's space-before by way of the *preceding*
+// block's own bottom margin — plus a `StyleRefinement` each for code blocks and tables. It has
+// **no per-heading-level line-height or space-before hook**: a heading is rendered with a
+// hardcoded `pb(rems(0.3))` and no `.line_height(...)` call at all, upstream at
+// `crates/base/src/text/node.rs:2358-2365` in the vendored checkout
+// (`~/.cargo/git/checkouts/gpui-component-*/*/crates/base/src/text/node.rs`). So body line height
+// is set once, on the preview's own root element, and cascades to headings at their own font
+// size through GPUI's relative line-height resolution (`crates/gpui/src/style.rs:554-556`) —
+// every element reads at the *same* leading ratio, not the tighter per-level ratios §3 asks for.
+// `ui/viewer/markdown.rs`'s render functions document the rest of the gap at each call site.
+
+/// A width preset for the Markdown preview's text column (proposal §4.1). Persisted in
+/// `UiSettings` (T-118) — the reader's chosen measure survives a restart the same way
+/// `md_minimap` does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum MdWidth {
+    #[default]
+    Readable,
+    Wide,
+    Full,
+}
+
+impl MdWidth {
+    pub const ALL: [MdWidth; 3] = [MdWidth::Readable, MdWidth::Wide, MdWidth::Full];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            MdWidth::Readable => "Readable",
+            MdWidth::Wide => "Wide",
+            MdWidth::Full => "Full",
+        }
+    }
+
+    /// The column's target measure in characters, or `None` for Full — the pane decides.
+    pub fn measure_ch(self) -> Option<f32> {
+        match self {
+            MdWidth::Readable => Some(75.0),
+            MdWidth::Wide => Some(95.0),
+            MdWidth::Full => None,
+        }
+    }
+}
+
+/// A density mode for the Markdown preview (proposal §7). Persisted alongside [`MdWidth`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum MdDensity {
+    #[default]
+    Comfortable,
+    Compact,
+}
+
+impl MdDensity {
+    pub const ALL: [MdDensity; 2] = [MdDensity::Comfortable, MdDensity::Compact];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            MdDensity::Comfortable => "Comfortable",
+            MdDensity::Compact => "Compact",
+        }
+    }
+}
+
+/// Which side of the pane the markdown minimap (`ui/kit/minimap.rs`) docks to — a user setting
+/// (T-118), overriding the proposal's §8.1 right-hand placement: Left is the default, Right is
+/// offered. Read by both the standard viewer and the plan modal, so the one setting moves the
+/// minimap wherever it is drawn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum MdMinimapSide {
+    #[default]
+    Left,
+    Right,
+}
+
+impl MdMinimapSide {
+    pub const ALL: [MdMinimapSide; 2] = [MdMinimapSide::Left, MdMinimapSide::Right];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            MdMinimapSide::Left => "Left",
+            MdMinimapSide::Right => "Right",
+        }
+    }
+}
+
+/// The average character width of the body font, as a fraction of its point size, used to turn a
+/// column measure in characters into a pixel width (proposal §4). Proportional sans faces run
+/// close to 0.5; this errs a little wide so a "75 ch" column reads generous rather than clipped.
+/// There is no glyph-metrics call available where this is used — `ui/viewer/markdown.rs` has no
+/// `Window`, only a `Context<AppState>` — so this is a documented estimate, not a measurement.
+pub const MD_AVG_CHAR_WIDTH_EM: f32 = 0.55;
+
+/// The column's target width for a preset, at the current body size. `None` (Full) leaves the
+/// column unconstrained — the pane's own width is the limit.
+pub fn md_measure_width(width: MdWidth, body: Pixels) -> Option<Pixels> {
+    width
+        .measure_ch()
+        .map(|ch| body * (ch * MD_AVG_CHAR_WIDTH_EM))
+}
+
+/// Body line height for a measure, interpolated rather than stepped (proposal §4) so a window
+/// resize never jumps the leading. Compact (proposal §7) trims a flat amount off Comfortable's
+/// curve — the proposal only tables the value at the Readable measure, so the same offset is
+/// carried across the whole interpolation instead of inventing a second curve.
+pub fn md_body_line_height(width: MdWidth, density: MdDensity) -> f32 {
+    let ch = width.measure_ch().unwrap_or(140.0);
+    let comfortable = if ch <= 65.0 {
+        1.45
+    } else if ch <= 80.0 {
+        lerp(ch, 65.0, 80.0, 1.45, 1.5)
+    } else if ch <= 100.0 {
+        lerp(ch, 80.0, 100.0, 1.5, 1.575)
+    } else {
+        lerp(ch.min(140.0), 100.0, 140.0, 1.575, 1.6)
+    };
+    match density {
+        MdDensity::Comfortable => comfortable,
+        MdDensity::Compact => comfortable - 0.15,
+    }
+}
+
+fn lerp(x: f32, x0: f32, x1: f32, y0: f32, y1: f32) -> f32 {
+    y0 + (y1 - y0) * ((x - x0) / (x1 - x0))
+}
+
+/// The paragraph gap — the one vertical-rhythm knob `TextViewStyle` exposes for every
+/// non-heading block, and (by way of the preceding block's own bottom margin) the closest
+/// reachable stand-in for a heading's "space before". See the module note above.
+pub fn md_paragraph_gap(density: MdDensity) -> Rems {
+    match density {
+        MdDensity::Comfortable => rems(0.7),
+        MdDensity::Compact => rems(0.5),
+    }
+}
+
+/// Each heading level's font size as a ratio of body size (proposal §3), set through
+/// `TextViewStyle::heading_font_size` — the one heading hook the renderer exposes.
+pub fn md_heading_ratio(level: u8) -> f32 {
+    match level {
+        1 => 1.65,
+        2 => 1.3,
+        3 => 1.1,
+        4 => 1.0,
+        5 => 0.95,
+        _ => 0.9,
+    }
+}
+
+/// Line height inside a fenced code block or a table cell — the two block kinds whose
+/// `StyleRefinement` reaches line height directly, so unlike headings and paragraphs they get
+/// their own value instead of inheriting the body's.
+pub const MD_CODE_LINE_HEIGHT: f32 = 1.35;
+
+/// Inline code's size relative to body text (proposal §6.1). `HighlightStyle` (what
+/// `TextViewStyle::inline_code` takes) carries no font-size field, so this is applied as an
+/// absolute pixel size computed from the body size at the call site rather than as a style token
+/// here — see the module note on `HighlightStyle` in `ui/viewer/markdown.rs`.
+pub const MD_INLINE_CODE_SIZE_EM: f32 = 0.9;
+
+/// The reading column's side margin, in the narrow-window case and as the horizontal inset that
+/// always applies (proposal §5.1/§5.2) — the centred case reduces to the same padding once the
+/// column hits its `md_measure_width` cap, so one token covers both branches of the rule.
+pub fn md_min_margin() -> Rems {
+    rems(2.5)
+}
+
+/// Top inset above the first block — about one body line (proposal §5.2), which removes the
+/// current fixed dead space at the top of the preview.
+pub fn md_top_inset(line_height_px: Pixels) -> Pixels {
+    line_height_px
+}
+
+/// Bottom inset, generous enough that the last line scrolls clear of the frame (proposal §5.2).
+/// The proposal asks for at least a third of the *viewport* height, which is not available at the
+/// call site (`ui/viewer/markdown.rs` has no window bounds to read); a fixed multiple of the body
+/// line height is the closest honest stand-in, chosen to comfortably clear a typical pane.
+pub fn md_bottom_inset(line_height_px: Pixels) -> Pixels {
+    line_height_px * 8.0
 }
 
 // ── Palette groups ──────────────────────────────────────────────────

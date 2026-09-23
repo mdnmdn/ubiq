@@ -13,6 +13,7 @@
 //! working-tree totals were invented, and a fact nobody can answer for is not drawn at all.
 
 use gpui::SharedString;
+use ubiq_proto::files::RelatedFile;
 use ubiq_proto::ids::{KbSourceId, PaneId, ProjectId, TaskId};
 use ubiq_proto::mcp::McpInfo;
 use ubiq_proto::messages::{AccountInfo, AgentTypeInfo, ProfileInfo, ShellInfo};
@@ -275,6 +276,9 @@ pub enum MenuId {
     /// The style reference's demo multi-select. Its own id beside `SinkPicker` because both are
     /// drawn on the same page and only one menu in the window is open at a time.
     SinkMulti,
+    /// The style reference's demo heading navigator — `kit::md_navigator`'s own specimen, its id
+    /// beside `SinkPicker` and `SinkMulti` for the same reason.
+    SinkMdNav,
     /// The A2UI page's example picker: which surface the preview draws.
     SinkA2ui,
     /// The script page's example picker: which starter the buffers are seeded from.
@@ -356,6 +360,15 @@ pub enum MenuId {
     /// other anchored panel, so it needs no rung in `cancel_dialog`. What it is showing is
     /// `WorkbenchState::attachment_preview`.
     AttachmentPreview,
+    /// The markdown viewer header's customisation popover (T-118, proposal §12): width preset,
+    /// density, minimap visibility and side. `kit::popover`, not a modal — the same Escape and
+    /// outside click every other anchored panel takes.
+    MdOptions,
+    /// The markdown viewer header's heading navigator (T-124) — the document's structure, offered
+    /// in all four of markdown's layouts. `kit::md_navigator`'s anchored panel, on `MdOptions`'s
+    /// own terms. The plan dialog's own navigator is *not* this: it is a fact about the document
+    /// on screen (`DocumentEditor::nav_open`), raised inside a modal.
+    MdNavigator,
 }
 
 /// The file a chip on a sent turn was clicked to look at, and what has arrived of it.
@@ -498,17 +511,28 @@ pub enum FileDialog {
         ext: Option<String>,
     },
     /// Renaming `path`, seeded with its leaf name.
-    Rename { path: String },
+    ///
+    /// `related` is what [`ubiq_proto::messages::Message::ProjectFileRelated`] answered for
+    /// `path` — empty until that answer lands (a folder's own rename never asks; see
+    /// `crate::app::AppState::ask_rename`). It only describes the checkbox; `WorkbenchState`'s own
+    /// `carry_related` is what the checkbox itself holds, because it has to be toggled without
+    /// waiting on a second round trip.
+    Rename {
+        path: String,
+        related: Vec<RelatedFile>,
+    },
     /// A tab's own name, typed over whatever it is currently showing — a terminal's pane title or
     /// a chat's agent name. `current` is what the field is seeded with, since neither is a fact
     /// `kind` alone can answer without a window in hand.
     RenameTab { kind: PanelKind, current: String },
     /// Removing `path`. `trash` is false when Shift was held, and the wording and the button say
-    /// which one it is rather than leaving the user to know.
+    /// which one it is rather than leaving the user to know. `related` is [`FileDialog::Rename`]'s
+    /// own field, on the same reasoning — empty for a folder, which never asks.
     Remove {
         path: String,
         dir: bool,
         trash: bool,
+        related: Vec<RelatedFile>,
     },
     /// A drag that would move `path` into the folder `into`. Only ever raised for a folder.
     Move { path: String, into: String },
@@ -693,6 +717,21 @@ pub struct WorkbenchState {
     /// One entry per conversation, taken on first use and never re-added: it is a preamble, not a
     /// standing prefix.
     pub agent_preambles: std::collections::HashMap<AgentId, String>,
+    /// The profile a conversation was started from, by the agent it produced — until the harness
+    /// (or the user) names the conversation for itself.
+    ///
+    /// `ProfileInfo::id` **is** the profile's display name (`"what the user named this setup, e.g.
+    /// review"`), so the id `Message::StartConversation` already carries is the whole of what a
+    /// title needs — no second lookup. Nothing on `WorkAgent` remembers which profile started it
+    /// (there is no such field, and none is added for this alone), so the record kept here is
+    /// session-only: a reload of the window loses it exactly as it loses every other in-flight
+    /// pick, and the title falls back to the harness-label default `refresh_agent_record` always
+    /// gave, which is no regression.
+    ///
+    /// Read wherever a title is drawn, and only while `WorkAgent::summary` is still `None` — the
+    /// same signal `refresh_agent_record` sets the moment the harness (or a user rename) actually
+    /// names the conversation, so a profile's name never outlives the real one.
+    pub agent_started_profile: std::collections::HashMap<AgentId, String>,
     /// The "Connect to a remote host" modal, while it is up. Beside `clone_project` for the same
     /// reason: raised from the titlebar rather than from settings, and answering a question that
     /// has nothing to do with any project on screen.
@@ -725,6 +764,12 @@ pub struct WorkbenchState {
     /// Until when a folder move skips its confirmation, from the dialog's checkbox. In memory and
     /// per window: ten minutes is not a preference, and there is nothing to migrate.
     pub move_unasked_until: Option<std::time::Instant>,
+    /// The rename and delete questions' own checkbox — carry `FileDialog::Rename`'s or
+    /// `FileDialog::Remove`'s `related` files along, default checked. Reset to `true` every time
+    /// one of those two dialogs opens, which is what "default checked" means for a value that
+    /// outlives the dialog it belongs to (a second `Rename` must not inherit the first one's
+    /// answer).
+    pub carry_related: bool,
     /// In-place help's targeting mode. `Some` exactly while it is up.
     ///
     /// An `Option` rather than a bool beside a hovered-target field, for the reason every other
@@ -848,6 +893,7 @@ impl Default for WorkbenchState {
             new_mission: None,
             kb_source: None,
             agent_preambles: Default::default(),
+            agent_started_profile: Default::default(),
             remote_connect: None,
             remote_manager: RemoteManagerState::default(),
             settings: SettingsState::default(),
@@ -857,6 +903,7 @@ impl Default for WorkbenchState {
             tab_menu: None,
             file_dialog: None,
             move_unasked_until: None,
+            carry_related: true,
             help_target: None,
             new_pane_menu: None,
             overflow_menu: None,

@@ -28,12 +28,21 @@ use ubiq_proto::bus::{self, FromClient, To};
 use ubiq_proto::ids::{AnnotationId, BlockId, ProjectId, TaskId};
 use ubiq_proto::messages::Message;
 use ubiq_proto::plan::{
-    Annotation, AnnotationState, PlanBlock, PlanChangeStats, PlanChangedRegion, SaveOrigin,
+    Annotation, AnnotationState, DocumentHandle, PlanBlock, PlanChangeStats, PlanChangedRegion,
+    SaveOrigin,
 };
 use ubiq_proto::projects::{ProjectHealth, ProjectRecord, ProjectSnapshot};
 use ubiq_proto::work::{CommentAuthor, Level, Priority, Status, TaskRecord};
 
 const PATIENCE: Duration = Duration::from_millis(500);
+
+/// A task's plan, as the whole family names it: one handle, both directions.
+fn doc_of(project: ProjectId, task: TaskId) -> DocumentHandle {
+    DocumentHandle::Plan {
+        project_id: project,
+        task_id: task,
+    }
+}
 
 struct Fixture {
     state: Entity<AppState>,
@@ -204,13 +213,13 @@ fn open_plan_asks_and_loads(cx: &mut TestAppContext) {
     assert_eq!(said.len(), 2);
     assert!(said.iter().any(|message| matches!(
         message,
-        Message::LoadPlan { project_id, task_id }
-            if *project_id == fixture.project && *task_id == task
+        Message::LoadPlan { doc }
+            if *doc == doc_of(fixture.project, task)
     )));
     assert!(said.iter().any(|message| matches!(
         message,
-        Message::ListPlanAnnotations { project_id, task_id }
-            if *project_id == fixture.project && *task_id == task
+        Message::ListPlanAnnotations { doc }
+            if *doc == doc_of(fixture.project, task)
     )));
     fixture.state.read_with(cx, |state, _| {
         let plan = state.workbench.plan.as_ref().expect("the modal is open");
@@ -221,8 +230,7 @@ fn open_plan_asks_and_loads(cx: &mut TestAppContext) {
 
     fixture.deliver(
         Message::Plan {
-            project_id: fixture.project,
-            task_id: task,
+            doc: doc_of(fixture.project, task),
             body: "# The plan".to_string(),
             revision: 1,
         },
@@ -246,8 +254,7 @@ fn plan_changed_reasks(cx: &mut TestAppContext) {
 
     fixture.deliver(
         Message::PlanChanged {
-            project_id: fixture.project,
-            task_id: task,
+            doc: doc_of(fixture.project, task),
             revision: 2,
             origin: SaveOrigin::Agent,
         },
@@ -258,8 +265,8 @@ fn plan_changed_reasks(cx: &mut TestAppContext) {
     assert_eq!(said.len(), 1);
     assert!(matches!(
         &said[0],
-        Message::LoadPlan { project_id, task_id }
-            if *project_id == fixture.project && *task_id == task
+        Message::LoadPlan { doc }
+            if *doc == doc_of(fixture.project, task)
     ));
 
     // A `PlanChanged` for a task whose plan is not open asks for nothing: nobody is waiting on
@@ -267,8 +274,7 @@ fn plan_changed_reasks(cx: &mut TestAppContext) {
     fixture.with(cx, |state, _, cx| state.close_plan(cx));
     fixture.deliver(
         Message::PlanChanged {
-            project_id: fixture.project,
-            task_id: task,
+            doc: doc_of(fixture.project, task),
             revision: 2,
             origin: SaveOrigin::Agent,
         },
@@ -287,8 +293,7 @@ fn plan_deleted_clears_the_body(cx: &mut TestAppContext) {
     fixture.with(cx, |state, _, cx| state.open_plan(task, cx));
     fixture.deliver(
         Message::Plan {
-            project_id: fixture.project,
-            task_id: task,
+            doc: doc_of(fixture.project, task),
             body: "# The plan".to_string(),
             revision: 1,
         },
@@ -297,8 +302,7 @@ fn plan_deleted_clears_the_body(cx: &mut TestAppContext) {
 
     fixture.deliver(
         Message::PlanDeleted {
-            project_id: fixture.project,
-            task_id: task,
+            doc: doc_of(fixture.project, task),
         },
         cx,
     );
@@ -321,7 +325,7 @@ fn plan_error_lands_on_load_then_on_export(cx: &mut TestAppContext) {
     fixture.deliver(
         Message::PlanError {
             project_id: fixture.project,
-            task_id: Some(task),
+            doc: Some(doc_of(fixture.project, task)),
             error: "no such task".to_string(),
         },
         cx,
@@ -333,8 +337,7 @@ fn plan_error_lands_on_load_then_on_export(cx: &mut TestAppContext) {
 
     fixture.deliver(
         Message::Plan {
-            project_id: fixture.project,
-            task_id: task,
+            doc: doc_of(fixture.project, task),
             body: "# The plan".to_string(),
             revision: 1,
         },
@@ -345,8 +348,7 @@ fn plan_error_lands_on_load_then_on_export(cx: &mut TestAppContext) {
     // claimed by that half first.
     fixture.deliver(
         Message::PlanAnnotations {
-            project_id: fixture.project,
-            task_id: task,
+            doc: doc_of(fixture.project, task),
             blocks: Vec::new(),
             annotations: Vec::new(),
         },
@@ -355,7 +357,7 @@ fn plan_error_lands_on_load_then_on_export(cx: &mut TestAppContext) {
     fixture.deliver(
         Message::PlanError {
             project_id: fixture.project,
-            task_id: Some(task),
+            doc: Some(doc_of(fixture.project, task)),
             error: "the path is outside the project".to_string(),
         },
         cx,
@@ -409,8 +411,7 @@ fn plan_annotations_land_on_the_open_viewer(cx: &mut TestAppContext) {
 
     fixture.deliver(
         Message::PlanAnnotations {
-            project_id: fixture.project,
-            task_id: task,
+            doc: doc_of(fixture.project, task),
             blocks: vec![block.clone()],
             annotations: vec![annotation.clone()],
         },
@@ -445,8 +446,7 @@ fn plan_annotations_changed_reasks(cx: &mut TestAppContext) {
 
     fixture.deliver(
         Message::PlanAnnotationsChanged {
-            project_id: fixture.project,
-            task_id: task,
+            doc: doc_of(fixture.project, task),
         },
         cx,
     );
@@ -454,8 +454,8 @@ fn plan_annotations_changed_reasks(cx: &mut TestAppContext) {
     assert_eq!(said.len(), 1);
     assert!(matches!(
         &said[0],
-        Message::ListPlanAnnotations { project_id, task_id }
-            if *project_id == fixture.project && *task_id == task
+        Message::ListPlanAnnotations { doc }
+            if *doc == doc_of(fixture.project, task)
     ));
     fixture.state.read_with(cx, |state, _| {
         let plan = state.workbench.plan.as_ref().expect("still open");
@@ -465,8 +465,7 @@ fn plan_annotations_changed_reasks(cx: &mut TestAppContext) {
     fixture.with(cx, |state, _, cx| state.close_plan(cx));
     fixture.deliver(
         Message::PlanAnnotationsChanged {
-            project_id: fixture.project,
-            task_id: task,
+            doc: doc_of(fixture.project, task),
         },
         cx,
     );
@@ -506,8 +505,8 @@ fn compose_annotation_sends_and_clears(cx: &mut TestAppContext) {
     assert_eq!(said.len(), 1);
     assert!(matches!(
         &said[0],
-        Message::AnnotatePlan { project_id, task_id: t, block_id: b, quote: None, text }
-            if *project_id == fixture.project && *t == task && *b == block_id && text == "Why here?"
+        Message::AnnotatePlan { doc, block_id: b, quote: None, text }
+            if *doc == doc_of(fixture.project, task) && *b == block_id && text == "Why here?"
     ));
     fixture.state.read_with(cx, |state, _| {
         let plan = state.workbench.plan.as_ref().expect("still open");
@@ -548,8 +547,8 @@ fn compose_reply_sends_and_clears(cx: &mut TestAppContext) {
     assert_eq!(said.len(), 1);
     assert!(matches!(
         &said[0],
-        Message::ReplyToAnnotation { project_id, task_id: t, annotation_id: a, text }
-            if *project_id == fixture.project && *t == task && *a == annotation_id && text == "Agreed."
+        Message::ReplyToAnnotation { doc, annotation_id: a, text }
+            if *doc == doc_of(fixture.project, task) && *a == annotation_id && text == "Agreed."
     ));
     fixture.state.read_with(cx, |state, _| {
         let plan = state.workbench.plan.as_ref().expect("still open");
@@ -586,6 +585,171 @@ fn cancel_annotation_composer_sends_nothing(cx: &mut TestAppContext) {
     });
 }
 
+/// Composing a *new* thread hides every other thread until "Show all threads" is pressed, or the
+/// composer leaves the new-thread shape — a reply never hides anything, and cancelling clears the
+/// override for whatever is composed next.
+#[gpui::test]
+fn composing_a_new_thread_hides_the_others_until_shown(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let task = fixture.seed_task(Some(Level::Mission), cx);
+    fixture.said();
+    fixture.with(cx, |state, _, cx| state.open_plan(task, cx));
+    fixture.said();
+
+    let block_id = BlockId::generate();
+    fixture.with(cx, |state, window, cx| {
+        state.compose_annotation(block_id, window, cx)
+    });
+    fixture.state.read_with(cx, |state, _| {
+        let plan = state.workbench.plan.as_ref().expect("still open");
+        assert!(
+            plan.hides_other_threads(),
+            "a fresh thread starts in focus mode",
+        );
+    });
+
+    fixture.with(cx, |state, _, cx| state.show_all_threads(cx));
+    fixture.state.read_with(cx, |state, _| {
+        let plan = state.workbench.plan.as_ref().expect("still open");
+        assert!(!plan.hides_other_threads(), "the button reveals the rest",);
+    });
+
+    fixture.with(cx, |state, window, cx| {
+        state.cancel_annotation_composer(window, cx)
+    });
+
+    // A reply never hides the rail, and the override from the cancelled thread does not leak into
+    // it either.
+    let annotation_id = AnnotationId::generate();
+    fixture.with(cx, |state, window, cx| {
+        state.compose_reply(annotation_id, window, cx)
+    });
+    fixture.state.read_with(cx, |state, _| {
+        let plan = state.workbench.plan.as_ref().expect("still open");
+        assert!(!plan.hides_other_threads(), "a reply is not a new thread");
+    });
+    fixture.with(cx, |state, window, cx| {
+        state.cancel_annotation_composer(window, cx)
+    });
+
+    // A second fresh thread starts hidden again — the earlier "show all" did not stick.
+    fixture.with(cx, |state, window, cx| {
+        state.compose_annotation(block_id, window, cx)
+    });
+    fixture.state.read_with(cx, |state, _| {
+        let plan = state.workbench.plan.as_ref().expect("still open");
+        assert!(
+            plan.hides_other_threads(),
+            "the override resets between threads",
+        );
+    });
+}
+
+/// Clicking a minimap mark is resolved back to the thread `thread_marks` positioned it from — the
+/// same index discipline `select_plan_nav_heading` uses for the navigator — and shows it exactly
+/// the way the rail's own "Show" button does.
+#[gpui::test]
+fn picking_a_minimap_mark_shows_its_thread(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let task = fixture.seed_task(Some(Level::Mission), cx);
+    fixture.said();
+    fixture.with(cx, |state, _, cx| state.open_plan(task, cx));
+
+    let body = "# The plan\n\nShip the thing by Friday.\n\nThen tell everyone.\n";
+    let heading = PlanBlock {
+        id: BlockId::generate(),
+        kind: "heading:1".to_string(),
+        text: "# The plan".to_string(),
+    };
+    let step = PlanBlock {
+        id: BlockId::generate(),
+        kind: "paragraph".to_string(),
+        text: "Ship the thing by Friday.".to_string(),
+    };
+    let open = Annotation::new(
+        heading.id,
+        None,
+        CommentAuthor::User,
+        "still open".to_string(),
+        Utc::now(),
+    );
+    let mut resolved = Annotation::new(
+        step.id,
+        None,
+        CommentAuthor::User,
+        "settled".to_string(),
+        Utc::now(),
+    );
+    resolved.state = AnnotationState::Resolved;
+
+    fixture.deliver(
+        Message::Plan {
+            doc: doc_of(fixture.project, task),
+            body: body.to_string(),
+            revision: 1,
+        },
+        cx,
+    );
+    fixture.deliver(
+        Message::PlanAnnotations {
+            doc: doc_of(fixture.project, task),
+            blocks: vec![heading.clone(), step.clone()],
+            annotations: vec![open.clone(), resolved.clone()],
+        },
+        cx,
+    );
+    fixture.with(cx, |state, window, cx| state.settle_plan_editor(window, cx));
+
+    // `thread_marks` walks the annotations in order, so index 1 is the resolved thread.
+    fixture.with(cx, |state, _, cx| state.select_plan_minimap_mark(1, cx));
+    fixture.state.read_with(cx, |state, _| {
+        let plan = state.workbench.plan.as_ref().expect("still open");
+        assert_eq!(plan.thread, Some(resolved.id));
+    });
+
+    // An index past the end of the list is ignored rather than panicking.
+    fixture.with(cx, |state, _, cx| state.select_plan_minimap_mark(9, cx));
+    fixture.state.read_with(cx, |state, _| {
+        let plan = state.workbench.plan.as_ref().expect("still open");
+        assert_eq!(
+            plan.thread,
+            Some(resolved.id),
+            "an out-of-range pick is a no-op"
+        );
+    });
+}
+
+/// The minimap's show/hide toggle is the one bit of persistent state the card calls for — it
+/// writes the Ui settings layer the same way every other reading habit on this layer does.
+#[gpui::test]
+fn toggling_the_minimap_writes_ui_settings(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    fixture.state.read_with(cx, |state, _| {
+        assert!(
+            state.workbench.settings.ui.md_minimap,
+            "shown is the default"
+        );
+    });
+    fixture.said();
+
+    fixture.with(cx, |state, _, cx| state.toggle_md_minimap(cx));
+    fixture.state.read_with(cx, |state, _| {
+        assert!(!state.workbench.settings.ui.md_minimap);
+    });
+    assert!(
+        fixture
+            .said()
+            .iter()
+            .any(|message| matches!(message, Message::SetSettings { layer, .. } if *layer == ubiq_proto::settings::SettingsLayer::Ui)),
+        "the toggle is remembered",
+    );
+
+    fixture.with(cx, |state, _, cx| state.toggle_md_minimap(cx));
+    fixture.state.read_with(cx, |state, _| {
+        assert!(state.workbench.settings.ui.md_minimap);
+    });
+}
+
 /// Resolving and reopening are the same verb both ways — no author check on this side either:
 /// "who may resolve" is settled at "anyone", so there is nothing here to gate.
 #[gpui::test]
@@ -604,8 +768,8 @@ fn resolve_and_reopen_send_resolve_annotation(cx: &mut TestAppContext) {
     assert_eq!(said.len(), 1);
     assert!(matches!(
         &said[0],
-        Message::ResolveAnnotation { project_id, task_id: t, annotation_id: a, resolved: true }
-            if *project_id == fixture.project && *t == task && *a == annotation_id
+        Message::ResolveAnnotation { doc, annotation_id: a, resolved: true }
+            if *doc == doc_of(fixture.project, task) && *a == annotation_id
     ));
 
     fixture.with(cx, |state, _, cx| {
@@ -646,8 +810,7 @@ fn orphaned_and_resolved_are_independent_facts(cx: &mut TestAppContext) {
 
     fixture.deliver(
         Message::PlanAnnotations {
-            project_id: fixture.project,
-            task_id: task,
+            doc: doc_of(fixture.project, task),
             // The block itself is gone from the index — that absence is what "orphaned" means —
             // but the flag on the annotation is what says so, not a lookup miss the interface
             // would have to reconstruct.
@@ -683,8 +846,7 @@ fn edit_and_save_sends_save_plan(cx: &mut TestAppContext) {
 
     fixture.deliver(
         Message::Plan {
-            project_id: fixture.project,
-            task_id: task,
+            doc: doc_of(fixture.project, task),
             body: "# The plan\n".to_string(),
             revision: 1,
         },
@@ -728,9 +890,8 @@ fn edit_and_save_sends_save_plan(cx: &mut TestAppContext) {
     assert_eq!(said.len(), 1);
     assert!(matches!(
         &said[0],
-        Message::SavePlan { project_id, task_id: t, body, expected }
-            if *project_id == fixture.project
-                && *t == task
+        Message::SavePlan { doc, body, expected }
+            if *doc == doc_of(fixture.project, task)
                 && body == "# The plan\n\nFirst step.\n"
                 // An ordinary save names the revision the buffer was seeded from, which is what
                 // the host checks the plan still stands at.
@@ -739,8 +900,7 @@ fn edit_and_save_sends_save_plan(cx: &mut TestAppContext) {
 
     fixture.deliver(
         Message::Plan {
-            project_id: fixture.project,
-            task_id: task,
+            doc: doc_of(fixture.project, task),
             body: "# The plan\n\nFirst step.\n".to_string(),
             revision: 2,
         },
@@ -765,8 +925,7 @@ fn a_remote_change_never_eats_an_unsaved_edit(cx: &mut TestAppContext) {
     fixture.with(cx, |state, _, cx| state.open_plan(task, cx));
     fixture.deliver(
         Message::Plan {
-            project_id: fixture.project,
-            task_id: task,
+            doc: doc_of(fixture.project, task),
             body: "original\n".to_string(),
             revision: 1,
         },
@@ -783,8 +942,7 @@ fn a_remote_change_never_eats_an_unsaved_edit(cx: &mut TestAppContext) {
     // An agent's `write_plan`, echoed back as the reload the window asks for itself.
     fixture.deliver(
         Message::Plan {
-            project_id: fixture.project,
-            task_id: task,
+            doc: doc_of(fixture.project, task),
             body: "theirs\n".to_string(),
             revision: 2,
         },
@@ -837,8 +995,7 @@ fn annotations_decorate_their_passages(cx: &mut TestAppContext) {
 
     fixture.deliver(
         Message::Plan {
-            project_id: fixture.project,
-            task_id: task,
+            doc: doc_of(fixture.project, task),
             body: body.to_string(),
             revision: 1,
         },
@@ -846,8 +1003,7 @@ fn annotations_decorate_their_passages(cx: &mut TestAppContext) {
     );
     fixture.deliver(
         Message::PlanAnnotations {
-            project_id: fixture.project,
-            task_id: task,
+            doc: doc_of(fixture.project, task),
             blocks: vec![heading.clone(), step.clone()],
             annotations: vec![quoted.clone(), whole.clone()],
         },
@@ -916,8 +1072,7 @@ fn annotating_a_selection_quotes_the_passage(cx: &mut TestAppContext) {
     };
     fixture.deliver(
         Message::Plan {
-            project_id: fixture.project,
-            task_id: task,
+            doc: doc_of(fixture.project, task),
             body: body.to_string(),
             revision: 1,
         },
@@ -925,8 +1080,7 @@ fn annotating_a_selection_quotes_the_passage(cx: &mut TestAppContext) {
     );
     fixture.deliver(
         Message::PlanAnnotations {
-            project_id: fixture.project,
-            task_id: task,
+            doc: doc_of(fixture.project, task),
             blocks: vec![block.clone()],
             annotations: Vec::new(),
         },
@@ -1003,8 +1157,7 @@ fn changed_lines_are_decorated_by_who_wrote_them(cx: &mut TestAppContext) {
     let body = "# The plan\n\nShip the thing.\nThen tell everyone.\n\nA human tightened this.\n";
     fixture.deliver(
         Message::Plan {
-            project_id: fixture.project,
-            task_id: task,
+            doc: doc_of(fixture.project, task),
             body: body.to_string(),
             revision: 4,
         },
@@ -1017,16 +1170,13 @@ fn changed_lines_are_decorated_by_who_wrote_them(cx: &mut TestAppContext) {
     assert_eq!(said.len(), 1);
     assert!(matches!(
         &said[0],
-        Message::ListPlanChanges { project_id, task_id, since_revision }
-            if *project_id == fixture.project
-                && *task_id == task
-                && since_revision.is_none()
+        Message::ListPlanChanges { doc, since_revision }
+            if *doc == doc_of(fixture.project, task) && since_revision.is_none()
     ));
 
     fixture.deliver(
         Message::PlanChanges {
-            project_id: fixture.project,
-            task_id: task,
+            doc: doc_of(fixture.project, task),
             regions: vec![
                 a_region(3, 4, SaveOrigin::Agent),
                 a_region(6, 6, SaveOrigin::Human),
@@ -1068,8 +1218,7 @@ fn changed_lines_are_decorated_by_who_wrote_them(cx: &mut TestAppContext) {
     // that is no longer there.
     fixture.deliver(
         Message::PlanDeleted {
-            project_id: fixture.project,
-            task_id: task,
+            doc: doc_of(fixture.project, task),
         },
         cx,
     );
@@ -1090,8 +1239,7 @@ fn a_stale_buffer_asks_before_it_overwrites(cx: &mut TestAppContext) {
     fixture.with(cx, |state, _, cx| state.open_plan(task, cx));
     fixture.deliver(
         Message::Plan {
-            project_id: fixture.project,
-            task_id: task,
+            doc: doc_of(fixture.project, task),
             body: "original\n".to_string(),
             revision: 1,
         },
@@ -1112,8 +1260,7 @@ fn a_stale_buffer_asks_before_it_overwrites(cx: &mut TestAppContext) {
     // An agent's `write_plan`, announced and then reloaded.
     fixture.deliver(
         Message::PlanChanged {
-            project_id: fixture.project,
-            task_id: task,
+            doc: doc_of(fixture.project, task),
             revision: 2,
             origin: SaveOrigin::Agent,
         },
@@ -1121,8 +1268,7 @@ fn a_stale_buffer_asks_before_it_overwrites(cx: &mut TestAppContext) {
     );
     fixture.deliver(
         Message::Plan {
-            project_id: fixture.project,
-            task_id: task,
+            doc: doc_of(fixture.project, task),
             body: "theirs\n".to_string(),
             revision: 2,
         },
@@ -1157,8 +1303,7 @@ fn a_stale_buffer_asks_before_it_overwrites(cx: &mut TestAppContext) {
     // A second agent save under the question makes it a new question.
     fixture.deliver(
         Message::Plan {
-            project_id: fixture.project,
-            task_id: task,
+            doc: doc_of(fixture.project, task),
             body: "theirs again\n".to_string(),
             revision: 3,
         },
@@ -1182,8 +1327,8 @@ fn a_stale_buffer_asks_before_it_overwrites(cx: &mut TestAppContext) {
     assert_eq!(said.len(), 1);
     assert!(matches!(
         &said[0],
-        Message::SavePlan { project_id, task_id: t, body, expected }
-            if *project_id == fixture.project && *t == task && body == "mine\n"
+        Message::SavePlan { doc, body, expected }
+            if *doc == doc_of(fixture.project, task) && body == "mine\n"
                 // A confirmed overwrite names the newest revision the host has stated — the copy
                 // the user was actually shown — and never the one the buffer was seeded from,
                 // which nothing would accept any more. There is no force flag on the wire.
@@ -1193,8 +1338,7 @@ fn a_stale_buffer_asks_before_it_overwrites(cx: &mut TestAppContext) {
     // And the host's answer to that save settles the surface at the new watermark.
     fixture.deliver(
         Message::Plan {
-            project_id: fixture.project,
-            task_id: task,
+            doc: doc_of(fixture.project, task),
             body: "mine\n".to_string(),
             revision: 4,
         },
@@ -1221,8 +1365,7 @@ fn a_refused_save_keeps_the_edit_and_asks_again(cx: &mut TestAppContext) {
     fixture.with(cx, |state, _, cx| state.open_plan(task, cx));
     fixture.deliver(
         Message::Plan {
-            project_id: fixture.project,
-            task_id: task,
+            doc: doc_of(fixture.project, task),
             body: "original\n".to_string(),
             revision: 1,
         },
@@ -1248,8 +1391,7 @@ fn a_refused_save_keeps_the_edit_and_asks_again(cx: &mut TestAppContext) {
     // Somebody else's save landed first. Nothing of this window's was written.
     fixture.deliver(
         Message::PlanConflict {
-            project_id: fixture.project,
-            task_id: task,
+            doc: doc_of(fixture.project, task),
             revision: 2,
             origin: SaveOrigin::Human,
         },
@@ -1289,4 +1431,346 @@ fn a_refused_save_keeps_the_edit_and_asks_again(cx: &mut TestAppContext) {
         &said[0],
         Message::SavePlan { body, expected, .. } if body == "mine\n" && *expected == 2
     ));
+}
+
+/// The card's own bug: "when updating a text block I don't see the changes, I need to close and
+/// reopen the plan to see the difference". The host only restates the block index —
+/// `Message::PlanAnnotationsChanged` — when a save orphans a thread, so an edit that keeps every
+/// anchor never earns one; the preview draws from the cached index rather than the live buffer, so
+/// it kept showing the section's old text until the surface was closed and reopened. Confirming a
+/// section edit now patches the cache itself, before the host answers at all.
+#[gpui::test]
+fn confirming_a_section_edit_patches_the_preview_before_the_host_answers(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let task = fixture.seed_task(Some(Level::Mission), cx);
+    fixture.said();
+    fixture.with(cx, |state, _, cx| state.open_plan(task, cx));
+    fixture.said();
+
+    fixture.deliver(
+        Message::Plan {
+            doc: doc_of(fixture.project, task),
+            body: "# Title\n\nFirst.\n\nSecond.\n".to_string(),
+            revision: 1,
+        },
+        cx,
+    );
+    fixture.with(cx, |state, window, cx| state.settle_plan_editor(window, cx));
+    fixture.said();
+
+    let second = PlanBlock {
+        id: BlockId::generate(),
+        kind: "paragraph".to_string(),
+        text: "Second.".to_string(),
+    };
+    fixture.deliver(
+        Message::PlanAnnotations {
+            doc: doc_of(fixture.project, task),
+            blocks: vec![
+                PlanBlock {
+                    id: BlockId::generate(),
+                    kind: "heading:1".to_string(),
+                    text: "# Title".to_string(),
+                },
+                PlanBlock {
+                    id: BlockId::generate(),
+                    kind: "paragraph".to_string(),
+                    text: "First.".to_string(),
+                },
+                second.clone(),
+            ],
+            annotations: Vec::new(),
+        },
+        cx,
+    );
+
+    fixture.with(cx, |state, window, cx| {
+        state.begin_section_edit(second.id, window, cx)
+    });
+    fixture.with(cx, |state, window, cx| {
+        let input = state
+            .workbench
+            .plan
+            .as_ref()
+            .expect("still open")
+            .section_edit
+            .as_ref()
+            .expect("editing the section")
+            .input
+            .clone();
+        input.update(cx, |field, cx| {
+            field.set_value("Second, revised.", window, cx)
+        });
+        state.confirm_section_edit(window, cx);
+    });
+
+    // No `Message::Plan` and no `Message::PlanAnnotationsChanged` has come back — the point is
+    // that the preview does not need either of them to show what was just written.
+    fixture.state.read_with(cx, |state, _| {
+        let plan = state.workbench.plan.as_ref().expect("still open");
+        let patched = plan
+            .annotations
+            .blocks()
+            .iter()
+            .find(|block| block.id == second.id)
+            .expect("the block is still indexed");
+        assert_eq!(patched.text, "Second, revised.");
+        assert!(plan.section_edit.is_none(), "the field closed on confirm");
+    });
+
+    let said = fixture.said();
+    assert!(
+        said.iter()
+            .any(|message| matches!(message, Message::SavePlan { .. })),
+        "the edit still went out as an ordinary whole-document save",
+    );
+}
+
+/// A section edited into more than one paragraph becomes more than one cached block — never one
+/// block holding an embedded blank line — and the id it carried in stays on the first of them, so
+/// a thread anchored there is still anchored to something.
+#[gpui::test]
+fn a_section_edited_into_several_paragraphs_becomes_several_blocks(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let task = fixture.seed_task(Some(Level::Mission), cx);
+    fixture.said();
+    fixture.with(cx, |state, _, cx| state.open_plan(task, cx));
+    fixture.said();
+
+    fixture.deliver(
+        Message::Plan {
+            doc: doc_of(fixture.project, task),
+            body: "# Title\n\nFirst.\n\nSecond.\n".to_string(),
+            revision: 1,
+        },
+        cx,
+    );
+    fixture.with(cx, |state, window, cx| state.settle_plan_editor(window, cx));
+    fixture.said();
+
+    let second = PlanBlock {
+        id: BlockId::generate(),
+        kind: "paragraph".to_string(),
+        text: "Second.".to_string(),
+    };
+    fixture.deliver(
+        Message::PlanAnnotations {
+            doc: doc_of(fixture.project, task),
+            blocks: vec![
+                PlanBlock {
+                    id: BlockId::generate(),
+                    kind: "heading:1".to_string(),
+                    text: "# Title".to_string(),
+                },
+                PlanBlock {
+                    id: BlockId::generate(),
+                    kind: "paragraph".to_string(),
+                    text: "First.".to_string(),
+                },
+                second.clone(),
+            ],
+            annotations: Vec::new(),
+        },
+        cx,
+    );
+
+    fixture.with(cx, |state, window, cx| {
+        state.begin_section_edit(second.id, window, cx)
+    });
+    fixture.with(cx, |state, window, cx| {
+        let input = state
+            .workbench
+            .plan
+            .as_ref()
+            .expect("still open")
+            .section_edit
+            .as_ref()
+            .expect("editing the section")
+            .input
+            .clone();
+        input.update(cx, |field, cx| {
+            field.set_value("Second, part one.\n\nSecond, part two.", window, cx)
+        });
+        state.confirm_section_edit(window, cx);
+    });
+
+    fixture.state.read_with(cx, |state, _| {
+        let plan = state.workbench.plan.as_ref().expect("still open");
+        let blocks = plan.annotations.blocks();
+        assert_eq!(blocks.len(), 4, "the split section added one block");
+        let first_half = blocks
+            .iter()
+            .find(|block| block.id == second.id)
+            .expect("the anchor stayed on the first half");
+        assert_eq!(first_half.text, "Second, part one.");
+        let position = blocks
+            .iter()
+            .position(|block| block.id == second.id)
+            .expect("still indexed");
+        let second_half = &blocks[position + 1];
+        assert_eq!(second_half.text, "Second, part two.");
+        assert_ne!(
+            second_half.id, second.id,
+            "the second half is a block of its own",
+        );
+    });
+}
+
+/// "if a block became empty (nothing / only spaces and newlines) remove it" — confirming a
+/// section edited down to nothing removes it from the buffer and from the cached index, rather
+/// than saving an empty paragraph where it stood.
+#[gpui::test]
+fn confirming_an_emptied_section_removes_it(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let task = fixture.seed_task(Some(Level::Mission), cx);
+    fixture.said();
+    fixture.with(cx, |state, _, cx| state.open_plan(task, cx));
+    fixture.said();
+
+    fixture.deliver(
+        Message::Plan {
+            doc: doc_of(fixture.project, task),
+            body: "# Title\n\nFirst.\n\nSecond.\n".to_string(),
+            revision: 1,
+        },
+        cx,
+    );
+    fixture.with(cx, |state, window, cx| state.settle_plan_editor(window, cx));
+    fixture.said();
+
+    let second = PlanBlock {
+        id: BlockId::generate(),
+        kind: "paragraph".to_string(),
+        text: "Second.".to_string(),
+    };
+    fixture.deliver(
+        Message::PlanAnnotations {
+            doc: doc_of(fixture.project, task),
+            blocks: vec![
+                PlanBlock {
+                    id: BlockId::generate(),
+                    kind: "heading:1".to_string(),
+                    text: "# Title".to_string(),
+                },
+                PlanBlock {
+                    id: BlockId::generate(),
+                    kind: "paragraph".to_string(),
+                    text: "First.".to_string(),
+                },
+                second.clone(),
+            ],
+            annotations: Vec::new(),
+        },
+        cx,
+    );
+
+    fixture.with(cx, |state, window, cx| {
+        state.begin_section_edit(second.id, window, cx)
+    });
+    fixture.with(cx, |state, window, cx| {
+        let input = state
+            .workbench
+            .plan
+            .as_ref()
+            .expect("still open")
+            .section_edit
+            .as_ref()
+            .expect("editing the section")
+            .input
+            .clone();
+        input.update(cx, |field, cx| field.set_value("   \n  ", window, cx));
+        state.confirm_section_edit(window, cx);
+    });
+
+    fixture.state.read_with(cx, |state, cx| {
+        let body = state.plan_editor.read(cx).value().to_string();
+        assert!(!body.contains("Second."), "the section is gone: {body:?}");
+        let plan = state.workbench.plan.as_ref().expect("still open");
+        assert!(
+            plan.annotations
+                .blocks()
+                .iter()
+                .all(|block| block.id != second.id),
+            "the cache dropped it too, rather than showing an empty row",
+        );
+    });
+}
+
+// ── T-124: markdown's fourth mode ────────────────────────────────────────────
+
+/// The four positions a markdown tab offers, in the order its header draws them — Annotation last,
+/// and offered by no other viewer, because no other viewer has a document handle to point the
+/// surface at.
+#[test]
+fn markdown_offers_annotation_last_and_alone() {
+    use ubiq::state::editor::{ViewLayout, ViewerKind};
+    assert_eq!(
+        ViewerKind::Markdown.layouts(),
+        &[
+            ViewLayout::Source,
+            ViewLayout::Split,
+            ViewLayout::Preview,
+            ViewLayout::Annotation,
+        ]
+    );
+    for kind in ViewerKind::all() {
+        assert_eq!(
+            kind.offers(ViewLayout::Annotation),
+            kind == ViewerKind::Markdown,
+            "{kind:?}",
+        );
+    }
+    // The surface draws the document, never the buffer — the mode a thread is written in is not a
+    // mode the source is edited in.
+    assert!(!ViewerKind::Markdown.shows_buffer(ViewLayout::Annotation));
+}
+
+/// A markdown tab put into annotation mode opens *that file* as an annotated document — the same
+/// family on the wire the plan uses, against `DocumentHandle::File` — and it is not the dialog:
+/// nothing is raised over the window, and Escape has no plan to close.
+#[gpui::test]
+fn annotation_mode_opens_the_files_document(cx: &mut TestAppContext) {
+    use ubiq::state::editor::{Subject, ViewLayout, tab_key};
+
+    let fixture = Fixture::open(cx);
+    let key = tab_key("notes.md", Subject::File);
+    fixture.with(cx, |state, _, cx| {
+        state.select_file("notes.md".to_string(), cx)
+    });
+    fixture.said(); // drain the read the tab asked for
+
+    fixture.with(cx, |state, _, cx| {
+        state.set_view_layout(&key, ViewLayout::Annotation, cx)
+    });
+
+    let handle = DocumentHandle::File {
+        project_id: fixture.project,
+        rel_path: "notes.md".to_string(),
+    };
+    let said = fixture.said();
+    assert!(
+        said.iter()
+            .any(|message| matches!(message, Message::LoadPlan { doc } if *doc == handle)),
+        "the body was asked for: {said:?}",
+    );
+    assert!(
+        said.iter().any(
+            |message| matches!(message, Message::ListPlanAnnotations { doc } if *doc == handle)
+        ),
+        "the threads were asked for: {said:?}",
+    );
+    fixture.state.read_with(cx, |state, _| {
+        let doc = state.workbench.plan.as_ref().expect("a document is open");
+        assert_eq!(doc.doc, handle);
+        assert!(!doc.is_modal(), "a tab's document is not the dialog");
+    });
+
+    // Leaving the mode puts the document away: the tab is reading again, and nothing is holding a
+    // surface nobody is looking at.
+    fixture.with(cx, |state, _, cx| {
+        state.set_view_layout(&key, ViewLayout::Preview, cx)
+    });
+    fixture.state.read_with(cx, |state, _| {
+        assert!(state.workbench.plan.is_none(), "the document was put away");
+    });
 }

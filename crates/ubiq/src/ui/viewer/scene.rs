@@ -67,7 +67,7 @@ const ELLIPSE_STEPS: usize = 64;
 
 pub fn render(source: &str) -> AnyElement {
     match parsed(source) {
-        Ok(scene) => draw_static(scene),
+        Ok(scene) => draw_static(scene, source),
         Err(note) => note,
     }
 }
@@ -108,8 +108,9 @@ fn ground_of(scene: &Scene) -> Rgba {
 }
 
 /// A scene in a Markdown fence: drawn at its own size, no camera of its own, because a fence is a
-/// block in a document and the document is what scrolls.
-fn draw_static(scene: Scene) -> AnyElement {
+/// block in a document and the document is what scrolls. A scene wider than the reading column
+/// scrolls inside `super::diagram_frame` (T-126) rather than spilling past the viewport.
+fn draw_static(scene: Scene, key: &str) -> AnyElement {
     let content = content_of(&scene);
     let panel_w = content.width.max(1.0) + viewport::MARGIN * 2.0;
     let panel_h = content.height.max(1.0) + viewport::MARGIN * 2.0;
@@ -117,7 +118,7 @@ fn draw_static(scene: Scene) -> AnyElement {
     let ground = ground_of(&scene);
     let pictures = images_static(&scene, camera);
 
-    div()
+    let picture = div()
         .flex_none()
         .relative()
         .w(px(panel_w))
@@ -140,8 +141,8 @@ fn draw_static(scene: Scene) -> AnyElement {
             .inset_0()
             .w(px(panel_w))
             .h(px(panel_h)),
-        )
-        .into_any_element()
+        );
+    super::diagram_frame(key, picture)
 }
 
 fn draw_live(app: &AppState, key: &str, scene: Scene, cx: &mut Context<AppState>) -> AnyElement {

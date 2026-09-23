@@ -5,9 +5,9 @@ kind: tech
 status: current
 summary: The reusable components Ubiq builds out of its own primitives — the floating popover, the multi-select dropdown a filter or a form narrows with, the activity bar a conversation heads with, the file picker any screen raises to choose a path, the viewer that draws one open file whole, the diff renderer two screens reach a change through, and the capabilities and tools panels each asked for by two surfaces — the state that drives them, and the discipline that keeps a compound a component rather than a one-off screen's decoration.
 read_when: you are building a control that floats above another, letting a screen choose several values at once, adding a second activity reading to a conversation's bar, wiring a screen to choose a path on the interface's or a host's filesystem, adding a file kind the viewer draws, reaching a diff or a harness's capabilities from a second screen, or reshaping something the kit's primitives are insufficient for and a one-off would have duplicated
-updated: 2026-09-22
-verified: 2026-09-22
-code_anchors: [crates/ubiq/src/ui/kit/popover.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/ui/teams/graph.rs, crates/ubiq/src/app/teams.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/kb/mod.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/ui/tools.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/state/editor.rs]
+updated: 2026-09-23
+verified: 2026-09-23
+code_anchors: [crates/ubiq/src/ui/kit/popover.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/ui/teams/graph.rs, crates/ubiq/src/app/teams.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/md_options.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/kb/mod.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/ui/tools.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/state/editor.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
 ---
@@ -167,7 +167,11 @@ editor buffer, a Markdown render, a diagram, a scene, a picture, a diff. A calle
 
 `render` in `crates/ubiq/src/ui/viewer/mod.rs` is the entry, `header` and `body` are its two halves,
 and `ViewerKind` on `crates/ubiq/src/state/editor.rs` is what `body` matches on — with the status
-bar's file-kind chip able to override it for the life of the tab. **Two hosts ask for it**: the IDE's
+bar's file-kind chip able to override it for the life of the tab. A Markdown file's header carries
+one more control on top of the layout toggle — `ui/viewer/md_options.rs`'s reading-options popover
+(T-118) — and its full-pane preview draws a heading minimap beside the text when the popover's
+`md_minimap` flag is on, both documented in `_docs/features/workbench.md`. **Two hosts ask for it**:
+the IDE's
 file tabs (`crates/ubiq/src/ui/editor.rs`) and a knowledge-base document tab
 (`crates/ubiq/src/ui/kb/mod.rs`, `render_doc`). The second is what makes it a component rather than
 the editor's own body — a KB document is reached through a different tree, loaded through a

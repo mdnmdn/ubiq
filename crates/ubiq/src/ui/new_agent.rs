@@ -592,6 +592,59 @@ pub fn body(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> 
         |this, max, window, cx| this.pick_new_agent_subagents(max, window, cx),
     ));
 
+    // 6b ─ the two checkboxes the board's "Assign to an agent" button asks — drawn only there
+    // ([`NewAgentForm::for_task`]): an ordinary start has no task to be assigned to, so nothing
+    // here answers for it. Both recompose the opening prompt below on every flip — see
+    // `AppState::toggle_new_agent_ask_feedback` / `toggle_new_agent_plan_mode`.
+    if form.for_task.is_some() {
+        rows = rows.child(
+            div().when(!live, |this| this.opacity(0.5)).child(hint_row(
+                "new-agent-ask-feedback-hint",
+                "Ask for feedback",
+                "Ticked, the opening prompt tells the agent to ask when it needs to. Unticked, it \
+                 is told to assume as much as it reasonably can instead.",
+                div()
+                    .flex()
+                    .flex_none()
+                    .justify_end()
+                    .w(px(CONTROL_WIDTH))
+                    .child(check_box(
+                        "new-agent-ask-feedback",
+                        form.ask_for_feedback,
+                        cx.listener(move |this, _, window, cx| {
+                            if live {
+                                this.toggle_new_agent_ask_feedback(window, cx);
+                            }
+                        }),
+                    ))
+                    .into_any_element(),
+            )),
+        );
+        rows = rows.child(
+            div().when(!live, |this| this.opacity(0.5)).child(hint_row(
+                "new-agent-plan-mode-hint",
+                "Plan mode",
+                "Tells the agent to plan before it acts. A prompt instruction only, for now — no \
+                 plan tool is attached here yet.",
+                div()
+                    .flex()
+                    .flex_none()
+                    .justify_end()
+                    .w(px(CONTROL_WIDTH))
+                    .child(check_box(
+                        "new-agent-plan-mode",
+                        form.plan_mode,
+                        cx.listener(move |this, _, window, cx| {
+                            if live {
+                                this.toggle_new_agent_plan_mode(window, cx);
+                            }
+                        }),
+                    ))
+                    .into_any_element(),
+            )),
+        );
+    }
+
     // 7 ─ the opening words. The one control too tall to sit beside its label, so its label sits
     // above it.
     let prompt_focused = app

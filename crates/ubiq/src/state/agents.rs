@@ -54,20 +54,12 @@ pub const CHATS_MAX: usize = 8;
 /// this page's conversation the moment both were open.
 pub const SINK_SLOT: usize = COLUMNS_MAX + CHATS_MAX;
 
-/// The Teams canvas's inspector types into a composer of its own, above the sink's.
-///
-/// One rather than a borrowed column's, for the reason the sink has one: a slot is what addresses
-/// a turn — see `AppState::agent_for_slot` — so the inspector sharing a column's slot would send
-/// that column's draft to the card the canvas has selected. There is one inspector on screen at a
-/// time, so one slot is the whole need.
-pub const TEAMS_SLOT: usize = COLUMNS_MAX + CHATS_MAX + 1;
-
 /// How many composer fields the window builds before its first frame: one per column, one per chat
-/// tab, the sink bench's and the Teams inspector's. Every pool indexed by a slot is this long.
-/// Columns allocate from the low range, `0..COLUMNS_MAX` — see [`AgentsView::free_slot`] — chat
-/// tabs from the range above it, see `state::chat::free_chat_slot`, and [`SINK_SLOT`] and
-/// [`TEAMS_SLOT`] are the two above those. None of them ever crosses into another's range.
-pub const COMPOSER_SLOTS: usize = COLUMNS_MAX + CHATS_MAX + 2;
+/// tab, and the sink bench's. Every pool indexed by a slot is this long. Columns allocate from the
+/// low range, `0..COLUMNS_MAX` — see [`AgentsView::free_slot`] — chat tabs from the range above it,
+/// see `state::chat::free_chat_slot`, and [`SINK_SLOT`] is the one above those. None of them ever
+/// crosses into another's range.
+pub const COMPOSER_SLOTS: usize = COLUMNS_MAX + CHATS_MAX + 1;
 
 /// How many rows a composer nobody has resized grows to before it scrolls. What the pool is built
 /// with, and what a resized one is reset to.

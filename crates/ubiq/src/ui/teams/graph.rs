@@ -38,8 +38,8 @@ use crate::app::AppState;
 use crate::state::conversation::{Conversation, SubagentTab, short_model_label};
 use crate::state::status::Status;
 use crate::state::teams::{
-    CARD_HEIGHT, CARD_WIDTH, GROUP_LABEL, GROUP_PAD, TeamsSpan, agent_status, delegate_status,
-    fence,
+    CARD_WIDTH, GROUP_LABEL, GROUP_PAD, TEAMS_CARD_HEIGHT, TeamsSpan, agent_status,
+    delegate_status, fence,
 };
 use crate::state::work;
 use crate::state::{TeamsHeld, TeamsSelection};
@@ -50,8 +50,8 @@ use crate::ui::kit::canvas::{self, Link};
 use crate::ui::kit::{elided_with, ghost_button, harness_icon, mono, progress_ring_in};
 use crate::ui::mark;
 use crate::ui::project_face::{ProjectFace, project_face};
-use crate::ui::teams::status::{project_chip, status_chip, status_mark};
-use crate::ui::work::{activity_colour, lifecycle_colour, status_colour};
+use crate::ui::teams::status::{card_colour, project_chip, status_chip, status_mark};
+use crate::ui::work::{activity_colour, lifecycle_colour};
 use crate::ui::{eid, eid2};
 
 /// What the pointer is carrying. It holds only what was picked up: where the thing is belongs to
@@ -186,6 +186,11 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         .map(|(task, owner)| (task, card_tint(app, owner, cx)))
         .collect();
     let loose = graph.fenced_alone(&work, span);
+    // Which task ids actually get a container fence, read once so the ring loop below can tell
+    // whether a card's delegates are already inside one — a card no container or loose fence
+    // reaches is the only case left needing an outline of its own (`T-105`).
+    let boxed_tasks: std::collections::HashSet<TaskId> =
+        boxes.iter().map(|(task, _)| task.id).collect();
 
     // The task containers, under everything: a dashed box round the cards serving one task, with
     // its shape and its title on the top edge. The box is computed from where its cards are, so a
@@ -289,7 +294,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
             Some(Link {
                 from: point(
                     (from.0 + CARD_WIDTH / 2.0) * zoom,
-                    (from.1 + CARD_HEIGHT) * zoom,
+                    (from.1 + TEAMS_CARD_HEIGHT) * zoom,
                 ),
                 to: point((to.0 + CARD_WIDTH / 2.0) * zoom, to.1 * zoom),
                 colour: theme::fade(activity_colour(agent.activity), 0.5),
@@ -301,7 +306,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
             links.push(Link {
                 from: point(
                     (at.0 + CARD_WIDTH / 2.0) * zoom,
-                    (at.1 + CARD_HEIGHT) * zoom,
+                    (at.1 + TEAMS_CARD_HEIGHT) * zoom,
                 ),
                 to: point((spot.0 + sub.0 / 2.0) * zoom, spot.1 * zoom),
                 // The link is about whether the delegate is still going, which is the lifecycle
@@ -315,16 +320,26 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         board.link(link);
     }
 
-    // The delegate fences, under the cards and over the containers — the inner of the two dashed
-    // levels. It is the box round a card and wherever its delegates have been put, so dragging one
-    // out to the side resizes the fence rather than leaving it behind.
+    // The delegate fences, under the cards and over the containers. **One fence, not two**: a
+    // ringed card already sits inside its task's container or its own loose fence — both are
+    // measured off `card_bounds`, which already wraps the ring — so drawing a second outline here
+    // would be the same box again, a shade lighter (`T-105`). This one is only for a ringed card
+    // neither reaches: no task on the canvas, and not spanning the window.
+    let enclosed = |id: AgentId| {
+        work.agent(id)
+            .and_then(|agent| agent.task)
+            .is_some_and(|task| boxed_tasks.contains(&task))
+            || (spanning && loose.contains(&id))
+    };
     for (id, at, delegates, spots) in &rings {
-        if let Some(rect) = fence(*at, spots) {
-            board.inner_fence(Fence::new(
-                rect,
-                theme::fade(theme::accent_muted(), 0.8),
-                false,
-            ));
+        if !enclosed(*id) {
+            if let Some(rect) = fence(*at, spots) {
+                board.inner_fence(Fence::new(
+                    rect,
+                    theme::fade(theme::accent_muted(), 0.8),
+                    false,
+                ));
+            }
         }
         // The parent's transcript, read again at the grain a delegate's own spend is banked at —
         // `Conversation::subagent_tokens` keyed by type, the only grain the wire carries. The
@@ -386,7 +401,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
             });
         let at = graph.at(agent);
         board.block(
-            (at.0, at.1, CARD_WIDTH, CARD_HEIGHT),
+            (at.0, at.1, CARD_WIDTH, TEAMS_CARD_HEIGHT),
             agent_card(
                 agent,
                 // The live conversation is the better witness of what a card is doing than the
@@ -506,7 +521,7 @@ fn subagent_card(
     cx: &mut Context<AppState>,
 ) -> gpui::AnyElement {
     let status = delegate_status(tab);
-    let colour = status_colour(status);
+    let colour = card_colour(status);
     // One line, `\u{b7}`-separated, the way every other tooltip in the interface reads — and each part
     // is drawn only where the harness said it. The state leads it: what the delegate is doing is
     // what the reader came for, and the rest is detail.
@@ -539,22 +554,26 @@ fn subagent_card(
             .opaque(true),
         zoom,
     )
-    // Row 1: the mark, then the delegate's own name.
+    // Row 1: the mark, then the delegate's own name. The state's chip is the footer's, flush in
+    // the card's bottom-right corner — this row says whose card it is, not what it is doing.
     .child(
         div()
             .flex()
             .flex_none()
             .items_center()
             .gap(px(7.0 * zoom))
-            .child(status_mark(status, 18.0 * zoom))
+            .child(status_mark(
+                status,
+                18.0 * zoom,
+                eid2("teams-subagent-mark", agent, ix),
+            ))
             .child(elided_with(
                 eid2("teams-subagent-name", agent, ix),
                 tab.name.clone(),
                 tip.clone(),
                 theme::text(),
                 theme::font(Family::Chrome, Role::Body) * zoom,
-            ))
-            .child(status_chip(status, zoom)),
+            )),
     )
     // Row 2: the harness it runs under, and the model — the alias, not the catalogue id, the same
     // cut the composer's chip makes, so one project never spells a model two ways. The tooltip
@@ -594,9 +613,8 @@ fn subagent_card(
         );
     }
 
-    // The footer: what this delegate's type has spent, on the left, and nothing on the right — the
-    // state's chip already moved up beside its name, and a delegate's box has no second thing to
-    // report there.
+    // The footer: what this delegate's type has spent, on the left — the state's chip is not here,
+    // it is pinned to the card's own corner below, past this row's flow and its padding.
     let spend = tab
         .kind
         .as_deref()
@@ -609,6 +627,16 @@ fn subagent_card(
             .gap(px(6.0 * zoom))
             .flex_wrap()
             .children(spend.and_then(|(total, cached)| token_ring(total, cached, zoom))),
+    );
+
+    // The activity indicator: the card's own bottom-right corner, flush with the block's edge —
+    // past the padding every other row sits inside, because chrome does not pad (`ubiq-ui`).
+    body = body.child(
+        div()
+            .absolute()
+            .bottom_0()
+            .right_0()
+            .child(status_chip(status, zoom)),
     );
 
     body.on_click(
@@ -678,12 +706,12 @@ fn agent_card(
     let id = agent.id;
     // The card's edge, its mark and its chip all read the same state, so a card cannot say one
     // thing in colour and another in words.
-    let colour = status_colour(status);
+    let colour = card_colour(status);
     let view = view.clone();
 
     let body = blocks::block(
         eid("teams-card", id),
-        (at.0, at.1, CARD_WIDTH, CARD_HEIGHT),
+        (at.0, at.1, CARD_WIDTH, TEAMS_CARD_HEIGHT),
         Look::new(colour).selected(selected).carried(carried),
         zoom,
     )
@@ -696,7 +724,7 @@ fn agent_card(
             .flex_none()
             .items_center()
             .gap(px(7.0 * zoom))
-            .child(status_mark(status, 22.0 * zoom))
+            .child(status_mark(status, 22.0 * zoom, eid("teams-card-mark", id)))
             .child(
                 div()
                     .flex_1()
@@ -744,54 +772,61 @@ fn agent_card(
                 .truncate(),
             ),
     )
-    // Row 3: the title or the activity it is on — one line, clipped by the block rather than
-    // spilling into the footer under it.
-    .child(
+    // Row 3: the title or the activity it is on — drawn only where there is one, on the same rule
+    // the delegate card's own third row follows, so a card between commands does not carry a blank
+    // line the footer would otherwise be stretched to clear.
+    .children((!agent.note.is_empty()).then(|| {
         div()
             .flex_none()
             .text_size(theme::font(Family::Chrome, Role::Label) * zoom)
             .text_color(theme::text_muted())
             .truncate()
-            .child(SharedString::from(agent.note.clone())),
-    )
-    // The footer: how full the harness's window is and what it has spent, on the left — wrapping
-    // onto a second row where the card is too narrow for both — and the current activity chip on
-    // the right, flush with no margin past the block's own padding.
+            .child(SharedString::from(agent.note.clone()))
+    }))
+    // The footer: how full the harness's window is and what it has spent — wrapping onto a second
+    // row where the card is too narrow for it. The current activity chip is not in this flow; it
+    // is pinned to the card's own corner below, so it never has to fight this row for space.
+    //
+    // **Flush under its own content, not stretched to the card's fixed height.** A card whose row 3
+    // is empty used to leave this row's flex fill the rest of the box, so the ring drew flush with
+    // the card's own bottom-right corner instead of under row 2 — the wasted middle the card's
+    // geometry (`TEAMS_CARD_HEIGHT`) alone cannot answer for, since the box a packer reserves is
+    // still one fixed size for every card.
     .child(
         div()
             .flex()
             .flex_none()
-            .items_start()
-            .justify_between()
-            .gap(px(6.0 * zoom))
-            .child(
+            .min_w(px(0.))
+            .flex_wrap()
+            .items_center()
+            .gap(px(8.0 * zoom))
+            // No ring where no harness stated a window: a ratio with an invented denominator is
+            // worse than none.
+            .children(context.map(|pct| {
                 div()
                     .flex()
-                    .flex_1()
-                    .min_w(px(0.))
-                    .flex_wrap()
+                    .flex_none()
                     .items_center()
-                    .gap(px(8.0 * zoom))
-                    // No ring where no harness stated a window: a ratio with an invented
-                    // denominator is worse than none.
-                    .children(context.map(|pct| {
-                        div()
-                            .flex()
-                            .flex_none()
-                            .items_center()
-                            .gap(px(4.0 * zoom))
-                            .child(progress_ring_in(
-                                pct.min(100),
-                                12.0 * zoom,
-                                theme::usage_tone(pct),
-                            ))
-                            .child(
-                                mono(format!("{pct}% ctx"), theme::text_faint())
-                                    .text_size(theme::font(Family::Chrome, Role::Micro) * zoom),
-                            )
-                    }))
-                    .children(spend.and_then(|(total, cached)| token_ring(total, cached, zoom))),
-            )
+                    .gap(px(4.0 * zoom))
+                    .child(progress_ring_in(
+                        pct.min(100),
+                        12.0 * zoom,
+                        theme::usage_tone(pct),
+                    ))
+                    .child(
+                        mono(format!("{pct}% ctx"), theme::text_faint())
+                            .text_size(theme::font(Family::Chrome, Role::Micro) * zoom),
+                    )
+            }))
+            .children(spend.and_then(|(total, cached)| token_ring(total, cached, zoom))),
+    )
+    // The activity indicator: the card's own bottom-right corner, flush with the block's edge —
+    // past the padding every other row sits inside, because chrome does not pad (`ubiq-ui`).
+    .child(
+        div()
+            .absolute()
+            .bottom_0()
+            .right_0()
             .child(status_chip(status, zoom)),
     )
     .on_click(

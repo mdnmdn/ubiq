@@ -271,12 +271,7 @@ impl AppState {
             // keyboard is another way to ask, not a second set of rules.
             ExplorerPressed::Remove { path, is_dir } => {
                 let trash = !window.modifiers().shift;
-                self.workbench.file_dialog = Some(FileDialog::Remove {
-                    path,
-                    dir: is_dir,
-                    trash,
-                });
-                cx.notify();
+                self.ask_remove(path, is_dir, trash, cx);
                 true
             }
         }
@@ -613,8 +608,7 @@ impl AppState {
             }
             ExplorerAction::Rename => {
                 if let Some(path) = path {
-                    let leaf = leaf_of(&path).to_string();
-                    self.open_file_dialog(FileDialog::Rename { path }, &leaf, window, cx);
+                    self.ask_rename(path, window, cx);
                 }
             }
             ExplorerAction::Delete => {
@@ -625,8 +619,7 @@ impl AppState {
                     // Shift is read off the window rather than off the click, because the menu
                     // row is picked long after the right-click that opened it.
                     let trash = !window.modifiers().shift;
-                    self.workbench.file_dialog = Some(FileDialog::Remove { path, dir, trash });
-                    cx.notify();
+                    self.ask_remove(path, dir, trash, cx);
                 }
             }
             ExplorerAction::Copy => {
@@ -691,6 +684,7 @@ impl AppState {
             rel_path: source,
             to: Some(child_path(&target, &name)),
             op: PathOp::Copy,
+            carry_related: false,
         });
         cx.notify();
     }
@@ -708,6 +702,71 @@ impl AppState {
         field.update(cx, |state, cx| state.set_value(seed, window, cx));
         let handle = self.file_name.read(cx).focus_handle(cx);
         window.focus(&handle, cx);
+        cx.notify();
+    }
+
+    /// Raise the rename question straight away — the field wants the keyboard the moment the
+    /// gesture fires — and separately ask the host what else `path` carries, so the question's
+    /// checkbox fills in once [`Message::ProjectFileRelated`] answers (`receive_file`, in
+    /// `app/wire.rs`). A folder's own rename already takes everything under it (`fs::rename`
+    /// moves the whole subtree, sidecar included), so a folder never asks.
+    pub(super) fn ask_rename(&mut self, path: String, window: &mut Window, cx: &mut Context<Self>) {
+        let dir = self
+            .explorer(cx)
+            .is_some_and(|explorer| explorer.target_dir(&path) == path);
+        self.workbench.carry_related = true;
+        let leaf = leaf_of(&path).to_string();
+        self.open_file_dialog(
+            FileDialog::Rename {
+                path: path.clone(),
+                related: Vec::new(),
+            },
+            &leaf,
+            window,
+            cx,
+        );
+        if dir {
+            return;
+        }
+        if let Some(project) = self.project(cx) {
+            self.bus.send(Message::RelatedProjectFiles {
+                project_id: project,
+                rel_path: path,
+            });
+        }
+    }
+
+    /// The delete question's own version of [`Self::ask_rename`] — see its doc for the round trip
+    /// and why a folder skips it.
+    pub(super) fn ask_remove(
+        &mut self,
+        path: String,
+        dir: bool,
+        trash: bool,
+        cx: &mut Context<Self>,
+    ) {
+        self.workbench.carry_related = true;
+        self.workbench.file_dialog = Some(FileDialog::Remove {
+            path: path.clone(),
+            dir,
+            trash,
+            related: Vec::new(),
+        });
+        cx.notify();
+        if dir {
+            return;
+        }
+        if let Some(project) = self.project(cx) {
+            self.bus.send(Message::RelatedProjectFiles {
+                project_id: project,
+                rel_path: path,
+            });
+        }
+    }
+
+    /// The rename and delete questions' own checkbox.
+    pub fn toggle_carry_related(&mut self, cx: &mut Context<Self>) {
+        self.workbench.carry_related = !self.workbench.carry_related;
         cx.notify();
     }
 
@@ -782,6 +841,11 @@ impl AppState {
             rel_path: path,
             to: Some(to),
             op: PathOp::Move,
+            // A drag raises no question at all today — the drop itself is the confirmation, or
+            // (for a folder) the `FileDialog::Move` above it — so there is no checkbox to read.
+            // Carrying is the quieter failure of the two: it keeps a file's sidecar with it
+            // exactly as the drag itself silently keeps its contents with it.
+            carry_related: true,
         });
         cx.notify();
     }
@@ -895,9 +959,10 @@ impl AppState {
                     rel_path: child_path(&parent, &typed),
                     to: None,
                     op: PathOp::Create { dir },
+                    carry_related: false,
                 });
             }
-            FileDialog::Rename { path } => {
+            FileDialog::Rename { path, related } => {
                 if typed.is_empty() || typed == leaf_of(&path) {
                     return;
                 }
@@ -906,14 +971,21 @@ impl AppState {
                     rel_path: path.clone(),
                     to: Some(child_path(&parent_dir(&path), &typed)),
                     op: PathOp::Move,
+                    carry_related: self.workbench.carry_related && !related.is_empty(),
                 });
             }
-            FileDialog::Remove { path, trash, .. } => {
+            FileDialog::Remove {
+                path,
+                trash,
+                related,
+                ..
+            } => {
                 self.bus.send(Message::EditProjectPath {
                     project_id: project,
                     rel_path: path,
                     to: None,
                     op: if trash { PathOp::Trash } else { PathOp::Delete },
+                    carry_related: self.workbench.carry_related && !related.is_empty(),
                 });
             }
             FileDialog::Move { path, into } => {
@@ -936,8 +1008,7 @@ impl AppState {
                     return;
                 }
                 self.bus.send(Message::ExportPlan {
-                    project_id: project,
-                    task_id,
+                    doc: crate::state::plan::plan_document(project, task_id),
                     rel_path: typed,
                 });
             }
@@ -988,7 +1059,7 @@ impl AppState {
         let Some(project) = self.project(cx) else {
             return;
         };
-        let markdown_open = self.workbench.settings.ui.markdown_open.layout();
+        let markdown_open = self.markdown_open(&path, cx);
         let Some(open) = self.projects.get_mut(&project) else {
             return;
         };
@@ -1043,7 +1114,7 @@ impl AppState {
         let Some(project) = self.project(cx) else {
             return;
         };
-        let markdown_open = self.workbench.settings.ui.markdown_open.layout();
+        let markdown_open = self.markdown_open(&path, cx);
         let Some(open) = self.projects.get_mut(&project) else {
             return;
         };

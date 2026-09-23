@@ -3,11 +3,14 @@
 //! Everything here is view-agnostic: interactive helpers take a plain click handler, so a call site
 //! passes `cx.listener(...)` and the kit never learns which view it is drawing for.
 
+use std::time::Duration;
+
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    App, ClickEvent, Div, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement,
-    PathBuilder, Pixels, Rgba, SharedString, Stateful, StatefulInteractiveElement, Styled, Window,
-    canvas, div, point, px, relative,
+    Animation, AnimationExt as _, AnyElement, App, ClickEvent, Div, ElementId, FontWeight,
+    InteractiveElement, IntoElement, ParentElement, PathBuilder, Pixels, Rgba, SharedString,
+    Stateful, StatefulInteractiveElement, Styled, Window, canvas, div, point, pulsating_between,
+    px, relative,
 };
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
@@ -335,31 +338,43 @@ fn progress_rings(bands: Vec<(u8, Rgba)>, diameter: f32) -> impl IntoElement {
 /// `fill` is `None` where the inner half has nothing to say — an activity nothing reports draws as
 /// an empty outline, not as a guessed colour.
 ///
+/// `pulse` asks the core — the fill alone, never the outline — for the same slow, shallow fade
+/// [`crate::ui::conversation::lifecycle_dot`] gives a tab's dot: a hint that this one is still
+/// going, at the edge of vision rather than an alarm. It is drawn as a second layered element for
+/// exactly that reason — animating the whole mark would fade the outline's lifecycle reading along
+/// with it, and that one never moves. `id` is the animation's own identity, so two marks on the
+/// same screen never share a clock.
+///
 /// A hexagon rather than a circle or the window's own square: a status is the one mark on a card
 /// that is *not* a surface, and giving it the only non-rectilinear silhouette in the window is
 /// what makes it findable at a glance without a radius (this window draws no radii,
 /// `crates/ubiq/src/theme.rs`).
-pub fn hex_mark(border: Rgba, fill: Option<Rgba>, side: f32) -> impl IntoElement {
+pub fn hex_mark(
+    id: impl Into<ElementId>,
+    border: Rgba,
+    fill: Option<Rgba>,
+    side: f32,
+    pulse: bool,
+) -> AnyElement {
     // A flat-top hexagon: it sits better beside a line of text than a pointy-top one, whose spare
     // height would push the row it is in taller than the text beside it.
     let stroke = (side * 0.1).max(1.0);
-    div().size(px(side)).flex_none().child(canvas(
+    let corners_of = move |bounds: gpui::Bounds<Pixels>, radius: f32| {
+        let centre = bounds.origin + point(px(side / 2.0), px(side / 2.0));
+        (0..6)
+            .map(|i| {
+                let angle = i as f32 * std::f32::consts::TAU / 6.0;
+                centre + point(px(angle.cos() * radius), px(angle.sin() * radius))
+            })
+            .collect::<Vec<_>>()
+    };
+
+    // The outline never animates — the lifecycle it carries is a static outer ring.
+    let outline = div().size(px(side)).flex_none().child(canvas(
         |_, _, _| {},
         move |bounds, _, window, _| {
-            let centre = bounds.origin + point(px(side / 2.0), px(side / 2.0));
-            let corners = |radius: f32| {
-                (0..6)
-                    .map(|i| {
-                        let angle = i as f32 * std::f32::consts::TAU / 6.0;
-                        centre + point(px(angle.cos() * radius), px(angle.sin() * radius))
-                    })
-                    .collect::<Vec<_>>()
-            };
-
-            // The outline, inset by half its own weight so the stroke lands inside the mark's box
-            // rather than straddling its edge.
+            let outer = corners_of(bounds, side / 2.0 - stroke / 2.0);
             let mut path = PathBuilder::stroke(px(stroke));
-            let outer = corners(side / 2.0 - stroke / 2.0);
             path.move_to(outer[0]);
             for p in outer.iter().skip(1) {
                 path.line_to(*p);
@@ -368,12 +383,21 @@ pub fn hex_mark(border: Rgba, fill: Option<Rgba>, side: f32) -> impl IntoElement
             if let Ok(path) = path.build() {
                 window.paint_path(path, border);
             }
+        },
+    ));
 
-            // The fill: the same hexagon at just over half the size, so the ring of ground between
-            // the two is wide enough to read as a gap at eighteen pixels.
-            let Some(fill) = fill else { return };
+    let Some(fill) = fill else {
+        return outline.into_any_element();
+    };
+
+    // The core: the same hexagon at just over half the size, so the ring of ground between the two
+    // is wide enough to read as a gap at eighteen pixels — layered over the outline rather than
+    // painted in the same pass, so it can carry its own opacity animation.
+    let core = div().absolute().inset_0().child(canvas(
+        |_, _, _| {},
+        move |bounds, _, window, _| {
+            let points = corners_of(bounds, side * 0.28);
             let mut inner = PathBuilder::fill();
-            let points = corners(side * 0.28);
             inner.move_to(points[0]);
             for p in points.iter().skip(1) {
                 inner.line_to(*p);
@@ -383,7 +407,27 @@ pub fn hex_mark(border: Rgba, fill: Option<Rgba>, side: f32) -> impl IntoElement
                 window.paint_path(inner, fill);
             }
         },
-    ))
+    ));
+
+    let core = if pulse {
+        core.with_animation(
+            id,
+            Animation::new(Duration::from_millis(2_400))
+                .repeat()
+                .with_easing(pulsating_between(0.35, 1.0)),
+            |this, delta| this.opacity(delta),
+        )
+        .into_any_element()
+    } else {
+        core.into_any_element()
+    };
+
+    div()
+        .size(px(side))
+        .flex_none()
+        .child(outline)
+        .child(core)
+        .into_any_element()
 }
 
 /// A slab that can be picked: it takes clicks, lights on hover, and says when it is the selected

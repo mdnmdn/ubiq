@@ -5,9 +5,9 @@ kind: wip
 status: current
 summary: Why the teams graph grows into a tower nobody can read in a rectangular viewport, what the two halves of the spike measured — a Python tool that renders an arrangement and scores it, and a teamsim section of the kitchen sink that drives the production arrangements from the same scenario file — what the measurements say to change, and what five further shapes (organic, multiradial, spider, hex, islands) came out at.
 read_when: you are changing how the teams graph arranges its blocks, adding an arrangement, or picking up what this spike left open
-updated: 2026-09-22
-verified: 2026-09-22
-code_anchors: [crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/teamsim.rs, crates/ubiq/src/ui/sink/teamsim.rs, crates/ubiq/src/ui/kit/blocks.rs, crates/ubiq/src/ui/teams/graph.rs, _tools/teamsim/algos.py, _tools/teamsim/shapes.py, _tools/teamsim/FORMAT.md]
+updated: 2026-09-23
+verified: 2026-09-23
+code_anchors: [crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/shapes.rs, crates/ubiq/src/state/teamsim.rs, crates/ubiq/src/ui/sink/teamsim.rs, crates/ubiq/src/ui/kit/blocks.rs, crates/ubiq/src/ui/teams/graph.rs, _tools/teamsim/algos.py, _tools/teamsim/shapes.py, _tools/teamsim/FORMAT.md]
 depends_on: [feat-workbench, tech-ui]
 ---
 
@@ -107,7 +107,7 @@ the cards on a honeycomb, a row per hand-off depth, every other row half a cell 
 assumes no root at all: it groups cards, and containers, by what they are *connected to*, and packs
 each group as its own island.
 
-Every block in these numbers is drawn at `SUB_BOX` — 264 × 96, the size the app draws a delegate.
+Every block in these numbers is drawn at `SUB_BOX` — 264 × 112, the size the app draws a delegate.
 Summed over the seven scenarios:
 
 | | `multiline` | `islands` | `radial` | `hex` | `adaptive` | `organic` | `multiradial` | `spider` |
@@ -144,11 +144,19 @@ in the PNG and invisible in every number the tool collects. That is the argument
 ## One block, one size
 
 **A block is drawn at the size the interface draws it, under every arrangement.** There is one
-delegate box, `SUB_BOX` — 264 × 96 — and `SUB_NARROW` is gone from both halves along with the
+delegate box, `SUB_BOX` — 264 × 112 — and `SUB_NARROW` is gone from both halves along with the
 per-`Algo` `sub` size that chose between them: `fence`, `ring_box`, `card_box`, `card_lead`, the
-`stack` family and every `inside_*` take a ring and no size. A ring earns its height by *where* it
-puts a delegate, never by shrinking one, which is what makes the picture the tool renders the
-picture the canvas draws, box for box.
+`stack` family and every `inside_*` take a ring and no delegate size. A ring earns its height by
+*where* it puts a delegate, never by shrinking one, which is what makes the picture the tool renders
+the picture the canvas draws, box for box.
+
+**The plain card's own size has since become a second parameter, and the Rust and the port disagree
+about it.** `state::layout::ring_box`/`card_box`/`card_lead`, the `stack` family and every
+`inside_*` in the Rust now take an explicit `card: (f32, f32)` alongside the ring, because `Teams`
+draws its own card shorter than `[Teams]`'s (`TEAMS_CARD_HEIGHT`, `CARD_HEIGHT - 16.0`) and one
+packer now lays both out. `_tools/teamsim/algos.py` still reads a bare module-level `CARD_HEIGHT =
+140.0` and `SUB_HEIGHT = 96.0` — this spike's own numbers, before either constant moved — so **the
+port is no longer constant for constant** on this one point; see `G335` in the backlog.
 
 `ring_grid` is what pays for that: `grid_cols` is `ceil(count / GRID_ROWS)`, so the ring is one
 card-wide column while it is at most `GRID_ROWS` deep and opens a second column beside it rather

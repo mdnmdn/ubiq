@@ -601,11 +601,13 @@ impl Relay {
                 rel_path,
                 to,
                 op,
+                carry_related,
             } => {
                 let request = files::Request::Edit {
                     rel_path: rel_path.clone(),
                     to,
                     op,
+                    carry_related,
                 };
                 self.file_job(host, client, project_id, &rel_path, request);
             }

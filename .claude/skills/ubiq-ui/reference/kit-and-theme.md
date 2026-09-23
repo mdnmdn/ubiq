@@ -119,6 +119,13 @@ reads the accessor** — `theme::titlebar_height()`, `theme::explorer_width()`,
 | `LOGIN_MODAL_WIDTH` / `LOGIN_MODAL_HEIGHT` | 960 / 720 | The one modal that is not one question — a full-screen harness login TUI |
 | `SETTINGS_WIDTH` / `SETTINGS_HEIGHT` | 820 / 560 | The settings page overlay |
 
+`MdWidth` (`Readable`/`Wide`/`Full`), `MdDensity` (`Comfortable`/`Compact`) and `MdMinimapSide`
+(`Left`/`Right`) are the Markdown preview's own axes (T-116, T-118) — ratios over the body font
+size, not `ui_scale`-scaled pixels, so they take no `scaled()` accessor. `MD_AVG_CHAR_WIDTH_EM`,
+`MD_CODE_LINE_HEIGHT`, `MD_INLINE_CODE_SIZE_EM` and `md_measure_width`, `md_body_line_height`,
+`md_paragraph_gap`, `md_heading_ratio`, `md_min_margin`, `md_top_inset`, `md_bottom_inset` are read
+by `ui/viewer/markdown.rs`; see `_docs/inbox/markdown-improvement-proposal.md` §3–§7.
+
 **Not here**: a *screen's* own furniture lives with its state — `state::git`'s `SIDEBAR_WIDTH`,
 `CHANGES_WIDTH`, `DIFF_HEIGHT`, `LANE_PITCH`; `state::agents`' `COLUMN_MIN_WIDTH`. Only the
 window's own areas belong in `theme.rs`.
@@ -226,6 +233,26 @@ disabled style).
   each row, and `multi_order(len, selected, query)` draws the ticked rows first under an empty
   query, nothing pinned under a typed one, and never reorders a list with no search field. First
   caller: the Teams toolbar's states filter.
+
+### `md_navigator.rs` — a markdown document's headings, hierarchically, with thread counts
+
+`md_navigator(id, trigger, open, entries: &[MdNavEntry], on_toggle, on_select, on_dismiss)`,
+`MdNavEntry { level, label, open, resolved }`. The same anchored-list device as `menu.rs`'s
+dropdown, built directly rather than through `Picker`: a row needs an indent by heading depth and
+two independent counts a plain-label row has no place for. `on_select` is handed the row's own
+index into `entries`. First caller: `crate::ui::plan`'s chrome, over
+`state::document::heading_sections`.
+
+### `minimap.rs` — a strip of positioned marks, generic over what they mean
+
+`minimap(id, width, marks: &[MinimapMark], on_select)`, `MinimapMark { fraction, colour }` —
+`fraction` is `0.0`–`1.0` down the strip, `colour` is an `Rgba` the caller already resolved from a
+token. Fills whatever height its parent gives it; a mark is a short absolutely-positioned tick at
+`top(relative(fraction))`, clicked to hand `on_select` its own index into `marks`. Nothing plan- or
+document-shaped lives here — the caller positions and colours every mark. First caller: `crate::ui::
+plan`'s thread minimap, over `state::document::thread_marks`'s pure data, with `ScrollHandle::
+bounds_for_item` turning a block index into a real pixel offset once the preview has painted a
+frame (a proportional spread across the blocks otherwise).
 
 ### `popover.rs` — the anchored panel that is not a list
 

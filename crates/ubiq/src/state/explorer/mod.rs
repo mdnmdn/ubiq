@@ -511,14 +511,20 @@ pub fn locate(nodes: &[FileNode], root_listed: bool, path: &str) -> Presence {
     while let Some(name) = parts.next() {
         let last = parts.peek().is_none();
         let Some(node) = nodes.iter().find(|node| node.name == name) else {
-            return if listed { Presence::Dead } else { Presence::Unknown };
+            return if listed {
+                Presence::Dead
+            } else {
+                Presence::Unknown
+            };
         };
         if last {
             return Presence::Live;
         }
         match &node.kind {
             NodeKind::Dir {
-                children, listed: child_listed, ..
+                children,
+                listed: child_listed,
+                ..
             } => {
                 listed = *child_listed;
                 nodes = children.as_slice();

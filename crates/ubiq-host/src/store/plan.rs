@@ -1,4 +1,12 @@
-//! A task's plan, as one markdown file.
+//! An annotated document on disk: its markdown body, and the sidecar beside it.
+//!
+//! **Two placements, one shape.** A *plan* lives under the config root, at the path
+//! [`FilePlanStore`] computes. A *file document* is the project's own markdown, annotated in place,
+//! with its sidecar at `<file>.md.annotation.json` beside it ([`sidecar_beside`]) — inside the
+//! user's repository, which is [`Placement`]'s reason for existing: a write there creates no
+//! directory and carries the file's mode over. Everything below the placement — the sidecar's
+//! shape, the version probe, the preserve-aside rule — is the same for both, which is the point:
+//! the block matcher, the orphaning and the provenance have one format to read.
 //!
 //! `<config root>/projects/<ProjectId>/plans/<TaskId>.md`, beside `tasks.toml` and `kb.toml` in a
 //! directory that already exists — `store/file.rs`'s own reasoning for keeping tasks out of the
@@ -47,7 +55,7 @@ use ubiq_proto::ids::{ProjectId, TaskId};
 use ubiq_proto::plan::{Annotation, PlanRevision, SaveOrigin};
 
 use super::StoreError;
-use crate::atomic::{preserve_aside, write_atomic};
+use crate::atomic::{preserve_aside, write_atomic, write_atomic_with};
 use crate::plan::blocks::IndexedBlock;
 use crate::plan::provenance::{ProvenanceRun, RevisionEntry};
 
@@ -121,6 +129,129 @@ fn version_of(raw: &str) -> Option<u32> {
     serde_json::from_str::<Probe>(raw).ok().map(|p| p.version)
 }
 
+/// Where a document's two files live, and therefore how they are written.
+///
+/// **The distinction is the write rule, not the folder.** Under the config root a write may create
+/// the directories above it, because Ubiq owns them. Inside a *user's* project it may not create
+/// anything and must carry the mode over — `crate::atomic::write_atomic_with`'s own reasoning, and
+/// the reason a file document's sidecar cannot simply reuse the plan path.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Placement {
+    /// Under `<config root>/projects/…` — a plan and its sidecar.
+    ConfigRoot,
+    /// Inside the project's own working tree — a file document and its sidecar.
+    InsideProject,
+}
+
+/// A document's body, from a path. `None` for one nobody has written yet.
+///
+/// Invalid UTF-8 is the one way a plain-text body fails to read, and it is preserved aside rather
+/// than clobbered — [`super::file::FileTaskStore`]'s own rule.
+pub fn load_body(path: &Path) -> Result<Option<String>, StoreError> {
+    match std::fs::read_to_string(path) {
+        Ok(body) => Ok(Some(body)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) if error.kind() == std::io::ErrorKind::InvalidData => {
+            let preserved_as = preserve_aside(path, Utc::now()).ok();
+            Err(StoreError::Parse {
+                path: path.to_path_buf(),
+                preserved_as,
+                message: error.to_string(),
+            })
+        }
+        Err(source) => Err(StoreError::Io {
+            path: path.to_path_buf(),
+            source,
+        }),
+    }
+}
+
+/// Replace a document's body, whole and atomically.
+pub fn save_body(path: &Path, body: &str, placement: Placement) -> Result<(), StoreError> {
+    write_placed(path, body.as_bytes(), placement)
+}
+
+/// A document's sidecar, from the sidecar's own path. `None` for a document nobody has annotated
+/// or saved yet, which is not an error.
+pub fn load_sidecar(path: &Path) -> Result<Option<PlanSidecar>, StoreError> {
+    let raw = match std::fs::read_to_string(path) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(source) => {
+            return Err(StoreError::Io {
+                path: path.to_path_buf(),
+                source,
+            });
+        }
+    };
+
+    if let Some(version) = version_of(&raw)
+        && version > ANNOTATIONS_VERSION
+    {
+        return Err(StoreError::UnknownVersion {
+            path: path.to_path_buf(),
+            found: version,
+            supported: ANNOTATIONS_VERSION,
+        });
+    }
+
+    match serde_json::from_str::<PlanSidecar>(&raw) {
+        Ok(sidecar) => Ok(Some(sidecar)),
+        Err(error) => {
+            // Preserved, never truncated: a thread the user wrote is worth as much as a task, and
+            // an annotation lost to a bad parse cannot be reconstructed from the markdown.
+            let preserved_as = preserve_aside(path, Utc::now()).ok();
+            Err(StoreError::Parse {
+                path: path.to_path_buf(),
+                preserved_as,
+                message: error.to_string(),
+            })
+        }
+    }
+}
+
+/// Replace a document's sidecar, whole and atomically.
+pub fn save_sidecar(
+    path: &Path,
+    sidecar: &PlanSidecar,
+    placement: Placement,
+) -> Result<(), StoreError> {
+    let body = serde_json::to_string_pretty(sidecar).map_err(|error| StoreError::Parse {
+        path: path.to_path_buf(),
+        preserved_as: None,
+        message: error.to_string(),
+    })?;
+    write_placed(path, body.as_bytes(), placement)
+}
+
+fn write_placed(path: &Path, bytes: &[u8], placement: Placement) -> Result<(), StoreError> {
+    let written = match placement {
+        Placement::ConfigRoot => write_atomic(path, bytes),
+        // No directory is brought into existence inside a user's project, and the mode the file
+        // already had is carried over the rename that replaces it.
+        Placement::InsideProject => {
+            let mode = std::fs::metadata(path).ok().map(|stat| stat.permissions());
+            write_atomic_with(path, bytes, mode)
+        }
+    };
+    written.map_err(|source| StoreError::Io {
+        path: path.to_path_buf(),
+        source,
+    })
+}
+
+/// The sidecar beside a document's body, in the project's own tree: the body's whole file name
+/// with `.annotation.json` appended, so `notes.md` is annotated by `notes.md.annotation.json`.
+///
+/// **Appended, never substituted** — `Path::with_extension` would turn `notes.md` into
+/// `notes.annotation.json` and collide with whatever `notes.annotation` a repository happens to
+/// hold, and the sidecar has to name the file it belongs to exactly.
+pub fn sidecar_beside(body: &Path) -> PathBuf {
+    let mut name = body.as_os_str().to_os_string();
+    name.push(".annotation.json");
+    PathBuf::from(name)
+}
+
 /// One project's plans, one file per task.
 pub struct FilePlanStore {
     root: PathBuf,
@@ -148,30 +279,13 @@ impl FilePlanStore {
     /// costs nothing to keep, and matters to [`Self::delete`]'s caller, which must not report a
     /// deletion for a file that was never there.
     pub fn load(&self, project: ProjectId, task: TaskId) -> Result<Option<String>, StoreError> {
-        let path = self.path(project, task);
-        match std::fs::read_to_string(&path) {
-            Ok(body) => Ok(Some(body)),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            // Not a format that can fail to parse, but a file that fails to even read as text can
-            // still exist — a truncated write from another process, or bytes that are not a plan
-            // at all. Preserved aside, never clobbered, [`super::file::FileTaskStore`]'s own rule.
-            Err(error) if error.kind() == std::io::ErrorKind::InvalidData => {
-                let preserved_as = preserve_aside(&path, Utc::now()).ok();
-                Err(StoreError::Parse {
-                    path,
-                    preserved_as,
-                    message: error.to_string(),
-                })
-            }
-            Err(source) => Err(StoreError::Io { path, source }),
-        }
+        load_body(&self.path(project, task))
     }
 
     /// Replace a task's plan, whole. Atomic, the way every write under the config root is: a crash
     /// mid-save leaves the previous body or the new one, never a mixture.
     pub fn save(&self, project: ProjectId, task: TaskId, body: &str) -> Result<(), StoreError> {
-        let path = self.path(project, task);
-        write_atomic(&path, body.as_bytes()).map_err(|source| StoreError::Io { path, source })
+        save_body(&self.path(project, task), body, Placement::ConfigRoot)
     }
 
     /// The annotations sidecar, beside the body it annotates.
@@ -186,36 +300,7 @@ impl FilePlanStore {
         project: ProjectId,
         task: TaskId,
     ) -> Result<Option<PlanSidecar>, StoreError> {
-        let path = self.annotations_path(project, task);
-        let raw = match std::fs::read_to_string(&path) {
-            Ok(raw) => raw,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(source) => return Err(StoreError::Io { path, source }),
-        };
-
-        if let Some(version) = version_of(&raw)
-            && version > ANNOTATIONS_VERSION
-        {
-            return Err(StoreError::UnknownVersion {
-                path,
-                found: version,
-                supported: ANNOTATIONS_VERSION,
-            });
-        }
-
-        match serde_json::from_str::<PlanSidecar>(&raw) {
-            Ok(sidecar) => Ok(Some(sidecar)),
-            Err(error) => {
-                // Preserved, never truncated: a thread the user wrote is worth as much as a task,
-                // and an annotation lost to a bad parse cannot be reconstructed from the markdown.
-                let preserved_as = preserve_aside(&path, Utc::now()).ok();
-                Err(StoreError::Parse {
-                    path,
-                    preserved_as,
-                    message: error.to_string(),
-                })
-            }
-        }
+        load_sidecar(&self.annotations_path(project, task))
     }
 
     /// Replace a plan's sidecar, whole and atomically — the body's own discipline, for the same
@@ -226,13 +311,11 @@ impl FilePlanStore {
         task: TaskId,
         sidecar: &PlanSidecar,
     ) -> Result<(), StoreError> {
-        let path = self.annotations_path(project, task);
-        let body = serde_json::to_string_pretty(sidecar).map_err(|error| StoreError::Parse {
-            path: path.clone(),
-            preserved_as: None,
-            message: error.to_string(),
-        })?;
-        write_atomic(&path, body.as_bytes()).map_err(|source| StoreError::Io { path, source })
+        save_sidecar(
+            &self.annotations_path(project, task),
+            sidecar,
+            Placement::ConfigRoot,
+        )
     }
 
     /// Drop a task's plan — the body **and** its sidecar. Not an error when there was none — the

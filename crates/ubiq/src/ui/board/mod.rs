@@ -242,8 +242,8 @@ fn toolbar(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl 
         ))
         // Straight to the form, the way Teams' own `+ Add agent` goes — the `+` menu's second row
         // offers conversations to attach to a surface, and this board draws no agent to attach one
-        // to. The aim is `NewAgentSurface::Agents`, so what it starts is revealed into the agents
-        // columns and nothing about the board changes.
+        // to. The aim is `NewAgentSurface::Chat` (`T-109`): what it starts opens as a chat tab in
+        // the right dock, beside this board, rather than jumping the window to the agents screen.
         .child(ghost_button(
             "board-new-agent",
             Some(IconName::Plus),

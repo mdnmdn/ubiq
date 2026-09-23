@@ -10,6 +10,29 @@ const DUMP_PATH_POLL: std::time::Duration = std::time::Duration::from_millis(100
 const DUMP_PATH_TRIES: usize = 40;
 
 impl AppState {
+    /// What a reader is shown as this agent's name — the dock tab, the column's own header and
+    /// its tab strip, every surface that used to print [`WorkAgent::name`] directly.
+    ///
+    /// **The profile it was started from outranks the harness-label default, until something real
+    /// replaces both.** `WorkAgent::summary` is `None` until the harness (or a user rename) names
+    /// the conversation for itself — `refresh_agent_record`'s own signal — so that is the gate:
+    /// a fresh agent nothing has named yet shows the profile it was picked from rather than the
+    /// bare harness label every unnamed conversation used to wear, and a named one shows what it
+    /// was actually named, same as before. No profile remembered (a bare harness start, or a
+    /// window reloaded since) falls through to `WorkAgent::name` unchanged.
+    pub fn agent_title(&self, agent: &ubiq_proto::work::WorkAgent) -> SharedString {
+        if agent.summary.is_none()
+            && let Some(profile) = self.workbench.agent_started_profile.get(&agent.id)
+        {
+            return SharedString::from(profile.clone());
+        }
+        if agent.name.is_empty() {
+            SharedString::from(agent.harness.clone())
+        } else {
+            SharedString::from(agent.name.clone())
+        }
+    }
+
     /// Bring an agent to the front: the tab of whatever column holds it, or a column of its own.
     /// The one thing a click in the sidebar does.
     pub fn reveal_agent(&mut self, agent: AgentId, cx: &mut Context<Self>) {
@@ -193,13 +216,6 @@ impl AppState {
         if slot == crate::state::agents::SINK_SLOT {
             return self.sink_agent();
         }
-        // The Teams inspector addresses the card the canvas has selected, which is the mode's own
-        // selection rather than anything the arrangement holds.
-        if slot == crate::state::agents::TEAMS_SLOT {
-            // A delegate selected in the ring is still its parent's composer: a subagent takes no
-            // turn of its own, so the prompt goes to the workspace that spawned it.
-            return self.teams(cx)?.agent_in_focus();
-        }
         if slot >= COLUMNS_MAX {
             return self
                 .open_project(cx)?
@@ -279,10 +295,8 @@ impl AppState {
         let Some(agent_id) = self.agent_for_slot(slot, cx) else {
             return;
         };
-        // The turn is filed against the agent's project, not the window's: the Teams composer at
-        // `TEAMS_SLOT` addresses whichever card the canvas has selected, and under the window span
-        // that card may belong to any open project. Every other slot's agent is the project on
-        // screen's, where this is the same answer.
+        // The turn is filed against the agent's project, not the window's — every slot's agent is
+        // the project on screen's.
         let Some(project_id) = self.project_of_agent(agent_id, cx) else {
             return;
         };
@@ -327,9 +341,6 @@ impl AppState {
             return;
         };
         let typed = input.read(cx).value().to_string();
-        // The agent's own project, not the window's — the Teams composer under the window span
-        // sends to a card the project on screen does not hold, and `conversation` would answer
-        // `None` for it and drop the turn.
         let Some(conversation) = self.teams_conversation(agent_id, cx) else {
             return;
         };
@@ -433,10 +444,6 @@ impl AppState {
         }
         let Some(text) = self
             .agent_for_slot(slot, cx)
-            // The agent's own project, not the window's: the Teams composer at `TEAMS_SLOT`
-            // recalls for whichever card the canvas has selected, which under the window span is
-            // not the project on screen. Every other slot's agent is the active project's, where
-            // `project_of_agent` answers exactly that.
             .and_then(|agent_id| self.teams_conversation(agent_id, cx))
             .and_then(|conversation| {
                 conversation
@@ -1074,9 +1081,8 @@ impl AppState {
         cx: &mut Context<Self>,
     ) {
         // This UI-only state — the picker's choice, its open flag, a panel, a tool's disclosure —
-        // lives on the conversation record in the agent's own project: under the window span the
-        // Teams inspector can draw any open project's card at `TEAMS_SLOT`, and the toggle has to
-        // land on the record that card is actually showing.
+        // lives on the conversation record in the agent's own project, so the toggle lands on the
+        // record the screen is actually showing.
         if let Some(id) = self.project_of_agent(agent_id, cx)
             && let Some(open) = self.projects.get_mut(&id)
             && let Some(conversation) = open.conversations.get_mut(&agent_id)
@@ -1371,10 +1377,12 @@ impl AppState {
     ///
     /// The titlebar's shortcut is the menu's row 0 with the stop left out: [`Self::aim_start`]
     /// says where the conversation lands once it does, the same call [`Self::pick_new_agent_menu`]
-    /// makes for that row, and the surface is picked the same way — the chat strip in the IDE, an
-    /// agents-screen column everywhere else.
+    /// makes for that row, and the surface is picked the same way — the chat strip in the IDE and
+    /// in Tasks (`T-109`: the board's own `+ New agent` reaches this, and a start it raises has to
+    /// land in the right dock beside the task it was asked from, the same as `assign_task_to_agent`
+    /// already lands one), an agents-screen column everywhere else.
     pub fn open_new_agent_direct(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let surface = if self.workbench.is_ide() {
+        let surface = if matches!(self.workbench.rail_mode, RailMode::Ide | RailMode::Tasks) {
             NewAgentSurface::Chat
         } else {
             NewAgentSurface::Agents

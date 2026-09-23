@@ -30,11 +30,12 @@ use ubiq_proto::notifications::{Family, NotificationRequest, UbiqLink};
 use crate::state::sink::{CHOICES, FACETS, MENU_ITEMS, SinkModal};
 use crate::theme;
 use crate::ui::kit::{
-    ContextItem, MultiPicker, Picker, PickerStyle, RIBBON_SIZE, RibbonCorner, Tab, badge, card,
-    check_box, choice_pill, colour_picker, context_panel, disclosure, file_row, filter_bar,
-    ghost_button, hint_row, icon_button, kind_icon, label_hint, meter, mono, panel_header, pill,
-    primary_button, progress_ring, progress_ring_pair, removable_tag, ribbon, row_font,
-    section_label, slab, state_chip, status_dot, stepper, tab_strip, tag, toggle_pill, view_switch,
+    ContextItem, MdNavEntry, MinimapMark, MultiPicker, Picker, PickerStyle, RIBBON_SIZE,
+    RibbonCorner, Tab, badge, card, check_box, choice_pill, colour_picker, context_panel,
+    disclosure, file_row, filter_bar, ghost_button, hint_row, icon_button, kind_icon, label_hint,
+    md_navigator, meter, minimap, mono, panel_header, pill, primary_button, progress_ring,
+    progress_ring_pair, removable_tag, ribbon, row_font, section_label, slab, state_chip,
+    status_dot, stepper, tab_strip, tag, toggle_pill, view_switch,
 };
 use crate::ui::kit::{Slider, UbiqIcon};
 use crate::ui::{handler, hsv, indexed};
@@ -482,6 +483,52 @@ fn controls(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                         .selected(sink.picked)
                         .style(PickerStyle::Field),
                 )
+                .into_any_element(),
+        ),
+        // `crate::ui::plan`'s heading navigator, drawn with a small hierarchy of its own so the
+        // indent and the two counts — open threads, settled ones — are both on screen at once.
+        labelled(
+            "md_navigator",
+            md_navigator(
+                "sink-md-nav",
+                "2 threads open",
+                app.workbench.open_menu == Some(MenuId::SinkMdNav),
+                &[
+                    MdNavEntry::new(1, "Scope", 0, 1),
+                    MdNavEntry::new(2, "Rollout", 2, 0),
+                    MdNavEntry::new(2, "Rollback", 0, 0),
+                ],
+                false,
+                handler(&cx.entity(), |this, _, cx| {
+                    this.open_menu(MenuId::SinkMdNav, cx)
+                }),
+                std::rc::Rc::new(indexed(&cx.entity(), |this, index, _, cx| {
+                    this.pick_sink_md_nav(index, cx)
+                })),
+                handler(&cx.entity(), |this, _, cx| this.close_menu(cx)),
+            ),
+        ),
+        // `crate::ui::plan`'s minimap, marking where four things sit down a short document —
+        // two still open, two settled, the pick recorded on `sink.minimap_picked` so the last
+        // click on it is visible in the readout above the row.
+        labelled(
+            "minimap",
+            div()
+                .flex()
+                .h(px(160.))
+                .child(minimap(
+                    "sink-minimap",
+                    56.,
+                    &[
+                        MinimapMark::new(0.05, theme::info()),
+                        MinimapMark::new(0.35, theme::success()),
+                        MinimapMark::new(0.6, theme::info()),
+                        MinimapMark::new(0.9, theme::success()),
+                    ],
+                    std::rc::Rc::new(indexed(&cx.entity(), |this, index, _, cx| {
+                        this.pick_sink_minimap(index, cx)
+                    })),
+                ))
                 .into_any_element(),
         ),
     ]);

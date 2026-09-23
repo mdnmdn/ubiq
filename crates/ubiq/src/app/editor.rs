@@ -43,6 +43,79 @@ impl AppState {
         cx.notify();
     }
 
+    /// The annotated document open for this tab, if the one document the window holds is this
+    /// file's and is the tab's rather than the dialog's.
+    ///
+    /// The handle is rebuilt from the open document's own project id rather than from the window's
+    /// current one, so a tab left over from a project switch cannot match by path alone.
+    pub fn annotation_document(
+        &self,
+        file: &OpenFile,
+    ) -> Option<&crate::state::document::DocumentEditor> {
+        let doc = self.workbench.plan.as_ref()?;
+        if doc.is_modal() || !file.annotatable() {
+            return None;
+        }
+        (doc.doc == crate::state::plan::file_document(doc.project_id(), file.path.clone()))
+            .then_some(doc)
+    }
+
+    /// Whether a markdown tab's file is annotated — what the header's annotation badge and the
+    /// source-mode warning both read.
+    ///
+    /// **Answered from the explorer's own tree, not from the host.** Asking the host
+    /// (`ListPlanAnnotations`) indexes the document and *writes* the sidecar beside it, so a
+    /// question asked for every markdown file opened would scatter `.md.annotation.json` files
+    /// through the user's project. The sidecar's presence in the tree is free, has no side effect
+    /// and is the same fact — over-reading it slightly, since a document listed once and never
+    /// annotated has an empty sidecar. A document actually open in the annotation surface answers
+    /// from its own threads instead, which is exact.
+    ///
+    /// A folder nobody has listed yet answers `false`: the badge is a hint, and a hint nobody can
+    /// confirm is better absent than guessed.
+    pub fn has_annotations(&self, file: &OpenFile, cx: &App) -> bool {
+        if !file.annotatable() {
+            return false;
+        }
+        if let Some(doc) = self.annotation_document(file)
+            && matches!(
+                doc.annotations,
+                crate::state::document::AnnotationsBody::Loaded { .. }
+            )
+        {
+            return !doc.annotations.annotations().is_empty();
+        }
+        self.explorer(cx)
+            .map(|explorer| explorer.presence(&file.annotation_sidecar()))
+            .is_some_and(|presence| presence == crate::state::explorer::Presence::Live)
+    }
+
+    /// Which layout a markdown file opens in: the `markdown_open` setting, **unless the file is
+    /// already annotated**, in which case it opens in `Preview` (T-124).
+    ///
+    /// A source buffer is where an edit can orphan a thread, so a document carrying threads is not
+    /// the one to drop somebody into the raw text of by default. Read from the explorer's tree —
+    /// see [`Self::has_annotations`] — so it costs nothing and needs no round trip; a file whose
+    /// folder has not been listed simply takes the setting, which is the honest answer when
+    /// nothing is known.
+    pub fn markdown_open(&self, path: &str, cx: &App) -> ViewLayout {
+        let setting = self.workbench.settings.ui.markdown_open.layout();
+        if setting == ViewLayout::Preview
+            || crate::state::editor::ViewerKind::of(path) != ViewerKind::Markdown
+        {
+            return setting;
+        }
+        let annotated = self
+            .explorer(cx)
+            .map(|explorer| explorer.presence(&format!("{path}.annotation.json")))
+            .is_some_and(|presence| presence == crate::state::explorer::Presence::Live);
+        if annotated {
+            ViewLayout::Preview
+        } else {
+            setting
+        }
+    }
+
     /// Draw one open tab with a different viewer than its extension asked for.
     ///
     /// The new kind may offer none of the layouts the old one did, so the layout is re-settled
@@ -124,6 +197,72 @@ impl AppState {
             return;
         };
         file.toggle_frontmatter();
+        cx.notify();
+    }
+
+    /// Set the Markdown preview's text-column width preset. Global to the window, not per file
+    /// type (proposal §4.1's per-file-type memory is a later card) — and persisted through
+    /// `UiSettings.md_width` (T-118), the gap this card closed.
+    pub fn set_md_width(&mut self, width: crate::theme::MdWidth, cx: &mut Context<Self>) {
+        self.workbench.settings.ui.md_width = width;
+        self.remember_settings();
+        cx.notify();
+    }
+
+    /// Set the Markdown preview's density mode. Same scope and persistence note as
+    /// [`AppState::set_md_width`].
+    pub fn set_md_density(&mut self, density: crate::theme::MdDensity, cx: &mut Context<Self>) {
+        self.workbench.settings.ui.md_density = density;
+        self.remember_settings();
+        cx.notify();
+    }
+
+    /// The markdown viewer header's heading navigator (T-124). Opened rather than toggled, the
+    /// window's one rule for every anchored panel.
+    pub fn open_md_navigator(&mut self, cx: &mut Context<Self>) {
+        self.open_menu(MenuId::MdNavigator, cx);
+    }
+
+    /// A heading picked in that navigator: scroll the tab's own preview to it, and close the list
+    /// the way any dropdown row does.
+    ///
+    /// Proportional, for [`Self::select_md_minimap_mark`]'s own reason — the standard viewer draws
+    /// one `TextView`, so a heading has no measured position of its own to jump to.
+    pub fn select_md_nav_heading(&mut self, key: &str, index: usize, cx: &mut Context<Self>) {
+        self.close_menu(cx);
+        self.select_md_minimap_mark(key, index, cx);
+    }
+
+    /// A mark picked on the standard viewer's markdown minimap (T-118): scroll that tab's own
+    /// document by the same proportion down as the heading sits at.
+    ///
+    /// **Proportional, not pixel-exact** — the standard viewer draws one `TextView` rather than a
+    /// block per heading (`ui/plan.rs`'s own minimap has real block bounds to jump to; this one
+    /// does not), so the mark's `fraction` from `markdown::heading_marks` is reused directly as
+    /// the scroll position's own fraction of `ScrollHandle::max_offset`.
+    pub fn select_md_minimap_mark(&mut self, key: &str, index: usize, cx: &mut Context<Self>) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        let Some(open) = self.projects.get_mut(&project) else {
+            return;
+        };
+        let Some(file) = open.editor.find_key_mut(key) else {
+            return;
+        };
+        let FileBody::Text { state, .. } = &file.body else {
+            return;
+        };
+        let source = state.read(cx).value().to_string();
+        let Some(mark) = crate::ui::viewer::markdown::heading_marks(&source)
+            .get(index)
+            .map(|m| m.fraction)
+        else {
+            return;
+        };
+        let max_offset = file.md_scroll.max_offset();
+        file.md_scroll
+            .set_offset(gpui::point(px(0.), -max_offset.y * mark));
         cx.notify();
     }
 
@@ -1096,10 +1235,19 @@ impl AppState {
     /// bytes that never arrived, a read the host cut short, a guest file — says so in a modal
     /// instead, because a ⌘S that quietly does nothing is indistinguishable from a save.
     pub fn save_active_file(&mut self, _: &SaveFile, window: &mut Window, cx: &mut Context<Self>) {
-        // An annotated document is raised over the window and holds the focus while it is up, so
-        // ⌘S means *that* document rather than whatever tab is behind it. One key, one meaning:
-        // the surface is the editor, not a dialog with a Save button.
-        if self.workbench.plan.is_some() {
+        // The plan dialog is raised over the window and holds the focus while it is up, so ⌘S
+        // means *that* document rather than whatever tab is behind it. One key, one meaning: the
+        // surface is the editor, not a dialog with a Save button.
+        //
+        // **A document open inside a markdown tab is not that case**: the key is over a file tab,
+        // and it means the file. The annotation surface writes through its own section edits,
+        // which save as they are confirmed, so nothing there is waiting on a ⌘S.
+        if self
+            .workbench
+            .plan
+            .as_ref()
+            .is_some_and(|doc| doc.is_modal())
+        {
             self.save_document(window, cx);
             return;
         }

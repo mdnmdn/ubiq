@@ -14,8 +14,14 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::OnceLock;
 
-use gpui::{AnyElement, IntoElement, ParentElement, SharedString, Styled, div, px};
-use gpui_component::text::{MarkdownExtensions, MarkdownNode, TextView, markdown_ast};
+use gpui::{
+    AnyElement, HighlightStyle, InteractiveElement, IntoElement, Overflow, ParentElement, Pixels,
+    SharedString, StatefulInteractiveElement, StyleRefinement, Styled, div, px, relative,
+};
+use gpui_component::scroll::Scrollbar;
+use gpui_component::text::{
+    MarkdownExtensions, MarkdownNode, TextView, TextViewStyle, markdown_ast,
+};
 
 use crate::app::AppState;
 use crate::theme;
@@ -130,6 +136,89 @@ fn scan_and_publish(app: &AppState, key: &str, source: &str) -> (Option<String>,
     })
 }
 
+/// The typography this preview draws with, from the window's width preset and density —
+/// `_docs/inbox/markdown-improvement-proposal.md` §3–§7 (T-116). Returns the [`TextViewStyle`]
+/// and the body line height it was built with, since the caller needs the line height again for
+/// the top/bottom insets.
+///
+/// **What this cannot reach.** `TextViewStyle` exposes one vertical-rhythm knob for every
+/// non-heading block (`paragraph_gap`) and a `StyleRefinement` each for code blocks and tables —
+/// see the longer note in `theme.rs` above `MD_AVG_CHAR_WIDTH_EM`. Two rules from §3 fall in the
+/// gap it leaves:
+///
+/// - **Per-heading-level line height** (H1 1.15, H2 1.2, H3 1.25, distinct from the body's).
+///   Headings never call `.line_height(...)` upstream — only `.text_size(...)` — so the body line
+///   height set below cascades to them at their own size instead.
+/// - **H1's negative tracking** (~-0.02em). GPUI's `Style`/`TextStyle` carry no letter-spacing
+///   field at all (`crates/gpui/src/style.rs` — searched, absent), so there is no knob to turn
+///   here even per-element.
+///
+/// Both are reported, not faked: the closest honest approximation is one body leading for prose
+/// and headings alike, sized so it reads well at the tightest heading as well as the loosest
+/// paragraph — proposal principle 1 loses some of its "leading shrinks as size grows" nuance, but
+/// nothing renders wrong.
+fn typography(app: &AppState, body: Pixels) -> (TextViewStyle, f32) {
+    let line_height = theme::md_body_line_height(
+        app.workbench.settings.ui.md_width,
+        app.workbench.settings.ui.md_density,
+    );
+
+    // Code blocks and tables *do* get their own line height — their `StyleRefinement` is applied
+    // on top of the block's own div, after its default `.text_size(...)`, so it can differ from
+    // the body's leading where headings cannot.
+    //
+    // Breakout (§4.2): a negative horizontal margin equal to the column's own inset cancels that
+    // inset for these two block kinds, so a wide table or code block runs flush to the reading
+    // column's outer edge instead of staying capped at the prose measure. This reaches "up to the
+    // column's own frame", not "up to the pane's edge" the proposal describes for a centred
+    // column with room to spare either side of the frame — that needs the live gap between the
+    // column and the pane edge, which is not available where a `StyleRefinement` is built (no
+    // `Window`, and the refinement is static per render rather than reactive to layout).
+    // T-126: a code block or table wider than the column no longer spills past the viewport —
+    // it scrolls horizontally within its own frame instead. The codeblock div already carries an
+    // element id (`node.rs`'s `("codeblock", ix)`) and `min_w_0`, which is all GPUI's own
+    // `overflow: scroll` needs to become interactively scrollable; the table gets the same
+    // treatment through `TextViewStyle::table`'s documented opt-in (`node.rs`'s
+    // `render_scroll_table`, chosen over the default wrapping layout precisely when this is set).
+    let mut code_block = StyleRefinement::default();
+    code_block.text.line_height = Some(relative(theme::MD_CODE_LINE_HEIGHT));
+    code_block.overflow.x = Some(Overflow::Scroll);
+    let code_block = code_block.mx(-theme::md_min_margin());
+
+    let mut table_cell = StyleRefinement::default();
+    table_cell.text.line_height = Some(relative(theme::MD_CODE_LINE_HEIGHT));
+    let mut table = StyleRefinement::default().mx(-theme::md_min_margin());
+    table.overflow.x = Some(Overflow::Scroll);
+
+    // Inline code (§6.1): the chip's padding, corner radius and baseline offset the proposal asks
+    // for have no home in `HighlightStyle` — it carries `color`, `font_weight`, `font_style`,
+    // `background_color`, `underline`, `strikethrough` and `fade_out` and nothing box-shaped
+    // (`crates/gpui/src/style.rs:580-600`), because inline code is drawn as a highlighted text
+    // run, not a box, upstream at `crates/base/src/text/node.rs:1466,1588`. A radius would be
+    // dropped here regardless — house rule, no radii anywhere in this UI. What *is* reachable is
+    // a more contrasted background and a heavier weight, which is what carries the distinction.
+    let inline_code = HighlightStyle {
+        background_color: Some(theme::accent_soft().into()),
+        font_weight: Some(gpui::FontWeight::MEDIUM),
+        ..Default::default()
+    };
+
+    let mut style = TextViewStyle {
+        heading_base_font_size: body,
+        ..TextViewStyle::default()
+    };
+    style = style
+        .paragraph_gap(theme::md_paragraph_gap(
+            app.workbench.settings.ui.md_density,
+        ))
+        .heading_font_size(|level, base| base * theme::md_heading_ratio(level))
+        .code_block(code_block)
+        .table(table)
+        .table_cell(table_cell)
+        .inline_code(inline_code);
+    (style, line_height)
+}
+
 /// The document.
 ///
 /// Every Mermaid fence in it is resolved against the window's cache first, because the block
@@ -146,7 +235,28 @@ pub fn render(
         cx.entity(),
         Some(crate::state::editor::from_tab_key(key).0.into()),
     );
-    render_linked(app, key, source, frontmatter_open, follow, cx)
+    render_linked_scrollable(app, key, source, frontmatter_open, follow, None, cx)
+}
+
+/// The same document, scrolled by the caller's own handle rather than the text view's internal
+/// one — what the standard viewer's minimap (T-118) needs to jump to a heading: `TextView` keeps
+/// its scroll position to itself (`state.rs`'s `scroll_offset` is `pub(super)`), so there is no
+/// way to move it from outside. The text view grows to its natural height instead, and an outer
+/// scrollable frame carries `scroll`, the same shape `ui/plan.rs`'s empty-document fallback
+/// wraps a single `TextView` in.
+pub fn render_scrollable(
+    app: &AppState,
+    key: &str,
+    source: &str,
+    frontmatter_open: bool,
+    scroll: &gpui::ScrollHandle,
+    cx: &mut gpui::Context<AppState>,
+) -> AnyElement {
+    let follow = on_link(
+        cx.entity(),
+        Some(crate::state::editor::from_tab_key(key).0.into()),
+    );
+    render_linked_scrollable(app, key, source, frontmatter_open, follow, Some(scroll), cx)
 }
 
 /// The same document, with a caller's own answer to a clicked link.
@@ -167,43 +277,105 @@ pub fn render_linked(
     + 'static,
     cx: &mut gpui::Context<AppState>,
 ) -> AnyElement {
+    render_linked_scrollable(app, key, source, frontmatter_open, follow, None, cx)
+}
+
+fn render_linked_scrollable(
+    app: &AppState,
+    key: &str,
+    source: &str,
+    frontmatter_open: bool,
+    follow: impl Fn(&SharedString, &gpui::ClickEvent, &mut gpui::Window, &mut gpui::App)
+    + Send
+    + Sync
+    + 'static,
+    scroll: Option<&gpui::ScrollHandle>,
+    cx: &mut gpui::Context<AppState>,
+) -> AnyElement {
     let (frontmatter, body) = scan_and_publish(app, key, source);
+
+    let body_size = theme::font(theme::Family::Content, theme::Role::Body);
+    let (style, line_height) = typography(app, body_size);
+    let measure = theme::md_measure_width(app.workbench.settings.ui.md_width, body_size);
+    let line_height_px = body_size * line_height;
 
     // Keyed on the settled point size as well as the file: the text view keeps the height it
     // measured each block at and only reconsiders when its width changes, so a zoom needs a new
     // state to reflow at all. `md_reflow` moves half a second after the last zoom, which is what
     // keeps a held key from rebuilding the document once per point.
-    let document = TextView::markdown(eid2("md", key, app.md_reflow), body)
+    //
+    // Horizontal layout (§5.1): `max_w` caps the column at the preset's measure, `mx_auto`
+    // centres it whenever the pane has room for that plus two side margins, and shrinks to
+    // `w_full` with the same `px(min_margin)` padding when it does not — the classic
+    // max-width-plus-auto-margins pattern satisfies the centre-or-left-inset rule as one
+    // declaration rather than as a branch on live pane width, which this call site does not have
+    // (no `Window`, only `Context<AppState>`).
+    let mut document = TextView::markdown(eid2("md", key, app.md_reflow), body)
         .markdown_extensions(extensions().clone())
         .on_link_click(follow)
-        .p_5()
-        .text_size(theme::font(theme::Family::Content, theme::Role::Body))
-        .scrollable(true)
+        .style(style)
+        .text_size(body_size)
+        .line_height(relative(line_height))
+        .w_full()
+        .mx_auto()
+        .px(theme::md_min_margin())
+        .pt(theme::md_top_inset(line_height_px))
+        .pb(theme::md_bottom_inset(line_height_px))
+        // An external `scroll` owns the position instead: the text view grows to its content's
+        // full height and the outer frame below scrolls it, because its own internal scroll
+        // offset is `pub(super)` in the component library and cannot be read or moved from here.
+        .scrollable(scroll.is_none())
         .selectable(true);
+    if let Some(measure) = measure {
+        document = document.max_w(measure);
+    }
 
-    let Some(raw_yaml) = frontmatter else {
-        return document.into_any_element();
+    let content = match frontmatter {
+        None => document.into_any_element(),
+        // The bar keeps its own height and the document takes what is left: a scrollable text
+        // view fills the box it is given, so the box has to be bounded or it scrolls nothing.
+        Some(raw_yaml) => div()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_w(px(0.))
+            .min_h(px(0.))
+            .overflow_hidden()
+            .child(frontmatter_bar(key, &raw_yaml, frontmatter_open, cx))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_w(px(0.))
+                    .min_h(px(0.))
+                    .child(document),
+            )
+            .into_any_element(),
     };
 
-    // The bar keeps its own height and the document takes what is left: a scrollable text view
-    // fills the box it is given, so the box has to be bounded or it scrolls nothing.
+    let Some(scroll) = scroll else {
+        return content;
+    };
+    // T-126: the scrollbar is an absolutely-positioned sibling of the scroll area (the
+    // `ubiq-ui` rule), sized to the whole pane rather than the centred reading column, so it
+    // sits flush at the viewport's own edge and draws through the same `Scrollbar` the rest of
+    // the app uses — not TextView's own internal one, which this call site never turns on.
     div()
+        .relative()
         .flex()
-        .flex_col()
         .flex_1()
         .min_w(px(0.))
         .min_h(px(0.))
-        .overflow_hidden()
-        .child(frontmatter_bar(key, &raw_yaml, frontmatter_open, cx))
         .child(
             div()
-                .flex()
-                .flex_col()
-                .flex_1()
-                .min_w(px(0.))
-                .min_h(px(0.))
-                .child(document),
+                .id(eid("md-scroll", key))
+                .size_full()
+                .overflow_y_scroll()
+                .track_scroll(scroll)
+                .child(content),
         )
+        .child(div().absolute().inset_0().child(Scrollbar::vertical(scroll)))
         .into_any_element()
 }
 
@@ -221,9 +393,13 @@ pub fn render_linked(
 /// sits inside a container the caller already gives padding and a click target.
 pub fn render_block(app: &AppState, key: &str, text: &str) -> AnyElement {
     let (_, body) = scan_and_publish(app, key, text);
+    let body_size = theme::font(theme::Family::Content, theme::Role::Body);
+    let (style, line_height) = typography(app, body_size);
     TextView::markdown(eid("md-block", key), body)
         .markdown_extensions(extensions().clone())
-        .text_size(theme::font(theme::Family::Content, theme::Role::Body))
+        .style(style)
+        .text_size(body_size)
+        .line_height(relative(line_height))
         .selectable(true)
         .into_any_element()
 }
@@ -375,6 +551,54 @@ fn collect(node: &markdown_ast::Node, found: &mut Vec<Fence>) {
     }
 }
 
+/// One heading, positioned proportionally down the document it was found in.
+///
+/// The standard viewer's minimap (T-118, proposal §8.2's structure strip, reduced to what is
+/// reachable here) draws one of these per heading. `fraction` is the heading's own byte offset
+/// over the document's total length — the same honest approximation `ui/plan.rs`'s
+/// `proportional_fraction` falls back to when there is nothing painted yet to measure against,
+/// promoted to the only answer here because the standard viewer draws one `TextView` rather than
+/// a block per heading, so there is no per-heading layout to measure in the first place.
+pub struct HeadingMark {
+    pub level: u8,
+    pub fraction: f32,
+    /// The heading's own text, with its markup gone — what the header's navigator (T-124) lists.
+    /// The minimap has no use for it and pays nothing for it: one string per heading, built on the
+    /// same walk.
+    pub label: String,
+}
+
+/// Every heading in a document, in document order, positioned by character offset.
+pub fn heading_marks(source: &str) -> Vec<HeadingMark> {
+    let Ok(ast) = markdown::to_mdast(source, &markdown::ParseOptions::gfm()) else {
+        return Vec::new();
+    };
+    let len = source.len().max(1) as f32;
+    let mut found = Vec::new();
+    collect_headings(&ast, len, &mut found);
+    found
+}
+
+fn collect_headings(node: &markdown_ast::Node, len: f32, found: &mut Vec<HeadingMark>) {
+    if let markdown_ast::Node::Heading(heading) = node {
+        let offset = heading
+            .position
+            .as_ref()
+            .map(|position| position.start.offset as f32)
+            .unwrap_or(0.0);
+        found.push(HeadingMark {
+            level: heading.depth,
+            fraction: (offset / len).clamp(0.0, 1.0),
+            label: node.to_string(),
+        });
+    }
+    if let Some(children) = node.children() {
+        for child in children {
+            collect_headings(child, len, found);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -482,5 +706,24 @@ mod tests {
         assert!(fences("```\ngraph TD;\n```\n").is_empty());
         assert!(fences("```mermaidx\ngraph TD;\n```\n").is_empty());
         assert_eq!(fences("``` mermaid \ngraph TD;\n```\n").len(), 1);
+    }
+
+    /// Headings are found in document order, at increasing fractions, each carrying its own
+    /// level — the standard viewer minimap's data (T-118).
+    #[test]
+    fn heading_marks_are_ordered_and_leveled() {
+        let source = "# One\n\nbody\n\n## Two\n\nmore body\n\n### Three\n";
+        let marks = heading_marks(source);
+        assert_eq!(marks.len(), 3);
+        assert_eq!([marks[0].level, marks[1].level, marks[2].level], [1, 2, 3]);
+        assert!(marks[0].fraction < marks[1].fraction);
+        assert!(marks[1].fraction < marks[2].fraction);
+        assert_eq!(marks[0].fraction, 0.0);
+    }
+
+    /// No headings, no marks — a document with none draws an empty strip rather than erroring.
+    #[test]
+    fn heading_marks_of_a_headingless_document_is_empty() {
+        assert!(heading_marks("just a paragraph, nothing more.\n").is_empty());
     }
 }

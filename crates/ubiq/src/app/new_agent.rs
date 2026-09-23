@@ -6,7 +6,10 @@
 //! apart again.
 
 use super::*;
-use crate::state::new_agent::{NewAgentForm, OpenList, Purpose, Target, fold_preamble};
+use crate::state::new_agent::{
+    NewAgentForm, OpenList, Purpose, TASK_ASSIGN_MCPS, Target, fold_preamble,
+    task_assignment_prompt,
+};
 
 impl AppState {
     /// The form on screen, whichever raised it. The New agent modal is painted over the settings
@@ -63,6 +66,90 @@ impl AppState {
         let prompt = self.new_agent_prompt.read(cx).focus_handle(cx);
         window.focus(&prompt, cx);
         cx.notify();
+    }
+
+    /// Raise the New agent modal, pre-filled for the board's "Assign to an agent" button —
+    /// `T-64`. **The same form and the same open as [`Self::open_new_agent`]**, not a second
+    /// mechanism: this calls it whole, then overlays the three things a task assignment answers
+    /// that an ordinary start leaves blank — the MCP checklist, the two checkboxes, and the
+    /// opening prompt they compose.
+    ///
+    /// **Aimed at the chat surface**, the way [`Self::open_new_agent_direct`] aims IDE's own `+`
+    /// — so the agent this starts lands in a `Chat` tab in the right dock, beside the task it was
+    /// assigned from, which is the whole point of `T-100`'s `+` living there too.
+    ///
+    /// Silently does nothing for a task the project no longer holds — the button that reaches
+    /// this is drawn from a `TaskRecord` already in hand, so that is a race with a delete rather
+    /// than a caller's mistake.
+    pub fn assign_task_to_agent(
+        &mut self,
+        task_id: TaskId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(label) = self
+            .work(cx)
+            .and_then(|work| work.task(task_id))
+            .map(|task| task.key.clone().unwrap_or_else(|| task_id.to_string()))
+        else {
+            return;
+        };
+        self.aim_start(NewAgentSurface::Chat, cx);
+        self.open_new_agent(window, cx);
+        if let Some(form) = self.new_agent_form_mut() {
+            form.for_task = Some(task_id);
+            form.ask_for_feedback = true;
+            form.plan_mode = false;
+            for mcp in TASK_ASSIGN_MCPS {
+                if !form.mcps.iter().any(|it| it == mcp) {
+                    form.mcps.push(mcp.to_string());
+                }
+            }
+        }
+        let prompt = task_assignment_prompt(&label, true, false);
+        self.set_new_agent_prompt(&prompt, window, cx);
+    }
+
+    /// Flip the task assignment's "ask for feedback" checkbox, and recompose the opening prompt
+    /// so the field on screen always says what the checkboxes say. See
+    /// [`crate::state::new_agent::task_assignment_prompt`].
+    pub fn toggle_new_agent_ask_feedback(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(form) = self.new_agent_form_mut() else {
+            return;
+        };
+        form.ask_for_feedback = !form.ask_for_feedback;
+        self.resync_task_assignment_prompt(window, cx);
+    }
+
+    /// Flip the task assignment's "plan mode" checkbox, for the same reason and the same way.
+    pub fn toggle_new_agent_plan_mode(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(form) = self.new_agent_form_mut() else {
+            return;
+        };
+        form.plan_mode = !form.plan_mode;
+        self.resync_task_assignment_prompt(window, cx);
+    }
+
+    /// Recompose the opening prompt from the task label and the two checkboxes, and write it into
+    /// the field the form's textarea reads. A no-op where the form is not a task assignment at
+    /// all — the ordinary New agent form has nothing here to keep in sync.
+    fn resync_task_assignment_prompt(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(form) = self.new_agent_form() else {
+            return;
+        };
+        let Some(task_id) = form.for_task else {
+            return;
+        };
+        let (ask_for_feedback, plan_mode) = (form.ask_for_feedback, form.plan_mode);
+        let Some(label) = self
+            .work(cx)
+            .and_then(|work| work.task(task_id))
+            .map(|task| task.key.clone().unwrap_or_else(|| task_id.to_string()))
+        else {
+            return;
+        };
+        let prompt = task_assignment_prompt(&label, ask_for_feedback, plan_mode);
+        self.set_new_agent_prompt(&prompt, window, cx);
     }
 
     /// The target the last start would be, where it still resolves to something startable.
@@ -445,6 +532,15 @@ impl AppState {
         // beginning with someone else's words. See `state::new_agent::fold_preamble`.
         if let Some(preamble) = form.preamble() {
             self.workbench.agent_preambles.insert(agent_id, preamble);
+        }
+        // The profile's own id is its display name (`ProfileInfo::id`'s doc) — the title a fresh
+        // agent wears until the harness (or the user) actually names the conversation, in place
+        // of the bare harness-label default `refresh_agent_record` gives one nothing else named.
+        // See `state::WorkbenchState::agent_started_profile`.
+        if let Some(profile) = &profile {
+            self.workbench
+                .agent_started_profile
+                .insert(agent_id, profile.clone());
         }
         self.remember_harness_choice(
             &form.agent_type.clone(),

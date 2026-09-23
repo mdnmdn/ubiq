@@ -233,6 +233,20 @@ impl AppState {
         cx.notify();
     }
 
+    /// The style reference's demo heading navigator. It closes on the pick like `pick_sink_menu` —
+    /// there is nothing behind the specimen for a row to select, only the shape to look at.
+    pub fn pick_sink_md_nav(&mut self, _index: usize, cx: &mut Context<Self>) {
+        self.workbench.open_menu = None;
+        cx.notify();
+    }
+
+    /// The style reference's demo minimap. There is no document behind it to scroll, so the pick
+    /// is only recorded, the way `pick_sink_menu` records its own.
+    pub fn pick_sink_minimap(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.sink.minimap_picked = index;
+        cx.notify();
+    }
+
     /// The A2UI page's example picker. Choosing one replaces the editor's text, and the surface is
     /// rebuilt from it — the payload is still the only place a drawn surface comes from.
     pub fn pick_a2ui_example(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {

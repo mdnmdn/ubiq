@@ -568,13 +568,26 @@ impl AppState {
             // The chat strip's `+` opens the same two-row menu the agents screen's does; both
             // of its rows still add a view, so the strip keeps meaning "add a view".
             let chat_app = app.clone();
-            let new_chat: crate::ui::dock::skin::NewChatRun = Rc::new(move |x, y, _window, cx| {
-                if let Some(this) = chat_app.upgrade() {
-                    this.update(cx, |this, cx| {
-                        this.open_new_agent_menu((x, y), crate::state::NewAgentSurface::Chat, cx)
-                    });
-                }
-            });
+            let new_chat = crate::ui::dock::skin::NewChat {
+                run: Rc::new(move |x, y, _window, cx| {
+                    if let Some(this) = chat_app.upgrade() {
+                        this.update(cx, |this, cx| {
+                            this.open_new_agent_menu(
+                                (x, y),
+                                crate::state::NewAgentSurface::Chat,
+                                cx,
+                            )
+                        });
+                    }
+                }),
+                region: {
+                    let app = app.clone();
+                    Rc::new(move |node, cx| {
+                        app.upgrade()
+                            .is_some_and(|this| this.read(cx).is_chat_region(node, cx))
+                    })
+                },
+            };
             DockArea::new("ubiq-workbench", Some(dock::LAYOUT_VERSION), window, cx).with_renderer(
                 crate::ui::dock::skin::Skin::new()
                     .with_new_pane(new_pane)
@@ -1695,6 +1708,7 @@ impl AppState {
             explorer_focus: cx.focus_handle(),
             workbench_focus: cx.focus_handle(),
             agents_scroll: ScrollHandle::new(),
+            plan_preview_scroll: ScrollHandle::new(),
             explorer_filter_gen: 0,
             md_reflow: 0,
             md_reflow_gen: 0,

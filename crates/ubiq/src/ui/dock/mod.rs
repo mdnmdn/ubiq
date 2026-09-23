@@ -222,7 +222,7 @@ impl WorkbenchPanel {
                     .and_then(|tab| tab.attached);
                 let agent = attached.and_then(|agent| app.work(cx)?.agent(agent));
                 let label = match agent {
-                    Some(agent) => agent.name.clone(),
+                    Some(agent) => app.agent_title(agent).to_string(),
                     None => "New chat".to_string(),
                 };
                 // The hover is what the conversation is about, where something has named it. A
@@ -237,19 +237,17 @@ impl WorkbenchPanel {
                     Some(name) => truncate_tab_title(&name),
                     None => (SharedString::from(label), tooltip),
                 };
-                // The same dot the agents column wears, from the same pair of functions: a reader
-                // scanning the tab row is asking which conversation wants them, and the label
-                // alone does not answer it. A tab attached to nothing keeps no dot — there is no
-                // conversation there to have a state.
-                let state = attached
-                    .and_then(|agent| app.conversation(agent, cx))
-                    .map(crate::ui::conversation::lifecycle);
+                // The hexagon the agents column's tab wears too (T-99/T-102), from the one
+                // vocabulary both read — a reader scanning the tab row is asking which
+                // conversation wants them, and the label alone does not answer it. A tab attached
+                // to nothing wears no mark — there is no conversation there to have a state.
+                let status = agent.map(|agent| {
+                    crate::state::status::agent_status(agent, app.conversation(agent.id, cx))
+                });
                 TabInfo {
                     label,
                     tooltip,
-                    dot_colour: state.map(crate::ui::conversation::lifecycle_colour),
-                    dot_pulse: state
-                        .is_some_and(|state| crate::ui::conversation::lifecycle_pulses(state, cx)),
+                    dot_status: status,
                     pinned: app.tab_pinned(&self.kind, cx),
                     ..TabInfo::default()
                 }
@@ -270,6 +268,7 @@ impl WorkbenchPanel {
                             .unwrap_or_else(theme::text_muted),
                         dot_colour: did_save_or_dirty(file).then(|| editor::dirty_colour(file)),
                         dot_pulse: false,
+                        dot_status: None,
                         temporary: file.temporary,
                         tooltip: None,
                         bookmarks: app.bookmark_count(key, cx),
@@ -411,6 +410,12 @@ pub struct TabInfo {
     /// the only thing that asks for it — a terminal's running dot and a file's dirty dot are
     /// states, not activity, and `false` is what leaves them still.
     pub dot_pulse: bool,
+    /// A chat tab's own mark, drawn as the hexagon [`skin`] wears in place of [`Self::dot_colour`]
+    /// (T-99/T-102) — the lifecycle and activity pair the agents column's tab reads off the same
+    /// vocabulary. `None` for every other kind, and for a chat tab attached to nothing: a plain
+    /// dot answers "is something going on", which a terminal or a log tab still needs; a
+    /// conversation's tab answers the richer question the hexagon was built for instead.
+    pub dot_status: Option<crate::state::status::Status>,
     pub temporary: bool,
     /// The untruncated title, shown on hover when [`Self::label`] is a trimmed version of it.
     pub tooltip: Option<SharedString>,
@@ -429,6 +434,7 @@ impl Default for TabInfo {
             title_colour: theme::text(),
             dot_colour: None,
             dot_pulse: false,
+            dot_status: None,
             temporary: false,
             tooltip: None,
             bookmarks: 0,

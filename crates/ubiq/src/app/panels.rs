@@ -95,6 +95,20 @@ impl AppState {
         cx.notify();
     }
 
+    /// Whether a tab group is the chat home's — the right region, in every mode
+    /// ([`PanelKind::chat_home`]).
+    ///
+    /// The new-chat control has to stay on the strip of that region even where it currently holds
+    /// none — Tasks' right region is the task, not a chat, until one is started or attached from
+    /// here — so the `+` follows [`Self::is_pane_region`]'s own reasoning: the skin is handed a
+    /// node and knows nothing about placement, so the window, which holds the dock, answers.
+    pub fn is_chat_region(&self, node: gpui_component::dock::NodeId, cx: &App) -> bool {
+        self.dock
+            .read(cx)
+            .layout(dock::placement_of(Region::Right))
+            .is_some_and(|tree| tree.node_ids().contains(&node))
+    }
+
     /// Whether a tab group is one of the pane region's.
     ///
     /// The new-pane control has to stay on the strip of a region the user has emptied, and the

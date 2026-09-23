@@ -28,8 +28,85 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::ids::{AnnotationId, BlockId};
+use crate::ids::{AnnotationId, BlockId, ProjectId, TaskId};
 use crate::work::{Comment, CommentAuthor};
+
+/// Which document the annotation family is talking about.
+///
+/// **The whole family is keyed by this and by nothing else.** A plan and an ordinary markdown file
+/// in a project's tree are annotated by the same messages, matched by the same block matcher and
+/// orphaned by the same rule; all that differs is where the body and its sidecar sit on disk, and
+/// that is the host's answer to this handle rather than a second set of messages. The names in the
+/// family stayed `Plan*` because the records they carry are ([`PlanBlock`], [`PlanRevision`]) and
+/// renaming half a vocabulary is not what makes a document generic.
+///
+/// **It carries no absolute path.** `rel_path` is project-relative, the way every file-family
+/// message's is: the interface never learns where a project lives, and the host resolves and
+/// contains the path before it touches anything.
+#[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
+pub enum DocumentHandle {
+    /// A task's plan, under the config root at `projects/<ProjectId>/plans/<TaskId>.md`, with its
+    /// sidecar at `<TaskId>.annotations.json` beside it.
+    Plan {
+        project_id: ProjectId,
+        task_id: TaskId,
+    },
+    /// An ordinary markdown file in the project's own working tree, with its sidecar at
+    /// `<file>.md.annotation.json` beside it — inside the user's repository, because an annotation
+    /// on a file the repository owns belongs with the file and travels with it.
+    File {
+        project_id: ProjectId,
+        /// Project-relative, and refused by the host unless it lands inside the project.
+        rel_path: String,
+    },
+}
+
+impl DocumentHandle {
+    pub fn project_id(&self) -> ProjectId {
+        match self {
+            DocumentHandle::Plan { project_id, .. } | DocumentHandle::File { project_id, .. } => {
+                *project_id
+            }
+        }
+    }
+
+    /// The task a plan belongs to. `None` for a document that is not a plan — which is the point
+    /// of the handle: no caller may assume a task is there.
+    pub fn task_id(&self) -> Option<TaskId> {
+        match self {
+            DocumentHandle::Plan { task_id, .. } => Some(*task_id),
+            DocumentHandle::File { .. } => None,
+        }
+    }
+
+    /// The project-relative path of a file document. `None` for a plan, which has none: a plan
+    /// lives under the config root and the interface never learns where.
+    pub fn rel_path(&self) -> Option<&str> {
+        match self {
+            DocumentHandle::Plan { .. } => None,
+            DocumentHandle::File { rel_path, .. } => Some(rel_path),
+        }
+    }
+
+    /// What a surface calls this kind of document in its chrome.
+    pub fn kind_label(&self) -> &'static str {
+        match self {
+            DocumentHandle::Plan { .. } => "Plan",
+            DocumentHandle::File { .. } => "Document",
+        }
+    }
+
+    /// A stable string for element ids and buffer keys — one document, one key.
+    pub fn key(&self) -> String {
+        match self {
+            DocumentHandle::Plan { task_id, .. } => format!("plan:{task_id}"),
+            DocumentHandle::File {
+                project_id,
+                rel_path,
+            } => format!("file:{project_id}:{rel_path}"),
+        }
+    }
+}
 
 /// A plan's version counter: how many times its body has been saved.
 ///

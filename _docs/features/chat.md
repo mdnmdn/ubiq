@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: Editor-like chat tabs — many, movable to any dockable region, each a view onto a host-owned conversation or onto none, drawn by the composer, transcript and tool blocks the whole window shares.
 read_when: you are changing a chat tab, the control that starts or attaches a conversation, or which conversation a tab shows
-updated: 2026-09-22
-verified: 2026-09-22
+updated: 2026-09-23
+verified: 2026-09-23
 code_anchors: [crates/ubiq/src/ui/chat/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/conversation/info.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/ask.rs, crates/ubiq/src/app/ask.rs, crates/ubiq/src/ui/ask.rs, crates/ubiq-proto/src/ask.rs]
 depends_on: [feat-workbench]
 review_cycle: monthly
@@ -44,7 +44,7 @@ thing — begin something, or move to something already running. Two controls si
 user pick the question before answering it; one control whose first row starts and whose rest
 attach does not. **It is a bare chevron**, in the tab's own header, and it says *change agent* on
 hover: what the tab is showing is already said twice on that row, by the dock's tab and by the
-state mark beside it, so a label here would be a third copy of the conversation's name wearing a
+hexagon it now wears, so a label here would be a third copy of the conversation's name wearing a
 control's clothes.
 
 **Its first row is *New agent*, and it raises the window's start form.** Which harness, as whom,
@@ -53,7 +53,9 @@ asked together, and *The workbench* is where the form is described. The flattene
 harness-and-identity list this control used to carry above its conversations is gone with the row
 that started from it: it launched with every question but the first skipped. The titlebar carries
 its own shortcut to the same start — `AppState::open_new_agent_direct` aims at the chat surface in
-IDE mode the way this row does, the `+` menu's first stage skipped either way.
+IDE mode and in Tasks (`T-109`: the board's own `+ New agent` reaches it too, so a start from there
+lands in the right dock beside the task rather than jumping to the agents screen) the way this row
+does, the `+` menu's first stage skipped either way.
 
 **An attached tab is offered the start too.** Starting from a tab already showing a conversation
 would once have left the first with no view; the conversation it leaves is on this very list, one
@@ -83,17 +85,24 @@ moment a chat tab is attached to it. Three viewers at once, and the host is neve
 are looking, because a view was never the workspace.
 
 **Adding a view is the tab strip's gesture, not the panel's.** A `+` on the dock's own tab strip —
-beside the terminal region's, offered on the strip of any group holding a chat, so a chat dragged
-into the editor region takes the control with it rather than leaving the gesture behind — opens the
-window's two-row `+` menu: *New agent*, or *Attach existing agent*. The strip's `+` still means
-"add a view"; the menu only answers what the view will be looking at, and **the tab is minted when
-there is something to put in it** — a pick attaches at once, and a start form opens the tab from
+beside the terminal region's, offered on the strip of any group holding a chat *or sitting at the
+chat home region with none yet* — opens the window's two-row `+` menu: *New agent*, or *Attach
+existing agent*. The second clause is what puts the `+` on Tasks' right region: that group holds
+the task, not a chat, until one is started or attached from here, and the strip has to offer the
+gesture on the strength of the region alone the way the pane `+` already does for an emptied pane
+region (`AppState::is_chat_region`, `ui::dock::skin::NewChat::region`). A chat dragged into the
+editor region takes the control with it rather than leaving the gesture behind, since the same
+`hosts_chats` half of the rule still applies. The strip's `+` still means "add a view"; the menu
+only answers what the view will be looking at, and **the tab is minted when there is something to
+put in it** — a pick attaches at once, and a start form opens the tab from
 `Message::ConversationStarted`, so a form the user dismisses leaves no empty tab behind.
 
-**The header reads left to right in the order a reader asks.** The state mark says what the
-conversation *is*, the control beside it says what it is *on*, and the three-dots at the far right
-says what can be *done to it*. Nothing attached draws the control alone: there is no glyph and no
-menu with no conversation to read.
+**The header is the one first line every conversation-hosting surface draws**
+(`ui::conversation::lifecycle_header`), not this panel's own row: the three-dots menu at the left,
+this tab's own change-agent chevron beside it, and the current-action chip flush against the
+strip's right edge. There is no state mark here any more — a chat tab's state is the hexagon the
+dock's own tab wears, the same mark the agents column's tab wears (T-99, T-102). Nothing attached
+draws the chevron alone: there is no menu and no chip with no conversation to read either off.
 
 **Nothing in the header names the tab.** The dock's tab already carries the conversation's name, and
 a second copy of it directly under the first was the same answer twice.
@@ -108,6 +117,13 @@ reaches beyond this one and the checkbox that switches it off are the workbench'
 behind it is the conversation family's `ConversationNamed`
 ([`../tech/transport-contract.md`](../tech/transport-contract.md)), and `D90` is why a name Ubiq
 invented may be replaced by one it read.
+
+**Before that naming lands, the tab shows the profile it was started from rather than the bare
+harness label (T-102).** `AppState::agent_title` is what every surface that used to print
+`WorkAgent::name` directly reads now — the dock tab included — and it prefers the session-only
+`agent_started_profile` record over the harness-and-counter default for as long as
+`WorkAgent::summary` is `None`. See [`agent-vocabulary.md`](../wip/agent-vocabulary.md) for where
+that record is kept.
 
 **Closing the last chat tab is allowed.** There is no last-tab guard anywhere in this tree, and a
 chat tab is no exception: closing the only open one leaves nothing behind but a tab strip with
@@ -551,15 +567,14 @@ and nobody typed it, so `Conversation::apply` drops it rather than pushing a `Co
 it: it is not drawn, and it is not what `recall_last_message` hands back to a reader pressing Up in
 an empty field, which reads the transcript for what was actually sent.
 
-**The status glyph and the three-dots lifecycle menu are the one exception: the tab's own header
-draws them, not the shared view.** `ConversationView::header` tells the shared view whether to draw
-its own bordered strip for them — `true` on the agents column, unchanged; `false` here, because the
-chat panel's header draws the identical fragment inline instead — and at *opposite ends* of its
-row, so it takes the two halves separately: `ui::conversation::lifecycle_mark` for the glyph and
-`lifecycle_menu` for the three-dots. The agents column's bordered strip is the menu alone, its own
-reading of the state being the dot on its title. One set of functions either way: the glyph's state and the menu's enable rule are read once, in
-`crates/ubiq/src/ui/conversation/mod.rs`, and both surfaces call them rather than each keeping an
-answer of its own. The three readers behind the menu — `is_persistent`, `accepts_all` and
+**The three-dots menu and the current-action chip are the one row the shared view itself draws.**
+`ConversationView::header` tells `conversation::render` to call
+`ui::conversation::lifecycle_header` — `true` on the agents column, which passes no `switch`; `true`
+here too, with this panel's own change-agent chevron handed in as `switch`, so the row's shape and
+the chip are one function either way rather than a fragment each surface assembles for itself. The
+chevron sits **between** the menu and the chip, not beside either alone — `lifecycle_header` draws
+`[menu, switch?] ... chip` — and it is `start_control` below, the same control whether or not a
+conversation is attached. The three readers behind the menu — `is_persistent`, `accepts_all` and
 `dump_path` — take the host's record through `teams_agent`, which is what makes one set safe to
 share: a row that read `None` would report *off* for a flag that is on, and its toggle would send
 *enable* every time, leaving a flag that could never be turned back off.
@@ -584,15 +599,12 @@ glance has to answer is whether this conversation wants the reader; the tooltip 
 `Unloaded`, `Working · Tools`, never a sentence — replacing the muted line P7 drew above the
 composer for the same fact.
 
-**A chat tab wears the same dot its conversation wears anywhere else, and two of its readings
-blink.** The tab strip draws `ui::conversation::lifecycle_dot` — a `kit::status_dot` and nothing
-new — coloured by `lifecycle_colour` and faded slowly in and out where `lifecycle_pulses` says so,
-which is `Waiting` and `Working` alone: those two are the states something is expected to happen
-in, and a still dot at the edge of vision on a strip nobody is looking at does not say that. It is
-slow and shallow on purpose — a hint, not an alarm, the running turn being watched at the tail
-instead — and it stops entirely for a reader who asked the system for reduced motion. A tab
-attached to nothing has no dot: there is no state to report. See
-[`ui-and-design.md`](../tech/ui-and-design.md) for the rule the element belongs to.
+**A chat tab wears the same hexagon its conversation wears anywhere else (T-99, T-102).** The dock
+draws `ui::teams::status::status_mark` in place of the plain dot for a chat tab — `TabInfo::dot_status`
+rather than `dot_colour`/`dot_pulse`, which every other tab kind still uses — the outer ring reading
+`state::status::Status::lifecycle` and the core reading `Doing`, pulsing only while the lifecycle is
+`Working`. A tab attached to nothing has no mark: there is no state to report. See
+[`ui-and-design.md`](../tech/ui-and-design.md) for the shape rule the element belongs to.
 
 **Each tab owns a composer of its own, from the same fixed pool a column draws from.** The window
 builds `COMPOSER_SLOTS` text areas — `0..COLUMNS_MAX` for columns, the range above it for chat tabs
@@ -701,8 +713,11 @@ it was opened in, or from the user's own reveal.
 
 Rendering is two modules under `crates/ubiq/src/ui/chat/`: `mod.rs` resolves a tab's own attachment
 once — `attached`, read by both children below rather than asked twice — and hands it to the shared
-conversation renderer (`header: false`), or draws the empty page's play button; `sidebar.rs` draws
-the one header row: the state mark and the chevron on the left, the three-dots on the right. The permission prompt is that shared renderer's
+conversation renderer (`header: false`, since the row is drawn separately below), or draws the empty
+page's play button; `sidebar.rs` calls `ui::conversation::lifecycle_header` itself for that row —
+the three-dots menu and the change-agent chevron on the left, the current-action chip flush against
+the right edge — or, unattached, draws the chevron alone at the same row height. The permission
+prompt is that shared renderer's
 too: `crates/ubiq/src/state/conversation.rs` holds `Pending` — the request id, the tool-call patch
 and the options — in `Conversation::pending`, with `oldest_pending()` for what the keyboard means,
 `answered()` for one request leaving, `Pending::option_for` for the first option of a reading,

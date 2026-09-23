@@ -16,13 +16,15 @@ pub mod diff;
 pub mod image;
 pub mod image_edit;
 pub mod markdown;
+pub mod md_options;
 pub mod scene;
 pub mod viewport;
 pub mod web;
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    AnyElement, Context, Entity, IntoElement, ParentElement, Rgba, SharedString, Styled, div, px,
-    relative,
+    AnyElement, Context, Entity, InteractiveElement, IntoElement, ParentElement, Rgba,
+    SharedString, StatefulInteractiveElement, Styled, div, px, relative,
 };
 use gpui_component::input::{Editor, EditorState};
 
@@ -30,8 +32,10 @@ use crate::app::AppState;
 use crate::state::editor::{ViewLayout, ViewerKind};
 use crate::state::{FileBody, OpenFile};
 use crate::theme;
-use crate::ui::eid2;
-use crate::ui::kit::{choice_pill, mono};
+use crate::ui::kit::{
+    MdNavEntry, MinimapMark, choice_pill, md_navigator, minimap, mono, status_dot,
+};
+use crate::ui::{eid, eid2, indexed};
 
 /// The strip the layout toggle sits in, above whatever the viewer drew.
 const HEADER: f32 = 32.0;
@@ -61,6 +65,10 @@ fn header(app: &AppState, file: &OpenFile, cx: &mut Context<AppState>) -> impl I
     }
     let key = file.key();
     let current = file.layout;
+    let markdown = file.viewer == ViewerKind::Markdown;
+    // The badge is a hint about the *other* mode: while the reader is already in it, the threads
+    // themselves are on screen and a dot beside the button says nothing new.
+    let badge = markdown && !current.is_annotation() && app.has_annotations(file, cx);
 
     div()
         .h(px(HEADER))
@@ -69,21 +77,80 @@ fn header(app: &AppState, file: &OpenFile, cx: &mut Context<AppState>) -> impl I
         .flex_none()
         .items_center()
         .justify_end()
-        .gap_1()
+        .gap_2()
         .bg(theme::pane_bg())
         .border_b_1()
         .border_color(theme::border())
-        .children(file.viewer.layouts().iter().copied().map(|layout| {
-            let key = key.clone();
-            choice_pill(
-                eid2("view-layout", &key, layout.label()),
-                layout.label(),
-                current == layout,
-                cx.listener(move |this, _, _, cx| this.set_view_layout(&key, layout, cx)),
-            )
-            .h_full()
-        }))
+        // The navigator is offered in all four of markdown's positions (T-124): the document's
+        // structure is a fact about the file, not about how it is being drawn.
+        .when(markdown, |this| this.child(navigator(app, file, cx)))
+        .child(div().flex_1().min_w(px(0.)))
+        .when(markdown && current != ViewLayout::Source, |this| {
+            this.child(md_options::control(app, cx))
+        })
+        .child(div().flex().items_center().gap_1().children(
+            file.viewer.layouts().iter().copied().map(|layout| {
+                let key = key.clone();
+                let pill = choice_pill(
+                    eid2("view-layout", &key, layout.label()),
+                    layout.label(),
+                    current == layout,
+                    cx.listener(move |this, _, _, cx| this.set_view_layout(&key, layout, cx)),
+                )
+                .h_full();
+                if badge && layout.is_annotation() {
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_1()
+                        .h_full()
+                        .child(pill)
+                        .child(status_dot(theme::info(), theme::transparent()))
+                        .into_any_element()
+                } else {
+                    pill.into_any_element()
+                }
+            }),
+        ))
         .into_any_element()
+}
+
+/// The header's heading navigator.
+///
+/// Two sources, one control. In [`ViewLayout::Annotation`] the document the surface holds is the
+/// better answer — the host's own block index, with each heading's thread counts beside it — and
+/// picking a row scrolls the section into view. In the other three positions there is no indexed
+/// document, so the headings are parsed out of the buffer and a row scrolls the preview by the
+/// heading's own proportion down the source, which is what the minimap already does.
+fn navigator(app: &AppState, file: &OpenFile, cx: &mut Context<AppState>) -> AnyElement {
+    let view = cx.entity();
+    if let Some(doc) = app.annotation_document(file) {
+        return crate::ui::document::navigator(doc, false, &view);
+    }
+
+    let source = match &file.body {
+        FileBody::Text { state, .. } => state.read(cx).value().to_string(),
+        _ => String::new(),
+    };
+    let entries: Vec<MdNavEntry> = markdown::heading_marks(&source)
+        .into_iter()
+        .map(|heading| MdNavEntry::new(heading.level, heading.label, 0, 0))
+        .collect();
+    let key = file.key();
+    let pick_key = key.clone();
+
+    md_navigator(
+        eid("md-nav", &key),
+        format!("{} headings", entries.len()),
+        app.workbench.open_menu == Some(crate::state::MenuId::MdNavigator),
+        &entries,
+        false,
+        crate::ui::handler(&view, |this, _, cx| this.open_md_navigator(cx)),
+        std::rc::Rc::new(indexed(&view, move |this, index, _, cx| {
+            this.select_md_nav_heading(&pick_key, index, cx)
+        })),
+        crate::ui::handler(&view, |this, _, cx| this.close_menu(cx)),
+    )
 }
 
 /// What the file is showing, which is not always what its viewer draws: a tab exists before its
@@ -157,18 +224,178 @@ fn drawn(
     };
 
     match file.layout {
-        ViewLayout::Source => buf(),
+        ViewLayout::Source => warned(app, file, buf(), cx),
+        // The minimap only draws for a markdown file's own full-pane preview — cramped in half a
+        // `Split`, and Mermaid/Excalidraw/Drawio have no headings to mark in the first place.
+        ViewLayout::Preview if file.viewer == ViewerKind::Markdown => {
+            markdown_preview(app, file, state, cx)
+        }
         ViewLayout::Preview => preview(),
         // Only Excalidraw and Drawio offer it, and only they have a component to host.
         ViewLayout::Edit => web::render(app, file, cx),
-        ViewLayout::Split => div()
+        // Only Markdown offers it, and only a file in the project's tree has a document handle.
+        ViewLayout::Annotation => annotation(app, file, cx),
+        ViewLayout::Split => warned(
+            app,
+            file,
+            div()
+                .flex()
+                .flex_1()
+                .min_w(px(0.))
+                .min_h(px(0.))
+                .child(half(buf()).border_r_1().border_color(theme::border()))
+                .child(half(preview()))
+                .into_any_element(),
+            cx,
+        ),
+    }
+}
+
+/// The annotated-document surface, inside the tab — the same one the plan dialog frames, pointed
+/// at this file through `crate::state::plan::file_document`.
+///
+/// **One document is open at a time per window**, so a tab is only ever handed the surface when
+/// the document on the window *is* this file's; `AppState::settle_annotation_document` is what
+/// keeps the two in step, following the editor's active tab. A second markdown tab left in this
+/// layout, or a plan dialog raised over one, says so rather than drawing somebody else's threads.
+fn annotation(app: &AppState, file: &OpenFile, cx: &mut Context<AppState>) -> AnyElement {
+    if !file.annotatable() {
+        return note(
+            "Only a markdown file in the project's own tree can carry annotations",
+            theme::text_faint(),
+        );
+    }
+    match app.annotation_document(file) {
+        // **The surface reads the file from disk, not from this tab's buffer.** They are two
+        // buffers over one file, so a tab holding unsaved edits is told: a section confirmed here
+        // saves the host's copy and the tab's own edits are not in it.
+        Some(doc) if file.dirty() => div()
             .flex()
+            .flex_col()
             .flex_1()
             .min_w(px(0.))
             .min_h(px(0.))
-            .child(half(buf()).border_r_1().border_color(theme::border()))
-            .child(half(preview()))
+            .child(crate::ui::document::warning_row(
+                &file.key(),
+                "This tab has unsaved edits \u{2014} the annotation surface is showing the saved \
+                 file. Save the tab first."
+                    .to_string(),
+                None,
+                cx,
+            ))
+            .child(crate::ui::document::surface(app, doc, cx))
             .into_any_element(),
+        Some(doc) => crate::ui::document::surface(app, doc, cx),
+        None => note(
+            "The annotation surface is showing another document",
+            theme::text_faint(),
+        ),
+    }
+}
+
+/// A view that shows the buffer for editing, with the warning above it when the file carries
+/// threads.
+///
+/// **Editing the source can orphan an annotation** — a thread is anchored to a block the host
+/// matched at the last save, and text rewritten out from under it comes back as a new block with a
+/// new id (`ubiq-host`'s matcher orphans one way, deliberately). The thread is kept and flagged
+/// rather than lost, which is exactly why this is a warning and not a refusal.
+fn warned(
+    app: &AppState,
+    file: &OpenFile,
+    view: AnyElement,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    if !app.has_annotations(file, cx) {
+        return view;
+    }
+    div()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_w(px(0.))
+        .min_h(px(0.))
+        .child(crate::ui::document::warning_row(
+            &file.key(),
+            "This file carries annotations \u{2014} editing the source here can orphan a thread."
+                .to_string(),
+            None,
+            cx,
+        ))
+        .child(view)
+        .into_any_element()
+}
+
+/// The width the markdown minimap draws at, wherever it is drawn — the same figure `ui/plan.rs`'s
+/// own `MINIMAP_WIDTH` uses, kept in step by hand rather than shared, because a screen's own
+/// furniture is not `theme.rs`'s to own (`kit-and-theme.md`'s "Not here" note).
+const MINIMAP_WIDTH: f32 = 72.0;
+
+/// The standard viewer's markdown preview, with the heading minimap beside it when the setting
+/// asks for one — T-118, proposal §8 reduced to what a single `TextView` (no per-block layout,
+/// unlike the plan surface) can honestly offer: a mark per heading, positioned by its proportional
+/// offset in the source rather than a measured pixel position, and a click that scrolls the
+/// document by that same proportion via [`markdown::render_scrollable`]'s external scroll handle.
+fn markdown_preview(
+    app: &AppState,
+    file: &OpenFile,
+    state: &Entity<EditorState>,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let key = file.key();
+    let source = state.read(cx).value().to_string();
+    let ui = &app.workbench.settings.ui;
+    // T-126: always the external-scroll-handle rendering — the one path that gives a properly
+    // sized, natural-height document plus a scrollbar drawn as the pane's own edge, rather than
+    // TextView's internal virtualised-list scroller, which clipped the last line, left dead
+    // space below it, and drew its own scrollbar off the reading column. The minimap needed this
+    // path already; the fix is offering it whether or not the minimap is on screen.
+    let document = markdown::render_scrollable(
+        app,
+        &key,
+        &source,
+        file.frontmatter_open,
+        &file.md_scroll,
+        cx,
+    );
+    if !ui.md_minimap {
+        return document;
+    }
+
+    let side = ui.md_minimap_side;
+    let marks: Vec<MinimapMark> = markdown::heading_marks(&source)
+        .into_iter()
+        .map(|heading| MinimapMark::new(heading.fraction, heading_colour(heading.level)))
+        .collect();
+
+    let view = cx.entity();
+    let mark_key = key.clone();
+    let strip = minimap(
+        eid("md-minimap", &key),
+        MINIMAP_WIDTH,
+        &marks,
+        std::rc::Rc::new(indexed(&view, move |this, index, _, cx| {
+            this.select_md_minimap_mark(&mark_key, index, cx)
+        })),
+    );
+
+    let row = div().flex().flex_1().min_w(px(0.)).min_h(px(0.));
+    match side {
+        theme::MdMinimapSide::Left => row.child(strip).child(document),
+        theme::MdMinimapSide::Right => row.child(document).child(strip),
+    }
+    .into_any_element()
+}
+
+/// A heading's tick colour on the minimap: H1/H2 in the interactive colour, since they are what a
+/// reader jumps between, deeper headings fainter — the closest honest stand-in reachable here for
+/// proposal §8.2's bar-weight distinction, which the kit's `minimap` primitive does not yet draw
+/// (every mark is the same short tick; see `ui/kit/minimap.rs`).
+fn heading_colour(level: u8) -> Rgba {
+    if level <= 2 {
+        theme::accent()
+    } else {
+        theme::text_faint()
     }
 }
 
@@ -222,4 +449,22 @@ pub fn surface() -> gpui::Div {
         .min_w(px(0.))
         .min_h(px(0.))
         .bg(theme::app_bg())
+}
+
+/// The frame a fenced diagram (Mermaid or Excalidraw) draws in inside a Markdown document —
+/// T-126: the picture is drawn at its own natural size, which can be wider than the reading
+/// column, so this scrolls it horizontally instead of letting it spill past the viewport. The
+/// element id only needs to be unique per fence in the document, which the fence's own source is.
+pub(crate) fn diagram_frame(key: &str, picture: impl IntoElement) -> AnyElement {
+    div()
+        .id(eid("md-diagram", key))
+        .w_full()
+        .min_w(px(0.))
+        .overflow_x_scroll()
+        .flex()
+        .flex_col()
+        .items_center()
+        .p_3()
+        .child(picture)
+        .into_any_element()
 }

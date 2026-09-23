@@ -18,6 +18,7 @@ pub mod browse;
 #[cfg(feature = "git")]
 pub mod diff;
 pub mod path;
+pub mod related;
 
 use std::fs;
 use std::io::Read;
@@ -422,7 +423,22 @@ fn new_file_seed(rel_path: &str) -> &'static [u8] {
 /// `to` is the destination, and it belongs to `Move` and `Copy` alone. Present where it is not
 /// wanted, or absent where it is, it is a refusal rather than something quietly dropped — a `to`
 /// the host ignores is a wiring mistake the interface cannot see.
-pub fn edit(root: &Path, rel_path: &str, to: Option<&str>, op: PathOp) -> Result<(), FileError> {
+///
+/// `carry_related` applies the same op to whatever [`related::related`] finds for `rel_path` —
+/// `Move`'s destination rebased through the rule that found it, `Trash` and `Delete` applied
+/// unchanged. **Best effort, and never what decides whether this call succeeded**: the row the
+/// user asked about is `rel_path`, and a related file that fails to carry (already gone, its own
+/// destination taken) is logged rather than turned into a refusal of the edit the user actually
+/// asked for. Meaningless for `Create` and `Copy`, and ignored for them — a new path has nothing
+/// related yet, and a copy leaves the original's related files exactly where they were, which is
+/// what copying anything else here already does.
+pub fn edit(
+    root: &Path,
+    rel_path: &str,
+    to: Option<&str>,
+    op: PathOp,
+    carry_related: bool,
+) -> Result<(), FileError> {
     let wants_to = matches!(op, PathOp::Move | PathOp::Copy);
     if wants_to != to.is_some() {
         return Err(FileError::Refused(format!(
@@ -430,7 +446,7 @@ pub fn edit(root: &Path, rel_path: &str, to: Option<&str>, op: PathOp) -> Result
         )));
     }
 
-    match op {
+    let result = match op {
         PathOp::Create { dir } => {
             let target = path::resolve_for_write(root, rel_path)?;
             if target.exists() {
@@ -486,6 +502,37 @@ pub fn edit(root: &Path, rel_path: &str, to: Option<&str>, op: PathOp) -> Result
             } else {
                 fs::remove_file(&target).map_err(from_io)
             }
+        }
+    };
+
+    if result.is_ok() && carry_related {
+        carry(root, rel_path, to, op);
+    }
+    result
+}
+
+/// Apply `op` again to whatever [`related::related`] finds for `rel_path`, once the primary edit
+/// has already succeeded. See [`edit`]'s own doc for why a related file's own failure never turns
+/// into a refusal of that edit.
+fn carry(root: &Path, rel_path: &str, to: Option<&str>, op: PathOp) {
+    for (found_rel_path, target_rel_path) in related::carry_pairs(root, rel_path, to) {
+        let outcome = match op {
+            PathOp::Move => match &target_rel_path {
+                Some(target_rel_path) => {
+                    edit(root, &found_rel_path, Some(target_rel_path), op, false)
+                }
+                // `related::carry_pairs` names no destination only for `Trash`/`Delete`; a `Move`
+                // with nothing to rebase onto is a rule that cannot place it, and it is left where
+                // it was rather than guessed at.
+                None => continue,
+            },
+            PathOp::Trash | PathOp::Delete => edit(root, &found_rel_path, None, op, false),
+            PathOp::Create { .. } | PathOp::Copy => continue,
+        };
+        if let Err(error) = outcome {
+            tracing::warn!(
+                "{rel_path:?}'s related file {found_rel_path:?} was not carried through {op:?}: {error}"
+            );
         }
     }
 }
@@ -592,6 +639,10 @@ pub enum Request {
         rel_path: String,
         to: Option<String>,
         op: PathOp,
+        carry_related: bool,
+    },
+    Related {
+        rel_path: String,
     },
 }
 
@@ -753,14 +804,25 @@ fn file_answer(project_id: ProjectId, root: &Path, request: &Request) -> Message
             old.as_deref(),
             new.as_deref(),
         ),
-        Request::Edit { rel_path, to, op } => match edit(root, rel_path, to.as_deref(), *op) {
+        Request::Edit {
+            rel_path,
+            to,
+            op,
+            carry_related,
+        } => match edit(root, rel_path, to.as_deref(), *op, *carry_related) {
             Ok(()) => Message::ProjectPathEdited {
                 project_id,
                 rel_path: rel_path.clone(),
                 to: to.clone(),
                 op: *op,
+                carry_related: *carry_related,
             },
             Err(error) => file_error(project_id, rel_path, error),
+        },
+        Request::Related { rel_path } => Message::ProjectFileRelated {
+            project_id,
+            rel_path: rel_path.clone(),
+            related: related::related(root, rel_path),
         },
     }
 }
@@ -806,7 +868,7 @@ fn diff_answer(
 /// Do one knowledge-base job and say what the window is told.
 ///
 /// Only a tree listing and a read make sense against a source read-only by [`KbSource::is_writable`];
-/// the other three [`Request`] arms reach here only if the coordinator is ever wired wrongly, and
+/// the other four [`Request`] arms reach here only if the coordinator is ever wired wrongly, and
 /// are refused rather than silently dropped, on [`Message::EditProjectPath`]'s own reasoning for a
 /// destination in the wrong place.
 fn kb_answer(project_id: ProjectId, source: &KbSource, base: &Path, request: &Request) -> Message {
@@ -845,7 +907,8 @@ fn kb_answer(project_id: ProjectId, source: &KbSource, base: &Path, request: &Re
         },
         Request::Write { rel_path, .. }
         | Request::Diff { rel_path, .. }
-        | Request::Edit { rel_path, .. } => kb_error(
+        | Request::Edit { rel_path, .. }
+        | Request::Related { rel_path, .. } => kb_error(
             project_id,
             source.id,
             rel_path,

@@ -5,8 +5,8 @@ kind: tech
 status: draft
 summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, quota, profile, command-line, host browse, connector, repository, assist, notification, web asset and carrier families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
-updated: 2026-09-22
-verified: 2026-09-22
+updated: 2026-09-23
+verified: 2026-09-23
 code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ask.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/feedback.rs, crates/ubiq-host/src/feedback/mod.rs, crates/ubiq-host/src/feedback/api.rs, crates/ubiq-host/src/feedback/issues.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq-drone/src/search.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
@@ -867,33 +867,44 @@ either way, because a `Box` serialises as what is inside it.
 ## The plan family
 
 A family of its own beside the work family it extends, sized for what it does: four variants out,
-five back. **Every variant names a project and a task**, because a plan belongs to one task, the
-same way the work family's own variants do.
+five back. **Every variant names a `DocumentHandle` and nothing else.** The handle is
+`ubiq_proto::plan::DocumentHandle`, and it has two variants: `Plan { project_id, task_id }` — a
+task's plan under the config root — and `File { project_id, rel_path }` — an ordinary markdown file
+in the project's own working tree, annotated in place. The messages, the block matcher, the
+orphaning rule and the provenance layer are the same for both; where the body and its sidecar sit
+is the host's answer to the handle, resolved once in `Coordinator::plan_job`, and a `rel_path` that
+is not markdown or does not land inside the project is refused there with `PlanError`.
+
+The names stayed `Plan*` because the records the family carries are (`PlanBlock`, `PlanRevision`,
+`PlanChangedRegion`) and renaming half a vocabulary is not what makes a document generic.
 
 | Message | Direction | Payload | Responds with |
 |---|---|---|---|
-| `LoadPlan` | UI → host | `project_id`, `task_id` | `Plan` or `PlanError` |
-| `SavePlan` | UI → host | `project_id`, `task_id`, `body`, `expected` | `Plan` (asker) and `PlanChanged` (everyone), or `PlanConflict` / `PlanError` (asker) |
-| `DeletePlan` | UI → host | `project_id`, `task_id` | `PlanDeleted` (everyone, only if a file existed) or `PlanError` |
-| `ExportPlan` | UI → host | `project_id`, `task_id`, `rel_path` | `PlanExported` or `PlanError` |
-| `Plan` | host → UI | `project_id`, `task_id`, `body`, `revision` | — |
-| `PlanDeleted` | host → UI | `project_id`, `task_id` | — |
-| `PlanExported` | host → UI | `project_id`, `task_id`, `rel_path` | — |
-| `PlanChanged` | host → UI | `project_id`, `task_id`, `revision`, `origin` | — |
-| `ListPlanAnnotations` | UI → host | `project_id`, `task_id` | `PlanAnnotations` or `PlanError` |
-| `AnnotatePlan` | UI → host | `project_id`, `task_id`, `block_id`, `quote?`, `text` | `PlanAnnotations` (asker) and `PlanAnnotationsChanged` (everyone), or `PlanError` |
-| `ReplyToAnnotation` | UI → host | `project_id`, `task_id`, `annotation_id`, `text` | `PlanAnnotations` (asker) and `PlanAnnotationsChanged` (everyone), or `PlanError` |
-| `ResolveAnnotation` | UI → host | `project_id`, `task_id`, `annotation_id`, `resolved` | `PlanAnnotations` (asker) and `PlanAnnotationsChanged` (everyone), or `PlanError` |
-| `PlanAnnotations` | host → UI | `project_id`, `task_id`, `blocks`, `annotations` | — |
-| `PlanAnnotationsChanged` | host → UI | `project_id`, `task_id` | — |
-| `ListPlanChanges` | UI → host | `project_id`, `task_id`, `since_revision?` | `PlanChanges` or `PlanError` |
-| `PlanChanges` | host → UI | `project_id`, `task_id`, `regions`, `stats` | — |
-| `PlanConflict` | host → UI | `project_id`, `task_id`, `revision`, `origin` | — |
-| `PlanError` | host → UI | `project_id`, `task_id?`, `error` | — |
+| `LoadPlan` | UI → host | `doc` | `Plan` or `PlanError` |
+| `SavePlan` | UI → host | `doc`, `body`, `expected` | `Plan` (asker) and `PlanChanged` (everyone), or `PlanConflict` / `PlanError` (asker) |
+| `DeletePlan` | UI → host | `doc` | `PlanDeleted` (everyone, only if a file existed) or `PlanError`; a `File` document is always refused |
+| `ExportPlan` | UI → host | `doc`, `rel_path` | `PlanExported` or `PlanError` |
+| `Plan` | host → UI | `doc`, `body`, `revision` | — |
+| `PlanDeleted` | host → UI | `doc` | — |
+| `PlanExported` | host → UI | `doc`, `rel_path` | — |
+| `PlanChanged` | host → UI | `doc`, `revision`, `origin` | — |
+| `ListPlanAnnotations` | UI → host | `doc` | `PlanAnnotations` or `PlanError` |
+| `AnnotatePlan` | UI → host | `doc`, `block_id`, `quote?`, `text` | `PlanAnnotations` (asker) and `PlanAnnotationsChanged` (everyone), or `PlanError` |
+| `ReplyToAnnotation` | UI → host | `doc`, `annotation_id`, `text` | `PlanAnnotations` (asker) and `PlanAnnotationsChanged` (everyone), or `PlanError` |
+| `ResolveAnnotation` | UI → host | `doc`, `annotation_id`, `resolved` | `PlanAnnotations` (asker) and `PlanAnnotationsChanged` (everyone), or `PlanError` |
+| `PlanAnnotations` | host → UI | `doc`, `blocks`, `annotations` | — |
+| `PlanAnnotationsChanged` | host → UI | `doc` | — |
+| `ListPlanChanges` | UI → host | `doc`, `since_revision?` | `PlanChanges` or `PlanError` |
+| `PlanChanges` | host → UI | `doc`, `regions`, `stats` | — |
+| `PlanConflict` | host → UI | `doc`, `revision`, `origin` | — |
+| `PlanError` | host → UI | `project_id`, `doc?`, `error` | — |
 
 **A plan belongs to any task carrying a `level`, not to a fixed mission subtype.** The host refuses
 every variant here with `PlanError` for a task whose `level` is `None`, the work family's own
-`parent_refusal` posture. `DeletePlan` is not in this family — a plan is removed only as a
+`parent_refusal` posture. A `File` document has no such check: being markdown and inside the
+project is all it has to be, and a file that is not there yet reads as an empty body the same way
+an unplanned mission does. `PlanError` carries `project_id` beside `doc` because the one failure
+with no document to name — a project the catalogue does not hold — still has to be reported. `DeletePlan` is not in this family — a plan is removed only as a
 consequence of `Message::DeleteTask`, so nothing here orphans a plan the way `Work::orphan_children`
 orphans a child task's `parent`.
 

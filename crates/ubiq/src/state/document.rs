@@ -1,21 +1,30 @@
-//! The annotated-document surface: an editable markdown buffer, the threads anchored to passages
-//! of it, and the handle that says *which* document is on screen.
+//! The annotated-document surface: the document's markdown, the threads anchored to passages of
+//! it, the section opened for editing, and the handle that says *which* document is on screen.
+//!
+//! **The surface reads the document and writes one section at a time.** There is no source view
+//! and no layout: the body is drawn as a markdown preview, a section opened for editing is a field
+//! over that section alone ([`SectionEdit`]), and confirming it splices back into the same buffer
+//! the whole document is saved from. Every fact below about revisions, staleness and dirtiness is
+//! unchanged by that — a section edit is an ordinary whole-document save.
 //!
 //! **This module is generic over a document on purpose.** Slice 6 builds one writing surface, not
 //! a plan screen: the editor, the decorations, the thread popover and the `/` menu all read
 //! [`DocumentEditor`], which names a [`DocumentHandle`] rather than a `TaskId`. A plan is the
-//! handle's first — and, this wave, only — variant.
+//! handle's first variant and an ordinary markdown file in the project's tree is the second; the
+//! surface cannot tell them apart, which is the point.
 //!
-//! What a second variant has to supply is exactly the three things the handle answers for:
+//! **The handle is [`ubiq_proto::plan::DocumentHandle`], and it lives in the contract** rather
+//! than here: every message in the family carries it, so a type the window owned would have to be
+//! translated on the way out and matched back on the way in. Two variants today — a task's plan,
+//! and an ordinary markdown file in the project's tree, annotated in place. What either one
+//! answers for is the same three things:
 //!
-//! 1. **A body source and a save target** — a message that reads the document's markdown and one
-//!    that replaces it whole. `crate::state::plan`'s is `LoadPlan`/`SavePlan`.
-//! 2. **An annotation source** — a message that lists the blocks and their threads, and the three
-//!    verbs that open, answer and close one. The block ids are the *host's*: a window never mints
-//!    one, because matching blocks across a save is what keeps a thread anchored.
-//! 3. **A store for both, on the host side.** For an arbitrary project `.md` file that is the open
-//!    question — a sidecar inside the user's git repository is a decision nobody has taken — and
-//!    it is why this wave stops at the seam.
+//! 1. **A body source and a save target** — `LoadPlan`/`SavePlan`, naming the handle.
+//! 2. **An annotation source** — the blocks and their threads, and the three verbs that open,
+//!    answer and close one. The block ids are the *host's*: a window never mints one, because
+//!    matching blocks across a save is what keeps a thread anchored.
+//! 3. **A store for both, on the host side.** A plan's is under the config root; a file's body is
+//!    the file itself, with its sidecar at `<file>.md.annotation.json` beside it.
 //!
 //! Nothing here renders, and nothing here builds a [`ubiq_proto::messages::Message`]: the wire is
 //! `crate::app::plan`'s, which carries the `impl DocumentHandle` that turns a handle into the
@@ -23,56 +32,14 @@
 
 use std::ops::Range;
 
+use gpui::Entity;
+use gpui_component::input::TextareaState;
 use ubiq_proto::ids::{AnnotationId, BlockId, ProjectId, TaskId};
 use ubiq_proto::plan::{
     Annotation, PlanBlock, PlanChangeStats, PlanChangedRegion, PlanRevision, SaveOrigin,
 };
 
-use crate::state::editor::ViewLayout;
-
-/// Which document an annotated surface is showing.
-///
-/// One variant today. A second one is a storage decision before it is a line of code — see the
-/// module documentation.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum DocumentHandle {
-    /// A task's plan, stored beside the project's tasks in the config root and reached through
-    /// the plan family on the wire.
-    Plan {
-        project_id: ProjectId,
-        task_id: TaskId,
-    },
-}
-
-impl DocumentHandle {
-    pub fn project_id(&self) -> ProjectId {
-        match self {
-            DocumentHandle::Plan { project_id, .. } => *project_id,
-        }
-    }
-
-    /// The task a plan belongs to. `None` for a document that is not a plan — which is the whole
-    /// point of the handle: no caller outside `state::plan` may assume a task is there.
-    pub fn task_id(&self) -> Option<TaskId> {
-        match self {
-            DocumentHandle::Plan { task_id, .. } => Some(*task_id),
-        }
-    }
-
-    /// What the surface calls this kind of document in its chrome.
-    pub fn kind_label(&self) -> &'static str {
-        match self {
-            DocumentHandle::Plan { .. } => "Plan",
-        }
-    }
-
-    /// A stable string for element ids and buffer keys — one document, one key.
-    pub fn key(&self) -> String {
-        match self {
-            DocumentHandle::Plan { task_id, .. } => format!("plan:{task_id}"),
-        }
-    }
-}
+pub use ubiq_proto::plan::DocumentHandle;
 
 /// What the host has said about the document's body, since the surface asked.
 pub enum DocumentBody {
@@ -129,10 +96,44 @@ pub enum ComposerTarget {
     Reply(AnnotationId),
 }
 
+/// One section opened for editing in place, and the field holding its raw markdown.
+///
+/// The field's entity lives here rather than on `AppState` because **the widget's state is the
+/// model**: a section edit exists only while a document is open, and which section is being edited
+/// is the same fact as which buffer is on screen. It is built when the edit starts and dropped
+/// when it is confirmed or cancelled, so nothing subscribes to it — the confirming press reads the
+/// value.
+pub struct SectionEdit {
+    /// The block the edit replaces. The host's id, never one the window minted.
+    pub block_id: BlockId,
+    /// The section's markdown source, as typed.
+    pub input: Entity<TextareaState>,
+}
+
+/// Which frame the one annotated-document surface is drawn in.
+///
+/// **One document is open at a time per window**, so this is a property of that document rather
+/// than two states: a markdown tab put into `ViewLayout::Annotation` opens the file's document
+/// here, and raising the plan dialog over it replaces it, exactly as opening a second plan does.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Presentation {
+    /// `ui/plan.rs`'s dialog — the plan editor, settled as a modal.
+    Modal,
+    /// Inside a markdown tab's viewer, as its fourth layout.
+    Viewer,
+}
+
 /// One annotated document, while its surface is open. One at a time per window: opening another
 /// replaces it, the way the rest of the window's overlays behave.
 pub struct DocumentEditor {
     pub doc: DocumentHandle,
+    /// Where the surface is drawn. **The surface itself is the same either way** — the columns, the
+    /// rail, the gutter and every action on them are `crate::ui::document`'s, and neither arm knows
+    /// which one it is in. What this decides is who frames it: [`Presentation::Modal`] is the plan
+    /// dialog (`ui/plan.rs`, raised over the window, peeled by Escape at `Layer::Plan`), and
+    /// [`Presentation::Viewer`] is a markdown tab in `ViewLayout::Annotation`, drawn inside the
+    /// panel with no scrim and no rung of its own.
+    pub presentation: Presentation,
     pub body: DocumentBody,
     /// The text as the host last stated it. The buffer is seeded from this, and `dirty` is the
     /// buffer differing from it.
@@ -178,9 +179,10 @@ pub struct DocumentEditor {
     /// The change decorations no longer match the text — `decor_stale`'s twin, kept apart because
     /// the two layers are refreshed by different answers.
     pub change_decor_stale: bool,
-    /// Source, preview, or both — the file editor's own toggle, on the same enum, because this is
-    /// the same kind of surface and not a dialog with a preview bolted on.
-    pub layout: ViewLayout,
+    /// The section opened for editing in place, if any. **The surface has no source view**: the
+    /// document is read as a markdown preview and written one section at a time, so this is the
+    /// only writing surface it offers.
+    pub section_edit: Option<SectionEdit>,
     pub annotations: AnnotationsBody,
     /// A thread shown in the popover anchored to its passage, rather than only in the rail.
     pub thread: Option<AnnotationId>,
@@ -193,13 +195,24 @@ pub struct DocumentEditor {
     /// window's, what was typed is the document's.
     pub composer_text: String,
     pub notice: Option<Notice>,
+    /// The heading navigator's own dropdown, down or not — a fact about this document alone, the
+    /// same way `composer` and `thread` are, rather than the window's single `MenuId`: it opens off
+    /// the document's own chrome, not the titlebar or a panel header the rest of that system reads.
+    pub nav_open: bool,
+    /// While composing a *new* thread, the rail hides every other thread so the one being written
+    /// is the only thing beside the field — the user pressed the section's own affordance for a
+    /// reason, and a long list of settled threads is noise against that. `true` overrides the hide,
+    /// which is what the rail's "Show all threads" button sets; never persisted, and reset the
+    /// moment the composer leaves the new-thread shape (cancelled, sent, or a reply opened instead).
+    pub thread_focus_override: bool,
 }
 
 impl DocumentEditor {
     /// A freshly opened surface, waiting on the host's two answers.
-    pub fn loading(doc: DocumentHandle) -> Self {
+    pub fn loading(doc: DocumentHandle, presentation: Presentation) -> Self {
         Self {
             doc,
+            presentation,
             body: DocumentBody::Loading,
             saved: String::new(),
             needs_seed: false,
@@ -215,7 +228,7 @@ impl DocumentEditor {
             changes: Vec::new(),
             change_stats: PlanChangeStats::default(),
             change_decor_stale: false,
-            layout: ViewLayout::Source,
+            section_edit: None,
             annotations: AnnotationsBody::Loading,
             thread: None,
             show_resolved: false,
@@ -223,6 +236,8 @@ impl DocumentEditor {
             composer_quote: None,
             composer_text: String::new(),
             notice: None,
+            nav_open: false,
+            thread_focus_override: false,
         }
     }
 
@@ -232,6 +247,26 @@ impl DocumentEditor {
 
     pub fn task_id(&self) -> Option<TaskId> {
         self.doc.task_id()
+    }
+
+    /// The stable string that scopes every element id this surface draws — `ubiq_proto`'s own
+    /// `DocumentHandle::key`, named again here because it is `ui::document` that reads it (T-125).
+    /// Every `plan-*` id that has no other unique part of its own (a block id, an annotation id —
+    /// both host-minted and already unique across documents) is scoped by this, so a second
+    /// surface open on a different document does not collide with the first one's chrome.
+    ///
+    /// **This does not yet make two surfaces independently editable.** `AppState` still holds one
+    /// `workbench.plan` slot, one shared buffer (`plan_editor`) and one shared composer field —
+    /// opening a second annotated document still replaces the first rather than adding beside it.
+    /// Only the id collision this method fixes is what's done; `_docs/backlog.md` carries the rest
+    /// of "a `DocumentEditor` per surface rather than per window" as its own row.
+    pub fn surface_key(&self) -> String {
+        self.doc.key()
+    }
+
+    /// Whether this document is the plan dialog's rather than a markdown tab's.
+    pub fn is_modal(&self) -> bool {
+        self.presentation == Presentation::Modal
     }
 
     /// The host stated the document's body, and `typed` is what the buffer holds as it arrives.
@@ -324,12 +359,23 @@ impl DocumentEditor {
         }
     }
 
+    /// The block currently open as a raw-markdown field, if any.
+    pub fn editing_block(&self) -> Option<BlockId> {
+        self.section_edit.as_ref().map(|edit| edit.block_id)
+    }
+
     /// The block the composer is drafting a fresh annotation about.
     pub fn composer_block(&self) -> Option<BlockId> {
         match self.composer {
             Some(ComposerTarget::Block(id)) => Some(id),
             _ => None,
         }
+    }
+
+    /// Whether the rail should hide every thread but the one being composed — a new thread in
+    /// progress, and the user has not asked to see the rest anyway.
+    pub fn hides_other_threads(&self) -> bool {
+        self.composer_block().is_some() && !self.thread_focus_override
     }
 
     /// Every annotation naming a given block, open and resolved alike.
@@ -346,6 +392,251 @@ impl DocumentEditor {
             .iter()
             .find(|annotation| annotation.id == annotation_id)
     }
+
+    /// A section edit was confirmed and saved: patch the cached block(s) so the preview shows
+    /// them now, rather than waiting on the host.
+    ///
+    /// **The host only restates the block index — `Message::PlanAnnotationsChanged` — when a save
+    /// orphans a thread.** An edit that keeps every anchor (the ordinary case) never re-sends it,
+    /// so `preview`'s per-section render, which reads this cache rather than the live buffer, kept
+    /// showing what the section said before the edit until the surface was closed and reopened.
+    /// This is the fix: the window already knows exactly what it just wrote, so it says so here
+    /// instead of waiting for a round trip that may never come. The host's own word, whenever it
+    /// does arrive, overwrites this again — this is only ever ahead of it, never in conflict.
+    ///
+    /// `parsed` is the edited text's own blocks — [`parse_section_blocks`]'s answer — so **a section
+    /// that parsed into several blocks (a paragraph split by a blank line, say) is cached as several
+    /// blocks**, never as one block holding embedded newlines: the gutter, the double-click-to-edit
+    /// affordance and every other per-block thing in `ui::plan` reads this cache at block
+    /// granularity, and a single lumped block would answer all of them for the whole span at once.
+    /// An empty `parsed` is a section edited down to nothing, and the block is dropped outright — the
+    /// preview should say so immediately rather than keep drawing a row for text no longer there.
+    ///
+    /// The id `block_id` carried is kept on the **first** resulting block and nowhere else, so a
+    /// thread anchored here stays anchored to the part of the split it is still about, the same
+    /// rule the host's own matcher applies when a block turns into several.
+    pub fn replace_cached_block(&mut self, block_id: BlockId, parsed: Vec<(String, String)>) {
+        let AnnotationsBody::Loaded { blocks, .. } = &mut self.annotations else {
+            return;
+        };
+        let Some(pos) = blocks.iter().position(|block| block.id == block_id) else {
+            return;
+        };
+        if parsed.is_empty() {
+            blocks.remove(pos);
+            return;
+        }
+        let replacement: Vec<PlanBlock> = parsed
+            .into_iter()
+            .enumerate()
+            .map(|(index, (kind, text))| PlanBlock {
+                id: if index == 0 {
+                    block_id
+                } else {
+                    BlockId::generate()
+                },
+                kind,
+                text,
+            })
+            .collect();
+        blocks.splice(pos..=pos, replacement);
+    }
+}
+
+/// The blocks a section's edited markdown parses into, kind and text alike — the same walk
+/// `ubiq-host`'s own indexer runs (`crates/ubiq-host/src/plan/blocks.rs`), mirrored here rather
+/// than shared because the window does not depend on the host crate. It exists only to patch the
+/// local block cache optimistically, ahead of the host's own re-index, which remains authoritative
+/// and overwrites whatever this guessed the moment it answers.
+pub fn parse_section_blocks(text: &str) -> Vec<(String, String)> {
+    use markdown::mdast::Node;
+
+    fn is_container(node: &Node) -> bool {
+        matches!(
+            node,
+            Node::Root(_)
+                | Node::Blockquote(_)
+                | Node::List(_)
+                | Node::ListItem(_)
+                | Node::FootnoteDefinition(_)
+        )
+    }
+
+    fn kind_of(node: &Node) -> Option<String> {
+        Some(match node {
+            Node::Paragraph(_) => "paragraph".to_string(),
+            Node::Heading(heading) => format!("heading:{}", heading.depth),
+            Node::Code(_) => "code".to_string(),
+            Node::Math(_) => "math".to_string(),
+            Node::Table(_) => "table".to_string(),
+            Node::ThematicBreak(_) => "break".to_string(),
+            Node::Html(_) => "html".to_string(),
+            Node::Definition(_) => "definition".to_string(),
+            Node::Toml(_) | Node::Yaml(_) => "frontmatter".to_string(),
+            _ => return None,
+        })
+    }
+
+    fn walk(node: &Node, source: &str, out: &mut Vec<(String, String)>) {
+        if is_container(node) {
+            if let Some(children) = node.children() {
+                for child in children {
+                    walk(child, source, out);
+                }
+            }
+            return;
+        }
+        let (Some(kind), Some(position)) = (kind_of(node), node.position()) else {
+            return;
+        };
+        let Some(text) = source.get(position.start.offset..position.end.offset) else {
+            return;
+        };
+        let text = text.trim();
+        if !text.is_empty() {
+            out.push((kind, text.to_string()));
+        }
+    }
+
+    let Ok(ast) = markdown::to_mdast(text, &markdown::ParseOptions::gfm()) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    walk(&ast, text, &mut out);
+    out
+}
+
+/// One heading in a document, indented by its own depth, and how many threads sit under it — open
+/// against settled — for a navigator that lists a document's structure hierarchically.
+///
+/// **"Under it" is every block from this heading up to, but not including, the next heading of any
+/// depth.** Not a nested rollup: a `##`'s count including every `###` beneath it would count the
+/// same thread again for a second row on screen, and a flat count is what each row's own label
+/// actually names.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HeadingEntry {
+    pub block_id: BlockId,
+    /// `1` for `#`, up to `6`.
+    pub level: u8,
+    /// The heading's own text, with its `#`s taken off — what the row says, not what it was
+    /// written as.
+    pub label: String,
+    pub open: usize,
+    pub resolved: usize,
+}
+
+/// The document's headings, in order, each carrying the open and resolved counts of the section it
+/// starts — the data a markdown navigator draws, kept apart from the drawing so it can be tested
+/// on its own.
+pub fn heading_sections(blocks: &[PlanBlock], annotations: &[Annotation]) -> Vec<HeadingEntry> {
+    fn heading_level(kind: &str) -> Option<u8> {
+        kind.strip_prefix("heading:")?.parse().ok()
+    }
+
+    let mut out: Vec<HeadingEntry> = Vec::new();
+    for block in blocks {
+        match heading_level(&block.kind) {
+            Some(level) => {
+                let label = block.text.trim_start_matches('#').trim().to_string();
+                let mut entry = HeadingEntry {
+                    block_id: block.id,
+                    level,
+                    label,
+                    open: 0,
+                    resolved: 0,
+                };
+                count_into(&mut entry, block.id, annotations);
+                out.push(entry);
+            }
+            // A block before the first heading has nowhere to add its count — a document that
+            // opens with prose rather than a title, which the navigator simply has nothing to say
+            // about yet.
+            None => {
+                if let Some(last) = out.last_mut() {
+                    count_into(last, block.id, annotations);
+                }
+            }
+        }
+    }
+    out
+}
+
+fn count_into(entry: &mut HeadingEntry, block_id: BlockId, annotations: &[Annotation]) {
+    for annotation in annotations {
+        if annotation.block_id != block_id {
+            continue;
+        }
+        if annotation.is_open() {
+            entry.open += 1;
+        } else {
+            entry.resolved += 1;
+        }
+    }
+}
+
+/// One thread, positioned by where its block sits among the document's blocks — the data a
+/// minimap draws, kept apart from the drawing on `heading_sections`'s own rule so it can be
+/// tested on its own and so a mark clicked in the strip can be resolved back to an annotation the
+/// same way a picked row in the navigator resolves back to a heading.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ThreadMark {
+    pub annotation_id: AnnotationId,
+    /// The mark's position among `blocks` — an index, not a pixel: the caller with a real
+    /// `ScrollHandle` turns it into one, and a caller with none (a test) can still assert on the
+    /// ordering alone.
+    pub block_index: usize,
+    pub open: bool,
+}
+
+/// Every thread whose block is still in the document, in the blocks' own order — **an orphaned
+/// thread (`annotation.block_id` matching no block) carries no position and is left out**, the
+/// same as the gutter's own count: there is nothing on the page to mark it against.
+pub fn thread_marks(blocks: &[PlanBlock], annotations: &[Annotation]) -> Vec<ThreadMark> {
+    annotations
+        .iter()
+        .filter_map(|annotation| {
+            let block_index = blocks
+                .iter()
+                .position(|block| block.id == annotation.block_id)?;
+            Some(ThreadMark {
+                annotation_id: annotation.id,
+                block_index,
+                open: annotation.is_open(),
+            })
+        })
+        .collect()
+}
+
+/// Splice a section's edited text into the body. **An all-whitespace replacement removes the
+/// section outright** — its blank-line gap with it — rather than saving an empty paragraph where
+/// it stood: item 2 of the section-edit revamp is "a block edited down to nothing goes away", not
+/// "a block edited down to nothing is kept, empty".
+///
+/// The gap absorbed is whichever side has one: forward first, so a section removed from the middle
+/// of the document closes up against the one that follows it, and backward only when there is
+/// nothing after it to close up against — the last block in the document.
+pub fn splice_section(body: &str, range: Range<usize>, typed: &str) -> String {
+    let typed = typed.trim();
+    if typed.is_empty() {
+        let mut start = range.start;
+        let mut end = range.end;
+        let kept_after = body[end..].trim_start_matches('\n').len();
+        let gap_after = body[end..].len() - kept_after;
+        if gap_after > 0 {
+            end += gap_after;
+        } else {
+            start = body[..start].trim_end_matches('\n').len();
+        }
+        let mut next = String::with_capacity(body.len() - (end - start));
+        next.push_str(&body[..start]);
+        next.push_str(&body[end..]);
+        return next;
+    }
+    let mut next = String::with_capacity(body.len() + typed.len());
+    next.push_str(&body[..range.start]);
+    next.push_str(typed);
+    next.push_str(&body[range.end..]);
+    next
 }
 
 /// Where each of the host's blocks sits in the text on screen.
@@ -549,6 +840,7 @@ pub fn slash_prefix(text: &str, offset: usize) -> Option<&str> {
 mod tests {
     use super::*;
     use chrono::Utc;
+    use ubiq_proto::plan::AnnotationState;
     use ubiq_proto::work::CommentAuthor;
 
     fn block(text: &str) -> PlanBlock {
@@ -557,6 +849,28 @@ mod tests {
             kind: "paragraph".to_string(),
             text: text.to_string(),
         }
+    }
+
+    fn heading(depth: u8, text: &str) -> PlanBlock {
+        PlanBlock {
+            id: BlockId::generate(),
+            kind: format!("heading:{depth}"),
+            text: text.to_string(),
+        }
+    }
+
+    fn annotation(block_id: BlockId, open: bool) -> Annotation {
+        let mut annotation = Annotation::new(
+            block_id,
+            None,
+            CommentAuthor::User,
+            "is that real?".to_string(),
+            Utc::now(),
+        );
+        if !open {
+            annotation.state = AnnotationState::Resolved;
+        }
+        annotation
     }
 
     #[test]
@@ -674,5 +988,103 @@ mod tests {
         assert_eq!(slash_prefix("write /co then", 14), None);
         // Not a command: a path.
         assert_eq!(slash_prefix("src/state", 9), None);
+    }
+
+    #[test]
+    fn headings_carry_their_own_depth_and_the_hash_marks_are_taken_off() {
+        let title = heading(1, "# Title");
+        let scope = heading(2, "## Scope");
+        let blocks = vec![title.clone(), scope.clone()];
+        let entries = heading_sections(&blocks, &[]);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].level, 1);
+        assert_eq!(entries[0].label, "Title");
+        assert_eq!(entries[1].level, 2);
+        assert_eq!(entries[1].label, "Scope");
+    }
+
+    #[test]
+    fn a_headings_count_is_its_own_section_only() {
+        let title = heading(1, "# Title");
+        let intro = block("Intro paragraph.");
+        let scope = heading(2, "## Scope");
+        let detail = block("A detail.");
+        let blocks = vec![title.clone(), intro.clone(), scope.clone(), detail.clone()];
+        let annotations = vec![
+            annotation(intro.id, true),
+            annotation(scope.id, false),
+            annotation(detail.id, true),
+            annotation(detail.id, false),
+        ];
+        let entries = heading_sections(&blocks, &annotations);
+
+        assert_eq!(entries[0].open, 1, "the paragraph under Title counts there");
+        assert_eq!(entries[0].resolved, 0);
+        // Scope's own thread, plus the detail beneath it — flat, not rolled up into Title.
+        assert_eq!(entries[1].open, 1);
+        assert_eq!(entries[1].resolved, 2);
+    }
+
+    #[test]
+    fn a_block_before_the_first_heading_has_nowhere_to_add_its_count() {
+        let intro = block("No title yet.");
+        let entries = heading_sections(&[intro.clone()], &[annotation(intro.id, true)]);
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn thread_marks_position_by_block_index_and_carry_open_state() {
+        let first = block("First.");
+        let second = block("Second.");
+        let third = block("Third.");
+        let blocks = vec![first.clone(), second.clone(), third.clone()];
+        let open = annotation(second.id, true);
+        let resolved = annotation(third.id, false);
+        let annotations = vec![open.clone(), resolved.clone()];
+
+        let marks = thread_marks(&blocks, &annotations);
+
+        assert_eq!(marks.len(), 2);
+        assert_eq!(marks[0].annotation_id, open.id);
+        assert_eq!(marks[0].block_index, 1);
+        assert!(marks[0].open);
+        assert_eq!(marks[1].annotation_id, resolved.id);
+        assert_eq!(marks[1].block_index, 2);
+        assert!(!marks[1].open);
+    }
+
+    #[test]
+    fn an_orphaned_thread_carries_no_mark() {
+        let kept = block("Still here.");
+        let annotations = vec![annotation(BlockId::generate(), true)];
+        let marks = thread_marks(&[kept], &annotations);
+        assert!(marks.is_empty());
+    }
+
+    #[test]
+    fn an_emptied_section_closes_the_gap_it_leaves() {
+        let body = "# Title\n\nFirst.\n\nSecond.\n\nThird.\n";
+        let start = body.find("Second.").unwrap();
+        let range = start..start + "Second.".len();
+        let next = splice_section(body, range, "   \n  ");
+        assert_eq!(next, "# Title\n\nFirst.\n\nThird.\n");
+    }
+
+    #[test]
+    fn emptying_the_last_section_closes_the_gap_behind_it() {
+        let body = "# Title\n\nFirst.\n\nSecond.\n";
+        let start = body.find("Second.").unwrap();
+        let range = start..start + "Second.".len();
+        let next = splice_section(body, range, "\n");
+        assert_eq!(next, "# Title\n\nFirst.\n\n");
+    }
+
+    #[test]
+    fn an_ordinary_edit_still_just_replaces_the_range() {
+        let body = "First.\n\nSecond.\n";
+        let start = body.find("Second.").unwrap();
+        let range = start..start + "Second.".len();
+        let next = splice_section(body, range, "Rewritten.");
+        assert_eq!(next, "First.\n\nRewritten.\n");
     }
 }

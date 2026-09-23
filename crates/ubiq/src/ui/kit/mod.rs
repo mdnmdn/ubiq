@@ -42,7 +42,9 @@ pub mod colour;
 pub mod controls;
 pub mod files;
 pub mod icons;
+pub mod md_navigator;
 pub mod menu;
+pub mod minimap;
 pub mod overlay;
 pub mod panel;
 pub mod popover;
@@ -61,10 +63,12 @@ pub use files::{
     file_row, filter_bar, kind_icon, row_font, row_height, row_indent, twisty, view_switch,
 };
 pub use icons::UbiqIcon;
+pub use md_navigator::{MdNavEntry, md_navigator};
 pub use menu::{
     ContextItem, MultiPicker, Picker, PickerStyle, context_menu, context_panel, multi_label,
     multi_order,
 };
+pub use minimap::{MinimapMark, minimap};
 pub use overlay::{confirm_modal, modal, modal_note, modal_sized, prompt_modal};
 pub use panel::{Tab, panel, panel_header, tab_strip};
 pub use popover::popover;

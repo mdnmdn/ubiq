@@ -117,7 +117,9 @@ pub fn render(
             cx.listener(|this, _, _, cx| this.end_composer_resize(cx)),
         );
     if view.header {
-        root = root.child(lifecycle_header(app, conversation, &view, cx));
+        // No switch control: see `lifecycle_header`'s own doc for why the agents column, the one
+        // caller that sets `view.header`, has no equivalent of the chat panel's chevron to pass.
+        root = root.child(lifecycle_header(app, conversation, &view, None, cx));
     }
     if let Some(subagent) = conversation.viewing_subagent() {
         let tab = subagents.iter().find(|tab| tab.id == subagent);
@@ -363,32 +365,51 @@ pub fn lifecycle_menu_rows(
     ]
 }
 
-/// The bordered strip the agents column draws above its transcript: [`lifecycle_menu`] inside a
-/// header row of its own. The chat panel draws the same menu (see
-/// [`crate::ui::chat::sidebar::header`]) inline in its own toolbar instead of this strip, which is
-/// why `view.header` gates whether [`render`] calls this at all.
+/// The one first line every surface that hosts a conversation draws — `T-102`: the three-dots
+/// menu, the agent-switch chevron where the surface has one, and the current-action chip, flush
+/// against the strip's own right edge with no margin (chrome does not pad, `ubiq-ui`).
 ///
-/// **The state dot is not here.** It is on the column's title, beside the agent's name, where a
-/// reader scanning a row of columns for the one that wants them is already looking — see
-/// [`crate::ui::agents::column`]. A dot in this strip as well would be the same fact twice, a
-/// line apart.
-fn lifecycle_header(
+/// **`switch` is `None` for a surface with no equivalent control**, rather than this function
+/// inventing one. The chat panel passes its own [`crate::ui::chat::sidebar::start_control`] — a
+/// chevron over `chat_picks`, attaching *this tab* to any conversation the project holds. The
+/// agents column has no matching gesture: a column's tabs are the agents already grouped into it,
+/// added from its own bench picker (`crate::ui::agents::column::add_tab`) rather than attached
+/// from a free list keyed the way a chat tab is, and folding the two into one control is a data
+/// model change, not a rendering one — left for its own card rather than half-merged here. The
+/// row's shape and the chip are identical either way, which is the whole of what one first line
+/// can promise while that gap stands.
+///
+/// **Neither the state mark nor the persistence mark are here any more.** The mark moved to the
+/// hexagon every tab now wears (T-99/T-102); persistence has no seat on this row until a card asks
+/// for one — the row draws only what T-102 named.
+pub fn lifecycle_header(
     app: &AppState,
     conversation: &Conversation,
     view: &ConversationView,
+    switch: Option<AnyElement>,
     cx: &mut Context<AppState>,
 ) -> AnyElement {
+    let status = conversation_status(conversation);
     div()
         .h(px(28.))
-        .px_1p5()
         .flex()
         .flex_none()
         .items_center()
-        .gap_1p5()
+        .justify_between()
         .border_b_1()
         .border_color(theme::border())
         .debug_selector(|| "lifecycle-strip".into())
-        .child(lifecycle_menu(app, conversation, view, cx))
+        .child(
+            div()
+                .pl_1p5()
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap_1p5()
+                .child(lifecycle_menu(app, conversation, view, cx))
+                .children(switch),
+        )
+        .child(crate::ui::teams::status::status_chip(status, 1.0))
         .into_any_element()
 }
 

@@ -867,7 +867,35 @@ impl AppState {
                 rel_path,
                 to,
                 op,
+                carry_related: _,
             } => self.path_edited(project_id, rel_path, to, op, cx),
+
+            // The answer to a rename or delete question's own round trip, asked before the
+            // question was confirmed — see `AppState::ask_rename` / `ask_remove`. Matched by path
+            // and project against whichever `FileDialog::Rename` or `FileDialog::Remove` is still
+            // up: a reply for a question the user has since closed, or replaced with a different
+            // one, is simply dropped.
+            Message::ProjectFileRelated {
+                project_id,
+                rel_path,
+                related,
+            } => {
+                if self.project(cx) == Some(project_id) {
+                    match &mut self.workbench.file_dialog {
+                        Some(FileDialog::Rename {
+                            path,
+                            related: slot,
+                        }) if *path == rel_path => *slot = related,
+                        Some(FileDialog::Remove {
+                            path,
+                            related: slot,
+                            ..
+                        }) if *path == rel_path => *slot = related,
+                        _ => {}
+                    }
+                }
+                cx.notify();
+            }
 
             Message::ProjectFileError {
                 project_id,
@@ -1562,14 +1590,16 @@ impl AppState {
             // the one place in the tree that holds one, so the reply either lands there or is
             // stale and dropped.
             Message::Plan {
-                project_id,
-                task_id,
+                doc,
                 body,
                 revision,
             } => {
-                if self.workbench.plan.as_ref().is_some_and(|plan| {
-                    plan.project_id() == project_id && plan.task_id() == Some(task_id)
-                }) {
+                if self
+                    .workbench
+                    .plan
+                    .as_ref()
+                    .is_some_and(|plan| plan.doc == doc)
+                {
                     // Not an assignment: the answer is read against what the buffer holds, so an
                     // unsaved edit is kept and reported rather than lost to a race. `revision` is
                     // the watermark the buffer carries from here on — a buffer that keeps an
@@ -1583,13 +1613,13 @@ impl AppState {
 
             // Broadcast: a plan may be open for reading in more than one window, so every one of
             // them hears its own plan go away rather than only the window that deleted it.
-            Message::PlanDeleted {
-                project_id,
-                task_id,
-            } => {
-                if self.workbench.plan.as_ref().is_some_and(|plan| {
-                    plan.project_id() == project_id && plan.task_id() == Some(task_id)
-                }) {
+            Message::PlanDeleted { doc } => {
+                if self
+                    .workbench
+                    .plan
+                    .as_ref()
+                    .is_some_and(|plan| plan.doc == doc)
+                {
                     // A deleted plan reads as "nothing here yet" — and, when the buffer is
                     // holding an unsaved edit, as that edit over a document that no longer
                     // exists, which is what keeps the work recoverable by saving it back.
@@ -1611,14 +1641,9 @@ impl AppState {
                 cx.notify();
             }
 
-            Message::PlanExported {
-                project_id,
-                task_id,
-                rel_path,
-            } => {
+            Message::PlanExported { doc, rel_path } => {
                 if let Some(plan) = self.workbench.plan.as_mut()
-                    && plan.project_id() == project_id
-                    && plan.task_id() == Some(task_id)
+                    && plan.doc == doc
                 {
                     plan.notice = Some(crate::state::document::Notice::Ok(format!(
                         "Exported to {rel_path}."
@@ -1634,22 +1659,17 @@ impl AppState {
             // the body it re-asks for arrives: `origin` is who the stale banner names, and
             // `revision` is how far behind the buffer's watermark now is.
             Message::PlanChanged {
-                project_id,
-                task_id,
+                doc,
                 revision,
                 origin,
             } => {
                 if let Some(plan) = self.workbench.plan.as_mut()
-                    && plan.project_id() == project_id
-                    && plan.task_id() == Some(task_id)
+                    && plan.doc == doc
                 {
                     if revision != plan.revision {
                         plan.stale_origin = Some(origin);
                     }
-                    self.bus.send(Message::LoadPlan {
-                        project_id,
-                        task_id,
-                    });
+                    self.bus.send(Message::LoadPlan { doc });
                     cx.notify();
                 }
             }
@@ -1658,14 +1678,16 @@ impl AppState {
             // the `ListPlanChanges` every body arrival asks. Sent only to whoever asked, and the
             // regions are in the current body's line numbers, so the next frame paints them.
             Message::PlanChanges {
-                project_id,
-                task_id,
+                doc,
                 regions,
                 stats,
             } => {
-                if self.workbench.plan.as_ref().is_some_and(|plan| {
-                    plan.project_id() == project_id && plan.task_id() == Some(task_id)
-                }) {
+                if self
+                    .workbench
+                    .plan
+                    .as_ref()
+                    .is_some_and(|plan| plan.doc == doc)
+                {
                     self.plan_changes_arrived(regions, stats);
                 }
                 cx.notify();
@@ -1674,14 +1696,12 @@ impl AppState {
             // The answer to `ListPlanAnnotations` and to every mutation in the family —
             // `Message::Plan`'s own discipline, sent only to whoever asked.
             Message::PlanAnnotations {
-                project_id,
-                task_id,
+                doc,
                 blocks,
                 annotations,
             } => {
                 if let Some(plan) = self.workbench.plan.as_mut()
-                    && plan.project_id() == project_id
-                    && plan.task_id() == Some(task_id)
+                    && plan.doc == doc
                 {
                     plan.set_annotations(crate::state::document::AnnotationsBody::Loaded {
                         blocks,
@@ -1695,11 +1715,8 @@ impl AppState {
             // whose block matching orphaned or re-anchored a thread — no body travels with it, so
             // a window showing that plan's annotations re-asks, `Message::PlanChanged`'s own
             // economy. This is the seam an agent's MCP reply refreshes an open panel through.
-            Message::PlanAnnotationsChanged {
-                project_id,
-                task_id,
-            } => {
-                self.reload_plan_annotations(project_id, task_id);
+            Message::PlanAnnotationsChanged { doc } => {
+                self.reload_plan_annotations(&doc);
                 cx.notify();
             }
 
@@ -1709,14 +1726,16 @@ impl AppState {
             // raised again against the revision named here — the second press names it, and is
             // refused in turn if somebody moves the copy again first.
             Message::PlanConflict {
-                project_id,
-                task_id,
+                doc,
                 revision,
                 origin,
             } => {
-                if self.workbench.plan.as_ref().is_some_and(|plan| {
-                    plan.project_id() == project_id && plan.task_id() == Some(task_id)
-                }) {
+                if self
+                    .workbench
+                    .plan
+                    .as_ref()
+                    .is_some_and(|plan| plan.doc == doc)
+                {
                     self.plan_save_refused(revision, origin);
                 }
                 cx.notify();
@@ -1729,12 +1748,12 @@ impl AppState {
             // export, which is the only thing left once both have a body.
             Message::PlanError {
                 project_id,
-                task_id,
+                doc,
                 error,
             } => {
                 if let Some(plan) = self.workbench.plan.as_mut()
                     && plan.project_id() == project_id
-                    && task_id.map(|id| Some(id) == plan.task_id()).unwrap_or(true)
+                    && doc.as_ref().map(|doc| *doc == plan.doc).unwrap_or(true)
                 {
                     // A refused save is the one failure that leaves the buffer as it is: the edit
                     // is still the user's, and the banner says why it did not land.

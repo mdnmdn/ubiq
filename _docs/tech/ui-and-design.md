@@ -5,9 +5,9 @@ kind: tech
 status: current
 summary: The GPUI rendering model, the complete theme token set and the rule that no colour escapes it, how a palette is switched, the shape every surface, modal and dialog is drawn in, the page every primitive is looked at on, and the design assets screens are built against.
 read_when: you are building or restyling a screen, adding a colour or a size, switching or extending a palette, raising a modal or the file picker, looking at a primitive on the style reference, or looking for the wireframe a layout came from
-updated: 2026-09-22
-verified: 2026-09-22
-code_anchors: [crates/ubiq/src/theme.rs, assets/icons/icons.yaml, _tools/icons.py, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/mark.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/colour.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/blocks.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/state/overlay.rs, crates/ubiq/src/ui/kit/ribbon.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/src/ui/kit/popover.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/tests/dismiss.rs, crates/ubiq/src/ui/remote_hosts.rs]
+updated: 2026-09-23
+verified: 2026-09-23
+code_anchors: [crates/ubiq/src/theme.rs, assets/icons/icons.yaml, _tools/icons.py, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/md_options.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/mark.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/colour.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/md_navigator.rs, crates/ubiq/src/ui/kit/minimap.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/blocks.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/state/overlay.rs, crates/ubiq/src/ui/kit/ribbon.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/src/ui/kit/popover.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/tests/dismiss.rs, crates/ubiq/src/ui/remote_hosts.rs]
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -303,6 +303,8 @@ restyling the shell should be one file to visit.
 | `SETTINGS_WIDTH`, `SETTINGS_HEIGHT` | Application settings: a fixed-size page overlay with a nav, not a one-question modal and not a resizable dialog |
 | `A2UI_IMAGE_ICON`, `A2UI_IMAGE_AVATAR`, `A2UI_IMAGE_SMALL`, `A2UI_IMAGE_MEDIUM`, `A2UI_IMAGE_LARGE`, `A2UI_IMAGE_HEADER_H` | The six sizes an A2UI `Image` variant maps onto. The catalog names the variant and this file decides how big it is, because a payload Ubiq did not write must not be able to state a size |
 | `A2UI_SVG_MAX` | The box an agent-authored picture is fitted into, aspect preserved — the ceiling on how much of a surface one drawing may take |
+| `MdWidth`, `MdDensity`, `MD_AVG_CHAR_WIDTH_EM`, `MD_CODE_LINE_HEIGHT`, `MD_INLINE_CODE_SIZE_EM` and the `md_*` functions | The Markdown preview's typography — `_docs/inbox/markdown-improvement-proposal.md` §3–§7, read by `ui/viewer/markdown.rs`. Unlike the rest of the table these are ratios over the body font size (`em`/`rem`), not `ui_scale`-scaled pixels, so a font-size change scales the preview without a second accessor |
+| `MdMinimapSide` | Which edge the markdown minimap docks to (proposal §12, T-118), `Left` by default — a plain two-value enum, not a size, so it takes no `scaled()` accessor; read by both `ui/plan.rs` and `ui/viewer/mod.rs` off the one `UiSettings::md_minimap_side` |
 
 **Every pixel constant in the table is a `pub const` base with a `scaled()` accessor beside it**,
 and a call site reads the accessor: `theme::accent_edge()`, `theme::titlebar_height()`,
@@ -550,6 +552,34 @@ go on the **field**, not on the panel, because the keyboard is in the input insi
 deferred panel is nowhere on the focus path — which is why each of its keys is bound twice, for
 `Navigator` and for `Navigator > Input`, by the rule below.
 
+**A heading-and-thread navigator is a kit primitive because a second markdown-with-threads surface
+would want the same shape, not the same meaning.** `kit::md_navigator` (`ui/kit/md_navigator.rs`)
+draws the same anchored-list device as `kit::menu`'s dropdown and the ⌘K navigator above it — no
+scrim, dismissed by an outside click this time, because unlike the ⌘K field this trigger is not
+something the user is mid-keystroke in. It does not go through `kit::Picker`: a row needs an indent
+by heading depth and two independent counts — open threads, settled ones — that `Picker`'s
+plain-label rows have no place for, so it owns its row instead of forcing one shape to answer two
+questions. `crate::ui::plan` is the first caller, over `state::document::heading_sections`'s pure
+data; a second annotated document reuses the component, not a copy of it.
+
+**A minimap is positions and marks, nothing else — no plan-specific type crosses into it.**
+`kit::minimap` (`ui/kit/minimap.rs`) is a fixed-width strip that fills whatever height its parent
+gives it; each `MinimapMark` is a fraction down the strip (`0.0`–`1.0`) and an `Rgba` the caller
+resolved from a token before handing it over, so the primitive itself names no thread, no plan and
+no block. The plan editor's own strip, down the left of the document, is built from
+`state::document::thread_marks` — the same pure-data shape as `heading_sections`, so a mark can be
+tested and resolved back to a thread by index without a `Window` in reach. A fraction is measured
+against `ScrollHandle::bounds_for_item` once the preview has a painted frame to measure, and falls
+back to spreading marks evenly across the blocks they sit among for the frame a document opens in,
+before there is one. The standard viewer's own strip (T-118, `ui/viewer/mod.rs`'s
+`markdown_preview`) is the primitive's second caller: one `TextView` rather than a block per
+heading means there is no per-heading layout to measure at all, so `markdown::heading_marks`
+positions each mark by its heading's byte offset over the document's length — the fallback fraction
+above, promoted to the only one reachable here. Both callers answer to the one `UiSettings`
+pair — `md_minimap` (generalised from the plan-only `plan_minimap`) and `md_minimap_side` — set from
+the Markdown header's own popover, `ui/viewer/md_options.rs`, `kit::popover` over `kit::choice_pill`
+rows and a `kit::check_box`, the same width preset and density pills T-116 first drew loose.
+
 **Two marks say a file has bookmarks, and neither is a new colour.** A bookmarked line is a
 `TextDecoration` over the line's byte range with `accent_soft()` behind it, set through the open
 file's `EditorState`: the component library's only public decoration surface is that collection over
@@ -719,17 +749,39 @@ of them, never a sentence. **One vocabulary for agents and delegates alike**, wh
 in `state::status` rather than in a UI module; `ui::work` is the only place it becomes a colour or
 a glyph, and `theme.rs` the only place a colour has a value.
 
-**Where a mark has room for both halves it is a hexagon, and that is `kit::hex_mark(border, fill,
-side)`.** The outer hexagon is a *stroke only* — it has no fill of its own, so whatever it sits on
-shows through and the mark cannot become a second background for the block it is on — and it takes
-the lifecycle's colour. A smaller filled hexagon inside it takes the activity's or the result's.
-The two readings are then independent: a lifecycle transition changes the border without destroying
-the activity reading, and a result changes the fill without claiming the execution is still going.
-`fill` is `None` where nothing reports an activity, which draws the outline alone rather than a
-guessed colour. It is flat-topped so it sits beside a line of text without pushing the row taller,
-and the hexagon is deliberately the only non-rectilinear silhouette in the window: this window draws
-no radii, so a status mark has no rounded badge to be told apart by and gets a shape instead.
-`ui::teams::status::status_mark` is the one caller today, on Teams agent cards and delegate cards.
+**Where a mark has room for both halves it is a hexagon, and that is `kit::hex_mark(id, border,
+fill, side, pulse)`.** The outer hexagon is a *stroke only* — it has no fill of its own, so
+whatever it sits on shows through and the mark cannot become a second background for the block it
+is on — and it takes the lifecycle's colour. A smaller filled hexagon inside it takes the
+activity's or the result's. The two readings are then independent: a lifecycle transition changes
+the border without destroying the activity reading, and a result changes the fill without claiming
+the execution is still going. `fill` is `None` where nothing reports an activity, which draws the
+outline alone rather than a guessed colour. It is flat-topped so it sits beside a line of text
+without pushing the row taller, and the hexagon is deliberately the only non-rectilinear silhouette
+in the window: this window draws no radii, so a status mark has no rounded badge to be told apart
+by and gets a shape instead.
+
+**The outline and the core are two layered elements, not one draw.** `pulse` asks only the core for
+the same slow, shallow fade `lifecycle_dot` gives a tab's dot, and animating the whole mark would
+fade the outline's lifecycle reading along with the core's — so the core is a second, absolutely
+positioned canvas over the first, and only it carries the animation. `id` names that animation, so
+two marks on the same screen never share a clock. `ui::teams::status::status_mark(status, side,
+id)` is the shared caller: the outer hexagon reads `status.lifecycle`'s colour, the core reads
+`status.doing` — grey rather than a colour once `Doing::Done`, so a delegate that finished clean
+does not keep reading as still going — and the core pulses only while `status.lifecycle` is
+`Working`, the one reading a moving core would not cry wolf over. It draws on the Teams agent and
+delegate cards, the agents column's own tab strip and the dock's chat tab (T-99, T-102) — one mark,
+the same primitive, everywhere a conversation's state is shown as more than a dot.
+
+**Grey-for-done does not travel past the mark on its own — a card's edge and its chip take it
+through a second function, `ui::teams::status::card_colour(status)` (T-106).** It answers
+`text_faint` for `Doing::Done` and `status_colour(status)` otherwise, and both a Teams agent card's
+own edge and `status_chip` read it rather than `status_colour` directly — one function so the mark,
+the edge and the chip cannot disagree about what "done" looks like on the one surface that draws all
+three. This is a Teams-only override: `ui::work::doing_colour`, which every non-Teams reader of the
+`Doing` dictionary still calls (the tasks board's columns, `[Teams]`'s own cards), keeps mapping
+`Done` to `success` green — a delegate that finished is spent, not merely a passing check, but a
+completed *task* elsewhere in the window still reads as one.
 
 **A state dot has four readings and only four: `warning` wants you, `info` is working, `success` is
 idle, `text_faint` has stopped.** What a dot read at a glance across a window full of columns has
@@ -750,36 +802,30 @@ asked the system for reduced motion (`App::reduce_motion`), because motion used 
 exactly the motion that setting is about. Carrying the animation is why `kit::status_dot` returns a
 `Div` rather than an opaque element.
 
-**The dot is one element, not a colour every surface redraws.** `ui::conversation::lifecycle_dot` —
-colour, pulse, the ring it sits on and an element id for the animation — is what the agents column's
-header title and each of its tabs draw, and what the dock's tab strip draws for every tab kind
-through `TabInfo::dot_colour` and `dot_pulse`, with `ui/dock/mod.rs`'s `PanelKind::Chat` arm the
-only one filling the pulse in. So the reading, the mapping *and the element* live in that one module
-regardless of caller, and a surface adopting the dot draws no dot of its own. A tab with no
-conversation behind it has no dot: there is no state to report.
+**The plain dot survives for the readings that are not a lifecycle/activity pair.** A terminal's
+running state and a file's dirty mark are one fact each, not two, so the dock's tab strip still
+draws `ui::conversation::lifecycle_dot` — colour, pulse, the ring it sits on and an element id for
+the animation — for `TabInfo::dot_colour`/`dot_pulse` on every tab kind but a chat one. A chat
+tab's own conversation state is `TabInfo::dot_status` instead (T-99, T-102): where it is `Some`,
+the skin draws `status_mark` in the dot's place, and the plain-dot arm never runs. A tab with
+neither has no mark: there is no state to report.
 
-**Whether the shared conversation view draws the three-dots menu itself is per surface, not fixed.**
-`ConversationView` carries `header: bool` beside its existing `footer` and `composer` — the agents
-column keeps it `true` and gets a bordered strip holding the menu; the chat panel sets it `false`
-and draws the identical fragments, `ui::conversation::lifecycle_mark` and `lifecycle_menu`, at
-opposite ends of its own toolbar row instead, with the chevron that changes what the tab is looking
-at between them. The state's
-reading, the element it is drawn as and the menu's enable rule — `lifecycle`, `lifecycle_colour`,
-`lifecycle_dot` and `lifecycle_menu_rows` —
-are read in exactly one place regardless of which surface calls them, so a second surface adopting
-the shared view is a `ConversationView` field, never a forked copy of any of the three.
+**One first line, shared by every surface that hosts a conversation.**
+`ui::conversation::lifecycle_header(app, conversation, view, switch, cx)` is `ConversationView`'s
+`header: bool` row (T-102) — the three-dots menu at the left, an optional `switch` element beside
+it, and `ui::teams::status::status_chip(status, zoom)` flush against the strip's own right edge
+with no margin, chrome drawing no padding of its own. The agents column calls it with `switch:
+None`, since a column's tabs come from its own bench picker rather than a free list a chevron could
+attach from; the chat tab passes its own change-agent chevron as `switch`, and draws the same row
+alone — chevron only, no menu, no chip — when nothing is attached, since there is no conversation
+to read either off. One function, one row shape, on both surfaces, rather than each assembling its
+own fragments.
 
-**The persistence mark is a second glyph, never a fifth dot colour.** A conversation the user marked
-to keep draws `ui::conversation::persistence_mark` — the `pane-persistent` anchor — beside the
-lifecycle dot, on the agents column's title and at the head of a chat tab, and nothing at all when
-it is not kept. The two answer different questions: the dot says what the conversation is doing, the
-anchor says whether it will still be here after a restart, and folding the second into the first
-would cost the dot the one reading it is scanned for. `persistent` lives on the `WorkAgent` record
-rather than on `Conversation`, so both surfaces read it off the work projection they hold.
-`accept_all` and `debug_dump` live there for the same reason — `ui::conversation::accepts_all` and
-`dump_path` read them — but neither earns a glyph beside the dot: they are states the three-dots
-menu names in words, and a second and third mark on a tab strip would spend the glance the dot is
-there for.
+**Neither a state mark nor the persistence mark sit on this row.** The state reading lives entirely
+on the hexagon every tab wears: `lifecycle_mark`, the fragment the chat toolbar once drew beside
+the menu, and `state_chip`, the agents column's own duplicate beside the name, are both gone from
+their call sites. `persistence_mark` lost its callers the same way: `persistent` still lives on the
+`WorkAgent` record, but nothing draws it until a card asks for one (`backlog.md`, `G334`).
 
 **A row that gathers several controls this way drops their labels for tooltips, not for a second
 icon set.** The chat panel's toolbar is icon-only: the lifecycle menu and the change-agent chevron

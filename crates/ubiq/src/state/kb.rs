@@ -1145,7 +1145,10 @@ mod tests {
         let id = one.source.id;
         kb.accept(vec![one]);
         kb.merge(id, listing("", &[("guide.md", EntryKind::File)]));
-        assert_eq!(kb.presence(id, "guide.md"), crate::state::explorer::Presence::Live);
+        assert_eq!(
+            kb.presence(id, "guide.md"),
+            crate::state::explorer::Presence::Live
+        );
     }
 
     /// A name a listed source's tree does not hold is gone.

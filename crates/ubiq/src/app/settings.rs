@@ -486,6 +486,33 @@ impl AppState {
         cx.notify();
     }
 
+    /// Show or hide the markdown minimap — the plan editor's thread strip and the standard
+    /// viewer's heading strip alike (T-118, one flag generalised from the plan-only
+    /// `plan_minimap`). A reading habit like the others on this layer, so it is global rather
+    /// than per document.
+    pub fn toggle_md_minimap(&mut self, cx: &mut Context<Self>) {
+        self.workbench.settings.ui.md_minimap = !self.workbench.settings.ui.md_minimap;
+        self.remember_settings();
+        cx.notify();
+    }
+
+    /// Which side of the pane the markdown minimap docks to (T-118, proposal §12).
+    pub fn set_md_minimap_side(
+        &mut self,
+        side: crate::theme::MdMinimapSide,
+        cx: &mut Context<Self>,
+    ) {
+        self.workbench.settings.ui.md_minimap_side = side;
+        self.remember_settings();
+        cx.notify();
+    }
+
+    /// Open the markdown viewer header's reading-options popover (T-118, proposal §12). A
+    /// trigger *opens*, never toggles — the one menu rule.
+    pub fn open_md_options(&mut self, cx: &mut Context<Self>) {
+        self.open_menu(MenuId::MdOptions, cx);
+    }
+
     pub fn set_markdown_open(&mut self, choice: MarkdownOpen, cx: &mut Context<Self>) {
         self.workbench.settings.ui.markdown_open = choice;
         self.remember_settings();

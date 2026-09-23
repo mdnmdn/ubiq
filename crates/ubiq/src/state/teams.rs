@@ -34,8 +34,8 @@ use super::conversation::SubagentTab;
 use super::work::WorkProjection;
 
 pub use super::layout::{
-    Algo, CARD_HEIGHT, CARD_WIDTH, GROUP_LABEL, GROUP_PAD, Layout, RING_PAD, Rings, SUB_BOX,
-    SUB_GAP, SUB_HEIGHT, SUB_WIDTH, fence, sub_slot,
+    Algo, CARD_WIDTH, GROUP_LABEL, GROUP_PAD, Layout, RING_PAD, Rings, SUB_BOX, SUB_GAP,
+    SUB_HEIGHT, SUB_WIDTH, TEAMS_CARD_HEIGHT, fence, sub_slot,
 };
 
 /// The work this mode draws: the host's projection, narrowed to the agents this window actually
@@ -330,7 +330,13 @@ impl TeamsView {
 
     /// Throw the arrangement away and compute it again from the records, in the chosen algorithm.
     pub fn relayout(&mut self, work: &WorkProjection) {
-        self.layout = Layout::auto(&work.agents, &work.tasks, self.algo, &self.ring_counts());
+        self.layout = Layout::auto(
+            &work.agents,
+            &work.tasks,
+            self.algo,
+            &self.ring_counts(),
+            (CARD_WIDTH, TEAMS_CARD_HEIGHT),
+        );
     }
 
     /// Choose an arrangement and lay the graph out in it at once — picking one *is* asking for it,
@@ -345,8 +351,13 @@ impl TeamsView {
     /// nothing already on the canvas moves. Forwards to [`Layout::place_new`] so no caller outside
     /// this module has to know which algorithm is current.
     pub fn absorb_new(&mut self, work: &WorkProjection) {
-        self.layout
-            .place_new(&work.agents, &work.tasks, self.algo, &self.ring_counts());
+        self.layout.place_new(
+            &work.agents,
+            &work.tasks,
+            self.algo,
+            &self.ring_counts(),
+            (CARD_WIDTH, TEAMS_CARD_HEIGHT),
+        );
     }
 
     /// How many delegates each card wears, which is all the arrangement needs of them.
@@ -440,7 +451,7 @@ impl TeamsView {
     pub fn card_bounds(&self, agent: AgentId, at: (f32, f32)) -> (f32, f32, f32, f32) {
         match self.fence_of(agent, at) {
             Some((x, y, w, h)) => (x, y, x + w, y + h),
-            None => (at.0, at.1, at.0 + CARD_WIDTH, at.1 + CARD_HEIGHT),
+            None => (at.0, at.1, at.0 + CARD_WIDTH, at.1 + TEAMS_CARD_HEIGHT),
         }
     }
 
@@ -495,16 +506,18 @@ impl TeamsView {
 
     /// The rectangle a lone card's own fence takes, `(x, y, w, h)`.
     ///
-    /// The same padding a container is measured with, off the same [`Self::card_bounds`], so a
-    /// card fenced on its own and a card inside a container sit the same distance from the dashes.
-    /// No label, so no [`GROUP_LABEL`] strip at the top.
+    /// **The inner distance, not the outer one.** A lone card can carry a ring of its own —
+    /// [`Self::card_bounds`] already wraps that at [`RING_PAD`] — and this fence is the only
+    /// outline drawn round it, so it sits [`RING_PAD`] off the ring rather than adding a second,
+    /// looser margin on top of one already there. No label, so no [`GROUP_LABEL`] strip at the
+    /// top.
     pub fn solo_bounds(&self, agent: AgentId, at: (f32, f32)) -> (f32, f32, f32, f32) {
         let (x0, y0, x1, y1) = self.card_bounds(agent, at);
         (
-            x0 - GROUP_PAD,
-            y0 - GROUP_PAD,
-            (x1 - x0) + GROUP_PAD * 2.0,
-            (y1 - y0) + GROUP_PAD * 2.0,
+            x0 - RING_PAD,
+            y0 - RING_PAD,
+            (x1 - x0) + RING_PAD * 2.0,
+            (y1 - y0) + RING_PAD * 2.0,
         )
     }
 
@@ -738,7 +751,7 @@ impl TeamsView {
     /// it is one of them — so dragging it anywhere would read as dropping it back where it came
     /// from.
     fn task_at(&self, work: &WorkProjection, carried: AgentId, at: (f32, f32)) -> Option<TaskId> {
-        let centre = (at.0 + CARD_WIDTH / 2.0, at.1 + CARD_HEIGHT / 2.0);
+        let centre = (at.0 + CARD_WIDTH / 2.0, at.1 + TEAMS_CARD_HEIGHT / 2.0);
         work.tasks
             .iter()
             .find(|task| {
@@ -778,11 +791,15 @@ impl TeamsView {
             x1 = x1.max(ax1);
             y1 = y1.max(ay1);
         }
+        // The inner distance, not the outer one: `card_bounds` already wraps a ringed member at
+        // `RING_PAD`, and this is the *only* fence drawn round the task — so it sits `RING_PAD`
+        // off the tightest thing inside it rather than doubling the margin with `GROUP_PAD` on
+        // top of a ring's own. One fence, one distance (`T-105`).
         Some((
-            x0 - GROUP_PAD,
-            y0 - GROUP_PAD - GROUP_LABEL,
-            (x1 - x0) + GROUP_PAD * 2.0,
-            (y1 - y0) + GROUP_PAD * 2.0 + GROUP_LABEL,
+            x0 - RING_PAD,
+            y0 - RING_PAD - GROUP_LABEL,
+            (x1 - x0) + RING_PAD * 2.0,
+            (y1 - y0) + RING_PAD * 2.0 + GROUP_LABEL,
         ))
     }
 

@@ -1,20 +1,16 @@
-//! The chat tab's own head: what the conversation is, what it is on, and what can be done to it.
+//! The chat tab's own head: T-102's one first line, identical to the agents column's — the
+//! three-dots menu, the agent-switch chevron, and the current-action chip flush right — with the
+//! chevron this surface alone still has an equivalent control for.
+//!
+//! **It is a bare chevron.** What the tab is showing is already said twice on this row — by the
+//! dock's tab and by the hexagon it now wears (T-99) — so the control that changes it says only
+//! that there is a list, and its tooltip says what the list is about. A label here was a third
+//! copy of the conversation's name wearing a control's clothes.
 //!
 //! **One control answers both questions.** A tab either shows a conversation or it does not, and
 //! the thing the user wants in each case is different — start something, or move to something
 //! already running. Two controls side by side made the user pick the question before answering
 //! it; one control whose first row starts and whose rest attach does not.
-//!
-//! **It is a bare chevron.** What the tab is showing is already said twice on this row — by the
-//! dock's tab and by the state mark beside it — so the control that changes it says only that
-//! there is a list, and its tooltip says what the list is about. A label here was a third copy of
-//! the conversation's name wearing a control's clothes.
-//!
-//! **The row reads left to right in the order a reader asks.** The state mark says what the
-//! conversation *is*, the control says what it is *on*, and the three-dots at the far end says
-//! what can be *done to it* — so [`conversation::lifecycle_mark`] and
-//! [`conversation::lifecycle_menu`] sit at opposite ends of the row rather than as a pair,
-//! through the split fragments that module exposes for exactly this.
 //!
 //! **Nothing here names the tab.** The dock's tab already carries the conversation's name, and a
 //! second copy of it directly under the first was the same answer twice.
@@ -22,10 +18,15 @@
 //! *New tab* is not here either — it is a `+` on the dock's own tab strip, beside the terminal
 //! region's, because opening another view of the same kind is the tab strip's gesture in this
 //! window and the chat panel is not an exception to it.
+//!
+//! **An unattached tab draws the row anyway.** [`conversation::lifecycle_header`] wants a
+//! conversation to read the menu and the chip off; a tab with nothing attached has neither, so
+//! this draws the chevron alone rather than call it with nothing to say.
 
 use crate::app::AppState;
 use crate::state::ChatId;
 use crate::state::conversation::Conversation;
+use crate::theme;
 use crate::ui::conversation::{self, ConversationView};
 use crate::ui::kit::Picker;
 use crate::ui::{handler, indexed};
@@ -50,38 +51,26 @@ pub fn header(
         header: false,
     });
 
-    let mut left = div().flex().flex_none().items_center().gap_2();
-    if let (Some((conversation, _)), Some(view)) = (attached, view.as_ref()) {
-        left = left.child(conversation::lifecycle_mark(conversation, view));
-        // Beside the state mark, and only when the conversation is kept. `persistent` is on the
-        // work record rather than on the conversation, so it is read from there.
-        if app
-            .work(cx)
-            .and_then(|work| work.agent(conversation.id))
-            .is_some_and(|agent| agent.persistent)
-        {
-            left = left.child(conversation::persistence_mark(SharedString::from(format!(
-                "chat-{id}-persistent"
-            ))));
+    let chevron = start_control(app, id, window, cx).into_any_element();
+    match (attached, view.as_ref()) {
+        (Some((conversation, _)), Some(view)) => {
+            conversation::lifecycle_header(app, conversation, view, Some(chevron), cx)
+                .into_any_element()
         }
+        // Nothing attached: the menu and the chip have nothing to read, so only the chevron that
+        // starts or attaches something draws — same row height as the attached case, so nothing
+        // moves when a pick lands.
+        _ => div()
+            .h(px(28.))
+            .pl_1p5()
+            .flex()
+            .flex_none()
+            .items_center()
+            .border_b_1()
+            .border_color(theme::border())
+            .child(chevron)
+            .into_any_element(),
     }
-    left = left.child(start_control(app, id, window, cx));
-
-    let mut right = div().flex().flex_none().items_center().gap_1();
-    if let (Some((conversation, _)), Some(view)) = (attached, view.as_ref()) {
-        right = right.child(conversation::lifecycle_menu(app, conversation, view, cx));
-    }
-
-    div()
-        .h(px(38.))
-        .px_2()
-        .flex()
-        .flex_none()
-        .items_center()
-        .justify_between()
-        .gap_2()
-        .child(left)
-        .child(right)
 }
 
 /// The one control: start a conversation, or move to one already running.

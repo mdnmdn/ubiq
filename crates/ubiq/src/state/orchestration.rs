@@ -179,7 +179,13 @@ impl GraphView {
     /// Throw the arrangement away and compute it again from the records, in the chosen algorithm.
     pub fn relayout(&mut self, work: &WorkProjection) {
         // `[Teams]` draws no delegates, so no card asks the arrangement to leave room under it.
-        self.layout = Layout::auto(&work.agents, &work.tasks, self.algo, &Rings::new());
+        self.layout = Layout::auto(
+            &work.agents,
+            &work.tasks,
+            self.algo,
+            &Rings::new(),
+            (CARD_WIDTH, CARD_HEIGHT),
+        );
     }
 
     /// Choose an arrangement and lay the graph out in it at once — picking one *is* asking for it,
@@ -194,8 +200,13 @@ impl GraphView {
     /// nothing already on the canvas moves. Forwards to [`Layout::place_new`] so no caller outside
     /// this module has to know which algorithm is current.
     pub fn absorb_new(&mut self, work: &WorkProjection) {
-        self.layout
-            .place_new(&work.agents, &work.tasks, self.algo, &Rings::new());
+        self.layout.place_new(
+            &work.agents,
+            &work.tasks,
+            self.algo,
+            &Rings::new(),
+            (CARD_WIDTH, CARD_HEIGHT),
+        );
     }
 
     /// The selected agent, when an agent is what is selected.

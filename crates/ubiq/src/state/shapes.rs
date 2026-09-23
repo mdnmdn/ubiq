@@ -26,8 +26,8 @@ use std::collections::HashMap;
 use ubiq_proto::work::{AgentId, WorkAgent};
 
 use super::layout::{
-    Boxes, CARD_GAP_X, CARD_GAP_Y, CARD_HEIGHT, CARD_WIDTH, Contents, EPS, Packing, RingFn, Rings,
-    SUB_DROP, SUB_GAP, SUB_HEIGHT, SUB_WIDTH, TASK_GAP, apart_enough, break_to, pack_best,
+    Boxes, CARD_GAP_X, CARD_GAP_Y, CARD_WIDTH, Contents, EPS, Packing, RingFn, Rings, SUB_DROP,
+    SUB_GAP, SUB_HEIGHT, SUB_WIDTH, TASK_GAP, TEAMS_CARD_HEIGHT, apart_enough, break_to, pack_best,
     radial_slot, remap, rows_by_depth, without_empties,
 };
 
@@ -420,7 +420,7 @@ pub fn ring_hex(count: usize) -> Vec<(f32, f32)> {
     let cell = SUB_WIDTH + SUB_GAP;
     let span = HEX_COLS as f32 * SUB_WIDTH + (HEX_COLS - 1) as f32 * SUB_GAP;
     let left = (CARD_WIDTH - span) / 2.0;
-    let top = CARD_HEIGHT + SUB_DROP;
+    let top = TEAMS_CARD_HEIGHT + SUB_DROP;
 
     let mut out: Vec<(f32, f32)> = Vec::new();
     for (row, seats) in hex_rows(count).into_iter().enumerate() {
@@ -601,11 +601,12 @@ pub fn inside_organic(
     rings: &Rings,
     ring: RingFn,
     target: f32,
+    card: (f32, f32),
 ) -> Contents {
     if members.is_empty() {
         return Contents::empty();
     }
-    let held = Boxes::of(members, rings, ring);
+    let held = Boxes::of(members, rings, ring, card);
     contents_of(&grown(members, &held, brood_organic, target), &held)
 }
 
@@ -615,11 +616,12 @@ pub fn inside_multiradial(
     rings: &Rings,
     ring: RingFn,
     target: f32,
+    card: (f32, f32),
 ) -> Contents {
     if members.is_empty() {
         return Contents::empty();
     }
-    let held = Boxes::of(members, rings, ring);
+    let held = Boxes::of(members, rings, ring, card);
     contents_of(&grown(members, &held, brood_radial, target), &held)
 }
 
@@ -678,11 +680,12 @@ pub fn inside_spider(
     rings: &Rings,
     ring: RingFn,
     _target: f32,
+    card: (f32, f32),
 ) -> Contents {
     if members.is_empty() {
         return Contents::empty();
     }
-    let held = Boxes::of(members, rings, ring);
+    let held = Boxes::of(members, rings, ring, card);
     let (roots, kids) = family(members);
     let seats = wedges(&roots, &kids, 180.0 - SPIDER_SPREAD, 180.0 + SPIDER_SPREAD);
 
@@ -728,11 +731,17 @@ pub fn inside_spider(
 ///
 /// The stagger is what a hex grid is worth here — a card sits between the two above it rather than
 /// directly under one, so a spoke from either parent reaches it without running past a sibling.
-pub fn inside_hex(members: &[&WorkAgent], rings: &Rings, ring: RingFn, target: f32) -> Contents {
+pub fn inside_hex(
+    members: &[&WorkAgent],
+    rings: &Rings,
+    ring: RingFn,
+    target: f32,
+    card: (f32, f32),
+) -> Contents {
     if members.is_empty() {
         return Contents::empty();
     }
-    let held = Boxes::of(members, rings, ring);
+    let held = Boxes::of(members, rings, ring, card);
     let (roots, kids) = family(members);
 
     // The depth-first order, so a family stays together in its row.
@@ -790,11 +799,12 @@ pub fn inside_islands(
     rings: &Rings,
     ring: RingFn,
     target: f32,
+    card: (f32, f32),
 ) -> Contents {
     if members.is_empty() {
         return Contents::empty();
     }
-    let held = Boxes::of(members, rings, ring);
+    let held = Boxes::of(members, rings, ring, card);
     let (roots, kids) = family(members);
 
     let mut blocks: Vec<Spots> = Vec::with_capacity(roots.len());

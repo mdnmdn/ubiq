@@ -776,7 +776,7 @@ pub struct AppState {
     /// them.
     pub agent_input: Entity<TextareaState>,
     /// One composer per slot that hosts a conversation — every column on the agents screen, every
-    /// chat tab's, the sink bench's and the Teams inspector's — [`COMPOSER_SLOTS`] of them.
+    /// chat tab's, and the sink bench's — [`COMPOSER_SLOTS`] of them.
     ///
     /// A fixed pool rather than one entity per live column: an entity is created with a `Window`
     /// and columns open from handlers that have one, but the *subscription* that mirrors what is
@@ -1136,6 +1136,9 @@ pub struct AppState {
     /// The agents screen's sidebar. Its own handle rather than the explorer's: the two lists are
     /// on screen in different modes and a shared handle would carry one's position into the other.
     pub agents_scroll: ScrollHandle,
+    /// The plan surface's section list — a thread's "Show" button and the heading navigator both
+    /// bring a section into view by scrolling this to its index among the document's blocks.
+    pub plan_preview_scroll: ScrollHandle,
     /// Incremented on every filter keystroke so a debounce that lost the race does not start a
     /// walk for a query the user has already left.
     explorer_filter_gen: u64,

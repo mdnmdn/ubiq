@@ -72,6 +72,45 @@ pub fn reserve_shared_workarea(root: &Path) -> String {
 /// is one write, short enough that quitting straight after a change keeps it.
 pub const DEBOUNCE: Duration = Duration::from_millis(400);
 
+/// A marker file at a project's root, and the folders its presence implies should be skipped.
+///
+/// One row per ecosystem, kept small and easy to extend — add a row, not a branch.
+const AUTODETECT_MARKERS: &[(&str, &[&str])] = &[
+    ("package.json", &["node_modules"]),
+    ("Cargo.toml", &["target"]),
+    ("pyproject.toml", &[".venv", "__pycache__"]),
+    ("requirements.txt", &[".venv", "__pycache__"]),
+];
+
+/// Probe a new project's root for well-known markers and answer the excludes it implies.
+///
+/// Called only when a fresh record's `search_excludes` is still empty — a list the user already
+/// curated (or a project promoted from temporary, which keeps whatever it had) is never touched.
+/// A folder [`crate::settings`]'s own global default already skips is left out: the coordinator
+/// always merges `HostSettings::search_excludes` with the record's own
+/// (`coordinator.rs`'s `watch_project`, `settle_index` and the search paths), so seeding a
+/// duplicate here would reach the workers either way and just clutters the per-project list the
+/// settings UI shows back to the user.
+fn detect_search_excludes(root: &Path) -> Vec<String> {
+    let already_global: HashSet<String> = ubiq_proto::settings::HostSettings::default()
+        .search_excludes
+        .into_iter()
+        .collect();
+    let mut seen = HashSet::new();
+    let mut excludes = Vec::new();
+    for (marker, folders) in AUTODETECT_MARKERS {
+        if !root.join(marker).is_file() {
+            continue;
+        }
+        for folder in *folders {
+            if !already_global.contains(*folder) && seen.insert(*folder) {
+                excludes.push((*folder).to_string());
+            }
+        }
+    }
+    excludes
+}
+
 /// The catalogue, the view state, and what is running in each project.
 pub struct Projects {
     root: PathBuf,
@@ -335,7 +374,7 @@ impl Projects {
             temporary,
             created_at: Utc::now(),
             last_opened_at: None,
-            search_excludes: Vec::new(),
+            search_excludes: detect_search_excludes(&canonical),
             index: None,
             mission_term: None,
             managed_repos: Vec::new(),
