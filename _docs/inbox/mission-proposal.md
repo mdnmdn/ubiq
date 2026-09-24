@@ -3,7 +3,7 @@ id: inbox-mission
 title: Proposal — the mission as a first-class entity
 kind: proposal
 status: proposal
-summary: Promote today's mission — a task carrying `Level::Mission`, its plan, its children and the new-mission dialog — into an entity with a lifecycle of its own. Four phases (requirements, refining, in progress, completed) with user-gated transitions, a mission record beside the task keyed by the same `TaskId`, a dockable mission panel, a Missions section in the Agents sidebar, a fence with a drag handle on both Teams canvases, spawn and attach of coordinator and worker agents, a document set beyond the plan, a journal, and a `ubiq-mission` / `use-mission` MCP pair. Everything that exists — the task record, parent/child, attachments and references, the plan store and annotations, `ubiq-plan`, `NewMissionForm`, `WorkAgent::task` — is reused rather than replaced. Every fork is a numbered decision with a recommendation and a cost.
+summary: Promote today's mission — a task carrying `Level::Mission`, its plan, its children and the new-mission dialog — into an entity with a lifecycle of its own. Four phases (requirements, refining, in progress, completed) with user-gated transitions, a mission record beside the task keyed by the same `TaskId`, a dockable mission panel, a Missions section in the Agents sidebar, a fence with a drag handle on both Teams canvases, spawn and attach of coordinator and worker agents, a document set beyond the plan, a journal, a `ubiq-mission` / `use-mission` MCP pair, task prerequisites with a derived "not ready" mark so the planner can lay out a WBS, and two execution modes — manual, or auto with a mission scheduler that feeds ready tasks to agents at a set parallelism with label affinity. Everything that exists — the task record, parent/child, attachments and references, the plan store and annotations, `ubiq-plan`, `NewMissionForm`, `WorkAgent::task` — is reused rather than replaced. Every fork is a numbered decision with a recommendation and a cost.
 read_when: you are working on missions, the mission panel, the mission fence on the Teams graph, mission phases, or the mission MCP servers
 updated: 2026-09-24
 depends_on: [feat-workbench-tasks, feat-workbench-teams, feat-workbench-agents, feat-chat, feat-workbench, tech-transport, tech-decisions, wip-planning-system, inbox-hitl-dialogs, inbox-graph-layout, inbox-agent-graph-final]
@@ -12,7 +12,7 @@ depends_on: [feat-workbench-tasks, feat-workbench-teams, feat-workbench-agents, 
 # Proposal — the mission as a first-class entity
 
 **A proposal to work on, not a settled design. Nothing here is built.** Every fork is a numbered
-decision **M1–M18** with a recommendation and a cost; §11 stages the work; §12 lists what is still
+decision **M1–M25** with a recommendation and a cost; §12 stages the work; §13 lists what is still
 open for discussion. A decision that lands takes a `Dnn` row from **D164** upward.
 
 **Settled with the user (2026-09-24):** M1, M5, M11 and M13 — each marked *Settled* below with the
@@ -311,7 +311,8 @@ chosen.**
 
 Today's instruction to the coordinator — "create tasks and invoke subagents to process them" — keeps
 working unchanged in the first stages (harness subagents); Ubiq-level workers are the later stage
-(§11, S5), which is where "this will change" lands.
+(§12, S5), and the scheduler that hands tasks to them is §11 (S6) — which is where "this will
+change" lands.
 
 ## 8. Agents mode — the sidebar
 
@@ -412,20 +413,147 @@ A **mission family** beside the work and plan families, keyed by `(project_id, t
 The entity takes the project's `mission_term` everywhere it is drawn (panel title, sidebar section,
 fence handle, dialog), as the board chip already does. Code, wire and MCP names stay `mission`.
 
-## 11. Staging
+## 11. Work breakdown and execution
+
+*Specified by the user (2026-09-24):* tasks gain **prerequisites**, so the planner can lay out a
+work breakdown (WBS); a task whose prerequisites are not in review or done is **not ready** and is
+marked so; a mission's In-progress phase runs in one of two **modes**, manual or auto, and in auto a
+**mission scheduler** hands ready tasks to agents at a set parallelism, preferring agents whose past
+tasks share the new task's **labels**.
+
+### M19 — Prerequisites are a field on every task, not a mission feature
+
+- **Recommended:** `TaskRecord::prerequisites: Vec<TaskId>` (`#[serde(default)]`), edited as a whole
+  list through a new `TaskField::Prerequisites(Vec<TaskId>)` — `References`' posture exactly.
+  `references` stays what it is: untyped and symmetric. A prerequisite is typed and directed.
+- It is on every task, mission or not, because "wait for T-12" is useful on any board; the scheduler
+  is the only part that is mission-only.
+- **The host refuses** (`WorkError`, a sentence): a prerequisite in another project, the task itself,
+  and a **cycle** — prerequisites are a DAG, checked by a walk on each write. The depth-one rule
+  removed the need for a cycle walk on `parent`; prerequisites bring one back, bounded by the
+  project's task count. Deleting a task drops it from every list that names it, `orphan_children`'s
+  posture.
+- The reverse list — what a task **blocks** — is derived, never stored.
+
+### M20 — "Not ready" is derived, not a status
+
+- **Recommended:** a task is **ready** when every prerequisite is `InReview` or `Done`; otherwise
+  it is **not ready**, and *waiting on* names the ones that are not. It is computed from the task
+  list both halves already hold (host for the scheduler and MCP, window for drawing) — nothing new
+  is stored and nothing new crosses the bus.
+- It is **not** `Status::Blocked`. `Blocked` stays what a person or an agent says ("stuck on a
+  question"); not-ready is what the graph says. A card can be both.
+- **Board:** a not-ready card carries a muted *waits on n* chip ahead of its labels (tooltip and
+  click list the keys), its title is dimmed, and it gains no pulse. The toolbar gains a **Ready only**
+  tick beside the label picker. Dragging a not-ready card to `InProgress` is allowed — a person may
+  override the graph — and the mark stays on the card while it is true.
+- **Task panel:** a *Prerequisites* chip list with `+` (the references picker, refusing what M19
+  refuses) and a read-only *Blocks* list under it.
+- **Mission panel:** the Tasks section gains a **WBS view** beside the status grouping — tasks
+  grouped by dependency level (a topological layering: level 0 has no prerequisites), each row with
+  its readiness, assignee and labels; a critical-path highlight is a later refinement.
+- **Teams tasks drawer** draws the same chip.
+
+### M21 — The planner writes the WBS
+
+The coordinator, in Refining or at the start of In progress, turns the plan into tasks: children of
+the mission, each with prerequisites and **labels chosen for affinity** (M24) and, optionally, a
+suggested agent kind. The tools are the task tools that exist, widened:
+
+- `ubiq-mission::create_mission_task` takes `prerequisites` (ids or keys, including tasks created
+  earlier in the same batch), `labels` and `kind`; a batch form, `create_mission_tasks`, creates a
+  whole breakdown in one call and resolves in-batch references, so the planner does not have to
+  thread ids through a dozen calls.
+- `manage-ubiq-tasks::create_task` / `update_task` take `prerequisites`; `get_task` and
+  `search_tasks` (on both task servers) return `ready` and `waiting_on`; `search_tasks` gains a
+  `ready_only` filter.
+- The coordinator's briefing tells it to tag by affinity (area, component, skill) and to keep tasks
+  small enough for one agent. With `require plan`, the WBS is part of what the user approves at the
+  gate — the mission panel's WBS view is what they look at.
+
+### M22 — Two execution modes
+
+`MissionRecord::execution`: **Manual** (default) or **Auto { parallelism }**, switchable by the user
+at any time from the panel header or the Teams handle's menu; a switch is journaled.
+
+- **Manual:** tasks are completed by the user, or by agents the coordinator spawns and assigns
+  (`spawn_agent`, M13; `AssignAgent`). Readiness is advisory: shown everywhere, enforced nowhere.
+- **Auto:** the mission scheduler (M23) owns assigning the mission's *ready, unassigned* tasks. The
+  coordinator keeps planning, answering and re-planning — it may still create tasks, change
+  prerequisites and labels, and hand-assign a task (a hand assignment removes that task from the
+  scheduler's pool). Auto only runs in the In-progress phase; leaving it pauses the scheduler.
+
+### M23 — The mission scheduler
+
+- **Where:** in the host, `mission::scheduler`, run on the coordinator's own loop on the events it
+  already receives — a task changed, an agent's activity or lifecycle changed, the mode or
+  parallelism changed. No thread of its own and no timer. It decides; launches still go through the
+  window (M13), so the one-minter rule holds. Scheduler launches bypass the spawn policy's `ask` —
+  choosing auto *is* the consent — and are capped by `parallelism` instead.
+- **Pool:** children of the mission with status `Ready`, ready by M20, not hand-assigned, ordered by
+  priority, then WBS level, then board order. `Backlog` tasks are never picked: promoting to `Ready`
+  is how the planner or the user releases work.
+- **Slots:** `parallelism` minus the scheduler's agents currently holding a task. An agent waiting on
+  a person keeps its slot (and raises *Needs you*); an agent that ends frees it.
+- **Assign:** for each free slot, the first task in the pool goes to (1) an idle scheduler agent in
+  the mission with the best affinity (M24) that is still under `max_tasks_per_agent`, given the task
+  with `AssignAgent` and a prompt over `SendToAgent`; else (2) a new agent of the task's `kind`, or
+  the kind whose affinity labels match best, or the mission's default kind, spawned with the task
+  in its briefing.
+- **Finish:** when the task moves to `InReview` or `Done` (the worker calls `use-task::change_state`,
+  or a person moves it), it counts as done for readiness and the slot is the agent's to fill again:
+  if a ready task with affinity ≥ the threshold is in the pool it is handed over (step 1), else the
+  agent is **stopped** (unloaded — its conversation stays resumable) per `on_finish`.
+- **Failure:** an agent that ends, or sits idle past a grace period, without moving its task off
+  `InProgress` releases it back to `Ready` and counts an attempt; after `max_attempts` (default 2)
+  the task goes to `Blocked`, the coordinator is told, and it appears under *Needs you*.
+- **Done:** when every child is `InReview` or `Done`, the scheduler stops and prompts the coordinator
+  to request Completed (M5).
+- Every decision is a journal line (*scheduled T-45 → worker-2 (affinity ui, api)*, *retired
+  worker-3*, *released T-47, attempt 2*), so auto mode can always be read back.
+
+Settings on `MissionRecord`, edited from the panel: `parallelism` (default 2), `on_finish`
+(`reuse_or_stop` default, `stop`), `max_tasks_per_agent` (default 3 — a fresh context beats a
+bloated one), `max_attempts`, default kind.
+
+### M24 — Affinity by labels
+
+- **Recommended:** the labels the task already carries (`TaskRecord::labels`) are the affinity
+  vocabulary; nothing new is added to the task. An agent's **affinity set** is the union of the
+  labels of the tasks it has held in this mission (kept on its roster entry). Affinity between a
+  task and an agent is the overlap count, ties broken by the most recent holder; zero overlap never
+  reuses an agent.
+- **Agent kinds** (M13) gain an optional label list too, so a fresh spawn for a `ui`-tagged task
+  picks the kind that says `ui`.
+- All labels count. A convention to keep affinity labels apart from others (a prefix such as
+  `area:`) is left open (§13) until boards show whether mixing hurts.
+
+### M25 — What reaches the wire and the MCP
+
+- Work family: `TaskField::Prerequisites`; `TaskRecord::prerequisites`. Readiness stays derived.
+- Mission family: `SetMissionField` gains execution mode, parallelism, `on_finish`,
+  `max_tasks_per_agent`, `max_attempts`, default kind; agent kinds gain labels. The journal gains
+  the scheduler's events.
+- `ubiq-mission`: `create_mission_task(s)` with prerequisites, labels, kind; `mission_overview`
+  reports the mode, the pool, the slots and who holds what. `use-mission`: `mission_overview` tells a
+  worker its current task.
+
+## 12. Staging
 
 Each stage ships on its own and leaves the tree coherent.
 
 | Stage | Contents | Reuses |
 |---|---|---|
+| **S0 — prerequisites** (independent, can ship first) | `TaskRecord::prerequisites`, `TaskField::Prerequisites`, cycle refusal, derived readiness, the board's *waits on* chip and **Ready only** filter, the task panel's Prerequisites / Blocks lists, `ready` / `waiting_on` / `ready_only` on both task servers (M19, M20) | `References`' field, picker and chip list |
 | **S1 — record and panel** | `MissionStore`, lazy records and phase inference (M3), mission family on the wire, `PanelKind::Mission` with header, tasks, plan link, brief, roster derived from `WorkAgent::task`; board "Open mission" | task record, plan store, task panel pieces |
 | **S2 — phases and dialog** | phase transitions and gates (M4, M5), `Status` derivation, widened new-mission dialog (attachments, references, plan seed, attach running coordinator), *Needs you* section | `NewMissionForm`, `start_new_mission()`, task attachment and reference pickers |
 | **S3 — MCP core, documents, journal** | `ubiq-mission` / `use-mission` without spawn, `DocumentHandle::MissionDoc`, journal and `report_progress`, `AgentFacts::mission` | `ubiq-plan`'s handle pattern, `D120`, `D161` |
 | **S4 — Agents and Teams** | Missions section in the sidebar (M14), the fence and its handle on both canvases, drop-to-attach, Missions filter | `state::layout::fence`, task containers, hexagon mark |
 | **S5 — spawning and feedback** | spawn / attach / replace coordinator from the panel, `spawn_agent` relay with agent kinds and spawn policy, `message_agent`, feedback delivery; arm-and-fire asks once that proposal lands | New agent form composition, `SendToAgent`, message queue |
-| **S6 — later** | Ubiq-level workers as the default instead of harness subagents; arrangements laying missions out as frames (with the layout proposal) | — |
+| **S6 — WBS and auto mode** | `create_mission_tasks` batch, the WBS view, execution modes, the mission scheduler with affinity, `on_finish`, attempts and its journal lines (M21–M25) | S5's spawn relay and agent kinds, `AssignAgent`, `SendToAgent`, `use-task::change_state` |
+| **S7 — later** | Ubiq-level workers as the default instead of harness subagents; arrangements laying missions out as frames (with the layout proposal) | — |
 
-## 12. Open for discussion
+## 13. Open for discussion
 
 1. **Depth one.** A mission's tasks cannot have children. Enough for In progress, or do workers
    need sub-tasks (today they have todos, `steps`)?
@@ -443,8 +571,16 @@ Each stage ships on its own and leaves the tree coherent.
    `worker` / `reviewer` pair, or kinds marked on profiles the way `mission_assistant` is?
 8. **Child inheritance** (`wip/planning-system.md`): should a mission's children inherit labels,
    colour or session? The fence makes the colour question more visible.
+9. **In review counts as done** for readiness and for the scheduler (as specified). Who reviews in
+   auto mode — the user only, or a `reviewer` kind the scheduler also feeds from `InReview` tasks?
+   And if a review sends a task back to `InProgress`, do its dependents that already started stop?
+10. **Affinity labels:** all labels (M24's default), or only a prefix such as `area:`?
+11. **Release:** the scheduler picks only `Ready` tasks, so `Backlog` → `Ready` is the release
+    step. Should a planned WBS land in `Ready` directly when auto mode is on?
+12. **Cross-mission prerequisites:** allowed by M19 (same project). Should the scheduler treat a
+    prerequisite in another mission any differently?
 
-## 13. Related docs
+## 14. Related docs
 
 - [`../features/workbench-tasks.md`](../features/workbench-tasks.md) — missions, children, the plan surface and the new-mission dialog as built
 - [`../wip/planning-system.md`](../wip/planning-system.md) — the open items this proposal answers (`require plan`) or leaves open (inheritance, T-85)
@@ -458,5 +594,5 @@ Each stage ships on its own and leaves the tree coherent.
 
 ## Next steps
 
-- Walk the remaining decisions (M2–M4, M6–M10, M12, M14–M18) and §12 with the user.
+- Walk the remaining decisions (M2–M4, M6–M10, M12, M14–M25) and §13 with the user.
 - Then cut S1 into cards on the board.
