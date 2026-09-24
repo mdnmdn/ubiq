@@ -284,7 +284,14 @@ impl DocumentEditor {
         self.saving = false;
         let moved = revision != self.host_revision;
         self.host_revision = revision;
-        let edited = typed != self.saved;
+        // The buffer is shared across whichever document is open (`ui::document`'s note on
+        // `plan_editor`), so on a document's *first* answer it still holds whatever the surface
+        // last showed — a previous document's text, or the launch default — and comparing that
+        // against `self.saved` (always `""` for a document that has never loaded) reads as an
+        // edit that was never made. Nothing has been typed into a document that has not loaded
+        // yet, so there is nothing to protect: this body is taken unconditionally instead, and
+        // the buffer is reseeded from it below like any other fresh load.
+        let edited = !matches!(self.body, DocumentBody::Loading) && typed != self.saved;
         if edited && typed != body {
             // A *newer* third-party save is a new question: what was confirmed was confirmed
             // about the revision before this one. The same revision restated is not.
@@ -591,10 +598,12 @@ pub enum MinimapBlockKind {
     Image,
 }
 
-/// One row the minimap draws for a block. A heading or a code block draws exactly one; a
-/// paragraph or a table draws one per real, non-blank source line, which is the whole point of
-/// the rework this type exists for — a short line's `length` is short, not the full strip width
-/// every mark drew before it (T-110).
+/// One row the minimap draws for a block — exactly one per block, of every kind (T-134). A
+/// paragraph or a table once drew one row per real source line; against the reference minimap's
+/// own look that read as a barcode, a wall of same-height ticks with nothing to tell one block
+/// from the next. One mark per block, sized to its widest line, is what keeps "short line, short
+/// mark" (T-110) without losing the block-level shape a minimap is for. `row_index`/`row_count`
+/// stay on the type for `ui/document.rs`'s own use — every row built today carries `(0, 1)`.
 ///
 /// **`length` is measured in characters, not pixels.** There is no second layout pass to place a
 /// mark by real glyph widths (proposal §8.5 asks that there not be one), and the preview's own
@@ -621,7 +630,7 @@ pub struct MinimapRow {
 /// (`ui::document::DOC_WIDTH`-ish, at the content body size) — the normalising constant a real
 /// line's character count is measured against, so "short line, short mark" is relative to what
 /// the column can actually hold rather than to the longest line in the file.
-const LINE_LENGTH_CHARS: f32 = 90.0;
+pub(crate) const LINE_LENGTH_CHARS: f32 = 90.0;
 
 /// The document's blocks, drawn as the minimap sees them — one entry per block for a heading, a
 /// code block or an image, one per real line for a paragraph or a table row.
@@ -665,66 +674,56 @@ pub fn minimap_rows(blocks: &[PlanBlock]) -> Vec<MinimapRow> {
 /// no surrounding prose. The host's parser folds an image into its paragraph as phrasing content
 /// rather than giving it a block kind of its own, so this is the only way to tell one from an
 /// ordinary paragraph at this layer.
-fn is_image_reference(text: &str) -> bool {
+pub(crate) fn is_image_reference(text: &str) -> bool {
     let t = text.trim();
     t.starts_with("![") && t.ends_with(')') && t.matches("![").count() == 1
 }
 
-/// A paragraph's or a heading-less prose block's real lines, each measured in characters against
-/// [`LINE_LENGTH_CHARS`]. A blank line carries nothing to measure and is dropped rather than drawn
-/// as a zero-length mark.
+/// A paragraph's or a heading-less prose block's shape, as **one** mark rather than one per source
+/// line (T-134). A mark per real line read as a barcode — a wall of identical-height ticks with no
+/// air between them — against the reference minimap's own look (a handful of legible bars with
+/// room around each). One mark per block, sized to its longest line, keeps the shape a block-level
+/// map is for: where the headings, the prose and the code sit, not a transcription of every line.
 fn text_rows(block_index: usize, text: &str, kind: MinimapBlockKind) -> Vec<MinimapRow> {
-    let lines: Vec<&str> = text.lines().filter(|line| !line.trim().is_empty()).collect();
-    if lines.is_empty() {
-        return vec![MinimapRow {
-            block_index,
-            row_index: 0,
-            row_count: 1,
-            kind,
-            length: 0.3,
-        }];
-    }
-    let row_count = lines.len();
-    lines
-        .into_iter()
-        .enumerate()
-        .map(|(row_index, line)| MinimapRow {
-            block_index,
-            row_index,
-            row_count,
-            kind,
-            length: (line.trim().len() as f32 / LINE_LENGTH_CHARS).clamp(0.08, 1.0),
-        })
-        .collect()
+    let widest = text
+        .lines()
+        .map(|line| line.trim().len())
+        .max()
+        .unwrap_or(0);
+    let length = if widest == 0 {
+        0.3
+    } else {
+        (widest as f32 / LINE_LENGTH_CHARS).clamp(0.08, 1.0)
+    };
+    vec![MinimapRow {
+        block_index,
+        row_index: 0,
+        row_count: 1,
+        kind,
+        length,
+    }]
 }
 
-/// A table's real rows, each drawn as a dotted line the length of its own cells' text — the
-/// user's own words for it, "for tables, dotted line representing chars". The header separator
-/// (`|---|---|`) is source syntax, not content, and draws nothing.
+/// A table's shape, as **one** dotted mark rather than one per row — the same barcode problem
+/// [`text_rows`] fixes, for the same reason. Sized to the widest row, so a wide table still reads
+/// as wider than a narrow one.
 fn table_rows(block_index: usize, text: &str) -> Vec<MinimapRow> {
-    let rows: Vec<&str> = text
+    let widest = text
         .lines()
         .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .filter(|line| !is_separator_row(line))
-        .collect();
-    if rows.is_empty() {
+        .filter(|line| !line.is_empty() && !is_separator_row(line))
+        .map(|line| line.trim_matches('|').len())
+        .max();
+    let Some(widest) = widest else {
         return Vec::new();
-    }
-    let row_count = rows.len();
-    rows.into_iter()
-        .enumerate()
-        .map(|(row_index, line)| {
-            let chars = line.trim_matches('|').len();
-            MinimapRow {
-                block_index,
-                row_index,
-                row_count,
-                kind: MinimapBlockKind::Table,
-                length: (chars as f32 / LINE_LENGTH_CHARS).clamp(0.15, 1.0),
-            }
-        })
-        .collect()
+    };
+    vec![MinimapRow {
+        block_index,
+        row_index: 0,
+        row_count: 1,
+        kind: MinimapBlockKind::Table,
+        length: (widest as f32 / LINE_LENGTH_CHARS).clamp(0.15, 1.0),
+    }]
 }
 
 fn is_separator_row(line: &str) -> bool {

@@ -505,6 +505,11 @@ enum Row {
 ///
 /// `spaced` puts back the gap the old, non-virtualized column drew with `gap_2` on its flex
 /// container: a fixed-stack list has no gap of its own, so every row but the last carries its own.
+///
+/// **Padding, not margin.** `gpui::list` measures a row by calling `element.layout_as_root`, which
+/// reports the row's own border-box size — a root element's margin never enters that box, so a
+/// margin-bottom here is silently dropped and every card ends up flush against the next (`T-132`).
+/// Padding is part of the border box, so it is what the list actually counts.
 fn render_row(
     rows: &[Row],
     ix: usize,
@@ -521,7 +526,7 @@ fn render_row(
         if last {
             el
         } else {
-            div().mb(rems(0.5)).child(el).into_any_element()
+            div().pb(rems(0.5)).child(el).into_any_element()
         }
     };
     match row {

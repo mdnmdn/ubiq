@@ -82,6 +82,11 @@ message in `crates/ubiq-proto/src/messages.rs`. `just ui` enforces it.
   the window pushes the answer instead.
 - **Exactly one menu is open at a time** — a single `Option<MenuId>` on the workbench state. A
   trigger *opens*, never toggles.
+- **A row's own margin is invisible to `gpui::list`.** The list measures each row with
+  `element.layout_as_root(..)`, which reports the border box, and a root element's margin is not
+  part of that — so `.mb(..)` on a virtualized row silently contributes zero height and rows pack
+  flush. Use padding (`.pb(..)`) for gaps between virtualized rows. Real example: `render_row` in
+  `crates/ubiq/src/ui/board/mod.rs`.
 
 ## Overlays
 

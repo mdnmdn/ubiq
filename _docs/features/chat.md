@@ -757,7 +757,9 @@ open set is `Conversation::open_groups` with `toggle_group()` beside it in
 `AppState::toggle_conversation_tool_group` in `crates/ubiq/src/app/agents.rs`; the reasoning fold
 has no open set of its own — the run is read off its last block, moved by
 `Conversation::toggle_thought_group` over the run's indices and remembered in `touched_thoughts`,
-reached through `AppState::toggle_conversation_thought_group`. `footer()` takes the account's snapshot from
+reached through `AppState::toggle_conversation_thought_group`. Every child `footer()` appends is
+guarded, so it tracks whether any of them fired and returns an empty element when none did — the row
+is padding and nothing else until there is a reading to state. `footer()` takes the account's snapshot from
 `SettingsState::quota` in `crates/ubiq/src/state/settings.rs`, falls back to
 `snapshot_from_rate_limit` over `Conversation::rate_limit` where the host has said nothing yet,
 words the tooltip with `quota_tip`, and colours each band with `theme::usage_tone` — the one
@@ -825,6 +827,7 @@ field the filter. A grouped, searchable, partly-inert list was already what that
 | The conversation runs as no account, or its provider names no limit | No quota ring; there is no window to draw, and a zero ring would claim one that is empty |
 | The host has cached nothing and the harness has pushed nothing | No quota ring. The reading arrives when a turn runs or the accounts page asks, and until then nothing is stated |
 | The cached snapshot is old | The ring still draws — a stale reading is a real one — and the tooltip says how old it is rather than implying it is current |
+| A conversation has no spend, no context reading and no quota — a freshly launched agent | The footer draws nothing at all. The row collapses rather than reserving its padding, which otherwise showed as an empty strip along the bottom edge of every surface hosting the conversation |
 | The turn is cancelled while asks are up | The outstanding set is dropped, the prompts and the strip go with it, and the host answers every one of them as cancelled before the cancel reaches the harness |
 | The harness ends or is unloaded while an ask is up | The prompts go with the process; there is nothing left waiting on an answer |
 | The conversation accepts everything and the harness offers no allowing option | The host emits the request unchanged, and it is drawn and answered like any other |

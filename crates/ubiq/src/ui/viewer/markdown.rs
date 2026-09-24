@@ -167,27 +167,22 @@ fn typography(app: &AppState, body: Pixels) -> (TextViewStyle, f32) {
     // on top of the block's own div, after its default `.text_size(...)`, so it can differ from
     // the body's leading where headings cannot.
     //
-    // Breakout (§4.2): a negative horizontal margin equal to the column's own inset cancels that
-    // inset for these two block kinds, so a wide table or code block runs flush to the reading
-    // column's outer edge instead of staying capped at the prose measure. This reaches "up to the
-    // column's own frame", not "up to the pane's edge" the proposal describes for a centred
-    // column with room to spare either side of the frame — that needs the live gap between the
-    // column and the pane edge, which is not available where a `StyleRefinement` is built (no
-    // `Window`, and the refinement is static per render rather than reactive to layout).
-    // T-126: a code block or table wider than the column no longer spills past the viewport —
-    // it scrolls horizontally within its own frame instead. The codeblock div already carries an
-    // element id (`node.rs`'s `("codeblock", ix)`) and `min_w_0`, which is all GPUI's own
-    // `overflow: scroll` needs to become interactively scrollable; the table gets the same
-    // treatment through `TextViewStyle::table`'s documented opt-in (`node.rs`'s
+    // T-134: a code block and a table keep the paragraph's own left edge and content width rather
+    // than breaking out to the column's outer frame — the two are read as part of the same prose
+    // flow, and a table starting further left than the sentence above it read as misaligned rather
+    // than as a deliberate breakout. T-126's fix still holds: a block wider than the column scrolls
+    // horizontally within its own frame instead of spilling past the viewport. The codeblock div
+    // already carries an element id (`node.rs`'s `("codeblock", ix)`) and `min_w_0`, which is all
+    // GPUI's own `overflow: scroll` needs to become interactively scrollable; the table gets the
+    // same treatment through `TextViewStyle::table`'s documented opt-in (`node.rs`'s
     // `render_scroll_table`, chosen over the default wrapping layout precisely when this is set).
     let mut code_block = StyleRefinement::default();
     code_block.text.line_height = Some(relative(theme::MD_CODE_LINE_HEIGHT));
     code_block.overflow.x = Some(Overflow::Scroll);
-    let code_block = code_block.mx(-theme::md_min_margin());
 
     let mut table_cell = StyleRefinement::default();
     table_cell.text.line_height = Some(relative(theme::MD_CODE_LINE_HEIGHT));
-    let mut table = StyleRefinement::default().mx(-theme::md_min_margin());
+    let mut table = StyleRefinement::default();
     table.overflow.x = Some(Overflow::Scroll);
 
     // Inline code (§6.1): the chip's padding, corner radius and baseline offset the proposal asks
@@ -596,6 +591,92 @@ fn collect_headings(node: &markdown_ast::Node, len: f32, found: &mut Vec<Heading
         for child in children {
             collect_headings(child, len, found);
         }
+    }
+}
+
+/// One block's own shape for the minimap — the same shapes `state::document::minimap_rows` draws
+/// for an annotated document's host-indexed blocks, computed here straight off the raw source
+/// instead. **This is the one minimap** (T-134): the standard viewer's own preview had a second,
+/// heading-only strip and the annotation surface a third, denser one drawn one mark per source
+/// line; both read as a barcode next to the reference minimap's handful of legible bars. Now both
+/// surfaces draw the same shapes, through the same `kit::minimap` primitive and the same
+/// `ui::document::mark_style` palette — this walk is the ordinary-tab half, for a buffer with no
+/// host block index to read; `ui::document::document_minimap` is the annotated half.
+pub struct StructureMark {
+    pub kind: crate::state::document::MinimapBlockKind,
+    /// The block's own byte offset over the document's total length, `0.0..=1.0` — the same honest
+    /// approximation [`HeadingMark::fraction`] uses, for the reason given there.
+    pub fraction: f32,
+    /// `0.0..=1.0`, this block's own share of a full column width — the widest line it holds
+    /// against [`crate::state::document::LINE_LENGTH_CHARS`], mirroring
+    /// `state::document::text_rows`'s measure so a file draws the same shape whichever surface
+    /// reads it.
+    pub length: f32,
+}
+
+/// Every top-level block the minimap draws a shape for, in document order. Only the root's own
+/// children are read — a fence or a heading nested in a list or a blockquote is prose inside a
+/// larger block as far as the minimap is concerned, the same granularity `minimap_rows` reads off
+/// the host's own top-level block index.
+pub fn structure_marks(source: &str) -> Vec<StructureMark> {
+    let Ok(ast) = markdown::to_mdast(source, &markdown::ParseOptions::gfm()) else {
+        return Vec::new();
+    };
+    let len = source.len().max(1) as f32;
+    let Some(children) = ast.children() else {
+        return Vec::new();
+    };
+    children
+        .iter()
+        .filter_map(|node| structure_mark_of(node, len))
+        .collect()
+}
+
+fn structure_mark_of(node: &markdown_ast::Node, len: f32) -> Option<StructureMark> {
+    use crate::state::document::{LINE_LENGTH_CHARS, MinimapBlockKind, is_image_reference};
+
+    let fraction = node
+        .position()
+        .map(|position| (position.start.offset as f32 / len).clamp(0.0, 1.0))
+        .unwrap_or(0.0);
+    let widest = |text: &str| -> f32 {
+        let widest = text.lines().map(|line| line.trim().len()).max().unwrap_or(0);
+        (widest as f32 / LINE_LENGTH_CHARS).clamp(0.08, 1.0)
+    };
+
+    match node {
+        markdown_ast::Node::Heading(_) => Some(StructureMark {
+            kind: MinimapBlockKind::Heading,
+            fraction,
+            length: 0.85,
+        }),
+        markdown_ast::Node::Paragraph(_) => {
+            let text = node.to_string();
+            if is_image_reference(&text) {
+                Some(StructureMark {
+                    kind: MinimapBlockKind::Image,
+                    fraction,
+                    length: 0.55,
+                })
+            } else {
+                Some(StructureMark {
+                    kind: MinimapBlockKind::Paragraph,
+                    fraction,
+                    length: widest(&text),
+                })
+            }
+        }
+        markdown_ast::Node::Code(_) => Some(StructureMark {
+            kind: MinimapBlockKind::Code,
+            fraction,
+            length: 1.0,
+        }),
+        markdown_ast::Node::Table(_) => Some(StructureMark {
+            kind: MinimapBlockKind::Table,
+            fraction,
+            length: widest(&node.to_string()),
+        }),
+        _ => None,
     }
 }
 

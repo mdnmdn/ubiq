@@ -29,7 +29,7 @@ use gpui::{
 use gpui_component::input::{Input, Textarea};
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
-use crate::app::AppState;
+use crate::app::{AppState, SubmitSearch};
 use crate::state::document::{
     AnnotationsBody, ComposerTarget, DocumentBody, DocumentEditor, MinimapBlockKind, Notice,
     heading_sections, minimap_rows, thread_marks,
@@ -226,7 +226,7 @@ fn document_minimap(app: &AppState, doc: &DocumentEditor, view: &Entity<AppState
 
 /// A colour and a dotted flag per §8.2's table — the block-kind facts a minimap mark carries,
 /// resolved to a palette token here so `kit::minimap` never has to know what a block kind is.
-fn mark_style(kind: MinimapBlockKind) -> (gpui::Rgba, bool) {
+pub(crate) fn mark_style(kind: MinimapBlockKind) -> (gpui::Rgba, bool) {
     match kind {
         MinimapBlockKind::Heading => (theme::text(), false),
         MinimapBlockKind::Paragraph => (theme::text_faint(), false),
@@ -490,6 +490,13 @@ fn section_editor(
         .p_2()
         .gap_1p5()
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        // T-134: ⌘⏎ (⌃⏎ off macOS) confirms and leaves edit mode, the same key every other field
+        // in the window answers to for "confirm this from inside a field" — `SubmitSearch` is
+        // bound at the window and at the field's own depth (`app/mod.rs`), so it reaches here
+        // whichever has the keyboard. Bare Enter stays a newline: a section is prose.
+        .on_action(cx.listener(move |this, _: &SubmitSearch, window, cx| {
+            this.confirm_section_edit(window, cx)
+        }))
         .child(
             Textarea::new(&edit.input)
                 .appearance(false)

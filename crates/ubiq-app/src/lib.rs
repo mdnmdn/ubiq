@@ -12,9 +12,12 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::path::{Path, PathBuf};
 
+#[cfg(feature = "ui")]
 use gpui::{App, KeyBinding, actions};
+#[cfg(feature = "ui")]
 use gpui_platform::application;
 
+#[cfg(feature = "ui")]
 use ubiq::app;
 use ubiq_host::config::{self, ConfigRoot};
 use ubiq_host::coordinator;
@@ -30,6 +33,7 @@ use ubiq_proto::log;
 
 pub mod handoff;
 
+#[cfg(feature = "ui")]
 actions!(ubiq, [Quit]);
 
 /// The environment variable that puts this binary into askpass mode, naming which SSH profile's
@@ -105,8 +109,10 @@ fn askpass() -> Option<i32> {
 /// component library names its own. Ours is consulted first because it is the smaller, closed set,
 /// and every name in it is category-prefixed, so the two cannot collide. The fonts the component
 /// library needs come through the fallback like any other path.
+#[cfg(feature = "ui")]
 struct Assets;
 
+#[cfg(feature = "ui")]
 impl gpui::AssetSource for Assets {
     fn load(&self, path: &str) -> gpui::Result<Option<std::borrow::Cow<'static, [u8]>>> {
         if let Some(bytes) = ubiq::ui::kit::icons::bytes(path) {
@@ -334,6 +340,33 @@ pub fn run(boot: Boot) {
         }
     }
 
+    // Everything from here belongs to the window, and a build without the `ui` feature has none:
+    // the host above is already up, so there is nothing left to do but stay alive, exactly as a
+    // served run does. Said once on standard error, because a console-only binary that silently
+    // draws nothing looks broken.
+    #[cfg(not(feature = "ui"))]
+    {
+        drop((hub, paths, listener));
+        eprintln!(
+            "ubiq: built without the `ui` feature — the host is running and nothing will be drawn; \
+             pass --serve to make it reachable."
+        );
+        loop {
+            std::thread::park();
+        }
+    }
+
+    #[cfg(feature = "ui")]
+    window(hub, paths, listener);
+}
+
+/// The interface half of the boot: the path intake, the component library and the palette, the key
+/// bindings, and the first window. Returns when the last window closes.
+///
+/// Split out of [`run`] so that the `ui` feature gates one function rather than a tail — the host
+/// above it is the same process either way, and this is the only part of the boot that draws.
+#[cfg(feature = "ui")]
+fn window(hub: bus::Hub, paths: Vec<PathBuf>, listener: Option<handoff::Listener>) {
     // One batch per arrival, because an arrival with no path in it is a bare `ubiq` asking for the
     // window's attention and has to reach the loop below all the same.
     let (path_tx, path_rx) = flume::unbounded::<Vec<PathBuf>>();
@@ -775,12 +808,16 @@ fn announce(serving: &ubiq_host::remote::Serving) {
 /// A `file://` URL as Finder or a dock-icon drop hands it over, decoded back to a path. macOS
 /// marks a folder with a trailing slash; the path itself never wants one. Anything not `file://`
 /// is not ours — Ubiq registers no URL scheme of its own.
+///
+/// Only the window path calls it, and only its own test does in a headless build.
+#[cfg_attr(not(feature = "ui"), allow(dead_code))]
 fn path_from_file_url(url: &str) -> Option<PathBuf> {
     let rest = url.strip_prefix("file://")?;
     let decoded = percent_encoding::percent_decode_str(rest).decode_utf8_lossy();
     Some(PathBuf::from(decoded.strip_suffix('/').unwrap_or(&decoded)))
 }
 
+#[cfg(feature = "ui")]
 fn theme_boot(cx: &mut App) {
     ubiq::theme::set_mode(app::boot_theme(), cx);
 }

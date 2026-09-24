@@ -331,11 +331,14 @@ fn warned(
 /// furniture is not `theme.rs`'s to own (`kit-and-theme.md`'s "Not here" note).
 const MINIMAP_WIDTH: f32 = 72.0;
 
-/// The standard viewer's markdown preview, with the heading minimap beside it when the setting
-/// asks for one — T-118, proposal §8 reduced to what a single `TextView` (no per-block layout,
-/// unlike the plan surface) can honestly offer: a mark per heading, positioned by its proportional
-/// offset in the source rather than a measured pixel position, and a click that scrolls the
-/// document by that same proportion via [`markdown::render_scrollable`]'s external scroll handle.
+/// The standard viewer's markdown preview, with the minimap beside it when the setting asks for
+/// one — T-118, proposal §8 reduced to what a single `TextView` (no per-block layout, unlike the
+/// plan surface) can honestly offer: one mark per top-level block, positioned by its proportional
+/// offset in the source rather than a measured pixel position. **The same shapes the annotation
+/// surface draws** (T-134) — [`markdown::structure_marks`] is `ui::document::document_minimap`'s
+/// own shapes computed off the raw source instead of a host block index, drawn through the same
+/// `minimap` primitive and the same `ui::document::mark_style` palette, so a file looks like one
+/// minimap whichever surface it is open in.
 fn markdown_preview(
     app: &AppState,
     file: &OpenFile,
@@ -363,27 +366,38 @@ fn markdown_preview(
     }
 
     let side = ui.md_minimap_side;
-    // T-110's rework moved the block-shape drawing onto `crate::ui::document`'s own minimap; the
-    // standalone markdown viewer's heading strip stays what it always was, a full-width tick per
-    // heading — it has no `PlanBlock`s to draw a real layout from, only `heading_marks`' settled
-    // fractions.
-    let marks: Vec<MinimapMark> = markdown::heading_marks(&source)
-        .into_iter()
-        .map(|heading| MinimapMark::new(heading.fraction, 0.01, 1.0, false, heading_colour(heading.level)))
+    // One mark per top-level block, in `ui::document::mark_style`'s own palette — see the note
+    // above. A mark never draws shorter than `MIN_MARK_HEIGHT_PX` (`ui/kit/minimap.rs`), which is
+    // what keeps a document with many blocks from thinning its marks into a barcode: each still
+    // reads as its own bar rather than a hairline tick.
+    let structure = markdown::structure_marks(&source);
+    let mark_gap = if structure.is_empty() {
+        0.0
+    } else {
+        (1.0 / structure.len() as f32) * 0.6
+    };
+    let marks: Vec<MinimapMark> = structure
+        .iter()
+        .map(|block| {
+            let (colour, dotted) = crate::ui::document::mark_style(block.kind);
+            MinimapMark::new(block.fraction, mark_gap, block.length, dotted, colour)
+        })
         .collect();
 
     let view = cx.entity();
-    let mark_key = key.clone();
+    let scroll = file.md_scroll.clone();
     let strip = minimap(
         eid("md-minimap", &key),
         MINIMAP_WIDTH,
         &marks,
         &[],
         None,
-        std::rc::Rc::new(indexed(&view, move |this, index, _, cx| {
-            this.select_md_minimap_mark(&mark_key, index, cx)
-        })),
-        scrub(&view, |_, _, _, _| {}),
+        std::rc::Rc::new(indexed(&view, |_, _, _, _| {})),
+        scrub(&view, move |_, fraction, _, cx| {
+            let max_offset = scroll.max_offset();
+            scroll.set_offset(gpui::point(px(0.), -max_offset.y * fraction));
+            cx.notify();
+        }),
     );
 
     let row = div().flex().flex_1().min_w(px(0.)).min_h(px(0.));
@@ -392,18 +406,6 @@ fn markdown_preview(
         theme::MdMinimapSide::Right => row.child(document).child(strip),
     }
     .into_any_element()
-}
-
-/// A heading's tick colour on the minimap: H1/H2 in the interactive colour, since they are what a
-/// reader jumps between, deeper headings fainter — the closest honest stand-in reachable here for
-/// proposal §8.2's bar-weight distinction, which the kit's `minimap` primitive does not yet draw
-/// (every mark is the same short tick; see `ui/kit/minimap.rs`).
-fn heading_colour(level: u8) -> Rgba {
-    if level <= 2 {
-        theme::accent()
-    } else {
-        theme::text_faint()
-    }
 }
 
 /// The file's own buffer. Never a copy of it: the source half of a split is the same entity the
@@ -462,6 +464,10 @@ pub fn surface() -> gpui::Div {
 /// T-126: the picture is drawn at its own natural size, which can be wider than the reading
 /// column, so this scrolls it horizontally instead of letting it spill past the viewport. The
 /// element id only needs to be unique per fence in the document, which the fence's own source is.
+///
+/// **Left-aligned, not centred** (T-134): a paragraph's own text starts at the column's left
+/// edge, and a diagram narrower than the column centred under it read as adrift from the prose
+/// around it. `items_start` keeps the picture's own left edge flush with the paragraph's.
 pub(crate) fn diagram_frame(key: &str, picture: impl IntoElement) -> AnyElement {
     div()
         .id(eid("md-diagram", key))
@@ -470,8 +476,8 @@ pub(crate) fn diagram_frame(key: &str, picture: impl IntoElement) -> AnyElement 
         .overflow_x_scroll()
         .flex()
         .flex_col()
-        .items_center()
-        .p_3()
+        .items_start()
+        .py_3()
         .child(picture)
         .into_any_element()
 }

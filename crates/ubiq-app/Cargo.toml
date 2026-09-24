@@ -25,7 +25,24 @@ path = "src/main.rs"
 # `build`, `bundle`, `bundle-win` — name it, `just assist` type-checks it, and the developer loop
 # builds the same application with the host's stub backend, which reports assistance unavailable
 # and which every call site already reads correctly against.
-default = ["quickjs"]
+default = ["ui", "quickjs"]
+
+# The GPUI interface itself. On by default because the window *is* the application; it is a feature
+# so that `--no-default-features` builds a console-only Ubiq — the same host, the same coordinator,
+# the same `--serve` listener, with no window, no GPUI and no interface crate in the graph. That
+# build is what a headless machine runs, and `just headless` is the check that keeps it linking.
+#
+# Everything this gates lives in this crate: the `ubiq` dependency, the four GPUI crates, the asset
+# source, the key bindings and the window. Without it, `run` starts the host and parks — a served
+# run behaves exactly as it does with the feature on, and a bare run says once that there is no
+# interface compiled in.
+ui = [
+    "dep:ubiq",
+    "dep:gpui",
+    "dep:gpui_platform",
+    "dep:gpui-component",
+    "dep:gpui-component-assets",
+]
 
 # Forwarded to the host, which owns the backend; the interface never names one. `ubiq-host` does
 # not default it, so switching it off here is enough to switch it off everywhere.
@@ -53,10 +70,13 @@ assist-apple = ["ubiq-host/assist-apple"]
 # C interpreter compiled into the process — the facade then reports itself unavailable, and the
 # page reads correctly against that. `ubiq` does not default it, so switching it off here is enough
 # to switch it off everywhere.
-quickjs = ["ubiq/quickjs"]
+#
+# Weak (`ubiq?/quickjs`): naming the facade's feature must not drag the interface back in, so a
+# `--no-default-features --features quickjs` build stays headless and the flag resolves to nothing.
+quickjs = ["ubiq?/quickjs"]
 
 [dependencies]
-ubiq = { path = "../ubiq" }
+ubiq = { path = "../ubiq", optional = true }
 ubiq-host = { path = "../ubiq-host" }
 ubiq-proto = { path = "../ubiq-proto" }
 
@@ -71,15 +91,16 @@ tracing = "0.1"
 flume = "0.12"
 percent-encoding = "2"
 
-gpui = { git = "https://github.com/zed-industries/zed" }
-gpui_platform = { git = "https://github.com/zed-industries/zed", features = [
+# All four are the `ui` feature's, and nothing outside it names them.
+gpui = { git = "https://github.com/zed-industries/zed", optional = true }
+gpui_platform = { git = "https://github.com/zed-industries/zed", optional = true, features = [
     "font-kit",
     "wayland",
     "x11",
     "runtime_shaders",
 ] }
-gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "df1d07b212e21217b1168e1728293b3e0c48e5a3" }
-gpui-component-assets = { git = "https://github.com/longbridge/gpui-component", rev = "df1d07b212e21217b1168e1728293b3e0c48e5a3" }
+gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "df1d07b212e21217b1168e1728293b3e0c48e5a3", optional = true }
+gpui-component-assets = { git = "https://github.com/longbridge/gpui-component", rev = "df1d07b212e21217b1168e1728293b3e0c48e5a3", optional = true }
 
 [dev-dependencies]
 # `handoff`'s tests claim a lock in a throwaway root rather than the real config dir.

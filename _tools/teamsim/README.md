@@ -86,7 +86,7 @@ Printed as a table, stamped into each image's caption, and written to `out/metri
 
 `adaptive` wins if its readability numbers stay near a from-scratch tidy's while `order` stays `yes`
 and nothing moves that the arriving block did not actually overlap. `mv_mean` is 0.0 on five of the
-seven scenarios and 152.0 on `deep-delegation` and `kitchen` — the two with hand-placed containers.
+eight scenarios and 152.0 on `deep-delegation` and `kitchen` — the two with hand-placed containers.
 A container a human placed is put back by `apply_positions` after every arrival, so when a card's
 ring grows sideways into one, the block that grew is the one that gives way, and that displacement is
 the contract working rather than the contract broken.
@@ -163,11 +163,11 @@ Four rounds of render-look-change, judging the PNGs, not the table:
 **`adaptive` wears `ring_grid`.** It is strictly better than `ring_rows` on every scenario and
 `order` is `yes` throughout; the only blocks it displaces are the ones a widening ring genuinely
 grew into, beside a container a human pinned. `ring_radial` under `adaptive` was marginally shorter
-overall but moved blocks on four of seven scenarios for no such reason, which is the one thing
+overall but moved blocks on four of eight scenarios for no such reason, which is the one thing
 `adaptive` is not allowed to do.
 
 The arrangement to put in front of a user is **`adaptive` with the grid ring**. At full block size,
-summed over the seven scenarios, `multiline` is now the shortest of the eight (9.95 screens tall)
+summed over the eight scenarios, `multiline` is now the shortest of the eight (9.95 screens tall)
 with `adaptive` fifth (11.54) — a full-size delegate costs `adaptive` more than it costs a
 from-scratch tidy, because the grid ring it wears is now two columns wide rather than narrow-and-two.
 `adaptive` still gets there without moving anything anyone was already looking at, which
@@ -189,7 +189,7 @@ in it), and it predates `layout.rs` folding every one of these eight through `st
 uniformly and the scenario set growing from seven to eight. Regenerating it means rerunning the full
 scenario × algorithm sweep, which no later change has done.
 
-Summed over the seven scenarios, in screen-heights of scrolling — the number the whole spike is
+Summed over the eight scenarios, in screen-heights of scrolling — the number the whole spike is
 about — and screen-widths beside it, because a shape that buys height with width has to show the
 bill. Every block here is drawn at full `SUB_BOX` size, the size the app draws it — nothing in this
 table is a narrow-delegate number:

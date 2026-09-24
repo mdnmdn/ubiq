@@ -1139,6 +1139,10 @@ pub struct AppState {
     /// The agents screen's sidebar. Its own handle rather than the explorer's: the two lists are
     /// on screen in different modes and a shared handle would carry one's position into the other.
     pub agents_scroll: ScrollHandle,
+    /// The related-task picker's result list — see `ui::board::form::reference_picker`. Its own
+    /// handle because the picker is reopened fresh each time the `+` is toggled, and a shared
+    /// handle would carry a stale offset in from whatever else last used it.
+    pub task_reference_scroll: ScrollHandle,
     /// The plan surface's section list — a thread's "Show" button and the heading navigator both
     /// bring a section into view by scrolling this to its index among the document's blocks.
     pub plan_preview_scroll: ScrollHandle,

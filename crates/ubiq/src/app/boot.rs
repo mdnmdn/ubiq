@@ -1726,6 +1726,7 @@ impl AppState {
             explorer_focus: cx.focus_handle(),
             workbench_focus: cx.focus_handle(),
             agents_scroll: ScrollHandle::new(),
+            task_reference_scroll: ScrollHandle::new(),
             plan_preview_scroll: ScrollHandle::new(),
             explorer_filter_gen: 0,
             md_reflow: 0,

@@ -172,12 +172,15 @@ recipe.
 interpreter behind the kitchen sink's script page — and a `[[test]]` target that requires it, so a
 build without the feature compiles no test that needs an interpreter. It is **not** in that
 crate's `default`: `crates/ubiq-app` turns it on, so the one manifest that names both halves is
-the one place it is switched off. `--no-default-features` on the binary therefore builds a
-complete Ubiq with no C interpreter in the process, and the script page reads correctly against
-that — it says the build carries none. The facade's `validate` and `transpile` go through `oxc`,
-an ungated dependency of the same crate — pure Rust, no C, and a parse rather than an evaluation —
-so a build with no interpreter still syntax-checks a buffer and still compiles TypeScript to
-JavaScript. `D127` is the interpreter and its cost, `D128` the front end in front of it.
+the one place it is switched off — asked for weakly, `ubiq?/quickjs` (`D162`), so naming it on a
+headless build does not drag the interface crate back in. A build against `crates/ubiq` (the `ui`
+feature on) with `quickjs` off is a complete Ubiq with no C interpreter in the process, and the
+script page reads correctly against that — it says the build carries none. `ubiq-app`'s own `ui`
+feature (`D162`) is the coarser switch, gating `crates/ubiq` itself: off, the process is the
+headless build `operations.md` describes, with no script page and no interpreter question to ask. The facade's `validate` and `transpile` go through `oxc`, an ungated dependency of
+`crates/ubiq` — pure Rust, no C, and a parse rather than an evaluation — so a build with no
+interpreter still syntax-checks a buffer and still compiles TypeScript to JavaScript. `D127` is the
+interpreter and its cost, `D128` the front end in front of it.
 
 ## Inside Ubiq's five crates
 

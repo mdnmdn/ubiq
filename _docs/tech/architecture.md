@@ -5,7 +5,7 @@ kind: tech
 status: current
 summary: The two halves — coordinator and UI — the single bus between them, the rules neither may break, and why the split is drawn before it is needed.
 read_when: you are about to add a capability that crosses the UI/coordinator line, or you want to know why the code is shaped this way
-updated: 2026-09-21
+updated: 2026-09-24
 verified: 2026-09-24
 code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq/src/lib.rs, crates/ubiq/src/version.rs, crates/ubiq-app/src/lib.rs, crates/ubiq-app/src/main.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/state/windows.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-proto/src/lib.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/files/mod.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/kb/mod.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq-host/src/store/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/store/memory.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq-host/src/links.rs, crates/ubiq/src/web_export/mod.rs, crates/ubiq-host/src/mcp/mod.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-drone/src/lib.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/store/plan.rs]
 review_cycle: quarterly
@@ -284,14 +284,17 @@ is the SSH askpass helper — `UBIQ_ASKPASS_PROFILE` set in the environment — 
 profile's secret from the host's own store and writes it to standard output, then exits; nothing else
 in the sequence runs, and nothing else may print to standard output ahead of that check, because
 `ssh` reads whatever is there as the password. Otherwise `run` proceeds: install logging, resolve the
-config root, open the stores, start the one host, install the GPUI component library, set the
-palette, bind the quit action and the interface's own, and ask for the first window. `crates/ubiq-app/src/main.rs` is
+config root, open the stores and start the one host — the same steps whether or not the interface is
+compiled in. What follows is the `ui` feature's own function, `window` (`D162`): install the GPUI
+component library, set the palette, bind the quit action and the interface's own, and ask for the
+first window. `crates/ubiq-app/src/main.rs` is
 `run(Boot::default())` and nothing else. `Boot` carries what a binary composes — today the four boxed
 store traits, gathered as `Stores`, as a `FnOnce(&Path)` because the config root is resolved inside
 `run` from this process's own arguments — and `Boot::default()` is the base itself, not a reduced
-configuration: nothing in the sequence is conditional on anything. A second binary over these same
-crates hands in a different value and cannot skip a step, because `run` is the whole sequence. The
-boot is therefore testable, and a test substitutes the memory stores through `Boot`.
+configuration: nothing in the sequence is conditional on the binary composing it. A second binary
+over these same crates hands in a different value and cannot skip a step, because `run` is the whole
+sequence up to `window`. The boot is therefore testable, and a test substitutes the memory stores
+through `Boot`.
 
 Opening a window is `app::open_project_window`, the single place one is created, so the first window
 and "open in a new window" cannot drift apart. `ubiq-app` consumes `crates/ubiq` as a library rather

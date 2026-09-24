@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-09-23
-verified: 2026-09-23
+updated: 2026-09-24
+verified: 2026-09-24
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -3654,6 +3654,25 @@ failure the paragraph above already rejects.
 existed to avoid; and the two sidecar spellings have to be remembered. In plan mode annotations
 also feed the agents through `ubiq-plan`; for a file document they only sit there until a later
 card gives them a reader.
+
+### D162 — The GPUI interface is a cargo feature, `ui`, default-on
+
+`ubiq-app` builds one binary that is a window or nothing; a headless machine — a drone host, a CI
+runner — has no use for GPUI, `gpui-component`'s widget set or an asset source, and had no way to
+leave them out. `ui` is a default feature gating exactly those: `dep:ubiq`, the four GPUI
+crates, and everything in `crates/ubiq-app/src/lib.rs` that draws. `run(boot)` does the whole
+non-interface boot unconditionally — logging, the config root, the stores, the one host — and then
+calls `window()`, the interface's own function, only when `ui` is compiled in; without it, the
+process says so once on standard error and parks, the posture a served run takes regardless.
+`quickjs` names the facade's feature weakly (`ubiq?/quickjs`) so asking for it does not drag the
+interface back in. `ubiq-studio-app` forwards the same switch, adding its own interface half
+(`dep:ubiq-studio`) to it rather than declaring a second feature. `just headless` is the check,
+proved by a `cargo tree` grep for a `gpui` crate rather than by the compile alone, since a stray
+`use` outside its `#[cfg(feature = "ui")]` would still link through some other path.
+
+**Cost:** `check`'s `ubiq-studio-app` line has to name `--features ui,quickjs` explicitly, because
+`--no-default-features` there is `assist-apple`'s escape hatch (`T-34`) and would otherwise
+silently become a headless type-check that leaves the interface unchecked.
 
 ## Related docs
 

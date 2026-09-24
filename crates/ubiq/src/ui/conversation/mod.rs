@@ -2638,6 +2638,12 @@ fn footer(
     quota: Option<&QuotaSnapshot>,
     view: &ConversationView,
 ) -> AnyElement {
+    // Whether there is anything to report yet. A conversation just launched has no spend, no
+    // context reading and no quota to show, and a row of padding with nothing in it is a strip the
+    // reader has to notice is meaningless rather than one that is simply not there — so the row
+    // collapses to nothing rather than drawing empty. See T-68.
+    let mut has_content = false;
+
     let mut row = div()
         .px_3()
         .py_1p5()
@@ -2689,6 +2695,7 @@ fn footer(
             spend_tip,
             theme::text_muted(),
         ));
+        has_content = true;
     }
 
     // How much of that total was context read back out of the cache rather than paid for again.
@@ -2719,6 +2726,7 @@ fn footer(
                     gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx)
                 }),
         );
+        has_content = true;
     }
 
     // Only for the conversation's own transcript: no harness reports a delegate's own occupancy,
@@ -2754,6 +2762,7 @@ fn footer(
                 tip,
                 theme::text_muted(),
             ));
+        has_content = true;
     }
 
     // How much of the account's plan is left. An account fact, not a conversation one — two
@@ -2812,7 +2821,12 @@ fn footer(
                         gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx)
                     }),
             );
+            has_content = true;
         }
+    }
+
+    if !has_content {
+        return div().into_any_element();
     }
 
     row.into_any_element()

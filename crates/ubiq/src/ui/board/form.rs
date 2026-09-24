@@ -26,6 +26,7 @@ use gpui::{
     prelude::FluentBuilder, px,
 };
 use gpui_component::input::{Input, InputState, Textarea};
+use gpui_component::scroll::Scrollbar;
 use gpui_component::text::TextView;
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
@@ -725,15 +726,34 @@ pub fn references(
         .into_any_element()
 }
 
+/// How tall one row draws in the related-task picker's result list.
+const REFERENCE_ROW_HEIGHT: f32 = 28.0;
+
+/// How many matches the related-task picker ever lays out. A project's task list has no ceiling
+/// of its own, so a query broad enough to match most of it — or an empty one, if it were ever
+/// shown unfiltered — must not hand `gpui` an unbounded column to measure. Past this the rest is
+/// only reached by narrowing the search, not by scrolling further.
+const REFERENCE_ROWS_MAX: usize = 50;
+
 /// What the reference `+` opens: a search over every eligible task's text — title, description,
 /// key, kind, labels, its todos and its comments, [`BoardState::text_matches`] again, the same
-/// substring rule the board's own filter field uses — and the matches as pills that add on a
-/// click.
+/// substring rule the board's own filter field uses — and the matches as rows that add on a click.
+///
+/// **Gated on the query.** With nothing typed yet there is no match list at all — every other
+/// task in the project is not a useful opening state for a control that exists to search rather
+/// than browse.
+///
+/// **A vertical list, not a wrap of chips** — `T-133`: horizontal wrapping read as a paragraph of
+/// pills rather than a set of choices, and gave the picker no fixed shape to scroll. The result
+/// column is bounded to [`REFERENCE_ROW_HEIGHT`] × [`REFERENCE_ROWS_MAX`] *and* half the window's
+/// own height, whichever is smaller, with `Scrollbar` over what does not fit — the popup shape and
+/// a narrow dock both make "as tall as the matches" impossible to promise.
 ///
 /// Anchored (`kit::popover`), not laid out inline the way this used to be: a plain list pushed
 /// the panel's own height around, and in the popup shape or a narrow dock that meant a picker
 /// drawn past the bottom of the window. `snap_to_window_with_margin` (inside `popover`) is what
-/// keeps it on screen instead — `T-98`.
+/// keeps the panel itself on screen — `T-98` — and the height cap above is what keeps its result
+/// list from growing past the viewport in the first place.
 fn reference_picker(
     app: &AppState,
     task: &TaskRecord,
@@ -747,33 +767,69 @@ fn reference_picker(
         .board(cx)
         .map(|board| board.form.reference_query.trim().to_lowercase())
         .unwrap_or_default();
-
-    let known: Vec<AnyElement> = work
-        .eligible_references(task)
-        .into_iter()
-        .filter(|other| BoardState::text_matches(other, work, &needle))
-        .map(|other| {
-            let id = other.id;
-            toggle_pill(
-                eid("board-reference-pick", other.id),
-                other.title.clone(),
-                theme::accent(),
-                false,
-                cx.listener(move |this, _, _, cx| {
-                    this.add_task_reference(id, cx);
-                    this.close_menu(cx);
-                }),
-            )
-            .into_any_element()
-        })
-        .collect();
-    let empty = known.is_empty();
     let focused = app
         .task_reference_query
         .read(cx)
         .focus_handle(cx)
         .is_focused(window);
     let view = cx.entity();
+
+    let body = if needle.is_empty() {
+        mono("type to search", theme::text_faint())
+            .text_size(theme::font(Family::Chrome, Role::Body))
+            .into_any_element()
+    } else {
+        let matches: Vec<_> = work
+            .eligible_references(task)
+            .into_iter()
+            .filter(|other| BoardState::text_matches(other, work, &needle))
+            .take(REFERENCE_ROWS_MAX)
+            .collect();
+        if matches.is_empty() {
+            mono("nothing matches", theme::text_faint())
+                .text_size(theme::font(Family::Chrome, Role::Body))
+                .into_any_element()
+        } else {
+            let rows: Vec<AnyElement> = matches
+                .into_iter()
+                .map(|other| {
+                    let id = other.id;
+                    reference_row(
+                        other,
+                        cx.listener(move |this, _, _, cx| {
+                            this.add_task_reference(id, cx);
+                            this.close_menu(cx);
+                        }),
+                    )
+                })
+                .collect();
+            let viewport = window.viewport_size();
+            let max_h =
+                px(REFERENCE_ROW_HEIGHT * REFERENCE_ROWS_MAX as f32).min(viewport.height * 0.5);
+            div()
+                .relative()
+                .flex()
+                .flex_col()
+                .max_h(max_h)
+                .child(
+                    div()
+                        .id("board-reference-results")
+                        .flex()
+                        .flex_col()
+                        .max_h(max_h)
+                        .overflow_y_scroll()
+                        .track_scroll(&app.task_reference_scroll)
+                        .children(rows),
+                )
+                .child(
+                    div()
+                        .absolute()
+                        .inset_0()
+                        .child(Scrollbar::vertical(&app.task_reference_scroll)),
+                )
+                .into_any_element()
+        }
+    };
 
     popover(
         ElementId::Name("board-reference-picker".into()),
@@ -789,21 +845,34 @@ fn reference_picker(
                 focused,
             )
             .into_any_element(),
-            if empty {
-                mono("nothing matches", theme::text_faint())
-                    .text_size(theme::font(Family::Chrome, Role::Body))
-                    .into_any_element()
-            } else {
-                div()
-                    .flex()
-                    .flex_wrap()
-                    .items_center()
-                    .gap_1p5()
-                    .children(known)
-                    .into_any_element()
-            },
+            body,
         ],
     )
+}
+
+/// One row of the related-task picker's result list: the other task's title, full width, adding
+/// its task on a click — the same row shape `ui/git/repo_selector.rs`'s list uses, in place of the
+/// chip this control drew before `T-133`.
+fn reference_row(
+    other: &TaskRecord,
+    on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+) -> AnyElement {
+    div()
+        .id(eid("board-reference-pick", other.id))
+        .h(px(REFERENCE_ROW_HEIGHT))
+        .px_2()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap_2()
+        .cursor_pointer()
+        .hover(|this| this.bg(theme::hover()))
+        .child(
+            mono(other.title.clone(), theme::text())
+                .text_size(theme::font(Family::Chrome, Role::Body)),
+        )
+        .on_click(on_click)
+        .into_any_element()
 }
 
 /// The files and knowledge-base documents hung on this task, as chips that open what they point

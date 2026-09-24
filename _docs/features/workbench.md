@@ -1032,20 +1032,19 @@ tick's click; `on_scrub` answers a click or a drag anywhere on the strip with th
 landed at, one callback for both because a scrub always recomputes its target from scratch rather
 than tracking a drag anchor.
 
-`state::document::minimap_rows` is the pure function behind the shapes: a heading or a code block
-draws one mark, a paragraph or a table draws one per real, non-blank source line — a short line
-draws a short mark, `length` measured in characters against a fixed column-width constant rather
-than by real glyph width, because there is no second layout pass to measure by (§8.5) and the
-preview's markdown renderer exposes no per-line fragment geometry to place one against instead. A
-paragraph that is a single image reference draws as a neutral filled rectangle; there is no image
-block kind at the host's own parsing layer to key this off (an image is phrasing inside a
-paragraph, not a block), so it is a heuristic over the paragraph's text. `ui/document.rs` turns a
-row's `block_index` into a real span down the strip from `ScrollHandle::bounds_for_item` against
-the preview's own `plan_preview_scroll` once there has been a frame to measure — a document just
-opened falls back to spreading blocks evenly — and spreads a block's several rows evenly across
-that span, since there is no per-line pixel position either. A short document is drawn at a real,
-1:1 scale rather than stretched to fill the strip (§8.3), so a one-page file looks like one page;
-a long one is shrunk to fit.
+`state::document::minimap_rows` is the pure function behind the shapes: **one mark per block, of
+every kind** (T-134) — a paragraph's or a table's own row-per-source-line drawing once read as a
+barcode against the reference minimap's look, so each is sized to its widest line instead, `length`
+measured in characters against a fixed column-width constant rather than by real glyph width,
+because there is no second layout pass to measure by (§8.5) and the preview's markdown renderer
+exposes no per-line fragment geometry to place one against instead. A paragraph that is a single
+image reference draws as a neutral filled rectangle; there is no image block kind at the host's own
+parsing layer to key this off (an image is phrasing inside a paragraph, not a block), so it is a
+heuristic over the paragraph's text. `ui/document.rs` turns a row's `block_index` into a real span
+down the strip from `ScrollHandle::bounds_for_item` against the preview's own `plan_preview_scroll`
+once there has been a frame to measure — a document just opened falls back to spreading blocks
+evenly. A short document is drawn at a real, 1:1 scale rather than stretched to fill the strip
+(§8.3), so a one-page file looks like one page; a long one is shrunk to fit.
 
 `state::document::thread_marks` is still the pure function behind the outer-edge ticks, positioning
 each open thread by the index of the block it anchors to, the same way `heading_sections` positions
@@ -2665,11 +2664,12 @@ fixed pixel figure, so the column stays true at any zoom. The column centres in 
 there is room for it plus a margin on both sides, and fills the pane with that same margin as
 padding when there is not, so a resize never leaves a thin, uneven strip on one side. Above it sits
 one body line of top padding, and below it enough bottom padding that the last line scrolls clear
-of the frame rather than sitting flush against it. A table or a fenced code block breaks out of
-that measure — it runs to the column's own outer edge rather than staying capped at prose width —
-and scrolls horizontally within its own frame (`typography()`'s `Overflow::Scroll` on both, over
-`node.rs`'s `render_scroll_table` for the table) instead of spilling past the column when it is
-wider than the measure. Inline code draws in a more contrasted chip-like background. Line height
+of the frame rather than sitting flush against it. A table or a fenced code block keeps the
+paragraph's own left edge and content width rather than breaking out to the column's outer frame
+(T-134) — the two read as part of the same prose flow — and scrolls horizontally within its own
+frame (`typography()`'s `Overflow::Scroll` on both, over `node.rs`'s `render_scroll_table` for the
+table) instead of spilling past the column when it is wider than the measure. Inline code draws in
+a more contrasted chip-like background. Line height
 follows the width
 preset (tighter at Readable, looser at Full) and a separate density toggle — Comfortable, the
 default, or Compact — trims it and the paragraph spacing further for a reader scanning a long
@@ -2689,20 +2689,22 @@ the layer takes — `md_width`, `md_density`, `md_minimap` and `md_minimap_side`
 now, closing a gap the width/density pills opened with: before this, the two were `AppState` fields
 that moved the preview but were never written down, so a restart always came back on Readable and
 Comfortable regardless of what the reader had picked. `md_minimap` is `plan_minimap` generalised —
-the plan modal's thread strip and the standard viewer's own heading strip (below) answer to the one
+the plan modal's thread strip and the standard viewer's own minimap (below) answer to the one
 flag and the one side setting now, rather than the plan surface alone.
 
-**The standard viewer draws a heading minimap too, when `md_minimap` is on** — `ui/viewer/mod.rs`'s
-`markdown_preview`, over `markdown::heading_marks`. Unlike the plan surface, a Markdown file's
-preview is one `TextView`, not a block per heading, so there is no measured pixel position to mark
-or jump to: a heading's fraction down the strip is its own byte offset over the document's length,
-the same honest approximation `ui/plan.rs`'s `proportional_fraction` falls back to when nothing has
-painted yet — promoted here to the only answer, not a fallback. Clicking a mark moves the tab's own
-`OpenFile::md_scroll`, an external `ScrollHandle` the preview hands to
+**The standard viewer draws the same block-shaped minimap the plan surface does, when `md_minimap`
+is on** — `ui/viewer/mod.rs`'s `markdown_preview`, over `markdown::structure_marks`. Before T-134
+this strip drew a heading-only tick and the plan surface's own minimap drew one mark per source
+line; both read as noise next to the reference minimap's handful of legible bars, so both now draw
+the same block shapes through the same `ui::document::mark_style` palette — `structure_marks` walks
+the raw source's top-level blocks directly, since a standard preview is one `TextView` rather than a
+block per heading and has no host block index to read the way the plan surface does. A block's
+fraction down the strip is its own byte offset over the document's length, the same honest
+approximation `ui/plan.rs`'s `proportional_fraction` falls back to when nothing has painted yet —
+promoted here to the only answer, not a fallback. Clicking or dragging the strip scrubs the tab's
+own `OpenFile::md_scroll`, an external `ScrollHandle` the preview hands to
 `markdown::render_scrollable` in place of the text view's internal one (which the component library
-keeps private and gives no caller a way to move). H1/H2 draw in the accent colour, deeper headings
-faint — the closest stand-in reachable for the proposal's bar-weight distinction, since
-`kit::minimap` draws every mark as the same short tick. The strip sits on whichever side
+keeps private and gives no caller a way to move). The strip sits on whichever side
 `md_minimap_side` names, `Left` by default; the plan modal's own minimap answers to the same
 setting, landing between the document and the thread rail rather than past it when set to `Right`,
 so the rail stays the outermost column.
@@ -3897,7 +3899,7 @@ with the same verb a human does.
 link silently underneath it. On the UI side, `WorkProjection::eligible_parents()` and
 `::eligible_references()` (`crates/ubiq/src/state/work.rs`) mirror the host's rule exactly so neither
 picker ever offers a choice the host would refuse: `form::parent()` draws the parent picker on
-`session()`'s idiom, and `form::references()` / `form::reference_picker()` draw the chip list and its
+`session()`'s idiom, and `form::references()` draws the chip list, `form::reference_picker()` its
 `+` menu, wired through `AppState::set_task_parent()`, `::add_task_reference()` and
 `::remove_task_reference()` (`crates/ubiq/src/app/board.rs`). The card's child-count chip is
 `ui/board/mod.rs::task_card()` reading `WorkProjection::child_count()`.
@@ -4521,10 +4523,11 @@ said. The description's textarea answers `SubmitSearch` (⌘⏎, ⌃⏎ off macO
 `commit_task_description()` — the same "confirm this form from inside a field" device
 `ui::new_agent::confirmable()` uses, so bare Enter stays a newline. `references()`'s `+` opens
 `reference_picker()` as a `kit::popover` anchored to the `+` itself, with a `kit::filter_bar` over
-`task_reference_query` on top of the pills — a plain inline `div()` list before this, which pushed
-the panel's own height around and had no search of its own; the popover's own
-`.snap_to_window_with_margin(px(8.))` is what keeps it inside the window in the popup shape or a
-narrow dock, where the panel's own edges would otherwise cut it off. `detail::popup()` is `render()`'s
+`task_reference_query` gating a vertical, scrollable result list — empty until something is typed,
+capped at fifty rows and at half the window's height, tracked by `AppState::task_reference_scroll`
+— in place of the wrapped chips this control drew before `T-133`; the popover's own
+`.snap_to_window_with_margin(px(8.))` is what keeps the popover itself inside the window in the
+popup shape or a narrow dock, where the panel's own edges would otherwise cut it off. `detail::popup()` is `render()`'s
 report and controls again, wrapped in `kit::modal_sized` instead of the panel's own chrome — what
 `ui/board/mod.rs::render()` draws over the columns while `BoardState::popup` is on; both
 read the same `selected`/`editing`, so the toggle only moves where the task is drawn.
