@@ -181,7 +181,8 @@ crates/ubiq-host/src/
     ├── mod.rs
     ├── blocks.rs
     ├── lines.rs
-    └── provenance.rs
+    ├── provenance.rs
+    └── service.rs
 
 crates/ubiq/src/
 ├── state/
@@ -583,6 +584,7 @@ the documents in its row.
 | `crates/ubiq-host/src/notifications/os.rs` | [`features/notifications.md`](../features/notifications.md) |
 | `crates/ubiq-host/src/plan/blocks.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq-host/src/plan/mod.rs` | [`features/workbench.md`](../features/workbench.md), [`architecture.md`](./architecture.md), [`transport-contract.md`](./transport-contract.md), [`wip/planning-system.md`](../wip/planning-system.md) |
+| `crates/ubiq-host/src/plan/service.rs` | [`wip/planning-system.md`](../wip/planning-system.md) |
 | `crates/ubiq-host/src/projects.rs` | [`features/stats.md`](../features/stats.md), [`features/workbench.md`](../features/workbench.md), [`architecture.md`](./architecture.md), [`wip/clone-a-project.md`](../wip/clone-a-project.md), [`wip/web-panel-phase3.md`](../wip/web-panel-phase3.md) |
 | `crates/ubiq-host/src/pty/mod.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md) |
 | `crates/ubiq-host/src/quota.rs` | [`transport-contract.md`](./transport-contract.md) |
@@ -694,7 +696,7 @@ the documents in its row.
 | `crates/ubiq/src/state/a2ui/value.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/agents.rs` | [`features/workbench.md`](../features/workbench.md), [`components.md`](./components.md) |
 | `crates/ubiq/src/state/ask.rs` | [`features/chat.md`](../features/chat.md) |
-| `crates/ubiq/src/state/board.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/state/board.rs` | [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/state/chat.rs` | [`features/chat.md`](../features/chat.md), [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/clone.rs` | [`features/workbench.md`](../features/workbench.md), [`wip/clone-a-project.md`](../wip/clone-a-project.md) |
 | `crates/ubiq/src/state/conversation.rs` | [`features/chat.md`](../features/chat.md), [`features/workbench.md`](../features/workbench.md), [`inbox/subagent-status-dictionaries-and-hexagon.md`](../inbox/subagent-status-dictionaries-and-hexagon.md), [`components.md`](./components.md), [`wip/agent-setup.md`](../wip/agent-setup.md) |
@@ -760,7 +762,7 @@ the documents in its row.
 | `crates/ubiq/src/ui/ask.rs` | [`features/chat.md`](../features/chat.md) |
 | `crates/ubiq/src/ui/board/detail.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/board/form.rs` | [`features/workbench.md`](../features/workbench.md) |
-| `crates/ubiq/src/ui/board/mod.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/ui/board/mod.rs` | [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/ui/chat/mod.rs` | [`features/chat.md`](../features/chat.md) |
 | `crates/ubiq/src/ui/chat/sidebar.rs` | [`features/chat.md`](../features/chat.md), [`wip/agent-vocabulary.md`](../wip/agent-vocabulary.md) |
 | `crates/ubiq/src/ui/clone.rs` | [`features/workbench.md`](../features/workbench.md), [`wip/clone-a-project.md`](../wip/clone-a-project.md) |

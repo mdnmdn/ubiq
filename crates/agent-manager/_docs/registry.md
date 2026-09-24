@@ -24,7 +24,13 @@ pub struct McpEntry   { pub id: String, pub def: McpServer /* transport, cmd, en
 ```
 
 `resolve` turns `--skills`/`--mcps` ids into `SkillRef`/`McpRef` by querying the
-registry; a missing id is a hard error listing the near matches.
+registry; a missing id (mcp, skill, account, or hook — the same rule across all four lookups) is
+**dropped** rather than failing the run, and a line naming it plus its near matches lands on
+`RunSpec::problems` instead. The CLI prints each as a `warning:` on stderr; a lib-mode embedder
+reads `problems` off the resolved spec and decides how loud to be — Ubiq surfaces it as a
+dismissable notification. `--mcp-as-skill` naming an id outside the run's own injected set, and
+`--safe` naming a preset that does not exist, are still hard errors: both are a flag misused at
+the call site, not a stale reference living in a saved profile.
 
 ## Filesystem-backed layout (CLI mode)
 

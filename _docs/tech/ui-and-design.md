@@ -5,9 +5,9 @@ kind: tech
 status: current
 summary: The GPUI rendering model, the complete theme token set and the rule that no colour escapes it, how a palette is switched, the shape every surface, modal and dialog is drawn in, the page every primitive is looked at on, and the design assets screens are built against.
 read_when: you are building or restyling a screen, adding a colour or a size, switching or extending a palette, raising a modal or the file picker, looking at a primitive on the style reference, or looking for the wireframe a layout came from
-updated: 2026-09-23
-verified: 2026-09-23
-code_anchors: [crates/ubiq/src/theme.rs, assets/icons/icons.yaml, _tools/icons.py, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/md_options.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/mark.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/colour.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/md_navigator.rs, crates/ubiq/src/ui/kit/minimap.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/blocks.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/state/overlay.rs, crates/ubiq/src/ui/kit/ribbon.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/src/ui/kit/popover.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/tests/dismiss.rs, crates/ubiq/src/ui/remote_hosts.rs]
+updated: 2026-09-24
+verified: 2026-09-24
+code_anchors: [crates/ubiq/src/theme.rs, assets/icons/icons.yaml, _tools/icons.py, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/md_options.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/mark.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/colour.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/md_navigator.rs, crates/ubiq/src/ui/kit/minimap.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/blocks.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/state/overlay.rs, crates/ubiq/src/ui/kit/ribbon.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/src/ui/kit/popover.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/tests/dismiss.rs, crates/ubiq/src/ui/remote_hosts.rs]
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -562,23 +562,44 @@ plain-label rows have no place for, so it owns its row instead of forcing one sh
 questions. `crate::ui::plan` is the first caller, over `state::document::heading_sections`'s pure
 data; a second annotated document reuses the component, not a copy of it.
 
-**A minimap is positions and marks, nothing else — no plan-specific type crosses into it.**
+**A minimap is geometry and colour, nothing else — no plan-specific type crosses into it.**
 `kit::minimap` (`ui/kit/minimap.rs`) is a fixed-width strip that fills whatever height its parent
-gives it; each `MinimapMark` is a fraction down the strip (`0.0`–`1.0`) and an `Rgba` the caller
-resolved from a token before handing it over, so the primitive itself names no thread, no plan and
-no block. The plan editor's own strip, down the left of the document, is built from
-`state::document::thread_marks` — the same pure-data shape as `heading_sections`, so a mark can be
-tested and resolved back to a thread by index without a `Window` in reach. A fraction is measured
-against `ScrollHandle::bounds_for_item` once the preview has a painted frame to measure, and falls
-back to spreading marks evenly across the blocks they sit among for the frame a document opens in,
-before there is one. The standard viewer's own strip (T-118, `ui/viewer/mod.rs`'s
-`markdown_preview`) is the primitive's second caller: one `TextView` rather than a block per
-heading means there is no per-heading layout to measure at all, so `markdown::heading_marks`
-positions each mark by its heading's byte offset over the document's length — the fallback fraction
-above, promoted to the only one reachable here. Both callers answer to the one `UiSettings`
-pair — `md_minimap` (generalised from the plan-only `plan_minimap`) and `md_minimap_side` — set from
-the Markdown header's own popover, `ui/viewer/md_options.rs`, `kit::popover` over `kit::choice_pill`
-rows and a `kit::check_box`, the same width preset and density pills T-116 first drew loose.
+gives it, over three plain-data shapes: a `MinimapMark` (a block's own shape — a heading's bar, a
+paragraph's or a table's line at its own length, a code block's or an image's rectangle — `top`,
+`height` and `length` all `0.0`–`1.0` fractions of the strip's own box, a `dotted` flag for the
+table-row shape, and an `Rgba` the caller resolved from a token), a `MinimapTick` (a small coloured
+mark on the strip's outer edge — a thread's open/resolved state today), and an optional
+`MinimapViewport` (the translucent, draggable rectangle standing for the visible region). The
+primitive names no thread, no plan and no block either way — T-110's rework of the first cut (one
+full-width tick per thread and nothing else) added the shapes and the viewport without teaching the
+kit what a block kind is.
+
+The plan editor's own strip is built from two pure functions in `state::document`:
+`minimap_rows` for the shapes — a heading or a code block draws one row, a paragraph or a table
+draws one per real source line, `length` measured in characters against a fixed column-width
+constant rather than real glyph width, because there is no second layout pass to measure by and the
+markdown renderer exposes no per-line fragment geometry to place one against instead — and
+`thread_marks` for the ticks, the same pure-data shape as `heading_sections`, so either can be
+tested and resolved back to what it stands for without a `Window` in reach. `ui/document.rs` turns
+a row's `block_index` into a real span down the strip from `ScrollHandle::bounds_for_item` once the
+preview has a painted frame to measure, spreading a block's several rows evenly across that span
+(no per-line pixel position exists either), and falls back to spreading blocks evenly for the frame
+a document opens in, before there is one. A short document draws at a real, 1:1 scale rather than
+being stretched to fill the strip. `on_scrub` is the strip's one interaction callback beyond a
+tick's own `on_select`: a click or a drag anywhere hands back the fraction the pointer landed at,
+and the plan editor answers by scrolling the preview so that point lands roughly centred — one
+formula for a click and a drag alike, recomputed from scratch each time rather than tracked from a
+drag anchor.
+
+The standard viewer's own strip (T-118, `ui/viewer/mod.rs`'s `markdown_preview`) is the primitive's
+second caller, and stays the simpler shape T-110 did not touch: one `TextView` rather than a block
+per heading means there is no per-heading layout to measure at all, so `markdown::heading_marks`
+positions each mark by its heading's byte offset over the document's length, drawn as a full-width
+tick (no ticks, no viewport, no `on_scrub` wired up — it answers with nothing). Both callers answer
+to the one `UiSettings` pair — `md_minimap` (generalised from the plan-only `plan_minimap`) and
+`md_minimap_side` — set from the Markdown header's own popover, `ui/viewer/md_options.rs`,
+`kit::popover` over `kit::choice_pill` rows and a `kit::check_box`, the same width preset and
+density pills T-116 first drew loose.
 
 **Two marks say a file has bookmarks, and neither is a new colour.** A bookmarked line is a
 `TextDecoration` over the line's byte range with `accent_soft()` behind it, set through the open
@@ -915,6 +936,17 @@ they are not, which takes an `Rc<Vec<Size<Pixels>>>` of per-row heights and an `
 builds only the range it can see. Both are in the tree, and hand-rolling a third — building every
 child and standing the off-screen ones in an empty box of their last painted height — costs O(n) a
 frame below whatever floor the bookkeeping needs, which is the length most lists actually are.
+
+**`gpui::list` is the third, for rows that are variable-height and whose heights nothing upstream
+has measured yet** — unlike `v_virtual_list`, it takes no `Rc<Vec<Size<Pixels>>>` up front: its own
+`ListState` lays each row out once, caches what it measured, and answers from that cache on every
+render after. One `ListState` per list, made the first time it draws and kept — a `RefCell` beside
+the state it belongs to when that state is drawn from a `&self` rather than a `&mut self`, since
+rebuilding it on every frame would throw the cache away — and `reset()` only when the row count
+itself changes, never on every render. The tasks board's lane is the pattern (`T-108`,
+`ui::board::mod::column`, `state::board::BoardState::lane_list`): a card is variable-height by
+design, so `uniform_list` is the wrong shape for it, and nothing upstream of a lane knows every
+card's height the way `v_virtual_list`'s caller would have to.
 
 **A uniform row cannot grow, so its content is reached by scrolling rather than by wrapping.** The
 width has to be known before the first row is laid out, which is a computed content width and

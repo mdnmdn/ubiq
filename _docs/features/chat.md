@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: Editor-like chat tabs — many, movable to any dockable region, each a view onto a host-owned conversation or onto none, drawn by the composer, transcript and tool blocks the whole window shares.
 read_when: you are changing a chat tab, the control that starts or attaches a conversation, or which conversation a tab shows
-updated: 2026-09-23
-verified: 2026-09-23
+updated: 2026-09-24
+verified: 2026-09-24
 code_anchors: [crates/ubiq/src/ui/chat/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/conversation/info.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/ask.rs, crates/ubiq/src/app/ask.rs, crates/ubiq/src/ui/ask.rs, crates/ubiq-proto/src/ask.rs]
 depends_on: [feat-workbench]
 review_cycle: monthly
@@ -79,10 +79,11 @@ than one taken. The tab's own current attachment stays selectable, since it is t
 checked.
 
 **Exclusivity is per chat tab, not per conversation, and it stops at this surface's edge.** The
-agents workbench may show the same conversation in a column, and the Teams inspector may draw it at
-`TEAMS_SLOT` — under the window span from a project this window is not pointed at — at the same
-moment a chat tab is attached to it. Three viewers at once, and the host is never told which surfaces
-are looking, because a view was never the workspace.
+agents workbench may show the same conversation in a column, and selecting it in Teams may point
+the project's own chat tab at it (`AppState::open_teams_agent_panel`) — under the window span from
+a project this window is not pointed at — at the same moment a different chat tab is attached to it
+directly. Three viewers at once, and the host is never told which surfaces are looking, because a
+view was never the workspace.
 
 **Adding a view is the tab strip's gesture, not the panel's.** A `+` on the dock's own tab strip —
 beside the terminal region's, offered on the strip of any group holding a chat *or sitting at the
@@ -648,12 +649,11 @@ current pick. One builder, so "already taken" is answered once for the chat head
 `+` menu's second stage and the agents screen alike.
 
 `crates/ubiq/src/state/agents.rs` defines `COLUMNS_MAX`, `CHATS_MAX` and
-`COMPOSER_SLOTS = COLUMNS_MAX + CHATS_MAX + 2` — the two above the chat range are `SINK_SLOT`, the
-kitchen sink's bench, and `TEAMS_SLOT`, the Teams screen's inspector; `AgentsView::free_slot` still
-allocates a column's slot from the low range, unchanged. `TEAMS_SLOT` is the one composer that does
-not type into the active project: it addresses whichever card the canvas has selected, which under
-the window span may be any project the window holds, and `AppState::send_or_enqueue` resolves that
-project through `project_of_agent` rather than reading the window's.
+`COMPOSER_SLOTS = COLUMNS_MAX + CHATS_MAX + 1` — the one slot above the chat range is `SINK_SLOT`,
+the kitchen sink's bench; `AgentsView::free_slot` still allocates a column's slot from the low
+range, unchanged. Selecting a card in Teams has no composer slot of its own: it opens the agent's
+conversation in an ordinary chat tab (`AppState::open_teams_agent_panel`), whose project is resolved
+through `project_of_agent` the way any slot's is (`AppState::steer_column`).
 
 `crates/ubiq/src/app/chat.rs` is where a tab's own lifecycle lives: `open_chat_tab` mints one and
 gives it a slot, `open_chat_tab_now` puts it in the dock as well — called when there is a

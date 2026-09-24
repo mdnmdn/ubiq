@@ -357,6 +357,22 @@ impl AppState {
         self.set_task_field(TaskField::Parent(parent), cx);
     }
 
+    /// Open the reference picker fresh, its search cleared of whatever was typed into it the last
+    /// time it was open, or close it if it is already open — the same toggle every other menu's
+    /// `+` follows.
+    pub fn toggle_reference_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.workbench.open_menu == Some(MenuId::TaskReferences) {
+            self.close_menu(cx);
+            return;
+        }
+        self.open_menu(MenuId::TaskReferences, cx);
+        if let Some(board) = self.board_mut(cx) {
+            board.form.reference_query.clear();
+        }
+        let input = self.task_reference_query.clone();
+        input.update(cx, |state, cx| state.set_value("", window, cx));
+    }
+
     /// Link another task onto the open task's reference list, keeping the ones already there. The
     /// whole list is sent, the same posture [`Self::add_task_label`] takes — a reference list is
     /// short and is edited as a set.

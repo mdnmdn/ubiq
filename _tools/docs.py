@@ -576,11 +576,14 @@ def check_l5(docs: list[Doc], report: LintReport) -> None:
                 )
 
 
-def check_l7(docs: list[Doc], report: LintReport) -> None:
+def check_l7(docs: list[Doc], report: LintReport, all_docs: list[Doc] | None = None) -> None:
     index = DOCS / "INDEX.md"
     linked: set[str] = set()
     if index.exists():
-        index_doc = next((d for d in docs if d.path == index), None)
+        # `docs` may be a path-filtered subset that leaves `INDEX.md` itself out of the list —
+        # its link set still has to come from the full library, or every filtered document would
+        # look orphaned regardless of whether `INDEX.md` actually names it.
+        index_doc = next((d for d in (all_docs or docs) if d.path == index), None)
         if index_doc:
             for _, target in index_doc.links:
                 clean = target.split("#", 1)[0]
@@ -655,7 +658,7 @@ def run_lint(paths: list[str], as_json: bool) -> int:
     check_l2(selected, report)
     check_l4(selected, report)
     check_l5(selected, report)
-    check_l7(selected, report)
+    check_l7(selected, report, docs)
     check_l9(selected, report)
 
     if as_json:

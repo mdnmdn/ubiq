@@ -18,9 +18,12 @@
 //! **A status is not here.** A column is a stage, and a card only ever changes column by being
 //! moved — a picker for it would be a second way to do the one thing the drag is for.
 
+use std::rc::Rc;
+
 use gpui::{
-    AnyElement, App, Context, Entity, Focusable, InteractiveElement, IntoElement, ParentElement,
-    SharedString, StatefulInteractiveElement, Styled, Window, div, prelude::FluentBuilder, px,
+    AnyElement, App, Context, ElementId, Entity, Focusable, InteractiveElement, IntoElement,
+    ParentElement, SharedString, StatefulInteractiveElement, Styled, Window, div,
+    prelude::FluentBuilder, px,
 };
 use gpui_component::input::{Input, InputState, Textarea};
 use gpui_component::text::TextView;
@@ -31,13 +34,13 @@ use ubiq_proto::work::{Complexity, Kind, Level, Priority, Shape, TaskRecord};
 
 use crate::app::{AppState, SubmitSearch};
 use crate::state::MenuId;
-use crate::state::board::Field;
+use crate::state::board::{BoardState, Field};
 use crate::state::explorer::Presence;
 use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::kit::{
-    Picker, PickerStyle, choice_pill, field, ghost_button, icon_button, modal_sized, mono, panel,
-    primary_button, removable_tag, section_label, toggle_pill,
+    Picker, PickerStyle, choice_pill, field, filter_bar, ghost_button, icon_button, modal_sized,
+    mono, panel, popover, primary_button, removable_tag, section_label, toggle_pill,
 };
 // The kit's text-entry box, under a name that does not collide with the `Field` a control is
 // editing — both are called `field` in this file's vocabulary, and only one can keep the word.
@@ -652,10 +655,15 @@ pub fn parent(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> 
 }
 
 /// The other tasks this one names — a symmetric, untyped list, drawn as chips that navigate to the
-/// other card. The `+` opens a picker of what
+/// other card. The `+` opens a searchable picker (`reference_picker`) of what
 /// [`crate::state::work::WorkProjection::eligible_references`] offers: every other task not
 /// already held, computed once rather than walked at every draw.
-pub fn references(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> AnyElement {
+pub fn references(
+    app: &AppState,
+    task: &TaskRecord,
+    window: &Window,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
     let Some(work) = app.work(cx) else {
         return div().into_any_element();
     };
@@ -684,44 +692,66 @@ pub fn references(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>)
         })
         .collect();
 
-    let mut root = div().flex().flex_col().gap_1p5().child(
-        div()
-            .flex()
-            .flex_wrap()
-            .items_center()
-            .gap_1p5()
-            .children(chips)
-            .children(task.references.is_empty().then(|| {
-                mono("no references", theme::text_faint())
-                    .text_size(theme::font(Family::Chrome, Role::Body))
-            }))
-            .child(icon_button(
-                "board-reference-add",
-                IconName::Plus,
-                open,
-                cx.listener(move |this, _, _, cx| match open {
-                    true => this.close_menu(cx),
-                    false => this.open_menu(MenuId::TaskReferences, cx),
-                }),
-            )),
+    // The picker hangs off the `+` itself — `kit::popover` is `anchored()` to its parent, so this
+    // is the trigger it flips and clamps against, the same way `size::panel` hangs off its own
+    // status-bar button.
+    let mut trigger = icon_button(
+        "board-reference-add",
+        IconName::Plus,
+        open,
+        cx.listener(|this, _, window, cx| this.toggle_reference_picker(window, cx)),
     );
-
     if open {
-        root = root.child(reference_picker(app, task, cx));
+        trigger = trigger.child(reference_picker(app, task, window, cx));
     }
 
-    root.into_any_element()
+    div()
+        .flex()
+        .flex_col()
+        .gap_1p5()
+        .child(
+            div()
+                .flex()
+                .flex_wrap()
+                .items_center()
+                .gap_1p5()
+                .children(chips)
+                .children(task.references.is_empty().then(|| {
+                    mono("no references", theme::text_faint())
+                        .text_size(theme::font(Family::Chrome, Role::Body))
+                }))
+                .child(trigger),
+        )
+        .into_any_element()
 }
 
-/// What the reference `+` opens: every other task not already held, as pills that add on a click.
-fn reference_picker(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> AnyElement {
+/// What the reference `+` opens: a search over every eligible task's text — title, description,
+/// key, kind, labels, its todos and its comments, [`BoardState::text_matches`] again, the same
+/// substring rule the board's own filter field uses — and the matches as pills that add on a
+/// click.
+///
+/// Anchored (`kit::popover`), not laid out inline the way this used to be: a plain list pushed
+/// the panel's own height around, and in the popup shape or a narrow dock that meant a picker
+/// drawn past the bottom of the window. `snap_to_window_with_margin` (inside `popover`) is what
+/// keeps it on screen instead — `T-98`.
+fn reference_picker(
+    app: &AppState,
+    task: &TaskRecord,
+    window: &Window,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
     let Some(work) = app.work(cx) else {
         return div().into_any_element();
     };
+    let needle = app
+        .board(cx)
+        .map(|board| board.form.reference_query.trim().to_lowercase())
+        .unwrap_or_default();
 
     let known: Vec<AnyElement> = work
         .eligible_references(task)
         .into_iter()
+        .filter(|other| BoardState::text_matches(other, work, &needle))
         .map(|other| {
             let id = other.id;
             toggle_pill(
@@ -738,28 +768,42 @@ fn reference_picker(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState
         })
         .collect();
     let empty = known.is_empty();
+    let focused = app
+        .task_reference_query
+        .read(cx)
+        .focus_handle(cx)
+        .is_focused(window);
+    let view = cx.entity();
 
-    div()
-        .flex()
-        .flex_col()
-        .gap_1p5()
-        .p_2()
-        .bg(theme::surface_raised())
-        .border_l(px(theme::accent_edge()))
-        .border_color(theme::accent())
-        .children((!empty).then(|| {
-            div()
-                .flex()
-                .flex_wrap()
-                .items_center()
-                .gap_1p5()
-                .children(known)
-        }))
-        .children(empty.then(|| {
-            mono("nothing else in this project", theme::text_faint())
-                .text_size(theme::font(Family::Chrome, Role::Body))
-        }))
-        .into_any_element()
+    popover(
+        ElementId::Name("board-reference-picker".into()),
+        px(240.),
+        Some("board-reference-picker"),
+        Some(Rc::new(crate::ui::handler(&view, |this, _, cx| {
+            this.close_menu(cx)
+        }))),
+        vec![
+            filter_bar(
+                Input::new(&app.task_reference_query).appearance(false),
+                div(),
+                focused,
+            )
+            .into_any_element(),
+            if empty {
+                mono("nothing matches", theme::text_faint())
+                    .text_size(theme::font(Family::Chrome, Role::Body))
+                    .into_any_element()
+            } else {
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .items_center()
+                    .gap_1p5()
+                    .children(known)
+                    .into_any_element()
+            },
+        ],
+    )
 }
 
 /// The files and knowledge-base documents hung on this task, as chips that open what they point

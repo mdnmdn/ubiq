@@ -5,8 +5,8 @@ kind: tech
 status: draft
 summary: What the embedded harness-management library owns, what Ubiq owns, how the application consumes it, and the rule that keeps the two from growing into each other.
 read_when: you are about to write code that launches a harness, drives one as a conversation, names a harness config path, or touches accounts, skills or MCP servers
-updated: 2026-09-20
-verified: 2026-09-20
+updated: 2026-09-24
+verified: 2026-09-24
 code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/main.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/quota.rs, crates/agent-manager/src/credentials/mod.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/examples/confined_shell_probe.rs, crates/agent-manager/src/io/structured.rs, crates/ubiq-app/src/lib.rs, crates/agent-manager/src/io/mod.rs, crates/agent-manager/src/io/acp.rs, crates/agent-manager/src/io/acp_caps.rs, crates/agent-manager/src/io/acp_client.rs, crates/ubiq-host/src/mcp/mod.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-host/src/mcp/ask.rs, crates/ubiq-proto/src/ask.rs]
 depends_on: [tech-structure]
 review_cycle: monthly
@@ -127,6 +127,15 @@ rather than a launch, so there is nothing for `resolve` to compose them into; th
 profile because a saved setup has to remember what it asked for, and it is Ubiq's start that acts
 on them. `thinking` is an ordinary default, on the same terms as `model`. The profile named
 `default` is what a run with no explicit selection resolves to.
+
+**A catalog reference in a profile that resolves to nothing degrades the run rather than refusing
+it** — an mcp, skill, account or hook id nothing answers to is dropped, and named, on
+`RunSpec::problems`; see `crates/agent-manager/_docs/registry.md` for the rule and its two
+deliberate exceptions. `agent.rs` carries that list forward as `Composed::problems`, and
+`Coordinator::report_run_problems` raises it as one `NotificationRequest::warning(Family::Agents,
+…).with_category("profile")` per run, once the harness has already started — so the person who set
+the profile up hears about the dropped entry without the launch failing over it. The CLI front end
+takes the same list and prints each line to stderr instead.
 
 **Ubiq writes the form over profiles and none of the mechanism behind them.**
 `crates/ubiq-host/src/agent.rs` reads and writes them through an `FsProfileStore` rooted at

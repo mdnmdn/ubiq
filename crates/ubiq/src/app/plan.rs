@@ -738,6 +738,30 @@ impl AppState {
         self.open_annotation_thread(mark.annotation_id, cx);
     }
 
+    /// The minimap strip scrubbed or clicked, `fraction` `0.0` at its top and `1.0` at its
+    /// bottom (`kit::minimap`'s `on_scrub`) — scroll the preview so the content at that point
+    /// lands roughly centred in view. One formula serves both a click ("jump to here") and a
+    /// drag ("keep following the pointer"): every scrub recomputes the target from scratch,
+    /// there is no drag anchor to lose track of.
+    pub fn scrub_plan_minimap(&mut self, fraction: f32, cx: &mut Context<Self>) {
+        let scroll = self.plan_preview_scroll.clone();
+        let strip_height = f32::from(scroll.bounds().size.height);
+        let content_height = strip_height + f32::from(scroll.max_offset().y);
+        if strip_height <= 0.0 || content_height <= 0.0 {
+            return;
+        }
+        let scale = (strip_height / content_height).min(1.0);
+        if scale >= 1.0 {
+            // The whole document already fits — nothing to scroll to.
+            return;
+        }
+        let target = (fraction * strip_height / scale) - strip_height / 2.0;
+        let max_scroll = (content_height - strip_height).max(0.0);
+        let target = target.clamp(0.0, max_scroll);
+        scroll.set_offset(gpui::point(scroll.offset().x, gpui::px(-target)));
+        cx.notify();
+    }
+
     pub fn close_annotation_thread(&mut self, cx: &mut Context<Self>) {
         if let Some(doc) = self.workbench.plan.as_mut() {
             doc.thread = None;

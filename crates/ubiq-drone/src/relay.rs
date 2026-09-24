@@ -874,6 +874,7 @@ fn record_for(root: &Root) -> ProjectRecord {
         last_opened_at: None,
         search_excludes: Vec::new(),
         index: None,
+        mission_term: None,
         managed_repos: Vec::new(),
         tools: Vec::new(),
         // A drone does not know it is one: `runs_on` is the interface's own record of *where* a

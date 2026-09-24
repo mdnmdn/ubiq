@@ -97,6 +97,12 @@ pub struct Composed {
     provisioned: provision::Provisioned,
     /// The id of the account this run resolved to, when a profile named one.
     spec_account: Option<String>,
+    /// A stale catalog reference (an mcp id, a skill id, an account id, a hook id) that the
+    /// profile or the run's flags named and `resolve` could not find — dropped from the spec
+    /// rather than failing this run. See [`agent_manager::spec::RunSpec::problems`]. Reported by
+    /// the caller as a dismissable notification once the run has actually started; empty in the
+    /// overwhelmingly common case.
+    pub problems: Vec<String>,
 }
 
 /// Everything a caller chooses about one run, over and above the harness, the folder and the
@@ -969,14 +975,13 @@ impl Agents {
         // than left to the library — which names still belong to `resolve`.
         //
         // A profile's `defaults.mcps` is read by `resolve` as a list of ids in the **on-disk
-        // catalog**, and an id it cannot find there is a `bail!` that fails the whole run. Ubiq's
+        // catalog**, and an id not found there is dropped to `RunSpec::problems`. Ubiq's
         // built-ins are in no catalog: they are this process, on a port it bound at startup. So
         // the profile's list is split here — the names this build answers are lifted out and
         // injected below, and only the rest is handed back down as `flags.mcps`, which outranks
-        // the profile in the library's own merge. The alternative was to make `resolve` lenient
-        // about an unknown catalog id, which would turn a typo in any embedder's profile into a
-        // server that silently is not there; a run must still fail loudly for a name nobody
-        // answers.
+        // the profile in the library's own merge. A `--mcp-as-skill` flag naming an id outside
+        // the run's injected set and `--safe` naming a missing preset still hard-fail: both are
+        // flag misuse, not a stale saved reference.
         let mut injected: Vec<String> = Vec::new();
         for name in &options.mcps {
             if !crate::mcp::knows(name) {
@@ -1209,6 +1214,7 @@ impl Agents {
             dir: provisioned.dir.clone(),
             provisioned,
             spec_account: spec.account.as_ref().map(|a| a.id.clone()),
+            problems: spec.problems.clone(),
         })
     }
 
@@ -2390,10 +2396,12 @@ mod tests {
         agents.retire(pane);
     }
 
-    /// An account id nothing answers to fails the compose rather than starting a run that
-    /// would report itself logged out from inside its own transcript.
+    /// An account id nothing answers to used to fail the whole compose. It now degrades like
+    /// every other stale profile reference (T-73): the run still starts, with no account
+    /// resolved, and the dropped id is named on `Composed::problems` for the caller to surface —
+    /// a typo in one line of a profile must not be the reason nothing launches.
     #[test]
-    fn an_unknown_account_refuses_the_run() {
+    fn an_unknown_account_degrades_rather_than_refusing_the_run() {
         let root = tempfile::TempDir::new().unwrap();
         let cwd = tempfile::TempDir::new().unwrap();
         let dir = root.path().join("profiles").join("default");
@@ -2405,19 +2413,22 @@ mod tests {
         .unwrap();
 
         let agents = Agents::new(root.path(), false);
-        let Err(error) = agents.compose(
-            PaneId::generate(),
-            "claude-code",
-            cwd.path(),
-            Vec::new(),
-            ConverseOptions::default(),
-        ) else {
-            panic!("an unknown account should refuse the run");
-        };
+        let composed = agents
+            .compose(
+                PaneId::generate(),
+                "claude-code",
+                cwd.path(),
+                Vec::new(),
+                ConverseOptions::default(),
+            )
+            .expect("an unknown account degrades rather than refusing the run");
 
+        assert!(composed.account().is_none());
+        assert_eq!(composed.problems.len(), 1);
         assert!(
-            format!("{error:#}").contains("nope"),
-            "the refusal names the account that is missing: {error:#}"
+            composed.problems[0].contains("nope"),
+            "the problem names the account that is missing: {}",
+            composed.problems[0]
         );
     }
 

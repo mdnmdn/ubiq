@@ -1,0 +1,1284 @@
+{
+  "version": 1,
+  "blocks": [
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBPV",
+      "kind": "break",
+      "text": "---"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBPW",
+      "kind": "heading:2",
+      "text": "id: wip-claude-auth-problem\ntitle: Claude credentials vanish from a run directory\nkind: wip\nstatus: current\nsummary: \"A Claude Code pane loses its OAuth login after some hours. Root cause found: Claude Code stores the login in a macOS keychain item keyed by sha256 of $CLAUDE_CONFIG_DIR whenever the keychain is reachable, migrating the seeded .credentials.json into it and deleting the file, so every refresh is invisible to agent-manager and a per-run config dir makes the key per-run. The fix denies a Claude run the login keychain. This is the full record — evidence, the discarded hypotheses, the fix as landed, and what to check if it is not resolutive.\"\nread_when: you are working on Claude account credentials, the per-run config directory, the isol8 policy a run gets, or the token write-back\nupdated: 2026-09-14\nverified: 2026-09-24\ncode_anchors: [crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/harness/claude.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/run.rs, crates/agent-manager/src/overlay.rs, crates/agent-manager/src/account.rs, crates/agent-manager/src/credentials/mod.rs, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs]\ndepends_on: [tech-agent-manager, feat-logs]\n---"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBPX",
+      "kind": "heading:1",
+      "text": "# Claude credentials vanish from a run directory"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBPY",
+      "kind": "paragraph",
+      "text": "A long-lived Claude Code pane stops working after some hours, and\n`$CLAUDE_CONFIG_DIR/.credentials.json` is gone. **This document is written to be read cold.**\nEverything needed to resume the investigation is here; nothing depends on remembering a\nconversation. Append to the watch log at the end, do not rewrite the sections above it."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBPZ",
+      "kind": "paragraph",
+      "text": "**Resolved 2026-09-14 — read §16, §19, §20, §21 first.** Claude Code has two credential\n> backends. Whenever `~/Library/Keychains` is reachable it keeps the login in\n> `Claude Code-credentials-<sha256($CLAUDE_CONFIG_DIR)[:8]>`, migrates the seeded\n> `.credentials.json` into it and **deletes the file**; only when the keychain is unreachable does\n> it read and rewrite that file. A run's config dir is a fresh ULID, so the key is per-run and every\n> refresh is invisible to this crate. The fix withholds the login keychain from a Claude run (§20).\n> **§1-§15 are the investigation as it happened and contain conclusions later overturned** — they\n> are kept because the falsified hypotheses are what stop the next reader repeating them. §21 says\n> what to check if the fix does not hold."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBQ0",
+      "kind": "heading:2",
+      "text": "## 1. The symptom, as reported"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBQ1",
+      "kind": "paragraph",
+      "text": "A Claude Code pane launched by Ubiq works, then after some hours can no longer refresh its access\n  token."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBQ2",
+      "kind": "paragraph",
+      "text": "`$CLAUDE_CONFIG_DIR/.credentials.json` is missing when it is looked for."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBQ3",
+      "kind": "paragraph",
+      "text": "The **first theory** was that isolation seeds the file read-only, so the harness cannot rewrite it\n  on refresh, and a fix was attempted along those lines — make it writable and write it back to the\n  store. No proof was ever gathered for that theory."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBQ4",
+      "kind": "paragraph",
+      "text": "The **standing theory**, as of 2026-09-14, is that the write is blocked by **isol8** — the\n  sandbox policy — not by a file mode. See §5."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBQ5",
+      "kind": "heading:2",
+      "text": "## 2. Machine evidence — 2026-09-14 13:06"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBQ6",
+      "kind": "paragraph",
+      "text": "Read off a live ubiq-managed Claude pane (the session that opened this investigation)."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBQ7",
+      "kind": "paragraph",
+      "text": "`CLAUDE_CONFIG_DIR=/Users/mdn/.config/ubiq/runs/01M2FRXP7Q51RK322EKP5Z8V4Y` — a **per-run**\n  directory keyed by a ULID, not the user's `~/.claude`. The host owns it\n  (`Agents::run_dir_for`, `crates/ubiq-host/src/agent.rs`), and it is passed to agent-manager as\n  `ConfigStrategy::Fixed`."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBQ8",
+      "kind": "paragraph",
+      "text": "`~/.claude/.credentials.json` does **not** exist on this machine. The user's own Claude session\n  lives in the **macOS login Keychain**; the run directory holds a copy seeded out of it."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBQ9",
+      "kind": "paragraph",
+      "text": "The seeded copy was `-rw-r--r--` (mode **644**), owned by the user, on a writable directory.\n  **It is writable.** The read-only-file theory does not hold for this build. (The 644 is still\n  wrong — every other credential write in the crate forces 0600 — and has been corrected as part of\n  the instrumentation work; it was never the cause.)"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBQA",
+      "kind": "paragraph",
+      "text": "Token window, read out of the live file (values elided):"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBQB",
+      "kind": "table",
+      "text": "| field | value |\n  |---|---|\n  | `claudeAiOauth.expiresAt` | `1789408388533` → 2026-09-14 **19:53:08** |\n  | `claudeAiOauth.refreshTokenExpiresAt` | `1791966676533` → 2026-10-14 10:31:16 |\n  | `subscriptionType` | `team` |\n  | `rateLimitTier` | `default_claude_max_5x` |"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBQC",
+      "kind": "paragraph",
+      "text": "The run directory was created at **12:55**. The access token therefore expires **~7 h after the\n  pane started**, which is exactly the reported \"after some hours\". The *refresh* token is a month\n  out, so nothing is expiring except the access token — the failure is in the **refresh**, not in\n  the credential's lifetime."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBQD",
+      "kind": "heading:2",
+      "text": "## 3. What the code actually does"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBQE",
+      "kind": "paragraph",
+      "text": "Traced 2026-09-14 against the working tree at `43bdb41`."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBQF",
+      "kind": "heading:3",
+      "text": "### 3.1 Where the durable credential lives"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBQG",
+      "kind": "paragraph",
+      "text": "`crates/agent-manager/src/credentials/` has four `SecretStore` backends; the default engine is\n**`files`** (`credentials/mod.rs`, `resolve_engine()`), with **no macOS-specific override**. But\nthat store backs `am account import` and friends — it is *not* what a live run reads."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBQH",
+      "kind": "paragraph",
+      "text": "For a zero-config run (no explicit account, which is this case) the durable origin is found by\n`provision::seed_zero_config_login()` (`crates/agent-manager/src/provision.rs:197-249`) in two\ntiers:"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBQJ",
+      "kind": "paragraph",
+      "text": "**tier A** — copy `~/.claude/.credentials.json` out of the real `$HOME`;"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBQK",
+      "kind": "paragraph",
+      "text": "**tier B** — `Harness::ambient_login()`, which for Claude reads the **macOS login Keychain**\n  (`harness/claude.rs:580-587`, via `account::read_claude_keychain_credentials`)."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBQM",
+      "kind": "paragraph",
+      "text": "On this machine tier A finds nothing, so **the origin is the Keychain**. That matters: the\nwrite-back path for a Keychain origin is `Harness::adopt_login` (`claude.rs:593-598`), which shells\nout to `security` to write the Keychain item — *not* a plain file write."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBQN",
+      "kind": "heading:3",
+      "text": "### 3.2 How the run directory is seeded"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBQP",
+      "kind": "paragraph",
+      "text": "Claude Code is Class A: `CLAUDE_CONFIG_DIR` relocates the whole config tree\n(`Claude::config_anchor()`, `harness/claude.rs:146-155`), whose `login_seed` is"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBQQ",
+      "kind": "code",
+      "text": "```rust\nSeedFile::credential(\".claude/.credentials.json\", \".credentials.json\"),\nSeedFile::new(\".claude.json\", \".claude.json\"),\n```"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBQR",
+      "kind": "paragraph",
+      "text": "`harness::seed_login()` (`harness/mod.rs:319-333`) **copies** — never links — because the harness\nrewrites the file in place. Only the `credential: true` entry is ever written back."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBQS",
+      "kind": "heading:3",
+      "text": "### 3.3 The write-back, which already exists"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBQT",
+      "kind": "paragraph",
+      "text": "`harness::sync_login()` (`harness/mod.rs:392-450`) is the reconciler:"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBQV",
+      "kind": "paragraph",
+      "text": "read the origin's blob and every live run dir's copy (with mtime);"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBQW",
+      "kind": "paragraph",
+      "text": "rank them in `newest_login()` (`mod.rs:479-523`) — by claimed `expiresAt` when anything claims\n   one, else by mtime — filtering out **blanked** blobs via `credentials::login_is_usable()`;"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBQX",
+      "kind": "paragraph",
+      "text": "write the winner back to the origin (`write_credential` for a directory origin,\n   `adopt_login` for a Keychain origin);"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBQY",
+      "kind": "paragraph",
+      "text": "write the winner into every *other* live run dir holding an older copy, because a refresh\n   **rotates** the refresh token and every other run is now holding a revoked one."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBQZ",
+      "kind": "paragraph",
+      "text": "It is driven from two places:"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBR0",
+      "kind": "paragraph",
+      "text": "**agent-manager's own** `run::cleanup()` (`run.rs:196-203`), at teardown only — and its own doc\n  admits a token rotated mid-run is lost if the process is killed;"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBR1",
+      "kind": "paragraph",
+      "text": "**the host**, on a timer: `Coordinator::sync_logins_due` (`crates/ubiq-host/src/coordinator.rs:3169-3181`,\n  `LOGIN_SYNC_EVERY = 30s`) → `Agents::sync_logins()` (`crates/ubiq-host/src/agent.rs:1227-1255`).\n  There is also `Agents::refresh_login(key)` (`agent.rs:1063`), which harvests before re-seeding a\n  run."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBR2",
+      "kind": "paragraph",
+      "text": "**So \"no write-back exists\" is not the bug.** A 30s reconciler is in place."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBR3",
+      "kind": "heading:3",
+      "text": "### 3.4 What removes a run directory"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBR4",
+      "kind": "paragraph",
+      "text": "Every path is event-driven, none is a timer racing a live pane (verified):"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBR5",
+      "kind": "table",
+      "text": "| path | trigger |\n|---|---|\n| `Agents::retire(pane)` (`agent.rs:1434`) | `Coordinator::pane_gone` |\n| `Agents::retire_agent` / `park_agent` (`agent.rs:1358`, `1482`) | `Coordinator::end_conversation`, via `client_gone` or `reap_conversations` (which filters on `conversation.ended()`) |\n| `Agents::sweep()` (`agent.rs:1453`) | **once**, at host startup, before any pane exists |\n| `run::cleanup()` (`run.rs:200`) | agent-manager's own CLI runs, ephemeral config only — not Ubiq's `Fixed` strategy |\n| `overlay::sweep_old_runs()` (`overlay.rs:41-88`) | opportunistically at `new_run_dir()`, `AM_RUNS_TTL_DAYS` default 7 |"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBR6",
+      "kind": "paragraph",
+      "text": "`park_agent` is notable: it keeps the run directory but **scrubs the login files**."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBR7",
+      "kind": "heading:3",
+      "text": "### 3.5 The sandbox policy a run gets"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBR8",
+      "kind": "paragraph",
+      "text": "`isolate::plan()` (`crates/agent-manager/src/isolate.rs:526`) builds the isol8 `Spec`:"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBR9",
+      "kind": "paragraph",
+      "text": "`read_write_grants()` (`isolate.rs:922`) grants the **run's config dir** and its **cwd**\n  read-write, plus developer roots. So the run dir *is* writable under the policy as written."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBRA",
+      "kind": "paragraph",
+      "text": "`auto_profiles = true`, so isol8 matches the harness's own layer on `cmd[0]`."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBRB",
+      "kind": "paragraph",
+      "text": "`~/Library/Keychains` is **not** in the read-write grants."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBRC",
+      "kind": "paragraph",
+      "text": "Contrast `isolate::login_confined()` (`isolate.rs:~583`), the **login capture** policy, whose\ndoc comment is the single most important piece of prior knowledge in this file:"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBRD",
+      "kind": "paragraph",
+      "text": "A login is confined to keep it away from the *operating system's keychain*, so that it writes the\n> plaintext credential a capture can collect. […] For Claude Code 2.1.218+ a relocated `$HOME` alone\n> leaves the keychain merely *unreachable* — no `~/Library/Keychains` — which that version reports\n> as an **error rather than falling back to a file**."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBRE",
+      "kind": "paragraph",
+      "text": "That is the shape of the bug, stated in the tree already, for a different code path."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBRF",
+      "kind": "heading:2",
+      "text": "## 4. Hypotheses, and what would settle each"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBRG",
+      "kind": "paragraph",
+      "text": "**H1 — the refresh never reaches the file, because Claude persists to the Keychain.**\nOn macOS, Claude Code prefers the login Keychain. A sandboxed run auto-selects the harness layer,\nwhich may grant Keychain *read* but cannot grant a write to `~/Library/Keychains` (not in\n`read_write_grants`). So the refresh is computed, the persist is denied by Seatbelt, and Claude\ntreats the credential as unusable — blanking or removing `.credentials.json`.\n*Falsified if*: the run dir's `.credentials.json` fingerprint changes at the refresh moment.\n*Confirmed if*: the fingerprint never changes and the file is blanked or removed instead."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBRH",
+      "kind": "paragraph",
+      "text": "**H2 — the rotated refresh token is written to the run dir but lost.**\nIf the copy *is* rewritten and `sync_login` fails or never runs, the origin keeps the pre-rotation\nrefresh token; the next run is seeded a retired one, refresh answers `invalid_grant`, and Claude\ndeletes the file.\n*Falsified if*: the 30s `sync_logins` log shows the origin being updated with the new fingerprint."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBRJ",
+      "kind": "paragraph",
+      "text": "**H3 — `adopt_login` fails silently against the Keychain.** The origin here is the Keychain, so the\nwrite-back is a `security` invocation, not a file write. Under the host's own process (unconfined)\nit should work, but its failure was previously only a `warn!` with no digest.\n*Falsified if*: the log shows a successful Keychain write with the new fingerprint."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBRK",
+      "kind": "paragraph",
+      "text": "**H4 — `park_agent` scrubs the login of a pane the user still considers alive.** Reaching it needs\n`conversation.ended()`, so it should not fire under a live pane — but it is the one path that\ndeletes credentials *without* deleting the directory, which matches \"the file disappeared, the\ndirectory did not\".\n*Falsified if*: no `park_agent`/scrub line appears near the failure."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBRM",
+      "kind": "paragraph",
+      "text": "H1 is the standing theory and matches the user's reading that the block is isol8, not permissions."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBRN",
+      "kind": "heading:2",
+      "text": "## 5. Instrumentation added (2026-09-14)"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBRP",
+      "kind": "paragraph",
+      "text": "The point of this pass: **every action on a token is now a log line**, so the failure moment can be\nreconstructed from a log file hours later rather than reproduced."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBRQ",
+      "kind": "heading:3",
+      "text": "### 5.1 The digest"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBRR",
+      "kind": "paragraph",
+      "text": "`credentials::login_digest(bytes) -> String` (`crates/agent-manager/src/credentials/mod.rs`) is the\nonly thing that may be logged about a credential. It prints byte length, the `login_is_usable` flag,\nevery `*expire*` field, `valid_for=NhNm` computed against now, and an **8-hex fingerprint per token\nfield** (`DefaultHasher`, a fingerprint not a digest)."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBRS",
+      "kind": "paragraph",
+      "text": "**The fingerprint is the instrument.** A refresh rotates both tokens; two digests naming different\nfingerprints are two different logins. That is the only way to see a rotation that happened\nsomewhere and was then lost. No credential bytes or token values are ever logged."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBRT",
+      "kind": "heading:3",
+      "text": "### 5.2 Where the lines are"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBRV",
+      "kind": "paragraph",
+      "text": "`harness/mod.rs` — `seed_login` (what was seeded, with digest; also now chmods 0600),\n  `sync_login` (origin digest, every held run-dir copy with digest and mtime, which one won,\n  whether a write-back happened), `newest_login` (the ranking inputs), `write_credential`,\n  `harvest_login`."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBRW",
+      "kind": "paragraph",
+      "text": "`provision.rs` — the run dir created, which seeding tier was taken (real `$HOME` vs ambient\n  Keychain), the account origin resolved."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBRX",
+      "kind": "paragraph",
+      "text": "`run.rs` — `cleanup()` no longer swallows the harvest result; the ephemeral-dir removal is logged."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBRY",
+      "kind": "paragraph",
+      "text": "`overlay.rs` — every run dir the TTL sweep removes."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBRZ",
+      "kind": "paragraph",
+      "text": "`isolate.rs` — `plan()` logs the layer set actually in force, the read-write grants and the home\n  mode. **This is the line that shows whether the policy can reach the Keychain.**"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBS0",
+      "kind": "paragraph",
+      "text": "`harness/claude.rs` — `ambient_login`, `read_ambient_keychain_login`, `adopt_login`: whether the\n  Keychain read/write succeeded, with digests."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBS1",
+      "kind": "paragraph",
+      "text": "`account.rs` — the `security` subcommand outcomes, and every file `sign_out`/`delete_account`\n  removes."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBS2",
+      "kind": "paragraph",
+      "text": "`crates/ubiq-host/src/agent.rs` — each 30s `sync_logins` pass, `refresh_login`, `compose_run`\n  (the digest the run *starts* with), and every `retire`/`park`/`sweep` that removes or scrubs a\n  run directory, with the reason."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBS3",
+      "kind": "heading:3",
+      "text": "### 5.3 Making the log survive"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBS4",
+      "kind": "paragraph",
+      "text": "Logs previously died with the process (in-memory ring + stderr; `crates/ubiq-proto/src/log.rs`).\nAn opt-in **file sink** was added: set **`UBIQ_LOG_FILE=/path/to/ubiq.log`** and `install()` appends\nthe formatted log there as well. Append-only, unrotated, no secrets. `ubiq_host::agent` was also\nreclassified from `Subsystem::Ui` to `Subsystem::Harness`, where it belongs."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBS5",
+      "kind": "heading:3",
+      "text": "### 5.4 State of the change"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBS6",
+      "kind": "paragraph",
+      "text": "Uncommitted in the worktree as of 2026-09-14. `cargo check` is clean for `agent-manager`,\n`ubiq-host` and `ubiq-proto`; `agent-manager`'s suite is 494 passing with two failures that predate\nthis work and are environment artifacts (`provision::tests::ephemeral_strategy_creates_a_fresh_dir_under_state`\ncannot write to the real `~/.config/agent-manager` from inside a pane, and\n`io::jsonl::tests::live_two_turn_structured_session_when_claude_available` needs a live binary)."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBS7",
+      "kind": "paragraph",
+      "text": "`just verify` does **not** pass whole, for reasons outside this change: someone else's git-history\nwork is mid-flight in the same worktree (`crates/ubiq-host/tests/git_history.rs`, `tests/diff.rs`),\nand `just docs-lint` has 70-odd pre-existing failures across the library. Neither is this change's\nto fix. `_docs/tech/agent-manager.md` is 494 lines against a 400-line target — it was already over\nbefore the paragraph added here."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBS8",
+      "kind": "paragraph",
+      "text": "Also of note: `crates/ubiq-proto/src/log.rs` was reverted on disk once mid-edit by another process\nin this shared worktree, and the edits were reapplied. Check that `UBIQ_LOG_FILE` is still in\n`log.rs` before trusting a run."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBS9",
+      "kind": "heading:2",
+      "text": "## 6. How to run the watch"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBSA",
+      "kind": "code",
+      "text": "```sh\nUBIQ_LOG_FILE=/tmp/ubiq-auth.log RUST_LOG=agent_manager=debug,ubiq_host=debug just dev\n```"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBSB",
+      "kind": "paragraph",
+      "text": "Start a Claude pane, note the `expiresAt` it launches with (the `compose_run` line prints the\ndigest), and leave it. The interesting window is the **hour around `expiresAt`** — 7 h in on a\nfresh login."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBSC",
+      "kind": "paragraph",
+      "text": "What to read, in order:"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBSD",
+      "kind": "paragraph",
+      "text": "the `isolate::plan` line — does the policy name a keychain layer, and is the run dir in the\n   read-write grants;"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBSE",
+      "kind": "paragraph",
+      "text": "the `compose_run` digest — the fingerprint the run started with;"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBSF",
+      "kind": "paragraph",
+      "text": "the 30s `sync_logins` lines — does any fingerprint ever change;"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBSG",
+      "kind": "paragraph",
+      "text": "anything at the failure moment: a blanked blob (`usable=false`), a removal, a scrub, a `security`\n   failure."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBSH",
+      "kind": "paragraph",
+      "text": "Useful one-liners:"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBSJ",
+      "kind": "code",
+      "text": "```sh\ngrep -E 'accessToken=|refreshToken=' /tmp/ubiq-auth.log   # every fingerprint, in order\ngrep -E 'usable=false|removing|scrub|security' /tmp/ubiq-auth.log\n```"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBSK",
+      "kind": "paragraph",
+      "text": "To watch the file directly alongside the log:"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBSM",
+      "kind": "code",
+      "text": "```sh\nwhile :; do ls -l@ \"$CLAUDE_CONFIG_DIR/.credentials.json\"; sleep 300; done\n```"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBSN",
+      "kind": "heading:2",
+      "text": "## 7. If H1 is confirmed — the shape of the fix"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBSP",
+      "kind": "paragraph",
+      "text": "Not implemented; recorded so the next pass does not re-derive it."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBSQ",
+      "kind": "paragraph",
+      "text": "Either **deny the Keychain for a run the way `login_confined` denies it for a capture**, so Claude\ntakes its file-fallback path and rewrites the run dir's copy (which `sync_login` already harvests\nevery 30s) — the more consistent option, since it makes a run behave like a capture; or **grant\n`~/Library/Keychains` read-write** so the harness can persist where it wants to, which widens the\nsandbox and leaves two sources of truth. The first is preferred."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBSR",
+      "kind": "paragraph",
+      "text": "Either way it is a change in `crates/agent-manager/src/isolate.rs`, and it needs a `Dnn` decision\nrow because it changes what a sandboxed run may reach."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBSS",
+      "kind": "heading:2",
+      "text": "## 7a. A later session cannot look at this run's directory"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBST",
+      "kind": "paragraph",
+      "text": "Each ubiq-managed Claude pane gets **its own** `runs/<ULID>` directory, and it is gone or stale by\nthe time a fresh session reads this. So `01M2FRXP7Q51RK322EKP5Z8V4Y` above is evidence, not a\nplace to go look. A later session:"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBSV",
+      "kind": "paragraph",
+      "text": "finds **its own** directory with `echo $CLAUDE_CONFIG_DIR`, which is a *different* pane and a\n  *different* token — it says nothing about the one that failed;"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBSW",
+      "kind": "paragraph",
+      "text": "cannot list `~/.config/ubiq/runs/` from inside a pane (the sandbox answers *Operation not\n  permitted*); ask the user to run `! ls -lt ~/.config/ubiq/runs/` if the directory listing is\n  needed."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBSX",
+      "kind": "paragraph",
+      "text": "This is why the evidence lives in this document and in `UBIQ_LOG_FILE`, and why the watch log below\nrecords **fingerprints and mtimes rather than paths**. A fingerprint recorded here can be compared\nagainst one printed hours later in any session; a run directory cannot."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBSY",
+      "kind": "heading:3",
+      "text": "### The scratch folder"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBSZ",
+      "kind": "paragraph",
+      "text": "`/tmp/ubiq-auth-watch/` (mode 700), set up 2026-09-14 13:22, outlives the pane:"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBT0",
+      "kind": "table",
+      "text": "| file | what it is |\n|---|---|\n| `README.md` | the baseline and the run dir being watched, for a session that has neither |\n| `snapshot.sh [file]` | appends one redacted row; defaults to `$CLAUDE_CONFIG_DIR`, takes a path when run from another session |\n| `snapshots.tsv` | the rows: `when state mode bytes mtime access_sha8 refresh_sha8 expiresAt refreshTokenExpiresAt` |\n| `watch.log` | stdout of the background loop |"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBT1",
+      "kind": "paragraph",
+      "text": "**No token material is written there** — only sha256-8 fingerprints and metadata. `state` is the\nanswer at a glance: `ok`, `BLANKED` (a failed refresh blanked the tokens), `MISSING` (the file went\naway), `UNREADABLE`."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBT2",
+      "kind": "paragraph",
+      "text": "A detached loop snapshots every 5 minutes. It is `nohup`'d, so it survives this session, but it is\n**not** a launch agent and will not survive a reboot or a killed process tree — a fresh session\nshould check `tail /tmp/ubiq-auth-watch/snapshots.tsv` and restart it if the rows stopped:"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBT3",
+      "kind": "code",
+      "text": "```sh\nnohup sh -c 'while :; do /tmp/ubiq-auth-watch/snapshot.sh <path-to-credentials.json>; sleep 300; done' \\\n  >> /tmp/ubiq-auth-watch/watch.log 2>&1 &\n```"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBT4",
+      "kind": "heading:2",
+      "text": "## 8. Watch log"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBT5",
+      "kind": "paragraph",
+      "text": "Append one row per observation. Keep the digest fingerprints — they are the evidence."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBT6",
+      "kind": "paragraph",
+      "text": "**Two fingerprint schemes are in play, and they do not compare.** The rows below taken by hand use\n`sha256(token)[:8]`; `credentials::login_digest` in the code uses Rust's `DefaultHasher`. Compare\nhand-taken rows to hand-taken rows, and log lines to log lines. To read a file by hand in the same\nscheme as the rows here:"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBT7",
+      "kind": "code",
+      "text": "```sh\npython3 -c \"\nimport json,hashlib,os,sys\nd=json.load(open(sys.argv[1]))['claudeAiOauth']\nprint({k:hashlib.sha256(d[k].encode()).hexdigest()[:8] for k in ('accessToken','refreshToken')}, d['expiresAt'])\n\" \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n```"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBT8",
+      "kind": "table",
+      "text": "| when | what happened |\n|---|---|\n| 2026-09-14 12:55 | run dir `01M2FRXP…` created, credentials seeded from the Keychain, mode 644, `expiresAt` 19:53 |\n| 2026-09-14 13:06 | evidence in §2 collected; read-only-file theory ruled out |\n| 2026-09-14 13:16 | file still present, still mode 644, **mtime still 12:55** — untouched since the seed. sha256-8 `accessToken=d31af002` `refreshToken=0888341f`. Baseline for the rotation check: if these change, the harness did write; if they never change and the login fails at 19:53, H1 holds |\n| 2026-09-14 13:22 | `/tmp/ubiq-auth-watch/` created, 5-minute snapshot loop started against this pane's file; still `ok`, unchanged |\n| 2026-09-14 ~13:30 | instrumentation of §5 landed; `UBIQ_LOG_FILE` watch not yet started |\n| 2026-09-14 13:42 | run dir `01M2FRXP…` gone — the old pane was retired, so the snapshot row reads `MISSING` for that reason, **not** the failure under investigation. Do not read it as evidence |\n| 2026-09-14 13:43 | new pane, new run dir `01M2FVN3…`, seeded **mode 600** — the §5 chmod is in the running build. Same token as before: sha256-8 `accessToken=d31af002` `refreshToken=0888341f`, `expiresAt` still 19:53. **Nothing rotated**; the Keychain origin handed out the identical login, so the 7 h clock is unchanged and the interesting window is still ~19:53 |\n| 2026-09-14 13:44 | `snapshot.sh` now falls back to `/tmp/ubiq-auth-watch/target` when its argument is gone, so the detached loop follows the live pane across a retirement. `UBIQ_LOG_FILE` confirmed still in `log.rs:347`; `/tmp/ubiq-auth.log` does not exist — **the §6 watch has never been started**, the app is not running under `UBIQ_LOG_FILE` |\n| 2026-09-14 15:04 | file present and **untouched** — mtime still 13:43, 509 bytes, mode 600, `accessToken=d31af002` `refreshToken=0888341f`. 1 h 20 m into the run, nothing has been rewritten |\n| 2026-09-14 15:04 | **the detached snapshot loop is blind.** Every row since 13:44 says `MISSING` while the file plainly exists: the loop was `nohup`'d from the *previous* pane, so it runs under that pane's sandbox and cannot read another run's directory — the `target` fallback added at 13:44 points it somewhere it is denied. `MISSING` from that loop is now meaningless. A watch has to run **outside any pane**, from the user's own terminal |\n| 2026-09-14 21:56 | **the failure, caught live.** `.credentials.json` is **gone** from run dir `01M2FVN3…`, ~2 h after its 19:53 `expiresAt`. The pane is still alive and the run directory is **intact** — `.claude.json` is still being written (`backups/.claude.json.backup.1789415787673`, 21:56), `oauthAccount` still names the user. So this is **not** a run-dir removal and **not** a `park_agent` scrub: a scrub takes the whole login seed set, and `.claude.json` survived. H4 is out |\n| 2026-09-14 21:56 | the credential was never rewritten before it vanished: the last observation (15:04) still had the seed's mtime 13:43 and fingerprints `d31af002`/`0888341f`. Between 13:43 and deletion **nothing wrote the file** |\n| 2026-09-14 21:56 | **the Keychain item is blanked, and it is not this run's origin.** `security find-generic-password -s 'Claude Code-credentials'` returns `accessToken:\"\"`, `refreshToken:\"\"`, `expiresAt:0` — `sha256[:8]=e3b0c442` is the empty string, in both fields. Its `mdat` is **2026-09-09 14:54:07 UTC**, five days old: **nothing wrote the Keychain today**. And it claims `subscriptionType:\"pro\"`, `rateLimitTier:\"default_claude_ai\"`, where the seeded run credential was `team` / `default_claude_max_5x` — a *different account* |"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBT9",
+      "kind": "heading:2",
+      "text": "## 9. What the 21:56 and 20:26 captures change"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBTA",
+      "kind": "paragraph",
+      "text": "Two conclusions in §3 and §4 do not survive it."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBTB",
+      "kind": "paragraph",
+      "text": "**§3.1 is wrong about the origin.** It concluded that tier A finds nothing and so \"the origin is the\nKeychain\". But the Keychain item was already **blanked on 2026-09-09** and describes a `pro` account,\nwhile the credential this run was seeded with was `team`/`default_claude_max_5x`. A blanked blob is\nwhat `credentials::login_is_usable()` exists to reject, so `ambient_login` cannot have supplied it.\n`~/.claude/.credentials.json` still does not exist. **The durable origin of today's token is\ntherefore neither tier A nor tier B, and is not yet identified** — the remaining candidate is the\n`files` secret store under `~/.config/agent-manager`, i.e. an imported account rather than a\nzero-config login. That store cannot be listed from inside a pane; §10 asks for it."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBTC",
+      "kind": "paragraph",
+      "text": "**H1's mechanism needs restating.** H1 said the refresh is computed and the Keychain persist is\ndenied by Seatbelt. The Keychain's `mdat` shows no write today, which is consistent with a *denied*\nwrite — but equally consistent with no attempt at all. What the capture does establish is the\n**shape** H1 predicts: the run-dir fingerprint **never changed**, and the file was **removed**\nrather than rewritten or blanked. On the evidence so far H1 remains the standing theory, now with\nthe observation that the origin it would have to be reconciled against is itself unusable."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBTD",
+      "kind": "paragraph",
+      "text": "**A second failure is now in play, upstream of the first.** Even a perfect write-back has nowhere\ngood to go: the origin is blanked and belongs to another account. Whatever seeded this run, the\n`sync_login` reconciler ranks candidates and writes the winner back — and the only usable candidate\nin the system was the copy that has now been deleted. **There may no longer be a usable Claude\ncredential anywhere on this machine.** §10's first question is whether one survives."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBTE",
+      "kind": "heading:2",
+      "text": "## 10. What the next session must ask the user"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBTF",
+      "kind": "paragraph",
+      "text": "These cannot be answered from inside a pane — the sandbox answers *Operation not permitted*. Ask\nthe user to run them with the `!` prefix, from outside any managed pane:"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBTG",
+      "kind": "code",
+      "text": "```sh\nls -laR ~/.config/agent-manager            # the files secret store — is there an account, and a usable blob\nls -lt  ~/.config/ubiq/runs/               # which run dirs exist, and which still hold a .credentials.json\ngrep -rl claudeAiOauth ~/.config/ubiq/runs/ 2>/dev/null\n```"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBTH",
+      "kind": "paragraph",
+      "text": "The question that ranks above all others: **does any usable credential still exist**, in the store,\nin another live run directory, or nowhere. If nowhere, a fresh `claude login` is needed before the\nwatch can be run again — and that login must be captured into the store, or the next run reproduces\nthis from a blank origin."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBTJ",
+      "kind": "paragraph",
+      "text": "The §6 log watch has still never run (`/tmp/ubiq-auth.log` does not exist), so the `isolate::plan`\nline that would show whether the policy can reach the Keychain — the one line that separates a\ndenied write from no write at all — is still unobserved. Starting it is unchanged in priority.\n| 2026-09-14 20:26 | `_docs/log-claude.png` — a `sync_logins` pass, 33 min past expiry. **3 accounts, 5 run dirs.** Account **S** is this run's: origin `dir(/Users/mdn/.config/ubiq/accounts/S)`, `.claude/.credentials.json`, 509 bytes, `expiresAt=1789408388533` — the 19:53 stamp, so S is definitively the origin of run `01M2FVN33G…`. Three run dirs held it (`01M2FVN33G…`, `01M2FW139A…`, `01M2FVJVGB…`) and **all three carried the identical fingerprints** `accessToken=19955dd6 refreshToken=68ed7240` (DefaultHasher scheme), `usable=true`, all already expired. `picked … winner=origin`, `skipped writing back to the origin, already matches the winner` |\n| 2026-09-14 22:04 | origin `accounts/S/.claude/.credentials.json` read directly: **mtime 11:53**, 509 bytes, mode 600, sha256-8 `d31af002`/`0888341f` — byte-identical to what the run was seeded with, **never written since 11:53**. |"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBTK",
+      "kind": "heading:2",
+      "text": "## 11. The origin, settled — and H1 confirmed in shape"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBTM",
+      "kind": "paragraph",
+      "text": "`_docs/log-claude.png` answers §10's first question outright, and §9's \"the origin is not yet\nidentified\" is superseded."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBTN",
+      "kind": "paragraph",
+      "text": "**The origin is a per-account directory under `~/.config/ubiq/accounts/<account>`**, not the\nKeychain and not `~/.claude`. This run belongs to account **S**, whose\n`.claude/.credentials.json` is the durable copy. Other accounts exist on this machine and share the same\nmachinery; they are **not** part of this investigation — everything below is account S. `provision::seed_zero_config_login`\nand its two tiers — §3.1 — describe the *zero-config* path, which is simply not the path Ubiq takes\nhere: these runs are seeded from an explicit account. **§3.1's tier analysis is correct code and\nthe wrong path; the Keychain finding of §9 is true but irrelevant, a stale `pro` item from\n2026-09-09 that nothing in this flow reads.**"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBTP",
+      "kind": "paragraph",
+      "text": "**The reconciler works, and has nothing to reconcile.** At 20:26, 33 minutes after the token\nexpired, the pass reads the origin and all three run directories holding it and finds **one single\nfingerprint across all four copies** — `19955dd6`/`68ed7240`, matching the origin's on-disk\n`d31af002`/`0888341f` in the hand scheme. It correctly picks the origin as winner and correctly\nskips a no-op write. There is no bug in `sync_login`, `newest_login` or the 30 s timer: H2 and H3\nare **out**. The origin's mtime is still **11:53**, ten hours untouched."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBTQ",
+      "kind": "paragraph",
+      "text": "**What this leaves is H1, confirmed in shape if not yet in mechanism.** Across the whole life of\nthe token — seed at 13:43, expiry at 19:53, deletion by 21:56 — **no fingerprint anywhere ever\nchanged**. Three separate live run directories all held the same expired login and not one of them\nwas rewritten. A refresh was certainly attempted; it persisted nowhere Ubiq can see, and the file\nwas then removed rather than updated. The remaining unknown is narrow and unchanged: **whether the\npersist was denied or never attempted**, which only the `isolate::plan` line answers."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBTR",
+      "kind": "paragraph",
+      "text": "One new fact narrows it further: the run's sandbox can **read** its own account origin —\n`accounts/S` is readable from inside the pane, while paths outside the run's own grants answer\n*Operation not permitted*. So the policy grants the account path. Whether that grant is\nread-**write**, and whether the harness would even use it, is the next thing to read out of the\nlog — if the origin is writable from the run and still was never written, the refresh never\nproduced a credential at all."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBTS",
+      "kind": "heading:2",
+      "text": "## 12. The two questions, and H5"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBTT",
+      "kind": "paragraph",
+      "text": "The investigation reduces to two questions. They are not independent."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBTV",
+      "kind": "heading:3",
+      "text": "### Why was it never refreshed?"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBTW",
+      "kind": "paragraph",
+      "text": "Established, not theorised: **no fingerprint anywhere ever changed.** The origin's mtime is 11:53,\nten hours before the failure. The 20:26 pass read the origin and all three run directories holding\naccount S's login and found one identical, already-expired login in all four. So whatever the\nharness did at expiry, **it persisted nothing Ubiq can see** — and the reconciler had nothing to\ncarry, which is why it is not at fault."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBTX",
+      "kind": "paragraph",
+      "text": "Two mechanisms remain, and only the `isolate::plan` line separates them: the persist was **denied**\nby the sandbox, or **never attempted** because the refresh call itself failed. §11 leans on the\nfirst; H5 below is a reason to take the second seriously."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBTY",
+      "kind": "heading:3",
+      "text": "### Why was it deleted?"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBTZ",
+      "kind": "paragraph",
+      "text": "A deletion that takes `.credentials.json` and leaves `.claude.json` and the directory intact is not\nthe shape of any Ubiq teardown — those take the whole seed set or the whole directory (§3.4, H4).\nIt is the shape of a **harness logging itself out**: Claude Code clears its credential when the\nserver tells it the credential is finished. The trigger for that is an `invalid_grant` on refresh —\nwhich is what the server answers for a refresh token that has already been **spent**."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBV0",
+      "kind": "heading:3",
+      "text": "### H5 — three live runs share one single-use refresh token"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBV1",
+      "kind": "paragraph",
+      "text": "**Account S's login was seeded, byte-identical, into at least three concurrent run directories**\n(`01M2FVN33G…`, `01M2FW139A…`, `01M2FVJVGB…` — the 20:26 pass names all three). OAuth refresh\ntokens **rotate**: the first use mints a new pair and retires the presented token. `sync_login`\nalready knows this — its step 4 exists precisely because \"a refresh **rotates** the refresh token\nand every other run is now holding a revoked one\" (§3.3). But that reconciler runs **every 30 s,\nafter the fact**. The window between one run spending the token and the others being handed the\nreplacement is up to 30 s, and at expiry all three runs reach for it at once."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBV2",
+      "kind": "paragraph",
+      "text": "So: one run refreshes, spends the shared token, and — for whatever reason in §11 — **fails to\npersist** the result. The other two present the now-revoked token, get `invalid_grant`, and\n**delete their credential**, which is exactly what was observed. The winner's own copy is never\nwritten either, so nothing distinguishes it in the log."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBV3",
+      "kind": "paragraph",
+      "text": "This explains both questions with one mechanism, and it explains the timing: nothing goes wrong\nuntil the access token expires and all live runs refresh within the same minute of each other."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBV4",
+      "kind": "paragraph",
+      "text": "**What would confirm it**: run **exactly one** Claude pane on account S across an expiry. If a\nsingle run survives its expiry and a fleet of three does not, H5 holds and the fix is about\nserialising the refresh, not only about the sandbox.\n**What would falsify it**: a single lone run also loses its credential at expiry — then the fault\nis entirely in the persist path (§11) and the concurrency is incidental."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBV5",
+      "kind": "paragraph",
+      "text": "H1 and H5 are not exclusive. A denied persist makes H5 *certain* to fire whenever more than one run\nis live, because the winner can never publish the replacement."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBV6",
+      "kind": "heading:2",
+      "text": "## 13. H1 is falsified — the sandbox blocks nothing"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBV7",
+      "kind": "paragraph",
+      "text": "Read out of `isolate.rs` against the working tree:"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBV8",
+      "kind": "paragraph",
+      "text": "the **run's config dir is read-write** (`isolate.rs:541`, `read_write_grants` at `isolate.rs:934`\n  puts it first);"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBV9",
+      "kind": "paragraph",
+      "text": "**`~/Library/Keychains` is granted `rw`, unconditionally, to every sandboxed run.** `plan()`\n  extends `cfg.default_profiles` with `DEV_LAYERS` regardless of `cmd[0]` (`isolate.rs:569-570`),\n  and `DEV_LAYERS` (`isolate.rs:297`) leads with `integrations/keychain`, marked *not optional*;\n  that profile grants `~/Library/Keychains` read-write plus mach-lookup on `securityd`/`secd`/\n  `trustd`. `auto_profiles` is not even what pulls it in. The contrast `login_confined()`\n  (`isolate.rs:606`) sets `auto_profiles = false` and **omits** that layer on purpose — the §3.5\n  doc comment describes the capture policy, and does not apply to a normal run;"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBVA",
+      "kind": "paragraph",
+      "text": "**outbound network is open** — `builtin_defaults()` includes `macos/system-runtime`, which is\n  `(allow network*)` unconditionally, with a comment saying tiered network isolation is not\n  implemented and a confined process can reach any host. Proxy and CA env vars are forwarded too;"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBVB",
+      "kind": "paragraph",
+      "text": "the **account origin dir is read-only** to the run (`read_only_grants`, `isolate.rs:979-982`,\n  from `Source::Dir(account.home)`) — which is correct, it is not a write target."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBVC",
+      "kind": "paragraph",
+      "text": "**So there is nothing to deny.** The run could have written its own credential file, and could have\nwritten the Keychain, and could reach the token endpoint. H1's mechanism — a Seatbelt-denied\npersist — cannot be what happened."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBVD",
+      "kind": "paragraph",
+      "text": "That inverts the §11 conclusion into something sharper. The Keychain is **writable** by the run and\nits `mdat` is still **2026-09-09**; the run dir is **writable** and its file was never rewritten.\nA successful refresh had two permitted places to land and landed in neither. **No refresh ever\nsucceeded.** The question is no longer where the result went — it is why the call failed."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBVE",
+      "kind": "paragraph",
+      "text": "The grep for the watch, now that the line is known:"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBVF",
+      "kind": "code",
+      "text": "```sh\ngrep 'resolved sandboxed run policy' \"$UBIQ_LOG_FILE\"   # layers=, rw=, ro=, home=\ngrep 'account login origin resolved' \"$UBIQ_LOG_FILE\"   # which account dir was granted\n```"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBVG",
+      "kind": "heading:2",
+      "text": "## 14. H7 — the seeded refresh token was already spent"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBVH",
+      "kind": "paragraph",
+      "text": "If no refresh ever succeeded all day, the simplest explanation is that the refresh token in\n`accounts/S` **was already retired before the day began**."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBVJ",
+      "kind": "paragraph",
+      "text": "The origin was written at **11:53** and never again. Its access token was minted with a 19:53\nexpiry, so it worked all afternoon — a bearer token needs no refresh to keep working. Nothing would\nreveal a dead refresh token until 19:53, when every run tried to use one and got `invalid_grant`,\ncleared its credential and logged itself out. That is the observed behaviour exactly, and unlike H5\nit does not require the three runs to race."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBVK",
+      "kind": "paragraph",
+      "text": "It also fits the surrounding wreckage: the Keychain item was **blanked on 2026-09-09**, which is\nwhat a Claude logout looks like. A login that was rotated or revoked outside Ubiq leaves the stored\ncopy stale, and a capture taken at 11:53 preserves whatever was true then, not what is true at\nexpiry."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBVM",
+      "kind": "paragraph",
+      "text": "**H5 and H7 make the same prediction for a fleet and differ for a lone run** — H5's single pane\nsurvives its expiry, H7's does not. The single-pane test in §12 therefore separates them, and is\nstill the cheapest next move."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBVN",
+      "kind": "paragraph",
+      "text": "**A faster, destructive-but-free test exists.** Present the origin's refresh token to the token\nendpoint by hand:"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBVP",
+      "kind": "paragraph",
+      "text": "`invalid_grant` ⇒ **H7 confirmed**, and nothing was lost — the token was already dead;"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBVQ",
+      "kind": "paragraph",
+      "text": "success ⇒ H7 falsified, the token was live, and the new pair **must** be written into\n  `accounts/S/.claude/.credentials.json` immediately or that success is itself the rotation that\n  breaks the account."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBVR",
+      "kind": "paragraph",
+      "text": "It needs the user's go-ahead precisely because of the second branch."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBVS",
+      "kind": "heading:2",
+      "text": "## 15. The deletion is not Ubiq's — traced exhaustively"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBVT",
+      "kind": "paragraph",
+      "text": "Every path in `ubiq-host` and `agent-manager` that can touch a run dir's credential was traced\nagainst the working tree. **None of them produces the observed state.**"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBVV",
+      "kind": "table",
+      "text": "| path | what it removes | when |\n|---|---|---|\n| `Agents::retire` / `retire_agent` (`agent.rs:1542`, `1607`) | the **whole run dir** | after the pane's process has exited |\n| `Agents::sweep` (`agent.rs:1568`) | whole dir, or `scrub_login` for a persistent run | **startup only** |\n| `Agents::scrub_login` (`agent.rs:1431`) | **every** `login_seed` entry — for Claude, `.credentials.json` *and* `.claude.json` in the same loop | from `park_agent` (conversation ended) or the startup sweep |\n| `Agents::park_agent` (`agent.rs:1461`) | via `scrub_login`, both files | conversation ended |\n| `refresh_login` / `sync_login` / `write_credential` (`agent.rs:1319`, `harness/mod.rs:414`, `625`) | **never deletes** — stages a temp file and `rename`s, and refuses any blob failing `login_is_usable` or older by expiry | the live 30 s timer |\n| `sign_out` / `delete_account` (`account.rs:375`) | files under the **account home**, never a run dir | explicit CLI |\n| `run::cleanup` (`run.rs:196`), `overlay::sweep_old_runs` | whole dir, `Ephemeral` strategy only — Ubiq uses `Fixed` | not on Ubiq's path |"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBVW",
+      "kind": "paragraph",
+      "text": "The single \"delete files, keep the directory\" path is `scrub_login`, and it removes the **whole seed\nset together**: it cannot leave `.claude.json` behind. Every path that can remove the credential\nalone removes the entire directory with it. And the one family that runs *while a pane is alive* —\nthe 30 s reconciler — has no delete in it at all."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBVX",
+      "kind": "paragraph",
+      "text": "**So the Claude Code process deleted its own credential.** That is now established by exhaustion,\nnot inferred from shape."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBVY",
+      "kind": "paragraph",
+      "text": "One refinement worth recording: `credentials/mod.rs:181-186` documents the *known* Claude failure\nmode as rewriting the file **blanked**, not removing it — which is why `login_is_usable` exists.\nWhat was observed at 21:56 is an **absent** file, not a hollow one (the `ls -la` shows no entry at\nall, and `find` over the run dir finds nothing). **The harness took a path the tree does not yet\ndescribe** — a full logout rather than a blanking. That distinction matters for the fix: a blanked\nfile is something `sync_login` already defends against; a deleted one leaves the run with nothing to\nreseed from except the origin, which is exactly the stale copy under suspicion in §14."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBVZ",
+      "kind": "heading:2",
+      "text": "## 16. ROOT CAUSE — Claude Code stores credentials in a keychain item keyed by the config dir"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBW0",
+      "kind": "paragraph",
+      "text": "A forced `/login` at 22:21 settled it. **Claude Code 2.1.270 on macOS does not persist to\n`$CLAUDE_CONFIG_DIR/.credentials.json` at all.** It writes a login-Keychain generic password whose\nservice name is namespaced by the config directory:"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBW1",
+      "kind": "code",
+      "text": "```\nClaude Code-credentials-<sha256(CLAUDE_CONFIG_DIR)[:8]>\n```"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBW2",
+      "kind": "paragraph",
+      "text": "Verified arithmetic: this run's `CLAUDE_CONFIG_DIR` is\n`/Users/mdn/.config/ubiq/runs/01M2FVN33G91HNRWF2EPQDG28P`, and\n`sha256(path)[:8] = 2c922a00` — exactly the item the login wrote. No trailing slash, no\nnormalisation; the raw value of the variable."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBW3",
+      "kind": "paragraph",
+      "text": "**Evidence from the login.** Immediately after `/login` succeeded:"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBW4",
+      "kind": "table",
+      "text": "| place | state |\n|---|---|\n| `$CLAUDE_CONFIG_DIR/.credentials.json` | **still absent** — not recreated |\n| `accounts/S/.claude/.credentials.json` | untouched, mtime still **11:53** |\n| `Claude Code-credentials` (unsuffixed) | untouched, `mdat` still **2026-09-09** |\n| `Claude Code-credentials-2c922a00` | **written**, `mdat` 20:21:01Z = 22:21:01 local |"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBW5",
+      "kind": "paragraph",
+      "text": "The new item holds a fresh, usable login — sha256-8 `accessToken=567647b0`\n`refreshToken=5d7b898a`, `expiresAt` 2026-09-15 **06:21** — and `.claude.json`'s\n`profileFetchedAt` is 22:21:01.900, the same second. A successful login is therefore **completely\ninvisible** to every file Ubiq watches."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBW6",
+      "kind": "paragraph",
+      "text": "**The deletion is explained, and it was not a logout.** That item's `cdat` is **19:56:25Z =\n21:56:25 local** — the very minute §8 recorded the file as missing. What happened at 21:56 was a\n**migration**: Claude read the seeded `.credentials.json`, wrote it into its namespaced Keychain\nitem, and removed the file. §15 was right that no Ubiq path deleted it and right that the harness\ndid, but the motive was migration, not a server-driven logout. (`.last-update-result.json` shows a\nnative self-update from 2.1.270 attempted at 21:27 and *failed*, so the trigger was the running\nbinary's own migration step, not a new version.)"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBW7",
+      "kind": "paragraph",
+      "text": "**The refresh is explained too.** After migration there is no file to rewrite, and before it the\nbinary was already keychain-first. Every refresh Claude performs lands in\n`Claude Code-credentials-<hash>`, which `sync_login`, `harvest_login` and `newest_login` never read.\nThe reconciler is not broken — **it is watching a location the harness abandoned.**"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBW8",
+      "kind": "heading:3",
+      "text": "### Why this looks like \"credentials vanish after some hours\""
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBW9",
+      "kind": "paragraph",
+      "text": "Nothing fails while the seeded access token is valid, because a bearer token needs no refresh. At\nits expiry the harness refreshes into the Keychain, Ubiq never sees the new token, and the next run\nseeded from the origin gets the **stale 11:53 copy** — whose refresh token may by then have been\nspent and rotated away by an earlier run. That is the reported symptom exactly."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBWA",
+      "kind": "heading:3",
+      "text": "### The 92 orphans"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBWB",
+      "kind": "paragraph",
+      "text": "`security dump-keychain` lists **92** `Claude Code-credentials-*` items. Every run directory is a\nfresh ULID, so every run mints a **new Keychain item that nothing ever deletes** — `retire` removes\nthe directory and leaves the credential behind. This is both a leak and a disclosure issue: 92 live\nrefresh tokens are sitting in the login Keychain."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBWC",
+      "kind": "heading:3",
+      "text": "### What this invalidates"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBWD",
+      "kind": "paragraph",
+      "text": "**H1, H5, H7 are all moot as stated.** They argue about a file the harness no longer uses.\n  H5's shared-token race remains *plausible* for the origin copy across runs, but it is downstream\n  of this."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBWE",
+      "kind": "paragraph",
+      "text": "**§3.2's `login_seed`** is a one-way seed: Claude consumes `.credentials.json` and never writes it\n  back. `SeedFile::credential(...)`'s write-back contract does not hold for this harness version."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBWF",
+      "kind": "paragraph",
+      "text": "**§7's proposed fix is wrong.** Denying the Keychain would not make Claude fall back to a file —\n  §3.5 already records that 2.1.218+ treats an unreachable keychain as an **error**. Granting it\n  more is not the answer either; it is already granted `rw` (§13)."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBWG",
+      "kind": "heading:3",
+      "text": "### The shape of the fix"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBWH",
+      "kind": "paragraph",
+      "text": "Ubiq must treat the **Keychain item as the credential of record** for Claude Code on macOS, keyed\nby `sha256(config_dir)[:8]`:"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBWJ",
+      "kind": "paragraph",
+      "text": "**harvest** from `Claude Code-credentials-<hash(run_dir)>` rather than from the run dir's file,\n   and rank that blob in `newest_login` as it ranks a file copy today;"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBWK",
+      "kind": "paragraph",
+      "text": "**seed** by *writing* that item before launch, instead of (or as well as) dropping\n   `.credentials.json` — the file seed can stay as the migration source, but it cannot be the\n   channel back;"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBWM",
+      "kind": "paragraph",
+      "text": "**delete** the item in `retire`/`scrub_login`, which also stops the leak;"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBWN",
+      "kind": "paragraph",
+      "text": "keep the file path for non-macOS and for older harness versions — this is a macOS-specific\n   storage backend, so it belongs behind the same `Harness` seam that already owns\n   `ambient_login`/`adopt_login` in `harness/claude.rs`."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBWP",
+      "kind": "paragraph",
+      "text": "This needs a `Dnn` decision row: it changes what agent-manager considers the durable location of a\nClaude credential."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBWQ",
+      "kind": "paragraph",
+      "text": "**Immediate cleanup available**: the 92 orphaned items should be pruned, keeping only\n`2c922a00` (this live run). Not yet done — it is destructive and was not authorised."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBWR",
+      "kind": "heading:2",
+      "text": "## 17. Why a standalone install survives, and whether the key is predictable"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBWS",
+      "kind": "heading:3",
+      "text": "### The key is predictable, and Ubiq knows it before launch"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBWT",
+      "kind": "paragraph",
+      "text": "`sha256($CLAUDE_CONFIG_DIR)[:8]`, over the raw variable value — no trailing slash, no normalisation.\nChecked against the 92 items: this run's path hashes to `2c922a00`, which is present; every other\npath tested is absent, and no item matches a path we did not expect. A 32-bit exact match on the one\nrun known to have written is not coincidence."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBWV",
+      "kind": "paragraph",
+      "text": "**Ubiq chooses the run directory**, so it can compute the service name *before* spawning the\nharness. Both directions are therefore open to it: write the item to seed a login, read it back to\nharvest one. That is what makes §16's fix tractable."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBWW",
+      "kind": "paragraph",
+      "text": "Two caveats worth keeping: the derivation is inferred from a single writing run, so re-verify it\nwhen the harness version changes; and it is an undocumented implementation detail of the harness,\nwhich argues for §18's option over depending on it."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBWX",
+      "kind": "heading:3",
+      "text": "### The standalone install: the difference is the *stable* config dir, not keychain isolation"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBWY",
+      "kind": "paragraph",
+      "text": "The proposed explanation — that a standalone install isolates keychain access and so keeps using the\nfile — does not survive the evidence. `~/.claude/.credentials.json` **does not exist** on this\nmachine, and `~/.claude` hashes to `1bc99cf3`, which is **not** among the 92. What does exist is the\nunsuffixed `Claude Code-credentials` item, `cdat` **2026-02-07**, `mdat` **2026-09-09** — seven\nmonths of continuous updates in the *keychain*. A standalone install is keychain-backed too."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBWZ",
+      "kind": "paragraph",
+      "text": "So the difference is not *where* it stores. It is that a standalone install has **one fixed config\ndir for its whole life**, hence **one stable keychain key**. Refresh writes the item; the next launch\nreads the same item; the credential survives for months with no reconciliation at all."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBX0",
+      "kind": "paragraph",
+      "text": "Ubiq mints a **new ULID run directory per run**, so every run has a **different keychain key**. A\nrefresh lands in an item keyed to a directory that is deleted at teardown, and the next run is keyed\nsomewhere new and seeded from the stale file origin. **The credential cannot survive a run boundary\nby construction.** That is the bug, stated exactly."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBX1",
+      "kind": "heading:2",
+      "text": "## 18. The two candidate fixes, assessed"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBX2",
+      "kind": "paragraph",
+      "text": "**Option A — deny the keychain, stay on disk.** Not viable as stated. §3.5 already records that\nClaude Code 2.1.218+ treats an unreachable keychain as an **error rather than falling back to a\nfile**, which is precisely why `login_confined()` exists for captures. And §16 shows the current\nbinary *migrates the file into the keychain and deletes it*, so the file path is not merely\nunpreferred, it is actively abandoned. Pursuing this means fighting the harness every version."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBX3",
+      "kind": "paragraph",
+      "text": "**Option B — handle the keychain item.** Correct, and feasible now that the key is derivable\n(§17). The work is §16's four steps: harvest from the item, seed by writing it, delete it on\nretire (which also clears the 92-item leak), all behind the `harness/claude.rs` seam."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBX4",
+      "kind": "paragraph",
+      "text": "**Option C — give each account a stable config dir, which neither bullet proposed.** This is what\nmakes a standalone install work, and it is the smallest change: key the run directory by\n**account** rather than by a per-run ULID, so a Claude run reuses one directory and therefore one\nkeychain item across runs. The credential then survives exactly as it does standalone, with no\nharvesting, no seeding and no dependence on an undocumented hash."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBX5",
+      "kind": "paragraph",
+      "text": "Its cost is that a run directory is no longer private to a run — concurrent runs on one account\nshare a config tree, which is what the per-run ULID was buying. Whether that is acceptable depends\non what else in the tree must stay per-run; `.claude.json`, history and sessions would become\nshared, which may be desirable or may not."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBX6",
+      "kind": "paragraph",
+      "text": "**Recommendation: C if per-account sharing is acceptable, B otherwise.** B and C are compatible —\nC removes the need for B in the common case, and B still covers a run that must be isolated. A is\nnot recommended in either case."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBX7",
+      "kind": "heading:2",
+      "text": "## 19. The standalone install measured — §16's conclusion corrected, Option A is the fix"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBX8",
+      "kind": "paragraph",
+      "text": "The user's working standalone install was measured directly. Its config dir is\n`/Users/mdn/works/_dev-home/.claude-syn` (not reachable from inside a pane — *Operation not\npermitted*; the credential was copied out to `refs/sample-credentials.json` to be read)."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBX9",
+      "kind": "table",
+      "text": "| check | result |\n|---|---|\n| `.credentials.json` on disk | **exists**, 509 bytes |\n| `sha256(config_dir)[:8]` = `b8e483cd` | **absent** from the 92 keychain items (`…/` variant `cba978d8` absent too) |\n| token freshness | `expiresAt` **2026-09-15 06:33**, `refreshTokenExpiresAt` **2026-10-11** |\n| fingerprints | sha256-8 `accessToken=4a81a8f2` `refreshToken=701e19fc` |"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBXA",
+      "kind": "paragraph",
+      "text": "**This install has no keychain item and a freshly refreshed file.** An 8-hour access token expiring\nat 06:33 tomorrow was minted ~22:33 today, so Claude Code 2.1.270 **did rewrite\n`.credentials.json` on refresh**, and has been doing so for a month."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBXB",
+      "kind": "heading:3",
+      "text": "### What was wrong in §16"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBXC",
+      "kind": "paragraph",
+      "text": "§16 concluded that 2.1.270 \"does not persist to `.credentials.json` at all\" and that the file path\nis \"actively abandoned\". **That is wrong as a general claim.** The harness has *two* backends and\nchooses between them at runtime. What §16 observed was the choice a *Ubiq* run makes, not the only\nchoice available. §18's assessment of Option A inherited the error and is withdrawn; §3.5's note\nthat 2.1.218+ errors rather than falling back does not hold for 2.1.270, which falls back cleanly."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBXD",
+      "kind": "heading:3",
+      "text": "### What actually selects the backend"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBXE",
+      "kind": "paragraph",
+      "text": "The discriminator is **whether the keychain is reachable**, and the two installs differ exactly\nthere:"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBXF",
+      "kind": "paragraph",
+      "text": "the standalone runs under a **relocated `HOME`** (`/Users/mdn/works/_dev-home`), so there is no\n  `~/Library/Keychains` to use → it takes the **file** backend, and refreshes into the file;"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBXG",
+      "kind": "paragraph",
+      "text": "a Ubiq run inherits the **real `HOME`** (`HOME=/Users/mdn`, confirmed in-pane) and `plan()` grants\n  `~/Library/Keychains` read-write unconditionally via `DEV_LAYERS` (§13) → the keychain is\n  reachable, so Claude takes the **keychain** backend, migrates the seeded file into\n  `Claude Code-credentials-<hash>` and deletes it (§16)."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBXH",
+      "kind": "paragraph",
+      "text": "Ubiq is handing Claude the keychain and then watching the file. The harness is behaving correctly\nin both installs."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBXJ",
+      "kind": "heading:3",
+      "text": "### The fix: Option A, restored and now evidence-backed"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBXK",
+      "kind": "paragraph",
+      "text": "**Deny a Claude run the keychain, exactly as `login_confined()` already denies it for a capture**\n(`isolate.rs:606`, `auto_profiles = false`, `integrations/keychain` omitted). The run then takes the\nfile backend, refreshes into `$CLAUDE_CONFIG_DIR/.credentials.json`, and **every existing mechanism\nworks unchanged** — `harvest_login`, `sync_login`, `newest_login` and the 30 s reconciler are all\ncorrect code that has simply had nothing to read. §7's original proposal was right, and the\nstandalone install is a month-long proof that it works."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBXM",
+      "kind": "paragraph",
+      "text": "Concretely: drop `integrations/keychain` from `DEV_LAYERS` for a Claude run, or relocate the run's\n`HOME` so no keychain exists. The first is narrower and matches the capture path already in the\ntree."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBXN",
+      "kind": "paragraph",
+      "text": "This supersedes §16's fix (harvest the keychain item) and §18's Option C (stable per-account config\ndir). Both remain workable, but neither is needed: Option A leaves the credential in the one place\nUbiq already manages, keeps per-run isolation, and needs no dependence on an undocumented service\nname."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBXP",
+      "kind": "paragraph",
+      "text": "**Still worth doing independently**: pruning the 92 orphaned keychain items (§16), which are a leak\nregardless of which fix lands. Once Option A is in place no new ones are minted."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBXQ",
+      "kind": "paragraph",
+      "text": "A `Dnn` row is still required — the change removes a capability from a sandboxed run."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBXR",
+      "kind": "heading:2",
+      "text": "## 20. The fix, as landed (2026-09-14)"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBXS",
+      "kind": "paragraph",
+      "text": "`isolate::plan()` now withholds the login keychain from a Claude run, so the harness takes its file\nbackend and `.credentials.json` becomes the credential of record again — the thing the whole\n`harvest_login` / `sync_login` / `newest_login` machinery has always assumed."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBXT",
+      "kind": "heading:3",
+      "text": "### What it does"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBXV",
+      "kind": "paragraph",
+      "text": "**`KEYCHAIN_DENIED`** (`isolate.rs`) lists the harnesses: `claude-code`, `claude-code-acp`.\n  `keychain_denied()` gates on it **and on macOS**, since elsewhere there is nothing to withhold."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBXW",
+      "kind": "paragraph",
+      "text": "**`write_keychain_override()`** generates `<state_dir>/profiles-no-keychain/integrations/keychain.toml`\n  and `plan()` appends that directory to `isol8::Config::profile_paths` for a denied harness."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBXX",
+      "kind": "paragraph",
+      "text": "The generated layer is a **replacement** for the built-in `integrations/keychain`, not an\n  omission. It keeps `securityd`/`trustd` mach-lookups, `/Library/Keychains/System.keychain` and\n  `/private/var/db/mds`, and sets **only `~/Library/Keychains`** to `access = \"none\"`, under both\n  the subtree and the literal-metadata grant."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBXY",
+      "kind": "paragraph",
+      "text": "`plan()`'s log line gained **`keychain_denied=`**, so a run says in one field which backend it\n  will take."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBXZ",
+      "kind": "heading:3",
+      "text": "### Why an override rather than dropping the layer"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBY0",
+      "kind": "paragraph",
+      "text": "This is the part that cost the most and is worth not rediscovering. Removing\n`integrations/keychain` from `DEV_LAYERS` **does not remove it from the policy**: `agents/claude-code`\nlists it in its own `requires`, isol8 auto-matches that layer on `cmd[0] == claude`, and\n**auto-matched layers resolve after named ones** (`select_layer_names`, isol8\n`crates/isol8-core/src/profile.rs`). A deny layer named alongside `DEV_LAYERS` therefore sits\n*below* the grant it is meant to beat, and paths merge highest-layer-wins. The first attempt did\nexactly this and the test caught it."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBY1",
+      "kind": "paragraph",
+      "text": "A profile path replaces a same-named built-in **wherever it is pulled in**, so the override is the\none form nothing can outrank. `LayerRegistry::load` applies `profile_paths` last, and\n`integrations/keychain` is the only layer in the whole profile set that grants\n`~/Library/Keychains` — checked, not assumed."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBY2",
+      "kind": "paragraph",
+      "text": "It gets **its own directory** rather than the caller's profile root, because a profile path applies\nto every run that names it: sharing the root would impose the override on every other harness."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBY3",
+      "kind": "heading:3",
+      "text": "### Why the TLS grants stay"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBY4",
+      "kind": "paragraph",
+      "text": "`DEV_LAYERS` documents that `integrations/keychain` is not optional because rustls-based tools\n(`mise`, `cargo`) validate TLS through the trust daemon. That need is satisfied by the mach-lookups\nand the **system** keychain, not by the user's login keychain — so the override keeps them and a\ndenied run can still `cargo fetch`. `a_keychain_denied_harness_cannot_reach_the_login_keychain`\nasserts both halves: the login keychain denied, `System.keychain` still reachable."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBY5",
+      "kind": "heading:3",
+      "text": "### Tests"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBY6",
+      "kind": "paragraph",
+      "text": "`a_keychain_denied_harness_cannot_reach_the_login_keychain` — launches as `claude` so the\n  auto-match and its `requires` are genuinely in play, and asserts on the **merged grant**, not the\n  layer list. Asserting on the layer list is the trap: the layer is *expected* to be present, and\n  only its content is overridden."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBY7",
+      "kind": "paragraph",
+      "text": "`a_harness_outside_the_deny_list_keeps_the_login_keychain` — a `codex` run keeps the layer whole,\n  so the fix for one harness has not narrowed the sandbox for every other."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBY8",
+      "kind": "paragraph",
+      "text": "Both are `#[cfg(target_os = \"macos\")]`. `cargo test -p agent-manager`: **545 passing**, with the\nsame two pre-existing environment failures recorded in §5.4 and no others."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBY9",
+      "kind": "heading:3",
+      "text": "### Code annotations"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBYA",
+      "kind": "paragraph",
+      "text": "The discovery is recorded where someone would hit it, not only here:"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBYB",
+      "kind": "paragraph",
+      "text": "`harness/claude.rs`, on `config_anchor()` — the two backends, what selects them, and that the\n  `login_seed` is a one-way door unless the policy withholds the keychain."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBYC",
+      "kind": "paragraph",
+      "text": "`isolate.rs`, on `KEYCHAIN_DENIED` — the same, from the policy side, with the per-run key and why\n  removing a harness from the list silently moves its credential out of reach."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBYD",
+      "kind": "paragraph",
+      "text": "`account.rs`, on `CLAUDE_KEYCHAIN_SERVICE` — that the constant is the **default-config-dir name\n  only**, that a relocated run's item is namespaced, and that a blanked item under the plain name\n  says nothing about whether a usable login exists elsewhere."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBYE",
+      "kind": "heading:2",
+      "text": "## 21. If this is not resolutive"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBYF",
+      "kind": "paragraph",
+      "text": "The fix rests on one claim: **an unreachable login keychain makes Claude Code use\n`.credentials.json` and rewrite it on refresh.** That is measured on a standalone install running\nthis way for a month (§19), and `login_confined`'s doc comment records the same behaviour for a\ncapture. But it is measured on a *relocated `$HOME`*, not on a *policy deny*, and those are not the\nsame thing — §3.5 already records that 2.1.218+ reports a merely-unreachable keychain as an error.\nIf 2.1.270 distinguishes them, this fix fails and the log will say so."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBYG",
+      "kind": "paragraph",
+      "text": "**Check these first, in order.** All of it is now in one log line and one file:"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBYH",
+      "kind": "paragraph",
+      "text": "`grep 'resolved sandboxed run policy' \"$UBIQ_LOG_FILE\"` — is `keychain_denied=true` on the\n   Claude run at all? If not, the harness id is not in `KEYCHAIN_DENIED` (an ACP run, or a renamed\n   id) and nothing else below matters."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBYJ",
+      "kind": "paragraph",
+      "text": "Does the pane **start**? A harness that treats the deny as an error fails at launch, loudly.\n   That is the good failure: it is immediate and unambiguous, not a seven-hour one."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBYK",
+      "kind": "paragraph",
+      "text": "Watch `$CLAUDE_CONFIG_DIR/.credentials.json` across an expiry. **The mtime changing is the whole\n   experiment.** Every observation in §8 has the same mtime as the seed; one that moves means the\n   file backend is live and the fix works."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBYM",
+      "kind": "paragraph",
+      "text": "`security dump-keychain | grep -c 'Claude Code-credentials-'` — the count must **stop growing**.\n   A new item after this landed means a run still reached the keychain."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBYN",
+      "kind": "paragraph",
+      "text": "**If the deny is rejected rather than honoured**, the next move is the one the standalone install\nproves: relocate the run's `$HOME` (`HomeMode::Managed`) instead of denying a path, so there is no\n`~/Library/Keychains` to reach at all. That is a larger change — the home is the caller's choice,\nand `DEV_LAYERS`' `~`-relative grants expand against the effective home (see\n`home_mode_inherit_sets_neither_home_field`) — which is why it was not the first attempt."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBYP",
+      "kind": "paragraph",
+      "text": "**If the deny is honoured and the credential still dies**, the fix worked and something else is\nwrong. The remaining candidate is §12's H5, which this change does not address: three live runs\nshare one origin copy, refresh tokens are single-use, and `sync_login` redistributes the rotated\ntoken only every 30 s. The test for it is unchanged — **one pane across an expiry survives, three\ndo not** — and the fix would be to serialise the refresh or narrow that window."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBYQ",
+      "kind": "paragraph",
+      "text": "**Discarded, so nobody re-runs them**: H1 (sandbox denied the write — §13, everything was granted),\nH2/H3 (the reconciler failed — §11, it was correct and had nothing to carry), H4 (`park_agent`\nscrubbed it — §9, `.claude.json` survived), H7 (the seeded token was born spent — §16, the file was\nmigrated away, not rejected)."
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBYR",
+      "kind": "heading:3",
+      "text": "### Housekeeping this change does not do"
+    },
+    {
+      "id": "01M394NTKS5ASF49DP92CJTBYS",
+      "kind": "paragraph",
+      "text": "The **92 orphaned keychain items** predate the fix and stay until removed by hand; the user is\ndoing that. No new ones are minted once this is in force, which is what item 4 above checks."
+    }
+  ],
+  "annotations": [],
+  "revision": 0,
+  "provenance": [],
+  "history": []
+}

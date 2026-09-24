@@ -9,8 +9,12 @@
 //!    mentions a key wins outright, it does not union with lower layers. See
 //!    [`pick`].
 //! 2. **Lookup** — effective ids are resolved against a [`Registry`] into
-//!    [`McpRef`]/[`SkillRef`] values; a missing id is a hard error listing
-//!    near matches.
+//!    [`McpRef`]/[`SkillRef`] values. A missing mcp, skill, account or hook id **degrades**: the
+//!    offending entry is dropped and a line naming it (with near matches) is appended to
+//!    [`RunSpec::problems`](crate::spec::RunSpec::problems), so one typo in a profile never stops
+//!    the rest of it from launching. `--mcp-as-skill` naming an id outside the effective mcp set,
+//!    and `--safe` naming a preset that does not exist, stay hard errors — both are a flag
+//!    misused at the call site, not a stale reference sitting in a saved profile.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -217,6 +221,10 @@ pub fn resolve(
         settings.defaults.hooks.clone(),
     );
 
+    // A running list of dropped/degraded entries, reported back on `RunSpec::problems` rather
+    // than failing the run — see the module doc comment.
+    let mut problems: Vec<String> = Vec::new();
+
     // --- lookup: mcp ids -> McpRef::Catalog ---
     // Also collects catalog entries marked `expose = "skill"` (additive: the
     // MCP still lands in `mcps` below as normal — see `McpAsSkill`'s doc).
@@ -244,7 +252,10 @@ pub fn resolve(
                     .map(|e| e.id)
                     .collect();
                 let near = suggest(id, &available);
-                bail!("unknown mcp id '{id}'; near matches: {}", near.join(", "));
+                problems.push(format!(
+                    "unknown mcp id '{id}', dropped; near matches: {}",
+                    near.join(", ")
+                ));
             }
         }
     }
@@ -268,7 +279,10 @@ pub fn resolve(
                     .map(|e| e.id)
                     .collect();
                 let near = suggest(id, &available);
-                bail!("unknown skill id '{id}'; near matches: {}", near.join(", "));
+                problems.push(format!(
+                    "unknown skill id '{id}', dropped; near matches: {}",
+                    near.join(", ")
+                ));
             }
         }
     }
@@ -324,6 +338,9 @@ pub fn resolve(
     };
 
     // --- lookup: account id -> Account ---
+    // An unresolvable account degrades exactly like an unresolvable mcp or skill: the run falls
+    // back to no account (the harness's own logged-in default, if any) rather than refusing to
+    // launch over a stale reference.
     let account = match account_id {
         Some(id) => {
             match accounts
@@ -339,10 +356,11 @@ pub fn resolve(
                         .map(|a| a.id)
                         .collect();
                     let near = suggest(&id, &available);
-                    bail!(
-                        "account '{id}' not found; near matches: {}",
+                    problems.push(format!(
+                        "account '{id}' not found, dropped; near matches: {}",
                         near.join(", ")
-                    );
+                    ));
+                    None
                 }
             }
         }
@@ -362,7 +380,10 @@ pub fn resolve(
             None => {
                 let available: Vec<String> = settings.hooks.keys().cloned().collect();
                 let near = suggest(id, &available);
-                bail!("unknown hook id '{id}'; near matches: {}", near.join(", "));
+                problems.push(format!(
+                    "unknown hook id '{id}', dropped; near matches: {}",
+                    near.join(", ")
+                ));
             }
         }
     }
@@ -372,6 +393,7 @@ pub fn resolve(
     spec.mcps = mcps;
     spec.mcp_as_skill = mcp_as_skill;
     spec.hooks = hooks;
+    spec.problems = problems;
     // Resolve the account's captured-login content (references stay in
     // `account`; the login bytes/dir come from the store so the spec is
     // self-contained and a DB-backed store seeds the same way the FS one does).
@@ -657,16 +679,21 @@ mod tests {
     }
 
     #[test]
-    fn missing_mcp_id_is_an_error_naming_the_id() {
+    fn missing_mcp_id_is_dropped_and_reported_rather_than_failing_the_run() {
         let mut f = flags("claude");
         f.mcps = Some(vec!["nonexistent".to_string()]);
 
         let settings = Settings::default();
         let reg = test_registry();
-        let err = resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore)
-            .expect_err("should fail");
-        let msg = err.to_string();
-        assert!(msg.contains("nonexistent"), "message was: {msg}");
+        let spec =
+            resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
+        assert!(spec.mcps.is_empty());
+        assert_eq!(spec.problems.len(), 1);
+        assert!(
+            spec.problems[0].contains("nonexistent"),
+            "problem was: {}",
+            spec.problems[0]
+        );
     }
 
     #[test]
@@ -886,7 +913,7 @@ mod tests {
     }
 
     #[test]
-    fn unknown_account_id_errors_with_near_matches() {
+    fn unknown_account_id_is_dropped_and_reported_with_near_matches() {
         let mut f = flags("claude");
         f.account = Some("wrk".to_string());
 
@@ -898,11 +925,15 @@ mod tests {
                 ..Default::default()
             }],
         };
-        let err =
-            resolve(&f, &settings, &reg, &accounts, &EmptyProfileStore).expect_err("should fail");
-        let msg = err.to_string();
-        assert!(msg.contains("wrk"), "message was: {msg}");
-        assert!(msg.contains("work"), "message was: {msg}");
+        let spec = resolve(&f, &settings, &reg, &accounts, &EmptyProfileStore).expect("resolve");
+        assert!(spec.account.is_none());
+        assert_eq!(spec.problems.len(), 1);
+        assert!(spec.problems[0].contains("wrk"), "was: {}", spec.problems[0]);
+        assert!(
+            spec.problems[0].contains("work"),
+            "was: {}",
+            spec.problems[0]
+        );
     }
 
     #[test]
@@ -1099,7 +1130,7 @@ mod tests {
     }
 
     #[test]
-    fn unknown_hook_id_is_an_error_naming_the_id_and_near_match() {
+    fn unknown_hook_id_is_dropped_and_reported_with_near_match() {
         let mut f = flags("claude");
         f.hooks = Some(vec!["notfy".to_string()]);
 
@@ -1109,11 +1140,20 @@ mod tests {
             .insert("notify".to_string(), hook_def("Stop", "echo hi", None));
 
         let reg = test_registry();
-        let err = resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore)
-            .expect_err("should fail");
-        let msg = err.to_string();
-        assert!(msg.contains("notfy"), "message was: {msg}");
-        assert!(msg.contains("notify"), "message was: {msg}");
+        let spec =
+            resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
+        assert!(spec.hooks.is_empty());
+        assert_eq!(spec.problems.len(), 1);
+        assert!(
+            spec.problems[0].contains("notfy"),
+            "was: {}",
+            spec.problems[0]
+        );
+        assert!(
+            spec.problems[0].contains("notify"),
+            "was: {}",
+            spec.problems[0]
+        );
     }
 
     #[test]

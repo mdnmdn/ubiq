@@ -7,12 +7,19 @@
 //! this module answers is a function of that projection and the fields below; nothing here draws
 //! and nothing here names a colour.
 
+use std::cell::RefCell;
+
+use gpui::{ListAlignment, ListState, px};
 use ubiq_proto::ids::{SessionId, StepId, TaskId};
 use ubiq_proto::work::{Status, TaskRecord};
 
 /// What a needle has to start with to be read as one field rather than as free text.
 const KEY_PREFIX: &str = "key:";
 const LABEL_PREFIX: char = '#';
+
+/// How far past the visible edge a lane's list keeps rows built, so a fast scroll never shows a
+/// blank frame while the next card is still being laid out.
+const LANE_OVERDRAW: f32 = 600.;
 
 use super::work::WorkProjection;
 
@@ -62,6 +69,10 @@ pub struct TaskForm {
     /// What is being typed into the field that names a label, which is a name and not yet a label:
     /// the colour is chosen when it is added, and until then there is nothing to put on the task.
     pub new_label: String,
+    /// What is typed into the reference picker's own search field, over every eligible task's
+    /// text — see `BoardState::text_matches`. Cleared whenever the picker is opened, so a search
+    /// left over from the last task never narrows this one.
+    pub reference_query: String,
 }
 
 /// The rest of a new task, waiting for the id the host is about to mint.
@@ -179,6 +190,11 @@ pub struct BoardState {
     /// — puts it back to `false`, which is what "an isolated clean click" means here.
     pub suppress_popup: bool,
     pub form: TaskForm,
+    /// One virtualized list per lane, lazily created and kept across renders — see
+    /// [`BoardState::lane_list`]. `RefCell`, not a plain field, because a card is drawn from `&
+    /// BoardState`: rebuilding a `gpui::ListState` on every frame would throw away the row-height
+    /// cache that makes drawing only the visible cards worth doing at all.
+    lane_lists: RefCell<Vec<(Status, ListState)>>,
 }
 
 impl Default for BoardState {
@@ -204,6 +220,7 @@ impl Default for BoardState {
             popup: false,
             suppress_popup: false,
             form: TaskForm::default(),
+            lane_lists: RefCell::new(Vec::new()),
         }
     }
 }
@@ -256,22 +273,38 @@ impl BoardState {
             let rest = rest.trim();
             return rest.is_empty() || Self::has_label(task, rest);
         }
-        if task.title.to_lowercase().contains(&needle)
-            || task.description.to_lowercase().contains(&needle)
+        Self::text_matches(task, work, &needle)
+    }
+
+    /// Whether any text field of a task carries the needle — its title, description, key, kind,
+    /// labels, its steps' titles, its comments' text and the session doing it. The one substring
+    /// matcher every free-text search over a task uses: [`Self::matches`]'s plain-text case, and
+    /// the reference picker's search (`form::reference_picker`), so a task reads the same whichever
+    /// one is asking. The needle is already trimmed and lowercased.
+    pub fn text_matches(task: &TaskRecord, work: &WorkProjection, needle: &str) -> bool {
+        if needle.is_empty() {
+            return true;
+        }
+        task.title.to_lowercase().contains(needle)
+            || task.description.to_lowercase().contains(needle)
             || task
                 .key
                 .as_deref()
-                .is_some_and(|key| key.to_lowercase().contains(&needle))
+                .is_some_and(|key| key.to_lowercase().contains(needle))
+            || task.kind.is_some_and(|kind| kind.label().contains(needle))
+            || Self::has_label(task, needle)
             || task
-                .kind
-                .is_some_and(|kind| kind.label().contains(needle.as_str()))
-            || Self::has_label(task, &needle)
-        {
-            return true;
-        }
-        task.session
-            .and_then(|id| work.session(id))
-            .is_some_and(|s| s.name.to_lowercase().contains(&needle))
+                .steps
+                .iter()
+                .any(|step| step.title.to_lowercase().contains(needle))
+            || task
+                .comments
+                .iter()
+                .any(|comment| comment.text.to_lowercase().contains(needle))
+            || task
+                .session
+                .and_then(|id| work.session(id))
+                .is_some_and(|s| s.name.to_lowercase().contains(needle))
     }
 
     /// Whether any of a task's labels reads as the needle, which is already lowercased.
@@ -318,6 +351,23 @@ impl BoardState {
             .iter()
             .filter(|task| task.status == status && self.matches(work, task))
             .collect()
+    }
+
+    /// The lane's virtualized list state — the same one every render, so `gpui::list` keeps the
+    /// heights it has already measured. Made the first time a lane is drawn; `reset` only when the
+    /// row count actually changed, since a reset throws every cached height away and a lane whose
+    /// count did not move has nothing to remeasure.
+    pub fn lane_list(&self, status: Status, row_count: usize) -> ListState {
+        let mut lists = self.lane_lists.borrow_mut();
+        if let Some((_, state)) = lists.iter().find(|(s, _)| *s == status) {
+            if state.item_count() != row_count {
+                state.reset(row_count);
+            }
+            return state.clone();
+        }
+        let state = ListState::new(row_count, ListAlignment::Top, px(LANE_OVERDRAW));
+        lists.push((status, state.clone()));
+        state
     }
 
     /// What the status bar counts: how many cards are in each column, after the filters.

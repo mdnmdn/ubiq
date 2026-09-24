@@ -1,0 +1,179 @@
+{
+  "version": 1,
+  "blocks": [
+    {
+      "id": "01M394P3Z1566WC72A2GDE04PM",
+      "kind": "break",
+      "text": "---"
+    },
+    {
+      "id": "01M394P3Z1566WC72A2GDE04PN",
+      "kind": "heading:2",
+      "text": "id: wip-opencode-acp-capture\ntitle: opencode ACP — captured from a live session\nkind: wip\nstatus: current\nsummary: What `opencode acp` (opencode 1.18.28) actually speaks over ACP, captured frame by frame from a real session, and the five gaps it exposed in `io/acp_client.rs` — the turn with no user on the wire, the silent wait, the `task` spawn's shape, a todo list with no `plan` update, and the `task` call's own missing origin — and how the bridge reads them.\nread_when: you are fixing opencode's ACP bridge — the user echo, a spawn, the todo list, or the subagent tag\nupdated: 2026-09-14\nverified: 2026-09-13\n---"
+    },
+    {
+      "id": "01M394P3Z1566WC72A2GDE04PP",
+      "kind": "heading:1",
+      "text": "# opencode ACP — captured from a live session"
+    },
+    {
+      "id": "01M394P3Z1566WC72A2GDE04PQ",
+      "kind": "paragraph",
+      "text": "Everything below was captured from a real `opencode acp` session on 2026-09-12 — opencode\n**1.18.28**, the ubiq-agent session `ses_f63e56491ffePLNaX3yhGLaZ61`, agent id\n`01M2E1J73WAHT2GBBHJBVYB5XN` — over most of a two-turn task. The frames are the ubiq bus stream\n(session/update notifications mapped onto `ConvUpdate`), with the original wire JSON preserved on\nevery frame, in `_data/opencode-acp-2.jsonl` (21,388 lines). Counts below are exact."
+    },
+    {
+      "id": "01M394P3Z1566WC72A2GDE04PR",
+      "kind": "heading:2",
+      "text": "## 1. A turn with no user on the wire"
+    },
+    {
+      "id": "01M394P3Z1566WC72A2GDE04PS",
+      "kind": "paragraph",
+      "text": "The variant census:"
+    },
+    {
+      "id": "01M394P3Z1566WC72A2GDE04PT",
+      "kind": "table",
+      "text": "| `ConvUpdate` | count |\n|---|---|\n| `ThoughtChunk` | 19,734 |\n| `AgentChunk` | 1,286 |\n| `ToolCallUpdate` | 283 |\n| `ToolCall` | 76 |\n| `Usage` | 4 |\n| `TurnEnded` | 2 |\n| `Started` | 1 |\n| `ConfigOptions` | 1 |\n| **`UserMessageChunk`** | **0** |"
+    },
+    {
+      "id": "01M394P3Z1566WC72A2GDE04PV",
+      "kind": "paragraph",
+      "text": "**An opencode live turn never echoes the user.** The binary's ACP surface knows\n`user_message_chunk` — the string is in `session/update`'s vocabulary — but it is only ever sent\nwhile *replaying* a loaded or forked session; a live `session/prompt` is never answered by one. The\ncapture is a live session and carries none, at any point of any turn. The capture began mid-turn\n(`Started` is seq 2), so even the prompt that opened it is absent."
+    },
+    {
+      "id": "01M394P3Z1566WC72A2GDE04PW",
+      "kind": "paragraph",
+      "text": "The interface draws nothing when the user sends — the user line appears only when a\n`UserMessageChunk` lands — so a whole live conversation over this bridge read as the agent muttering\nto itself. And because a received `UserChunk` is what sets the turn's running mark, the missing echo\nwas also the missing \"the agent is working\": opencode sends no heartbeat and no progress frame of any\nkind, so silence was indistinguishable from idleness."
+    },
+    {
+      "id": "01M394P3Z1566WC72A2GDE04PX",
+      "kind": "paragraph",
+      "text": "The bridge now synthesises the echo itself: `write_input` answers `AgentInput::Prompt` by emitting\n`AgentEvent::UserMessageChunk`, one per text part, the moment the prompt line is written — the exact\ncall `io/jsonl.rs` makes for Claude Code, which verified the same silence live. This is what puts the\nuser's turn on the transcript *and* flips the writing mark."
+    },
+    {
+      "id": "01M394P3Z1566WC72A2GDE04PY",
+      "kind": "heading:2",
+      "text": "## 2. Three spawns"
+    },
+    {
+      "id": "01M394P3Z1566WC72A2GDE04PZ",
+      "kind": "paragraph",
+      "text": "The session delegated three times (Scaffold, Author _docs, Verify). Each spawn in the raw wire:"
+    },
+    {
+      "id": "01M394P3Z1566WC72A2GDE04Q0",
+      "kind": "paragraph",
+      "text": "**call frame** — `sessionUpdate: \"tool_call\"`, `kind: \"think\"`, `title: \"task\"`,\n  `rawInput: {}` (empty). opencode's `task` tool is a `think`-kind call precisely so the reading\n  harness does not block it on a permission prompt."
+    },
+    {
+      "id": "01M394P3Z1566WC72A2GDE04Q1",
+      "kind": "paragraph",
+      "text": "**patch frame** — `sessionUpdate: \"tool_call_update\"`, `title: <the human operation>` — e.g.\n  `\"Scaffold ubiq-pro workspace\"` — and `rawInput: {\"description\": <operation>, \"subagent_type\":\n  \"general\", \"prompt\": <the delegate's brief>}`."
+    },
+    {
+      "id": "01M394P3Z1566WC72A2GDE04Q2",
+      "kind": "paragraph",
+      "text": "**completion** — `kind: \"think\"`, status `completed`, content text starting\n  `<task id=\"ses_…\" state=\"completed\">` and closing with `<task_result>`."
+    },
+    {
+      "id": "01M394P3Z1566WC72A2GDE04Q3",
+      "kind": "paragraph",
+      "text": "`is_delegate` already caught the call by its title, `delegate_calls` kept every later patch a\ndelegate, and the patch's title is what the transcript shows as the operation. The addition is the\nthird test in `is_delegate`: a `rawInput.subagent_type` value anywhere marks a delegate — covering a\nframing where the call's title is not `task` any more, and a permission ask that re-embeds the tool\ncall."
+    },
+    {
+      "id": "01M394P3Z1566WC72A2GDE04Q4",
+      "kind": "heading:2",
+      "text": "## 3. A todo list with no plan update"
+    },
+    {
+      "id": "01M394P3Z1566WC72A2GDE04Q5",
+      "kind": "paragraph",
+      "text": "**opencode never sends ACP's `plan` update.** The kind string exists in its server and nothing emits\nit. The whole todo list travels as a **`todowrite` tool call**:"
+    },
+    {
+      "id": "01M394P3Z1566WC72A2GDE04Q6",
+      "kind": "paragraph",
+      "text": "call frame — `kind: \"other\"`, `title: \"todowrite\"`, `rawInput: {}`."
+    },
+    {
+      "id": "01M394P3Z1566WC72A2GDE04Q7",
+      "kind": "paragraph",
+      "text": "completion — `tool_call_update`, status `completed`, `title` a size readout (`\"4 todos\"`,\n  `\"3 todos\"`, `\"0 todos\"` across the three writes — ignored), and the list itself written *twice*:\n  `rawOutput.metadata.todos`, the structured `[{content, status, priority}]`, and the result's own\n  text content (`content` blocks) holding the same JSON alone."
+    },
+    {
+      "id": "01M394P3Z1566WC72A2GDE04Q8",
+      "kind": "paragraph",
+      "text": "`todo_update` now republishes a completion's list as `AgentEvent::Plan { entries }` beside the tool\nblock it still is, reading `raw_output.metadata.todos` first and reparsing the result text when the\nmetadata copy is missing. The statuses and priorities map one to one — `pending` / `in_progress` /\n`completed`, `low` / `medium` / `high` are exactly `PlanStatus` and `PlanPriority` serde spellings. A\nresult with no `todos` — any other tool's — passes through untouched, and so does an empty list."
+    },
+    {
+      "id": "01M394P3Z1566WC72A2GDE04Q9",
+      "kind": "paragraph",
+      "text": "Two limits on the wire, both honest rather than papered over: the list is only ever the *result* of a\ncompleted write, so between two todowrite completions the in-flight todo state is not observable; and\na call's `rawInput` is always `{}`, so the earlier idea of reading the list out of `rawInput.todos`\n(read nothing) is what the metadata/content read replaced."
+    },
+    {
+      "id": "01M394P3Z1566WC72A2GDE04QA",
+      "kind": "heading:2",
+      "text": "## 4. What the bridge does now"
+    },
+    {
+      "id": "01M394P3Z1566WC72A2GDE04QB",
+      "kind": "paragraph",
+      "text": "The five changes, all in `crates/agent-manager/src/io/acp_client.rs`:"
+    },
+    {
+      "id": "01M394P3Z1566WC72A2GDE04QC",
+      "kind": "paragraph",
+      "text": "`write_input`'s `Prompt` arm synthesises the user echo (`io/jsonl.rs`'s pattern, §1)."
+    },
+    {
+      "id": "01M394P3Z1566WC72A2GDE04QD",
+      "kind": "paragraph",
+      "text": "`todo_update` + `plan_from_todo_update` translate a `todowrite` completion into a `Plan` (§3)."
+    },
+    {
+      "id": "01M394P3Z1566WC72A2GDE04QE",
+      "kind": "paragraph",
+      "text": "`is_delegate` recognises a spawn by `rawInput.subagent_type` as well as by name and title (§2)."
+    },
+    {
+      "id": "01M394P3Z1566WC72A2GDE04QF",
+      "kind": "paragraph",
+      "text": "`session_update` runs the todo pass last, after `user_chunk`'s filtering."
+    },
+    {
+      "id": "01M394P3Z1566WC72A2GDE04QG",
+      "kind": "paragraph",
+      "text": "`attribute`'s delegate `ToolCall` arm sets the call's own origin when the title is `task` (§5)."
+    },
+    {
+      "id": "01M394P3Z1566WC72A2GDE04QH",
+      "kind": "paragraph",
+      "text": "The interface renders the spawned-agent count and the todo count in one shared bar above the\nfooter: `activity_bar` in `crates/ubiq/src/ui/conversation/mod.rs` draws a chip per reading, one\npanel at a time, and is shared by both the agents column and the chat tab through\n`conversation::render`. Tests cover the echo, the structured read, the text fallback, the\nno-todos pass-through, and the subagent panel's layout."
+    },
+    {
+      "id": "01M394P3Z1566WC72A2GDE04QJ",
+      "kind": "heading:2",
+      "text": "## 5. The task call's own origin"
+    },
+    {
+      "id": "01M394P3Z1566WC72A2GDE04QK",
+      "kind": "paragraph",
+      "text": "**Claude Code tags the subagent's own speech, not the call that spawned it.** Every chunk carries a\n`parent_tool_use_id` equal to the `Task` call's id, so the transcript's subagent list is built\nfrom the *chunks*, not from the spawning block — and the spawning block itself carries no origin\nat all (`§\"three spawns\" of this document`, §2). The subagent-extension path does the same:\n`subagent_spawned` synthesises a `Delegate` call whose origin stays `Default::default()`, because\nits children attribute themselves via the same `parent_tool_use_id`."
+    },
+    {
+      "id": "01M394P3Z1566WC72A2GDE04QM",
+      "kind": "paragraph",
+      "text": "**opencode is the reverse: the child session never streams on the parent bus.** Every delegate's\nresult is embedded in this call's own completion text — `<task id=\"ses_…\">` inside a\n`<task_result>` — and the call's `rawInput` is the only structured source for a subagent name. The\noriginal call frame therefore belongs to whoever opened it, not to itself, which left the\nsubagent list empty: `map_origin` returned `None`, and the interface never drew a chip."
+    },
+    {
+      "id": "01M394P3Z1566WC72A2GDE04QN",
+      "kind": "paragraph",
+      "text": "The `attribute` arm now fixes this for `task` calls: when the title is exactly `\"task\"`, the call's\nown origin is stamped with `parent_tool_use_id = call.id` and `subagent_type = rawInput.subagent_type`.\nGrok's `spawn_subagent` is excluded on purpose — its child streams as a separate session and is\nregistered from its completion, and tagging the call as well would put two tags on the same\ndelegate. The opencode `task` call is the *only* thing the interface can hang a tag off, and the\norigin is the same stamp a subagent chunk would carry. A `subagent_id_in` parse for the opencode\ncompletion's `<task id>` was considered and deferred: it would register the child session under a\nsecond key, and if opencode someday streamed child chunks they would split into a second tab."
+    }
+  ],
+  "annotations": [],
+  "revision": 0,
+  "provenance": [],
+  "history": []
+}

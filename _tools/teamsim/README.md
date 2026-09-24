@@ -182,6 +182,13 @@ or `tree`.
 
 ## What the five shapes concluded
 
+**Snapshot, not current:** this table is a one-time render from the layout spike, over the eight
+non-original arrangements only (`multiline`, `islands`, `radial`, `hex`, `adaptive`, `organic`,
+`multiradial`, `spider` — `flow`, `packed`, `tree`, `columns` are `Algo::ORIGINAL` and never appear
+in it), and it predates `layout.rs` folding every one of these eight through `stack_aspect`
+uniformly and the scenario set growing from seven to eight. Regenerating it means rerunning the full
+scenario × algorithm sweep, which no later change has done.
+
 Summed over the seven scenarios, in screen-heights of scrolling — the number the whole spike is
 about — and screen-widths beside it, because a shape that buys height with width has to show the
 bill. Every block here is drawn at full `SUB_BOX` size, the size the app draws it — nothing in this

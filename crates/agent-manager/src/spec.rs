@@ -236,6 +236,14 @@ pub struct RunSpec {
     /// `am`-managed file. Empty (the default) = no overlay. See
     /// [`crate::overlay::materialize`] and `_docs/profiles.md` §9.
     pub config_bases: Vec<Source>,
+    /// A run-composed catalog reference (an mcp id, a skill id, an account id, a hook id) that
+    /// named something [`resolve`](crate::resolve::resolve) could not find. Each entry is one
+    /// human-readable line naming the offending id and its near matches; the entry it came from
+    /// is simply dropped from the resolved spec rather than failing the whole run — a typo in one
+    /// entry of a profile must not be the reason nothing launches. Empty (the default) is the
+    /// common case: nothing was wrong. The caller decides how loud to be about a non-empty list;
+    /// `am`'s CLI prints it, and an embedder like Ubiq surfaces it as a dismissable notification.
+    pub problems: Vec<String>,
 }
 
 impl RunSpec {
@@ -261,6 +269,7 @@ impl RunSpec {
             cwd,
             resume: None,
             config_bases: Vec::new(),
+            problems: Vec::new(),
         }
     }
 }

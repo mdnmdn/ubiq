@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: Every folder in the workspace, what belongs in it, what must never go in it, and the two crates' division of labour.
 read_when: you are adding a file and are not certain where it goes, or you are new to the repository
-updated: 2026-09-20
-verified: 2026-09-19
+updated: 2026-09-24
+verified: 2026-09-24
 code_anchors: [Cargo.toml, crates/ubiq-host/src/store/usage.rs, crates/ubiq-host/src/kb/mod.rs, crates/ubiq-host/src/lib.rs, crates/ubiq/Cargo.toml, crates/ubiq-proto/Cargo.toml, crates/ubiq-host/Cargo.toml, crates/ubiq-app/Cargo.toml, crates/ubiq-drone/Cargo.toml, vendor/gpui-terminal/Cargo.toml, _tools/icns.py]
 depends_on: [tech-architecture]
 review_cycle: quarterly
@@ -152,7 +152,7 @@ never on `crates/ubiq`, and [`../features/drone.md`](../features/drone.md) is wh
 |---|---|---|
 | `git` | `git/`, `repos/`, `files/diff.rs` | `git2`, `similar` |
 | `index` | `index/`, and the `Job.index` field in `search/` and `watch/` | `tantivy` |
-| `harness` | `agent`, `conversation`, `conversation_record`, `gc`, `quota`, `mcp`, `assist`, `cli_shortcut`, `work`, `store/usage.rs` | `agent-manager`, `rusqlite` |
+| `harness` | `agent`, `conversation`, `conversation_record`, `gc`, `quota`, `mcp`, `assist`, `cli_shortcut`, `work`, `store/usage.rs`, `plan::service` (`Plans`, `Handle`, `Target`, `Saver` — checks a task's level through `work`) | `agent-manager`, `rusqlite` |
 | `listener` | `remote`, `connectors`, `web_assets` | `rustls` and its certificate crates, `tiny_http`, `ureq`, `rand` |
 | `desktop` | `notifications`, and deleting to the platform's trash | `notify-rust`, `trash` |
 
@@ -160,7 +160,9 @@ never on `crates/ubiq`, and [`../features/drone.md`](../features/drone.md) is wh
 gated — a byte scanner with no dependency of its own, gating it would fork `pty`'s read loop for a
 crate it never pulls in. What stays in every build: `pty/`, `files/` minus `diff.rs`, `browse`,
 `path`, `host_path`, `shells`, `host_meta`, `watch/`, `search/`, `projects`, `health`, `config`,
-`atomic`, `store/` minus `usage.rs`, `reply`, `links`, `environment`. A `Diff` request without `git`
+`atomic`, `store/` minus `usage.rs`, `reply`, `links`, `environment`, `plan::blocks`, `plan::lines`,
+`plan::provenance` — a plan sidecar's block matcher and provenance layer read and write with no
+dependency on `work`, so its format stays readable without the `harness` feature. A `Diff` request without `git`
 and a `Trash` path operation without `desktop` each answer `FileError::Failed` naming what the build
 lacks, rather than going unanswered. `just relay` builds this lean configuration and checks that
 none of the five features' crates reached its tree — [`operations.md`](./operations.md) owns the

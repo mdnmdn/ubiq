@@ -23,6 +23,7 @@ use ubiq_proto::ids::{
     KbSourceId, PaneId, ProjectId, SearchId, SessionId, SshProfileId, SuggestId, ToolId,
 };
 use ubiq_proto::messages::{AgentPicks, CatalogueModel, Message, Secret, WorkspaceInfo};
+use ubiq_proto::notifications::{Family, NotificationRequest};
 use ubiq_proto::projects::{IndexLevel, ProjectHealth, Scope};
 use ubiq_proto::settings::{SettingsLayer, SshProfile};
 use ubiq_proto::stats::{HostStats, UsageRow};
@@ -3108,6 +3109,10 @@ impl Coordinator {
             dir = %composed.dir.display(),
             "conversation started"
         );
+        // A stale reference in the profile this run resolved does not stop it launching (see
+        // `Composed::problems`) — it still has to reach the person who set the profile up, as a
+        // dismissable entry in the bell rather than nothing at all.
+        self.report_run_problems(client, &pending.agent_type, &composed.problems);
 
         // The one directory the library actually provisioned this run's configuration into, said
         // back to the window now that there is a run to say it about. Ubiq pins that directory to
@@ -4126,6 +4131,33 @@ impl Coordinator {
         );
     }
 
+    /// A run composed with a stale catalog reference still launches — see
+    /// [`crate::agent::Composed::problems`] — but the person who set up that profile still gets
+    /// to hear about the entry that was dropped, as a dismissable notification rather than a run
+    /// that silently came up short. `harness` and `actor` name what the bell attributes it to;
+    /// several problems on one run collapse into one notification rather than one per line, so a
+    /// profile with three stale ids does not flash the bell three times for a single launch.
+    fn report_run_problems(&mut self, client: ClientId, harness: &str, problems: &[String]) {
+        if problems.is_empty() {
+            return;
+        }
+        let text = if problems.len() == 1 {
+            format!("{harness}: {}", problems[0])
+        } else {
+            format!(
+                "{harness}: {} entries in this profile were dropped — {}",
+                problems.len(),
+                problems.join("; ")
+            )
+        };
+        let replies = self.notifications.raise(
+            NotificationRequest::warning(Family::Agents, text)
+                .with_actor(harness)
+                .with_category("profile"),
+        );
+        self.answer(client, replies);
+    }
+
     /// Hand one work-family message to the work.
     ///
     /// The only thing this decides is whether the project exists, and it is not a formality: a task
@@ -5051,6 +5083,12 @@ impl Coordinator {
         } else {
             None
         };
+        // Same rule `launch` follows for a conversation: a stale profile reference does not stop
+        // this pane from opening, but the person who set that profile up still gets to hear
+        // about the entry that was dropped.
+        if let Some(composed) = &composed {
+            self.report_run_problems(client, &agent_type, &composed.problems);
+        }
 
         // Tell the MCP listener who this pane is, before the harness exists to ask — the same
         // reason `launch` registers a conversation before its own composed run spawns. A pane has

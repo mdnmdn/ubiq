@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: The window's shell — the activity rail and its modes, the dock of movable panels the user arranges around the centre, the file explorer and editor a project owns, the Git screen of refs, history and uncommitted changes, the agents screen of parallel columns, the Teams and `[Teams]` graphs and the tasks board the rail's other built modes hold, the kitchen sink the application tests itself against, the file picker any screen raises to choose a path, the empty state a window with no project shows, and the status bar that reports on all of it.
 read_when: you are changing the window layout, a rail mode, where a panel may sit or when it is drawn, the explorer, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, capturing the window or annotating a capture, saving a file, the Git screen's refs, history, change lists or diff, the agents screen's columns, what a tab drag means or what the bench is, the Teams or `[Teams]` screen's graph, how it arranges itself, its inspector or its tasks, the tasks board's columns, cards or task panel, the kitchen sink's pages or fixtures, the file picker a screen raises to choose a path, cloning a project, application settings, vim mode, or the status bar
-updated: 2026-09-23
-verified: 2026-09-23
+updated: 2026-09-24
+verified: 2026-09-24
 code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/teams.rs, crates/ubiq/src/app/teams_span.rs, crates/ubiq/src/state/teams.rs, crates/ubiq/src/state/status.rs, crates/ubiq/src/ui/project_face.rs, crates/ubiq/src/ui/teams/mod.rs, crates/ubiq/src/ui/teams/graph.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/teams/tasks.rs, crates/ubiq/tests/teams.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/src/ui/new_project_menu.rs, crates/ubiq/tests/new_project.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/mark.rs, crates/ubiq/src/app/mark.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/md_options.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/feedback.rs, crates/ubiq/src/state/feedback.rs, crates/ubiq/src/ui/feedback.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/tests/image_gestures.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/state/sink.rs, crates/ubiq/src/app/sink.rs, crates/ubiq/src/state/a2ui.rs, crates/ubiq/src/state/a2ui/value.rs, crates/ubiq/src/state/a2ui/eval.rs, crates/ubiq/src/state/a2ui/action.rs, crates/ubiq/src/state/a2ui/live.rs, crates/ubiq/src/state/a2ui/svg.rs, crates/ubiq/src/state/a2ui/path.rs, crates/ubiq/src/state/a2ui/ubiq-catalog.json, crates/ubiq/src/ui/a2ui.rs, crates/ubiq/src/ui/a2ui/registry.rs, crates/ubiq/src/ui/a2ui/svg.rs, crates/ubiq/src/ui/a2ui/path.rs, crates/ubiq/src/ui/sink/a2ui.rs, crates/ubiq/tests/a2ui.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/sink/script.rs, crates/ubiq/src/state/script.rs, crates/ubiq/src/ui/sink/teamsim.rs, crates/ubiq/src/state/teamsim.rs, crates/ubiq/src/ui/kit/blocks.rs, crates/ubiq/src/ui/kit/menu.rs, _tools/teamsim/FORMAT.md, crates/ubiq/tests/script.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/tests/sink.rs, crates/ubiq/src/state/stats.rs, crates/ubiq/src/ui/stats.rs, crates/ubiq/src/app/stats.rs, crates/ubiq/tests/stats.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/src/ui/git/repo_selector.rs, crates/ubiq/tests/git.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/app/new_agent.rs, crates/ubiq/src/ui/new_agent.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/shapes.rs, crates/ubiq/src/app/graph.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/agents.rs, crates/ubiq/tests/orchestration.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/ui/web_view.rs, crates/ubiq/src/ui/viewer/web.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/state/web_panel.rs, crates/ubiq/src/app/explorer.rs, crates/ubiq/src/state/explorer/menu.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/app/board.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq/tests/prefs.rs, crates/ubiq/tests/viewer_kind.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/plan/blocks.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq/src/app/plan.rs, crates/ubiq/src/state/plan.rs, crates/ubiq/src/state/document.rs, crates/ubiq/src/ui/plan.rs, crates/ubiq/src/ui/document.rs, crates/ubiq/src/ui/kit/md_navigator.rs, crates/ubiq/src/ui/kit/minimap.rs, crates/ubiq/tests/plan.rs, crates/ubiq/src/state/new_mission.rs, crates/ubiq/src/app/new_mission.rs, crates/ubiq/src/ui/new_mission.rs, crates/ubiq/tests/new_mission.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
@@ -682,10 +682,14 @@ whose parent is in another container stays on its own container's top row, and t
 drawn across the boundary — which is what lets one agent parent every session's master without
 sinking any of them a level.
 
-**The arrangement is computed bottom-up, and it is one of four.** The cards inside a container are
-packed first, which is what fixes the container's size; those fixed boxes are then packed against
-each other. A fence is therefore always tight round its own cards, and no arrangement reserves
-canvas it does not fill. The four differ only in how each half packs:
+**The arrangement is computed bottom-up, and it is one of twelve (`Algo::ALL`).** The cards inside a
+container are packed first, which is what fixes the container's size; those fixed boxes are then
+packed against each other. A fence is therefore always tight round its own cards, and no arrangement
+reserves canvas it does not fill. Four of the twelve are `Algo::ORIGINAL`, the ones the arithmetic
+below predates the rest for; the other eight came later, each pairing its own `ring` (delegate
+placement inside a fence) with the fold rule stated two paragraphs down.
+
+**The four original arrangements (`Algo::ORIGINAL`) differ only in how each half packs:**
 
 | Arrangement | What it does |
 |---|---|
@@ -693,6 +697,20 @@ canvas it does not fill. The four differ only in how each half packs:
 | **Packed** | The compact one. A wide row of workers wraps toward a square block, and the containers are placed by best fit against several candidate widths, keeping the one that scores best on area, aspect ratio and wasted space |
 | **Tree** | The hierarchy one. A container hangs under whatever holds the parent of its own root cards, centred over the span of its children, so a hand-off reads as a connector straight down |
 | **Columns** | The calm one. Every card in a container sits in a single column, and the containers flow left to right — a narrow window and many small tasks |
+
+**The eight added later are not `Algo::ORIGINAL`** and, per the fold rule below, each folds its own
+loose top row through `stack_aspect` rather than leaving it raw:
+
+| Arrangement | What it does |
+|---|---|
+| **Adaptive** | Delegates sit in a grid under their card; containers keep record order |
+| **Multiline** | Delegates in a grid under their card, the grid itself folded to the screen's shape |
+| **Radial** | Delegates ring their card, packed against the screen's rectangle |
+| **Organic** | Children sprayed under their parent, bowed and nudged off the grid |
+| **Multiradial** | Every parent is a hub, its children set out on arcs below it |
+| **Spider** | One hub per container, cards on arcs, spokes drawn back to the parent |
+| **Hex** | Cards laid on a honeycomb, a row per hand-off depth, rows offset half a cell |
+| **Islands** | Disjoint families drawn as separate islands; no root is assumed |
 
 **Which arrangement is on is the toolbar's dropdown, and picking one applies it.** The control
 reads as the arrangement it is showing, and a pick asks for it at once — there is no second button
@@ -1002,22 +1020,47 @@ it the rail of threads, plus an Export action that writes an explicit, one-shot 
 project's working tree at a path the user picks, never a continuous mirror. A mission nobody has
 planned says so instead of reporting an error, the same way a task with no sub-tasks does.
 
-**The minimap marks where the document's threads sit, down a strip the width of a scrollbar.**
-`kit::minimap` (`ui/kit/minimap.rs`) is the reusable primitive — positions and coloured marks as
-data, nothing plan-shaped in it — and `state::document::thread_marks` is the pure function that
-positions each open thread by the index of the block it anchors to, the same way `heading_sections`
-positions the navigator's rows; an orphaned thread (its block gone from the document) carries no
-mark, on the gutter's own rule. A mark's fraction down the strip comes from
-`ScrollHandle::bounds_for_item` against the preview's own `plan_preview_scroll` once there has been
-a frame to measure — a document just opened falls back to spreading its threads evenly across the
-blocks they sit among. Colour is `theme::info` for an open thread and `theme::success` for a
-resolved one, the gutter's own pairing. Clicking a mark shows its thread exactly the way the rail's
-own **Show** button does. The strip's own show/hide control sits in the chrome, next to the heading
-navigator, and is `UiSettings::md_minimap` (`state/settings.rs`) — one flag shared with the standard
-viewer's own heading minimap (above), on by default, remembered on the Ui settings layer like every
-other reading habit there. `UiSettings::md_minimap_side` says which edge it docks to, `Left` by
-default; set to `Right`, the strip is drawn between the document and the thread rail rather than
-past it, so the rail stays the modal's outermost column either way. The modal's own width absorbs
+**The minimap is a miniature of the document's own layout, not a row of identical ticks (T-110).**
+The first cut drew one full-width mark per thread and nothing else, which read as noise rather than
+orientation once there was more than a couple of threads; the rework follows
+`_docs/inbox/markdown-improvement-proposal.md` §8.2's table instead. `kit::minimap`
+(`ui/kit/minimap.rs`) stays the reusable primitive — geometry and colour as data, nothing
+plan-shaped in it — over three inputs: a `&[MinimapMark]` for the document's own shapes, a
+`&[MinimapTick]` for a small coloured mark on the strip's outer edge, and an optional
+`MinimapViewport`, the translucent rectangle standing for the visible region. `on_select` answers a
+tick's click; `on_scrub` answers a click or a drag anywhere on the strip with the fraction it
+landed at, one callback for both because a scrub always recomputes its target from scratch rather
+than tracking a drag anchor.
+
+`state::document::minimap_rows` is the pure function behind the shapes: a heading or a code block
+draws one mark, a paragraph or a table draws one per real, non-blank source line — a short line
+draws a short mark, `length` measured in characters against a fixed column-width constant rather
+than by real glyph width, because there is no second layout pass to measure by (§8.5) and the
+preview's markdown renderer exposes no per-line fragment geometry to place one against instead. A
+paragraph that is a single image reference draws as a neutral filled rectangle; there is no image
+block kind at the host's own parsing layer to key this off (an image is phrasing inside a
+paragraph, not a block), so it is a heuristic over the paragraph's text. `ui/document.rs` turns a
+row's `block_index` into a real span down the strip from `ScrollHandle::bounds_for_item` against
+the preview's own `plan_preview_scroll` once there has been a frame to measure — a document just
+opened falls back to spreading blocks evenly — and spreads a block's several rows evenly across
+that span, since there is no per-line pixel position either. A short document is drawn at a real,
+1:1 scale rather than stretched to fill the strip (§8.3), so a one-page file looks like one page;
+a long one is shrunk to fit.
+
+`state::document::thread_marks` is still the pure function behind the outer-edge ticks, positioning
+each open thread by the index of the block it anchors to, the same way `heading_sections` positions
+the navigator's rows; an orphaned thread (its block gone from the document) carries no tick, on the
+gutter's own rule. Colour is `theme::info` for an open thread and `theme::success` for a resolved
+one, the gutter's own pairing. Clicking a tick shows its thread exactly the way the rail's own
+**Show** button does; clicking or dragging anywhere else on the strip scrubs the preview's scroll
+position towards wherever the pointer lands, the viewport rectangle following it — there is no
+separate drag-to-resize-viewport gesture, one scrub formula serves a click and a drag alike. The
+strip's own show/hide control sits in the chrome, next to the heading navigator, and is
+`UiSettings::md_minimap` (`state/settings.rs`) — one flag shared with the standard viewer's own
+heading minimap (above), on by default, remembered on the Ui settings layer like every other
+reading habit there. `UiSettings::md_minimap_side` says which edge it docks to, `Left` by default;
+set to `Right`, the strip is drawn between the document and the thread rail rather than past it, so
+the rail stays the modal's outermost column either way. The modal's own width absorbs
 the strip's cost split both ways: `DOC_WIDTH` dropped from `860` to `820`, and the modal grew by the
 remainder to fit `MINIMAP_WIDTH` (`72`) alongside it, whichever side it draws on.
 
@@ -2607,6 +2650,14 @@ while the document below it takes the rest of the panel and scrolls inside it. W
 open belongs to the file, like the layout toggle. A document without frontmatter is the same view
 without the bar.
 
+**The preview always scrolls through an external scroll handle, not `TextView`'s internal one.**
+`ui/viewer/mod.rs`'s `markdown_preview` calls `markdown::render_scrollable` unconditionally, whether
+or not the heading minimap is on — `TextView`'s own virtualised scroller clipped the last line, left
+dead space below it, and drew its own scrollbar bound to the centred reading column rather than the
+pane's edge. `render_linked_scrollable` draws `gpui_component::scroll::Scrollbar` as an
+absolutely-positioned sibling of a pane-width scroll `div`, so the bar sits flush at the panel's own
+edge regardless of where the reading column is centred.
+
 **A Markdown preview reads at a measured width, and the user picks how wide and how dense.** The
 text column is capped at a width preset — Readable (~75 characters, the default), Wide (~95) or
 Full (the pane's own width) — computed from the body font's average character width rather than a
@@ -2616,7 +2667,10 @@ padding when there is not, so a resize never leaves a thin, uneven strip on one 
 one body line of top padding, and below it enough bottom padding that the last line scrolls clear
 of the frame rather than sitting flush against it. A table or a fenced code block breaks out of
 that measure — it runs to the column's own outer edge rather than staying capped at prose width —
-and inline code draws in a more contrasted chip-like background. Line height follows the width
+and scrolls horizontally within its own frame (`typography()`'s `Overflow::Scroll` on both, over
+`node.rs`'s `render_scroll_table` for the table) instead of spilling past the column when it is
+wider than the measure. Inline code draws in a more contrasted chip-like background. Line height
+follows the width
 preset (tighter at Readable, looser at Full) and a separate density toggle — Comfortable, the
 default, or Compact — trims it and the paragraph spacing further for a reader scanning a long
 document. Both the width preset and the density are a window-wide choice, not written down per file
@@ -2673,7 +2727,9 @@ config root, which is what makes a host on another machine a change of value rat
 ratio preserved, with a margin. The wheel zooms about the pointer, a drag pans, a double-click or a
 pinch-out to the floor restores the fit. The camera belongs to the tab, not the file, and is not
 written down. A fence inside a Markdown document is not a panel: it is drawn at the picture's own
-size and the document is what scrolls.
+size inside `ui/viewer/mod.rs`'s `diagram_frame` (`diagram.rs::draw`, `scene.rs::draw_static`),
+which scrolls it horizontally when it is wider than the reading column rather than letting it spill
+past the panel; the document is what scrolls vertically.
 
 **An Excalidraw scene sits on Excalidraw's own white canvas.** A file that names a canvas colour
 keeps it; a file that names none — `transparent`, an absent key — gets the format's default white
@@ -4179,8 +4235,9 @@ registry's `WindowSlot::projects` narrowed to the ones this window has built an 
 because `sync_projects()` runs a frame behind the registry. Every write the screen makes resolves
 the agent's own project through `project_of_agent()`, and a read that needs a foreign project's
 record goes through `teams_conversation()` and `teams_agent()`. There is no `agent_input`
-counterpart here: a selected agent's composer is the pooled one at `TEAMS_SLOT`, reached through
-`agent_for_slot()`, because `ui::conversation::render` already owns a composer of its own.
+counterpart here: selecting a card reveals the agent's conversation in an ordinary chat tab in the
+right dock (`AppState::open_teams_agent_panel`), because `ui::conversation::render` already owns a
+composer of its own.
 `end_teams_carry()` files its `AssignAgent` against the dropped card's own project, and
 `teams_carry_tasks()` is what keeps that pair honest: under the window span it answers the carried
 card's own project's task ids, and `carry_to()` lights up no container outside that set. `None` is
@@ -4365,12 +4422,38 @@ asked once. `is_editing()`, `edit()` and `stop_editing()` are the one-field-at-a
 discards an open field because it was about the card being left, and `needs_fill()` answers whether
 the fields still describe the open task — a pure predicate rather than the refill itself, because
 writing into the component library's state needs a window and this has to be testable without one.
-`column()` is what one column draws, `matches()` is the filter both it and the status bar's counts go
-through, and `end_carry()` answers the task and the column it landed in. It is tested without a frame
+`column()` is what one column draws — the tasks a lane holds, filtered — and `matches()` is the same
+filter the status bar's counts go through; `text_matches()` is `matches()`'s free-text half pulled
+out on its own, over a task's title, description, key, kind, labels, its steps' titles and its
+comments' text, because the reference picker's own search (`ui::board::form::reference_picker`)
+needs the identical rule and not a second one that drifts from it. `lane_list()` is one
+`gpui::ListState` per lane, made the first time that lane draws and kept in
+`lane_lists: RefCell<Vec<(Status, ListState)>>` across renders — a `RefCell` because a lane is drawn
+from `&BoardState`, and rebuilding the list state on every frame would throw its row-height cache
+away. `end_carry()` answers the task and the column it landed in. It is tested without a frame
 in `crates/ubiq/tests/board.rs`.
 
-`AppState` carries it as `board`, the filter as `task_filter`, and the panel's four fields as
-`task_title_input`, `task_description_input`, `step_title_input` and `new_step_input`.
+`ui/board/mod.rs::column()` flattens a lane's drop-gap marker, its cards and its end-of-column drop
+zone into one `Row` enum (`Marker`, `Card(TaskId, Option<TaskId>)`, `Tail`) — the `Flat` pattern
+`ui/git/changes.rs` uses — so `gpui::list`, drawn over `BoardState::lane_list()`'s state, can ask
+for a row by index with no separate idea of where the gap or the tail sits. `gpui::list` over
+`uniform_list`, because a task card is variable-height by design. Only the rows between the
+viewport and its overdraw are ever built; before this a lane built an `AnyElement` for every one of
+its cards on every render, which is what made a lane past roughly eighty cards the one thing that
+made the whole board stop feeling responsive. `render_row()` is the one row `gpui::list` asked for,
+kept for the lane's lifetime rather than one frame — everything it draws is looked up fresh off the
+view rather than borrowed from a frame's `AppState`, which is why `task_card()`, `shape_line()`,
+`link_chip()`, `now_line()` and `column_tail()` all take `window` and `view` rather than reading
+`cx.listener` the way the rest of the screen does. The end-of-column drop zone's `flex_1` — which
+filled whatever space was left in the old, non-virtualized column — is inert inside a fixed-stack
+`gpui::list`, so `column_tail()` draws it as a fixed 40px strip instead.
+
+`AppState` carries it as `board`, the filter as `task_filter`, and the panel's fields as
+`task_title_input`, `task_description_input`, `step_title_input`, `new_step_input` and
+`task_reference_query` — the reference picker's own search field, mirrored into
+`BoardState::form.reference_query` by a subscription in `boot.rs` the same way the others mirror
+theirs, and cleared by `toggle_reference_picker()` every time the picker opens fresh so a search
+left over from the last task never narrows this one.
 `select_task()` — the plain click, and `navigate()`'s `View::Tasks` arm — clears `suppress_popup`
 and, in non-popup mode, queues `PanelEdit::Reveal(PanelKind::Task)` so the docked panel comes
 forward the way `reveal_search()` and the other `reveal_*` calls do; `start_task_carry()` selects
@@ -4436,7 +4519,12 @@ the two fields that open, `pills()` is priority and shape, `session()` is the pi
 list, `delete()` is the two-click question, and `refusal()` is where `WorkbenchState::work_error` is
 said. The description's textarea answers `SubmitSearch` (⌘⏎, ⌃⏎ off macOS) by calling
 `commit_task_description()` — the same "confirm this form from inside a field" device
-`ui::new_agent::confirmable()` uses, so bare Enter stays a newline. `detail::popup()` is `render()`'s
+`ui::new_agent::confirmable()` uses, so bare Enter stays a newline. `references()`'s `+` opens
+`reference_picker()` as a `kit::popover` anchored to the `+` itself, with a `kit::filter_bar` over
+`task_reference_query` on top of the pills — a plain inline `div()` list before this, which pushed
+the panel's own height around and had no search of its own; the popover's own
+`.snap_to_window_with_margin(px(8.))` is what keeps it inside the window in the popup shape or a
+narrow dock, where the panel's own edges would otherwise cut it off. `detail::popup()` is `render()`'s
 report and controls again, wrapped in `kit::modal_sized` instead of the panel's own chrome — what
 `ui/board/mod.rs::render()` draws over the columns while `BoardState::popup` is on; both
 read the same `selected`/`editing`, so the toggle only moves where the task is drawn.

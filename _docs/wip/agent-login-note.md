@@ -6,7 +6,7 @@ status: draft
 summary: Why a conversation fails silently when the run directory has no Claude Code login, and the two ways to wire account selection into the RunSpec.
 read_when: you are debugging a "Not logged in" transcript failure, or deciding whether to wire account selection now or take the environment-credential stopgap
 updated: 2026-09-12
-verified: 2026-09-12
+verified: 2026-09-24
 code_anchors: [crates/ubiq-host/src/agent.rs]
 depends_on: [wip-agent-setup]
 review_cycle: monthly

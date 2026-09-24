@@ -32,9 +32,9 @@ pub mod detail;
 pub mod form;
 
 use gpui::{
-    AnyElement, App, AppContext as _, Context, DragMoveEvent, Focusable, InteractiveElement,
-    IntoElement, ParentElement, Render, Rgba, ScrollWheelEvent, SharedString,
-    StatefulInteractiveElement, Styled, Window, div, prelude::FluentBuilder, px,
+    AnyElement, App, AppContext as _, Context, DragMoveEvent, Entity, Focusable,
+    InteractiveElement, IntoElement, ParentElement, Render, Rgba, ScrollWheelEvent, SharedString,
+    StatefulInteractiveElement, Styled, Window, div, list, prelude::FluentBuilder, px, rems,
 };
 use gpui_component::input::Input;
 use gpui_component::{Icon, IconName, Sizable as _, Size};
@@ -402,21 +402,29 @@ fn column(app: &AppState, status: Status, cx: &mut Context<AppState>) -> AnyElem
     let empty = tasks.is_empty();
     let ids: Vec<TaskId> = tasks.iter().map(|task| task.id).collect();
 
-    let mut cards: Vec<AnyElement> = Vec::new();
-    for (ix, task) in tasks.into_iter().enumerate() {
-        if gap == Some(Some(task.id)) {
-            cards.push(marker());
+    // Flattened once, up front: a bar where a drop would land, one row per task, then the tail —
+    // so the list below has a single index space and never has to lay a card out just to learn
+    // it scrolled off screen. See `T-108`: at 80+ cards a lane built every one of them on every
+    // frame, and this is what made collapsing a lane the only way back to a responsive board.
+    let mut rows: Vec<Row> = Vec::with_capacity(ids.len() + 2);
+    for (ix, id) in ids.iter().enumerate() {
+        if gap == Some(Some(*id)) {
+            rows.push(Row::Marker);
         }
         // Which card a drop past this one's midpoint lands in front of. Past the last card there
         // is none, which is the end of the column.
-        cards.push(task_card(app, task, ids.get(ix + 1).copied(), cx));
+        rows.push(Row::Card(*id, ids.get(ix + 1).copied()));
     }
     if gap == Some(None) {
-        cards.push(marker());
+        rows.push(Row::Marker);
     }
-    // The space under the cards is the end of the column, claimed on purpose rather than as
-    // whatever the column-wide handler left over. A wheel over the lane stays in the lane.
-    cards.push(column_tail(status, cx));
+    rows.push(Row::Tail);
+
+    // The lane's own list state, kept across renders — see `BoardState::lane_list`. Only what is
+    // between `logical_scroll_top` and the bottom of the viewport (plus overdraw) is ever handed
+    // to `render_row` below; everything else contributes its cached height and nothing more.
+    let list_state = board.lane_list(status, rows.len());
+    let view = cx.entity();
 
     let body = if empty {
         div()
@@ -441,10 +449,14 @@ fn column(app: &AppState, status: Status, cx: &mut Context<AppState>) -> AnyElem
             .flex_1()
             .min_h(px(0.))
             .p_2()
-            .gap_2()
-            .overflow_y_scroll()
             .on_scroll_wheel(cx.listener(|_, _: &ScrollWheelEvent, _, cx| cx.stop_propagation()))
-            .children(cards)
+            .child(
+                list(list_state, move |ix, window, cx| {
+                    render_row(&rows, ix, status, &view, window, cx)
+                })
+                .flex_1()
+                .min_h(px(0.)),
+            )
             .into_any_element()
     };
 
@@ -476,6 +488,58 @@ fn column(app: &AppState, status: Status, cx: &mut Context<AppState>) -> AnyElem
     root.into_any_element()
 }
 
+/// One row inside a lane's virtualized list: a marker bar, a card by id, or the drop space under
+/// them. Flattened once by [`column`] into one index space, which is what lets `gpui::list` below
+/// ask for a row by number without knowing anything about drop gaps or task order.
+#[derive(Clone, Copy)]
+enum Row {
+    Marker,
+    /// A task's id, and the id of the card a drop past its midpoint lands in front of.
+    Card(TaskId, Option<TaskId>),
+    Tail,
+}
+
+/// The one row `gpui::list` asked for, at the index it asked for. Kept for the life of the lane's
+/// `ListState` rather than one render, so nothing here borrows a particular frame's `AppState` —
+/// everything it needs is looked up fresh off `view`.
+///
+/// `spaced` puts back the gap the old, non-virtualized column drew with `gap_2` on its flex
+/// container: a fixed-stack list has no gap of its own, so every row but the last carries its own.
+fn render_row(
+    rows: &[Row],
+    ix: usize,
+    status: Status,
+    view: &Entity<AppState>,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
+    let Some(row) = rows.get(ix).copied() else {
+        return div().into_any_element();
+    };
+    let last = ix + 1 == rows.len();
+    let spaced = |el: AnyElement| -> AnyElement {
+        if last {
+            el
+        } else {
+            div().mb(rems(0.5)).child(el).into_any_element()
+        }
+    };
+    match row {
+        Row::Marker => spaced(marker()),
+        Row::Tail => column_tail(status, view, window),
+        Row::Card(id, next) => {
+            let app = view.read(cx);
+            let Some(work) = app.work(cx) else {
+                return div().into_any_element();
+            };
+            match work.task(id) {
+                Some(task) => spaced(task_card(app, task, next, view, window, cx)),
+                None => div().into_any_element(),
+            }
+        }
+    }
+}
+
 /// The bar in the gap a drop would land in.
 ///
 /// The lit column answers "which column"; this answers "where in it", which is the other half of
@@ -491,20 +555,25 @@ fn marker() -> AnyElement {
 }
 
 /// The empty space under the cards: a drop here is the end of the column.
-fn column_tail(status: Status, cx: &mut Context<AppState>) -> AnyElement {
+fn column_tail(status: Status, view: &Entity<AppState>, window: &Window) -> AnyElement {
+    // `gpui::list` measures every row at its intrinsic height rather than flexing it against the
+    // column's remaining space — `flex_1` did that in the old, non-virtualized column, but has
+    // nothing to answer to here — so this claims a fixed strip rather than the rest of the lane.
+    // Still enough to drop past the last card onto; a lane that ends well above the bottom of the
+    // column is `T-108`'s empty-column case, which the `Nothing here.` branch already draws.
     div()
         .id(("board-column-tail", status as u32))
-        .flex_1()
-        .min_h(px(24.))
+        .min_h(px(40.))
         .w_full()
-        .on_drag_move(
-            cx.listener(move |this, event: &DragMoveEvent<Dragged>, _, cx| {
+        .on_drag_move(window.listener_for(
+            view,
+            move |this, event: &DragMoveEvent<Dragged>, _, cx| {
                 if event.bounds.contains(&event.event.position) {
                     this.drag_task_over(status, None, cx);
                 }
-            }),
-        )
-        .on_drop(cx.listener(move |this, _: &Dragged, _, cx| {
+            },
+        ))
+        .on_drop(window.listener_for(view, move |this, _: &Dragged, _, cx| {
             cx.stop_propagation();
             this.drop_task(status, None, cx);
         }))
@@ -533,7 +602,9 @@ fn task_card(
     app: &AppState,
     task: &TaskRecord,
     next: Option<TaskId>,
-    cx: &mut Context<AppState>,
+    view: &Entity<AppState>,
+    window: &Window,
+    cx: &App,
 ) -> AnyElement {
     let (Some(work), Some(board)) = (app.work(cx), app.board(cx)) else {
         return div().into_any_element();
@@ -551,7 +622,6 @@ fn task_card(
     let moving = board.is_moving(id);
     let title = SharedString::from(task.title.clone());
     let ghost = title.clone();
-    let view = cx.entity();
 
     let mut root = card(eid("board-task", id), colour, selected)
         .w_full()
@@ -644,7 +714,9 @@ fn task_card(
                             .with_size(Size::XSmall)
                             .text_color(theme::text_faint()),
                         )
-                        .on_click(cx.listener(move |this, _, _, cx| this.toggle_task_fold(id, cx))),
+                        .on_click(window.listener_for(view, move |this, _, _, cx| {
+                            this.toggle_task_fold(id, cx)
+                        })),
                 ),
         )
         .child(
@@ -653,24 +725,25 @@ fn task_card(
                 .text_color(theme::text())
                 .child(title),
         )
-        .children(shape_line(app, task, cx));
+        .children(shape_line(app, task, view, window, cx));
 
     if !folded {
         if !task.steps.is_empty() {
             root = root.child(meter(work::fraction(task), colour));
         }
-        root = root.child(now_line(app, task, cx));
+        root = root.child(now_line(app, task, view, window, cx));
         root = root.children(comment_mark(task));
     }
 
     let status = task.status;
 
-    root.on_click(cx.listener(move |this, _, _, cx| this.select_task(id, cx)))
+    root.on_click(window.listener_for(view, move |this, _, _, cx| this.select_task(id, cx)))
         // Above the midpoint is the gap in front of this card, below it the gap behind — which is
         // in front of the next one, or the end of the column when there is none. The card answers
         // before the column does, so the pointer is never told only which column it is in.
-        .on_drag_move(
-            cx.listener(move |this, event: &DragMoveEvent<Dragged>, _, cx| {
+        .on_drag_move(window.listener_for(
+            view,
+            move |this, event: &DragMoveEvent<Dragged>, _, cx| {
                 if !event.bounds.contains(&event.event.position) {
                     return;
                 }
@@ -681,20 +754,23 @@ fn task_card(
                     next
                 };
                 this.drag_task_over(status, before, cx);
-            }),
-        )
+            },
+        ))
         // A drop carries no bounds, and the pointer has not moved since the last drag-move, so the
         // gap that one settled on is the gap this lands in. Without this the drop would fall
         // through to the column and mean the end of it.
-        .on_drop(cx.listener(move |this, _: &Dragged, _, cx| {
+        .on_drop(window.listener_for(view, move |this, _: &Dragged, _, cx| {
             cx.stop_propagation();
             let before = this.board(cx).and_then(|board| board.carry?.before);
             this.drop_task(status, before, cx);
         }))
-        .on_drag(Dragged(id, ghost.clone()), move |_, _, _, cx: &mut App| {
-            let ghost = ghost.clone();
-            view.update(cx, |this, cx| this.start_task_carry(id, cx));
-            cx.new(|_| Ghost(ghost))
+        .on_drag(Dragged(id, ghost.clone()), {
+            let view = view.clone();
+            move |_, _, _, cx: &mut App| {
+                let ghost = ghost.clone();
+                view.update(cx, |this, cx| this.start_task_carry(id, cx));
+                cx.new(|_| Ghost(ghost))
+            }
         })
         .into_any_element()
 }
@@ -705,7 +781,13 @@ fn task_card(
 /// what it has: a row saying a task has no shape, no session and no link would take the same space
 /// as one saying it has all three, and say nothing. Which session a task belongs to is offered in
 /// the panel's picker, which is where a task is handed back to nobody.
-fn shape_line(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> Option<AnyElement> {
+fn shape_line(
+    app: &AppState,
+    task: &TaskRecord,
+    view: &Entity<AppState>,
+    window: &Window,
+    cx: &App,
+) -> Option<AnyElement> {
     let session = app
         .work(cx)
         .and_then(|work| task.session.and_then(|id| work.session(id)))
@@ -744,7 +826,7 @@ fn shape_line(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> 
                             .text_size(theme::font(Family::Chrome, Role::Meta)),
                     )
             }))
-            .children(link.map(|url| link_chip(task.id, url, cx)))
+            .children(link.map(|url| link_chip(task.id, url, view, window)))
             .into_any_element(),
     )
 }
@@ -753,7 +835,12 @@ fn shape_line(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> 
 ///
 /// Clicking it hands the URL to the operating system, the same thing a link in a rendered
 /// description does — the interface has no browser of its own to open it in.
-fn link_chip(task: TaskId, url: String, cx: &mut Context<AppState>) -> impl IntoElement {
+fn link_chip(
+    task: TaskId,
+    url: String,
+    view: &Entity<AppState>,
+    window: &Window,
+) -> impl IntoElement {
     let (icon, provider) = issue_provider(&url);
     let tooltip = SharedString::from(url.clone());
 
@@ -777,7 +864,7 @@ fn link_chip(task: TaskId, url: String, cx: &mut Context<AppState>) -> impl Into
         .tooltip(move |window, cx| {
             gpui_component::tooltip::Tooltip::new(tooltip.clone()).build(window, cx)
         })
-        .on_click(cx.listener(move |_, _, _, cx| {
+        .on_click(window.listener_for(view, move |_, _, _, cx| {
             cx.stop_propagation();
             cx.open_url(&url);
         }))
@@ -837,7 +924,13 @@ fn comment_mark(task: &TaskRecord) -> Option<AnyElement> {
 
 /// The bottom line of a card: the agent holding the task and what it is saying, or — when nobody
 /// is — how many sub-tasks there are to be done.
-fn now_line(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> AnyElement {
+fn now_line(
+    app: &AppState,
+    task: &TaskRecord,
+    view: &Entity<AppState>,
+    window: &Window,
+    cx: &App,
+) -> AnyElement {
     let Some(agent) = app.work(cx).and_then(|work| work.now(task)) else {
         let total = task.steps.len();
         let text = if total == 0 {
@@ -875,7 +968,9 @@ fn now_line(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> An
                     mono(agent.name.clone(), colour)
                         .text_size(theme::font(Family::Chrome, Role::Meta)),
                 )
-                .on_click(cx.listener(move |this, _, _, cx| this.open_task_chat(id, cx))),
+                .on_click(
+                    window.listener_for(view, move |this, _, _, cx| this.open_task_chat(id, cx)),
+                ),
         )
         .child(
             div()

@@ -35,7 +35,7 @@ use crate::theme;
 use crate::ui::kit::{
     MdNavEntry, MinimapMark, choice_pill, md_navigator, minimap, mono, status_dot,
 };
-use crate::ui::{eid, eid2, indexed};
+use crate::ui::{eid, eid2, indexed, scrub};
 
 /// The strip the layout toggle sits in, above whatever the viewer drew.
 const HEADER: f32 = 32.0;
@@ -363,9 +363,13 @@ fn markdown_preview(
     }
 
     let side = ui.md_minimap_side;
+    // T-110's rework moved the block-shape drawing onto `crate::ui::document`'s own minimap; the
+    // standalone markdown viewer's heading strip stays what it always was, a full-width tick per
+    // heading — it has no `PlanBlock`s to draw a real layout from, only `heading_marks`' settled
+    // fractions.
     let marks: Vec<MinimapMark> = markdown::heading_marks(&source)
         .into_iter()
-        .map(|heading| MinimapMark::new(heading.fraction, heading_colour(heading.level)))
+        .map(|heading| MinimapMark::new(heading.fraction, 0.01, 1.0, false, heading_colour(heading.level)))
         .collect();
 
     let view = cx.entity();
@@ -374,9 +378,12 @@ fn markdown_preview(
         eid("md-minimap", &key),
         MINIMAP_WIDTH,
         &marks,
+        &[],
+        None,
         std::rc::Rc::new(indexed(&view, move |this, index, _, cx| {
             this.select_md_minimap_mark(&mark_key, index, cx)
         })),
+        scrub(&view, |_, _, _, _| {}),
     );
 
     let row = div().flex().flex_1().min_w(px(0.)).min_h(px(0.));

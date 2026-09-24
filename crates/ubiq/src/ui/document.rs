@@ -24,24 +24,24 @@
 
 use gpui::{
     AnyElement, ClickEvent, Context, Entity, InteractiveElement, IntoElement, MouseButton,
-    ParentElement, SharedString, StatefulInteractiveElement, Styled, div, px,
+    ParentElement, ScrollHandle, SharedString, StatefulInteractiveElement, Styled, div, px,
 };
 use gpui_component::input::{Input, Textarea};
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use crate::app::AppState;
 use crate::state::document::{
-    AnnotationsBody, ComposerTarget, DocumentBody, DocumentEditor, Notice, heading_sections,
-    thread_marks,
+    AnnotationsBody, ComposerTarget, DocumentBody, DocumentEditor, MinimapBlockKind, Notice,
+    heading_sections, minimap_rows, thread_marks,
 };
 use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::kit::{
-    MdNavEntry, MinimapMark, UbiqIcon, choice_pill, ghost_button, icon_button, md_navigator,
-    minimap, primary_button, slab, status_dot,
+    MdNavEntry, MinimapMark, MinimapTick, MinimapViewport, UbiqIcon, choice_pill, ghost_button,
+    icon_button, md_navigator, minimap, primary_button, slab, status_dot,
 };
 use crate::ui::viewer::markdown;
-use crate::ui::{eid, eid2, indexed};
+use crate::ui::{eid, eid2, indexed, scrub};
 use ubiq_proto::ids::BlockId;
 use ubiq_proto::plan::{Annotation, AnnotationState, PlanBlock};
 use ubiq_proto::work::{Comment, CommentAuthor};
@@ -67,7 +67,7 @@ pub fn surface(app: &AppState, doc: &DocumentEditor, cx: &mut Context<AppState>)
     let view = cx.entity();
     let ui = &app.workbench.settings.ui;
     let side = ui.md_minimap_side;
-    let minimap_el = ui.md_minimap.then(|| thread_minimap(app, doc, &view));
+    let minimap_el = ui.md_minimap.then(|| document_minimap(app, doc, &view));
 
     let document_col = div()
         .flex()
@@ -142,51 +142,125 @@ pub fn navigator(doc: &DocumentEditor, above_modal: bool, view: &Entity<AppState
     )
 }
 
-/// The minimap beside the surface — one mark per thread, in the colour of whether it is still
-/// open, at roughly where its block sits in the document.
+/// The minimap beside the surface: the document's own layout in miniature
+/// (`_docs/inbox/markdown-improvement-proposal.md` §8.2) plus one edge tick per thread, in the
+/// colour of whether it is still open, and the translucent viewport rectangle §8.3 asks for.
 ///
 /// **Real pixel offsets where they can be had.** `ScrollHandle::bounds_for_item` answers from
-/// what the preview last painted, so a mark's fraction down the strip is measured against the
+/// what the preview last painted, so a block's own span down the strip is measured against the
 /// document's own layout once there has been a frame to measure — a document just opened, with
-/// nothing painted yet, falls back to spreading its threads evenly across the blocks they sit
-/// among instead, which is what [`proportional_fraction`] is for.
-fn thread_minimap(app: &AppState, doc: &DocumentEditor, view: &Entity<AppState>) -> AnyElement {
+/// nothing painted yet, falls back to spreading blocks evenly instead, which is what
+/// [`proportional_fraction`] is for. A row inside a block (several to a paragraph or a table) has
+/// no pixel position of its own even then — §8.5 rules out a second layout pass — so it is spread
+/// evenly across the block's own measured span, which is the whole reason [`MinimapRow`] carries
+/// `row_index`/`row_count` rather than a settled fraction.
+///
+/// [`MinimapRow`]: crate::state::document::MinimapRow
+fn document_minimap(app: &AppState, doc: &DocumentEditor, view: &Entity<AppState>) -> AnyElement {
     let blocks = doc.annotations.blocks();
-    let marks = thread_marks(blocks, doc.annotations.annotations());
     let scroll = &app.plan_preview_scroll;
-    let content_height = scroll.bounds().size.height + scroll.max_offset().y;
-    let container_top = scroll.bounds().top();
+    let strip_height = f32::from(scroll.bounds().size.height);
+    let content_height = strip_height + f32::from(scroll.max_offset().y);
+    // The proposal's §8.3: a short document is drawn at a real, 1:1 scale rather than stretched
+    // to fill the strip, so a one-page file looks like one page; a long one is shrunk to fit.
+    let scale = if content_height > 0.0 {
+        (strip_height / content_height).min(1.0)
+    } else {
+        1.0
+    };
 
-    let kit_marks: Vec<MinimapMark> = marks
+    let rows = minimap_rows(blocks);
+    let kit_marks: Vec<MinimapMark> = rows
+        .iter()
+        .map(|row| {
+            let (top, bottom) = block_span(scroll, content_height, row.block_index, blocks.len());
+            let span = (bottom - top).max(0.0);
+            let row_top = top + span * (row.row_index as f32 / row.row_count as f32);
+            let row_height = span / row.row_count as f32;
+            let mm_top = (row_top * content_height * scale / strip_height.max(1.0)).clamp(0.0, 1.0);
+            let mm_height = (row_height * content_height * scale / strip_height.max(1.0)).max(0.0);
+            let (colour, dotted) = mark_style(row.kind);
+            MinimapMark::new(mm_top, mm_height, row.length, dotted, colour)
+        })
+        .collect();
+
+    let marks = thread_marks(blocks, doc.annotations.annotations());
+    let ticks: Vec<MinimapTick> = marks
         .iter()
         .map(|mark| {
-            let fraction = (content_height > px(0.))
-                .then(|| scroll.bounds_for_item(mark.block_index))
-                .flatten()
-                .map(|bounds| ((bounds.top() - container_top) / content_height).clamp(0.0, 1.0))
-                .unwrap_or_else(|| proportional_fraction(mark.block_index, blocks.len()));
+            let (top, _) = block_span(scroll, content_height, mark.block_index, blocks.len());
+            let mm_top = (top * content_height * scale / strip_height.max(1.0)).clamp(0.0, 1.0);
             let colour = if mark.open {
                 theme::info()
             } else {
                 theme::success()
             };
-            MinimapMark::new(fraction, colour)
+            MinimapTick::new(mm_top, colour)
         })
         .collect();
+
+    // Nothing to scroll — the whole document already fits, so there is no viewport smaller than
+    // the strip to show.
+    let viewport = (scroll.max_offset().y > px(0.)).then(|| {
+        let scrolled = f32::from(-scroll.offset().y).max(0.0);
+        MinimapViewport {
+            top: (scrolled * scale / strip_height.max(1.0)).clamp(0.0, 1.0),
+            height: scale.clamp(0.02, 1.0),
+        }
+    });
 
     minimap(
         eid("plan-minimap", doc.surface_key()),
         MINIMAP_WIDTH,
         &kit_marks,
+        &ticks,
+        viewport,
         std::rc::Rc::new(indexed(view, |this, index, _, cx| {
             this.select_plan_minimap_mark(index, cx)
         })),
+        scrub(view, |this, fraction, _, cx| {
+            this.scrub_plan_minimap(fraction, cx)
+        }),
     )
 }
 
-/// A mark's position when there is nothing painted yet to measure it against — spread evenly
-/// across the blocks it sits among, the fallback [`thread_minimap`] needs for the frame a document
-/// opens in and nothing else.
+/// A colour and a dotted flag per §8.2's table — the block-kind facts a minimap mark carries,
+/// resolved to a palette token here so `kit::minimap` never has to know what a block kind is.
+fn mark_style(kind: MinimapBlockKind) -> (gpui::Rgba, bool) {
+    match kind {
+        MinimapBlockKind::Heading => (theme::text(), false),
+        MinimapBlockKind::Paragraph => (theme::text_faint(), false),
+        MinimapBlockKind::Code => (theme::border(), false),
+        MinimapBlockKind::Table => (theme::border(), true),
+        MinimapBlockKind::Image => (theme::fade(theme::text_faint(), 0.5), false),
+    }
+}
+
+/// A block's own vertical span down the content, `0.0..=1.0` — real pixels where
+/// `ScrollHandle::bounds_for_item` answers, [`proportional_fraction`]'s even spread otherwise.
+fn block_span(scroll: &ScrollHandle, content_height: f32, index: usize, len: usize) -> (f32, f32) {
+    let container_top = scroll.bounds().top();
+    let fraction_of = |ix: usize| -> Option<f32> {
+        (content_height > 0.0)
+            .then(|| scroll.bounds_for_item(ix))
+            .flatten()
+            .map(|bounds| (f32::from(bounds.top() - container_top) / content_height).clamp(0.0, 1.0))
+    };
+    let top = fraction_of(index).unwrap_or_else(|| proportional_fraction(index, len));
+    let bottom = if index + 1 < len {
+        fraction_of(index + 1).unwrap_or_else(|| proportional_fraction(index + 1, len))
+    } else {
+        (content_height > 0.0)
+            .then(|| scroll.bounds_for_item(index))
+            .flatten()
+            .map(|bounds| (f32::from(bounds.bottom() - container_top) / content_height).clamp(0.0, 1.0))
+            .unwrap_or(1.0)
+    };
+    (top, bottom.max(top))
+}
+
+/// A position when there is nothing painted yet to measure it against — spread evenly across the
+/// blocks, the fallback [`block_span`] needs for the frame a document opens in and nothing else.
 fn proportional_fraction(index: usize, len: usize) -> f32 {
     if len <= 1 {
         0.0

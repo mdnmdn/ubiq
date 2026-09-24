@@ -112,6 +112,9 @@ impl AppState {
         let new_comment_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("Add a comment\u{2026}"));
 
+        let task_reference_query = cx
+            .new(|cx| InputState::new(window, cx).placeholder("Search title, notes, todos\u{2026}"));
+
         // The plan annotation panel's one field — a fresh annotation on a block or a reply to a
         // thread, whichever the panel's own composer is answering.
         let annotation_composer_input =
@@ -1174,6 +1177,20 @@ impl AppState {
             },
         ));
 
+        subscriptions.push(cx.subscribe_in(
+            &task_reference_query,
+            window,
+            |this, input, event: &InputEvent, _window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    let text = input.read(cx).value().to_string();
+                    if let Some(board) = this.board_mut(cx) {
+                        board.form.reference_query = text;
+                    }
+                    cx.notify();
+                }
+            },
+        ));
+
         // The document's own buffer: what was typed is compared against what the host last
         // stated, which is what makes the Save affordance and the close question mean anything.
         subscriptions.push(cx.subscribe_in(
@@ -1611,6 +1628,7 @@ impl AppState {
             step_title_input,
             new_step_input,
             new_comment_input,
+            task_reference_query,
             annotation_composer_input,
             plan_editor,
             plan_marks: None,

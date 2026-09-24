@@ -119,6 +119,17 @@ pub fn indexed(
     }
 }
 
+/// The same, for `kit::minimap`'s scrub: a fraction down the strip.
+pub fn scrub(
+    view: &Entity<AppState>,
+    f: impl Fn(&mut AppState, f32, &mut Window, &mut Context<AppState>) + 'static,
+) -> kit::ScrubAction {
+    let view = view.clone();
+    std::rc::Rc::new(move |fraction, window, cx| {
+        view.update(cx, |this, cx| f(this, fraction, window, cx));
+    })
+}
+
 /// The same, for `kit::colour_picker`'s pick: a hue, a saturation and a value.
 pub fn hsv(
     view: &Entity<AppState>,

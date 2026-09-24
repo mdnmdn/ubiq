@@ -104,6 +104,13 @@ pub(super) fn run_harness(harness: &dyn Harness, args: &[String]) -> Result<()> 
         )?,
     };
 
+    // A stale reference in a profile is dropped rather than failing `resolve`, but the CLI is a
+    // person watching a terminal, so it still gets to hear about it — on stderr, not by refusing
+    // to launch. See `RunSpec::problems`.
+    for problem in &spec.problems {
+        eprintln!("warning: {problem}");
+    }
+
     spec.io = parse_io_mode(run_args.io.as_deref())?;
 
     // The CLI backs preference templates with the filesystem template store

@@ -866,6 +866,9 @@ pub struct AppState {
     pub step_title_input: Entity<InputState>,
     pub new_step_input: Entity<InputState>,
     pub new_comment_input: Entity<InputState>,
+    /// The reference picker's own search field — see `BoardState::form::reference_query` for
+    /// what it mirrors and `AppState::toggle_reference_picker` for where it is cleared.
+    pub task_reference_query: Entity<InputState>,
     /// The annotation panel's one field: a fresh thread on a block, or a reply to one, whichever
     /// `DocumentEditor::composer` says it is answering. One at a time, `new_comment_input`'s own
     /// arrangement.

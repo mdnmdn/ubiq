@@ -574,6 +574,165 @@ fn count_into(entry: &mut HeadingEntry, block_id: BlockId, annotations: &[Annota
     }
 }
 
+/// What the minimap draws a block as — a shape rather than shrunken text, in the spirit of
+/// `_docs/inbox/markdown-improvement-proposal.md` §8.2's table. Every block kind the host indexes
+/// today (`crates/ubiq-host/src/plan/blocks.rs::kind_of`) resolves to one of these except a
+/// thematic break, raw HTML, a definition and frontmatter, which draw nothing — there is no shape
+/// in the proposal's table for them and a mark for every block would be noise, not orientation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MinimapBlockKind {
+    Heading,
+    Paragraph,
+    Code,
+    Table,
+    /// A paragraph that is a single image reference and nothing else — the host's parser has no
+    /// block kind of its own for an image (it is phrasing inside a paragraph, not a block level
+    /// node), so this is a heuristic over a paragraph's text rather than a fact the host states.
+    Image,
+}
+
+/// One row the minimap draws for a block. A heading or a code block draws exactly one; a
+/// paragraph or a table draws one per real, non-blank source line, which is the whole point of
+/// the rework this type exists for — a short line's `length` is short, not the full strip width
+/// every mark drew before it (T-110).
+///
+/// **`length` is measured in characters, not pixels.** There is no second layout pass to place a
+/// mark by real glyph widths (proposal §8.5 asks that there not be one), and the preview's own
+/// renderer (`ui::viewer::markdown`) exposes no per-line fragment geometry to measure instead —
+/// character count against [`LINE_LENGTH_CHARS`] is the real content the line carries, only
+/// approximated by count rather than by width. This is the divergence from proposal §8.2's own
+/// wording ("shapes are legible at any scale", said of a native text system with line fragments
+/// on hand); a monospace-ish approximation is what is reachable here.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MinimapRow {
+    pub block_index: usize,
+    /// Which row of this block this is, and how many the block has. There is no per-line pixel
+    /// position either — `ui/document.rs` spreads `row_count` rows evenly across the block's own
+    /// *measured* height (from `ScrollHandle::bounds_for_item`), so the rows stay anchored to the
+    /// block's real vertical span even though their position inside it is interpolated.
+    pub row_index: usize,
+    pub row_count: usize,
+    pub kind: MinimapBlockKind,
+    /// `0.0..=1.0`, this row's own share of a full column width.
+    pub length: f32,
+}
+
+/// Roughly how many characters of body text fill the document column at its own width
+/// (`ui::document::DOC_WIDTH`-ish, at the content body size) — the normalising constant a real
+/// line's character count is measured against, so "short line, short mark" is relative to what
+/// the column can actually hold rather than to the longest line in the file.
+const LINE_LENGTH_CHARS: f32 = 90.0;
+
+/// The document's blocks, drawn as the minimap sees them — one entry per block for a heading, a
+/// code block or an image, one per real line for a paragraph or a table row.
+pub fn minimap_rows(blocks: &[PlanBlock]) -> Vec<MinimapRow> {
+    let mut out = Vec::new();
+    for (block_index, block) in blocks.iter().enumerate() {
+        if block.kind.starts_with("heading:") {
+            out.push(MinimapRow {
+                block_index,
+                row_index: 0,
+                row_count: 1,
+                kind: MinimapBlockKind::Heading,
+                length: 0.85,
+            });
+            continue;
+        }
+        match block.kind.as_str() {
+            "paragraph" if is_image_reference(&block.text) => out.push(MinimapRow {
+                block_index,
+                row_index: 0,
+                row_count: 1,
+                kind: MinimapBlockKind::Image,
+                length: 0.55,
+            }),
+            "paragraph" => out.extend(text_rows(block_index, &block.text, MinimapBlockKind::Paragraph)),
+            "code" | "math" => out.push(MinimapRow {
+                block_index,
+                row_index: 0,
+                row_count: 1,
+                kind: MinimapBlockKind::Code,
+                length: 1.0,
+            }),
+            "table" => out.extend(table_rows(block_index, &block.text)),
+            _ => {}
+        }
+    }
+    out
+}
+
+/// A paragraph that is nothing but a Markdown image reference — `![alt](url)` alone on the line,
+/// no surrounding prose. The host's parser folds an image into its paragraph as phrasing content
+/// rather than giving it a block kind of its own, so this is the only way to tell one from an
+/// ordinary paragraph at this layer.
+fn is_image_reference(text: &str) -> bool {
+    let t = text.trim();
+    t.starts_with("![") && t.ends_with(')') && t.matches("![").count() == 1
+}
+
+/// A paragraph's or a heading-less prose block's real lines, each measured in characters against
+/// [`LINE_LENGTH_CHARS`]. A blank line carries nothing to measure and is dropped rather than drawn
+/// as a zero-length mark.
+fn text_rows(block_index: usize, text: &str, kind: MinimapBlockKind) -> Vec<MinimapRow> {
+    let lines: Vec<&str> = text.lines().filter(|line| !line.trim().is_empty()).collect();
+    if lines.is_empty() {
+        return vec![MinimapRow {
+            block_index,
+            row_index: 0,
+            row_count: 1,
+            kind,
+            length: 0.3,
+        }];
+    }
+    let row_count = lines.len();
+    lines
+        .into_iter()
+        .enumerate()
+        .map(|(row_index, line)| MinimapRow {
+            block_index,
+            row_index,
+            row_count,
+            kind,
+            length: (line.trim().len() as f32 / LINE_LENGTH_CHARS).clamp(0.08, 1.0),
+        })
+        .collect()
+}
+
+/// A table's real rows, each drawn as a dotted line the length of its own cells' text — the
+/// user's own words for it, "for tables, dotted line representing chars". The header separator
+/// (`|---|---|`) is source syntax, not content, and draws nothing.
+fn table_rows(block_index: usize, text: &str) -> Vec<MinimapRow> {
+    let rows: Vec<&str> = text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .filter(|line| !is_separator_row(line))
+        .collect();
+    if rows.is_empty() {
+        return Vec::new();
+    }
+    let row_count = rows.len();
+    rows.into_iter()
+        .enumerate()
+        .map(|(row_index, line)| {
+            let chars = line.trim_matches('|').len();
+            MinimapRow {
+                block_index,
+                row_index,
+                row_count,
+                kind: MinimapBlockKind::Table,
+                length: (chars as f32 / LINE_LENGTH_CHARS).clamp(0.15, 1.0),
+            }
+        })
+        .collect()
+}
+
+fn is_separator_row(line: &str) -> bool {
+    line.trim_matches('|')
+        .chars()
+        .all(|c| matches!(c, '-' | ':' | '|' | ' '))
+}
+
 /// One thread, positioned by where its block sits among the document's blocks — the data a
 /// minimap draws, kept apart from the drawing on `heading_sections`'s own rule so it can be
 /// tested on its own and so a mark clicked in the strip can be resolved back to an annotation the

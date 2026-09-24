@@ -6,7 +6,8 @@ status: draft
 summary: What is still undecided about the planning flow — missions, plans and their annotations — after all seven staged slices (T-56 through T-62) and the follow-on provenance work (T-94) shipped. The built design lives in `features/workbench.md`, `tech/transport-contract.md` and `tech/decisions.md` (`D157` through `D161`); this file is only the remainder.
 read_when: you are picking up T-85, or deciding whether a mission should inherit anything from its parent, or whether `require plan` should gate anything
 updated: 2026-09-23
-code_anchors: [crates/ubiq/src/state/document.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-proto/src/plan.rs]
+verified: 2026-09-24
+code_anchors: [crates/ubiq/src/state/document.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/plan/service.rs, crates/ubiq-proto/src/plan.rs]
 depends_on: [feat-workbench, tech-transport, tech-decisions, wip-kb]
 ---
 
