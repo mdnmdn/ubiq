@@ -846,6 +846,10 @@ pub struct ToolEditor {
     /// Whether this tool is restricted to one run at a time. The host is what enforces it —
     /// see [`ubiq_proto::tools::ToolDef::single_instance`].
     pub single_instance: bool,
+    /// Where this tool starts instead of the project's folder — an absolute path chosen through
+    /// Ubiq's own folder picker (`crate::app::browse_tool_starting_folder`), never typed. `None`
+    /// is unset: see [`ubiq_proto::tools::ToolDef::starting_folder`].
+    pub starting_folder: Option<String>,
 }
 
 /// One saved host the interface is trying to get back to without being asked again.

@@ -12,6 +12,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::rc::Rc;
 use std::sync::OnceLock;
 
 use gpui::{
@@ -370,7 +371,12 @@ fn render_linked_scrollable(
                 .track_scroll(scroll)
                 .child(content),
         )
-        .child(div().absolute().inset_0().child(Scrollbar::vertical(scroll)))
+        .child(
+            div()
+                .absolute()
+                .inset_0()
+                .child(Scrollbar::vertical(scroll)),
+        )
         .into_any_element()
 }
 
@@ -564,14 +570,10 @@ pub struct HeadingMark {
 }
 
 /// Every heading in a document, in document order, positioned by character offset.
-pub fn heading_marks(source: &str) -> Vec<HeadingMark> {
-    let Ok(ast) = markdown::to_mdast(source, &markdown::ParseOptions::gfm()) else {
-        return Vec::new();
-    };
-    let len = source.len().max(1) as f32;
-    let mut found = Vec::new();
-    collect_headings(&ast, len, &mut found);
-    found
+///
+/// Off the shared, cached parse — see [`walks`].
+pub fn heading_marks(key: &str, source: &str) -> Rc<Vec<HeadingMark>> {
+    walks(key, source).0
 }
 
 fn collect_headings(node: &markdown_ast::Node, len: f32, found: &mut Vec<HeadingMark>) {
@@ -618,18 +620,74 @@ pub struct StructureMark {
 /// children are read — a fence or a heading nested in a list or a blockquote is prose inside a
 /// larger block as far as the minimap is concerned, the same granularity `minimap_rows` reads off
 /// the host's own top-level block index.
-pub fn structure_marks(source: &str) -> Vec<StructureMark> {
-    let Ok(ast) = markdown::to_mdast(source, &markdown::ParseOptions::gfm()) else {
-        return Vec::new();
-    };
-    let len = source.len().max(1) as f32;
-    let Some(children) = ast.children() else {
-        return Vec::new();
-    };
-    children
-        .iter()
-        .filter_map(|node| structure_mark_of(node, len))
-        .collect()
+///
+/// Off the shared, cached parse — see [`walks`].
+pub fn structure_marks(key: &str, source: &str) -> Rc<Vec<StructureMark>> {
+    walks(key, source).1
+}
+
+/// What one document's structural walk produced, kept until its source changes.
+struct Walked {
+    len: usize,
+    hash: u64,
+    headings: Rc<Vec<HeadingMark>>,
+    structure: Rc<Vec<StructureMark>>,
+}
+
+thread_local! {
+    /// One entry per open document, on [`SCAN_CACHE`]'s own terms and for its own reason.
+    static WALK_CACHE: RefCell<HashMap<String, Walked>> = RefCell::new(HashMap::new());
+}
+
+/// The navigator's headings and the minimap's block shapes, from **one** parse of the document,
+/// kept until the document changes (T-144).
+///
+/// Both are projections of the same mdast, and both are read from a render function — so each was
+/// running `to_mdast` over the whole buffer on every frame, twice per frame together, for a
+/// document that had not changed since the last one. That is not a rounding error:
+/// `markdown::to_mdast` at `ParseOptions::gfm` costs about 7.7ms on a 50KB document and 38ms on a
+/// 150KB one **in release**, so a markdown tab with the minimap on could not reach 60fps on a file
+/// of any size no matter what else it did. The fix is the same one [`SCAN_CACHE`] already applies
+/// to the fence scan beside it: fingerprint the source, and redo the walk only when it moved.
+///
+/// **They are still two projections, not one.** They read the tree at different depths on
+/// purpose — [`heading_marks`] recurses, so a heading inside a list or a quote is still a heading
+/// the navigator lists, while [`structure_marks`] reads only the root's own children, because a
+/// block nested inside a larger one is part of that block's shape as far as a minimap is
+/// concerned. What they wanted to share was the parse, not the walk.
+fn walks(key: &str, source: &str) -> (Rc<Vec<HeadingMark>>, Rc<Vec<StructureMark>>) {
+    let (len, hash) = fingerprint(source);
+    WALK_CACHE.with_borrow_mut(|cache| {
+        let stale =
+            !matches!(cache.get(key), Some(cached) if cached.len == len && cached.hash == hash);
+        if stale {
+            let ast = markdown::to_mdast(source, &markdown::ParseOptions::gfm()).ok();
+            let source_len = source.len().max(1) as f32;
+            let mut headings = Vec::new();
+            let mut structure = Vec::new();
+            if let Some(ast) = &ast {
+                collect_headings(ast, source_len, &mut headings);
+                if let Some(children) = ast.children() {
+                    structure.extend(
+                        children
+                            .iter()
+                            .filter_map(|node| structure_mark_of(node, source_len)),
+                    );
+                }
+            }
+            cache.insert(
+                key.to_string(),
+                Walked {
+                    len,
+                    hash,
+                    headings: Rc::new(headings),
+                    structure: Rc::new(structure),
+                },
+            );
+        }
+        let cached = cache.get(key).expect("just inserted, or already fresh");
+        (cached.headings.clone(), cached.structure.clone())
+    })
 }
 
 fn structure_mark_of(node: &markdown_ast::Node, len: f32) -> Option<StructureMark> {
@@ -640,7 +698,11 @@ fn structure_mark_of(node: &markdown_ast::Node, len: f32) -> Option<StructureMar
         .map(|position| (position.start.offset as f32 / len).clamp(0.0, 1.0))
         .unwrap_or(0.0);
     let widest = |text: &str| -> f32 {
-        let widest = text.lines().map(|line| line.trim().len()).max().unwrap_or(0);
+        let widest = text
+            .lines()
+            .map(|line| line.trim().len())
+            .max()
+            .unwrap_or(0);
         (widest as f32 / LINE_LENGTH_CHARS).clamp(0.08, 1.0)
     };
 
@@ -794,7 +856,7 @@ mod tests {
     #[test]
     fn heading_marks_are_ordered_and_leveled() {
         let source = "# One\n\nbody\n\n## Two\n\nmore body\n\n### Three\n";
-        let marks = heading_marks(source);
+        let marks = heading_marks("ordered-and-leveled", source);
         assert_eq!(marks.len(), 3);
         assert_eq!([marks[0].level, marks[1].level, marks[2].level], [1, 2, 3]);
         assert!(marks[0].fraction < marks[1].fraction);
@@ -805,6 +867,31 @@ mod tests {
     /// No headings, no marks — a document with none draws an empty strip rather than erroring.
     #[test]
     fn heading_marks_of_a_headingless_document_is_empty() {
-        assert!(heading_marks("just a paragraph, nothing more.\n").is_empty());
+        assert!(heading_marks("headingless", "just a paragraph, nothing more.\n").is_empty());
+    }
+
+    /// The cache is keyed on the source as well as the document: the same key asked twice about
+    /// two different documents answers about the second one, not about the first (T-144).
+    #[test]
+    fn a_changed_document_is_walked_again() {
+        let key = "one-key-two-documents";
+        assert_eq!(heading_marks(key, "# One\n").len(), 1);
+        assert_eq!(heading_marks(key, "# One\n\n## Two\n").len(), 2);
+        assert!(heading_marks(key, "no headings here\n").is_empty());
+    }
+
+    /// One parse, two projections, at two depths on purpose: a heading inside a list is a heading
+    /// the navigator lists and *not* a shape of its own on the minimap, which reads only the
+    /// root's own children (T-144).
+    #[test]
+    fn the_two_walks_read_the_tree_at_different_depths() {
+        let source = "# Top\n\n- item\n\n  ## Nested\n";
+        assert_eq!(heading_marks("depths", source).len(), 2);
+        let structure = structure_marks("depths", source);
+        assert_eq!(structure.len(), 1);
+        assert_eq!(
+            structure[0].kind,
+            crate::state::document::MinimapBlockKind::Heading
+        );
     }
 }

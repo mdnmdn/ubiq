@@ -26,7 +26,8 @@ watch/    what moved on disk                   FileHit, LineHit  state/search.rs
 | You are | Read |
 |---|---|
 | Adding or changing a file / search message | `_docs/tech/transport-contract.md` — the file family, the host browse family, the search family |
-| Changing the explorer, the picker, the file dialogs or the editor's tabs | `_docs/features/workbench.md` |
+| Changing the explorer, the file dialogs or the editor's tabs | `_docs/features/workbench-ide.md` |
+| Changing the file picker itself | `_docs/features/workbench.md` |
 | Changing what is indexed, or how a content search is answered | `_docs/wip/indexing.md` (`status: current`, and it says what is *not* built) |
 | Adding a worker, or moving work off the coordinator | `_docs/tech/architecture.md` |
 | Restyling any of these panels | `_docs/tech/ui-and-design.md`, plus the `ubiq-ui` skill |
@@ -208,7 +209,7 @@ the same worker.
 5. `crates/ubiq/src/app/wire.rs::path_edited` — retarget or close the tabs the path took with it.
 6. `crates/ubiq/tests/files.rs` — the round trip, over a fake bus.
 7. `_docs/tech/transport-contract.md` (the file family table and prose) and
-   `_docs/features/workbench.md` (the menu inventory), same commit.
+   `_docs/features/workbench-ide.md` (the menu inventory), same commit.
 
 **Add a search filter option.** `search::Filter` already carries `patterns` (gitignore-term globs
 against the project-relative path) and `subdir` (validated through `files::path::resolve`, the same

@@ -660,6 +660,7 @@ wrote it — and waits only on the replay that hands it to a fresh harness (`G12
 
 - [`../tech/agent-manager.md`](../tech/agent-manager.md) — the boundary every package here crosses
 - [`../features/chat.md`](../features/chat.md) — the render model a conversation fills
-- [`../features/workbench.md`](../features/workbench.md) — the agents screen, its columns and the settings overlay
+- [`../features/workbench-agents.md`](../features/workbench-agents.md) — the agents screen and its columns
+- [`../features/workbench.md`](../features/workbench.md) — the settings overlay
 - [`../tech/transport-contract.md`](../tech/transport-contract.md) — where the conversation family is documented once it exists
 - the isol8 pty seam update — the isol8 seam, and what a confined structured run still needs; no document under `_docs/` carries it

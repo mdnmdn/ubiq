@@ -178,5 +178,6 @@ its own tests, because verification had been scoped to the crates that owned the
 - [`../tech/decisions.md`](../tech/decisions.md) — D58 to D63, the decisions named above
 - [`../tech/transport-contract.md`](../tech/transport-contract.md) — the conversation and account families
 - [`../features/chat.md`](../features/chat.md) — the chat surface and its composer
-- [`../features/workbench.md`](../features/workbench.md) — the agents screen and the settings overlay
+- [`../features/workbench-agents.md`](../features/workbench-agents.md) — the agents screen
+- [`../features/workbench.md`](../features/workbench.md) — the settings overlay
 - [`../backlog.md`](../backlog.md) — G118, G120 to G122, the gaps named above

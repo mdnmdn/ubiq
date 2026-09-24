@@ -112,8 +112,9 @@ impl AppState {
         let new_comment_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("Add a comment\u{2026}"));
 
-        let task_reference_query = cx
-            .new(|cx| InputState::new(window, cx).placeholder("Search title, notes, todos\u{2026}"));
+        let task_reference_query = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("Search title, notes, todos\u{2026}")
+        });
 
         // The plan annotation panel's one field — a fresh annotation on a block or a reply to a
         // thread, whichever the panel's own composer is answering.
@@ -1727,7 +1728,11 @@ impl AppState {
             workbench_focus: cx.focus_handle(),
             agents_scroll: ScrollHandle::new(),
             task_reference_scroll: ScrollHandle::new(),
-            plan_preview_scroll: ScrollHandle::new(),
+            plan_preview_list: gpui::ListState::new(
+                0,
+                gpui::ListAlignment::Top,
+                gpui::px(crate::ui::document::PLAN_OVERDRAW),
+            ),
             explorer_filter_gen: 0,
             md_reflow: 0,
             md_reflow_gen: 0,

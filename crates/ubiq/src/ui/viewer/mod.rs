@@ -132,11 +132,11 @@ fn navigator(app: &AppState, file: &OpenFile, cx: &mut Context<AppState>) -> Any
         FileBody::Text { state, .. } => state.read(cx).value().to_string(),
         _ => String::new(),
     };
-    let entries: Vec<MdNavEntry> = markdown::heading_marks(&source)
-        .into_iter()
-        .map(|heading| MdNavEntry::new(heading.level, heading.label, 0, 0))
-        .collect();
     let key = file.key();
+    let entries: Vec<MdNavEntry> = markdown::heading_marks(&key, &source)
+        .iter()
+        .map(|heading| MdNavEntry::new(heading.level, heading.label.clone(), 0, 0))
+        .collect();
     let pick_key = key.clone();
 
     md_navigator(
@@ -370,7 +370,7 @@ fn markdown_preview(
     // above. A mark never draws shorter than `MIN_MARK_HEIGHT_PX` (`ui/kit/minimap.rs`), which is
     // what keeps a document with many blocks from thinning its marks into a barcode: each still
     // reads as its own bar rather than a hairline tick.
-    let structure = markdown::structure_marks(&source);
+    let structure = markdown::structure_marks(&key, &source);
     let mark_gap = if structure.is_empty() {
         0.0
     } else {

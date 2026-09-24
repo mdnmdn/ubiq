@@ -351,6 +351,51 @@ fn selecting_the_card_clears_the_delegate_it_was_reading(cx: &mut TestAppContext
     );
 }
 
+/// Selecting a session — the route the sessions filter's `on_select` arrow drives (`T-146`) — moves
+/// `TeamsSelection` and, through it, the tasks drawer's `active_session`, without touching the
+/// filter and without opening a chat panel: a session has no conversation of its own to put in
+/// front of the reader, unlike an agent or a delegate.
+#[gpui::test]
+fn selecting_a_session_moves_the_selection_without_filtering_or_opening_a_panel(
+    cx: &mut TestAppContext,
+) {
+    let fixture = Fixture::open(cx);
+    let id = AgentId::generate();
+    let agent = an_agent(id, "Claude Code");
+    let session = agent.session;
+    fixture.started(agent, cx);
+
+    // A fresh project already carries the single empty tab `seeded_chats` gives one that
+    // remembers no agent — so the count to compare against is whatever this fixture started
+    // with, not zero, and what a session selection must not do is touch that tab at all.
+    let chat_ids = |chats: &[ubiq::state::chat::ChatTab]| -> Vec<(ubiq::state::dock::ChatId, Option<AgentId>)> {
+        chats.iter().map(|tab| (tab.id, tab.attached)).collect()
+    };
+    let chats_before = fixture.state.read_with(cx, |state, cx| {
+        chat_ids(&state.open_project(cx).unwrap().chats)
+    });
+
+    fixture.state.update(cx, |state, cx| {
+        state.select_in_teams(TeamsSelection::Session(session), cx)
+    });
+
+    let (selection, sessions, chats_after) = fixture.state.read_with(cx, |state, cx| {
+        let teams = state.teams(cx).unwrap();
+        let chats = chat_ids(&state.open_project(cx).unwrap().chats);
+        (teams.selection.clone(), teams.sessions.clone(), chats)
+    });
+    assert_eq!(selection, Some(TeamsSelection::Session(session)));
+    assert!(
+        sessions.is_empty(),
+        "picking a session for the drawer does not tick it in the filter"
+    );
+    assert_eq!(
+        chats_after, chats_before,
+        "a session has no conversation of its own, so selecting one opens no chat panel and \
+         leaves whatever tabs already existed untouched"
+    );
+}
+
 /// **`viewing` is the conversation's own field, not the canvas's** — so whatever the Teams screen
 /// last asked for is what a chat tab or an agents column attached to the same agent would also
 /// read, since every surface reaches it through the one `AppState::conversation` accessor rather
@@ -460,6 +505,57 @@ fn project_of_agent_answers_each_card_s_own_project_under_the_window_span(cx: &m
         assert!(state.conversation(there, cx).is_none());
         assert!(state.teams_conversation(there, cx).is_some());
         assert!(state.teams_conversation(here, cx).is_some());
+    });
+}
+
+/// **Clicking a foreign card opens it in the project on screen's own chat tab** (`T-149`).
+///
+/// The tab has to be the active project's, because the dock's chat leaves are exactly that
+/// project's tabs (`AppState::sync_chat_panels`): a tab minted into a project the window is not
+/// pointed at gets no panel, and the panel it already had is closed on the next settle — which is
+/// why picking another project's card used to put nothing on screen. So the tab is the window's
+/// and the attachment is the card's, and every reader behind it resolves the agent's own project.
+#[gpui::test]
+fn picking_a_foreign_card_attaches_the_active_project_s_chat_tab(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let second = fixture.hold_a_second(cx);
+    let there = AgentId::generate();
+    fixture.started_in(second, an_agent(there, "there"), cx);
+    fixture.state.update(cx, |state, _| {
+        state.workbench.rail_mode = RailMode::TeamsAll
+    });
+
+    fixture.state.update(cx, |state, cx| {
+        state.select_in_teams(TeamsSelection::Agent(there), cx)
+    });
+
+    fixture.state.read_with(cx, |state, cx| {
+        // The tab is the active project's...
+        let attached: Vec<AgentId> = state
+            .held_project(fixture.project)
+            .expect("the window holds the project it is pointed at")
+            .chats
+            .iter()
+            .filter_map(|tab| tab.attached)
+            .collect();
+        assert_eq!(
+            attached,
+            vec![there],
+            "the project on screen's tab is the one pointed at the foreign card"
+        );
+        // ...and nothing was minted in the project that owns the agent, where it could draw no
+        // panel at all.
+        assert!(
+            state
+                .held_project(second)
+                .expect("the second project is held")
+                .chats
+                .iter()
+                .all(|tab| tab.attached != Some(there)),
+            "the owning project grows no tab of its own"
+        );
+        // The reader behind the tab resolves the agent's project, so the panel has a transcript.
+        assert!(state.teams_conversation(there, cx).is_some());
     });
 }
 

@@ -90,6 +90,15 @@ ui:
 
 # ── checks ─────────────────────────────────────────────────────────
 
+# The app compiles with no `ui` feature — no `use` escapes `#[cfg(feature = "ui")]` into a headless
+# build. Studio's root Justfile has its own `headless`, routed through `--manifest-path
+# ubiq/Cargo.toml` because `ubiq-app` is a patched non-member there; here it is a plain workspace
+# member, so no manifest path is needed.
+headless:
+    cargo check -p ubiq-app --no-default-features --all-targets
+    @! cargo tree -p ubiq-app -e no-dev --prefix none --no-default-features | grep -q '^gpui' \
+        || { echo "the headless base draws: a gpui crate is in its tree"; exit 1; }
+
 # The on-device model is Apple's: `foundation-models` may reach a macOS tree and no other. It
 # needs a Swift toolchain and the macOS 26 SDK to build, so a Linux or Windows build that pulled
 # it in would fail at its build script — a broken port, reported as a compiler error in a crate

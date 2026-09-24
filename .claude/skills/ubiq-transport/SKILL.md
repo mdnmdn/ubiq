@@ -17,7 +17,14 @@ bus.rs       Hub/Client      remote.rs listens (TCP)       app/hosts.rs multiple
 wire.rs      socket framing                                app/remote_connect.rs dials
 ids.rs       ULID newtypes
 log.rs       the sink
+blocks.rs    the shared markdown block walk — logic, not a message
 ```
+
+**Not everything in `ubiq-proto` is a message.** `blocks.rs` is a plain mdast walk, in the contract
+crate because the host's block index and the window's optimistic cache have to split a document
+*identically* and neither half may depend on the other (`D163`). The test for putting logic here is
+*must both halves agree on the answer* — not *does it cross the bus* — and it goes in its own
+module, never as a variant in `messages.rs`.
 
 ## Read first
 

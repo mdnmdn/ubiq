@@ -371,7 +371,8 @@ impl AppState {
         }
         let input = self.task_reference_query.clone();
         input.update(cx, |state, cx| state.set_value("", window, cx));
-        self.task_reference_scroll.set_offset(gpui::Point::default());
+        self.task_reference_scroll
+            .set_offset(gpui::Point::default());
     }
 
     /// Link another task onto the open task's reference list, keeping the ones already there. The

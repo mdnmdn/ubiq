@@ -110,12 +110,9 @@ memory-stats = "1"
 # Draws nothing; `just host` stays green.
 sysinfo = "0.31"
 hostname = "0.4"
-# The markdown parser a plan's block ids are assigned by. The *same* crate and the *same*
-# `ParseOptions::gfm()` the interface's preview parses with (`crates/ubiq/src/ui/viewer/markdown.rs`
-# and gpui-component's own copy, unified by Cargo), so a block the host indexes is a block the
-# renderer draws — a second, hand-rolled splitter here would drift from what the user is annotating.
-# A parser: no I/O, nothing that draws, `just host` stays green. Already in the workspace lockfile.
-markdown = "1.0"
+# No `markdown` here: the walk a plan's block ids are assigned over is `ubiq_proto::blocks`, shared
+# with the interface so the host's index and the window's optimistic cache split a document by the
+# same rules (T-114). `plan::blocks` matches ids on top of it and parses nothing itself.
 
 [features]
 default = ["full"]

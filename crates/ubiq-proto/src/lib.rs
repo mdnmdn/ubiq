@@ -11,6 +11,9 @@
 //!
 //! - `messages`: the message set, serialisable by construction
 //! - `assist`: whether a suggestion can be asked for, and what one names
+//! - `blocks`: splitting a markdown document into the blocks an annotation anchors to — shared
+//!   logic rather than a message, because the host's index and the window's optimistic cache have
+//!   to split a document identically and neither half may depend on the other
 //! - `connectors`: an authenticated identity at an external service, and the providers there are
 //! - `drone`: resolving and hash-pinning a cross-built `ubiq-drone` binary for deployment —
 //!   shared because `crates/ubiq` dials, probes and now deploys a drone directly, never through
@@ -36,6 +39,7 @@
 pub mod acp;
 pub mod ask;
 pub mod assist;
+pub mod blocks;
 pub mod bus;
 pub mod carrier;
 pub mod connectors;

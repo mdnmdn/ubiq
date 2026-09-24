@@ -2136,6 +2136,7 @@ fn a_tool(ui: &Client, name: &str, command: &str, single_instance: bool) -> Tool
             wait_on_exit: false,
             wait_on_error: false,
             single_instance,
+            starting_folder: None,
         }],
         ..Default::default()
     };
@@ -2207,4 +2208,66 @@ fn a_single_instance_tool_is_refused_a_second_pane() {
     ui.send(Message::CloseWorkspace { pane_id: first });
     let again = run_tool(&ui, project_id, id).expect("the run after the close started");
     assert_ne!(again, first);
+}
+
+/// Put one machine-wide tool in the host settings layer with a starting folder of its own, and
+/// answer its id.
+fn a_tool_starting_at(ui: &Client, name: &str, command: &str, folder: &std::path::Path) -> ToolId {
+    let id = ToolId::generate();
+    let settings = HostSettings {
+        tools: vec![ToolDef {
+            id,
+            name: name.to_string(),
+            command: command.to_string(),
+            args: String::new(),
+            env: Default::default(),
+            platforms: Vec::new(),
+            wait_on_exit: false,
+            wait_on_error: false,
+            single_instance: false,
+            starting_folder: Some(folder.to_string_lossy().into_owned()),
+        }],
+        ..Default::default()
+    };
+    ui.send(Message::SetSettings {
+        layer: SettingsLayer::Host,
+        value: serde_json::to_string(&settings).unwrap(),
+    });
+    id
+}
+
+/// A row naming its own starting folder runs there instead of the project's — even a folder
+/// outside the project entirely, since the setting is an absolute path rather than one resolved
+/// against the project's root.
+#[test]
+fn a_tool_with_a_starting_folder_runs_there_instead_of_the_project() {
+    let (_hub, ui) = coordinator();
+    let (project_id, _path) = a_project(&ui);
+    let outside = tempfile::TempDir::new().unwrap();
+    let canonical = std::fs::canonicalize(outside.path()).unwrap();
+    let id = a_tool_starting_at(&ui, "pwd", "/bin/pwd", outside.path());
+
+    run_tool(&ui, project_id, id).expect("the run started");
+    let seen = wait_for_output(&ui, &canonical.to_string_lossy());
+    assert!(
+        seen.contains(&*canonical.to_string_lossy()),
+        "said {seen:?}"
+    );
+}
+
+/// A row naming no starting folder keeps running in the project's own — the behaviour from
+/// before this field existed, unchanged for every tool that never sets it.
+#[test]
+fn a_tool_with_no_starting_folder_still_runs_in_the_project() {
+    let (_hub, ui) = coordinator();
+    let (project_id, path) = a_project(&ui);
+    let canonical = std::fs::canonicalize(&path).unwrap();
+    let id = a_tool(&ui, "pwd", "/bin/pwd", false);
+
+    run_tool(&ui, project_id, id).expect("the run started");
+    let seen = wait_for_output(&ui, &canonical.to_string_lossy());
+    assert!(
+        seen.contains(&*canonical.to_string_lossy()),
+        "said {seen:?}"
+    );
 }

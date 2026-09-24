@@ -247,7 +247,7 @@ impl RenderOnce for Picker {
                 })
                 .collect();
             trigger = trigger.child(menu_panel(
-                panel_id, anchor, rows, on_pick, on_dismiss, search, layer,
+                panel_id, anchor, rows, on_pick, None, on_dismiss, search, layer,
             ));
         }
 
@@ -345,6 +345,7 @@ fn menu_panel(
     anchor: Anchor,
     rows: Vec<PanelRow>,
     on_pick: Option<IndexedAction>,
+    on_select: Option<(SharedString, IndexedAction)>,
     on_dismiss: Option<Action>,
     search: Option<(Entity<InputState>, bool)>,
     layer: usize,
@@ -408,7 +409,7 @@ fn menu_panel(
                         item.dot
                             .map(|colour| div().size(px(7.)).flex_none().rounded_full().bg(colour)),
                     )
-                    .child(item.label);
+                    .child(div().flex_1().min_w(px(0.)).child(item.label));
                 if !is_disabled {
                     row = row
                         .cursor_pointer()
@@ -418,6 +419,36 @@ fn menu_panel(
                                 pick(ix, window, cx);
                             }
                         });
+                    // A second target, beside the toggle: points the screen at this one row
+                    // rather than narrowing the set. `stop_propagation` keeps the click off the
+                    // row's own `on_pick`, which would otherwise also fire underneath it.
+                    if let Some((tooltip, select)) = on_select.clone() {
+                        row = row.child(
+                            div()
+                                .id(("menu-row-select", ix))
+                                .size(px(20.))
+                                .flex()
+                                .flex_none()
+                                .items_center()
+                                .justify_center()
+                                .cursor_pointer()
+                                .hover(|this| this.bg(theme::hover()))
+                                .child(
+                                    Icon::new(IconName::ArrowRight)
+                                        .with_size(Size::XSmall)
+                                        .text_color(theme::text_faint()),
+                                )
+                                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                                .on_click(move |_, window, cx| {
+                                    cx.stop_propagation();
+                                    select(ix, window, cx);
+                                })
+                                .tooltip(move |window, cx| {
+                                    gpui_component::tooltip::Tooltip::new(tooltip.clone())
+                                        .build(window, cx)
+                                }),
+                        );
+                    }
                 }
                 row.into_any_element()
             })
@@ -516,6 +547,11 @@ pub struct MultiPicker {
     style: PickerStyle,
     on_toggle: Option<Action>,
     on_pick: Option<IndexedAction>,
+    /// A second click target per row, beside the one that toggles it — for a set-valued list whose
+    /// rows are also individually worth landing on, where toggling a filter and pointing the
+    /// screen at one row are two different questions. `None` is the ordinary multi-select, every
+    /// row answering only `on_pick`.
+    on_select: Option<(SharedString, IndexedAction)>,
     on_dismiss: Option<Action>,
     search: Option<(Entity<InputState>, bool)>,
     layer: usize,
@@ -535,6 +571,7 @@ impl MultiPicker {
             style: PickerStyle::Chip,
             on_toggle: None,
             on_pick: None,
+            on_select: None,
             on_dismiss: None,
             search: None,
             layer: MENU_LAYER,
@@ -592,6 +629,19 @@ impl MultiPicker {
     /// never the row's position on screen, which the selected-first order moves.
     pub fn on_pick(mut self, handler: impl Fn(usize, &mut Window, &mut App) + 'static) -> Self {
         self.on_pick = Some(Rc::new(handler));
+        self
+    }
+
+    /// A trailing icon on each row, beside the toggle, that points the screen at that one row
+    /// instead of narrowing the set — `tooltip` names what it does, since the icon carries no
+    /// label of its own. Called with the index of the row picked, in the caller's `items`
+    /// numbering, exactly as [`Self::on_pick`] is.
+    pub fn on_select(
+        mut self,
+        tooltip: impl Into<SharedString>,
+        handler: impl Fn(usize, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_select = Some((tooltip.into(), Rc::new(handler)));
         self
     }
 
@@ -671,6 +721,7 @@ impl RenderOnce for MultiPicker {
             style,
             on_toggle,
             on_pick,
+            on_select,
             on_dismiss,
             search,
             layer,
@@ -715,7 +766,7 @@ impl RenderOnce for MultiPicker {
                 })
                 .collect();
             trigger = trigger.child(menu_panel(
-                panel_id, anchor, rows, on_pick, on_dismiss, search, layer,
+                panel_id, anchor, rows, on_pick, on_select, on_dismiss, search, layer,
             ));
         }
 

@@ -32,6 +32,25 @@ dismissable notification. `--mcp-as-skill` naming an id outside the run's own in
 `--safe` naming a preset that does not exist, are still hard errors: both are a flag misused at
 the call site, not a stale reference living in a saved profile.
 
+**The permission mode degrades the same way, checked against the harness instead of the catalog.**
+`resolve` finds the `Harness` impl from `flags.harness` itself — no caller passes one in — and asks
+`Harness::accepts_mode`, which answers from the fixed `Harness::modes()` CLI enum and so spawns
+nothing. A mode the harness does not know (from `--permission-mode` or from a profile's `mode`) is
+dropped, with its near matches, onto `problems`, and the run launches on the harness's own default.
+Dropping is the safe direction: a permission mode names a default stance, and every harness's
+default asks more rather than less. Two answers are deliberately permissive — a harness whose
+`modes()` is empty (opencode, Copilot, Grok's ACP seam) has no permission-mode concept rather than
+an empty whitelist, so its value passes through unchecked, and so does the value for a harness id
+no impl answers to. Codex overrides `accepts_mode` to keep its documented `restricted` alias for
+`read-only`, which `map_sandbox_mode` accepts but `modes()` does not list.
+
+**The model is not validated at all, and that is a decision rather than a gap.** A harness's model
+list is not a fixed enum: `Harness::discover_models` shells out to the harness's own binary (Claude
+Code's runs a one-shot `claude -p`) and may need the login and the network. There is nothing to
+check against at resolve time that is both free and reliable, and a list that failed to load would
+silently drop a model that works — worse than no check. An unknown model reaches the harness, which
+is the only party that can say whether it is wrong.
+
 ## Filesystem-backed layout (CLI mode)
 
 The CLI registry is a **mixed config + folder-structure** store rooted at a path

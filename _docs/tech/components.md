@@ -170,7 +170,7 @@ and `ViewerKind` on `crates/ubiq/src/state/editor.rs` is what `body` matches on 
 bar's file-kind chip able to override it for the life of the tab. A Markdown file's header carries
 one more control on top of the layout toggle — `ui/viewer/md_options.rs`'s reading-options popover
 (T-118) — and its full-pane preview draws a heading minimap beside the text when the popover's
-`md_minimap` flag is on, both documented in `_docs/features/workbench.md`. **Two hosts ask for it**:
+`md_minimap` flag is on, both documented in `_docs/features/workbench-ide.md`. **Two hosts ask for it**:
 the IDE's
 file tabs (`crates/ubiq/src/ui/editor.rs`) and a knowledge-base document tab
 (`crates/ubiq/src/ui/kb/mod.rs`, `render_doc`). The second is what makes it a component rather than

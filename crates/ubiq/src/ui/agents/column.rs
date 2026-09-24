@@ -24,21 +24,22 @@
 //! the thread when the host answers with the agent carrying it: an interface that draws its own
 //! half of a conversation is inventing the other half too.
 //!
-//! **A column draws one of two things below its header.** An agent the host is streaming is drawn
-//! by [`crate::ui::conversation`], the one view every surface that shows a conversation shares; an
-//! agent that is a record and nothing more keeps the thread and the composer below. The chrome
-//! above is the same either way, because a column is a column whichever it holds.
+//! **A column draws one thing below its header, and it is the chat panel (T-143).**
+//! [`crate::ui::conversation`] is the one view every surface that shows a conversation shares —
+//! the chat panel the Teams and IDE screens dock, the kitchen sink, and this. A column passes a
+//! different [`ConversationView`] and nothing else; it does not own a transcript, a footer or a
+//! composer of its own. It used to carry a second set of all three for an agent that was a record
+//! and nothing more, which no column could reach: `AgentsView::live` is the conversations this
+//! window holds, and a tab not in it is pruned.
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    AnyElement, App, AppContext as _, Context, ElementId, Focusable, InteractiveElement,
-    IntoElement, ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, Window,
-    div, px,
+    AnyElement, App, AppContext as _, Context, Focusable, InteractiveElement, IntoElement,
+    ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, Window, div, px,
 };
-use gpui_component::input::Textarea;
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
-use ubiq_proto::work::{AgentId, Speaker, WorkAgent};
+use ubiq_proto::work::{AgentId, WorkAgent};
 
 use crate::app::AppState;
 use crate::state::MenuId;
@@ -47,10 +48,7 @@ use crate::state::work;
 use crate::theme;
 use crate::ui::agents::DraggedTab;
 use crate::ui::conversation::{self, ConversationView};
-use crate::ui::kit::{
-    Picker, PickerStyle, field, ghost_button, harness_icon, mono, pill, progress_ring,
-    section_label,
-};
+use crate::ui::kit::{Picker, PickerStyle, mono, section_label};
 use crate::ui::work::{activity_colour, role_mark};
 use crate::ui::{eid, handler, indexed};
 
@@ -118,9 +116,13 @@ pub fn render(
         .child(strip)
         .child(header(app, agent, held.tabs.len(), work, colour));
 
-    // A live agent is drawn by the one conversation view every surface shares; a mock keeps the
-    // thread and the composer it has always had. Both are on screen at once, and which it is comes
-    // down to whether the host is streaming this agent.
+    // The one chat panel, the same one a chat tab docks on the Teams and IDE screens. What a
+    // column changes is the `ConversationView` it hands over: its own id prefix, its own composer
+    // slot, and `header: true` — the chat tab draws the same lifecycle row from its own toolbar
+    // instead, so that it can put a chevron on it.
+    //
+    // A column whose agent has no conversation is a frame out of date, not a state: the tab is
+    // pruned on the next `WorkList`. So it says that, rather than drawing a second transcript.
     match app.conversation(agent.id, cx) {
         Some(live) => root
             .child(conversation::render(
@@ -138,9 +140,12 @@ pub fn render(
             ))
             .into_any_element(),
         None => root
-            .child(thread(app, agent.id, cx))
-            .child(footer(agent))
-            .child(composer(app, column, slot, window, cx))
+            .child(crate::ui::empty::empty_page(
+                "No conversation",
+                "This window is not holding a conversation for this agent any more.",
+                IconName::CircleX,
+                None,
+            ))
             .into_any_element(),
     }
 }
@@ -406,197 +411,6 @@ fn header(
                 .child(
                     mono(place.join(" \u{b7} "), theme::text_muted())
                         .text_size(theme::font(theme::Family::Conversation, theme::Role::Label)),
-                ),
-        )
-        .into_any_element()
-}
-
-/// What has been said to and by this agent, oldest first.
-fn thread(app: &AppState, id: AgentId, cx: &mut Context<AppState>) -> AnyElement {
-    let Some(agent) = app.work(cx).and_then(|work| work.agent(id)) else {
-        return div().into_any_element();
-    };
-
-    let turns: Vec<AnyElement> = agent
-        .thread
-        .iter()
-        .map(|turn| match turn.from {
-            // What the user said sits in the accent, the way the chat panel draws the same thing.
-            Speaker::You => div()
-                .pl_6()
-                .child(
-                    div()
-                        .p_2()
-                        .bg(theme::accent_soft())
-                        .border_l(px(theme::accent_edge()))
-                        .border_color(theme::accent())
-                        .text_size(theme::font(theme::Family::Conversation, theme::Role::Body))
-                        .text_color(theme::text())
-                        .child(SharedString::from(turn.text.clone())),
-                )
-                .into_any_element(),
-            Speaker::Agent => div()
-                .p_2()
-                .bg(theme::surface())
-                .text_size(theme::font(theme::Family::Conversation, theme::Role::Body))
-                .text_color(theme::text())
-                .child(SharedString::from(turn.text.clone()))
-                .into_any_element(),
-        })
-        .collect();
-
-    div()
-        .id(eid("agents-thread", id))
-        .flex()
-        .flex_col()
-        .flex_1()
-        .min_h(px(0.))
-        .px_3()
-        .py_2()
-        .gap_2()
-        .overflow_y_scroll()
-        .children(turns)
-        .child(
-            div()
-                .pt_1()
-                .text_size(theme::font(theme::Family::Conversation, theme::Role::Label))
-                .text_color(theme::text_faint())
-                .child(
-                    "Nothing is listening yet \u{2014} what you send reaches the host and no agent \
-                     answers it.",
-                ),
-        )
-        .into_any_element()
-}
-
-/// What the host said about the harness behind this column: which one it is, which model, and how
-/// much of the context window is gone.
-///
-/// There is no mode chip. A harness's mode is not on the record, and a chip reading the chat
-/// panel's selection would be reporting a setting that has nothing to do with this agent.
-fn footer(agent: &WorkAgent) -> AnyElement {
-    // Each pill is drawn only where the record has something to put in it. A pill is a box with
-    // a border, so an empty string still draws — a small box saying nothing, which reads as a
-    // value the interface failed to show rather than one the harness has not reported.
-    let mut row = div()
-        .px_3()
-        .py_1p5()
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap_1p5()
-        .border_t_1()
-        .border_color(theme::border());
-
-    if !agent.harness.is_empty() {
-        row = row.child(
-            pill(theme::accent()).h(px(22.)).px_2().child(
-                Icon::new(harness_icon(&agent.harness))
-                    .with_size(Size::XSmall)
-                    .text_color(theme::text()),
-            ),
-        );
-    }
-    // Which identity it runs as, chosen when it started and not changeable after.
-    if !agent.account.is_empty() {
-        row = row.child(
-            pill(theme::border()).h(px(22.)).px_2().child(
-                mono(agent.account.clone(), theme::text_muted())
-                    .text_size(theme::font(theme::Family::Conversation, theme::Role::Meta)),
-            ),
-        );
-    }
-    if !agent.model.is_empty() {
-        row = row.child(
-            pill(theme::border()).h(px(22.)).px_2().child(
-                mono(agent.model.clone(), theme::text())
-                    .text_size(theme::font(theme::Family::Conversation, theme::Role::Meta)),
-            ),
-        );
-    }
-
-    row.child(div().flex_1().min_w(px(0.)))
-        .child(progress_ring(agent.context_pct, 12.))
-        .child(
-            mono(
-                format!("{} ctx", work::tokens_label(agent)),
-                theme::text_muted(),
-            )
-            .text_size(theme::font(theme::Family::Conversation, theme::Role::Meta)),
-        )
-        .into_any_element()
-}
-
-/// The field that steers this column, addressed at whatever tab is in front.
-///
-/// The textarea is the window's — one per column slot, from a fixed pool — and what is typed is
-/// mirrored onto the project's drafts by the subscription that owns it. The placeholder names the
-/// agent, and is set when the column opens or changes tab.
-fn composer(
-    app: &AppState,
-    column: usize,
-    slot: usize,
-    window: &Window,
-    cx: &mut Context<AppState>,
-) -> AnyElement {
-    let Some(input) = app.column_inputs.get(slot).cloned() else {
-        return div().into_any_element();
-    };
-    let can_send = app
-        .agents(cx)
-        .is_some_and(|agents| !agents.draft(slot).trim().is_empty());
-    let focused = input.read(cx).focus_handle(cx).is_focused(window);
-
-    field(theme::accent(), focused)
-        .flex_none()
-        .flex_col()
-        .items_stretch()
-        .child(
-            div()
-                .id(("agents-composer", column))
-                .px_3()
-                .pt_2()
-                .cursor_text()
-                .child(
-                    Textarea::new(&input)
-                        .appearance(false)
-                        .bordered(false)
-                        .w_full()
-                        .text_size(theme::font(theme::Family::Conversation, theme::Role::Body)),
-                )
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    let input = this.column_inputs[slot].clone();
-                    input.update(cx, |state, cx| state.focus(window, cx));
-                })),
-        )
-        .child(
-            div()
-                .px_2()
-                .pb_2()
-                .pt_1()
-                .flex()
-                .items_center()
-                .gap_2()
-                .child(
-                    mono(
-                        "\u{23ce} send \u{b7} \u{21e7}\u{23ce} newline",
-                        theme::text_faint(),
-                    )
-                    .text_size(theme::font(theme::Family::Conversation, theme::Role::Micro)),
-                )
-                .child(div().flex_1().min_w(px(0.)))
-                .child(
-                    ghost_button(
-                        ElementId::Name(format!("agents-send-{slot}").into()),
-                        Some(IconName::ArrowUp),
-                        "Send",
-                        cx.listener(move |this, _, window, cx| this.steer_column(slot, window, cx)),
-                    )
-                    .text_color(if can_send {
-                        theme::accent()
-                    } else {
-                        theme::text_faint()
-                    }),
                 ),
         )
         .into_any_element()

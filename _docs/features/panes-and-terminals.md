@@ -5,7 +5,7 @@ kind: feature
 status: draft
 summary: What a pane shows, how exactly one of them holds focus, how a resize reaches the harness, and how a pane is moved around the window's dock.
 read_when: you are changing where a pane sits, pane focus, resize, pane chrome, or how terminal bytes reach the screen
-updated: 2026-09-20
+updated: 2026-09-24
 verified: 2026-09-24
 code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/editor.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/new_pane_menu.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/tools.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/tests/coordinator.rs, crates/ubiq-host/src/pty/mod.rs, crates/ubiq-host/src/shells.rs, vendor/gpui-terminal/src/view.rs, vendor/gpui-terminal/src/render.rs, vendor/gpui-terminal/src/input.rs, vendor/gpui-terminal/src/mouse.rs, vendor/gpui-terminal/src/clipboard.rs, vendor/gpui-terminal/src/event.rs, vendor/gpui-terminal/src/terminal.rs]
 depends_on: [tech-transport]
@@ -447,7 +447,7 @@ The paths through the two halves, in call order:
 | What the user does | ui → state → orchestrator → pty |
 |---|---|
 | Opens a pane | `spawn_pane()` sends `SpawnWorkspace`, or does nothing when the window holds no project; the coordinator looks the record up, probes its folder, resolves the working directory, then `pty::spawn` opens a pseudo-terminal and starts the child, and the answer `WorkspaceSpawned` reaches `open_pane()`, which routes on its `project_id`, builds the emulator and queues a `PanelEdit::Open`; `settle_panels()` puts the panel in the region terminals live in on the next frame, because a panel reaches the dock through a window and a message does not come with one |
-| Runs a tool | `run_tool()` asks for the pane region through `reveal_pane_region()`, then sends `RunTool` with the row's scope and id; the coordinator resolves the row, spawns its command, arguments and environment in the project's folder, and the answer `WorkspaceSpawned` carries the tool's name, its wait flag and its `ToolRun`, which `open_pane()` numbers onto the tab and keeps on the pane |
+| Runs a tool | `run_tool()` asks for the pane region through `reveal_pane_region()`, then sends `RunTool` with the row's scope and id; the coordinator resolves the row, spawns its command, arguments and environment in the project's folder — or in the row's own `starting_folder` instead, when it names one — and the answer `WorkspaceSpawned` carries the tool's name, its wait flag and its `ToolRun`, which `open_pane()` numbers onto the tab and keeps on the pane |
 | Restarts a stopped tool | `restart_pane_tool()` runs `close_pane()` and then `run_tool()` on the pane's own `ToolRun`, in that order, so a `single_instance` row's claim is released before the second run asks for it |
 | Types | the emulator writes into `PaneInput`, which posts `TerminalInput`; the coordinator finds the pane's `Pty` and writes to the pseudo-terminal |
 | Watches output | `Pty::forward_output` puts a reader thread on the pseudo-terminal, sending `TerminalOutput` in fixed chunks; `receive()` hands the bytes to the pane's output sender, and the emulator reads them |
@@ -491,7 +491,8 @@ stalled reader stalls the harness.
 ## Related docs
 
 - [`sessions-and-workspaces.md`](./sessions-and-workspaces.md) — what a pane is a view of
-- [`workbench.md`](./workbench.md) — the dock a pane's panel sits in, where it may sit, and the agents screen's tab, whose close benches an agent instead
+- [`workbench.md`](./workbench.md) — the dock a pane's panel sits in, and where it may sit
+- [`workbench-agents.md`](./workbench-agents.md) — the agents screen's tab, whose close benches an agent instead
 - [`../tech/transport-contract.md`](../tech/transport-contract.md) — the message set, in full
 - [`../tech/ui-and-design.md`](../tech/ui-and-design.md) — the tokens and the chrome conventions
 - [`../tech/architecture.md`](../tech/architecture.md) — why the UI holds no pseudo-terminal

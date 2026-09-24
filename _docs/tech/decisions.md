@@ -3650,7 +3650,7 @@ the whole reason this is `D30`'s first exception rather than a quiet workaround 
 gitignored sidecar would still be invisible to everyone but the machine that wrote it, exactly the
 failure the paragraph above already rejects.
 
-**Cost:** a repository acquires a file to gitignore, or to commit, which is exactly what `D30`
+**Cost:** a repository acquires a file to commit, which is exactly what `D30`
 existed to avoid; and the two sidecar spellings have to be remembered. In plan mode annotations
 also feed the agents through `ubiq-plan`; for a file document they only sit there until a later
 card gives them a reader.
@@ -3673,6 +3673,28 @@ proved by a `cargo tree` grep for a `gpui` crate rather than by the compile alon
 **Cost:** `check`'s `ubiq-studio-app` line has to name `--features ui,quickjs` explicitly, because
 `--no-default-features` there is `assist-apple`'s escape hatch (`T-34`) and would otherwise
 silently become a headless type-check that leaves the interface unchecked.
+
+### D163 — Logic both halves must agree on exactly may live in `ubiq-proto`, beside the messages and not as one
+
+`crates/ubiq-proto` is the contract, and the reflex is that only things that cross the bus belong
+in it. The block walk broke that reflex: the host splits a saved document into blocks to index them
+(`plan::blocks::match_blocks`) and the window splits an edited section the same way to patch its own
+cache ahead of the host's answer (`state::document::parse_section_blocks`). The two are not talking
+to each other — neither result crosses the bus — but they have to produce the *same* split, because
+a cache built by different rules than the index disagrees with it on screen and says nothing. It
+was two copies, character for character identical, and staying that way by luck (`T-114`).
+
+**Shared logic goes in `ubiq-proto`, in its own module, when both halves must agree on the answer
+and neither may depend on the other.** `blocks.rs` is the walk; `plan/blocks.rs` keeps the id
+matching, which is the host's alone, and re-exports the walk so its callers name one module. The
+test is *must they agree*, not *does it cross*: a helper only one half calls stays in that half, and
+this is a module beside `messages.rs`, never a variant in it.
+
+**Cost:** the contract crate gains a dependency — `markdown` — and with it a reason for a build
+break in a crate that had almost none. Both halves carried it before this, so the move costs no
+compile time and `ubiq-host` dropped its own direct copy of the dependency; but the rule is a
+door, and a second `just`-checked boundary (nothing here draws, nothing here touches disk) is what
+keeps it narrow.
 
 ## Related docs
 

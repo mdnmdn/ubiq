@@ -38,7 +38,7 @@ for a further one is in `reference/recipe.md`.
 | Touching the bundle fetch or the messages around it | `_docs/tech/transport-contract.md`, the web asset family |
 | Touching the server, the routes or the CSP | `_docs/wip/web-panel-phase2.md`, `_docs/wip/web-panel-phase45.md` |
 | Touching the bundle mirror or the manifest | `_docs/wip/web-panel-phase3.md` |
-| Touching the loader, the header or the `Edit` layout | `_docs/wip/web-panel-phase6.md`, `_docs/features/workbench.md` |
+| Touching the loader, the header or the `Edit` layout | `_docs/wip/web-panel-phase6.md`, `_docs/features/workbench-ide.md` |
 | Restyling anything on screen | `_docs/tech/ui-and-design.md`, plus the `ubiq-ui` skill |
 
 Your change updates the documents it touched, in the same commit. `just docs-touched` names them.

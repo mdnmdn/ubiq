@@ -256,6 +256,11 @@ pub enum MenuId {
     /// not exist yet and the swatch to give it. A menu rather than a pill row, because unlike a
     /// kind the list is as long as the project's own vocabulary and it grows.
     TaskLabels,
+    /// The board toolbar's tags filter: which labels a card must carry every one of. A
+    /// `kit::MultiPicker` rather than the pill row it replaces, the same swap `TeamsBuckets` made —
+    /// its own id because `TaskLabels` names the task panel's own `+`, a different question on a
+    /// different surface.
+    BoardLabels,
     /// The task panel's parent breadcrumb: which eligible task to belong to, or none.
     TaskParent,
     /// The task panel's reference `+`: which other task to link as a reference.
@@ -331,6 +336,11 @@ pub enum MenuId {
     /// several values are on at once, and four pills were four controls saying what one summary
     /// says. Its own id because the row's other two filters are not menus at all.
     TeamsBuckets,
+    /// The Teams toolbar's sessions filter — several projects at once under the window span, one
+    /// project's own sessions under the project span. The same `kit::MultiPicker` shape as
+    /// `TeamsBuckets`, for the same reason: a row of chips was several controls saying what one
+    /// summary now does.
+    TeamsSessions,
     /// One conversation's three-dots lifecycle menu (Stop, Unload, Resume, Delete), by the agent
     /// it belongs to — several conversations can be on screen at once, each with its own. Where
     /// it opened is `WorkbenchState::conversation_menu`.

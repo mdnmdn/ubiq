@@ -31,12 +31,11 @@ use crate::state::sink::{CHOICES, FACETS, MENU_ITEMS, SinkModal};
 use crate::theme;
 use crate::ui::kit::{
     ContextItem, MdNavEntry, MinimapMark, MinimapTick, MinimapViewport, MultiPicker, Picker,
-    PickerStyle, RIBBON_SIZE,
-    RibbonCorner, Tab, badge, card, check_box, choice_pill, colour_picker, context_panel,
-    disclosure, file_row, filter_bar, ghost_button, hint_row, icon_button, kind_icon, label_hint,
-    md_navigator, meter, minimap, mono, panel_header, pill, primary_button, progress_ring,
-    progress_ring_pair, removable_tag, ribbon, row_font, section_label, slab, state_chip,
-    status_dot, stepper, tab_strip, tag, toggle_pill, view_switch,
+    PickerStyle, RIBBON_SIZE, RibbonCorner, Tab, badge, card, check_box, choice_pill,
+    colour_picker, context_panel, disclosure, file_row, filter_bar, ghost_button, hint_row,
+    icon_button, kind_icon, label_hint, md_navigator, meter, minimap, mono, panel_header, pill,
+    primary_button, progress_ring, progress_ring_pair, removable_tag, ribbon, row_font,
+    section_label, slab, state_chip, status_dot, stepper, tab_strip, tag, toggle_pill, view_switch,
 };
 use crate::ui::kit::{Slider, UbiqIcon};
 use crate::ui::{handler, hsv, indexed, scrub};
@@ -531,7 +530,13 @@ fn controls(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                         MinimapMark::new(0.4, 0.03, 0.5, true, theme::border()),
                         MinimapMark::new(0.44, 0.03, 0.7, true, theme::border()),
                         MinimapMark::new(0.48, 0.03, 0.4, true, theme::border()),
-                        MinimapMark::new(0.58, 0.08, 0.55, false, theme::fade(theme::text_faint(), 0.5)),
+                        MinimapMark::new(
+                            0.58,
+                            0.08,
+                            0.55,
+                            false,
+                            theme::fade(theme::text_faint(), 0.5),
+                        ),
                         MinimapMark::new(0.7, 0.03, 0.9, false, theme::text_faint()),
                         MinimapMark::new(0.74, 0.03, 0.65, false, theme::text_faint()),
                     ],

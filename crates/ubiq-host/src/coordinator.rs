@@ -5322,8 +5322,9 @@ impl Coordinator {
 
         // A pane runs in a project's folder, so everything about that folder is settled before
         // a pseudo-terminal exists — the same gate a shell spawn walks through, which refuses
-        // with `ProjectError` itself when the folder is gone.
-        let cwd = match self.resolve_cwd(client, project_id, None) {
+        // with `ProjectError` itself when the folder is gone. A row's own `starting_folder`
+        // overrides that resolution outright, unset leaves it exactly as it always was.
+        let cwd = match self.resolve_tool_cwd(client, project_id, &tool) {
             Some(cwd) => cwd,
             None => return,
         };
@@ -5709,6 +5710,41 @@ impl Coordinator {
                 }
             },
         }
+    }
+
+    /// The folder a tool run starts in: its own `starting_folder` when the row names one and it
+    /// still holds up, [`Self::resolve_cwd`]'s own resolution — the project's root — otherwise.
+    /// An unset or blank `starting_folder` changes nothing about today's behaviour.
+    ///
+    /// A folder gone missing or unreadable answers `ToolError` rather than `refuse_spawn`'s
+    /// `ProjectError`: the project itself is fine, it is the row's own setting that no longer
+    /// resolves.
+    fn resolve_tool_cwd(
+        &mut self,
+        client: ClientId,
+        project_id: ProjectId,
+        tool: &ToolDef,
+    ) -> Option<PathBuf> {
+        let Some(folder) = tool
+            .starting_folder
+            .as_deref()
+            .filter(|folder| !folder.is_empty())
+        else {
+            return self.resolve_cwd(client, project_id, None);
+        };
+        let path = PathBuf::from(folder);
+        let health = health::probe(&path);
+        if !health.is_ok() {
+            let reason = match &health {
+                ProjectHealth::Missing => format!("{folder} is not there"),
+                ProjectHealth::NotADirectory => format!("{folder} is not a folder"),
+                ProjectHealth::Unreadable(reason) => reason.clone(),
+                ProjectHealth::Ok => unreachable!("the branch above tested for this"),
+            };
+            self.tool_error(client, Some(project_id), reason);
+            return None;
+        }
+        Some(path)
     }
 
     /// Say why a pane was not started, and re-probe when the folder itself is the reason.

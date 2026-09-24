@@ -254,7 +254,7 @@ impl AppState {
             return;
         };
         let source = state.read(cx).value().to_string();
-        let Some(mark) = crate::ui::viewer::markdown::heading_marks(&source)
+        let Some(mark) = crate::ui::viewer::markdown::heading_marks(key, &source)
             .get(index)
             .map(|m| m.fraction)
         else {

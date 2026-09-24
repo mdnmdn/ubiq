@@ -22,7 +22,7 @@ account, isolate, io    bridge and maps its events    draws it; chat + agents co
 |---|---|
 | Launching a harness, or touching accounts / profiles / skills / MCP servers | `_docs/tech/agent-manager.md`, then `crates/agent-manager/_docs/` |
 | Changing a chat tab, its attachment, or the start-or-attach control | `_docs/features/chat.md` |
-| Changing the agents screen — columns, tabs, the bench | `_docs/features/workbench.md` |
+| Changing the agents screen — columns, tabs, the bench | `_docs/features/workbench-agents.md` |
 | Adding or changing a message | `_docs/tech/transport-contract.md` |
 | Session / workspace lifecycle | `_docs/features/sessions-and-workspaces.md` |
 

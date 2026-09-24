@@ -18,7 +18,7 @@ use crate::state::settings::{ToolEditScope, ToolEditor};
 use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::kit::{
-    check_box, choice_pill, field, ghost_button, heading, icon_button, label_block, mono,
+    check_box, choice_pill, elided, field, ghost_button, heading, icon_button, label_block, mono,
     primary_button,
 };
 
@@ -317,6 +317,66 @@ fn editor_form(
                 .gap_1()
                 .flex_wrap()
                 .children(platforms),
+        );
+
+    form = form
+        .child(label_block(
+            "Starting folder",
+            "Where this runs instead of the project's own folder. Chosen on the machine the \
+             host runs on — not this one, unless they are the same machine — and free to name \
+             anywhere, inside the project or out of it.",
+        ))
+        .child(
+            div()
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap_1()
+                .w(px(320.))
+                .child(
+                    div()
+                        .flex()
+                        .flex_1()
+                        .min_w(px(0.))
+                        .h(px(26.))
+                        .px_2()
+                        .items_center()
+                        .bg(theme::surface())
+                        .border_l(px(theme::accent_edge()))
+                        .border_color(theme::border())
+                        .child(match &editor.starting_folder {
+                            Some(folder) => elided(
+                                format!("{prefix}-starting-folder-path"),
+                                folder.clone(),
+                                theme::text(),
+                                theme::font(Family::Chrome, Role::Label),
+                            )
+                            .into_any_element(),
+                            None => div()
+                                .text_size(theme::font(Family::Chrome, Role::Label))
+                                .text_color(theme::text_faint())
+                                .child("The project's own folder")
+                                .into_any_element(),
+                        }),
+                )
+                .child(icon_button(
+                    ElementId::Name(format!("{prefix}-starting-folder-browse").into()),
+                    IconName::FolderOpen,
+                    false,
+                    cx.listener(|this, _, window, cx| {
+                        this.browse_tool_starting_folder(window, cx);
+                    }),
+                ))
+                .when(editor.starting_folder.is_some(), |row| {
+                    row.child(icon_button(
+                        ElementId::Name(format!("{prefix}-starting-folder-clear").into()),
+                        IconName::Close,
+                        false,
+                        cx.listener(|this, _, _, cx| {
+                            this.clear_tool_starting_folder(cx);
+                        }),
+                    ))
+                }),
         );
 
     let wait = editor.wait_on_exit;

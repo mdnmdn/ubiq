@@ -24,11 +24,13 @@
 //! without content that distinguishes them, and position is at least stable: re-saving an
 //! unchanged document maps every duplicate onto itself, which is the case that actually happens.
 //!
-//! The parser is the interface's own — the `markdown` crate at `ParseOptions::gfm()`, which is
-//! what `crates/ubiq/src/ui/viewer/markdown.rs` and gpui-component's text view parse with — so a
-//! block indexed here is a block the preview draws, and the user annotates what they see.
+//! **The split itself is [`ubiq_proto::blocks`], not here** — the walk that turns a document into
+//! [`Block`]s is shared with the interface, which runs it to patch its own block cache after a
+//! section edit. Two copies of the container and kind rules is exactly the drift that would make
+//! that cache disagree with this index (T-114). What this module owns is the *matching*: what an id
+//! means across a save. [`blocks`] and [`Block`] are re-exported so a caller here names one module.
 
-use markdown::mdast::Node;
+pub use ubiq_proto::blocks::{Block, blocks};
 use ubiq_proto::ids::BlockId;
 use ubiq_proto::plan::PlanBlock;
 
@@ -36,18 +38,6 @@ use ubiq_proto::plan::PlanBlock;
 /// generous: a block whose wording was half rewritten is still the block the annotation was about,
 /// and the alternative — orphaning it — is the loud failure, not the quiet one.
 const SIMILAR: f64 = 0.5;
-
-/// One block of a parsed plan, before it has an id: what the document says now.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Block {
-    /// The mdast node kind, with a heading's depth folded in. Two blocks of different kinds never
-    /// match, so a paragraph cannot inherit a heading's id by resembling it.
-    pub kind: String,
-    /// The block's own source, trimmed: the slice of the document the parser gave it. Markdown
-    /// rather than rendered text — a fence's ``` and a heading's `#` are part of what it is, while
-    /// a list item's bullet is not, because the parser hands back the item's paragraph.
-    pub text: String,
-}
 
 /// One block of a plan as the last save indexed it — [`ubiq_proto::plan::PlanBlock`], because the
 /// index the sidecar stores and the index a window is handed are the same list. The sidecar is the
@@ -63,76 +53,6 @@ pub struct Matching {
     /// Previous ids nothing in the new document matched. Every annotation naming one of these is
     /// orphaned — flagged, kept, and shown as such.
     pub vanished: Vec<BlockId>,
-}
-
-/// The blocks of a plan, in document order.
-///
-/// Container nodes are walked through rather than emitted, so a list annotates per item and a
-/// quote per paragraph; a table is one block, because its rows are not what anyone selects. A
-/// document that will not parse has no blocks, which makes every previous block vanish rather than
-/// silently keeping an index that no longer describes the file.
-pub fn blocks(source: &str) -> Vec<Block> {
-    let Ok(ast) = markdown::to_mdast(source, &markdown::ParseOptions::gfm()) else {
-        return Vec::new();
-    };
-    let mut out = Vec::new();
-    walk(&ast, source, &mut out);
-    out
-}
-
-fn walk(node: &Node, source: &str, out: &mut Vec<Block>) {
-    if is_container(node) {
-        if let Some(children) = node.children() {
-            for child in children {
-                walk(child, source, out);
-            }
-        }
-        return;
-    }
-    let (Some(kind), Some(position)) = (kind_of(node), node.position()) else {
-        return;
-    };
-    let Some(text) = source.get(position.start.offset..position.end.offset) else {
-        return;
-    };
-    let text = text.trim();
-    if !text.is_empty() {
-        out.push(Block {
-            kind,
-            text: text.to_string(),
-        });
-    }
-}
-
-/// A node that holds blocks rather than being one.
-fn is_container(node: &Node) -> bool {
-    matches!(
-        node,
-        Node::Root(_)
-            | Node::Blockquote(_)
-            | Node::List(_)
-            | Node::ListItem(_)
-            | Node::FootnoteDefinition(_)
-    )
-}
-
-/// The kind two blocks have to share to be the same block. `None` for a node that is not
-/// block-level — phrasing inside a paragraph is never a block of its own.
-fn kind_of(node: &Node) -> Option<String> {
-    Some(match node {
-        Node::Paragraph(_) => "paragraph".to_string(),
-        // A heading's depth is part of its kind: promoting `###` to `##` is a restructure, and the
-        // similarity pass must not quietly carry an annotation across it.
-        Node::Heading(heading) => format!("heading:{}", heading.depth),
-        Node::Code(_) => "code".to_string(),
-        Node::Math(_) => "math".to_string(),
-        Node::Table(_) => "table".to_string(),
-        Node::ThematicBreak(_) => "break".to_string(),
-        Node::Html(_) => "html".to_string(),
-        Node::Definition(_) => "definition".to_string(),
-        Node::Toml(_) | Node::Yaml(_) => "frontmatter".to_string(),
-        _ => return None,
-    })
 }
 
 /// Carry the previous save's ids onto the new document's blocks. Pure: the only thing it reaches
@@ -264,19 +184,8 @@ mod tests {
         matching.blocks.iter().map(|block| block.id).collect()
     }
 
-    #[test]
-    fn a_document_splits_into_the_blocks_the_preview_draws() {
-        let source = "# Title\n\nA paragraph.\n\n- one\n- two\n\n```rust\nfn main() {}\n```\n";
-        let blocks = blocks(source);
-        let kinds: Vec<&str> = blocks.iter().map(|b| b.kind.as_str()).collect();
-        assert_eq!(
-            kinds,
-            vec!["heading:1", "paragraph", "paragraph", "paragraph", "code"],
-            "a list is walked through to its items, which are paragraphs",
-        );
-        assert_eq!(blocks[0].text, "# Title");
-        assert_eq!(blocks[4].text, "```rust\nfn main() {}\n```");
-    }
+    // What a document splits into is `ubiq_proto::blocks`' own test; what the split means across a
+    // save is below.
 
     #[test]
     fn an_empty_previous_version_mints_every_id() {

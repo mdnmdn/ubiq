@@ -39,12 +39,17 @@ impl AppState {
     /// tab yet is given one. Either way the panel is revealed, which is what brings the region back
     /// if it was closed and what focuses it if another panel was in front.
     ///
-    /// The project is the **agent's own**, read through [`Self::project_of_agent`] rather than
-    /// assumed to be the one on screen — the window span draws cards from several projects at
-    /// once, and a tab minted against the wrong one would be attached to an id its `chats` never
-    /// held.
+    /// **The tab belongs to the project on screen, whoever owns the agent** (`T-149`). A chat tab
+    /// is a *view*, not the workspace — so the one thing that has to be the active project's is
+    /// the tab, because the dock's chat leaves are exactly that project's tabs
+    /// ([`Self::sync_chat_panels`]): a tab minted into a project the window is not pointed at gets
+    /// no panel at all, and the one it already had is closed on the next settle. Under
+    /// [`crate::state::TeamsSpan::Window`] the attachment may therefore name an agent the tab's own
+    /// project does not hold, and every reader behind it resolves the agent's project for itself —
+    /// [`Self::teams_conversation`], [`Self::teams_agent`], [`Self::project_of_agent`]. Under the
+    /// project span nothing changes: the two answers are the same project.
     pub fn open_teams_agent_panel(&mut self, agent: AgentId, cx: &mut Context<Self>) {
-        let Some(project) = self.project_of_agent(agent, cx) else {
+        let Some(project) = self.project(cx) else {
             return;
         };
         let Some(open) = self.projects.get_mut(&project) else {
@@ -88,11 +93,11 @@ impl AppState {
         cx.notify();
     }
 
-    /// Draw one session's agents, or every session's. It does not move the selection: what the
-    /// right dock and the drawer report on is a separate question from what the canvas draws.
-    pub fn show_teams_session(&mut self, session: Option<SessionId>, cx: &mut Context<Self>) {
+    /// Tick one session's filter on or off. It does not move the selection: what the right dock
+    /// and the drawer report on is a separate question from what the canvas draws.
+    pub fn toggle_teams_session(&mut self, session: SessionId, cx: &mut Context<Self>) {
         if let Some(graph) = self.teams_mut(cx) {
-            graph.show_session(session);
+            graph.toggle_session(session);
         }
         cx.notify();
     }
@@ -153,6 +158,13 @@ impl AppState {
     }
 
     /// Pick an arrangement off the toolbar's dropdown, by its row in `Algo::ALL`.
+    ///
+    /// **The pick is also the new default.** `Algo::ALL` is a canvas control, not a settings-page
+    /// one, but the last arrangement the user actually chose is the one the next canvas should
+    /// open in — this project's on a restart, and any other project's the moment it opens
+    /// ([`Self::sync_projects`] and the window-span catch-up in [`Self::apply_settings`] both seed
+    /// from `ui.teams_algo`) — so a pick here writes the same field [`Self::set_teams_default_algo`]
+    /// does, through the one path an app-wide UI preference is written down.
     pub fn set_teams_layout(&mut self, index: usize, cx: &mut Context<Self>) {
         self.close_menu(cx);
         let Some(algo) = Algo::ALL.get(index).copied() else {
@@ -161,6 +173,8 @@ impl AppState {
         if let Some((graph, work)) = self.teams_over_work(cx) {
             graph.set_algo(algo, &work);
         }
+        self.workbench.settings.ui.teams_algo = algo;
+        self.remember_settings();
         cx.notify();
     }
 

@@ -257,10 +257,8 @@ fn a_column_draws_only_the_tasks_that_are_in_it() {
 #[test]
 fn the_session_pill_leaves_out_every_other_session_and_the_unstarted() {
     let f = seeded();
-    let mut board = BoardState {
-        session: Some(f.cold),
-        ..Default::default()
-    };
+    let mut board = BoardState::default();
+    board.session = Some(f.cold);
     assert_eq!(
         ids(&board.column(&f.work, Status::Backlog)),
         vec![f.parser],
@@ -289,10 +287,8 @@ fn the_session_pill_leaves_out_every_other_session_and_the_unstarted() {
 #[test]
 fn the_filter_matches_the_title_and_the_session_name_in_either_case() {
     let f = seeded();
-    let mut board = BoardState {
-        filter: "CACHE".to_string(),
-        ..Default::default()
-    };
+    let mut board = BoardState::default();
+    board.filter = "CACHE".to_string();
     assert_eq!(
         ids(&board.column(&f.work, Status::InProgress)),
         vec![f.cache]
@@ -333,10 +329,8 @@ fn the_filter_searches_the_description() {
     edit_task(&mut f.work, f.cache, |task| {
         task.description = "the eviction policy needs a rethink".to_string();
     });
-    let board = BoardState {
-        filter: "Eviction".to_string(),
-        ..Default::default()
-    };
+    let mut board = BoardState::default();
+    board.filter = "Eviction".to_string();
 
     assert!(board.matches(&f.work, f.work.task(f.cache).unwrap()));
     assert_eq!(
@@ -359,10 +353,8 @@ fn a_key_or_a_hash_narrows_the_search_to_one_field() {
         task.description = "blocked on UBQ-41, and it is flaky".to_string();
     });
     // The plain form finds both, because it reads the whole task.
-    let mut board = BoardState {
-        filter: "ubq-41".to_string(),
-        ..Default::default()
-    };
+    let mut board = BoardState::default();
+    board.filter = "ubq-41".to_string();
     assert_eq!(
         ids(&board.column(&f.work, Status::InProgress)),
         vec![f.cache, f.pane]
@@ -646,10 +638,8 @@ fn a_draft_holds_the_panel_and_is_never_refilled_from_a_record() {
 #[test]
 fn awaiting_a_new_task_selects_the_one_that_arrives_once() {
     let mut f = seeded();
-    let mut board = BoardState {
-        awaiting_new: true,
-        ..Default::default()
-    };
+    let mut board = BoardState::default();
+    board.awaiting_new = true;
 
     let first = TaskId::generate();
     task_created(

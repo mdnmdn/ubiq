@@ -128,9 +128,11 @@ profile because a saved setup has to remember what it asked for, and it is Ubiq'
 on them. `thinking` is an ordinary default, on the same terms as `model`. The profile named
 `default` is what a run with no explicit selection resolves to.
 
-**A catalog reference in a profile that resolves to nothing degrades the run rather than refusing
-it** — an mcp, skill, account or hook id nothing answers to is dropped, and named, on
-`RunSpec::problems`; see `crates/agent-manager/_docs/registry.md` for the rule and its two
+**A reference in a profile that resolves to nothing degrades the run rather than refusing
+it** — an mcp, skill, account or hook id nothing answers to, or a `mode` the harness's own
+`Harness::modes()` does not list, is dropped, and named, on
+`RunSpec::problems`; a `model`, alone among them, is passed through unchecked, because the harness
+only answers what models it serves by being spawned; see `crates/agent-manager/_docs/registry.md` for the rule and its two
 deliberate exceptions. `agent.rs` carries that list forward as `Composed::problems`, and
 `Coordinator::report_run_problems` raises it as one `NotificationRequest::warning(Family::Agents,
 …).with_category("profile")` per run, once the harness has already started — so the person who set

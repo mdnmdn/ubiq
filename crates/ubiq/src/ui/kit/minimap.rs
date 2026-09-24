@@ -169,11 +169,14 @@ pub fn minimap(
 
     let scrub_click = on_scrub.clone();
     let bounds_for_click = bounds.clone();
-    root = root.on_mouse_down(MouseButton::Left, move |event: &MouseDownEvent, window, cx| {
-        if let Some(fraction) = fraction_at(bounds_for_click.get(), event.position.y) {
-            scrub_click(fraction, window, cx);
-        }
-    });
+    root = root.on_mouse_down(
+        MouseButton::Left,
+        move |event: &MouseDownEvent, window, cx| {
+            if let Some(fraction) = fraction_at(bounds_for_click.get(), event.position.y) {
+                scrub_click(fraction, window, cx);
+            }
+        },
+    );
     let bounds_for_drag = bounds;
     root = root.on_mouse_move(move |event: &MouseMoveEvent, window, cx| {
         if !event.dragging() {

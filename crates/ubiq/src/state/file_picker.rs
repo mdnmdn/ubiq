@@ -112,6 +112,11 @@ pub enum PickerOwner {
     /// Carries no host and no path for exactly `HostProject`'s reason — `crate::app::host_browse`
     /// holds the session, and the answer is folded into the "Add source" form rather than sent.
     KbFolder,
+    /// A tool's starting folder, chosen on the machine the *host* runs on — a build or a watcher
+    /// may need to start outside the project entirely. Carries no host and no path for the same
+    /// reason `KbFolder` does not: `crate::app::host_browse` holds the session, and the answer is
+    /// folded into `crate::state::settings::ToolEditor` rather than sent anywhere until Save.
+    ToolFolder,
     /// A task's stored attachment list, which is the one picker whose answer **crosses the bus**:
     /// a conversation's attachments are folded into the prompt text and die with the draft, and a
     /// task's live on the record (`ubiq_proto::work::Attachment`). Carries the task because the

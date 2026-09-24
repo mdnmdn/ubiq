@@ -220,7 +220,11 @@ impl WorkbenchPanel {
                     .open_project(cx)
                     .and_then(|open| open.chats.iter().find(|tab| tab.id == *id))
                     .and_then(|tab| tab.attached);
-                let agent = attached.and_then(|agent| app.work(cx)?.agent(agent));
+                // The record is read through `teams_agent` rather than `work()`: the tab is the
+                // project on screen's, but under `TeamsSpan::Window` what it is attached to may
+                // be another held project's agent (`T-149`), and the active project's projection
+                // has no row for it — the tab would read "New chat" over a live conversation.
+                let agent = attached.and_then(|agent| app.teams_agent(agent, cx));
                 let label = match agent {
                     Some(agent) => app.agent_title(agent).to_string(),
                     None => "New chat".to_string(),

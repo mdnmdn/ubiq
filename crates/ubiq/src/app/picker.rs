@@ -168,6 +168,13 @@ impl AppState {
                     self.accept_kb_source_folder(path, window, cx);
                 }
             }
+            // A tool's starting folder, folded into the open editor rather than sent: the row
+            // itself is only written back on Save, same as every other field the form holds.
+            PickerOwner::ToolFolder => {
+                if let Some(path) = picked.into_iter().next() {
+                    self.accept_tool_starting_folder(path, cx);
+                }
+            }
             PickerOwner::HostProject => {
                 if let (Some(path), Some(browse)) =
                     (picked.into_iter().next(), self.host_browse.take())
@@ -733,6 +740,7 @@ impl AppState {
             // Nor here: a task keeps exactly the attachments it already carried.
             PickerOwner::HostProject
             | PickerOwner::KbFolder
+            | PickerOwner::ToolFolder
             | PickerOwner::TaskAttachment { .. } => {}
         }
         self.close_host_browse();

@@ -2019,28 +2019,36 @@ impl AppState {
             // here: the dock panel has to leave the tree too, and the composer slot has to be
             // cleared before it is handed on.
             Message::ConversationDeleted { agent_id } => {
-                let (project, open) = self
+                let open = self
                     .projects
-                    .iter_mut()
-                    .find(|(_, open)| open.conversations.contains_key(&agent_id))?;
-                let project = *project;
+                    .values_mut()
+                    .find(|open| open.conversations.contains_key(&agent_id))?;
                 open.conversations.remove(&agent_id);
                 // The row goes from the work projection, which is what the agents columns, the
                 // computed bench and a chat tab's attach list all read — so one removal takes it
                 // off every surface that could still offer it.
                 open.work.remove_agent(agent_id);
-                let watching: Vec<ChatId> = open
-                    .chats
-                    .iter()
-                    .filter(|tab| tab.attached == Some(agent_id))
-                    .map(|tab| tab.id)
-                    .collect();
                 open.agents.live = open.conversations.keys().copied().collect();
                 open.agents.prune(&open.work);
                 open.graph.absorb_new(&open.work);
                 open.teams
                     .absorb_new(&live_work(&open.work, &open.agents.live));
-                for tab in watching {
+                // **Every held project is swept, not only the owning one** (`T-149`). A tab is the
+                // project on screen's even when the Teams window span pointed it at another
+                // project's card, so the tab watching a deleted conversation may sit in a project
+                // that never held it — and a tab left attached to an id nothing answers for is the
+                // empty panel this arm exists to prevent.
+                let watching: Vec<(ProjectId, ChatId)> = self
+                    .projects
+                    .iter()
+                    .flat_map(|(id, open)| {
+                        open.chats
+                            .iter()
+                            .filter(|tab| tab.attached == Some(agent_id))
+                            .map(move |tab| (*id, tab.id))
+                    })
+                    .collect();
+                for (project, tab) in watching {
                     self.close_chat_tab_in(project, tab, cx);
                 }
                 // The asks went with the conversation, so a dialog standing on one of them has

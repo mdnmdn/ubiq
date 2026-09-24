@@ -3,8 +3,9 @@
 //!
 //! A tool is a shell row the user wrote themselves — a build, a watcher, a specific shell with
 //! flags. It travels the road a shell does: the interface lists it behind the titlebar's run
-//! control and runs it with [`Message::RunTool`], the host spawns it in the project's folder and
-//! answers [`Message::WorkspaceSpawned`] with the tool's name as the tab title's seed and the
+//! control and runs it with [`Message::RunTool`], the host spawns it in the project's folder — or
+//! in [`ToolDef::starting_folder`] instead, when the row names one — and answers
+//! [`Message::WorkspaceSpawned`] with the tool's name as the tab title's seed and the
 //! [`ToolRun`] that started it.
 //!
 //! [`Message::RunTool`]: crate::messages::Message::RunTool
@@ -64,6 +65,13 @@ pub struct ToolDef {
     /// [`Message::ToolError`]: crate::messages::Message::ToolError
     #[serde(default)]
     pub single_instance: bool,
+    /// Where this tool starts instead of the project's own folder — an absolute path, chosen
+    /// through Ubiq's own folder picker rather than typed. `None` is today's behaviour exactly:
+    /// the host resolves the project's folder the way every other pane does. Set, it overrides
+    /// that resolution outright and may name a folder outside the project entirely — a sibling
+    /// checkout, a vendored dependency, anywhere the tool needs to run from.
+    #[serde(default)]
+    pub starting_folder: Option<String>,
 }
 
 impl ToolDef {
@@ -146,6 +154,7 @@ mod tests {
             wait_on_exit: false,
             wait_on_error: false,
             single_instance: false,
+            starting_folder: None,
         }
     }
 

@@ -15,6 +15,14 @@
 //!    the rest of it from launching. `--mcp-as-skill` naming an id outside the effective mcp set,
 //!    and `--safe` naming a preset that does not exist, stay hard errors — both are a flag
 //!    misused at the call site, not a stale reference sitting in a saved profile.
+//!
+//!    The **permission mode** is checked the same way, against the harness itself rather than a
+//!    catalog: `Harness::accepts_mode` (which answers from the fixed `Harness::modes()` enum).
+//!    `resolve` finds the harness from `flags.harness`, so no caller passes one in.
+//!    The **model** is checked by nobody — `Harness::discover_models` spawns the harness binary
+//!    and may need the login and the network, so there is no list to check against here, and a
+//!    half-loaded one would drop working models. An unknown model reaches the harness, which is
+//!    the thing that can actually say whether it is wrong.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -49,7 +57,8 @@ pub struct RunFlags {
     /// `--account <id>`, if given.
     pub account: Option<String>,
     /// `--model <id>`, if given: harness-native model id to launch with.
-    /// Passed straight through to `spec.model` (no catalog lookup).
+    /// Passed straight through to `spec.model` — no lookup, and deliberately none: the harness's
+    /// model list is discovered by spawning the harness (see the module doc).
     pub model: Option<String>,
     /// `--thinking <level>`, if given: harness-native reasoning-effort level to launch with.
     /// Passed straight through to `spec.thinking` (no catalog lookup). Highest precedence, the
@@ -57,7 +66,8 @@ pub struct RunFlags {
     pub thinking: Option<String>,
     /// `--permission-mode <id>`, if given: one of the harness's fixed `modes()` ids. Highest
     /// precedence: it overrides the mode `--safe`'s preset expanded into `spec.policy`, without
-    /// touching anything else the preset set.
+    /// touching anything else the preset set. Checked against `Harness::accepts_mode`; an id the
+    /// harness does not know is dropped and reported on `RunSpec::problems`.
     pub permission_mode: Option<String>,
     /// `--hooks a,b`, if given: catalog hook ids to enable for this run.
     pub hooks: Option<Vec<String>>,
@@ -393,7 +403,6 @@ pub fn resolve(
     spec.mcps = mcps;
     spec.mcp_as_skill = mcp_as_skill;
     spec.hooks = hooks;
-    spec.problems = problems;
     // Resolve the account's captured-login content (references stay in
     // `account`; the login bytes/dir come from the store so the spec is
     // self-contained and a DB-backed store seeds the same way the FS one does).
@@ -405,23 +414,60 @@ pub fn resolve(
     };
     spec.account = account;
     spec.policy = policy;
+    // --- the permission mode: flag > profile, checked against the harness's own list ---
     // `--permission-mode` overrides only the mode a `--safe` preset expanded into `spec.policy`
     // (or creates a bare `Policy` naming just the mode, when there was none) — everything else
     // the preset set (allow/ask/deny) is untouched.
     // The profile's `mode` sits one layer below the flag, same as every other axis.
-    if let Some(mode) = flags
+    //
+    // This is the one id checked against the *harness* rather than a catalog or a store:
+    // `Harness::modes()` is a fixed CLI enum baked into the binary, so the lookup costs a struct
+    // construction and spawns nothing — the harness is found from `flags.harness`, which is why
+    // no caller had to grow an argument. An unknown mode degrades exactly like an unknown mcp
+    // id: dropped, named on `problems`, run still launches. Dropping is the safe direction —
+    // what a mode names is a *default* permission stance, and every harness's own default asks
+    // more rather than less.
+    let harness_impl = crate::harness::resolve(&flags.harness);
+    let chosen_mode: Option<(String, String)> = flags
         .permission_mode
         .clone()
-        .or_else(|| profile.as_ref().and_then(|p| p.mode.clone()))
-    {
-        spec.policy
-            .get_or_insert_with(crate::spec::Policy::default)
-            .permission_mode = Some(mode);
+        .map(|m| (m, "--permission-mode".to_string()))
+        .or_else(|| {
+            profile
+                .as_ref()
+                .and_then(|p| p.mode.clone().map(|m| (m, format!("profile '{}'", p.id))))
+        });
+    if let Some((mode, source)) = chosen_mode {
+        // No harness impl answers to this id (an embedder's own name, a typo in `--harness`):
+        // there is no list to check against, so nothing is dropped.
+        match &harness_impl {
+            Some(h) if !h.accepts_mode(&mode) => {
+                let available: Vec<String> = h.modes().into_iter().map(|m| m.id).collect();
+                problems.push(format!(
+                    "unknown permission mode '{mode}' ({source}) for harness '{}', dropped; \
+                     near matches: {}",
+                    flags.harness,
+                    suggest(&mode, &available).join(", ")
+                ));
+            }
+            _ => {
+                spec.policy
+                    .get_or_insert_with(crate::spec::Policy::default)
+                    .permission_mode = Some(mode);
+            }
+        }
     }
+    // The model is **not** checked, deliberately. The harness's model list is not a fixed enum
+    // like `modes()`: `Harness::discover_models` shells out to the harness's own binary (Claude's
+    // runs a one-shot `claude -p`) and may consult the login and the network, so it is neither
+    // free nor reliable at resolve time — and a list that failed to load would silently drop a
+    // model that works. Passing an unknown model through lets the harness say so, which is the
+    // better failure. See the module doc.
     spec.model = flags
         .model
         .clone()
         .or_else(|| profile_defaults.and_then(|d| d.model.clone()));
+    spec.problems = problems;
     spec.thinking = flags.thinking.clone();
     spec.passthrough_args = flags.passthrough_args.clone();
 
@@ -796,6 +842,171 @@ mod tests {
     }
 
     #[test]
+    fn unknown_permission_mode_in_a_profile_is_dropped_and_reported() {
+        let mut work = prof("work");
+        work.mode = Some("planr".to_string()); // typo for Claude Code's `plan`
+        let store = TestProfileStore {
+            profiles: vec![work],
+        };
+
+        let mut f = flags("claude");
+        f.profile = Some("work".to_string());
+
+        let spec = resolve(
+            &f,
+            &Settings::default(),
+            &test_registry(),
+            &EmptyAccountStore,
+            &store,
+        )
+        .expect("resolve");
+        // Dropped: no mode reached the policy, and nothing else invented one.
+        assert!(spec.policy.is_none());
+        assert_eq!(spec.problems.len(), 1);
+        assert!(
+            spec.problems[0].contains("planr") && spec.problems[0].contains("profile 'work'"),
+            "was: {}",
+            spec.problems[0]
+        );
+        // ...with the near match named.
+        assert!(
+            spec.problems[0].contains("plan"),
+            "was: {}",
+            spec.problems[0]
+        );
+    }
+
+    #[test]
+    fn unknown_permission_mode_flag_is_dropped_and_reported_without_failing_the_run() {
+        let mut f = flags("claude");
+        f.permission_mode = Some("bypass".to_string());
+
+        let spec = resolve(
+            &f,
+            &Settings::default(),
+            &test_registry(),
+            &EmptyAccountStore,
+            &EmptyProfileStore,
+        )
+        .expect("resolve");
+        assert!(spec.policy.is_none());
+        assert_eq!(spec.problems.len(), 1);
+        assert!(
+            spec.problems[0].contains("--permission-mode")
+                && spec.problems[0].contains("bypassPermissions"),
+            "was: {}",
+            spec.problems[0]
+        );
+    }
+
+    #[test]
+    fn a_safe_preset_survives_an_unknown_mode_being_dropped() {
+        let mut f = flags("claude");
+        f.safe = true;
+        f.permission_mode = Some("nope".to_string());
+
+        let mut settings = Settings::default();
+        settings.presets.insert(
+            "safe".to_string(),
+            Policy {
+                permission_mode: Some("plan".to_string()),
+                deny: vec!["Bash(rm *)".to_string()],
+                ..Default::default()
+            },
+        );
+
+        let spec = resolve(
+            &f,
+            &settings,
+            &test_registry(),
+            &EmptyAccountStore,
+            &EmptyProfileStore,
+        )
+        .expect("resolve");
+        let policy = spec.policy.expect("policy");
+        // The preset's own mode stands; only the unknown override was dropped.
+        assert_eq!(policy.permission_mode.as_deref(), Some("plan"));
+        assert_eq!(policy.deny, vec!["Bash(rm *)".to_string()]);
+        assert_eq!(spec.problems.len(), 1);
+    }
+
+    #[test]
+    fn codexs_restricted_alias_is_accepted_though_it_is_not_a_picker_mode() {
+        let mut f = flags("codex");
+        f.permission_mode = Some("restricted".to_string());
+
+        let spec = resolve(
+            &f,
+            &Settings::default(),
+            &test_registry(),
+            &EmptyAccountStore,
+            &EmptyProfileStore,
+        )
+        .expect("resolve");
+        assert_eq!(
+            spec.policy.expect("policy").permission_mode.as_deref(),
+            Some("restricted")
+        );
+        assert!(spec.problems.is_empty(), "problems: {:?}", spec.problems);
+    }
+
+    #[test]
+    fn a_harness_with_no_modes_and_an_unknown_harness_both_pass_the_mode_through() {
+        // opencode states no modes: an empty `modes()` means "no such concept", not "accepts
+        // nothing", so there is no list to validate against and nothing is dropped.
+        let mut f = flags("opencode");
+        f.permission_mode = Some("whatever".to_string());
+        let spec = resolve(
+            &f,
+            &Settings::default(),
+            &test_registry(),
+            &EmptyAccountStore,
+            &EmptyProfileStore,
+        )
+        .expect("resolve");
+        assert_eq!(
+            spec.policy.expect("policy").permission_mode.as_deref(),
+            Some("whatever")
+        );
+        assert!(spec.problems.is_empty());
+
+        // An id no harness impl answers to (an embedder's own): same answer.
+        let mut f = flags("not-a-harness");
+        f.permission_mode = Some("whatever".to_string());
+        let spec = resolve(
+            &f,
+            &Settings::default(),
+            &test_registry(),
+            &EmptyAccountStore,
+            &EmptyProfileStore,
+        )
+        .expect("resolve");
+        assert_eq!(
+            spec.policy.expect("policy").permission_mode.as_deref(),
+            Some("whatever")
+        );
+        assert!(spec.problems.is_empty());
+    }
+
+    #[test]
+    fn an_unknown_model_is_passed_through_untouched() {
+        // The counterpart to the mode tests: models are not validated here, on purpose — see
+        // the module doc. A model id no harness could serve still reaches `spec.model`.
+        let mut f = flags("claude");
+        f.model = Some("gpt-9-ultra".to_string());
+        let spec = resolve(
+            &f,
+            &Settings::default(),
+            &test_registry(),
+            &EmptyAccountStore,
+            &EmptyProfileStore,
+        )
+        .expect("resolve");
+        assert_eq!(spec.model.as_deref(), Some("gpt-9-ultra"));
+        assert!(spec.problems.is_empty());
+    }
+
+    #[test]
     fn thinking_flag_passes_through_to_spec() {
         let mut f = flags("claude");
         f.thinking = Some("high".to_string());
@@ -928,7 +1139,11 @@ mod tests {
         let spec = resolve(&f, &settings, &reg, &accounts, &EmptyProfileStore).expect("resolve");
         assert!(spec.account.is_none());
         assert_eq!(spec.problems.len(), 1);
-        assert!(spec.problems[0].contains("wrk"), "was: {}", spec.problems[0]);
+        assert!(
+            spec.problems[0].contains("wrk"),
+            "was: {}",
+            spec.problems[0]
+        );
         assert!(
             spec.problems[0].contains("work"),
             "was: {}",

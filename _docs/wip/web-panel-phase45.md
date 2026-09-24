@@ -218,4 +218,4 @@ who wants a tidy diff should not round-trip a file they did not change.
 - [`./web-panel-phase2.md`](./web-panel-phase2.md) — the origin, the token and the bridge this mounts on
 - [`./web-panel-phase3.md`](./web-panel-phase3.md) — the shared workarea and the fetch that puts the mirror there
 - [`../inbox/web-panel-proposal.md`](../inbox/web-panel-proposal.md) — §6, §7 and §8, which this builds
-- [`../features/workbench.md`](../features/workbench.md) — the viewer, its toggle and the file buffer
+- [`../features/workbench-ide.md`](../features/workbench-ide.md) — the viewer, its toggle and the file buffer

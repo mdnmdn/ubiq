@@ -1,6 +1,7 @@
 use super::remote_connect::ConnectFailure;
 use super::ssh_connect::{self, DroneState, HostCheck};
 use super::*;
+use crate::state::file_picker::PickerRequest;
 use crate::state::new_agent::{NewAgentForm, Purpose};
 use crate::state::settings::DroneStopConfirm;
 use ubiq_proto::tools::{ToolDef, parse_env};
@@ -524,7 +525,9 @@ impl AppState {
     /// **Never relayouts anything on screen.** This is the value a fresh graph seeds from
     /// ([`Self::sync_projects`], and the window-span graph's own catch-up in
     /// [`Self::apply_settings`]) — a canvas already open keeps whatever arrangement it was set to,
-    /// the toolbar's own `Picker` included.
+    /// the toolbar's own `Picker` included. The toolbar's `Picker` writes this same field on every
+    /// pick too ([`Self::set_teams_layout`]), so the settings page and "whatever I last picked on
+    /// a canvas" are the one fact, not two to keep in sync.
     pub fn set_teams_default_algo(&mut self, index: usize, cx: &mut Context<Self>) {
         self.close_menu(cx);
         let Some(algo) = crate::state::layout::Algo::ALL.get(index).copied() else {
@@ -736,6 +739,7 @@ impl AppState {
             wait_on_exit: tool.wait_on_exit,
             wait_on_error: tool.wait_on_error,
             single_instance: tool.single_instance,
+            starting_folder: tool.starting_folder.clone(),
         });
         cx.notify();
     }
@@ -765,6 +769,7 @@ impl AppState {
             wait_on_exit: editor.wait_on_exit,
             wait_on_error: editor.wait_on_error,
             single_instance: editor.single_instance,
+            starting_folder: editor.starting_folder,
         };
         match editor.scope {
             ToolEditScope::System => {
@@ -872,6 +877,67 @@ impl AppState {
             return;
         };
         editor.single_instance = !editor.single_instance;
+        cx.notify();
+    }
+
+    /// Raise **Ubiq's own** folder picker for the open tool editor's starting folder — not the
+    /// platform dialog, on `browse_kb_source_folder`'s exact reasoning: the folder may be on the
+    /// host the project runs on, not this window's own machine.
+    ///
+    /// Opens on the project's own root when the editor writes a project's own list, so navigating
+    /// out of it is the exception rather than the start; a machine-wide tool has no project to
+    /// open on, so its dialog starts wherever the host's own browse defaults to.
+    pub fn browse_tool_starting_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(editor) = self.workbench.settings.tool_editor.clone() else {
+            return;
+        };
+        let (host, start) = match editor.scope {
+            ToolEditScope::Project(project) => {
+                let host = self.bus.host_of_project(project);
+                let start = WindowRegistry::read(cx)
+                    .project(project)
+                    .map(|snap| snap.record.path.clone());
+                (host, start)
+            }
+            ToolEditScope::System => (HostRef::Local, None),
+        };
+        let label = match host {
+            HostRef::Local => "this machine".to_string(),
+            HostRef::Remote(id) => self
+                .remote_hosts()
+                .into_iter()
+                .find(|(remote, _)| *remote == id)
+                .map(|(_, label)| label)
+                .unwrap_or_else(|| "the host".to_string()),
+        };
+        self.begin_host_browse(host, label.clone(), start);
+        let request = PickerRequest::new(
+            PickerOwner::ToolFolder,
+            format!("Choose a starting folder on {label}"),
+        )
+        .kind(PickKind::Folders)
+        .count(PickerCount::Single)
+        .commit(Commit::OnButton);
+        self.open_file_picker(request, Vec::new(), PickerView::Tree, window, cx);
+    }
+
+    /// Fold the folder the picker answered with into the open tool editor. Called from
+    /// `commit_file_picker`, which is the only thing that knows a `PickerOwner::ToolFolder`
+    /// dialog has closed.
+    pub fn accept_tool_starting_folder(&mut self, path: String, cx: &mut Context<Self>) {
+        let Some(editor) = self.workbench.settings.tool_editor.as_mut() else {
+            return;
+        };
+        editor.starting_folder = Some(path);
+        cx.notify();
+    }
+
+    /// Unset the editor's starting folder, back to the project's own.
+    pub fn clear_tool_starting_folder(&mut self, cx: &mut Context<Self>) {
+        let Some(editor) = self.workbench.settings.tool_editor.as_mut() else {
+            return;
+        };
+        editor.starting_folder = None;
         cx.notify();
     }
 

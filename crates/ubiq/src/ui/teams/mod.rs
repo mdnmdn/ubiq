@@ -38,8 +38,8 @@ pub mod status;
 pub mod tasks;
 
 use gpui::{
-    AnyElement, App, ClickEvent, Context, ElementId, InteractiveElement, IntoElement,
-    ParentElement, SharedString, StatefulInteractiveElement, Styled, Window, div, px,
+    AnyElement, Context, InteractiveElement, IntoElement, ParentElement, Rgba,
+    StatefulInteractiveElement, Styled, Window, div, px,
 };
 use gpui_component::IconName;
 
@@ -51,12 +51,11 @@ use crate::state::{MenuId, TeamsSelection};
 use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::kit::{
-    MultiPicker, Picker, check_box, ghost_button, icon_button, mono, section_label, stepper,
+    MultiPicker, Picker, check_box, ghost_button, icon_button, section_label, stepper,
 };
-use crate::ui::project_face::{ProjectFace, project_face};
-use crate::ui::teams::status::project_chip;
+use crate::ui::project_face::project_face;
 use crate::ui::work::bucket_colour;
-use crate::ui::{eid, handler, indexed};
+use crate::ui::{handler, indexed};
 
 pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> impl IntoElement {
     // The screen is a view of one project's work, and the shell keeps a window with no project off
@@ -92,69 +91,96 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         .into_any_element()
 }
 
-/// The strip over the graph: which session it is drawing, which states it is showing, and how far
+/// The strip over the graph: which sessions it is drawing, which states it is showing, and how far
 /// in.
 ///
-/// Both filters clear. The session row leads with an `all` that draws every session, and a states
-/// control with nothing ticked is not filtering — so a graph emptied by a filter is always one
-/// click from being full again, and the control at the end of the row does both at once.
+/// Both filters clear. A row with nothing ticked is not filtering — so a graph emptied by a filter
+/// is always one click from being full again, and the control at the end of the row does both at
+/// once.
 ///
-/// **The two filters have different shapes because they are different questions.** A session is a
-/// choice of one, and a row of pills is the report and the control at once; the states are a set,
-/// several of them on at once, and that is a `kit::MultiPicker` — one chip saying what is ticked,
-/// a list that stays down while the user ticks a second.
+/// **The two filters are the same shape**, and both are a `kit::MultiPicker`: sessions and states
+/// are each a set, several of them on at once, so a chip saying what is ticked and a list that
+/// stays down while a second is ticked answers both. Under the window span a session *is* a
+/// project — this is the "projects" filter the toolbar reads as, and each row's dot is the owning
+/// project's tint (`T-142`).
 fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
     let (Some(work), Some(graph)) = (app.teams_work(cx), app.teams(cx)) else {
         return div().into_any_element();
     };
     let view = cx.entity();
-    // The lit pill is the one being *drawn*, not the one selected: `all` is a real state of the
-    // row, and a session can be selected while every session is on screen.
-    let showing = graph.session;
     let spanning = app.teams_span() == TeamsSpan::Window;
 
-    let all = session_pill(
-        "teams-session-all",
-        "all",
-        work.agents.len(),
-        showing.is_none(),
-        None,
-        cx.listener(|this, _, _, cx| this.show_teams_session(None, cx)),
-    );
-
-    let sessions: Vec<_> = work
+    // The sessions filter: a set, several on at once, exactly the buckets' shape below. Under the
+    // window span each session is a project's, so a dot in that project's tint is what a project
+    // chip elsewhere on this screen already carries; under the project span every session is the
+    // one project's and a dot would tell nothing apart.
+    let session_lit: Vec<usize> = work
         .sessions
         .iter()
-        .map(|session| {
-            let id = session.id;
-            let count = work.agents.iter().filter(|a| a.session == id).count();
-            // Whose session this is, read off one of its cards: a session is minted inside a
-            // project and every agent under it is that project's, so the first one answers for
-            // the row. None under the project span, where the answer is the whole canvas.
-            let project = spanning
-                .then(|| {
-                    work.agents
-                        .iter()
-                        .find(|a| a.session == id)
-                        .and_then(|a| app.project_of_agent(a.id, cx))
-                        .and_then(|project| project_face(project, cx))
-                })
-                .flatten();
-            session_pill(
-                eid("teams-session", id),
-                session.name.clone(),
-                count,
-                showing == Some(id),
-                project.map(|face| (eid("teams-session-project", id), face)),
-                cx.listener(move |this, _, _, cx| {
-                    // Narrowing to a session is also picking it: the inspector reporting on one the
-                    // canvas is not drawing would be two answers to "which session".
-                    this.show_teams_session(Some(id), cx);
-                    this.select_in_teams(TeamsSelection::Session(id), cx);
-                }),
-            )
-        })
+        .enumerate()
+        .filter(|(_, session)| graph.sessions.contains(&session.id))
+        .map(|(ix, _)| ix)
         .collect();
+    let session_dots: Vec<Rgba> = if spanning {
+        work.sessions
+            .iter()
+            .map(|session| {
+                work.agents
+                    .iter()
+                    .find(|a| a.session == session.id)
+                    .and_then(|a| app.project_of_agent(a.id, cx))
+                    .and_then(|project| project_face(project, cx))
+                    .map(|face| face.tint)
+                    .unwrap_or_else(theme::text_faint)
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let sessions_picker = MultiPicker::new(
+        "teams-sessions",
+        if spanning {
+            "all projects"
+        } else {
+            "all sessions"
+        },
+    )
+    .items(work.sessions.iter().map(|session| session.name.clone()))
+    .dots(session_dots)
+    .selected(session_lit)
+    .open(app.workbench.open_menu == Some(MenuId::TeamsSessions))
+    .on_toggle(handler(&view, |this, _, cx| {
+        this.open_menu(MenuId::TeamsSessions, cx)
+    }))
+    .on_dismiss(handler(&view, |this, _, cx| this.close_menu(cx)))
+    // The menu stays down: narrowing to two sessions is two clicks, and a list that shut after the
+    // first would make the second a reopen. The list is read again here, exactly as it was drawn —
+    // the rule every position-matched menu in this window follows.
+    .on_pick(indexed(&view, |this, index, _, cx| {
+        let id = this
+            .teams_work(cx)
+            .and_then(|work| work.sessions.get(index).map(|session| session.id));
+        if let Some(id) = id {
+            this.toggle_teams_session(id, cx);
+        }
+    }))
+    // The row's second target: point the canvas and the tasks drawer at this one session without
+    // touching the filter (`T-146`) — ticking narrows the set, this looks at one of them.
+    .on_select(
+        if spanning {
+            "Look at just this project"
+        } else {
+            "Look at just this session"
+        },
+        indexed(&view, |this, index, _, cx| {
+            let id = this
+                .teams_work(cx)
+                .and_then(|work| work.sessions.get(index).map(|session| session.id));
+            if let Some(id) = id {
+                this.select_in_teams(TeamsSelection::Session(id), cx);
+            }
+        }),
+    );
 
     // The states filter: four values, any number of them on at once, which is what makes it the
     // one filter on this row that is a set rather than a choice. It reads `buckets` rather than
@@ -196,9 +222,8 @@ fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         .bg(theme::pane_bg())
         .border_b_1()
         .border_color(theme::border())
-        .child(section_label("Session"))
-        .child(all)
-        .children(sessions)
+        .child(section_label(if spanning { "Projects" } else { "Session" }))
+        .child(sessions_picker)
         .child(div().w(px(12.)).flex_none())
         .child(section_label("States"))
         .child(states)
@@ -362,57 +387,4 @@ fn hide_done_check(hidden: bool, cx: &mut Context<AppState>) -> impl IntoElement
                 .child("Hide done")
                 .on_click(cx.listener(|this, _, _, cx| this.toggle_teams_hide_done(cx))),
         )
-}
-
-/// One pill in the session row: a name, how many agents are under it, and whether it is the one
-/// being drawn. `all` is one of these rather than a control of its own, because it answers the same
-/// question the others do.
-/// Under the window span it leads with the project's chip: two projects can name a session the
-/// same thing, and a row of bare names would be two pills that look like one.
-fn session_pill(
-    id: impl Into<ElementId>,
-    label: impl Into<SharedString>,
-    count: usize,
-    active: bool,
-    project: Option<(ElementId, ProjectFace)>,
-    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-) -> AnyElement {
-    div()
-        .id(id)
-        .h(px(26.))
-        .px_2()
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap_1p5()
-        .bg(if active {
-            theme::accent_soft()
-        } else {
-            theme::pane_bg()
-        })
-        .border_l(px(theme::accent_edge()))
-        .border_color(if active {
-            theme::accent()
-        } else {
-            theme::border()
-        })
-        .cursor_pointer()
-        .hover(|this| this.bg(theme::hover()))
-        .children(project.map(|(chip, face)| project_chip(chip, &face, 1.0).into_any_element()))
-        .child(
-            div()
-                .text_size(theme::font(Family::Chrome, Role::Label))
-                .text_color(if active {
-                    theme::text()
-                } else {
-                    theme::text_muted()
-                })
-                .child(label.into()),
-        )
-        .child(
-            mono(format!("{count}"), theme::text_faint())
-                .text_size(theme::font(Family::Chrome, Role::Meta)),
-        )
-        .on_click(on_click)
-        .into_any_element()
 }

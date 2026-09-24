@@ -46,12 +46,19 @@ pub fn render(
 /// if it is attached to nothing. Read once by [`render`] and handed to both the toolbar and the
 /// body, so the two never disagree about which conversation (and which glyph, which menu) the tab
 /// is showing.
+///
+/// **The tab is the project on screen's; the conversation need not be** (`T-149`). A card picked
+/// on the Teams canvas under [`crate::state::TeamsSpan::Window`] attaches the active project's tab
+/// to an agent another held project owns, so the record is read through
+/// [`AppState::teams_conversation`], which resolves the agent's own project. Under the project
+/// span that is the same answer [`AppState::conversation`] gave.
 fn attached<'a>(app: &'a AppState, id: ChatId, cx: &App) -> Option<(&'a Conversation, usize)> {
     let tab = app
         .open_project(cx)
         .and_then(|open| open.chats.iter().find(|tab| tab.id == id).copied())?;
     let agent = tab.attached?;
-    app.conversation(agent, cx).map(|conv| (conv, tab.slot))
+    app.teams_conversation(agent, cx)
+        .map(|conv| (conv, tab.slot))
 }
 
 /// The attached conversation, or a note saying there is nothing to draw.

@@ -990,6 +990,21 @@ pub trait Harness {
     fn unattended_mode(&self) -> Option<&'static str> {
         None
     }
+    /// Whether this harness would understand `mode` as a permission mode — the question
+    /// [`crate::resolve::resolve`] asks before letting a profile's (or a caller's) mode reach
+    /// `spec.policy`, so a stale spelling is dropped with a warning instead of failing inside
+    /// the harness.
+    ///
+    /// The default answers from [`Self::modes`], case-insensitively, and answers **true** for a
+    /// harness whose `modes()` is empty: an empty list means "this harness has no permission-mode
+    /// concept", not "it accepts nothing", and dropping a value against an unstated list would be
+    /// worse than passing it through. Override only to accept a spelling that is real but is not
+    /// a picker entry — [`Codex`]'s documented `restricted` alias is the
+    /// one case in the tree.
+    fn accepts_mode(&self, mode: &str) -> bool {
+        let modes = self.modes();
+        modes.is_empty() || modes.iter().any(|m| m.id.eq_ignore_ascii_case(mode))
+    }
     /// Build a [`LoginPlan`] to interactively log this harness into `home` (a
     /// persistent per-account dir) and capture the resulting credential file(s).
     /// Implementations may write force-file-storage config into `home` before
@@ -1172,6 +1187,28 @@ mod tests {
                     h.id()
                 );
             }
+        }
+    }
+
+    #[test]
+    fn every_harness_accepts_every_mode_it_lists_and_rejects_a_typo() {
+        for h in all() {
+            for m in h.modes() {
+                assert!(
+                    h.accepts_mode(&m.id),
+                    "{} lists mode '{}' but does not accept it",
+                    h.id(),
+                    m.id
+                );
+            }
+            // A harness that states no modes accepts anything (see `accepts_mode`); one that
+            // states some rejects a spelling that is in neither its list nor its aliases.
+            assert_eq!(
+                h.accepts_mode("definitely-not-a-mode"),
+                h.modes().is_empty(),
+                "{} answered the wrong way for an invented mode",
+                h.id()
+            );
         }
     }
 

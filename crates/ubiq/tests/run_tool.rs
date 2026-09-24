@@ -120,6 +120,7 @@ fn a_tool(name: &str, applicable: bool) -> ListedTool {
             wait_on_exit: true,
             wait_on_error: false,
             single_instance: false,
+            starting_folder: None,
         },
         applicable,
     }

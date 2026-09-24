@@ -23,8 +23,9 @@
 //! document offsets to anchor one to — and a section reports its threads in its gutter.
 
 use gpui::{
-    AnyElement, ClickEvent, Context, Entity, InteractiveElement, IntoElement, MouseButton,
-    ParentElement, ScrollHandle, SharedString, StatefulInteractiveElement, Styled, div, px,
+    AnyElement, App, ClickEvent, Context, Entity, InteractiveElement, IntoElement, ListState,
+    MouseButton, ParentElement, SharedString, StatefulInteractiveElement, Styled, Window, div,
+    list, px,
 };
 use gpui_component::input::{Input, Textarea};
 use gpui_component::{Icon, IconName, Sizable as _, Size};
@@ -57,6 +58,10 @@ const HEADER: f32 = 32.0;
 /// two actions. Wide enough for the count and both buttons, and the same width for every section
 /// so the prose keeps one measure.
 const GUTTER_WIDTH: f32 = 96.0;
+/// How far past the viewport the section list keeps sections rendered, so a scroll has something
+/// already laid out to reveal. The board's lanes use the same figure for the same reason; a
+/// section is taller than a card, so this is fewer rows than it looks.
+pub const PLAN_OVERDRAW: f32 = 600.0;
 
 /// The whole surface below whatever chrome its frame drew: the notices, then the three columns.
 ///
@@ -146,41 +151,39 @@ pub fn navigator(doc: &DocumentEditor, above_modal: bool, view: &Entity<AppState
 /// (`_docs/inbox/markdown-improvement-proposal.md` §8.2) plus one edge tick per thread, in the
 /// colour of whether it is still open, and the translucent viewport rectangle §8.3 asks for.
 ///
-/// **Real pixel offsets where they can be had.** `ScrollHandle::bounds_for_item` answers from
-/// what the preview last painted, so a block's own span down the strip is measured against the
-/// document's own layout once there has been a frame to measure — a document just opened, with
-/// nothing painted yet, falls back to spreading blocks evenly instead, which is what
-/// [`proportional_fraction`] is for. A row inside a block (several to a paragraph or a table) has
-/// no pixel position of its own even then — §8.5 rules out a second layout pass — so it is spread
-/// evenly across the block's own measured span, which is the whole reason [`MinimapRow`] carries
-/// `row_index`/`row_count` rather than a settled fraction.
+/// **The strip is block space, not pixel space** (T-150). It used to place each mark by
+/// `ScrollHandle::bounds_for_item`, which answered from what the preview had painted — but the
+/// section list is virtualized now, so the only sections with a measured height are the ones
+/// somebody has scrolled past, and there is no total document height to divide a pixel offset by.
+/// Mixing measured pixels for those against [`proportional_fraction`]'s even spread for the rest
+/// would put the two halves of the strip in different coordinate systems and make a mark jump as
+/// its block came into view. Every mark, every thread tick and the viewport rectangle are
+/// therefore placed by block index over block count, which is one space, stable from the frame
+/// the document opens in, and the same space [`AppState::scrub_plan_minimap`] reads a scrub back
+/// into.
+///
+/// What that costs is proposal §8.3's 1:1 scale for a short document — the strip always spans the
+/// whole document now — and the marks no longer being proportional to how tall a section really
+/// draws. A row inside a block (several to a paragraph or a table) never had a position of its
+/// own (§8.5 rules out a second layout pass), which is why [`MinimapRow`] carries
+/// `row_index`/`row_count`; they are spread evenly inside the block's own slice as before.
 ///
 /// [`MinimapRow`]: crate::state::document::MinimapRow
+/// [`AppState::scrub_plan_minimap`]: crate::app::AppState::scrub_plan_minimap
 fn document_minimap(app: &AppState, doc: &DocumentEditor, view: &Entity<AppState>) -> AnyElement {
     let blocks = doc.annotations.blocks();
-    let scroll = &app.plan_preview_scroll;
-    let strip_height = f32::from(scroll.bounds().size.height);
-    let content_height = strip_height + f32::from(scroll.max_offset().y);
-    // The proposal's §8.3: a short document is drawn at a real, 1:1 scale rather than stretched
-    // to fill the strip, so a one-page file looks like one page; a long one is shrunk to fit.
-    let scale = if content_height > 0.0 {
-        (strip_height / content_height).min(1.0)
-    } else {
-        1.0
-    };
+    let len = blocks.len();
 
     let rows = minimap_rows(blocks);
     let kit_marks: Vec<MinimapMark> = rows
         .iter()
         .map(|row| {
-            let (top, bottom) = block_span(scroll, content_height, row.block_index, blocks.len());
+            let (top, bottom) = block_span(row.block_index, len);
             let span = (bottom - top).max(0.0);
             let row_top = top + span * (row.row_index as f32 / row.row_count as f32);
             let row_height = span / row.row_count as f32;
-            let mm_top = (row_top * content_height * scale / strip_height.max(1.0)).clamp(0.0, 1.0);
-            let mm_height = (row_height * content_height * scale / strip_height.max(1.0)).max(0.0);
             let (colour, dotted) = mark_style(row.kind);
-            MinimapMark::new(mm_top, mm_height, row.length, dotted, colour)
+            MinimapMark::new(row_top, row_height, row.length, dotted, colour)
         })
         .collect();
 
@@ -188,26 +191,21 @@ fn document_minimap(app: &AppState, doc: &DocumentEditor, view: &Entity<AppState
     let ticks: Vec<MinimapTick> = marks
         .iter()
         .map(|mark| {
-            let (top, _) = block_span(scroll, content_height, mark.block_index, blocks.len());
-            let mm_top = (top * content_height * scale / strip_height.max(1.0)).clamp(0.0, 1.0);
+            let (top, _) = block_span(mark.block_index, len);
             let colour = if mark.open {
                 theme::info()
             } else {
                 theme::success()
             };
-            MinimapTick::new(mm_top, colour)
+            MinimapTick::new(top, colour)
         })
         .collect();
 
-    // Nothing to scroll — the whole document already fits, so there is no viewport smaller than
-    // the strip to show.
-    let viewport = (scroll.max_offset().y > px(0.)).then(|| {
-        let scrolled = f32::from(-scroll.offset().y).max(0.0);
-        MinimapViewport {
-            top: (scrolled * scale / strip_height.max(1.0)).clamp(0.0, 1.0),
-            height: scale.clamp(0.02, 1.0),
-        }
-    });
+    let viewport =
+        visible_blocks(&app.plan_preview_list, len).map(|(first, count)| MinimapViewport {
+            top: (first as f32 / len as f32).clamp(0.0, 1.0),
+            height: (count as f32 / len as f32).clamp(0.02, 1.0),
+        });
 
     minimap(
         eid("plan-minimap", doc.surface_key()),
@@ -236,37 +234,49 @@ pub(crate) fn mark_style(kind: MinimapBlockKind) -> (gpui::Rgba, bool) {
     }
 }
 
-/// A block's own vertical span down the content, `0.0..=1.0` — real pixels where
-/// `ScrollHandle::bounds_for_item` answers, [`proportional_fraction`]'s even spread otherwise.
-fn block_span(scroll: &ScrollHandle, content_height: f32, index: usize, len: usize) -> (f32, f32) {
-    let container_top = scroll.bounds().top();
-    let fraction_of = |ix: usize| -> Option<f32> {
-        (content_height > 0.0)
-            .then(|| scroll.bounds_for_item(ix))
-            .flatten()
-            .map(|bounds| (f32::from(bounds.top() - container_top) / content_height).clamp(0.0, 1.0))
-    };
-    let top = fraction_of(index).unwrap_or_else(|| proportional_fraction(index, len));
-    let bottom = if index + 1 < len {
-        fraction_of(index + 1).unwrap_or_else(|| proportional_fraction(index + 1, len))
-    } else {
-        (content_height > 0.0)
-            .then(|| scroll.bounds_for_item(index))
-            .flatten()
-            .map(|bounds| (f32::from(bounds.bottom() - container_top) / content_height).clamp(0.0, 1.0))
-            .unwrap_or(1.0)
-    };
-    (top, bottom.max(top))
+/// A block's own slice of the strip, `0.0..=1.0` — its index over the block count. See
+/// [`document_minimap`] for why this is not measured in pixels.
+fn block_span(index: usize, len: usize) -> (f32, f32) {
+    (
+        proportional_fraction(index, len),
+        proportional_fraction(index + 1, len),
+    )
 }
 
-/// A position when there is nothing painted yet to measure it against — spread evenly across the
-/// blocks, the fallback [`block_span`] needs for the frame a document opens in and nothing else.
+/// A block's own position down the strip, spread evenly across the document's blocks.
 fn proportional_fraction(index: usize, len: usize) -> f32 {
-    if len <= 1 {
+    if len == 0 {
         0.0
     } else {
-        index as f32 / (len - 1) as f32
+        (index as f32 / len as f32).clamp(0.0, 1.0)
     }
+}
+
+/// The first section on screen and how many are, or `None` when the whole document already fits
+/// and there is no viewport smaller than the strip to draw.
+///
+/// Counted off the list rather than computed: `ListState::bounds_for_item` answers for exactly
+/// the sections it rendered this frame, which is the set that is on screen plus the overdraw, so
+/// walking forward from the scroll top until a section starts below the viewport is a walk over
+/// what is already measured and nothing else.
+fn visible_blocks(list: &ListState, len: usize) -> Option<(usize, usize)> {
+    if len == 0 {
+        return None;
+    }
+    let viewport = list.viewport_bounds();
+    if viewport.size.height <= px(0.) {
+        return None;
+    }
+    let first = list.logical_scroll_top().item_ix.min(len - 1);
+    let mut count = 0usize;
+    for index in first..len {
+        match list.bounds_for_item(index) {
+            Some(bounds) if bounds.top() < viewport.bottom() => count += 1,
+            _ => break,
+        }
+    }
+    let count = count.max(1);
+    (first > 0 || count < len).then_some((first, count))
 }
 
 /// The document itself — always the preview, because there is no other view of it.
@@ -274,10 +284,7 @@ fn document(app: &AppState, doc: &DocumentEditor, cx: &mut Context<AppState>) ->
     match &doc.body {
         DocumentBody::Loading => note("Reading\u{2026}", theme::text_faint()),
         DocumentBody::Failed(reason) => note(reason.clone(), theme::danger()),
-        DocumentBody::Loaded(_) => {
-            let source = app.plan_editor.read(cx).value().to_string();
-            preview(app, doc, &source, cx)
-        }
+        DocumentBody::Loaded(_) => preview(app, doc, cx),
     }
 }
 
@@ -287,15 +294,18 @@ fn document(app: &AppState, doc: &DocumentEditor, cx: &mut Context<AppState>) ->
 ///
 /// **The sections are flush.** No card, no gap, no per-block padding: the padding belongs to the
 /// document, so what the reader sees is an ordinary markdown page with a gutter down its right.
-fn preview(
-    app: &AppState,
-    doc: &DocumentEditor,
-    source: &str,
-    cx: &mut Context<AppState>,
-) -> AnyElement {
+///
+/// **The list is virtualized** (T-150). Every section is a whole `TextView`, and drawing them all
+/// meant laying out the whole document every frame to show a screenful of it — a 400-block
+/// document cost roughly forty times what a ten-block one did, and the annotation surface got
+/// slower the longer the document was, which is the report. `gpui::list` hands the row builder
+/// below only the sections between the scroll top and the bottom of the viewport plus
+/// [`PLAN_OVERDRAW`]; everything else contributes its cached height and nothing more.
+fn preview(app: &AppState, doc: &DocumentEditor, cx: &mut Context<AppState>) -> AnyElement {
     let key = doc.surface_key();
     let blocks = doc.annotations.blocks();
     if blocks.is_empty() {
+        let source = app.plan_editor.read(cx).value().to_string();
         return div()
             .id(eid("plan-preview", &key))
             .flex_1()
@@ -303,9 +313,35 @@ fn preview(
             .min_h(px(0.))
             .overflow_y_scroll()
             .p_4()
-            .child(markdown::render(app, &key, source, false, cx))
+            .child(markdown::render(app, &key, &source, false, cx))
             .into_any_element();
     }
+
+    // A thread's "Show" button, the heading navigator and the minimap all bring a section into
+    // view by index into this list — see `AppState::plan_preview_list`.
+    let list_state = app.plan_preview_list.clone();
+    if list_state.item_count() != blocks.len() {
+        // `reset` is the only way to change a list's length, and it drops the scroll position with
+        // the measurements — so the reader's place is taken before and put back after. A block
+        // count changes when the host re-indexes the document, which is routinely *while the
+        // reader is part-way down it* (a section edit that splits a block is the common case), and
+        // being thrown back to the first line every time would be worse than the old column's
+        // cost. `AppState::open_document` resets to the top for the one case where starting over
+        // is right.
+        let at = list_state
+            .logical_scroll_top()
+            .item_ix
+            .min(blocks.len().saturating_sub(1));
+        list_state.reset(blocks.len());
+        if at > 0 {
+            list_state.scroll_to(gpui::ListOffset {
+                item_ix: at,
+                offset_in_item: px(0.),
+            });
+        }
+    }
+    let view = cx.entity();
+
     div()
         .id(eid("plan-preview", &key))
         .flex()
@@ -313,18 +349,38 @@ fn preview(
         .flex_1()
         .min_w(px(0.))
         .min_h(px(0.))
-        .overflow_y_scroll()
-        // A thread's "Show" button and the heading navigator both bring a section into view by
-        // index into these children — see `AppState::plan_preview_scroll`.
-        .track_scroll(&app.plan_preview_scroll)
         .p_4()
-        .children(
-            blocks
-                .iter()
-                .map(|block| section(app, doc, block, cx))
-                .collect::<Vec<_>>(),
+        .child(
+            list(list_state, move |index, window, cx| {
+                section_row(index, &view, window, cx)
+            })
+            .flex_1()
+            .min_h(px(0.)),
         )
         .into_any_element()
+}
+
+/// The one section `gpui::list` asked for, at the index it asked for.
+///
+/// Kept for the life of the list's `ListState` rather than for one render, so nothing here
+/// borrows a particular frame's `AppState` — the document is looked up fresh off `view`, the same
+/// shape `ui::board`'s own `render_row` takes. There is one annotated document per window
+/// (`AppState::workbench.plan`, and `DocumentEditor::surface_key`'s note), so the document the
+/// list is drawing is always that one.
+fn section_row(
+    index: usize,
+    view: &Entity<AppState>,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
+    let app = view.read(cx);
+    let Some(doc) = app.workbench.plan.as_ref() else {
+        return div().into_any_element();
+    };
+    let Some(block) = doc.annotations.blocks().get(index) else {
+        return div().into_any_element();
+    };
+    section(app, doc, block, view, window)
 }
 
 /// One section of the document: the rendered markdown, and the gutter that says what is true of
@@ -338,11 +394,12 @@ fn section(
     app: &AppState,
     doc: &DocumentEditor,
     block: &PlanBlock,
-    cx: &mut Context<AppState>,
+    view: &Entity<AppState>,
+    window: &Window,
 ) -> AnyElement {
     let block_id = block.id;
     if doc.editing_block() == Some(block_id) {
-        return section_editor(doc, block_id, cx);
+        return section_editor(doc, block_id, view, window);
     }
 
     // Marked either because a thread is being written about it, or because the rail was asked to
@@ -364,13 +421,15 @@ fn section(
         .px_1()
         .cursor_pointer()
         .hover(|this| this.bg(theme::hover()))
-        .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
-            if event.click_count() >= 2 {
-                this.begin_section_edit(block_id, window, cx);
-            } else {
-                this.compose_annotation(block_id, window, cx);
-            }
-        }));
+        .on_click(
+            window.listener_for(view, move |this, event: &ClickEvent, window, cx| {
+                if event.click_count() >= 2 {
+                    this.begin_section_edit(block_id, window, cx);
+                } else {
+                    this.compose_annotation(block_id, window, cx);
+                }
+            }),
+        );
     if selected {
         root = root.bg(theme::selected());
     }
@@ -381,7 +440,7 @@ fn section(
             .min_w(px(0.))
             .child(markdown::render_block(app, &key, &block.text)),
     )
-    .child(gutter(doc, block_id, group, cx))
+    .child(gutter(doc, block_id, group, view, window))
     .into_any_element()
 }
 
@@ -391,7 +450,8 @@ fn gutter(
     doc: &DocumentEditor,
     block_id: BlockId,
     group: SharedString,
-    cx: &mut Context<AppState>,
+    view: &Entity<AppState>,
+    window: &Window,
 ) -> AnyElement {
     let mut total = 0usize;
     let mut open = 0usize;
@@ -421,7 +481,7 @@ fn gutter(
                         eid("plan-section-annotate", block_id),
                         UbiqIcon::BoardComment,
                         false,
-                        cx.listener(move |this, _, window, cx| {
+                        window.listener_for(view, move |this, _, window, cx| {
                             this.compose_annotation(block_id, window, cx)
                         }),
                     )
@@ -435,7 +495,7 @@ fn gutter(
                         eid("plan-section-edit", block_id),
                         UbiqIcon::ToolEdit,
                         false,
-                        cx.listener(move |this, _, window, cx| {
+                        window.listener_for(view, move |this, _, window, cx| {
                             this.begin_section_edit(block_id, window, cx)
                         }),
                     )
@@ -480,7 +540,8 @@ fn thread_count(total: usize, open: usize) -> AnyElement {
 fn section_editor(
     doc: &DocumentEditor,
     block_id: BlockId,
-    cx: &mut Context<AppState>,
+    view: &Entity<AppState>,
+    window: &Window,
 ) -> AnyElement {
     let Some(edit) = doc.section_edit.as_ref() else {
         return div().into_any_element();
@@ -494,9 +555,11 @@ fn section_editor(
         // in the window answers to for "confirm this from inside a field" — `SubmitSearch` is
         // bound at the window and at the field's own depth (`app/mod.rs`), so it reaches here
         // whichever has the keyboard. Bare Enter stays a newline: a section is prose.
-        .on_action(cx.listener(move |this, _: &SubmitSearch, window, cx| {
-            this.confirm_section_edit(window, cx)
-        }))
+        .on_action(
+            window.listener_for(view, move |this, _: &SubmitSearch, window, cx| {
+                this.confirm_section_edit(window, cx)
+            }),
+        )
         .child(
             Textarea::new(&edit.input)
                 .appearance(false)
@@ -514,13 +577,15 @@ fn section_editor(
                     eid2("plan-section-cancel", block_id, "btn"),
                     None,
                     "Cancel",
-                    cx.listener(|this, _, _, cx| this.cancel_section_edit(cx)),
+                    window.listener_for(view, |this, _, _, cx| this.cancel_section_edit(cx)),
                 ))
                 .child(primary_button(
                     eid2("plan-section-confirm", block_id, "btn"),
                     Some(IconName::Check),
                     "Confirm",
-                    cx.listener(|this, _, window, cx| this.confirm_section_edit(window, cx)),
+                    window.listener_for(view, |this, _, window, cx| {
+                        this.confirm_section_edit(window, cx)
+                    }),
                 )),
         )
         .into_any_element()

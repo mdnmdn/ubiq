@@ -161,6 +161,12 @@ impl AppState {
         self.bus.send(doc.load());
         self.bus.send(doc.list_annotations());
         self.workbench.plan = Some(DocumentEditor::loading(doc, presentation));
+        // A different document starts at its own top. The surface's section list is one
+        // `ListState` for the window (`plan_preview_list`), and `ui::document::preview` only ever
+        // *re-syncs* it to a new block count — which it does while keeping the reader's place, so
+        // a section edit that splits a block does not throw them back to the first line. Opening
+        // a document is the case where keeping the place would be wrong, so it is said here.
+        self.plan_preview_list.reset(0);
         cx.notify();
     }
 
@@ -677,7 +683,7 @@ impl AppState {
             doc.thread = Some(annotation_id);
         }
         if let Some(index) = block_index {
-            self.plan_preview_scroll.scroll_to_item(index);
+            self.plan_preview_list.scroll_to_reveal_item(index);
         }
         cx.notify();
     }
@@ -715,7 +721,7 @@ impl AppState {
                 .iter()
                 .position(|block| block.id == block_id)
             {
-                self.plan_preview_scroll.scroll_to_item(block_index);
+                self.plan_preview_list.scroll_to_reveal_item(block_index);
             }
         }
         if let Some(doc) = self.workbench.plan.as_mut() {
@@ -739,26 +745,28 @@ impl AppState {
     }
 
     /// The minimap strip scrubbed or clicked, `fraction` `0.0` at its top and `1.0` at its
-    /// bottom (`kit::minimap`'s `on_scrub`) — scroll the preview so the content at that point
-    /// lands roughly centred in view. One formula serves both a click ("jump to here") and a
-    /// drag ("keep following the pointer"): every scrub recomputes the target from scratch,
-    /// there is no drag anchor to lose track of.
+    /// bottom (`kit::minimap`'s `on_scrub`) — scroll the preview to the section at that point.
+    /// One formula serves both a click ("jump to here") and a drag ("keep following the
+    /// pointer"): every scrub recomputes the target from scratch, there is no drag anchor to lose
+    /// track of.
+    ///
+    /// **The strip is block space, not pixel space** (T-150). The section list is virtualized, so
+    /// a block nobody has scrolled past has no measured height and the document has no total
+    /// height to divide a pixel offset by — the strip therefore maps a fraction onto a block
+    /// index, which is exactly what [`crate::ui::document::document_minimap`] draws its marks in.
     pub fn scrub_plan_minimap(&mut self, fraction: f32, cx: &mut Context<Self>) {
-        let scroll = self.plan_preview_scroll.clone();
-        let strip_height = f32::from(scroll.bounds().size.height);
-        let content_height = strip_height + f32::from(scroll.max_offset().y);
-        if strip_height <= 0.0 || content_height <= 0.0 {
+        let Some(doc) = self.workbench.plan.as_ref() else {
+            return;
+        };
+        let len = doc.annotations.blocks().len();
+        if len == 0 {
             return;
         }
-        let scale = (strip_height / content_height).min(1.0);
-        if scale >= 1.0 {
-            // The whole document already fits — nothing to scroll to.
-            return;
-        }
-        let target = (fraction * strip_height / scale) - strip_height / 2.0;
-        let max_scroll = (content_height - strip_height).max(0.0);
-        let target = target.clamp(0.0, max_scroll);
-        scroll.set_offset(gpui::point(scroll.offset().x, gpui::px(-target)));
+        let index = ((fraction.clamp(0.0, 1.0) * len as f32) as usize).min(len - 1);
+        self.plan_preview_list.scroll_to(gpui::ListOffset {
+            item_ix: index,
+            offset_in_item: gpui::px(0.),
+        });
         cx.notify();
     }
 

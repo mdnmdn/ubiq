@@ -1143,9 +1143,17 @@ pub struct AppState {
     /// handle because the picker is reopened fresh each time the `+` is toggled, and a shared
     /// handle would carry a stale offset in from whatever else last used it.
     pub task_reference_scroll: ScrollHandle,
-    /// The plan surface's section list — a thread's "Show" button and the heading navigator both
-    /// bring a section into view by scrolling this to its index among the document's blocks.
-    pub plan_preview_scroll: ScrollHandle,
+    /// The plan surface's section list, **virtualized** — a thread's "Show" button and the heading
+    /// navigator both bring a section into view by scrolling this to its index among the
+    /// document's blocks.
+    ///
+    /// A `ListState` rather than a `ScrollHandle` because every section is a whole `TextView`, and
+    /// an unvirtualized column laid all of them out every frame whether or not one was on screen:
+    /// a 400-block document cost two orders of magnitude more per frame than a ten-block one
+    /// (T-150). `list` hands the renderer only what is between the scroll top and the bottom of
+    /// the viewport, plus [`crate::ui::document::PLAN_OVERDRAW`], and a section off screen
+    /// contributes its cached height and nothing more.
+    pub plan_preview_list: gpui::ListState,
     /// Incremented on every filter keystroke so a debounce that lost the race does not start a
     /// walk for a query the user has already left.
     explorer_filter_gen: u64,

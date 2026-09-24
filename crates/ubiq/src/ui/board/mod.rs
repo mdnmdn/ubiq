@@ -43,16 +43,18 @@ use ubiq_proto::ids::TaskId;
 use ubiq_proto::work::{Level, Status, TaskRecord};
 
 use crate::app::AppState;
+use crate::state::MenuId;
 use crate::state::work;
 use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::eid;
 use crate::ui::empty;
 use crate::ui::kit::{
-    UbiqIcon, card, field, ghost_button, icon_button, meter, mono, pill, primary_button,
-    section_label, toggle_pill,
+    MultiPicker, UbiqIcon, card, field, ghost_button, icon_button, meter, mono, pill,
+    primary_button, section_label,
 };
 use crate::ui::work::{activity_colour, bucket_colour};
+use crate::ui::{handler, indexed};
 
 /// The task under the pointer. It carries the id alone: where the task belongs is the column's
 /// answer, not the drag's.
@@ -185,24 +187,41 @@ fn toolbar(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl 
         return div().into_any_element();
     };
 
-    // One pill per label anybody in the project has used, in the swatch that label was given. The
-    // pills narrow together rather than in turn: lighting a second one asks a narrower question.
-    let labels: Vec<AnyElement> = work
-        .labels()
-        .into_iter()
-        .map(|label| {
-            let name = label.name.clone();
-            let lit = board.is_label_on(&name);
-            toggle_pill(
-                eid("board-label", name.clone()),
-                label.name.clone(),
-                theme::project_colour(label.colour),
-                lit,
-                cx.listener(move |this, _, _, cx| this.toggle_board_label(&name, cx)),
-            )
-            .into_any_element()
-        })
+    // The tags filter: several labels on at once, and a card has to carry every one that is lit —
+    // the same set shape Teams' states filter is, so it is the same `kit::MultiPicker` rather than
+    // a second row-of-chips implementation (`T-142`). Each row's dot is the swatch that label was
+    // given, the way the pill it replaces carried it.
+    let all_labels = work.labels();
+    let view = cx.entity();
+    let labels_lit: Vec<usize> = all_labels
+        .iter()
+        .enumerate()
+        .filter(|(_, label)| board.is_label_on(&label.name))
+        .map(|(ix, _)| ix)
         .collect();
+    let tags = MultiPicker::new("board-labels", "all tags")
+        .items(all_labels.iter().map(|label| label.name.clone()))
+        .dots(
+            all_labels
+                .iter()
+                .map(|label| theme::project_colour(label.colour)),
+        )
+        .selected(labels_lit)
+        .open(app.workbench.open_menu == Some(MenuId::BoardLabels))
+        .on_toggle(handler(&view, |this, _, cx| {
+            this.open_menu(MenuId::BoardLabels, cx)
+        }))
+        .on_dismiss(handler(&view, |this, _, cx| this.close_menu(cx)))
+        // The list is read again here, exactly as it was drawn — the rule every position-matched
+        // menu in this window follows.
+        .on_pick(indexed(&view, |this, index, _, cx| {
+            let name = this
+                .work(cx)
+                .and_then(|work| work.labels().get(index).map(|label| label.name.clone()));
+            if let Some(name) = name {
+                this.toggle_board_label(&name, cx);
+            }
+        }));
 
     div()
         .min_h(px(theme::titlebar_height()))
@@ -221,10 +240,8 @@ fn toolbar(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl 
                 .flex_1()
                 .min_w(px(0.))
                 .flex()
-                .flex_wrap()
                 .items_center()
-                .gap_1p5()
-                .children(labels),
+                .child(tags),
         )
         .children(board.filtering().then(|| {
             ghost_button(
@@ -450,6 +467,25 @@ fn column(app: &AppState, status: Status, cx: &mut Context<AppState>) -> AnyElem
             .min_h(px(0.))
             .p_2()
             .on_scroll_wheel(cx.listener(|_, _: &ScrollWheelEvent, _, cx| cx.stop_propagation()))
+            // `gpui::list` sizes itself to its rows' measured height, not the flex space it is
+            // given (`T-108`'s change, see `column_tail`), so on a lane shorter than its column
+            // this body div's own bounds are the only ones reaching the bottom of the lane —
+            // `list`'s bounds stop where its content does. `column_tail`, a row inside the list,
+            // still answers for the strip right under the last card; this answers for everything
+            // below that, which is what restores the old flex_1 tail's full-height drop target
+            // (`T-131`). A card or `column_tail` claims the pointer first and stops propagation,
+            // so this only fires once the pointer is past all of them.
+            .on_drag_move(
+                cx.listener(move |this, event: &DragMoveEvent<Dragged>, _, cx| {
+                    if event.bounds.contains(&event.event.position) {
+                        this.drag_task_over(status, None, cx);
+                    }
+                }),
+            )
+            .on_drop(cx.listener(move |this, _: &Dragged, _, cx| {
+                cx.stop_propagation();
+                this.drop_task(status, None, cx);
+            }))
             .child(
                 list(list_state, move |ix, window, cx| {
                     render_row(&rows, ix, status, &view, window, cx)
@@ -559,13 +595,18 @@ fn marker() -> AnyElement {
         .into_any_element()
 }
 
-/// The empty space under the cards: a drop here is the end of the column.
+/// The strip right under the last card: a drop here is the end of the column.
 fn column_tail(status: Status, view: &Entity<AppState>, window: &Window) -> AnyElement {
     // `gpui::list` measures every row at its intrinsic height rather than flexing it against the
     // column's remaining space — `flex_1` did that in the old, non-virtualized column, but has
     // nothing to answer to here — so this claims a fixed strip rather than the rest of the lane.
-    // Still enough to drop past the last card onto; a lane that ends well above the bottom of the
-    // column is `T-108`'s empty-column case, which the `Nothing here.` branch already draws.
+    // That is fine: it is a row *inside* the list, so its own bounds are real regardless of the
+    // lane's height. The list's own bounds are not — `list` sizes itself to its rows' measured
+    // height, not the flex space it is handed, so on a lane shorter than its column there is real
+    // empty space below this row that belongs to no row at all. `column`'s body div covers that
+    // (`T-131`): its own bounds always reach the bottom of the lane, so it is where the "rest of
+    // the lane" drop target now lives. A lane that ends well above the bottom of the column is
+    // `T-108`'s empty-column case, which the `Nothing here.` branch already draws.
     div()
         .id(("board-column-tail", status as u32))
         .min_h(px(40.))

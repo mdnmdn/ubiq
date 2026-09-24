@@ -1,10 +1,12 @@
 //! One live agent's conversation, drawn once for every surface that shows one.
 //!
-//! There is a single interface for talking to an agent, and this is it. The agents screen's
-//! columns host it today; the chat panel and the style reference are the next two, and neither
-//! needs a second renderer to do it — what differs between hosts is [`ConversationView`], which
-//! says whether the footer and the composer come with it and which of the window's pooled
-//! composers to type into.
+//! There is a single interface for talking to an agent, and this is it. Three surfaces host it —
+//! the chat panel the Teams and IDE screens dock, an agents-screen column, and the kitchen sink —
+//! and none of them has a renderer of its own. What differs between hosts is [`ConversationView`],
+//! which says whether the footer, the composer and the lifecycle strip come with it and which of
+//! the window's pooled composers to type into. A surface that wants one of those differently
+//! flips a flag; a surface that grows a second transcript is the mistake this module exists to
+//! prevent, and T-143 removed the last one.
 //!
 //! **Nothing here knows which screen it is inside.** It is handed a [`Conversation`] and draws it:
 //! no column, no tab, no slot of the agents screen's own arrangement reaches in. That is the whole

@@ -450,67 +450,23 @@ impl DocumentEditor {
     }
 }
 
-/// The blocks a section's edited markdown parses into, kind and text alike — the same walk
-/// `ubiq-host`'s own indexer runs (`crates/ubiq-host/src/plan/blocks.rs`), mirrored here rather
-/// than shared because the window does not depend on the host crate. It exists only to patch the
-/// local block cache optimistically, ahead of the host's own re-index, which remains authoritative
-/// and overwrites whatever this guessed the moment it answers.
+/// The blocks a section's edited markdown parses into, kind and text alike.
+///
+/// **The walk is [`ubiq_proto::blocks`]**, which is the one the host's own indexer runs
+/// (`crates/ubiq-host/src/plan/blocks.rs` matches ids on top of it). It lives in the contract
+/// crate rather than being mirrored here because the window does not depend on the host crate and
+/// the two splits have to agree exactly: this exists only to patch the local block cache
+/// optimistically, ahead of the host's re-index, which remains authoritative and overwrites
+/// whatever this guessed the moment it answers — and a cache split by different rules than the
+/// index would disagree with it silently (T-114).
+///
+/// Pairs rather than [`ubiq_proto::blocks::Block`]s because that is what
+/// [`DocumentEditor::replace_cached_block`] takes: the ids are minted there, not here.
 pub fn parse_section_blocks(text: &str) -> Vec<(String, String)> {
-    use markdown::mdast::Node;
-
-    fn is_container(node: &Node) -> bool {
-        matches!(
-            node,
-            Node::Root(_)
-                | Node::Blockquote(_)
-                | Node::List(_)
-                | Node::ListItem(_)
-                | Node::FootnoteDefinition(_)
-        )
-    }
-
-    fn kind_of(node: &Node) -> Option<String> {
-        Some(match node {
-            Node::Paragraph(_) => "paragraph".to_string(),
-            Node::Heading(heading) => format!("heading:{}", heading.depth),
-            Node::Code(_) => "code".to_string(),
-            Node::Math(_) => "math".to_string(),
-            Node::Table(_) => "table".to_string(),
-            Node::ThematicBreak(_) => "break".to_string(),
-            Node::Html(_) => "html".to_string(),
-            Node::Definition(_) => "definition".to_string(),
-            Node::Toml(_) | Node::Yaml(_) => "frontmatter".to_string(),
-            _ => return None,
-        })
-    }
-
-    fn walk(node: &Node, source: &str, out: &mut Vec<(String, String)>) {
-        if is_container(node) {
-            if let Some(children) = node.children() {
-                for child in children {
-                    walk(child, source, out);
-                }
-            }
-            return;
-        }
-        let (Some(kind), Some(position)) = (kind_of(node), node.position()) else {
-            return;
-        };
-        let Some(text) = source.get(position.start.offset..position.end.offset) else {
-            return;
-        };
-        let text = text.trim();
-        if !text.is_empty() {
-            out.push((kind, text.to_string()));
-        }
-    }
-
-    let Ok(ast) = markdown::to_mdast(text, &markdown::ParseOptions::gfm()) else {
-        return Vec::new();
-    };
-    let mut out = Vec::new();
-    walk(&ast, text, &mut out);
-    out
+    ubiq_proto::blocks::blocks(text)
+        .into_iter()
+        .map(ubiq_proto::blocks::Block::into_pair)
+        .collect()
 }
 
 /// One heading in a document, indented by its own depth, and how many threads sit under it — open
@@ -655,7 +611,11 @@ pub fn minimap_rows(blocks: &[PlanBlock]) -> Vec<MinimapRow> {
                 kind: MinimapBlockKind::Image,
                 length: 0.55,
             }),
-            "paragraph" => out.extend(text_rows(block_index, &block.text, MinimapBlockKind::Paragraph)),
+            "paragraph" => out.extend(text_rows(
+                block_index,
+                &block.text,
+                MinimapBlockKind::Paragraph,
+            )),
             "code" | "math" => out.push(MinimapRow {
                 block_index,
                 row_index: 0,
@@ -1244,5 +1204,33 @@ mod tests {
         let range = start..start + "Second.".len();
         let next = splice_section(body, range, "Rewritten.");
         assert_eq!(next, "First.\n\nRewritten.\n");
+    }
+
+    #[test]
+    fn a_section_splits_exactly_as_the_hosts_index_will() {
+        // The wrapper, not the walk — `ubiq_proto::blocks` owns the rules and its own tests pin
+        // them. What this asserts is that the optimistic cache is fed the *same* answer, pair for
+        // pair, so a section edit cannot leave the window showing a different split than the one
+        // the host is about to send back.
+        let text = "## Design\n\nA paragraph.\n\n- one\n- two\n";
+        assert_eq!(
+            parse_section_blocks(text),
+            ubiq_proto::blocks::blocks(text)
+                .into_iter()
+                .map(|block| (block.kind, block.text))
+                .collect::<Vec<_>>(),
+        );
+        assert_eq!(
+            parse_section_blocks("A line.\n\nAnother."),
+            vec![
+                ("paragraph".to_string(), "A line.".to_string()),
+                ("paragraph".to_string(), "Another.".to_string()),
+            ],
+            "a section that parses into several blocks is cached as several blocks",
+        );
+        assert!(
+            parse_section_blocks("   \n").is_empty(),
+            "a section edited down to nothing drops the block",
+        );
     }
 }

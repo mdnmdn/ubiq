@@ -5,7 +5,7 @@ kind: tech
 status: draft
 summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, quota, profile, command-line, host browse, connector, repository, assist, notification, web asset and carrier families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
-updated: 2026-09-23
+updated: 2026-09-24
 verified: 2026-09-24
 code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ask.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/feedback.rs, crates/ubiq-host/src/feedback/mod.rs, crates/ubiq-host/src/feedback/api.rs, crates/ubiq-host/src/feedback/issues.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq-drone/src/search.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs]
 depends_on: [tech-architecture]
@@ -299,7 +299,9 @@ that accounts carry credential references and never credential material holds he
 absent for none — and the host answers `ToolsListed` with the machine-wide rows and that
 project's own, each carrying whether it runs on the answering host's platform. The menu offers
 the applicable ones behind the titlebar's run control; a run is `RunTool` with the row's scope and id, and the
-coordinator spawns the row's command, arguments and environment in the project's folder,
+coordinator spawns the row's command, arguments and environment in the project's folder — or in
+`ToolDef.starting_folder` instead, an absolute path the folder picker chose, when the row names
+one; unset changes nothing about the project-folder resolution every other row still gets —
 answering `WorkspaceSpawned` with the row's name as the tab's title seed and the `ToolRun` that
 started it, which is what a Restart re-sends. A row marked `single_instance` runs once at a time:
 a second `RunTool` while a pane started by it is still held is refused, and the host is where that
@@ -429,7 +431,7 @@ listing to extend `AddProject` and `LocateProject` rather than add a new message
 records why it went the other way instead, and what that costs.
 
 **`WriteHostFile` is the write half of a guest tab** — a file the interface opened from outside
-every project (`../features/workbench.md`'s guest tab, read with `std::fs` rather than a
+every project (`../features/workbench-ide.md`'s guest tab, read with `std::fs` rather than a
 `ReadProjectFile` round trip, one of the two places the interface reads disk itself). It answers
 with `FileError`, not `HostPathError`, because unlike a listing this family's one write can land on
 somebody else's change and needs `Conflict` to say so. `expected` is not optional the way
@@ -1362,7 +1364,7 @@ Forty-seven records travel inside payloads.
 | `AcpCapabilityGroupRecord` | `label`, `entries[]` |
 | `AcpCapabilityRecord` | `id`, `label`, `supported`, `description` |
 | `AcpAuthMethodRecord` | `id`, `name`, `description?`, `default` |
-| `ToolDef` | `id`, `name`, `command`, `args`, `env`, `platforms[]`, `wait_on_exit`, `wait_on_error`, `single_instance` |
+| `ToolDef` | `id`, `name`, `command`, `args`, `env`, `platforms[]`, `wait_on_exit`, `wait_on_error`, `single_instance`, `starting_folder?` |
 | `ToolRun` | `scope`, `id` |
 | `ListedTool` | `scope`, `tool`, `applicable` |
 | `ProjectRecord` | `id`, `name`, `path`, `colour`, `custom_colour?`, `temporary`, `created_at`, `last_opened_at?`, `search_excludes[]`, `index?`, `mission_term?`, `tools[]`, `managed_repos[]`, `initials` |
@@ -2601,4 +2603,4 @@ attached UIs needs to know which one is typing.
 - [`architecture.md`](./architecture.md) — the two halves and the rules the contract enforces
 - [`../features/sessions-and-workspaces.md`](../features/sessions-and-workspaces.md) — what the session family is for
 - [`../features/panes-and-terminals.md`](../features/panes-and-terminals.md) — what the pane family is for
-- [`../features/workbench.md`](../features/workbench.md) — what the work family is drawn as
+- [`../features/workbench-tasks.md`](../features/workbench-tasks.md) — what the work family is drawn as

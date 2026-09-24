@@ -7,7 +7,8 @@ description: Reference for working on Ubiq's GPUI interface (crates/ubiq) — th
 
 The interface is `crates/ubiq` — GPUI (Zed's retained-mode GPU framework) plus the
 `gpui-component` widget set. This skill is the working reference; the owning document is
-`_docs/tech/ui-and-design.md`, and the screen inventory is `_docs/features/workbench.md`.
+`_docs/tech/ui-and-design.md`, and the screen inventory is `_docs/features/workbench.md`, which
+names the per-mode document each screen has of its own.
 
 ## Before you touch anything
 

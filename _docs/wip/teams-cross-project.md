@@ -5,9 +5,9 @@ kind: wip
 status: current
 summary: How the Teams screen draws every open project's agents at once — a second rail entry in the APP group that the span is read off, one merged projection built from each project's `live_work`, an owner map that answers "whose agent is this" for every write the screen makes, and what the rail, the titlebar and a `ubiq://` link keep meaning when the canvas is about more than one project.
 read_when: you are changing what the Teams screen is scoped to, or adding a reader that must work when the canvas spans several projects
-updated: 2026-09-23
-verified: 2026-09-23
-code_anchors: [crates/ubiq/src/state/teams.rs, crates/ubiq/src/app/teams.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/ui/teams/mod.rs, crates/ubiq/src/ui/teams/graph.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/tests/teams.rs]
+updated: 2026-09-24
+verified: 2026-09-24
+code_anchors: [crates/ubiq/src/state/teams.rs, crates/ubiq/src/app/teams.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/ui/teams/mod.rs, crates/ubiq/src/ui/teams/graph.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/tests/teams.rs]
 depends_on: [feat-workbench, tech-ui, wip-teams-layout-spike]
 ---
 
@@ -40,8 +40,10 @@ with the PROJECT screens rather than answering ahead of the no-project case.
 
 1. `TeamsSpan` — `Project` or `Window` — **derived, never stored**. `AppState::teams_span()` reads
    `workbench.rail_mode`: `TeamsAll` is `Window`, everything else is `Project`. A window's own fact,
-   like the zoom and the arrangement: nothing outside this window has an opinion about it, and it is
-   not sent anywhere.
+   like the zoom: nothing outside this window has an opinion about it, and it is not sent anywhere.
+   (The arrangement used to be the same kind of fact; a toolbar pick now also writes
+   `UiSettings::teams_algo` as the app-wide default — see `feat-workbench` — but which span is on
+   still isn't sent anywhere.)
 2. `AppState.teams_window: TeamsView` — the window span's own view, beside the per-project ones in
    `OpenProject.teams`. Two spans are two arrangements over two different sets of cards, and a
    shared `TeamsView` would mean switching span threw the other's layout away.
@@ -143,10 +145,31 @@ projection — write-if-changed, so a settled canvas does not touch state every 
 mints one — and attaches it to the selection, revealing the dock if it was put away. From there the
 conversation is an ordinary chat tab: its composer is that tab's own slot in the `COLUMNS_MAX..
 COLUMNS_MAX + CHATS_MAX` pool, the same as any other chat tab, and nothing about it is Teams-only.
-`open_teams_agent_panel` resolves the project through `project_of_agent` before it touches
-`self.projects`, the same guard every other write on this screen follows — a tab minted against the
-active project rather than the selected card's own would be attached to an id that project's
-`chats` never held under the window span.
+
+**This is the one write on the screen that does *not* resolve the card's project — and it is the
+constraint the rest of the feature is shaped around** (`T-149`). A chat panel is a window-level dock
+leaf keyed by `ChatId`, but the ids live in `OpenProject.chats`, and `AppState::sync_chat_panels`
+makes the dock's set of chat leaves *exactly* the active project's tab list: it queues a
+`PanelEdit::Close` for every chat leaf the active project does not name, and it runs at the end of
+`settle_layout` and on every project entry. A tab minted into a background project therefore gets no
+panel at all — which is why picking a foreign card used to put nothing on screen — and could not be
+given one without making "the dock's chat panels are one project's tabs" false, which the project
+handover in `app/shell.rs` and the preference blob in `app/projects.rs` both rely on.
+
+So `open_teams_agent_panel` mints and reuses against `self.project(cx)`, and sets
+`tab.attached` to the selected card's agent whatever project owns it. **A view is never the
+workspace**: the tab is the window's arrangement and the attachment is the host's conversation, and
+the two need not name the same project. Everything behind the tab already resolved the agent's own
+project or was moved to — `ui::chat::attached` reads `teams_conversation`, the dock's tab label
+reads `teams_agent`, `agent_for_slot` answers the foreign agent for the tab's slot and the send
+resolves `project_of_agent`. Under the project span every one of those is the same project and
+nothing changes.
+
+Two consequences worth naming. `ConversationDeleted` sweeps **every** held project for tabs attached
+to the deleted agent rather than only the owning one, because the tab that was watching may sit in a
+project that never held it. And `remember()` still files only same-project attachments into
+`prefs.chats`, so a cross-project attachment is not persisted — which is right: a revive would carry
+the wrong `project_id`, and a tab that comes back unattached is the honest restore.
 
 **The toolbar's own `+` opens the same panel with nothing attached.** Before any card is picked the
 right dock holds no `Chat` panel at all under `Teams`, unlike the IDE and KB modes, where a
@@ -168,8 +191,18 @@ is already only two characters wide, and the edge carries the same colour in a t
 shared with `ui/rail.rs`'s project badges. Nothing new in `theme.rs` — the places a project already
 wears its colour are the pattern, and this is one more.
 
-The session pills carry the same chip, because two projects can name a session the same thing and a
-row of bare names would be two pills that look like one.
+The sessions filter used to carry the same chip on its row of pills; now that the row is a
+`kit::MultiPicker` (`T-142`, `MenuId::TeamsSessions`) each row's dot is the owning project's tint
+instead — the same fact the chip told apart, in the shape a `MultiPicker` row has room for.
+
+**Filtering to a session and pointing the screen at one are two different clicks now (`T-146`).**
+The old chip did both at once; a set-valued row has no single click left over to mean "select", so
+`kit::MultiPicker` grew a second, opt-in target per row — `on_select`, a trailing arrow beside the
+tick — that calls `TeamsSelection::Session` through `select_in_teams` without touching
+`graph.sessions`. `toggle_teams_session` (the tick) still only narrows what is drawn; the arrow only
+moves the selection, which is what points the canvas and the tasks drawer at that one session
+(`active_session`) without opening anything in the right dock — a session has no conversation of its
+own to open.
 
 **The chip is not the whole story: the canvas is fenced by project too.** A chip answers "whose is
 this card" one card at a time, which is the wrong shape for the question the window span actually

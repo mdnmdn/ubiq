@@ -174,6 +174,14 @@ impl Harness for Codex {
         Some("danger-full-access")
     }
 
+    /// Everything [`map_sandbox_mode`] accepts, which is [`Self::modes`] **plus** the documented
+    /// `restricted` alias for `read-only`. The alias is a real value a profile or a `[presets]`
+    /// block may carry (settings' own sample uses it), so validation must not drop it even
+    /// though it is not a picker entry — see [`super::Harness::accepts_mode`].
+    fn accepts_mode(&self, mode: &str) -> bool {
+        map_sandbox_mode(mode).is_some()
+    }
+
     fn provision(&self, spec: &RunSpec, dir: &Path) -> Result<Launch> {
         // The ephemeral `dir` is ALWAYS the config home (`$CODEX_HOME`), so
         // all injected config — `config.toml`, skills, `AGENTS.md`, hooks —

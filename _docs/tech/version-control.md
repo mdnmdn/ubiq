@@ -17,7 +17,7 @@ review_cycle: monthly
 The subsystem model: what Ubiq reads out of a repository, where that work runs, and what it
 refuses to do. The message table belongs to
 [`transport-contract.md`](./transport-contract.md); what the Git screen draws with these answers
-belongs to [`../features/workbench.md`](../features/workbench.md). This document is the layer under
+belongs to [`../features/workbench-git.md`](../features/workbench-git.md). This document is the layer under
 both.
 
 ## 1. Ubiq creates a repository, reads one, and writes when the Git screen asks
@@ -50,7 +50,7 @@ what this bug hid.
 **Cloning is the write that has no repository to corrupt.** A clone brings a repository into
 existence at a path where none was. `git2` is compiled with `https` for that clone and for fetch,
 pull and push, and with `ssh` so a `git@host:path` remote fetches (`D72`, `D123`). The clone itself belongs to
-[`../features/workbench.md`](../features/workbench.md) and its wire form to
+[`../features/workbench-git.md`](../features/workbench-git.md) and its wire form to
 [`transport-contract.md`](./transport-contract.md).
 
 The consequence to hold on to: **every fact this family reports is about a moment that has passed.**
@@ -342,7 +342,7 @@ they change a shape rather than fill a hole.
 
 - [`transport-contract.md`](./transport-contract.md) — the git family's messages, payloads and
   record types
-- [`../features/workbench.md`](../features/workbench.md) — the Git screen, the explorer's badges and
+- [`../features/workbench-git.md`](../features/workbench-git.md) — the Git screen, the explorer's badges and
   the status bar's readout
 - [`architecture.md`](./architecture.md) — the two halves, and the second `git2` reader in the file
   family

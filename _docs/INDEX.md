@@ -5,8 +5,8 @@ kind: meta
 status: current
 summary: The map of `_docs/` — how it is organized, the catalogue, which document owns which fact, and which to read for a given task.
 read_when: you are starting any task and need to know which two or three documents it needs
-updated: 2026-09-23
-verified: 2026-09-23
+updated: 2026-09-24
+verified: 2026-09-24
 ---
 
 # Documentation index
@@ -80,12 +80,18 @@ states the boundary once.
 | [The chat panel](./features/chat.md) | Editor-like chat tabs — many, movable to any dockable region, each a view onto a host-owned conversation or onto none, drawn by the composer, transcript and tool blocks the whole window shares. | 2026-09-24 |
 | [Connectors](./features/connectors.md) | Named authenticated identities at GitHub, GitLab, Gitea, Azure DevOps, Atlassian and Google Workspace — cloud or self-hosted, several per provider — created by completing a flow, with the token in the OS keychain and an untrusted certificate resolved by pinning one confirmed fingerprint to the instance. | 2026-09-17 |
 | [Drones](./features/drone.md) | One small executable Ubiq places on a machine it is not running on, serving that machine's terminal, files, search and machine facts over a single duplex byte stream — attached as an ordinary host over an SSH exec channel, with three lifetimes, a per-project origin, and a hash-pinned binary the interface uploads when the remote `PATH` has none. | 2026-09-24 |
-| [Logs](./features/logs.md) | One sink every subsystem writes its diagnostics to, and the console panel that reads it back with a subsystem selector and a level floor. | 2026-09-20 |
+| [Logs](./features/logs.md) | One sink every subsystem writes its diagnostics to, and the console panel that reads it back with a subsystem selector and a level floor. | 2026-09-24 |
 | [Notifications](./features/notifications.md) | One bell in the titlebar over a host-owned history — a level, an origin and an optional link per notification, a badge that counts the unread, a flash that carries a click straight to where it points, and mute rules by scope, level and duration that also decide what the desktop hears. | 2026-09-20 |
 | [Panes and terminals](./features/panes-and-terminals.md) | What a pane shows, how exactly one of them holds focus, how a resize reaches the harness, and how a pane is moved around the window's dock. | 2026-09-24 |
 | [Sessions and workspaces](./features/sessions-and-workspaces.md) | A session is a named piece of work that owns a folder and outlives the agents inside it; a workspace is one running agent within it, and the two have separate lifecycles. | 2026-09-24 |
 | [Stats](./features/stats.md) | The Control screen — five readings of the running host on one page, and the usage meter on the other, whose tables exist and whose producer does not. | 2026-09-24 |
-| [The workbench](./features/workbench.md) | The window's shell — the activity rail and its modes, the dock of movable panels the user arranges around the centre, the file explorer and editor a project owns, the Git screen of refs, history and uncommitted changes, the agents screen of parallel columns, the Teams and `[Teams]` graphs and the tasks board the rail's other built modes hold, the kitchen sink the application tests itself against, the file picker any screen raises to choose a path, the empty state a window with no project shows, and the status bar that reports on all of it. | 2026-09-24 |
+| [Agents mode — the columns](./features/workbench-agents.md) | The rail's Agents mode — a row of parallel columns, each a transcript and a composer over one live conversation, tabs that group agents into a column, the bench of agents no column is showing, the sidebar that lists every conversation the window holds, the three-dots menu over a live agent, and the New agent form all three surfaces raise. | 2026-09-24 |
+| [Git mode — refs, history and changes](./features/workbench-git.md) | The rail's Git mode — the refs explorer of branches, remotes, tags, stashes and submodules, the paged commit history with its painted lanes, the conflicted, staged and unstaged change lists with the commit box, the diff under them, and the strip that names the repository and what HEAD is doing. | 2026-09-24 |
+| [IDE mode — the explorer and the editor](./features/workbench-ide.md) | The rail's IDE mode — the project's file explorer and its right-click menu, the editor tabs each open file is a panel of, the viewer that draws one by kind, Markdown reading width and its minimap, diagrams and Excalidraw scenes, the image editor over any picture, and how a file is saved. | 2026-09-24 |
+| [Sink mode — the kitchen sink](./features/workbench-sink.md) | The rail's Sink mode — the application's own test bench, twelve pages of fixtures with nothing behind them — a buffer, one page per special viewer, the style reference, the file picker in each shape a screen can ask for, the two settings layouts, a live conversation beside its bus traffic, the A2UI surface, the script scratchpad and the teamsim testbed. | 2026-09-24 |
+| [Tasks mode — the board](./features/workbench-tasks.md) | The rail's Tasks mode — a column per status, a card per task, what a drag means, the labels and the filter that narrow it, missions and the children they spawn, the task panel that reports one task whole and edits it a field at a time, and the plan surface a mission raises over the window. | 2026-09-24 |
+| [The Teams graph modes](./features/workbench-teams.md) | The rail's two graph modes — `Teams`, scoped by a window span and drawing its cards' conversations in the dock, and `[Teams]`, the established screen kept beside it with its own inspector and composer — the twelve arrangements the canvas computes for itself, the hexagonal status mark, the filters, the drag model and the tasks drawer under both. | 2026-09-24 |
+| [The workbench](./features/workbench.md) | The window's shell — the activity rail and the nine modes it selects between, the dock of movable panels the user arranges around the centre, the titlebar and its navigator, the projects a window holds and the empty state one with none shows, the picker that adds, clones and opens them, project and application settings, the file picker any screen raises, and the status bar that reports on all of it. Each mode's own screen has a document of its own. | 2026-09-24 |
 
 ### Tech
 
@@ -96,7 +102,7 @@ states the boundary once.
 | [Architecture](./tech/architecture.md) | The two halves — coordinator and UI — the single bus between them, the rules neither may break, and why the split is drawn before it is needed. | 2026-09-24 |
 | [Code map](./tech/code-map.md) | Generated map of the application's source tree, and the inverted index from every file to the documents that anchor it. | 2026-09-23 |
 | [Reusable components](./tech/components.md) | The reusable components Ubiq builds out of its own primitives — the floating popover, the multi-select dropdown a filter or a form narrows with, the activity bar a conversation heads with, the file picker any screen raises to choose a path, the viewer that draws one open file whole, the diff renderer two screens reach a change through, and the capabilities and tools panels each asked for by two surfaces — the state that drives them, and the discipline that keeps a compound a component rather than a one-off screen's decoration. | 2026-09-24 |
-| [Decision register](./tech/decisions.md) | One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library. | 2026-09-23 |
+| [Decision register](./tech/decisions.md) | One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library. | 2026-09-24 |
 | [Diagram format](./tech/diagram-format.md) | The compact YAML authoring format for the wireframes under `_docs/design/`, and the converter that validates and renders it. | 2026-08-31 |
 | [Operations](./tech/operations.md) | Prerequisites, the complete command reference, what a first build costs, the checks a change has to pass before it lands, and the runbook for a tool an agent cannot run. | 2026-09-20 |
 | [Project structure](./tech/project-structure.md) | Every folder in the workspace, what belongs in it, what must never go in it, and the two crates' division of labour. | 2026-09-24 |
@@ -138,9 +144,9 @@ states the boundary once.
 | [Indexing a project](./wip/indexing.md) | What Ubiq keeps about a project so a search need not re-read it — a per-project level defaulting from an application setting, and a full-text index that selects candidate files for the existing content search rather than answering it. The full-text half is built; the symbol half the `full` level names is not, which is the gap this document exists to record. | 2026-09-24 |
 | [The knowledge base — sources, the write half, and what is next](./wip/kb.md) | A project's knowledge base as it stands — a per-project list of sources persisted as one TOML file, a folder read where it lies, a git repository cloned and refreshed, an internal wiki, a host-side write half (`kb/ops.rs`) behind six new messages, the `ubiq-kb` MCP server that reaches it, the explorer's right-click menu that reaches it from the interface, and a document as a dock tab — the same `OpenFile` the IDE's editor uses, with its own Save gated on the source's write access. | 2026-09-22 |
 | [opencode ACP — captured from a live session](./wip/opencode-acp-capture.md) | What `opencode acp` (opencode 1.18.28) actually speaks over ACP, captured frame by frame from a real session, and the five gaps it exposed in `io/acp_client.rs` — the turn with no user on the wire, the silent wait, the `task` spawn's shape, a todo list with no `plan` update, and the `task` call's own missing origin — and how the bridge reads them. | 2026-09-13 |
-| [The planning system — what remains open](./wip/planning-system.md) | What is still undecided about the planning flow — missions, plans and their annotations — after all seven staged slices (T-56 through T-62) and the follow-on provenance work (T-94) shipped. The built design lives in `features/workbench.md`, `tech/transport-contract.md` and `tech/decisions.md` (`D157` through `D161`); this file is only the remainder. | 2026-09-24 |
+| [The planning system — what remains open](./wip/planning-system.md) | What is still undecided about the planning flow — missions, plans and their annotations — after all seven staged slices (T-56 through T-62) and the follow-on provenance work (T-94) shipped. The built design lives in `features/workbench-tasks.md`, `tech/transport-contract.md` and `tech/decisions.md` (`D157` through `D161`); this file is only the remainder. | 2026-09-24 |
 | [Pre-editions refactoring plan](./wip/refactor-plan.md) | Phases 0-3 are done and so are phase 4's composition root and preference round-trip; three phase-4 items remain, each blocked or deferred for a recorded reason, and every `just verify` check passes but docs-lint — whose open question is what that lint should apply to, since most of its failures are inbox documents. | — |
-| [Teams across projects](./wip/teams-cross-project.md) | How the Teams screen draws every open project's agents at once — a second rail entry in the APP group that the span is read off, one merged projection built from each project's `live_work`, an owner map that answers "whose agent is this" for every write the screen makes, and what the rail, the titlebar and a `ubiq://` link keep meaning when the canvas is about more than one project. | 2026-09-23 |
+| [Teams across projects](./wip/teams-cross-project.md) | How the Teams screen draws every open project's agents at once — a second rail entry in the APP group that the span is read off, one merged projection built from each project's `live_work`, an owner map that answers "whose agent is this" for every write the screen makes, and what the rail, the titlebar and a `ubiq://` link keep meaning when the canvas is about more than one project. | 2026-09-24 |
 | [Teams block positioning](./wip/teams-layout-spike.md) | Why the teams graph grows into a tower nobody can read in a rectangular viewport, what the two halves of the spike measured — a Python tool that renders an arrangement and scores it, and a teamsim section of the kitchen sink that drives the production arrangements from the same scenario file — what the measurements say to change, and what five further shapes (organic, multiradial, spider, hex, islands) came out at. | 2026-09-23 |
 | [Web panels — the origin and the bridge](./wip/web-panel-phase2.md) | Phase 2 of the web-panel proposal as built — the `_web/<app>/<token>/` routes on the interface's existing loopback server, a per-panel token from the platform's CSPRNG, two frame queues per session with a long-poll that answers on its own thread, the two-transport `bridge.js` shim, and a demo tenant that proves the loop. The container is the external browser; the embedded `wry` webview was not built and the shim carries its half anyway. | 2026-09-12 |
 | [Web panels — the shared workarea and the bundle fetch](./wip/web-panel-phase3.md) | Phase 3 of the web-panel proposal as built, Rust side only — a `shared_workarea` on `HostInfo` reserved at `<config root>/ui/`, a four-variant web asset message family, and `crates/ubiq-host/src/web_assets/` fetching a manifest's 554 files six at a time, verifying each against its SHA-256, and writing them into one compressed `.bundle` file whose rename over a `.part` sibling is the only proof of done. No interface wiring, which is a later unit. | 2026-09-24 |
@@ -172,11 +178,14 @@ a link.
 | Pane chrome, design assets | `tech/ui-and-design.md` |
 | The window's areas, their sizes, and what owns each | `features/workbench.md` |
 | Rail modes, panel visibility, projects, what a window owns | `features/workbench.md` |
-| The agents screen: its columns, what a tab drag means, and the bench | `features/workbench.md` |
-| The Git screen: its refs, history, change lists and diff | `features/workbench.md` |
+| Project settings, application settings, the navigator and the file picker | `features/workbench.md` |
+| The explorer, the editor tabs, the viewers and how a file is saved | `features/workbench-ide.md` |
+| The agents screen: its columns, what a tab drag means, and the bench | `features/workbench-agents.md` |
+| The Git screen: its refs, history, change lists and diff | `features/workbench-git.md` |
 | How a repository is read: discovery, the worker, the log and refs, the lane engine | `tech/version-control.md` |
-| The orchestration screen: the graph, its selection model, the inspector and the tasks drawer | `features/workbench.md` |
-| The tasks board: its columns, its cards, what a drag means and the task panel | `features/workbench.md` |
+| The `Teams` and `[Teams]` graphs: the arrangements, the selection model, the inspector and the tasks drawer | `features/workbench-teams.md` |
+| The tasks board: its columns, its cards, what a drag means, the task panel and the plan | `features/workbench-tasks.md` |
+| The kitchen sink: its pages, its fixtures, the A2UI surface and the script scratchpad | `features/workbench-sink.md` |
 | Commands, prerequisites, environment variables | `tech/operations.md` |
 | Structural decisions and their cost (`Dnn`) | `tech/decisions.md` |
 | The harness library's boundary and the rules across it | `tech/agent-manager.md` |
@@ -213,11 +222,13 @@ Assembled from each document's `read_when`. Read the path, not the library.
 | Building or restyling a screen, adding a colour or a size | `tech/ui-and-design.md` |
 | Building a control that floats above another, or reshaping the activity bar | `tech/components.md`, then `tech/ui-and-design.md` |
 | Adding a screen area, a panel or a rail mode | `features/workbench.md`, then `tech/ui-and-design.md` |
-| Changing the Git screen — its refs, history, change lists or diff | `features/workbench.md`, then `tech/ui-and-design.md` |
+| Changing the Git screen — its refs, history, change lists or diff | `features/workbench-git.md`, then `tech/version-control.md` |
+| Changing the explorer, the editor tabs, a viewer or how a file is saved | `features/workbench-ide.md`, then `tech/components.md` |
 | Extending version control, or adding a write | `tech/version-control.md`, then `tech/transport-contract.md` |
-| Changing the agents screen — its columns, its sidebar or what a tab drag does | `features/workbench.md`, then `tech/ui-and-design.md` |
-| Changing the orchestration screen — its graph, inspector or tasks drawer | `features/workbench.md`, then `tech/ui-and-design.md` |
-| Changing the tasks board — its columns, cards or task panel | `features/workbench.md`, then `tech/ui-and-design.md` |
+| Changing the agents screen — its columns, its sidebar or what a tab drag does | `features/workbench-agents.md`, then `tech/ui-and-design.md` |
+| Changing the `Teams` or `[Teams]` graph — its arrangements, inspector or tasks drawer | `features/workbench-teams.md`, then `tech/ui-and-design.md` |
+| Changing the tasks board — its columns, cards, task panel or the plan surface | `features/workbench-tasks.md`, then `tech/transport-contract.md` |
+| Adding a page or a fixture to the kitchen sink | `features/workbench-sink.md`, then `tech/ui-and-design.md` |
 | Changing the window layout, or what a window owns | `features/workbench.md`, then `tech/architecture.md` |
 | Changing the chat panel or a message renderer | `features/chat.md` |
 | Reaching a machine Ubiq is not running on — the drone, its lifetime, its deployment, its SSH profiles | `features/drone.md`, then `tech/transport-contract.md` |

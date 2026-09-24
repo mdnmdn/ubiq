@@ -80,8 +80,8 @@ checked.
 
 **Exclusivity is per chat tab, not per conversation, and it stops at this surface's edge.** The
 agents workbench may show the same conversation in a column, and selecting it in Teams may point
-the project's own chat tab at it (`AppState::open_teams_agent_panel`) — under the window span from
-a project this window is not pointed at — at the same moment a different chat tab is attached to it
+the project's own chat tab at it (`AppState::open_teams_agent_panel`) — under the window span at a
+card belonging to a project this window is not pointed at — at the same moment a different chat tab is attached to it
 directly. Three viewers at once, and the host is never told which surfaces are looking, because a
 view was never the workspace.
 
@@ -652,8 +652,11 @@ current pick. One builder, so "already taken" is answered once for the chat head
 `COMPOSER_SLOTS = COLUMNS_MAX + CHATS_MAX + 1` — the one slot above the chat range is `SINK_SLOT`,
 the kitchen sink's bench; `AgentsView::free_slot` still allocates a column's slot from the low
 range, unchanged. Selecting a card in Teams has no composer slot of its own: it opens the agent's
-conversation in an ordinary chat tab (`AppState::open_teams_agent_panel`), whose project is resolved
-through `project_of_agent` the way any slot's is (`AppState::steer_column`).
+conversation in an ordinary chat tab (`AppState::open_teams_agent_panel`). **The tab is the active
+project's; the attachment need not be** — under `TeamsSpan::Window` the card may belong to any
+project the window holds, and the tab has to be the one on screen's or `sync_chat_panels` gives it
+no panel. `agent_for_slot` then answers the foreign agent for that tab's slot and the send resolves
+its project through `project_of_agent` the way any slot's does (`AppState::steer_column`).
 
 `crates/ubiq/src/app/chat.rs` is where a tab's own lifecycle lives: `open_chat_tab` mints one and
 gives it a slot, `open_chat_tab_now` puts it in the dock as well — called when there is a

@@ -297,10 +297,7 @@ fn body(
                     form::assigned_to(app, task, window, cx),
                 ))
                 .child(fact("Labels", form::labels(app, task, cx)))
-                .child(fact(
-                    "References",
-                    form::references(app, task, window, cx),
-                ))
+                .child(fact("References", form::references(app, task, window, cx)))
                 .child(fact("Attachments", form::attachments(app, task, cx)))
                 .child(fact("Colour", form::colour(task, cx)))
                 .child(fact("Now", now)),

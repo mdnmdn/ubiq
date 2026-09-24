@@ -242,4 +242,4 @@ native — `ui/viewer/web.rs`'s spinner — rather than drawn inside the page.
 - [`./web-panel-phase45.md`](./web-panel-phase45.md) — the chrome, the external-browser container and the edit cycle this phase moves
 - [`../inbox/web-panel-proposal.md`](../inbox/web-panel-proposal.md) — the proposal this and its predecessors build
 - [`../tech/decisions.md`](../tech/decisions.md) — `D108`'s answer, and the entry this phase adds beside it
-- [`../features/workbench.md`](../features/workbench.md) — the viewer, its layout toggle and the file buffer
+- [`../features/workbench-ide.md`](../features/workbench-ide.md) — the viewer, its layout toggle and the file buffer

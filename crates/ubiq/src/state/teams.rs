@@ -234,11 +234,17 @@ pub struct TeamsView {
     /// it is not sent anywhere, and nothing outside this window has an opinion about it.
     pub algo: Algo,
 
-    /// Which session the graph is drawing, or every one of them. Its own field rather than a
-    /// reading of `selection`, because which session is *shown* and which is *selected* are two
-    /// questions: the drawer reports on the second, and clearing the first must not throw the
-    /// second away.
-    pub session: Option<SessionId>,
+    /// Which sessions the graph is drawing, or every one of them when empty. Its own field rather
+    /// than a reading of `selection`, because which sessions are *shown* and which is *selected*
+    /// are two questions: the drawer reports on the second, and narrowing the first must not throw
+    /// the second away.
+    ///
+    /// **A set, not a choice** — several sessions on at once, the same shape `buckets` already is
+    /// and for the same reason: under the window span each session is a project, and asking "which
+    /// projects" is asking for a union, not a single answer. **Empty is no filter**, exactly as it
+    /// was when this held one `Option<SessionId>` — narrowing to nothing is what an untouched
+    /// control already does.
+    pub sessions: Vec<SessionId>,
     /// Which buckets the graph is showing. **Empty is no filter, not nothing** — a card in a hidden
     /// bucket is not drawn, and neither are the connectors into it, so a row with every pill off
     /// would otherwise be an empty screen with no way back.
@@ -285,7 +291,7 @@ impl Default for TeamsView {
         Self {
             layout: Layout::default(),
             algo: Algo::default(),
-            session: None,
+            sessions: Vec::new(),
             buckets: Bucket::all().to_vec(),
             hide_done: false,
             zoom: 0.8,
@@ -554,9 +560,10 @@ impl TeamsView {
             .collect()
     }
 
-    /// Whether a card is drawn at all, given the two filters. `session` absent is every session.
+    /// Whether a card is drawn at all, given the two filters. `sessions` empty is every session.
     pub fn visible(&self, agent: &WorkAgent) -> bool {
-        self.showing(agent.activity.bucket()) && self.session.is_none_or(|id| agent.session == id)
+        self.showing(agent.activity.bucket())
+            && (self.sessions.is_empty() || self.sessions.contains(&agent.session))
     }
 
     /// The tasks the strip lists: every task in the session, or the ones the selected agent has a
@@ -602,15 +609,20 @@ impl TeamsView {
         self.hide_done = !self.hide_done;
     }
 
-    /// Show one session, or every one. It leaves the selection alone: "show me all of it" is not
-    /// "stop looking at this".
-    pub fn show_session(&mut self, session: Option<SessionId>) {
-        self.session = session;
+    /// Turn one session's tick on or off. Any of them may be the last: with none ticked the row is
+    /// not filtering, which is the way back from having turned them all on. It leaves the
+    /// selection alone: narrowing which is shown is not "stop looking at this".
+    pub fn toggle_session(&mut self, session: SessionId) {
+        if let Some(ix) = self.sessions.iter().position(|held| *held == session) {
+            self.sessions.remove(ix);
+        } else {
+            self.sessions.push(session);
+        }
     }
 
     /// Put every filter back, which is the toolbar's one control for "show everything".
     pub fn clear_filters(&mut self) {
-        self.session = None;
+        self.sessions.clear();
         self.buckets = Bucket::all().to_vec();
         self.hide_done = false;
     }
@@ -618,7 +630,7 @@ impl TeamsView {
     /// Whether anything is being hidden, so the control that clears the filters can say whether it
     /// has anything to do.
     pub fn filtered(&self) -> bool {
-        self.session.is_some() || self.buckets.len() < Bucket::all().len() || self.hide_done
+        !self.sessions.is_empty() || self.buckets.len() < Bucket::all().len() || self.hide_done
     }
 
     pub fn zoom_by(&mut self, delta: f32) {

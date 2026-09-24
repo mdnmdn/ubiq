@@ -139,7 +139,7 @@ Web-export coverage is inline in `crates/ubiq/src/web_export/mod.rs`. Add:
 
 ## 9. Documents
 
-`just docs-touched` names them from the diff. Expect `_docs/features/workbench.md` for anything
+`just docs-touched` names them from the diff. Expect `_docs/features/workbench-ide.md` for anything
 the user sees, `_docs/tech/transport-contract.md` if the wire changed, and the
 `_docs/wip/web-panel-*.md` document that owns the half you touched. Bump `verified`. A tenant is
 an instance of `D104`–`D107`; write a new `Dnn` only if you changed the policy.

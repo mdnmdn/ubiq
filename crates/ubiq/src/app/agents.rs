@@ -295,35 +295,11 @@ impl AppState {
         let Some(agent_id) = self.agent_for_slot(slot, cx) else {
             return;
         };
-        // The turn is filed against the agent's project, not the window's — every slot's agent is
-        // the project on screen's.
-        let Some(project_id) = self.project_of_agent(agent_id, cx) else {
-            return;
-        };
-        // A column showing a live agent sends or queues, whichever the turn in flight calls for;
-        // one showing a mock keeps the path it had. Both are on screen at once, and the
-        // difference is whether a conversation exists.
-        if self
-            .held_project(project_id)
-            .is_some_and(|open| open.conversations.contains_key(&agent_id))
-        {
-            self.send_or_enqueue(agent_id, slot, window, cx);
-            return;
-        }
-        let Some(agents) = self.agents(cx) else {
-            return;
-        };
-        let text = agents.draft(slot).trim().to_string();
-        if text.is_empty() {
-            return;
-        }
-        self.bus.send(Message::SendToAgent {
-            project_id,
-            agent_id,
-            text,
-        });
-        self.clear_composer(slot, window, cx);
-        cx.notify();
+        // Every column holds a live agent (T-143): `AgentsView::live` is exactly
+        // `open.conversations.keys()`, and a tab whose agent drops out of it is pruned, so this
+        // always sends or queues, never `Message::SendToAgent` — that path is for a screen with
+        // agents that have no conversation, which a column can no longer be.
+        self.send_or_enqueue(agent_id, slot, window, cx);
     }
 
     /// Take a turn to a live agent from one of the window's pooled composers.
