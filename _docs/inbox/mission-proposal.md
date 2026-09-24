@@ -15,6 +15,9 @@ depends_on: [feat-workbench-tasks, feat-workbench-teams, feat-workbench-agents, 
 decision **M1–M18** with a recommendation and a cost; §11 stages the work; §12 lists what is still
 open for discussion. A decision that lands takes a `Dnn` row from **D164** upward.
 
+**Settled with the user (2026-09-24):** M1, M5, M11 and M13 — each marked *Settled* below with the
+answer as given; the rest are still recommendations.
+
 **Posture: reuse the mission that exists.** The planning flow (T-56–T-62, T-94) already ships most of
 the parts: a mission is a `TaskRecord` with `level: Some(Level::Mission)`; it may have children at
 depth one; it carries a markdown plan with block-anchored annotation threads and per-line
@@ -67,7 +70,9 @@ Roster  = agents whose WorkAgent::task is the mission or one of its children   �
 
 ### M1 — Identity: the anchor task's id, or a `MissionId` of its own
 
-- **(a) Recommended: `TaskId`.** A mission *is* its anchor task; the mission record is a sidecar
+**Settled: (a).** The anchor task is mandatory.
+
+- **(a) `TaskId`.** A mission *is* its anchor task; the mission record is a sidecar
   keyed by the same id, exactly as the plan already is. Every existing message, handle, MCP tool and
   board affordance keeps working; `DocumentHandle::Plan` needs no change.
 - (b) A new `MissionId`, with `MissionRecord::task: Option<TaskId>`. Lets a mission exist with no
@@ -121,13 +126,19 @@ what the user exports or what an agent writes there as work.
 
 ### M5 — Who moves a phase
 
-- **Recommended: the agent requests, the user confirms, the step back is free.**
+**Settled: the plan gate is a human gate when a plan is requested.** `require plan` stays on the
+mission (the dialog's flag, now stored on `MissionRecord`, editable on the panel) and becomes the
+switch for the gate — which answers `wip/planning-system.md`'s open question mechanically.
+
+- **The agent requests, the user confirms, the step back is free.**
   - Requirements → Refining: the coordinator calls `request_phase`; confirmed by the user, or
     automatic when the mission's `auto_refine` setting is on (default on — nothing is at stake).
-  - **Refining → In progress is always a human gate** — it is *plan approval*, the one moment the
-    user commits agents and spend. This replaces the `require plan` reminder: the gate refuses
-    while the plan is empty or while it has open blocking threads, which answers the open question
-    in `wip/planning-system.md` mechanically.
+  - **With `require plan`: Refining → In progress is a human gate** — *plan approval*, the moment
+    the user commits agents and spend. It refuses while the plan is empty or has open blocking
+    threads, and only the user can pass it.
+  - **Without `require plan`:** Refining is optional and there is no gate — the coordinator moves
+    Requirements (or Refining) → In progress itself; the move is journaled and notified, and the user
+    can step it back.
   - In progress → Completed: requested by the coordinator (with a summary), confirmed by the user.
   - Any phase → an earlier one (re-plan, re-scope) and any → Abandoned: the user, any time.
 - A pending request shows in the panel's *Needs you* section and as a notification (link to the
@@ -180,7 +191,7 @@ messages, now also raisable from the Agents sidebar and the Teams toolbar, not o
 | Description | plain field | the **requirements** editor: markdown, paste (text and pictures) |
 | Attachments | — | chip row, the task attachment picker (project + KB roots) |
 | Linked tasks | — | chip row, the task panel's references picker |
-| `require plan` | reminder sentence | removed — the Refining → In progress gate (M5) is the mechanism |
+| `require plan` | reminder sentence | kept, and now the switch for the Refining → In progress gate (M5) |
 | Assistant | mission-assistant profiles | **coordinator**: the same picker, plus "attach a running agent" |
 | Plan | — | optional: none / project file / KB document / paste → starts in Refining |
 | Start | creates + launches | unchanged sequence + `CreateMission` (M17), briefing mentions `ubiq-mission` |
@@ -228,7 +239,7 @@ notification link, and the command palette. Several may be open.
   the hexagon (M6), `⋯` for complete / abandon / pause all / open on board / open on Teams.
 - **Agents:** the roster (M11) with each card's hexagon and note. `Chat` opens that agent's
   conversation in a `Chat` panel (Teams' `open_teams_agent_panel` path). **Spawn ▾**: coordinator,
-  worker (profile picker, optional task), any agent (the New agent form, pre-filled with this
+  one entry per agent kind (M13, optional task), any agent (the New agent form, pre-filled with this
   mission). **Attach…**: pick a running agent — it joins the roster (`AssignAgent` onto the mission).
   When the coordinator exists but is not loaded, its row offers **Resume** (the library session) and
   **Replace**.
@@ -241,14 +252,23 @@ The existing task panel keeps working for the anchor task; it gains one "Open mi
 
 ## 7. Agents
 
-### M11 — The roster is derived from `WorkAgent::task`
+### M11 — The roster: assigned to the mission, or spawned by a member
 
-- **Recommended:** an agent belongs to a mission when its `WorkAgent::task` is the mission or one of
-  its children — the link Teams already draws containers from, and `AssignAgent` already writes. The
-  mission record only adds *role* (coordinator vs worker) and a history of who has been in it. So an
-  agent belongs to at most one mission, attaching is `AssignAgent`, and moving an agent between
-  task containers inside a fence keeps it in the mission.
-- `AgentFacts` gains `mission: Option<TaskId>`, filled at launch and updated on `AssignAgent`, so
+**Settled:** an agent is in a mission when it is **assigned to the mission's task** (or one of its
+children), **or it was spawned by an agent that is in the mission**.
+
+- Both halves use links that already exist: `WorkAgent::task`, which Teams draws containers from and
+  `AssignAgent` writes, and `WorkAgent::parent`, which Teams draws the spawn connector from. The
+  roster is the assigned agents plus, transitively, the agents they spawned.
+- **Spawn membership is fixed at the spawn.** The host writes the spawner's mission onto the new agent
+  when it is launched (in the mission record's roster, not re-derived each frame), so it stays in
+  the mission after its spawner ends. It only leaves if it is explicitly assigned to a task of
+  another mission (an explicit assignment wins) or detached from the panel.
+- An agent is in at most one mission. Attaching is `AssignAgent`; moving an agent between task
+  containers inside a fence keeps it in the mission.
+- The mission record adds *role* (coordinator vs worker) and a history of who has been in it.
+- `AgentFacts` gains `mission: Option<TaskId>`, filled at launch (from the assignment or the spawner)
+  and updated on `AssignAgent`, so
   `ubiq-mission` resolves "which mission am I in" from the URL identity (`D102`) with no argument.
 - Harness-native subagents (Claude Code's `Task` tool) stay what they are (`D47`): read off the
   stream, drawn as delegate rings inside the fence, counted in the mission's spend, not rostered.
@@ -271,11 +291,21 @@ opening prompt from a briefing template; then `AssignAgent` onto the mission (or
 An agent spawns through `ubiq-mission::spawn_agent`. `StartConversation` is UI-only and the window
 mints the `AgentId`; that rule is kept:
 
-- **Recommended: the host relays, the window launches.** The tool posts `MissionSpawnRequest`
-  (profile, task, prompt, reason) to the window that owns the project and returns a request id at
-  once. The window applies the mission's **spawn policy** — `ask` (default: a row in *Needs you*),
-  `auto up to N concurrent`, or `never` — and launches with the same composition the panel uses. The
-  outcome reaches the requesting agent as its next prompt and in the journal; `list_agents` shows it.
+**Settled: the host relays, the window launches — and the window is where the kind of agent is
+chosen.**
+
+- The tool posts `MissionSpawnRequest` (kind, task, prompt, reason) to the window that owns the
+  project and returns a request id at once. The agent asks for a **kind**, not a concrete launch:
+  one of the mission's *agent kinds*, listed by `list_agent_kinds`.
+- **Agent kinds** are a small table on the mission record — name (e.g. `worker`, `reviewer`,
+  `researcher`), the profile (harness, model, account, permission mode) it resolves to, and a
+  one-line description the agent reads. The dialog seeds it from the project's profiles; the panel
+  edits it. A request may also name a profile directly when the kind is `custom`.
+- The window applies the mission's **spawn policy** — `ask` (default: a row in *Needs you* where the
+  user can **change the kind or profile** before allowing), `auto up to N concurrent`, or `never` —
+  and launches with the same composition the panel uses, then records the new agent in the roster
+  (M11). The outcome, including the kind actually used, reaches the requesting agent as its next
+  prompt and in the journal; `list_agents` shows it.
 - Alternative: let the host mint and launch. Breaks the one-minter rule and bypasses the window's
   profile resolution for no gain; the project is open in its window whenever its agents run.
 
@@ -323,6 +353,8 @@ working unchanged in the first stages (harness subagents); Ubiq-level workers ar
   be dropped onto.
 - Dropping a card inside the fence (on no child's container) assigns it to the mission itself
   (`AssignAgent`), i.e. attaches it; dropping it out onto open ground stays a no-op, as today.
+- An agent in the mission by spawn only (M11), with no task of its own, sits inside the fence beside
+  its spawner, outside any task container, joined to it by the existing spawn connector.
 - The arrangements lay a mission out as one group, innermost first — the layout proposal's
   frame-owns-its-box rule, with a mission as the first frame kind built. Until that proposal lands,
   the twelve arrangements place fences by their members and the handle drag is the correction.
@@ -347,7 +379,8 @@ worker's ticks `use-mission`, `use-task`, `ubiq-ask`.
 | `create_mission_task` | ✓ | — | a child of the mission, with todos, optionally for a role; thin over `Work` |
 | `report_progress` | ✓ | ✓ | a journal line, optionally against a task; drawn on the panel and the card note |
 | `request_phase` | ✓ | — | ask to move phase with a summary; answered by the user (M5) |
-| `spawn_agent` | ✓ | — | a `MissionSpawnRequest` (M13); returns a request id |
+| `list_agent_kinds` | ✓ | — | the mission's agent kinds with their descriptions (M13) |
+| `spawn_agent` | ✓ | — | a `MissionSpawnRequest` for a kind (M13); returns a request id |
 | `list_agents` | ✓ | ✓ | the roster with role, task, activity |
 | `message_agent` | ✓ | — | a prompt to a roster member, over `SendToAgent` (queued if working) |
 | `read_feedback` | ✓ | — | user feedback since the last read (also delivered as prompts) |
@@ -367,7 +400,7 @@ A **mission family** beside the work and plan families, keyed by `(project_id, t
 
 - UI → host: `ListMissions`, `CreateMission` (record for a task; phase, coordinator, settings),
   `RequestPhase`, `SetPhase` (the user's confirm / step back), `SetMissionField` (coordinator,
-  spawn policy, `auto_refine` — one variant with a field enum, `SetTaskField`'s shape),
+  `require_plan`, spawn policy, agent kinds, `auto_refine` — one variant with a field enum, `SetTaskField`'s shape),
   `AddFeedback`, `LoadJournal { before }`, `AnswerSpawn`.
 - Host → UI: `MissionList`, `MissionChanged`, `MissionDeleted`, `JournalAppended`, `Journal`,
   `MissionSpawnRequest`, `MissionError`.
@@ -389,24 +422,25 @@ Each stage ships on its own and leaves the tree coherent.
 | **S2 — phases and dialog** | phase transitions and gates (M4, M5), `Status` derivation, widened new-mission dialog (attachments, references, plan seed, attach running coordinator), *Needs you* section | `NewMissionForm`, `start_new_mission()`, task attachment and reference pickers |
 | **S3 — MCP core, documents, journal** | `ubiq-mission` / `use-mission` without spawn, `DocumentHandle::MissionDoc`, journal and `report_progress`, `AgentFacts::mission` | `ubiq-plan`'s handle pattern, `D120`, `D161` |
 | **S4 — Agents and Teams** | Missions section in the sidebar (M14), the fence and its handle on both canvases, drop-to-attach, Missions filter | `state::layout::fence`, task containers, hexagon mark |
-| **S5 — spawning and feedback** | spawn / attach / replace coordinator from the panel, `spawn_agent` relay with spawn policy, `message_agent`, feedback delivery; arm-and-fire asks once that proposal lands | New agent form composition, `SendToAgent`, message queue |
+| **S5 — spawning and feedback** | spawn / attach / replace coordinator from the panel, `spawn_agent` relay with agent kinds and spawn policy, `message_agent`, feedback delivery; arm-and-fire asks once that proposal lands | New agent form composition, `SendToAgent`, message queue |
 | **S6 — later** | Ubiq-level workers as the default instead of harness subagents; arrangements laying missions out as frames (with the layout proposal) | — |
 
 ## 12. Open for discussion
 
-1. **Anchor task optional?** M1 makes the card mandatory. Is there a real case for a mission with
-   no card (e.g. an exploratory mission that should stay off the board)?
-2. **Depth one.** A mission's tasks cannot have children. Enough for In progress, or do workers
+1. **Depth one.** A mission's tasks cannot have children. Enough for In progress, or do workers
    need sub-tasks (today they have todos, `steps`)?
-3. **Pause.** Is "pause all" (stop every roster agent, keep the phase) a phase of its own, or just an
+2. **Pause.** Is "pause all" (stop every roster agent, keep the phase) a phase of its own, or just an
    action? Proposed: an action plus a journal line.
-4. **Spend.** Should a mission carry a budget (tokens / cost) that the spawn policy and a gate
+3. **Spend.** Should a mission carry a budget (tokens / cost) that the spawn policy and a gate
    respect? The usage store already splits spend per agent and delegate.
-5. **Completion.** Should Completed produce anything — a summary document the coordinator must
+4. **Completion.** Should Completed produce anything — a summary document the coordinator must
    write, an export of the plan and documents into the project?
-6. **Cross-project missions.** All Teams draws several projects; a mission stays inside one project
+5. **Cross-project missions.** All Teams draws several projects; a mission stays inside one project
    here. Needed?
-7. **Mission templates.** Saved briefs + coordinator profile + policy ("bug hunt", "feature spike")?
+6. **Mission templates.** Saved briefs + coordinator profile + policy + agent kinds ("bug hunt",
+   "feature spike")?
+7. **Default agent kinds.** Where the seed table comes from: project profiles only, a built-in
+   `worker` / `reviewer` pair, or kinds marked on profiles the way `mission_assistant` is?
 8. **Child inheritance** (`wip/planning-system.md`): should a mission's children inherit labels,
    colour or session? The fence makes the colour question more visible.
 
@@ -424,5 +458,5 @@ Each stage ships on its own and leaves the tree coherent.
 
 ## Next steps
 
-- Walk §12 with the user and settle M1, M5, M11 and M13 first — the rest follows from them.
+- Walk the remaining decisions (M2–M4, M6–M10, M12, M14–M18) and §12 with the user.
 - Then cut S1 into cards on the board.
