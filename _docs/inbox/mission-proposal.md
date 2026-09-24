@@ -3,7 +3,7 @@ id: inbox-mission
 title: Proposal — the mission as a first-class entity
 kind: proposal
 status: proposal
-summary: Promote today's mission — a task carrying `Level::Mission`, its plan, its children and the new-mission dialog — into an entity with a lifecycle of its own. Four phases (requirements, refining, in progress, completed) with user-gated transitions, a mission record beside the task keyed by the same `TaskId`, a dockable mission panel, a Missions section in the Agents sidebar, a fence with a drag handle on both Teams canvases, spawn and attach of coordinator and worker agents, a document set beyond the plan, a journal, a `ubiq-mission` / `use-mission` MCP pair, task prerequisites with a derived "not ready" mark so the planner can lay out a WBS, and two execution modes — manual, or auto with a mission scheduler that feeds ready tasks to agents at a set parallelism with label affinity. The mission detail colours tasks by work state, waiting-on-prerequisites apart from blocked, and the Tasks board gains a searchable per-mission filter. Everything that exists — the task record, parent/child, attachments and references, the plan store and annotations, `ubiq-plan`, `NewMissionForm`, `WorkAgent::task` — is reused rather than replaced. Every fork is a numbered decision with a recommendation and a cost.
+summary: Promote today's mission — a task carrying `Level::Mission`, its plan, its children and the new-mission dialog — into an entity with a lifecycle of its own. Four phases (requirements, refining, in progress, completed) with user-gated transitions, a mission record beside the task keyed by the same `TaskId`, a fast-overview side panel and a full view (modal or document tab) with the WBS, open missions in the side docks' `+` menu, a New mission entry in the Teams `+` chevron, a Missions section in the Agents sidebar, a fence with a drag handle on both Teams canvases, spawn and attach of coordinator and worker agents, a document set beyond the plan, a journal, a `ubiq-mission` / `use-mission` MCP pair, task prerequisites with a derived "not ready" mark so the planner can lay out a WBS, and two execution modes — manual, or auto with a mission scheduler that feeds ready tasks to agents at a set parallelism with label affinity. The mission detail colours tasks by work state, waiting-on-prerequisites apart from blocked, and the Tasks board gains a searchable per-mission filter. Everything that exists — the task record, parent/child, attachments and references, the plan store and annotations, `ubiq-plan`, `NewMissionForm`, `WorkAgent::task` — is reused rather than replaced. Every fork is a numbered decision with a recommendation and a cost.
 read_when: you are working on missions, the mission panel, the mission fence on the Teams graph, mission phases, or the mission MCP servers
 updated: 2026-09-24
 depends_on: [feat-workbench-tasks, feat-workbench-teams, feat-workbench-agents, feat-chat, feat-workbench, tech-transport, tech-decisions, wip-planning-system, inbox-hitl-dialogs, inbox-graph-layout, inbox-agent-graph-final]
@@ -15,8 +15,10 @@ depends_on: [feat-workbench-tasks, feat-workbench-teams, feat-workbench-agents, 
 decision **M1–M27** with a recommendation and a cost; §12 stages the work; §13 lists what is still
 open for discussion. A decision that lands takes a `Dnn` row from **D164** upward.
 
-**Settled with the user (2026-09-24):** M1, M5, M11 and M13 — each marked *Settled* below with the
-answer as given; the rest are still recommendations.
+**Settled with the user (2026-09-24): all of M1–M27.** M1, M5, M11 and M13 with the answers marked
+*Settled* below; every other decision as recommended. The side panel / full view split (§6), the
+dock `+` menu (§6.3) and the Teams split button (§9) were specified afterwards and are settled too.
+What stays open is §13.
 
 **Posture: reuse the mission that exists.** The planning flow (T-56–T-62, T-94) already ships most of
 the parts: a mission is a `TaskRecord` with `level: Some(Level::Mission)`; it may have children at
@@ -183,7 +185,8 @@ markdown (project file, KB document, or paste) is copied in as the first plan re
 ## 5. Starting a mission — the dialog
 
 `NewMissionForm` widened, not replaced; still `Layer::NewMission`, still composed from existing
-messages, now also raisable from the Agents sidebar and the Teams toolbar, not only the board.
+messages, now also raisable from the Agents sidebar, the Teams toolbar's `+` chevron (§9) and the
+side docks' `+` menu (§6.3), not only the board.
 
 | Row | Today | Proposed |
 |---|---|---|
@@ -207,48 +210,134 @@ messages, now also raisable from the Agents sidebar and the Teams toolbar, not o
 - Alternative: two roles. Costs a second picker and a rule for who answers what, for a difference a
   profile already expresses.
 
-## 6. The mission panel
+## 6. The mission surfaces — a side panel and a full view
 
-`PanelKind::Mission(TaskId)`, class `Free` — dockable in any region, in any mode, like `Chat`. Opened
-from the board card, the task panel ("Open mission"), the Agents sidebar, the Teams fence handle, a
-notification link, and the command palette. Several may be open.
+*Specified by the user:* the side panel is a **fast overview**; the full detail — WBS and everything
+else — lives in a **full view**, opened as a modal or as a document tab.
+
+One mission has two surfaces over the same record, drawn by one module family (`ui/mission/`), the
+way the task panel draws a report and a form over one task:
+
+| | Side panel (overview) | Full view |
+|---|---|---|
+| Kind | `PanelKind::Mission(TaskId)`, class `Free` | `PanelKind::MissionView(TaskId)` in the centre, or `Layer::Mission` as a modal |
+| Where | any side region, any mode, like `Chat` | IDE editor region as a document tab; a modal over the window everywhere else |
+| Job | read the state at a glance and act on what needs you | read and edit everything |
+| Editing | none beyond answering, feedback and spawning | every field, the WBS, the settings |
+
+### 6.1 The side panel — a fast overview
+
+Fixed, short, no scrolling in the ordinary case, nothing on it that needs reading twice. Opened from
+the board card, the task panel (*Open mission*), the Agents sidebar, the Teams fence handle, a
+notification link, the side docks' `+` menu (§6.3) and the command palette. Several may be open.
 
 ```
-┌ ⬡ Mission  UBQ-42  Payment retries                       [⋯] ┐
-│ Requirements ─ Refining ─ ●In progress ─ Completed            │
-├ Needs you (2) ────────────────────────────────────────────────┤
-│  ? coordinator asks: "retry cap per tenant?"        [Answer]  │
-│  ⇢ spawn request: reviewer (sonnet) for UBQ-47  [Allow][Deny] │
-├ Agents (3) ─────────────────────────── [Spawn ▾] [Attach…] ───┤
-│  ⬡ coordinator  claude · opus      writing plan.md    [Chat]  │
-│  ⬡ worker       codex              UBQ-45             [Chat]  │
-│  ⬡ worker       claude · sonnet    idle               [Chat]  │
-├ Tasks  4 todo · 2 in progress · 5 done   ▓▓▓▓▓░░░░ ───────────┤
-│  … grouped rows, click opens the task panel                   │
-├ Plan & documents ─────────────────────────────────────────────┤
-│  plan.md  3 open threads    requirements.md   decisions.md    │
-├ Brief ────────────────────────────────────────────────────────┤
-│  description · 3 attachments · linked UBQ-12, UBQ-19          │
-├ Activity ─────────────────────────────────────────────────────┤
-│  journal feed (phase changes, progress, spawns, feedback)     │
-│  [ feedback to the mission…                        ] [Send]   │
-└───────────────────────────────────────────────────────────────┘
+┌ ⬡ Mission UBQ-42 Payment retries          [⤢][⋯] ┐
+│ ○─○─●─○  In progress · auto ×2                    │
+│ ▓▓▓▓▓▓▓▒▒▒░░░░  5 done · 2 review · 2 run ·       │
+│                 3 waiting · 1 blocked · 2 ready   │
+├ Needs you (2) ────────────────────────────────────┤
+│ ? retry cap per tenant?                  [Answer] │
+│ + 1 more                                          │
+├ Agents 3 ──────────────────────────── [Spawn ▾]  ─┤
+│ ⬡ coordinator  opus    writing plan.md    [Chat]  │
+│ ⬡ worker-1     codex   UBQ-45             [Chat]  │
+│ ⬡ worker-2     sonnet  UBQ-47             [Chat]  │
+├ Latest ───────────────────────────────────────────┤
+│ 14:02 worker-1 moved UBQ-44 to review             │
+│ 13:58 scheduled UBQ-45 → worker-1 (ui, api)       │
+├───────────────────────────────────────────────────┤
+│ [ feedback to the mission…              ] [Send]  │
+└───────────────────────────────────────────────────┘
 ```
 
-- **Header:** mission term, key, title, the phase stepper (clicking a phase requests it, M5),
-  the hexagon (M6), `⋯` for complete / abandon / pause all / open on board / open on Teams.
-- **Agents:** the roster (M11) with each card's hexagon and note. `Chat` opens that agent's
-  conversation in a `Chat` panel (Teams' `open_teams_agent_panel` path). **Spawn ▾**: coordinator,
-  one entry per agent kind (M13, optional task), any agent (the New agent form, pre-filled with this
-  mission). **Attach…**: pick a running agent — it joins the roster (`AssignAgent` onto the mission).
-  When the coordinator exists but is not loaded, its row offers **Resume** (the library session) and
-  **Replace**.
-- **Tasks:** the anchor's children grouped by status, with a progress bar; `+` creates a child.
-- **Plan & documents:** plan first, then `docs/`; open on the plan surface. Counts of open threads.
-- **Activity:** the journal (M12), and a feedback field — feedback is journaled *and* delivered to
-  the coordinator as a prompt (queued if it is working; `message-queue-and-steering.md`).
+- **Header:** mission term, key, title, the hexagon (M6); `⤢` opens the full view; `⋯` holds
+  complete / abandon / pause all / open on board (M27) / open on Teams / execution mode.
+- **Phase line:** a compact stepper (clicking a step requests it, M5) and the execution mode with
+  its parallelism (M22).
+- **Progress:** one segmented bar in the work-state colours of M26, with the counts under it;
+  clicking a segment opens the full view's Tasks tab filtered to that state.
+- **Needs you:** the first pending item with its inline action, and a count of the rest (the full
+  list is the full view's Overview).
+- **Agents:** one line per roster member — hexagon, name or kind, model, current task or note —
+  capped at five with *+n more*. `Chat` opens that agent's conversation in a `Chat` panel (Teams'
+  `open_teams_agent_panel` path). **Spawn ▾**: coordinator, one row per agent kind (M13), any agent
+  (the New agent form pre-filled with this mission), *Attach running agent…*. A coordinator that is
+  not loaded shows **Resume** instead of `Chat`.
+- **Latest:** the last three journal lines (M12).
+- **Feedback:** one line, journaled and delivered to the coordinator as a prompt (queued while it
+  works; `message-queue-and-steering.md`).
 
-The existing task panel keeps working for the anchor task; it gains one "Open mission" row.
+The existing task panel keeps working for the anchor task and gains one *Open mission* row.
+
+### 6.2 The full view — every detail
+
+One surface, `ui/mission/full.rs`, with two shapes — the board's `popup` rule applied to a mission:
+
+- **Modal** (`Layer::Mission`, `Presentation::Modal`, the plan surface's shape) — the default from
+  the side panel's `⤢`, the fence handle, a mission card and a notification, in any mode. It never
+  disturbs the arrangement under it.
+- **Document tab** (`PanelKind::MissionView(TaskId)`) — the modal's *Open as tab* puts it in the
+  centre region beside the open files, as an IDE document: it stays while the user works, can be
+  split beside a file, and is restored with the arrangement. In IDE mode `⤢` opens it there directly.
+
+The two shapes are the same view state (`state::mission::MissionView`: selected tab, WBS zoom and
+selection, filters), so moving between them loses nothing.
+
+```
+┌ ⬡ Mission UBQ-42 Payment retries   ○─○─●─○ In progress   [Open as tab][×] ┐
+│ Overview │ WBS │ Tasks │ Agents │ Plan & docs │ Activity │ Settings        │
+├────────────────────────────────────────────────────────────────────────────┤
+│  WBS                                   [Graph | Table]  ☐ critical path    │
+│                                                                            │
+│   L0          L1               L2                 L3                       │
+│  ┌UBQ-43┐──▶┌UBQ-44 review┐──▶┌UBQ-46 waiting┐──▶┌UBQ-49 waiting┐         │
+│  │ done │   └─────────────┘ ┌▶└──────────────┘                            │
+│  └──────┘──▶┌UBQ-45 run   ┐─┘                   ┌ task detail ────────┐  │
+│             └─────────────┘   ┌UBQ-47 blocked┐   │ UBQ-46 …            │  │
+│                               └──────────────┘   │ waits on UBQ-44     │  │
+│                                                   └─────────────────────┘  │
+└────────────────────────────────────────────────────────────────────────────┘
+```
+
+| Tab | What it holds |
+|---|---|
+| **Overview** | phase stepper with dates and who moved it; the brief (description, attachments, linked tasks); counts per work state; agents, spend and elapsed time; the whole *Needs you* list with actions |
+| **WBS** | the prerequisite graph, laid out by dependency level (M20), nodes coloured by work state (M26), edges for prerequisites; a **Table** toggle for the same data (key, title, level, state, waits on, blocks, labels, assignee); critical-path highlight; selecting a node opens the task detail on the right — the board's own `ui/board/detail.rs` and `form.rs`, so a task is edited here exactly as on the board, prerequisites included |
+| **Tasks** | the mission's tasks as the board draws them — status columns, the board's cards, filtered to this mission (M27's filter, fixed) — with a state filter from M26's counts |
+| **Agents** | the roster as a table: role, kind, model, current task, affinity labels (M24), tasks held, spend, lifecycle; actions per row — chat, stop, detach, make coordinator; spawn and attach |
+| **Plan & docs** | the plan on the existing plan surface (`ui/document.rs`, with its minimap, gutter and thread rail) and the mission documents (M8) in a list beside it; export |
+| **Activity** | the full journal, paged, filterable by event kind and by agent; the feedback composer |
+| **Settings** | `require plan`, `auto_refine`, execution mode and parallelism, `on_finish`, `max_tasks_per_agent`, `max_attempts`, spawn policy, agent kinds with their labels (M13, M24), default kind |
+
+The WBS graph is drawn with the Teams canvas primitives (`kit::canvas`, the layered `Tree`
+arrangement's code) rather than a new graph engine; editing a prerequisite by dragging an edge
+between two nodes is a later refinement — the task detail's Prerequisites chip list is the first
+way in.
+
+### 6.3 The side docks' `+` menu lists the open missions
+
+*Specified by the user.* The `+` on a side dock's tab strip (`chat.md`: *New agent* / *Attach
+existing agent*) gains a third part:
+
+```
++  New agent
+   Attach existing agent
+   ─────────────
+   New mission
+   Missions ▸   ⬡ UBQ-42 Payment retries   In progress   ●
+                ⬡ UBQ-51 Search reindex    Refining
+                ⬡ UBQ-58 Onboarding copy   Requirements
+```
+
+- **Missions ▸** lists the project's missions not Completed or Abandoned — hexagon, key, title,
+  phase, the *needs you* dot — most recently active first; picking one opens its side panel
+  (§6.1) as a tab in that region, or reveals it if it is already open somewhere. A search row
+  appears once the list is longer than the menu's height, the `kit::Picker` search field.
+- **New mission** raises the new-mission dialog (§5); the side panel opens in that region when the
+  mission is created, the same *minted when there is something to put in it* rule chat tabs follow.
+- The `+` is drawn on a region holding a mission panel too, not only a chat region — the same
+  `hosts_chats` reasoning extended to `hosts_missions`.
 
 ## 7. Agents
 
@@ -360,6 +449,16 @@ change" lands.
   frame-owns-its-box rule, with a mission as the first frame kind built. Until that proposal lands,
   the twelve arrangements place fences by their members and the handle drag is the correction.
 - A "Missions" filter joins Sessions and States in the toolbar; the tasks drawer groups by mission.
+- **The toolbar's create control becomes one split button: `+` and a chevron** (*specified by the
+  user*). Today's `+ Add agent` at the far end of the toolbar is replaced by a `+` that does what it
+  did — New agent, asking for the project first when the window holds several — and a chevron
+  beside it whose menu offers **New agent** and **New mission**, each with the same project question
+  in a window span (`All Teams`). *New mission* raises the new-mission dialog (§5) for that project;
+  the mission's fence appears on the canvas once its first agent does, and its handle alone before
+  that (M15). The split button is the titlebar's own `+`-and-chevron pattern, not a new control.
+  The separate `+` beside Rearrange and Fit, which opens the right dock's agent panel, is left as it
+  is; folding it into the same chevron is a small follow-up if two `+`s on one toolbar read as one
+  too many.
 
 ## 10. MCP
 
@@ -449,10 +548,10 @@ tasks share the new task's **labels**.
   override the graph — and the mark stays on the card while it is true.
 - **Task panel:** a *Prerequisites* chip list with `+` (the references picker, refusing what M19
   refuses) and a read-only *Blocks* list under it.
-- **Mission panel:** the Tasks section gains a **WBS view** beside the status grouping — tasks
-  grouped by dependency level (a topological layering: level 0 has no prerequisites), each row with
-  its readiness, assignee and labels, coloured by M26; a critical-path highlight is a later
-  refinement.
+- **Mission full view:** the **WBS** tab (§6.2) — tasks laid out by dependency level (a
+  topological layering: level 0 has no prerequisites) as a graph or a table, each with its
+  readiness, assignee and labels, coloured by M26, with a critical-path highlight. The side panel
+  shows only the counts.
 - **Teams tasks drawer** draws the same chip.
 
 ### M21 — The planner writes the WBS
@@ -470,7 +569,7 @@ suggested agent kind. The tools are the task tools that exist, widened:
   `ready_only` filter.
 - The coordinator's briefing tells it to tag by affinity (area, component, skill) and to keep tasks
   small enough for one agent. With `require plan`, the WBS is part of what the user approves at the
-  gate — the mission panel's WBS view is what they look at.
+  gate — the full view's WBS tab is what they look at.
 
 ### M22 — Two execution modes
 
@@ -544,8 +643,8 @@ bloated one), `max_attempts`, default kind.
 *Specified by the user:* in the mission panel, a task waiting on prerequisites is drawn in a colour
 of its own, apart from the others.
 
-- **Recommended:** every task row in the mission panel's Tasks section — both the status grouping
-  and the WBS view — carries a state dot and a tinted left edge from one derived **work state**,
+- **Recommended:** every task in the mission's surfaces — the side panel's progress bar (§6.1), and
+  the full view's WBS graph and table and Tasks tab (§6.2) — carries a state dot and a tinted left edge from one derived **work state**,
   first match wins:
 
   | Work state | When | Token |
@@ -600,12 +699,12 @@ Each stage ships on its own and leaves the tree coherent.
 | Stage | Contents | Reuses |
 |---|---|---|
 | **S0 — prerequisites** (independent, can ship first) | `TaskRecord::prerequisites`, `TaskField::Prerequisites`, cycle refusal, derived readiness, the board's *waits on* chip and **Ready only** filter, the task panel's Prerequisites / Blocks lists, `ready` / `waiting_on` / `ready_only` on both task servers (M19, M20) | `References`' field, picker and chip list |
-| **S1 — record and panel** | `MissionStore`, lazy records and phase inference (M3), mission family on the wire, `PanelKind::Mission` with header, tasks coloured by work state (M26), plan link, brief, roster derived from `WorkAgent::task`; board "Open mission" and the mission filter picker (M27) | task record, plan store, task panel pieces |
+| **S1 — record and panel** | `MissionStore`, lazy records and phase inference (M3), mission family on the wire, the side panel (§6.1) with the progress bar in work-state colours (M26) and the roster derived from `WorkAgent::task`; the full view (§6.2) with Overview, Tasks, Agents, Plan & docs and Activity; board "Open mission" and the mission filter picker (M27); the side docks' `+` Missions list (§6.3) | task record, plan store, task panel pieces |
 | **S2 — phases and dialog** | phase transitions and gates (M4, M5), `Status` derivation, widened new-mission dialog (attachments, references, plan seed, attach running coordinator), *Needs you* section | `NewMissionForm`, `start_new_mission()`, task attachment and reference pickers |
 | **S3 — MCP core, documents, journal** | `ubiq-mission` / `use-mission` without spawn, `DocumentHandle::MissionDoc`, journal and `report_progress`, `AgentFacts::mission` | `ubiq-plan`'s handle pattern, `D120`, `D161` |
-| **S4 — Agents and Teams** | Missions section in the sidebar (M14), the fence and its handle on both canvases, drop-to-attach, Missions filter | `state::layout::fence`, task containers, hexagon mark |
+| **S4 — Agents and Teams** | Missions section in the sidebar (M14), the Teams `+` / chevron split button with New mission, the fence and its handle on both canvases, drop-to-attach, Missions filter | `state::layout::fence`, task containers, hexagon mark |
 | **S5 — spawning and feedback** | spawn / attach / replace coordinator from the panel, `spawn_agent` relay with agent kinds and spawn policy, `message_agent`, feedback delivery; arm-and-fire asks once that proposal lands | New agent form composition, `SendToAgent`, message queue |
-| **S6 — WBS and auto mode** | `create_mission_tasks` batch, the WBS view, execution modes, the mission scheduler with affinity, `on_finish`, attempts and its journal lines (M21–M25) | S5's spawn relay and agent kinds, `AssignAgent`, `SendToAgent`, `use-task::change_state` |
+| **S6 — WBS and auto mode** | `create_mission_tasks` batch, the full view's WBS and Settings tabs, execution modes, the mission scheduler with affinity, `on_finish`, attempts and its journal lines (M21–M25) | S5's spawn relay and agent kinds, `AssignAgent`, `SendToAgent`, `use-task::change_state` |
 | **S7 — later** | Ubiq-level workers as the default instead of harness subagents; arrangements laying missions out as frames (with the layout proposal) | — |
 
 ## 13. Open for discussion
@@ -649,5 +748,5 @@ Each stage ships on its own and leaves the tree coherent.
 
 ## Next steps
 
-- Walk the remaining decisions (M2–M4, M6–M10, M12, M14–M27) and §13 with the user.
+- Walk §13 with the user.
 - Then cut S1 into cards on the board.
