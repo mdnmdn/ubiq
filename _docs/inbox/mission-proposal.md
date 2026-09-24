@@ -3,7 +3,7 @@ id: inbox-mission
 title: Proposal — the mission as a first-class entity
 kind: proposal
 status: proposal
-summary: Promote today's mission — a task carrying `Level::Mission`, its plan, its children and the new-mission dialog — into an entity with a lifecycle of its own. Four phases (requirements, refining, in progress, completed) with user-gated transitions, a mission record beside the task keyed by the same `TaskId`, a dockable mission panel, a Missions section in the Agents sidebar, a fence with a drag handle on both Teams canvases, spawn and attach of coordinator and worker agents, a document set beyond the plan, a journal, a `ubiq-mission` / `use-mission` MCP pair, task prerequisites with a derived "not ready" mark so the planner can lay out a WBS, and two execution modes — manual, or auto with a mission scheduler that feeds ready tasks to agents at a set parallelism with label affinity. Everything that exists — the task record, parent/child, attachments and references, the plan store and annotations, `ubiq-plan`, `NewMissionForm`, `WorkAgent::task` — is reused rather than replaced. Every fork is a numbered decision with a recommendation and a cost.
+summary: Promote today's mission — a task carrying `Level::Mission`, its plan, its children and the new-mission dialog — into an entity with a lifecycle of its own. Four phases (requirements, refining, in progress, completed) with user-gated transitions, a mission record beside the task keyed by the same `TaskId`, a dockable mission panel, a Missions section in the Agents sidebar, a fence with a drag handle on both Teams canvases, spawn and attach of coordinator and worker agents, a document set beyond the plan, a journal, a `ubiq-mission` / `use-mission` MCP pair, task prerequisites with a derived "not ready" mark so the planner can lay out a WBS, and two execution modes — manual, or auto with a mission scheduler that feeds ready tasks to agents at a set parallelism with label affinity. The mission detail colours tasks by work state, waiting-on-prerequisites apart from blocked, and the Tasks board gains a searchable per-mission filter. Everything that exists — the task record, parent/child, attachments and references, the plan store and annotations, `ubiq-plan`, `NewMissionForm`, `WorkAgent::task` — is reused rather than replaced. Every fork is a numbered decision with a recommendation and a cost.
 read_when: you are working on missions, the mission panel, the mission fence on the Teams graph, mission phases, or the mission MCP servers
 updated: 2026-09-24
 depends_on: [feat-workbench-tasks, feat-workbench-teams, feat-workbench-agents, feat-chat, feat-workbench, tech-transport, tech-decisions, wip-planning-system, inbox-hitl-dialogs, inbox-graph-layout, inbox-agent-graph-final]
@@ -12,7 +12,7 @@ depends_on: [feat-workbench-tasks, feat-workbench-teams, feat-workbench-agents, 
 # Proposal — the mission as a first-class entity
 
 **A proposal to work on, not a settled design. Nothing here is built.** Every fork is a numbered
-decision **M1–M25** with a recommendation and a cost; §12 stages the work; §13 lists what is still
+decision **M1–M27** with a recommendation and a cost; §12 stages the work; §13 lists what is still
 open for discussion. A decision that lands takes a `Dnn` row from **D164** upward.
 
 **Settled with the user (2026-09-24):** M1, M5, M11 and M13 — each marked *Settled* below with the
@@ -451,7 +451,8 @@ tasks share the new task's **labels**.
   refuses) and a read-only *Blocks* list under it.
 - **Mission panel:** the Tasks section gains a **WBS view** beside the status grouping — tasks
   grouped by dependency level (a topological layering: level 0 has no prerequisites), each row with
-  its readiness, assignee and labels; a critical-path highlight is a later refinement.
+  its readiness, assignee and labels, coloured by M26; a critical-path highlight is a later
+  refinement.
 - **Teams tasks drawer** draws the same chip.
 
 ### M21 — The planner writes the WBS
@@ -538,6 +539,60 @@ bloated one), `max_attempts`, default kind.
   reports the mode, the pool, the slots and who holds what. `use-mission`: `mission_overview` tells a
   worker its current task.
 
+### M26 — Task colours in the mission detail
+
+*Specified by the user:* in the mission panel, a task waiting on prerequisites is drawn in a colour
+of its own, apart from the others.
+
+- **Recommended:** every task row in the mission panel's Tasks section — both the status grouping
+  and the WBS view — carries a state dot and a tinted left edge from one derived **work state**,
+  first match wins:
+
+  | Work state | When | Token |
+  |---|---|---|
+  | Blocked | `Status::Blocked` — a person or agent said it is stuck | `danger` / `danger_soft` |
+  | Waiting on prerequisites | not ready by M20, whatever its status short of `InReview` | `warning` / `warning_soft` |
+  | Ready | ready by M20, `Ready` or `Backlog`, nobody on it | `info` / `info_soft` |
+  | In progress | `InProgress` and ready | `accent` / `accent_soft` |
+  | In review | `InReview` | `accent_muted` |
+  | Done | `Done` | `success` / `success_soft` |
+  | Abandoned | `Abandoned` | `text_muted` |
+
+  Every colour is an existing theme token with a value in both palettes — no literal colour outside
+  `theme.rs`, per the architecture rule. A waiting row also names what it waits on (*waits on T-45,
+  T-47*), each key a link to that row.
+- The Tasks section header gains a legend and per-state counts (*2 blocked · 3 waiting · 4 ready ·
+  …*); clicking a count filters the section to that state.
+- The same state and token drive the fence's task containers on Teams (M15): a container's outline
+  takes the waiting colour while its task waits on prerequisites, so a stalled branch of the WBS
+  reads from the canvas.
+- On the board, the card keeps its existing rules — a card's own swatch or the pulse on its left
+  edge — and shows waiting through the *waits on n* chip (M20), drawn in `warning`. The board does
+  not recolour whole cards, because the swatch already owns that edge.
+
+### M27 — A mission filter on the Tasks board
+
+*Specified by the user:* a per-mission filter in Tasks mode, a picker with a search field, showing
+only that mission's tasks.
+
+- **Recommended:** a `kit::Picker` (single choice, with its optional search field) in the board
+  toolbar beside the labels `kit::MultiPicker`. The first row is *All tasks*, then one row per
+  mission in the project — mission term chip, key, title, phase — searched by key and title.
+  Completed and abandoned missions sort last and are dimmed. Closed, the trigger names the chosen
+  mission or reads *all missions*.
+- A mission chosen shows **the mission's own card and its children**, nothing else. It stacks with
+  the text field, the labels and **Ready only** (all AND), and the reset that clears the others
+  clears it too.
+- A single choice rather than a set: a task belongs to at most one mission, so ticking two would
+  mean OR while the labels picker means AND, and the toolbar would read two ways.
+- The choice is kept in `BoardState` beside the filter text and the labels, and saved with the
+  board's view state per project. A mission deleted or demoted clears it.
+- **Entry points:** the mission panel's `⋯` → *Open on board*, the fence handle's menu, and a
+  mission card's own menu (*Show only this mission*) set the filter and switch to Tasks mode.
+- The status bar's counts go through the same filter (`matches()`), so they count the mission's
+  tasks while it is on.
+- The Teams tasks drawer gets the same picker, since it reads the same task register.
+
 ## 12. Staging
 
 Each stage ships on its own and leaves the tree coherent.
@@ -545,7 +600,7 @@ Each stage ships on its own and leaves the tree coherent.
 | Stage | Contents | Reuses |
 |---|---|---|
 | **S0 — prerequisites** (independent, can ship first) | `TaskRecord::prerequisites`, `TaskField::Prerequisites`, cycle refusal, derived readiness, the board's *waits on* chip and **Ready only** filter, the task panel's Prerequisites / Blocks lists, `ready` / `waiting_on` / `ready_only` on both task servers (M19, M20) | `References`' field, picker and chip list |
-| **S1 — record and panel** | `MissionStore`, lazy records and phase inference (M3), mission family on the wire, `PanelKind::Mission` with header, tasks, plan link, brief, roster derived from `WorkAgent::task`; board "Open mission" | task record, plan store, task panel pieces |
+| **S1 — record and panel** | `MissionStore`, lazy records and phase inference (M3), mission family on the wire, `PanelKind::Mission` with header, tasks coloured by work state (M26), plan link, brief, roster derived from `WorkAgent::task`; board "Open mission" and the mission filter picker (M27) | task record, plan store, task panel pieces |
 | **S2 — phases and dialog** | phase transitions and gates (M4, M5), `Status` derivation, widened new-mission dialog (attachments, references, plan seed, attach running coordinator), *Needs you* section | `NewMissionForm`, `start_new_mission()`, task attachment and reference pickers |
 | **S3 — MCP core, documents, journal** | `ubiq-mission` / `use-mission` without spawn, `DocumentHandle::MissionDoc`, journal and `report_progress`, `AgentFacts::mission` | `ubiq-plan`'s handle pattern, `D120`, `D161` |
 | **S4 — Agents and Teams** | Missions section in the sidebar (M14), the fence and its handle on both canvases, drop-to-attach, Missions filter | `state::layout::fence`, task containers, hexagon mark |
@@ -594,5 +649,5 @@ Each stage ships on its own and leaves the tree coherent.
 
 ## Next steps
 
-- Walk the remaining decisions (M2–M4, M6–M10, M12, M14–M25) and §13 with the user.
+- Walk the remaining decisions (M2–M4, M6–M10, M12, M14–M27) and §13 with the user.
 - Then cut S1 into cards on the board.
