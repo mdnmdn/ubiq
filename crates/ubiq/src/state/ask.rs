@@ -61,10 +61,25 @@ pub struct AskRecord {
     /// always at the tail: a block appended later has a higher index, so the row stays put as the
     /// transcript grows underneath it.
     pub at_block: usize,
+    /// Whose transcript the entry is drawn in: the id of the spawned subagent that asked, or
+    /// `None` for the conversation's own turns.
+    ///
+    /// **One ask, one transcript.** A conversation and every subagent it spawned share one
+    /// `AgentId` — a delegate's tool calls come down the same stream and reach the host's MCP
+    /// listener under the same key — so an ask with no owner here would be drawn in the main
+    /// agent's transcript *and* in every delegate's, which is one question wearing several
+    /// faces. Read off who was speaking when the ask landed; see
+    /// [`Conversation::asking_subagent`](crate::state::conversation::Conversation::asking_subagent).
+    pub subagent: Option<String>,
 }
 
 impl AskRecord {
-    pub fn new(ask_id: AskId, questions: Vec<AskQuestion>, at_block: usize) -> Self {
+    pub fn new(
+        ask_id: AskId,
+        questions: Vec<AskQuestion>,
+        at_block: usize,
+        subagent: Option<String>,
+    ) -> Self {
         let drafts = vec![AskDraft::default(); questions.len()];
         Self {
             ask_id,
@@ -72,6 +87,7 @@ impl AskRecord {
             drafts,
             stage: AskStage::Waiting,
             at_block,
+            subagent,
         }
     }
 

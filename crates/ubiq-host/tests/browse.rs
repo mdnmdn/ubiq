@@ -139,7 +139,7 @@ fn an_unreadable_directory_entry_is_marked_unreadable_rather_than_crashing() {
     }
 }
 
-// Home directories start with '/' on Unix; a Windows profile lives under a drive letter.
+// Home directories start with '/' on Unix; a Windows definition lives under a drive letter.
 //
 // T-44: on some machines the process cannot read `$HOME` at all (macOS TCC, observed even with
 // the agent sandbox disabled). `browse::list` correctly maps that EPERM to `Denied` — this is an

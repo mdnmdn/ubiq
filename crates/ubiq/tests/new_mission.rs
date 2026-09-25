@@ -1,5 +1,5 @@
-//! The new-mission dialog's app-level wiring: `open_new_mission` asks for the profile list, the
-//! coordinator picker only ever offers a profile carrying `mission_assistant` (plus the agents
+//! The new-mission dialog's app-level wiring: `open_new_mission` asks for the definition list, the
+//! coordinator picker only ever offers a definition carrying `mission_assistant` (plus the agents
 //! already running, M10), and `start_new_mission` composes a `CreateTask` whose answer —
 //! `TaskCreated` — is what promotes the task to a mission, writes the **whole brief** onto it
 //! (description, attachments, linked tasks — M7, with no message of their own), brings the record
@@ -18,7 +18,7 @@ use ubiq::state::WindowRegistry;
 use ubiq::state::new_mission::Coordinator;
 use ubiq_proto::bus::{self, FromClient, To};
 use ubiq_proto::ids::{ProjectId, TaskId};
-use ubiq_proto::messages::{Message, ProfileInfo, TaskField};
+use ubiq_proto::messages::{AgentDefinition, Message, TaskField};
 use ubiq_proto::mission::{MissionField, Phase};
 use ubiq_proto::plan::DocumentHandle;
 use ubiq_proto::projects::{ProjectHealth, ProjectRecord, ProjectSnapshot};
@@ -98,9 +98,9 @@ impl Fixture {
         out
     }
 
-    /// Deliver the profile list a `ListProfiles` would be answered with.
-    fn profiles(&self, profiles: Vec<ProfileInfo>, cx: &mut TestAppContext) {
-        self.deliver(Message::Profiles { profiles }, cx);
+    /// Deliver the definition list a `ListAgentDefinitions` would be answered with.
+    fn definitions(&self, definitions: Vec<AgentDefinition>, cx: &mut TestAppContext) {
+        self.deliver(Message::AgentDefinitions { definitions }, cx);
     }
 }
 
@@ -112,6 +112,7 @@ fn a_project() -> ProjectSnapshot {
             path: "/tmp/ubiq".to_string(),
             colour: 0,
             custom_colour: None,
+            storage: Default::default(),
             temporary: false,
             created_at: Utc::now(),
             last_opened_at: None,
@@ -131,9 +132,10 @@ fn a_project() -> ProjectSnapshot {
     }
 }
 
-fn a_profile(id: &str, mission_assistant: Option<bool>) -> ProfileInfo {
-    ProfileInfo {
+fn a_definition(id: &str, mission_assistant: Option<bool>) -> AgentDefinition {
+    AgentDefinition {
         id: id.to_string(),
+        description: None,
         agent_type: "claude-code".to_string(),
         account: Some("work".to_string()),
         model: None,
@@ -143,6 +145,9 @@ fn a_profile(id: &str, mission_assistant: Option<bool>) -> ProfileInfo {
         prompt: None,
         mcps: Vec::new(),
         mission_assistant,
+        mission_coordinator: false,
+        mission_worker: false,
+        disabled: false,
         project: None,
     }
 }
@@ -175,59 +180,65 @@ fn a_task(id: TaskId) -> TaskRecord {
     }
 }
 
-/// Opening the dialog asks the host for the profile list, so a profile ticked `mission assistant`
+/// Opening the dialog asks the host for the definition list, so a definition ticked `mission assistant`
 /// since the window opened is offered without a restart.
 #[gpui::test]
-fn opening_the_dialog_asks_for_profiles(cx: &mut TestAppContext) {
+fn opening_the_dialog_asks_for_definitions(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
     fixture.said(); // drain boot noise
     fixture.with(cx, |state, window, cx| state.open_new_mission(window, cx));
 
     let said = fixture.said();
-    assert!(said.iter().any(|m| matches!(m, Message::ListProfiles)));
+    assert!(
+        said.iter()
+            .any(|m| matches!(m, Message::ListAgentDefinitions))
+    );
     fixture.state.read_with(cx, |state, _| {
         assert!(state.workbench.new_mission.is_some());
     });
 }
 
-/// The picker's own list — `state::new_mission::assistants` — offers only a profile ticked
+/// The picker's own list — `state::new_mission::assistants` — offers only a definition ticked
 /// `mission_assistant`; `None` and `Some(false)` are both left out.
 #[gpui::test]
 fn only_mission_assistants_are_offered(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
     fixture.with(cx, |state, window, cx| state.open_new_mission(window, cx));
     fixture.said();
-    fixture.profiles(
+    fixture.definitions(
         vec![
-            a_profile("reviewer", Some(true)),
-            a_profile("writer", None),
-            a_profile("planner", Some(false)),
+            a_definition("reviewer", Some(true)),
+            a_definition("writer", None),
+            a_definition("planner", Some(false)),
         ],
         cx,
     );
 
     fixture.state.read_with(cx, |state, _| {
-        let offered = ubiq::state::new_mission::assistants(&state.workbench.settings.profiles);
+        let offered = ubiq::state::new_mission::assistants(&state.workbench.settings.definitions);
         assert_eq!(offered.len(), 1);
         assert_eq!(offered[0].id, "reviewer");
     });
 }
 
-/// A profile scoped to the dialog's own project is offered alongside the global ones — G331: the
-/// picker used to read the global list alone, so a `mission_assistant` profile filed under a
+/// A definition scoped to the dialog's own project is offered alongside the global ones — G331: the
+/// picker used to read the global list alone, so a `mission_assistant` definition filed under a
 /// project could never be picked from inside that very project.
 #[gpui::test]
 fn a_project_scoped_assistant_is_offered_in_its_own_project(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
     fixture.with(cx, |state, window, cx| state.open_new_mission(window, cx));
     fixture.said();
-    let mut scoped = a_profile("scoped-reviewer", Some(true));
+    let mut scoped = a_definition("scoped-reviewer", Some(true));
     scoped.project = Some(fixture.project);
-    fixture.profiles(vec![a_profile("global-reviewer", Some(true)), scoped], cx);
+    fixture.definitions(
+        vec![a_definition("global-reviewer", Some(true)), scoped],
+        cx,
+    );
 
     fixture.state.read_with(cx, |state, cx| {
         let project = state.project(cx);
-        let offered = state.workbench.settings.profiles_in(project);
+        let offered = state.workbench.settings.definitions_in(project);
         let ids: Vec<&str> = ubiq::state::new_mission::assistants(&offered)
             .into_iter()
             .map(|p| p.id.as_str())
@@ -243,12 +254,12 @@ fn a_project_scoped_assistant_is_offered_in_its_own_project(cx: &mut TestAppCont
 fn start_is_refused_without_a_title_or_an_assistant(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
     fixture.with(cx, |state, window, cx| state.open_new_mission(window, cx));
-    fixture.profiles(vec![a_profile("reviewer", Some(true))], cx);
+    fixture.definitions(vec![a_definition("reviewer", Some(true))], cx);
     fixture.said();
 
     // An assistant with no title.
     fixture.with(cx, |state, _, cx| {
-        state.pick_new_mission_coordinator(Coordinator::Profile("reviewer".to_string()), cx)
+        state.pick_new_mission_coordinator(Coordinator::AgentDefinition("reviewer".to_string()), cx)
     });
     fixture.with(cx, |state, _, cx| state.start_new_mission(cx));
     assert!(fixture.said().is_empty());
@@ -273,7 +284,7 @@ fn start_is_refused_without_a_title_or_an_assistant(cx: &mut TestAppContext) {
 fn starting_a_mission_creates_promotes_and_launches_the_assistant(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
     fixture.with(cx, |state, window, cx| state.open_new_mission(window, cx));
-    fixture.profiles(vec![a_profile("reviewer", Some(true))], cx);
+    fixture.definitions(vec![a_definition("reviewer", Some(true))], cx);
     fixture.said();
 
     let linked = TaskId::generate();
@@ -289,7 +300,7 @@ fn starting_a_mission_creates_promotes_and_launches_the_assistant(cx: &mut TestA
         form.require_plan = true;
     });
     fixture.with(cx, |state, _, cx| {
-        state.pick_new_mission_coordinator(Coordinator::Profile("reviewer".to_string()), cx)
+        state.pick_new_mission_coordinator(Coordinator::AgentDefinition("reviewer".to_string()), cx)
     });
     fixture.with(cx, |state, _, cx| state.start_new_mission(cx));
 
@@ -361,13 +372,16 @@ fn starting_a_mission_creates_promotes_and_launches_the_assistant(cx: &mut TestA
             Message::StartConversation {
                 agent_id,
                 project_id,
-                profile,
+                definition,
                 agent_type,
                 mcps,
                 ..
-            } if *project_id == fixture.project => {
-                Some((*agent_id, profile.clone(), agent_type.clone(), mcps.clone()))
-            }
+            } if *project_id == fixture.project => Some((
+                *agent_id,
+                definition.clone(),
+                agent_type.clone(),
+                mcps.clone(),
+            )),
             _ => None,
         })
         .expect("the assistant is started");
@@ -416,7 +430,7 @@ fn starting_a_mission_creates_promotes_and_launches_the_assistant(cx: &mut TestA
 fn a_running_agent_is_adopted_as_the_coordinator(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
     fixture.with(cx, |state, window, cx| state.open_new_mission(window, cx));
-    fixture.profiles(vec![a_profile("reviewer", Some(true))], cx);
+    fixture.definitions(vec![a_definition("reviewer", Some(true))], cx);
     fixture.said();
 
     let running = AgentId::generate();
@@ -461,7 +475,7 @@ fn a_running_agent_is_adopted_as_the_coordinator(cx: &mut TestAppContext) {
 fn a_plan_seed_is_saved_and_starts_the_mission_in_refining(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
     fixture.with(cx, |state, window, cx| state.open_new_mission(window, cx));
-    fixture.profiles(vec![a_profile("reviewer", Some(true))], cx);
+    fixture.definitions(vec![a_definition("reviewer", Some(true))], cx);
     fixture.said();
 
     fixture.with(cx, |state, _, _cx| {
@@ -470,7 +484,7 @@ fn a_plan_seed_is_saved_and_starts_the_mission_in_refining(cx: &mut TestAppConte
         form.plan_seed = "# Plan\n\nOne step.".to_string();
     });
     fixture.with(cx, |state, _, cx| {
-        state.pick_new_mission_coordinator(Coordinator::Profile("reviewer".to_string()), cx)
+        state.pick_new_mission_coordinator(Coordinator::AgentDefinition("reviewer".to_string()), cx)
     });
     fixture.with(cx, |state, _, cx| state.start_new_mission(cx));
     fixture.said();
@@ -512,7 +526,7 @@ fn a_plan_seed_is_saved_and_starts_the_mission_in_refining(cx: &mut TestAppConte
 fn a_blank_title_is_taken_from_the_requirements(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
     fixture.with(cx, |state, window, cx| state.open_new_mission(window, cx));
-    fixture.profiles(vec![a_profile("reviewer", Some(true))], cx);
+    fixture.definitions(vec![a_definition("reviewer", Some(true))], cx);
     fixture.said();
 
     fixture.with(cx, |state, _, _cx| {
@@ -520,7 +534,7 @@ fn a_blank_title_is_taken_from_the_requirements(cx: &mut TestAppContext) {
         form.description = "# Payment retries\n\nThey fail twice.".to_string();
     });
     fixture.with(cx, |state, _, cx| {
-        state.pick_new_mission_coordinator(Coordinator::Profile("reviewer".to_string()), cx)
+        state.pick_new_mission_coordinator(Coordinator::AgentDefinition("reviewer".to_string()), cx)
     });
     fixture.with(cx, |state, _, cx| state.start_new_mission(cx));
 
@@ -560,7 +574,7 @@ fn an_attachment_is_never_added_twice(cx: &mut TestAppContext) {
     });
 }
 
-/// The assistant picker's trigger shows the chosen profile once one is picked, not the
+/// The assistant picker's trigger shows the chosen definition once one is picked, not the
 /// placeholder it started with — the bug T-72 reported: the trigger drew "Choose an
 /// assistant…" unconditionally, ignoring `NewMissionForm::assistant`.
 /// `state::new_mission::assistant_label` is the one function both the trigger and this test call,
@@ -569,10 +583,10 @@ fn an_attachment_is_never_added_twice(cx: &mut TestAppContext) {
 fn the_trigger_shows_the_picked_assistant(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
     fixture.with(cx, |state, window, cx| state.open_new_mission(window, cx));
-    fixture.profiles(
+    fixture.definitions(
         vec![
-            a_profile("reviewer", Some(true)),
-            a_profile("coach", Some(true)),
+            a_definition("reviewer", Some(true)),
+            a_definition("coach", Some(true)),
         ],
         cx,
     );
@@ -589,7 +603,7 @@ fn the_trigger_shows_the_picked_assistant(cx: &mut TestAppContext) {
     });
 
     fixture.with(cx, |state, _, cx| {
-        state.pick_new_mission_coordinator(Coordinator::Profile("coach".to_string()), cx)
+        state.pick_new_mission_coordinator(Coordinator::AgentDefinition("coach".to_string()), cx)
     });
 
     fixture.state.read_with(cx, |state, cx| {
@@ -603,13 +617,13 @@ fn the_trigger_shows_the_picked_assistant(cx: &mut TestAppContext) {
     });
 }
 
-/// A profile the dialog offered is gone by the time the mission exists: the mission still stands,
+/// A definition the dialog offered is gone by the time the mission exists: the mission still stands,
 /// and there is simply nobody left to launch.
 #[gpui::test]
 fn a_vanished_assistant_still_leaves_the_mission_standing(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
     fixture.with(cx, |state, window, cx| state.open_new_mission(window, cx));
-    fixture.profiles(vec![a_profile("reviewer", Some(true))], cx);
+    fixture.definitions(vec![a_definition("reviewer", Some(true))], cx);
     fixture.said();
 
     fixture.with(cx, |state, _, _cx| {
@@ -617,11 +631,11 @@ fn a_vanished_assistant_still_leaves_the_mission_standing(cx: &mut TestAppContex
         form.title = "Ship v2".to_string();
     });
     fixture.with(cx, |state, _, cx| {
-        state.pick_new_mission_coordinator(Coordinator::Profile("reviewer".to_string()), cx)
+        state.pick_new_mission_coordinator(Coordinator::AgentDefinition("reviewer".to_string()), cx)
     });
-    // The profile is forgotten before the id comes back — a race the host can always win.
+    // The definition is forgotten before the id comes back — a race the host can always win.
     fixture.with(cx, |state, _, cx| {
-        state.workbench.settings.profiles.clear();
+        state.workbench.settings.definitions.clear();
         cx.notify();
     });
     fixture.with(cx, |state, _, cx| state.start_new_mission(cx));

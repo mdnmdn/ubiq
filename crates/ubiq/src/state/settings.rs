@@ -17,7 +17,7 @@ use ubiq_proto::ids::{
     AiProviderId, ConnectId, ConnectionId, OauthAppId, PaneId, ProjectId, SshProfileId, SuggestId,
     ToolId,
 };
-use ubiq_proto::messages::{AccountInfo, CliDir, LoginStatus, ProfileInfo};
+use ubiq_proto::messages::{AccountInfo, AgentDefinition, CliDir, LoginStatus};
 use ubiq_proto::quota::{QuotaGauge, QuotaReading, QuotaSnapshot};
 use ubiq_proto::settings::{HostSettings, SshAuth, SshProfile};
 
@@ -46,6 +46,10 @@ pub enum SettingsSection {
     Editor,
     Search,
     Harnesses,
+    /// The saved setups a run starts from. Its own section rather than more rows under Harnesses:
+    /// a harness is a tool this machine has, a definition is a recipe written against one, and the
+    /// two lists grow at different rates.
+    AgentDefinitions,
     Isolation,
     Assist,
     Connectors,
@@ -65,6 +69,7 @@ impl SettingsSection {
             SettingsSection::Editor,
             SettingsSection::Search,
             SettingsSection::Harnesses,
+            SettingsSection::AgentDefinitions,
             SettingsSection::Isolation,
             SettingsSection::Assist,
             SettingsSection::Connectors,
@@ -84,6 +89,7 @@ impl SettingsSection {
             SettingsSection::Editor => "Editor",
             SettingsSection::Search => "Search",
             SettingsSection::Harnesses => "Harnesses",
+            SettingsSection::AgentDefinitions => "Agent definitions",
             SettingsSection::Isolation => "Isolation",
             SettingsSection::Assist => "Assistance",
             SettingsSection::Connectors => "Connectors",
@@ -278,6 +284,18 @@ pub struct UiSettings {
     /// The Markdown preview's density mode (proposal §7, T-118). Window-global, beside `md_width`.
     #[serde(default)]
     pub md_density: crate::theme::MdDensity,
+    /// The reading-options popover's "make default, system-wide" button (T-188): the character
+    /// size and text-colour shade a newly opened document's own `MdReading` starts from. Unlike
+    /// `MdReading` itself — in memory, per document, never written down — these two are exactly
+    /// what that button writes into this already-persisted layer.
+    #[serde(default = "default_md_char_scale")]
+    pub md_char_scale_default: f32,
+    #[serde(default)]
+    pub md_text_shade_default: crate::state::editor::TextShade,
+}
+
+fn default_md_char_scale() -> f32 {
+    1.0
 }
 
 fn default_true() -> bool {
@@ -304,6 +322,8 @@ impl Default for UiSettings {
             md_minimap_side: crate::theme::MdMinimapSide::default(),
             md_width: crate::theme::MdWidth::default(),
             md_density: crate::theme::MdDensity::default(),
+            md_char_scale_default: 1.0,
+            md_text_shade_default: crate::state::editor::TextShade::default(),
         }
     }
 }
@@ -678,19 +698,19 @@ pub struct SettingsState {
     /// The saved setups the host holds — a harness plus the identity, model and mode to start it
     /// with. References only, like `accounts`, and only ever what the host last said.
     ///
-    /// **The global ones only.** A profile written inside a project is visible only there, so it
-    /// is held separately in [`Self::project_profiles`] rather than filtered out of this list at
+    /// **The global ones only.** A definition written inside a project is visible only there, so it
+    /// is held separately in [`Self::project_definitions`] rather than filtered out of this list at
     /// every read: this field is what the app-wide settings screen lists and what every surface
     /// with no project in hand offers, and both are right without knowing scoping exists.
-    pub profiles: Vec<ProfileInfo>,
+    pub definitions: Vec<AgentDefinition>,
     /// The project-scoped setups, every project's in one list, each carrying its own
-    /// [`ProfileInfo::project`]. Read through [`Self::profiles_in`], never directly — a surface
-    /// that means "the profiles on offer here" wants the global ones too.
-    pub project_profiles: Vec<ProfileInfo>,
-    /// The profile form, while one is up. The same form the New agent modal is drawn from — a
-    /// profile is a saved answer to the same questions — with the name read out of its field at
+    /// [`AgentDefinition::project`]. Read through [`Self::definitions_in`], never directly — a surface
+    /// that means "the definitions on offer here" wants the global ones too.
+    pub project_definitions: Vec<AgentDefinition>,
+    /// The definition form, while one is up. The same form the New agent modal is drawn from — a
+    /// definition is a saved answer to the same questions — with the name read out of its field at
     /// save time, the way the login modal reads its own.
-    pub profile_form: Option<crate::state::new_agent::NewAgentForm>,
+    pub definition_form: Option<crate::state::new_agent::NewAgentForm>,
     /// The login modal, while one is up.
     pub login: Option<LoginState>,
     /// The rename, delete or sign-out question over one account, while one is up.
@@ -878,31 +898,71 @@ impl SettingsState {
             .collect()
     }
 
-    /// The profiles on offer inside `project`: that project's own first, then every global one
+    /// The definitions on offer inside `project`: that project's own first, then every global one
     /// it does not shadow by name.
     ///
     /// `None` — a surface with no project in hand — is the global list alone, which is what the
     /// app-wide settings screen draws and what every start outside a project sees. This is the
     /// interface's copy of the rule the host resolves a run by, so a name means the same thing
     /// in the picker as it does at launch.
-    pub fn profiles_in(&self, project: Option<ProjectId>) -> Vec<ProfileInfo> {
+    pub fn definitions_in(&self, project: Option<ProjectId>) -> Vec<AgentDefinition> {
         let Some(project) = project else {
-            return self.profiles.clone();
+            return self.definitions.clone();
         };
-        let scoped: Vec<ProfileInfo> = self
-            .project_profiles
+        let scoped: Vec<AgentDefinition> = self
+            .project_definitions
             .iter()
             .filter(|it| it.project == Some(project))
             .cloned()
             .collect();
         let mut offered = scoped.clone();
         offered.extend(
-            self.profiles
+            self.definitions
                 .iter()
                 .filter(|global| !scoped.iter().any(|it| it.id == global.id))
                 .cloned(),
         );
         offered
+    }
+
+    /// The definitions a run may actually start from inside `project`: [`Self::definitions_in`]
+    /// without the ones the user switched off.
+    ///
+    /// A disabled definition is still listed and still editable on the settings screens — it is
+    /// simply not offered anywhere a run begins ([`AgentDefinition::disabled`]), which is why the
+    /// filter lives here rather than in `definitions_in`: the two questions have different
+    /// answers, and a screen that lists setups must keep showing the switched-off one.
+    pub fn startable_definitions_in(&self, project: Option<ProjectId>) -> Vec<AgentDefinition> {
+        self.definitions_in(project)
+            .into_iter()
+            .filter(|it| !it.disabled)
+            .collect()
+    }
+
+    /// A name the copy of `id` can be filed under, in `scope`: `<id> copy`, then `<id> copy 2`.
+    ///
+    /// The host refuses a clone onto a name already taken — a clone never overwrites a saved
+    /// setup — so the interface picks a free one rather than sending a name it can already see
+    /// will be rejected. Read against the scope the copy lands in, because the two scopes are
+    /// separate namespaces.
+    pub fn free_definition_name(&self, id: &str, scope: Option<ProjectId>) -> String {
+        let taken: Vec<&str> = match scope {
+            None => self.definitions.iter().map(|it| it.id.as_str()).collect(),
+            Some(project) => self
+                .project_definitions
+                .iter()
+                .filter(|it| it.project == Some(project))
+                .map(|it| it.id.as_str())
+                .collect(),
+        };
+        let first = format!("{id} copy");
+        if !taken.iter().any(|it| *it == first) {
+            return first;
+        }
+        (2..)
+            .map(|n| format!("{id} copy {n}"))
+            .find(|name| !taken.iter().any(|it| it == name))
+            .unwrap_or(first)
     }
 
     /// One configured provider by id, for a form, a test or a removal that holds only the id.
@@ -954,9 +1014,9 @@ impl Default for SettingsState {
             ui: UiSettings::default(),
             host: HostSettings::default(),
             accounts: Vec::new(),
-            profiles: Vec::new(),
-            project_profiles: Vec::new(),
-            profile_form: None,
+            definitions: Vec::new(),
+            project_definitions: Vec::new(),
+            definition_form: None,
             bundled: Vec::new(),
             app_form: None,
             pending_secret: None,

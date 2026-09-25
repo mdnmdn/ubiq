@@ -224,6 +224,7 @@ fn a_project_at(root: &str) -> ProjectSnapshot {
             path: root.to_string(),
             colour: 0,
             custom_colour: None,
+            storage: Default::default(),
             temporary: false,
             created_at: Utc::now(),
             last_opened_at: None,

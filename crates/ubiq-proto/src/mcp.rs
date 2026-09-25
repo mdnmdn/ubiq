@@ -2,7 +2,7 @@
 //! the small set Ubiq injects so an agent can ask about the host it is running under.
 //!
 //! An [`McpInfo`] is the interface's catalogue row: a server this build can start, named by a
-//! slug a profile stores and a launch picks up. What actually answers the protocol — the process,
+//! slug a definition stores and a launch picks up. What actually answers the protocol — the process,
 //! the tool handlers — is host-side and outside this crate on purpose, the same split
 //! [`crate::tools::ToolDef`] draws between "what a run is" and "what runs it".
 
@@ -22,11 +22,11 @@ pub struct McpToolInfo {
 /// One MCP server Ubiq can inject into a harness, as the interface is told about it.
 ///
 /// `name` is the URL slug (`test`, `project-info`, `manage-ubiq-tasks`, `use-task`) — it is both how the interface asks a running
-/// host to start one and the id a [`crate::messages::ProfileInfo::mcps`] entry stores, so it
-/// never changes once a profile has saved it.
+/// host to start one and the id a [`crate::messages::AgentDefinition::mcps`] entry stores, so it
+/// never changes once a definition has saved it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct McpInfo {
-    /// The slug: stable, and what a profile or a start names.
+    /// The slug: stable, and what a definition or a start names.
     pub name: String,
     /// What the settings panel and the start form show instead of the slug.
     pub title: String,

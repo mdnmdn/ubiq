@@ -173,7 +173,7 @@ fn a_record_survives_the_round_trip_whole() {
     want.agent_kinds.push(AgentKind {
         name: "reviewer".to_string(),
         description: "reads what the workers wrote".to_string(),
-        profile: Some("review".to_string()),
+        definition: Some("review".to_string()),
         labels: vec!["docs".to_string()],
         ..AgentKind::default()
     });
@@ -992,7 +992,7 @@ fn spawnable(dir: &TempDir, project: ProjectId, task: TaskId, missions: &mut Mis
             AgentKind {
                 name: "worker".to_string(),
                 description: "Does one task and stops.".to_string(),
-                profile: Some("worker-profile".to_string()),
+                definition: Some("worker-definition".to_string()),
                 ..Default::default()
             },
             AgentKind {
@@ -1151,7 +1151,7 @@ fn an_unknown_kind_is_refused_with_a_sentence() {
         "reviewer"
     );
 
-    // `custom` is the escape hatch, and it is nothing without a profile.
+    // `custom` is the escape hatch, and it is nothing without a definition.
     let bare = missions
         .request_spawn(
             project,
@@ -1164,7 +1164,7 @@ fn an_unknown_kind_is_refused_with_a_sentence() {
             "because".to_string(),
         )
         .unwrap_err();
-    assert!(bare.contains("needs a profile"), "{bare}");
+    assert!(bare.contains("needs a definition"), "{bare}");
 }
 
 /// The outcome the window reports reaches all three places it has to: the roster, the journal and

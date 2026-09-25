@@ -1232,7 +1232,7 @@ pub fn description(
                 let input = this.task_description_input.clone();
                 input.update(cx, |state, cx| state.focus(window, cx));
             }))
-            // ⌘⏎ (⌃⏎ off macOS) saves, the same key the new-agent form and the settings profile
+            // ⌘⏎ (⌃⏎ off macOS) saves, the same key the new-agent form and the settings definition
             // form already answer to for "confirm this form from inside a field" — `SubmitSearch`
             // is bound at the window and at the field's own depth, so it reaches here whichever
             // has the keyboard. Bare Enter stays a newline: a description is prose, not a line.

@@ -104,6 +104,45 @@ pub struct ProjectRecord {
     /// rest of this record's sparse fields rather than needing its own `Option`.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub initials: String,
+    /// Where this project's own data is written. See [`StorageMode`].
+    ///
+    /// Purely additive, on `runs_on`'s rule: a catalogue written before this field existed reads
+    /// back [`StorageMode::UbiqManaged`], which is what every such record already meant, so the
+    /// catalogue version does not move.
+    #[serde(default, skip_serializing_if = "StorageMode::is_default")]
+    pub storage: StorageMode,
+}
+
+/// Where a project's own data — its tasks, its metadata, the configuration that belongs to the
+/// project rather than to this machine — is written.
+///
+/// The default is the rule `D30` states: nothing Ubiq remembers goes inside a project's folder,
+/// so everything hangs off the config root under `projects/<project ulid>/`. A **project-managed**
+/// project is the documented exception (`D173`): its data lives in a `.ubiq/` folder inside the
+/// project's own directory, so it can be committed and travels with a clone.
+///
+/// Chosen when the project is created. Moving an existing project between the two is a migration
+/// nothing here performs.
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum StorageMode {
+    /// Under Ubiq's config root. Nothing is written inside the project's folder.
+    #[default]
+    UbiqManaged,
+    /// In a `.ubiq/` folder inside the project's own directory.
+    ProjectManaged,
+}
+
+impl StorageMode {
+    /// Whether this is the mode a record that says nothing means — the test
+    /// `skip_serializing_if` needs, so a catalogue keeps naming only what is unusual.
+    pub fn is_default(&self) -> bool {
+        matches!(self, Self::UbiqManaged)
+    }
+
+    pub fn is_project_managed(self) -> bool {
+        matches!(self, Self::ProjectManaged)
+    }
 }
 
 /// What one project has said about one lane of its task board.
@@ -396,6 +435,7 @@ mod tests {
             lanes: vec![],
             runs_on: None,
             initials: String::new(),
+            storage: StorageMode::default(),
         }
     }
 
@@ -447,6 +487,25 @@ mod tests {
         let raw = serde_json::to_string(&record).expect("a record serialises");
         let back: ProjectRecord = serde_json::from_str(&raw).expect("and reads back");
         assert_eq!(back.runs_on, Some(origin));
+    }
+
+    /// The same additive rule `runs_on` follows: a record that says nothing about storage writes
+    /// nothing, and reads back as the Ubiq-managed project every older catalogue entry already is.
+    #[test]
+    fn a_storage_mode_round_trips_and_defaults_to_ubiq_managed() {
+        let record = record();
+        assert_eq!(record.storage, StorageMode::UbiqManaged);
+        let raw = serde_json::to_string(&record).expect("a record serialises");
+        assert!(
+            !raw.contains("storage"),
+            "the default is written nowhere: {raw}"
+        );
+
+        let mut record = record;
+        record.storage = StorageMode::ProjectManaged;
+        let raw = serde_json::to_string(&record).expect("a record serialises");
+        let back: ProjectRecord = serde_json::from_str(&raw).expect("and reads back");
+        assert_eq!(back.storage, StorageMode::ProjectManaged);
     }
 
     /// A catalogue written before `runs_on` existed: the field is simply absent, and it reads back

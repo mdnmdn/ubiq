@@ -1,4 +1,4 @@
-//! The New agent modal's mutators — and the settings page's profile form's, because both are
+//! The New agent modal's mutators — and the settings page's definition form's, because both are
 //! drawn from one [`NewAgentForm`] and a shared body needs shared listeners.
 //!
 //! Only one of the two is ever up, so every mutator here reaches for whichever it is rather than
@@ -7,7 +7,7 @@
 
 use super::*;
 use crate::state::new_agent::{
-    NewAgentForm, OpenList, Purpose, TASK_ASSIGN_MCPS, Target, fold_preamble,
+    NewAgentForm, NewAgentTab, OpenList, Purpose, TASK_ASSIGN_MCPS, Target, fold_preamble,
     task_assignment_prompt,
 };
 
@@ -18,40 +18,50 @@ impl AppState {
         self.workbench
             .new_agent
             .as_ref()
-            .or(self.workbench.settings.profile_form.as_ref())
+            .or(self.workbench.settings.definition_form.as_ref())
     }
 
     pub(super) fn new_agent_form_mut(&mut self) -> Option<&mut NewAgentForm> {
         self.workbench
             .new_agent
             .as_mut()
-            .or(self.workbench.settings.profile_form.as_mut())
+            .or(self.workbench.settings.definition_form.as_mut())
     }
 
     /// Raise the New agent modal, opened on the last thing that worked.
     ///
     /// The three lists it offers are asked for again here, for the reason
-    /// [`Self::open_new_agent_menu`] asks: a harness installed, an account signed in or a profile
+    /// [`Self::open_new_agent_menu`] asks: a harness installed, an account signed in or a definition
     /// written since the window opened is offered without a restart.
     ///
     /// **Nothing is left saying "choose…" that can be answered from what the window already
     /// knows.** The target comes from the last start, which brings the harness, the identity and —
     /// through the catalogue the pick asks for — the model and the level with it; the mode and the
     /// ceiling are read back on top, because the host remembers neither. A last start naming a
-    /// harness this machine no longer has, or a profile since deleted, answers nothing rather than
+    /// harness this machine no longer has, or a definition since deleted, answers nothing rather than
     /// opening the form on something that would fail as a spawn.
     pub fn open_new_agent(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.workbench.new_agent = Some(NewAgentForm::new(Purpose::Start));
         self.set_new_agent_prompt("", window, cx);
+        self.set_new_agent_description("", window, cx);
         self.bus.send(Message::ListAgentTypes);
         self.bus.send(Message::ListAccounts);
-        self.bus.send(Message::ListProfiles);
+        self.bus.send(Message::ListAgentDefinitions);
         // And what this build can inject. Asked here rather than in
         // [`Self::probe_new_agent_catalogue`] because it is not a question about the harness: the
         // answer is the same for every start, so it is asked once per opening of the form and kept
         // on the window.
         self.bus.send(Message::ListMcps);
         if let Some(target) = self.last_start_target() {
+            // The form opens on the tab that asks the question the last start answered: seeding a
+            // harness onto the Agents tab would leave its dropdown reading "choose an agent" with
+            // the answer sitting under the other tab.
+            if let Some(form) = self.workbench.new_agent.as_mut() {
+                form.tab = match target {
+                    Target::AgentDefinition(_) => NewAgentTab::Agents,
+                    Target::Harness { .. } => NewAgentTab::Harness,
+                };
+            }
             self.pick_new_agent_target(target, window, cx);
             let last = self.workbench.last_start.clone();
             if let (Some(last), Some(form)) = (last, self.new_agent_form_mut()) {
@@ -154,19 +164,19 @@ impl AppState {
 
     /// The target the last start would be, where it still resolves to something startable.
     ///
-    /// A profile wins over the pair it was started from: it is the more specific answer, and it is
+    /// A definition wins over the pair it was started from: it is the more specific answer, and it is
     /// what the user picked.
     fn last_start_target(&self) -> Option<Target> {
         let last = self.workbench.last_start.as_ref()?;
-        if let Some(profile) = &last.profile
+        if let Some(definition) = &last.definition
             && self
                 .workbench
                 .settings
-                .profiles
+                .definitions
                 .iter()
-                .any(|it| it.id == *profile)
+                .any(|it| it.id == *definition)
         {
-            return Some(Target::Profile(profile.clone()));
+            return Some(Target::AgentDefinition(definition.clone()));
         }
         let harness = self
             .workbench
@@ -188,7 +198,7 @@ impl AppState {
             })
     }
 
-    /// Do what the form is for: start the conversation, or write the profile down.
+    /// Do what the form is for: start the conversation, or write the definition down.
     ///
     /// One method because one keystroke answers both forms — only one is ever up — and which of
     /// the two it means is the form's own purpose rather than the caller's guess.
@@ -207,7 +217,7 @@ impl AppState {
             Purpose::Start => {
                 self.start_new_agent(cx);
             }
-            Purpose::Profile => self.save_new_agent_profile(cx),
+            Purpose::AgentDefinition => self.save_new_agent_definition(cx),
         }
     }
 
@@ -222,7 +232,7 @@ impl AppState {
         cx.notify();
     }
 
-    /// Answer the first question. A bare harness is its own answer; a profile carries every other
+    /// Answer the first question. A bare harness is its own answer; a definition carries every other
     /// answer with it, which is the whole point of having one.
     pub fn pick_new_agent_target(
         &mut self,
@@ -230,26 +240,32 @@ impl AppState {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let profile = match &target {
-            Target::Profile(id) => self
+        let definition = match &target {
+            // Resolved against what this start is aimed at, not against the global list alone: a
+            // project's own setup is offered in the picker, so it has to be findable by the pick.
+            Target::AgentDefinition(id) => self
                 .workbench
                 .settings
-                .profiles
-                .iter()
-                .find(|it| it.id == *id)
-                .cloned(),
+                .definitions_in(self.new_agent_scope(cx))
+                .into_iter()
+                .find(|it| it.id == *id),
             Target::Harness { .. } => None,
         };
         let Some(form) = self.new_agent_form_mut() else {
             return;
         };
         let purpose = form.purpose;
-        match (&target, profile) {
-            (_, Some(profile)) => {
+        // The tab is the question being asked, not part of the answer: picking on one must not
+        // move the form to the other. A customization belongs to the answer it was made against,
+        // so it goes with the answer.
+        let tab = form.tab;
+        match (&target, definition) {
+            (_, Some(definition)) => {
                 let models = std::mem::take(&mut form.models);
                 *form = NewAgentForm {
                     models,
-                    ..NewAgentForm::from_profile(&profile, purpose)
+                    tab,
+                    ..NewAgentForm::from_definition(&definition, purpose)
                 };
             }
             (
@@ -264,16 +280,21 @@ impl AppState {
                     target: Some(target.clone()),
                     agent_type,
                     account,
+                    tab,
                     ..NewAgentForm::new(purpose)
                 };
             }
-            // A profile the host has since dropped: the row is gone by the next answer, and until
+            // A definition the host has since dropped: the row is gone by the next answer, and until
             // then picking it answers nothing rather than starting something unnamed.
-            (Target::Profile(_), None) => return,
+            (Target::AgentDefinition(_), None) => return,
         }
         let prompt = self.new_agent_form().map(|it| it.prompt.clone());
         if let Some(prompt) = prompt {
             self.set_new_agent_prompt(&prompt, window, cx);
+        }
+        let description = self.new_agent_form().map(|it| it.description.clone());
+        if let Some(description) = description {
+            self.set_new_agent_description(&description, window, cx);
         }
         self.default_new_agent_mode();
         self.probe_new_agent_catalogue(cx);
@@ -295,7 +316,7 @@ impl AppState {
     /// Pick the harness **and** the identity, which are one question and so one control.
     ///
     /// A harness is only startable as somebody, and the first row already offers the two together
-    /// — asking them again as two rows made the override a profile allows read as two decisions
+    /// — asking them again as two rows made the override a definition allows read as two decisions
     /// where the start reads as one. Everything the pair narrows is dropped: a model list belongs
     /// to the harness that answered it, and a level belongs to a model.
     pub fn pick_new_agent_pair(
@@ -314,9 +335,9 @@ impl AppState {
         }
         form.agent_type = agent_type;
         form.account = account;
-        // The target names the harness it was picked as; a profile's harness row may say otherwise,
-        // and the target stays what it is — a profile with a harness overridden is still that
-        // profile.
+        // The target names the harness it was picked as; a definition's harness row may say otherwise,
+        // and the target stays what it is — a definition with a harness overridden is still that
+        // definition.
 
         form.model = None;
         form.thinking = None;
@@ -394,12 +415,105 @@ impl AppState {
     }
 
     /// Flip whether this setup is fit to run as a planning assistant. Drawn only under
-    /// `Purpose::Profile` — see `ui::new_agent::body`'s mission-assistant row.
+    /// `Purpose::AgentDefinition` — see `ui::new_agent::body`'s mission-assistant row.
     pub fn toggle_new_agent_mission_assistant(&mut self, cx: &mut Context<Self>) {
         if let Some(form) = self.new_agent_form_mut() {
             form.mission_assistant = !form.mission_assistant;
         }
         cx.notify();
+    }
+
+    /// Flip the **coordinator** role. The MCP servers it implies are ticked by the flag and shown
+    /// as such; the host re-asserts them on save, so nothing here writes them onto the checklist.
+    pub fn toggle_new_agent_mission_coordinator(&mut self, cx: &mut Context<Self>) {
+        if let Some(form) = self.new_agent_form_mut() {
+            form.mission_coordinator = !form.mission_coordinator;
+        }
+        cx.notify();
+    }
+
+    /// Flip the **worker** role, on [`Self::toggle_new_agent_mission_coordinator`]'s terms.
+    pub fn toggle_new_agent_mission_worker(&mut self, cx: &mut Context<Self>) {
+        if let Some(form) = self.new_agent_form_mut() {
+            form.mission_worker = !form.mission_worker;
+        }
+        cx.notify();
+    }
+
+    /// Switch this definition off, or back on. A disabled definition is still listed and still
+    /// editable — it is simply not offered anywhere a run is started from.
+    pub fn toggle_new_agent_disabled(&mut self, cx: &mut Context<Self>) {
+        if let Some(form) = self.new_agent_form_mut() {
+            form.disabled = !form.disabled;
+        }
+        cx.notify();
+    }
+
+    /// Move the New agent dialog between its two tabs.
+    ///
+    /// The answer goes with the question: the two tabs ask different things, and a definition
+    /// chosen on one is not an answer to the other. A list left down is closed the way any other
+    /// answer closes it.
+    pub fn set_new_agent_tab(
+        &mut self,
+        tab: NewAgentTab,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(form) = self.workbench.new_agent.as_mut() else {
+            return;
+        };
+        if form.tab == tab {
+            return;
+        }
+        let models = std::mem::take(&mut form.models);
+        let purpose = form.purpose;
+        // What the *question* answered is dropped; what the form was raised for is not. A task
+        // assignment's task, its two checkboxes and the servers it starts with belong to the card
+        // the form was opened from, not to which tab is in front.
+        let (for_task, project) = (form.for_task, form.project);
+        let (ask_for_feedback, plan_mode) = (form.ask_for_feedback, form.plan_mode);
+        let mcps = match for_task {
+            Some(_) => std::mem::take(&mut form.mcps),
+            None => Vec::new(),
+        };
+        *form = NewAgentForm {
+            tab,
+            models,
+            for_task,
+            project,
+            ask_for_feedback,
+            plan_mode,
+            mcps,
+            ..NewAgentForm::new(purpose)
+        };
+        match for_task.is_some() {
+            // The opening prompt is recomposed from the task and the checkboxes, never patched.
+            true => self.resync_task_assignment_prompt(window, cx),
+            false => self.set_new_agent_prompt("", window, cx),
+        }
+        self.set_new_agent_description("", window, cx);
+        self.close_new_agent_list(window, cx);
+        cx.notify();
+    }
+
+    /// The Agents tab's `Customize`: draw the harness, model and effort the chosen definition
+    /// names as rows that can be overridden, rather than as the line on its row.
+    pub fn toggle_new_agent_customize(&mut self, cx: &mut Context<Self>) {
+        if let Some(form) = self.workbench.new_agent.as_mut() {
+            form.customize = !form.customize;
+        }
+        cx.notify();
+    }
+
+    /// Which project's definitions this start may name: the Teams toolbar's override where it
+    /// holds one this window has, else the window's own project. The same reading
+    /// `ui::new_agent::target_rows` draws the list from, so the pick resolves against the list
+    /// that was offered.
+    pub(super) fn new_agent_scope(&self, cx: &App) -> Option<ProjectId> {
+        self.new_agent_project
+            .filter(|id| self.window_projects(cx).contains(id))
+            .or_else(|| self.project(cx))
     }
 
     /// Open one of the form's lists, or close it if it is the one already down — exactly one is
@@ -451,7 +565,7 @@ impl AppState {
     }
 
     /// Take the form, validate it against what the window actually has, and answer the project,
-    /// the form and the profile a start resolves to — or put the form back and answer nothing.
+    /// the form and the definition a start resolves to — or put the form back and answer nothing.
     ///
     /// Shared by [`Self::start_new_agent`] and [`Self::start_new_agent_in_terminal`]: both read the
     /// same target out of the same form and refuse the same two ways, and only what they build from
@@ -479,7 +593,7 @@ impl AppState {
             self.workbench.new_agent = Some(form);
             return None;
         };
-        // A harness that is not installed here is drawn disabled in the target list; a profile
+        // A harness that is not installed here is drawn disabled in the target list; a definition
         // naming one is the same case, and this is what stops either becoming a start that fails
         // as a spawn the user has to interpret.
         if !self
@@ -491,8 +605,8 @@ impl AppState {
             self.workbench.new_agent = Some(form);
             return None;
         }
-        let profile = match &target {
-            Target::Profile(id) => Some(id.clone()),
+        let definition = match &target {
+            Target::AgentDefinition(id) => Some(id.clone()),
             Target::Harness { .. } => None,
         };
         // Spent here rather than when the answer lands, unlike the two surface aims: this one is
@@ -501,7 +615,7 @@ impl AppState {
         // project. The refusals above are before this on purpose: they put the form back up, and
         // the project it is still being composed against goes back with it.
         self.new_agent_project = None;
-        Some((form, project_id, profile))
+        Some((form, project_id, definition))
     }
 
     /// Start the conversation the form describes, and answer the id it was given.
@@ -511,7 +625,7 @@ impl AppState {
     /// own" — the convention the host already reads `chosen_model` by — so a row left unanswered
     /// says nothing rather than naming a default the interface invented.
     pub fn start_new_agent(&mut self, cx: &mut Context<Self>) -> Option<AgentId> {
-        let (form, project_id, profile) = self.take_startable_new_agent(cx)?;
+        let (form, project_id, definition) = self.take_startable_new_agent(cx)?;
         let agent_id = AgentId::generate();
         self.bus.send(Message::StartConversation {
             agent_id,
@@ -520,7 +634,7 @@ impl AppState {
             rel_path: None,
             agent_type: form.agent_type.clone(),
             account: form.account.clone(),
-            profile: profile.clone(),
+            definition: definition.clone(),
             model: Some(form.model.clone().unwrap_or_default()),
             thinking: Some(form.thinking.clone().unwrap_or_default()),
             mode: Some(form.mode.clone().unwrap_or_default()),
@@ -536,19 +650,19 @@ impl AppState {
         if let Some(preamble) = form.preamble() {
             self.workbench.agent_preambles.insert(agent_id, preamble);
         }
-        // The profile's own id is its display name (`ProfileInfo::id`'s doc) — the title a fresh
+        // The definition's own id is its display name (`AgentDefinition::id`'s doc) — the title a fresh
         // agent wears until the harness (or the user) actually names the conversation, in place
         // of the bare harness-label default `refresh_agent_record` gives one nothing else named.
-        // See `state::WorkbenchState::agent_started_profile`.
-        if let Some(profile) = &profile {
+        // See `state::WorkbenchState::agent_started_definition`.
+        if let Some(definition) = &definition {
             self.workbench
-                .agent_started_profile
-                .insert(agent_id, profile.clone());
+                .agent_started_definition
+                .insert(agent_id, definition.clone());
         }
         self.remember_harness_choice(
             &form.agent_type.clone(),
             form.account.as_deref(),
-            profile.as_deref(),
+            definition.as_deref(),
             form.mode.as_deref(),
             form.max_subagents,
             cx,
@@ -566,12 +680,12 @@ impl AppState {
     /// there is no first turn to fold anything in front of. The opening prompt and the subagent
     /// ceiling the form carries are simply not said.
     pub fn start_new_agent_in_terminal(&mut self, cx: &mut Context<Self>) {
-        let Some((form, _project_id, profile)) = self.take_startable_new_agent(cx) else {
+        let Some((form, _project_id, definition)) = self.take_startable_new_agent(cx) else {
             return;
         };
         let picks = AgentPicks {
             account: form.account.clone(),
-            profile: profile.clone(),
+            definition: definition.clone(),
             model: Some(form.model.clone().unwrap_or_default()),
             thinking: Some(form.thinking.clone().unwrap_or_default()),
             mode: Some(form.mode.clone().unwrap_or_default()),
@@ -587,7 +701,7 @@ impl AppState {
         self.remember_harness_choice(
             &form.agent_type.clone(),
             form.account.as_deref(),
-            profile.as_deref(),
+            definition.as_deref(),
             form.mode.as_deref(),
             form.max_subagents,
             cx,
@@ -641,10 +755,10 @@ impl AppState {
         self.bus.send(Message::PromptAgent { agent_id, text });
     }
 
-    /// Ask what to call this setup. A start form has no name field of its own, so Save profile
+    /// Ask what to call this setup. A start form has no name field of its own, so Save definition
     /// raises the window's prompt over it rather than growing a row nothing else uses.
     pub fn open_new_agent_naming(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let input = self.profile_id_input.clone();
+        let input = self.definition_id_input.clone();
         input.update(cx, |state, cx| {
             state.set_value("", window, cx);
             state.focus(window, cx);
@@ -662,30 +776,32 @@ impl AppState {
         cx.notify();
     }
 
-    /// Write the form down as a profile, under the name in the name field.
+    /// Write the form down as a definition, under the name in the name field.
     ///
-    /// The host answers with `Profiles`, or with `AccountError` when the id is not a name it can
-    /// file — profiles are stored beside accounts and fail the same way.
-    pub fn save_new_agent_profile(&mut self, cx: &mut Context<Self>) {
-        let id = self.profile_id_input.read(cx).value().trim().to_string();
+    /// The host answers with `AgentDefinitions`, or with `AccountError` when the id is not a name it can
+    /// file — definitions are stored beside accounts and fail the same way.
+    pub fn save_new_agent_definition(&mut self, cx: &mut Context<Self>) {
+        let id = self.definition_id_input.read(cx).value().trim().to_string();
         let prompt = self.new_agent_prompt.read(cx).value().to_string();
+        let description = self.new_agent_description.read(cx).value().to_string();
         let Some(form) = self.new_agent_form_mut() else {
             return;
         };
         form.prompt = prompt;
+        form.description = description;
         if id.is_empty() || form.agent_type.is_empty() {
             return;
         }
         form.naming = false;
-        let profile = form.as_profile(id.clone());
-        // A start form that has just written a profile is pointed at it: what it offers has not
+        let definition = form.as_definition(id.clone());
+        // A start form that has just written a definition is pointed at it: what it offers has not
         // changed, but what a second Save would overwrite now has a name.
         if self.workbench.new_agent.is_some()
             && let Some(form) = self.new_agent_form_mut()
         {
-            form.target = Some(Target::Profile(id));
+            form.target = Some(Target::AgentDefinition(id));
         }
-        self.bus.send(Message::SaveProfile { profile });
+        self.bus.send(Message::SaveAgentDefinition { definition });
         cx.notify();
     }
 
@@ -739,6 +855,18 @@ impl AppState {
         cx: &mut Context<Self>,
     ) {
         let input = self.new_agent_prompt.clone();
+        input.update(cx, |state, cx| state.set_value(text, window, cx));
+    }
+
+    /// Seed the definition form's description field, on [`Self::set_new_agent_prompt`]'s own
+    /// footing.
+    pub(super) fn set_new_agent_description(
+        &mut self,
+        text: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let input = self.new_agent_description.clone();
         input.update(cx, |state, cx| state.set_value(text, window, cx));
     }
 

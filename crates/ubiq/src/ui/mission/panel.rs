@@ -1,12 +1,24 @@
 //! The mission side panel — §6.1's fast overview.
 //!
-//! Six sections, top to bottom: the header, the phase line, the progress bar, *Needs you*, the
-//! agents, *Latest*, and the feedback composer at the foot. Short on purpose: **nothing here needs
-//! reading twice**, and every detail the panel leaves out is the full view's.
+//! Top to bottom: the header, the phase line and the progress bar (chrome, never folds), then four
+//! **sections** — *Needs you*, *Documents*, the agents, *Latest* (T-184) — each opened or shut on
+//! its own through [`kit::disclosure`], and the feedback composer fixed at the foot. Short on
+//! purpose: **nothing here needs reading twice**, and every detail the panel leaves out is the full
+//! view's.
+//!
+//! **The section content scrolls; the chrome around it does not.** A mission with everything open
+//! and a long roster no longer clips against the panel's bottom (T-184) — the sections sit in their
+//! own `overflow_y_scroll` region between the fixed top and the fixed composer.
+//!
+//! **A section's open/shut state is remembered per mission** (`MissionView::shut_sections`,
+//! `AppState::toggle_mission_section`) — UI-local bookkeeping, not a fact the host has an opinion
+//! about, so two side panels open on different missions never share a shape.
 //!
 //! All of it is live. *Needs you* draws the pending phase move and every pending spawn off the
-//! record; *Latest* draws the three newest journal lines; *Spawn ▾* is the one control that puts
-//! an agent on a mission; and the composer sends the mission's feedback to its coordinator.
+//! record; *Documents* draws the plan and `MissionRecord::documents`, each a button onto the
+//! document surface; *Latest* draws the three newest journal lines; *Spawn ▾* is the one control
+//! that puts an agent on a mission; and the composer sends the mission's feedback to its
+//! coordinator.
 
 use gpui::{
     AnyElement, Context, Focusable as _, InteractiveElement as _, IntoElement, ParentElement,
@@ -20,13 +32,15 @@ use ubiq_proto::mission::{ExecutionMode, MissionRecord, Phase};
 use ubiq_proto::work::{TaskRecord, WorkAgent};
 
 use crate::app::AppState;
+use crate::state::mission::MissionSection;
 use crate::state::work::WorkProjection;
 use crate::theme::{self, Family, Role};
 use crate::ui::empty;
 use crate::ui::kit::{
-    UbiqIcon, elided, ghost_button, hex_mark, icon_button, mono, panel, primary_button,
+    UbiqIcon, disclosure, elided, ghost_button, hex_mark, icon_button, mono, panel, primary_button,
     section_label, state_chip,
 };
+use crate::ui::mission::full::doc_row;
 use crate::ui::work::{activity_colour, work_state_colour};
 use crate::ui::{eid, eid2};
 
@@ -70,20 +84,71 @@ pub fn render(
     };
 
     let term = app.mission_term(cx);
+    let view = app.mission_view(cx).cloned().unwrap_or_default();
 
     panel()
         .child(header(app, task_id, work, &term, task, mission, cx))
         .child(phase_line(task_id, mission, cx))
         .child(progress(work, task_id, cx))
-        .child(needs_you(app, task_id, mission, true, cx))
-        .child(agents(app, work, task_id, cx))
-        .child(latest(app, task_id))
-        .child(div().flex_1().min_h(px(0.)))
+        .child(
+            div()
+                .id(eid("mission-panel-scroll", task_id))
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_h(px(0.))
+                .overflow_y_scroll()
+                .child(needs_you_section(
+                    app,
+                    task_id,
+                    mission,
+                    view.section_open(task_id, MissionSection::NeedsYou),
+                    cx,
+                ))
+                .child(documents(
+                    task_id,
+                    mission,
+                    view.section_open(task_id, MissionSection::Documents),
+                    cx,
+                ))
+                .child(agents(
+                    app,
+                    work,
+                    task_id,
+                    view.section_open(task_id, MissionSection::Agents),
+                    cx,
+                ))
+                .child(latest(
+                    app,
+                    task_id,
+                    view.section_open(task_id, MissionSection::Latest),
+                    cx,
+                )),
+        )
         .child(feedback(app, task_id, &term, true, window, cx))
         .children(super::menu::overlay(app, task_id, cx))
         .children(super::menu::spawn_overlay(app, task_id, cx))
         .children(super::menu::kind_overlay(app, task_id, cx))
         .into_any_element()
+}
+
+/// One section's fold: the chevron bar, and the body only while it is open — every section of the
+/// panel is this shape (T-184).
+fn fold(
+    task_id: TaskId,
+    section: MissionSection,
+    title: &str,
+    summary: impl IntoElement,
+    open: bool,
+    cx: &mut Context<AppState>,
+) -> impl IntoElement {
+    disclosure(
+        eid2("mission-section", task_id, section.label()),
+        title,
+        summary,
+        open,
+        cx.listener(move |this, _, _, cx| this.toggle_mission_section(task_id, section, cx)),
+    )
 }
 
 // ── the header ──────────────────────────────────────────────────────
@@ -474,6 +539,24 @@ pub(super) fn nothing(text: &'static str) -> impl IntoElement {
 /// are a vector: two members each waiting on a worker are two questions, and answering one must
 /// not throw the other away.
 ///
+/// The rows themselves — the pending phase move, then every pending spawn — shared by the side
+/// panel's foldable section ([`needs_you_section`]) and the full view's always-open one below.
+fn needs_you_rows(
+    app: &AppState,
+    task_id: TaskId,
+    mission: &MissionRecord,
+    cx: &mut Context<AppState>,
+) -> Vec<AnyElement> {
+    let mut rows: Vec<AnyElement> = Vec::new();
+    if let Some(pending) = mission.pending_phase.as_ref() {
+        rows.push(phase_request_row(task_id, mission, pending, cx));
+    }
+    for spawn in &mission.pending_spawns {
+        rows.push(spawn_request_row(app, task_id, spawn, cx));
+    }
+    rows
+}
+
 /// `compact` is the side panel: the first row and a count of the rest (§6.1). The full view's
 /// Overview passes `false` and gets the lot.
 pub(super) fn needs_you(
@@ -483,14 +566,7 @@ pub(super) fn needs_you(
     compact: bool,
     cx: &mut Context<AppState>,
 ) -> AnyElement {
-    let mut rows: Vec<AnyElement> = Vec::new();
-    if let Some(pending) = mission.pending_phase.as_ref() {
-        rows.push(phase_request_row(task_id, mission, pending, cx));
-    }
-    for spawn in &mission.pending_spawns {
-        rows.push(spawn_request_row(app, task_id, spawn, cx));
-    }
-
+    let rows = needs_you_rows(app, task_id, mission, cx);
     let total = rows.len();
     let shown = match compact {
         true => rows.into_iter().take(1).collect::<Vec<_>>(),
@@ -510,6 +586,40 @@ pub(super) fn needs_you(
         .when(compact && total > 1, |body| {
             body.child(nothing_count(total - 1))
         })
+        .into_any_element()
+}
+
+/// The side panel's own *Needs you* (T-184): the same rows as [`needs_you`] with `compact: true`,
+/// under a fold rather than a plain bar, and drawing nothing beneath it while shut.
+fn needs_you_section(
+    app: &AppState,
+    task_id: TaskId,
+    mission: &MissionRecord,
+    open: bool,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let rows = needs_you_rows(app, task_id, mission, cx);
+    let total = rows.len();
+    let shown: Vec<AnyElement> = rows.into_iter().take(1).collect();
+
+    let bar = fold(
+        task_id,
+        MissionSection::NeedsYou,
+        "Needs you",
+        mono(
+            (total > 0).then(|| total.to_string()).unwrap_or_default(),
+            theme::text_faint(),
+        ),
+        open,
+        cx,
+    );
+    let body = div().flex().flex_none().flex_col().child(bar);
+    if !open {
+        return body.into_any_element();
+    }
+    body.when(total == 0, |body| body.child(nothing("Nothing needs you.")))
+        .children(shown)
+        .when(total > 1, |body| body.child(nothing_count(total - 1)))
         .into_any_element()
 }
 
@@ -611,9 +721,9 @@ fn spawn_request_row(
 ) -> AnyElement {
     let id = spawn.id;
     let pick = app.mission_spawn_pick(task_id, spawn);
-    let changed = pick.kind != spawn.kind || pick.profile != spawn.profile;
-    let chip: SharedString = match &pick.profile {
-        Some(profile) => format!("{} \u{00b7} {profile}", pick.kind).into(),
+    let changed = pick.kind != spawn.kind || pick.definition != spawn.definition;
+    let chip: SharedString = match &pick.definition {
+        Some(definition) => format!("{} \u{00b7} {definition}", pick.kind).into(),
         None => pick.kind.clone().into(),
     };
     let reason: SharedString = match spawn.reason.trim().is_empty() {
@@ -639,7 +749,7 @@ fn spawn_request_row(
                 .items_center()
                 .gap_2()
                 // The kind, as a control: clicking it offers the mission's kinds and, for the
-                // `custom` case, a profile named outright.
+                // `custom` case, a definition named outright.
                 .child(
                     div()
                         .id(eid2("mission-spawn-kind", task_id, id))
@@ -713,6 +823,50 @@ fn spawn_request_row(
         .into_any_element()
 }
 
+/// The mission's own documents, and its plan (T-184, M8): one row per name in
+/// `MissionRecord::documents`, plus the plan's own row, each a button onto the document surface
+/// [`super::full::doc_row`] already draws for the full view's *Plan & docs* tab — one row shape,
+/// drawn from both surfaces rather than redrawn for this one.
+///
+/// **`documents` is a read, never a query.** The host derives it from `missions/<TaskId>/docs/` on
+/// every `MissionChanged`, so the row list here is exactly what a fresh directory listing would be
+/// — nothing here asks the host to enumerate anything a second time.
+fn documents(
+    task_id: TaskId,
+    mission: &MissionRecord,
+    open: bool,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let total = 1 + mission.documents.len();
+    let bar = fold(
+        task_id,
+        MissionSection::Documents,
+        "Documents",
+        mono(total.to_string(), theme::text_faint()),
+        open,
+        cx,
+    );
+    let body = div().flex().flex_none().flex_col().child(bar);
+    if !open {
+        return body.into_any_element();
+    }
+
+    let mut body = body.child(doc_row(
+        eid("mission-open-plan", task_id),
+        "Plan",
+        cx.listener(move |this, _, _, cx| this.open_plan(task_id, cx)),
+    ));
+    for name in &mission.documents {
+        let doc_name = name.clone();
+        body = body.child(doc_row(
+            eid2("mission-open-doc", task_id, name),
+            name.clone(),
+            cx.listener(move |this, _, _, cx| this.open_mission_doc(task_id, &doc_name, cx)),
+        ));
+    }
+    body.into_any_element()
+}
+
 /// Who is on the mission, and the one control that puts somebody on it (§6.1).
 ///
 /// **The record's roster is the membership** (M11) — assigned to the mission or a child, *or*
@@ -723,6 +877,7 @@ fn agents(
     app: &AppState,
     work: &WorkProjection,
     task_id: TaskId,
+    open: bool,
     cx: &mut Context<AppState>,
 ) -> AnyElement {
     let Some(record) = app.mission(task_id, cx) else {
@@ -730,29 +885,43 @@ fn agents(
     };
     let on_mission = super::full::on_mission(work, task_id, record);
     let total = on_mission.len();
+
+    let bar = fold(
+        task_id,
+        MissionSection::Agents,
+        "Agents",
+        mono(
+            (total > 0).then(|| total.to_string()).unwrap_or_default(),
+            theme::text_faint(),
+        ),
+        open,
+        cx,
+    );
+    let body = div().flex().flex_none().flex_col().child(bar);
+    if !open {
+        return body.into_any_element();
+    }
+
     let rows: Vec<AnyElement> = on_mission
         .iter()
         .take(AGENT_ROWS)
         .map(|agent| agent_row(app, work, task_id, agent, cx))
         .collect();
 
-    div()
-        .flex()
-        .flex_none()
-        .flex_col()
-        .child(section_bar_with(
-            "Agents",
-            (total > 0).then(|| total.to_string()),
-            Some(spawn_button(app, task_id, "mission-spawn", cx)),
-        ))
-        .when(total == 0, |body| {
-            body.child(nothing("No agents on this mission."))
-        })
-        .children(rows)
-        .when(total > AGENT_ROWS, |body| {
-            body.child(nothing_count(total - AGENT_ROWS))
-        })
-        .into_any_element()
+    body.child(div().px_3().py_1().flex().flex_none().child(spawn_button(
+        app,
+        task_id,
+        "mission-spawn",
+        cx,
+    )))
+    .when(total == 0, |body| {
+        body.child(nothing("No agents on this mission."))
+    })
+    .children(rows)
+    .when(total > AGENT_ROWS, |body| {
+        body.child(nothing_count(total - AGENT_ROWS))
+    })
+    .into_any_element()
 }
 
 fn nothing_count(more: usize) -> impl IntoElement {
@@ -836,7 +1005,13 @@ fn agent_row(
 
 /// The last three journal lines (M12). The page is asked for once, where the panel is opened —
 /// see `AppState::load_mission_journal` — and kept current by `JournalAppended`.
-fn latest(app: &AppState, task_id: TaskId) -> impl IntoElement {
+fn latest(app: &AppState, task_id: TaskId, open: bool, cx: &mut Context<AppState>) -> AnyElement {
+    let bar = fold(task_id, MissionSection::Latest, "Latest", div(), open, cx);
+    let body = div().flex().flex_none().flex_col().child(bar);
+    if !open {
+        return body.into_any_element();
+    }
+
     let entries = app.mission_journal(task_id);
     let rows: Vec<AnyElement> = entries
         .map(|journal| {
@@ -849,15 +1024,11 @@ fn latest(app: &AppState, task_id: TaskId) -> impl IntoElement {
         })
         .unwrap_or_default();
 
-    div()
-        .flex()
-        .flex_none()
-        .flex_col()
-        .child(section_bar("Latest", None))
-        .when(rows.is_empty(), |body| {
-            body.child(nothing("No activity yet."))
-        })
-        .children(rows)
+    body.when(rows.is_empty(), |body| {
+        body.child(nothing("No activity yet."))
+    })
+    .children(rows)
+    .into_any_element()
 }
 
 /// One journal line: what kind it was, when, and the sentence the host wrote beside it.

@@ -5,9 +5,9 @@ kind: tech
 status: current
 summary: Every folder in the workspace, what belongs in it, what must never go in it, and the two crates' division of labour.
 read_when: you are adding a file and are not certain where it goes, or you are new to the repository
-updated: 2026-09-24
-verified: 2026-09-24
-code_anchors: [Cargo.toml, crates/ubiq-host/src/store/usage.rs, crates/ubiq-host/src/kb/mod.rs, crates/ubiq-host/src/lib.rs, crates/ubiq/Cargo.toml, crates/ubiq-proto/Cargo.toml, crates/ubiq-host/Cargo.toml, crates/ubiq-app/Cargo.toml, crates/ubiq-drone/Cargo.toml, vendor/gpui-terminal/Cargo.toml, _tools/icns.py]
+updated: 2026-09-25
+verified: 2026-09-25
+code_anchors: [Cargo.toml, crates/ubiq-host/src/store/usage.rs, crates/ubiq-host/src/store/project_dir.rs, crates/ubiq-host/src/kb/mod.rs, crates/ubiq-host/src/lib.rs, crates/ubiq/Cargo.toml, crates/ubiq-proto/Cargo.toml, crates/ubiq-host/Cargo.toml, crates/ubiq-app/Cargo.toml, crates/ubiq-drone/Cargo.toml, vendor/gpui-terminal/Cargo.toml, _tools/icns.py]
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -24,7 +24,7 @@ ubiq/
 ├── AGENTS.md            the always-loaded preamble — read first
 ├── CLAUDE.md            one line: it includes AGENTS.md
 ├── README.md            the public face of the project
-├── Cargo.toml           workspace manifest and the release profile
+├── Cargo.toml           workspace manifest and the release agent definition
 ├── Justfile             every command anyone runs — see operations.md
 ├── crates/
 │   ├── ubiq-proto/      the contract, the bus, the log sink
@@ -53,7 +53,8 @@ The tree above is the source. The other tree Ubiq owns is the **config root** it
 `~/.config/ubiq` unless a flag, `UBIQ_CONFIG_DIR` or a `ubiq.toml` moves it, and this repository's
 `ubiq.toml` points it at `_data/config` so a checkout never touches the catalogue a user works with
 ([`operations.md`](./operations.md) owns the resolution order). Nothing Ubiq remembers goes inside a
-project's own folder — `D30`.
+project's own folder — `D30` — with one exception the person creating a project chooses, which is
+`.ubiq/` below.
 
 ```
 <config root>/
@@ -68,7 +69,7 @@ project's own folder — `D30`.
 ├── catalog/                 the harness catalogue the library resolves against
 ├── harness-templates/       template workspaces a run is provisioned from
 ├── accounts/                one identity per folder: its record, and its HOME-shaped login capture
-├── profiles/                agent definitions — the composition a conversation starts from
+├── agent definitions/                agent definitions — the composition a conversation starts from
 ├── runs/                    one live workspace per run, deleted when the run ends
 ├── sessions/                what a finished run left behind: its meta, and the harness's transcript
 ├── isol8/                   the sandbox's own state, managed homes among it
@@ -104,6 +105,41 @@ is what makes forgetting a project complete even after a crash halfway through i
 directory goes with it, and that is the only thing the host ever does to it: everything under `ui/`
 is the interface's, is disposable, and is reached by the path on `ProjectSnapshot` rather than over
 the bus — rule 6 in [`architecture.md`](./architecture.md).
+
+## `.ubiq/` — a project that keeps its own data
+
+`ProjectRecord::storage` names one of two modes, chosen in the creation panel and nowhere else.
+**Ubiq-managed** is the tree above and is what every project is unless it says otherwise.
+**Project-managed** is `D173`'s exception to `D30`: the project's data lives in a `.ubiq/` folder
+inside the project's own directory, so a team commits it and every clone arrives with it.
+
+```
+<project folder>/
+└── .ubiq/
+    ├── .gitignore      written once, and what keeps the per-machine half uncommitted
+    ├── project.toml    the project's name and metadata, in the project itself
+    └── tasks.toml      that project's tasks — the same file, in the other tree
+```
+
+`.gitignore` is the whole of the split, and the question it answers is *would another person
+cloning this project want this?* Tracked: `project.toml`, `tasks.toml`, `tasks-archive/`,
+`kb.toml`, `plans/` and `missions/` — the project's settings, tasks and configuration. Ignored:
+`view.toml` and `ui/` (one person's panels), `index/`, `cache/` and `searches/` (derived), `kb/`
+(re-fetchable), and `runs/` and `sessions/` (what is running, or ran). It is written when the
+folder is made and never rewritten, so a user's own edit to it stands. The ignore list runs ahead
+of the code — `G355` is how far the data itself has followed.
+
+The project still gets its `<config root>/projects/<ulid>/` directory, holding one file the tree
+above does not show — `storage.toml`, the pointer naming where the data went — and whatever has
+not moved. That is deliberate: Forget and the orphan collector sweep the same
+directory they always did, and `crates/ubiq-host/src/store/project_dir.rs`'s `ProjectDirs` resolves
+a store's path through that pointer rather than handing every store a catalogue to read.
+`project.toml` is the project's own copy of its name; the catalogue keeps one too, as the lookup a
+picker draws without opening a folder that may be unmounted, and where the two disagree the
+folder's copy wins and the catalogue is corrected on load.
+
+Forget leaves `.ubiq/` alone. It is inside the user's tree and it is committed, so removing it
+would be a change to their repository rather than to what Ubiq remembers.
 
 ## `vendor/`
 
@@ -212,8 +248,9 @@ interface does not depend on the host, so a module in the wrong crate does not c
 | `ubiq-host/src/pty/` | Pseudo-terminal streams, reading, writing, backpressure | Terminal emulation |
 | `ubiq-host/src/config.rs` | Where the config root is, and how it is found | A setting; the bootstrap file names a directory and nothing else |
 | `ubiq-host/src/store/` | What the host writes down: the catalogue, a project's tasks, the view state and settings behind four traits, and the concrete stores that need no trait beside them | Any opinion about what a Ui-layer blob means |
+| `ubiq-host/src/store/project_dir.rs` | Where one project's data directory is — the pointer a store resolves through, the `.ubiq/` folder, its `.gitignore` and its `project.toml` | A catalogue read, or any opinion about what is in the files it places |
 | `ubiq-host/src/store/usage.rs` | The usage meter: `usage.db`, its two tables, its `PRAGMA user_version` migrations and the accumulating upsert into them | A trait, a second implementation, or an opinion about how a bucket is drawn |
-| `ubiq-host/src/projects.rs` | The catalogue as the host runs it, and the reservation of each project's `ui/` workarea | An opinion about colour or layout, or a read of anything inside a workarea |
+| `ubiq-host/src/projects.rs` | The catalogue as the host runs it, the reservation of each project's `ui/` workarea, and the palette index a project gets when its creator names none | What a palette index looks like, an opinion about layout, or a read of anything inside a workarea |
 | `ubiq-host/src/settings.rs` | Application settings as the host runs them: Ui opaque, Host parsed | An opinion about what a Ui-layer blob means |
 | `ubiq-host/src/work/` | A project's tasks as the host keeps them, and the sessions and agents it mocks over them | Where anything is drawn, or an invented reply from an agent |
 | `ubiq-host/src/watch/` | One `notify` watch per open project, debounced and coalesced, and the project-relative paths it reports | An absolute path on the wire, an opinion about what a reader should redraw |

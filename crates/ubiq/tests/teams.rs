@@ -162,6 +162,7 @@ fn a_project_named(name: &str) -> ProjectSnapshot {
             // the window span's fences are drawn from and what a shared index would hide.
             colour: name.len(),
             custom_colour: None,
+            storage: Default::default(),
             temporary: false,
             created_at: Utc::now(),
             last_opened_at: None,

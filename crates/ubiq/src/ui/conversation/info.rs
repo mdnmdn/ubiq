@@ -55,7 +55,7 @@ pub fn render(
         .flex_col()
         .gap_3()
         .pt_3()
-        .child(profile(conversation, record))
+        .child(definition(conversation, record))
         .child(account(conversation, record))
         .child(tokens(conversation, record))
         .child(context(conversation, record));
@@ -85,14 +85,14 @@ pub fn render(
 ///
 /// The harness is the display label the host minted, never an id: a `WorkAgent` carries the label
 /// and the window has nothing else in hand — the same reason `super::keeps_sessions` matches on it.
-fn profile(conversation: &Conversation, record: Option<&WorkAgent>) -> AnyElement {
+fn definition(conversation: &Conversation, record: Option<&WorkAgent>) -> AnyElement {
     let harness = harness_label(conversation, record);
     let model = conversation
         .model
         .clone()
         .or_else(|| record.map(|agent| agent.model.clone()))
         .filter(|model| !model.is_empty());
-    let mut section = group("Profile").child(row("info-harness", "Harness", unknown(harness)));
+    let mut section = group("Agent").child(row("info-harness", "Harness", unknown(harness)));
     section = section.child(row(
         "info-model",
         "Model",
@@ -325,7 +325,7 @@ fn capabilities(app: &AppState, harness: &str, now_ms: i64) -> AnyElement {
 /// Which harness answers this conversation, as the display label both halves of the panel read.
 ///
 /// The work record's label where the host has minted one, the conversation's own otherwise — the
-/// same fallback [`profile`] draws, kept in one place now that the foot resolves it to a harness
+/// same fallback [`definition`] draws, kept in one place now that the foot resolves it to a harness
 /// too.
 fn harness_label(conversation: &Conversation, record: Option<&WorkAgent>) -> String {
     record

@@ -215,14 +215,14 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .as_ref()
                 .map(|_| new_mission::render(app, window, cx)),
         )
-        // The profile form, painted beside the login modal: both are raised from the harnesses
+        // The definition form, painted beside the login modal: both are raised from the harnesses
         // section, and only one is ever up.
         .children(
             app.workbench
                 .settings
-                .profile_form
+                .definition_form
                 .as_ref()
-                .map(|_| settings::profile_form(app, window, cx)),
+                .map(|_| settings::definition_form(app, window, cx)),
         )
         // The accounts section's rename, delete or sign-out question — painted after the login
         // modal for the same reason that one is painted after the settings page: each can be up
@@ -376,6 +376,14 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 // here: same surface, no modal around it.
                 .filter(|doc| doc.is_modal())
                 .map(|_| crate::ui::plan::render(app, window, cx)),
+        )
+        // The image/diagram zoom modal (T-185), over the plan on the same terms it can be raised
+        // from either the standard viewer's tab or the plan surface's own rendered markdown.
+        .children(
+            app.workbench
+                .image_zoom
+                .as_ref()
+                .map(|_| crate::ui::viewer::zoom_modal::render(app, window, cx)),
         )
         // The file question a gesture in the explorer or a save on an untitled buffer asked —
         // painted here rather than from either, because both raise the same one.

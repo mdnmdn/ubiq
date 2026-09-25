@@ -422,7 +422,11 @@ impl AppState {
             // How many blocks the transcript held the instant this ask landed, which is where its
             // row is drawn — see `AskRecord::at_block`.
             let at_block = conversation.blocks.len();
-            conversation.file_ask(AskRecord::new(ask_id, questions, at_block));
+            // And whose transcript it is drawn in. A conversation and every subagent it spawned
+            // share one `AgentId`, so without this the same question is drawn in the main agent's
+            // transcript and in each delegate's — see `Conversation::asking_subagent`.
+            let subagent = conversation.asking_subagent();
+            conversation.file_ask(AskRecord::new(ask_id, questions, at_block, subagent));
         }
 
         // A dialog already up counts as "the agent is not visible": whatever the user is doing,

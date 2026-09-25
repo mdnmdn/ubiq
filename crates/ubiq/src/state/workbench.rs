@@ -16,7 +16,7 @@ use gpui::SharedString;
 use ubiq_proto::files::RelatedFile;
 use ubiq_proto::ids::{KbSourceId, PaneId, ProjectId, TaskId};
 use ubiq_proto::mcp::McpInfo;
-use ubiq_proto::messages::{AccountInfo, AgentTypeInfo, ProfileInfo, ShellInfo};
+use ubiq_proto::messages::{AccountInfo, AgentDefinition, AgentTypeInfo, ShellInfo};
 use ubiq_proto::tools::ListedTool;
 use ubiq_proto::work::AgentId;
 
@@ -192,6 +192,15 @@ pub struct ProjectSettings {
     /// The dialog's own nav, starting on General. The sink page keeps its separate
     /// [`crate::state::sink`] nav — a dialog left on Tools must not reopen the sink there.
     pub nav: ProjectNav,
+    /// The Agent definitions section's `Use the global agents` tick.
+    ///
+    /// **Seeded from the definitions, not stored beside them.** A project that has written none of
+    /// its own is a project using the globals, so the tick opens on "yes" there and on "no" for a
+    /// project that has — the answer is what the definitions say, and a second record of it could
+    /// disagree with them. Unticking it enables the list and the `Add agent` beside it; the first
+    /// definition written is what makes the answer outlive the dialog. `G-` in `_docs/backlog.md`
+    /// is where a project that wants *only* its own, with no global on offer, is filed.
+    pub definitions_use_global: bool,
 }
 
 /// The "All projects" modal, while it is up.
@@ -508,7 +517,7 @@ pub enum NewProjectRow {
 pub enum HarnessChoice {
     /// A harness with no identity to choose from, by its index in
     /// [`WorkbenchState::agent_types`]. What it runs as is then the library's answer — a
-    /// profile, or the user's own home.
+    /// definition, or the user's own home.
     Harness(usize),
     /// A harness and the identity to run it as: the pair the interface calls a harness.
     Pair {
@@ -517,9 +526,9 @@ pub enum HarnessChoice {
         /// The account id, which is what crosses the wire.
         account: String,
     },
-    /// A saved setup, by its index in [`crate::state::settings::SettingsState::profiles`]. It
+    /// A saved setup, by its index in [`crate::state::settings::SettingsState::definitions`]. It
     /// names its own harness, identity, model and mode — everything the start needs.
-    Profile(usize),
+    AgentDefinition(usize),
     /// A heading or a hairline: drawn, never picked. It holds an index because a menu's rows and
     /// the actions behind them are matched by position, which is what keeps `on_pick(index)`
     /// honest once the list has groups.
@@ -717,6 +726,9 @@ pub struct WorkbenchState {
     /// hides more than it shows — beside `clone_project` for the same reason: a question raised
     /// over the window, answered from its own state rather than the picker's.
     pub all_projects: Option<AllProjectsState>,
+    /// The zoom modal, while it is up (T-185) — raised from the corner button on a scaled-down
+    /// image or diagram in a markdown preview. One at a time, on the window's own rule.
+    pub image_zoom: Option<crate::state::zoom::ImageZoom>,
     /// The annotated document on screen — today always a task's plan, raised from the task panel
     /// for a task carrying a [`ubiq_proto::work::Level`]. One at a time, like `feedback`:
     /// opening another replaces whichever was open. The field keeps its name because the plan is
@@ -763,12 +775,12 @@ pub struct WorkbenchState {
     /// none, and the record is made by the host as the conversation starts — so the assignment
     /// goes out from the `ConversationStarted` arm, where there is certainly something to assign.
     pub agent_assignments: std::collections::HashMap<AgentId, (ProjectId, TaskId)>,
-    /// The profile a conversation was started from, by the agent it produced — until the harness
+    /// The definition a conversation was started from, by the agent it produced — until the harness
     /// (or the user) names the conversation for itself.
     ///
-    /// `ProfileInfo::id` **is** the profile's display name (`"what the user named this setup, e.g.
+    /// `AgentDefinition::id` **is** the definition's display name (`"what the user named this setup, e.g.
     /// review"`), so the id `Message::StartConversation` already carries is the whole of what a
-    /// title needs — no second lookup. Nothing on `WorkAgent` remembers which profile started it
+    /// title needs — no second lookup. Nothing on `WorkAgent` remembers which definition started it
     /// (there is no such field, and none is added for this alone), so the record kept here is
     /// session-only: a reload of the window loses it exactly as it loses every other in-flight
     /// pick, and the title falls back to the harness-label default `refresh_agent_record` always
@@ -776,8 +788,8 @@ pub struct WorkbenchState {
     ///
     /// Read wherever a title is drawn, and only while `WorkAgent::summary` is still `None` — the
     /// same signal `refresh_agent_record` sets the moment the harness (or a user rename) actually
-    /// names the conversation, so a profile's name never outlives the real one.
-    pub agent_started_profile: std::collections::HashMap<AgentId, String>,
+    /// names the conversation, so a definition's name never outlives the real one.
+    pub agent_started_definition: std::collections::HashMap<AgentId, String>,
     /// The "Connect to a remote host" modal, while it is up. Beside `clone_project` for the same
     /// reason: raised from the titlebar rather than from settings, and answering a question that
     /// has nothing to do with any project on screen.
@@ -841,7 +853,7 @@ pub struct WorkbenchState {
     /// running agent to adopt.
     pub mission_spawn_menu: Option<crate::state::mission::MissionSpawnMenu>,
     /// A kind-picking menu, while it is down: a pending spawn row's kind, an agent-kinds row's
-    /// profile, or the table's `+`. `Some` exactly while `open_menu` is `MenuId::MissionKind`.
+    /// definition, or the table's `+`. `Some` exactly while `open_menu` is `MenuId::MissionKind`.
     pub mission_kind_menu: Option<(TaskId, crate::state::mission::KindTarget, (f32, f32))>,
     /// Which mission the feedback composers are addressed at — set when a mission surface is put
     /// in front of the reader, because a field's own Enter handler has no way to ask which mission
@@ -988,6 +1000,7 @@ impl Default for WorkbenchState {
             feedback_offer: ubiq_proto::feedback::FeedbackOffer::default(),
             ask: None,
             all_projects: None,
+            image_zoom: None,
             plan: None,
             mission: None,
             new_agent: None,
@@ -995,7 +1008,7 @@ impl Default for WorkbenchState {
             kb_source: None,
             agent_preambles: Default::default(),
             agent_assignments: Default::default(),
-            agent_started_profile: Default::default(),
+            agent_started_definition: Default::default(),
             remote_connect: None,
             remote_manager: RemoteManagerState::default(),
             settings: SettingsState::default(),
@@ -1136,7 +1149,7 @@ impl WorkbenchState {
     pub fn harness_choices(
         &self,
         accounts: &[AccountInfo],
-        profiles: &[ProfileInfo],
+        definitions: &[AgentDefinition],
     ) -> Vec<HarnessChoice> {
         let conversable: Vec<usize> = self
             .agent_types
@@ -1165,12 +1178,12 @@ impl WorkbenchState {
             rows.push(HarnessChoice::Label("Configured".into()));
             rows.extend(pairs);
         }
-        if !profiles.is_empty() {
+        if !definitions.is_empty() {
             if !rows.is_empty() {
                 rows.push(HarnessChoice::Separator);
             }
             rows.push(HarnessChoice::Label("Defined".into()));
-            rows.extend((0..profiles.len()).map(HarnessChoice::Profile));
+            rows.extend((0..definitions.len()).map(HarnessChoice::AgentDefinition));
         }
         rows
     }
@@ -1224,9 +1237,10 @@ mod tests {
         }
     }
 
-    fn profile(id: &str, agent_type: &str) -> ProfileInfo {
-        ProfileInfo {
+    fn definition(id: &str, agent_type: &str) -> AgentDefinition {
+        AgentDefinition {
             id: id.to_string(),
+            description: None,
             agent_type: agent_type.to_string(),
             account: None,
             model: None,
@@ -1236,6 +1250,9 @@ mod tests {
             prompt: None,
             mcps: Vec::new(),
             mission_assistant: None,
+            mission_coordinator: false,
+            mission_worker: false,
+            disabled: false,
             project: None,
         }
     }
@@ -1314,19 +1331,22 @@ mod tests {
     }
 
     /// A saved setup adds a second, "Defined" group — and it appears with no account signed in at
-    /// all, since a profile carries its own identity. `Configured` stays absent in that case:
+    /// all, since a definition carries its own identity. `Configured` stays absent in that case:
     /// an empty heading is worse than none, which is the rule both groups follow.
     #[test]
-    fn profiles_add_a_defined_group_of_their_own() {
+    fn definitions_add_a_defined_group_of_their_own() {
         let state = with(vec![harness("codex", true)]);
-        let profiles = [profile("reviewer", "codex"), profile("writer", "codex")];
+        let definitions = [
+            definition("reviewer", "codex"),
+            definition("writer", "codex"),
+        ];
 
         assert_eq!(
-            state.harness_choices(&[], &profiles),
+            state.harness_choices(&[], &definitions),
             vec![
                 HarnessChoice::Label("Defined".into()),
-                HarnessChoice::Profile(0),
-                HarnessChoice::Profile(1),
+                HarnessChoice::AgentDefinition(0),
+                HarnessChoice::AgentDefinition(1),
             ]
         );
     }

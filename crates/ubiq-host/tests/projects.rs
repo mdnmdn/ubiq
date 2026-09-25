@@ -15,11 +15,13 @@ use tempfile::TempDir;
 use ubiq_host::gc;
 use ubiq_host::health::probe;
 use ubiq_host::projects::Projects;
-use ubiq_host::store::file::FileProjectStore;
+use ubiq_host::store::file::{FileProjectStore, FileTaskStore};
 use ubiq_host::store::memory::{MemoryPreferenceStore, MemoryProjectStore};
+use ubiq_host::store::project_dir;
 use ubiq_host::store::{ProjectStore, StoreError};
 use ubiq_proto::ids::{ProjectId, SshProfileId};
-use ubiq_proto::projects::{DroneChange, DroneOrigin, ProjectHealth, ProjectRecord};
+use ubiq_proto::messages::Message;
+use ubiq_proto::projects::{DroneChange, DroneOrigin, ProjectHealth, ProjectRecord, StorageMode};
 use ubiq_proto::settings::DronePreset;
 
 fn record(name: &str, path: &str) -> ProjectRecord {
@@ -40,6 +42,7 @@ fn record(name: &str, path: &str) -> ProjectRecord {
         lanes: Vec::new(),
         runs_on: None,
         initials: String::new(),
+        storage: StorageMode::UbiqManaged,
     }
 }
 
@@ -126,6 +129,90 @@ fn an_update_replaces_rather_than_duplicates() {
     assert_eq!(got.len(), 1);
     assert_eq!(got[0].name, "renamed");
     assert_eq!(got[0].colour, 4);
+}
+
+/// `Projects::add` is the one point every creation path goes through — the "Add project" dialog
+/// passes a colour it picked itself, but drag-and-drop and others pass `None`. Without a host-side
+/// fallback, every such project lands on swatch zero and the Teams filter shows one dot for all of
+/// them (T-197). Adding a second project with no colour, next to one already on swatch zero, must
+/// not repeat it.
+#[test]
+fn adding_with_no_colour_picks_one_not_already_in_use() {
+    let dir = TempDir::new().unwrap();
+    let existing_folder = dir.path().join("existing");
+    let new_folder = dir.path().join("new");
+    fs::create_dir_all(&existing_folder).unwrap();
+    fs::create_dir_all(&new_folder).unwrap();
+
+    let mut existing = record("existing", &existing_folder.to_string_lossy());
+    existing.colour = 0;
+    let (mut projects, _) = Projects::open(
+        dir.path().to_path_buf(),
+        Box::new(MemoryProjectStore::with(vec![existing])),
+        Box::new(MemoryPreferenceStore::new()),
+    );
+
+    let replies = projects.add(
+        &new_folder.to_string_lossy(),
+        Some("new".to_string()),
+        None,
+        None,
+        false,
+        StorageMode::UbiqManaged,
+    );
+
+    let colour = replies
+        .into_iter()
+        .find_map(|reply| match reply.into_message() {
+            Message::ProjectAdded { project } => Some(project.record.colour),
+            _ => None,
+        })
+        .expect("the project was added");
+    assert_ne!(
+        colour, 0,
+        "landed on the same swatch as the existing project"
+    );
+}
+
+/// Once every swatch is in use, the fewest-used rule wraps rather than refusing — the same as the
+/// interface's `AppState::next_colour`, which this mirrors.
+#[test]
+fn adding_with_no_colour_wraps_once_the_palette_is_exhausted() {
+    let dir = TempDir::new().unwrap();
+    let mut records = Vec::new();
+    for index in 0..16usize {
+        let folder = dir.path().join(format!("p{index}"));
+        fs::create_dir_all(&folder).unwrap();
+        let mut r = record(&format!("p{index}"), &folder.to_string_lossy());
+        r.colour = index;
+        records.push(r);
+    }
+    let (mut projects, _) = Projects::open(
+        dir.path().to_path_buf(),
+        Box::new(MemoryProjectStore::with(records)),
+        Box::new(MemoryPreferenceStore::new()),
+    );
+
+    let new_folder = dir.path().join("wraps");
+    fs::create_dir_all(&new_folder).unwrap();
+    let replies = projects.add(
+        &new_folder.to_string_lossy(),
+        None,
+        None,
+        None,
+        false,
+        StorageMode::UbiqManaged,
+    );
+
+    let colour = replies
+        .into_iter()
+        .find_map(|reply| match reply.into_message() {
+            Message::ProjectAdded { project } => Some(project.record.colour),
+            _ => None,
+        })
+        .expect("the project was added");
+    // Every swatch is used exactly once, so the tie-break (lowest index) picks swatch 0 again.
+    assert_eq!(colour, 0);
 }
 
 // ── runs_on ─────────────────────────────────────────────────────────
@@ -396,4 +483,177 @@ fn the_collector_takes_only_directories_no_record_names() {
 fn the_collector_is_quiet_when_there_is_nothing_to_collect() {
     let root = TempDir::new().unwrap();
     assert_eq!(gc::collect(root.path(), &HashSet::new()), 0);
+}
+
+// ── project-managed storage ─────────────────────────────────────────
+
+/// The whole of what creating a project-managed project leaves on disk: the folder, the ignore
+/// file, the metadata, and the tasks landing inside the project rather than under the config root.
+#[test]
+fn a_project_managed_project_keeps_its_data_in_its_own_folder() {
+    let config = TempDir::new().unwrap();
+    let folder = TempDir::new().unwrap();
+    let (mut projects, _) = Projects::open(
+        config.path().to_path_buf(),
+        Box::new(MemoryProjectStore::with(Vec::new())),
+        Box::new(MemoryPreferenceStore::new()),
+    );
+
+    let replies = projects.add(
+        &folder.path().to_string_lossy(),
+        Some("shared".to_string()),
+        None,
+        None,
+        false,
+        StorageMode::ProjectManaged,
+    );
+    let added = replies
+        .into_iter()
+        .find_map(|reply| match reply.into_message() {
+            Message::ProjectAdded { project } => Some(project),
+            _ => None,
+        })
+        .expect("the project was added");
+    assert_eq!(added.record.storage, StorageMode::ProjectManaged);
+
+    let in_project = folder.path().join(".ubiq");
+    assert!(in_project.join(".gitignore").is_file());
+    assert_eq!(
+        project_dir::read_metadata(&in_project)
+            .expect("the in-project metadata")
+            .name,
+        "shared"
+    );
+
+    // The store resolves through the pointer, with no catalogue of its own to read.
+    let tasks = FileTaskStore::new(config.path().to_path_buf());
+    assert_eq!(
+        tasks.path(added.record.id),
+        in_project.join("tasks.toml"),
+        "a project-managed project's tasks belong to the project"
+    );
+}
+
+/// A Ubiq-managed project is `D30` unchanged: nothing at all inside the user's folder.
+#[test]
+fn a_ubiq_managed_project_writes_nothing_inside_the_project() {
+    let config = TempDir::new().unwrap();
+    let folder = TempDir::new().unwrap();
+    let (mut projects, _) = Projects::open(
+        config.path().to_path_buf(),
+        Box::new(MemoryProjectStore::with(Vec::new())),
+        Box::new(MemoryPreferenceStore::new()),
+    );
+
+    projects.add(
+        &folder.path().to_string_lossy(),
+        Some("private".to_string()),
+        None,
+        None,
+        false,
+        StorageMode::UbiqManaged,
+    );
+    assert!(!folder.path().join(".ubiq").exists());
+}
+
+/// A rename reaches the project's own copy, not only the catalogue.
+#[test]
+fn renaming_a_project_managed_project_rewrites_its_in_project_metadata() {
+    let config = TempDir::new().unwrap();
+    let folder = TempDir::new().unwrap();
+    let (mut projects, _) = Projects::open(
+        config.path().to_path_buf(),
+        Box::new(MemoryProjectStore::with(Vec::new())),
+        Box::new(MemoryPreferenceStore::new()),
+    );
+    let replies = projects.add(
+        &folder.path().to_string_lossy(),
+        Some("before".to_string()),
+        None,
+        None,
+        false,
+        StorageMode::ProjectManaged,
+    );
+    let id = replies
+        .into_iter()
+        .find_map(|reply| match reply.into_message() {
+            Message::ProjectAdded { project } => Some(project.record.id),
+            _ => None,
+        })
+        .expect("the project was added");
+
+    projects.update(
+        id,
+        Some("after".to_string()),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    );
+
+    assert_eq!(
+        project_dir::read_metadata(&folder.path().join(".ubiq"))
+            .expect("the in-project metadata")
+            .name,
+        "after"
+    );
+}
+
+/// The catalogue is a lookup, and the folder is the authority: a `project.toml` that travelled
+/// with the project corrects the name this machine wrote down.
+#[test]
+fn the_in_project_name_corrects_the_catalogue_on_load() {
+    let config = TempDir::new().unwrap();
+    let folder = TempDir::new().unwrap();
+
+    let mut stale = record("stale", &folder.path().to_string_lossy());
+    stale.storage = StorageMode::ProjectManaged;
+    let id = stale.id;
+    let mut fresh = stale.clone();
+    fresh.name = "renamed elsewhere".to_string();
+    project_dir::provision(config.path(), &fresh).expect("the folder is provisioned");
+
+    let catalogue = MemoryProjectStore::with(vec![stale]);
+    let (projects, _) = Projects::open(
+        config.path().to_path_buf(),
+        Box::new(catalogue),
+        Box::new(MemoryPreferenceStore::new()),
+    );
+
+    assert_eq!(
+        projects.record(id).expect("the record").name,
+        "renamed elsewhere"
+    );
+}
+
+/// A Ubiq-managed project never consults a folder it does not write to, so a stray `project.toml`
+/// left behind by an earlier life changes nothing.
+#[test]
+fn a_ubiq_managed_project_ignores_an_in_project_name() {
+    let config = TempDir::new().unwrap();
+    let folder = TempDir::new().unwrap();
+
+    let in_project = folder.path().join(".ubiq");
+    fs::create_dir_all(&in_project).unwrap();
+    let elsewhere = record("what the folder says", &folder.path().to_string_lossy());
+    project_dir::write_metadata(&in_project, &elsewhere).expect("a stray copy");
+
+    let mut kept = elsewhere.clone();
+    kept.name = "what the catalogue says".to_string();
+    let id = kept.id;
+    let (projects, _) = Projects::open(
+        config.path().to_path_buf(),
+        Box::new(MemoryProjectStore::with(vec![kept])),
+        Box::new(MemoryPreferenceStore::new()),
+    );
+
+    assert_eq!(
+        projects.record(id).expect("the record").name,
+        "what the catalogue says"
+    );
 }

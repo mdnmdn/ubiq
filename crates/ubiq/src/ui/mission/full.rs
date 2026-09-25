@@ -215,7 +215,7 @@ fn body(
         MissionTab::Settings => super::settings::render(task_id, mission, cx),
         MissionTab::Tasks => tasks(work, task_id, &view, cx),
         MissionTab::Agents => agents(app, work, task_id, mission, cx),
-        MissionTab::Docs => docs(task_id, cx),
+        MissionTab::Docs => docs(task_id, mission, cx),
         MissionTab::Activity => activity(app, task_id, &term, window, cx),
         _ => overview(app, work, task_id, mission, cx),
     };
@@ -648,7 +648,7 @@ fn agents(
 ///
 /// **A short list edited as a set** — `MissionField::AgentKinds` replaces the whole table, which is
 /// `TaskField::Labels`' own posture, so every control here sends one message carrying the list as
-/// it now is. Seeded from the project's profiles by the new-mission dialog; a row's profile is
+/// it now is. Seeded from the project's definitions by the new-mission dialog; a row's definition is
 /// re-pointed from the same picker a pending spawn's kind is changed with.
 pub(super) fn agent_kinds(
     task_id: TaskId,
@@ -701,11 +701,11 @@ pub(super) fn agent_kinds(
                     .w(px(120.))
                     .flex_none(),
                 )
-                // The profile it resolves to — a control, because that is the one field of a kind
+                // The definition it resolves to — a control, because that is the one field of a kind
                 // the interface can answer from what the host already lists.
                 .child(
                     div()
-                        .id(eid2("mission-kind-profile", task_id, index))
+                        .id(eid2("mission-kind-definition", task_id, index))
                         .cursor_pointer()
                         .on_click(cx.listener(move |this, event: &gpui::ClickEvent, _, cx| {
                             let at = event.position();
@@ -717,12 +717,12 @@ pub(super) fn agent_kinds(
                             );
                         }))
                         .tooltip(|window, cx| {
-                            gpui_component::tooltip::Tooltip::new("Which profile this resolves to")
+                            gpui_component::tooltip::Tooltip::new("Which agent this resolves to")
                                 .build(window, cx)
                         })
                         .child(state_chip(
-                            kind.profile.clone().unwrap_or_else(|| "no profile".into()),
-                            match kind.profile.is_some() {
+                            kind.definition.clone().unwrap_or_else(|| "no agent".into()),
+                            match kind.definition.is_some() {
                                 true => theme::accent(),
                                 false => theme::warning(),
                             },
@@ -760,7 +760,7 @@ pub(super) fn agent_kinds(
                     .border_color(theme::border())
                     .text_size(theme::font(Family::Chrome, Role::Meta))
                     .text_color(theme::text())
-                    .child("Add from profile \u{25be}")
+                    .child("Add from agent \u{25be}")
                     .on_click(cx.listener(move |this, event: &gpui::ClickEvent, _, cx| {
                         let at = event.position();
                         this.open_mission_kind_menu(
@@ -775,7 +775,7 @@ pub(super) fn agent_kinds(
         ))
         .when(rows.is_empty(), |body| {
             body.child(nothing(
-                "No kinds yet \u{2014} an agent asking for one gets whatever profile it names.",
+                "No kinds yet \u{2014} an agent asking for one gets whatever agent definition it names.",
             ))
         })
         .children(rows)
@@ -974,30 +974,42 @@ fn agent_lines(
 /// proposal**: nothing here is a second plan editor.
 ///
 /// Mission documents (`DocumentHandle::MissionDoc`, M8) share exactly that surface — one row per
-/// document, opened the way the plan's own row is. **The row beneath the plan's is honestly
-/// empty**: the path under `missions/<TaskId>/docs/` is real and readable this wave, but nothing
-/// writes one yet — `ubiq-mission::write_document` is a later wave — so there is nothing here to
-/// list, not a missing feature to hide.
-fn docs(task_id: TaskId, cx: &mut Context<AppState>) -> AnyElement {
-    div()
+/// document, opened the way the plan's own row is. `MissionRecord::documents` is derived from
+/// `missions/<TaskId>/docs/` on every read, so a row here is a directory listing, never a second
+/// store; the side panel's own *Documents* section (T-184) draws the same names through
+/// [`doc_row`].
+fn docs(task_id: TaskId, mission: &MissionRecord, cx: &mut Context<AppState>) -> AnyElement {
+    let mut body = div()
         .flex()
         .flex_col()
         .child(section_bar("Documents", None))
         .child(doc_row(
-            "mission-open-plan",
+            eid("mission-open-plan", task_id),
             "Plan",
             cx.listener(move |this, _, _, cx| this.open_plan(task_id, cx)),
-        ))
-        .child(nothing("No documents yet."))
-        .into_any_element()
+        ));
+    if mission.documents.is_empty() {
+        body = body.child(nothing("No documents yet."));
+    } else {
+        for name in &mission.documents {
+            let doc_name = name.clone();
+            body = body.child(doc_row(
+                eid2("mission-open-doc", task_id, name),
+                name.clone(),
+                cx.listener(move |this, _, _, cx| this.open_mission_doc(task_id, &doc_name, cx)),
+            ));
+        }
+    }
+    body.into_any_element()
 }
 
 /// One row of the *Plan & docs* list: a name and the "Open" that raises it on the document
 /// surface. The plan's own row and a mission document's row are this, called the same way — the
-/// document family draws neither differently from the other.
-fn doc_row(
-    id: &'static str,
-    name: &'static str,
+/// document family draws neither differently from the other. `pub(super)` because the side
+/// panel's *Documents* section draws the same rows (T-184).
+pub(super) fn doc_row(
+    id: gpui::ElementId,
+    name: impl Into<SharedString>,
     on_open: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
 ) -> AnyElement {
     div()
@@ -1013,7 +1025,7 @@ fn doc_row(
                 .min_w(px(0.))
                 .text_size(theme::font(Family::Chrome, Role::Body))
                 .text_color(theme::text())
-                .child(name),
+                .child(name.into()),
         )
         .child(ghost_button(id, Some(IconName::FileText), "Open", on_open))
         .into_any_element()

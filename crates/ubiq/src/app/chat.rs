@@ -67,7 +67,7 @@ impl AppState {
             tab.picker_open = !tab.picker_open;
         }
         // Nothing is asked for here any more: the control's only start is *New agent*, and the
-        // form it raises asks the host for the harnesses, the accounts and the profiles itself.
+        // form it raises asks the host for the harnesses, the accounts and the definitions itself.
         // A fresh search on every open, the way every searchable picker in the window starts one.
         let picker_search = self.picker_search.clone();
         picker_search.update(cx, |state, cx| {

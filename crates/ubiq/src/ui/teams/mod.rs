@@ -43,6 +43,7 @@ use gpui::{
 };
 use gpui_component::IconName;
 
+use ubiq_proto::ids::{ProjectId, SessionId};
 use ubiq_proto::work::Bucket;
 
 use crate::app::AppState;
@@ -114,22 +115,41 @@ fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
     // window span each session is a project's, so a dot in that project's tint is what a project
     // chip elsewhere on this screen already carries; under the project span every session is the
     // one project's and a dot would tell nothing apart.
-    let session_lit: Vec<usize> = work
-        .sessions
+    // Read once, in the order `items` and `dots` are about to be built in — captured into the
+    // pick/select closures below rather than re-derived from a fresh `teams_work(cx)` at click
+    // time, so a row's id can never drift from the id its own click target closed over
+    // (`T-189`: a re-derived index is only as safe as the ordering staying byte-for-byte
+    // identical between the frame that drew the row and the frame that handles its click).
+    let session_ids: Vec<SessionId> = work.sessions.iter().map(|session| session.id).collect();
+    let session_lit: Vec<usize> = session_ids
         .iter()
         .enumerate()
-        .filter(|(_, session)| graph.sessions.contains(&session.id))
+        .filter(|(_, id)| graph.sessions.contains(*id))
         .map(|(ix, _)| ix)
         .collect();
+    // Each session's owning project, read directly off the held projects' own work rather than
+    // hunted for through an arbitrary live agent — a session with the wrong project attached to
+    // it here is a row with the wrong dot, which is the whole bug this exists to rule out
+    // (`T-189`).
     let session_dots: Vec<Rgba> = if spanning {
-        work.sessions
+        let owners: Vec<(SessionId, ProjectId)> = app
+            .teams_projects(cx)
+            .into_iter()
+            .filter_map(|project| {
+                app.held_project(project)
+                    .map(|open| (project, &open.work.sessions))
+            })
+            .flat_map(|(project, sessions)| {
+                sessions.iter().map(move |session| (session.id, project))
+            })
+            .collect();
+        session_ids
             .iter()
-            .map(|session| {
-                work.agents
+            .map(|id| {
+                owners
                     .iter()
-                    .find(|a| a.session == session.id)
-                    .and_then(|a| app.project_of_agent(a.id, cx))
-                    .and_then(|project| project_face(project, cx))
+                    .find(|(session, _)| session == id)
+                    .and_then(|(_, project)| project_face(*project, cx))
                     .map(|face| face.tint)
                     .unwrap_or_else(theme::text_faint)
             })
@@ -154,14 +174,13 @@ fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
     }))
     .on_dismiss(handler(&view, |this, _, cx| this.close_menu(cx)))
     // The menu stays down: narrowing to two sessions is two clicks, and a list that shut after the
-    // first would make the second a reopen. The list is read again here, exactly as it was drawn —
-    // the rule every position-matched menu in this window follows.
-    .on_pick(indexed(&view, |this, index, _, cx| {
-        let id = this
-            .teams_work(cx)
-            .and_then(|work| work.sessions.get(index).map(|session| session.id));
-        if let Some(id) = id {
-            this.toggle_teams_session(id, cx);
+    // first would make the second a reopen.
+    .on_pick(indexed(&view, {
+        let session_ids = session_ids.clone();
+        move |this, index, _, cx| {
+            if let Some(&id) = session_ids.get(index) {
+                this.toggle_teams_session(id, cx);
+            }
         }
     }))
     // The row's second target: point the canvas and the tasks drawer at this one session without
@@ -172,11 +191,8 @@ fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         } else {
             "Look at just this session"
         },
-        indexed(&view, |this, index, _, cx| {
-            let id = this
-                .teams_work(cx)
-                .and_then(|work| work.sessions.get(index).map(|session| session.id));
-            if let Some(id) = id {
+        indexed(&view, move |this, index, _, cx| {
+            if let Some(&id) = session_ids.get(index) {
                 this.select_in_teams(TeamsSelection::Session(id), cx);
             }
         }),

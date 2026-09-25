@@ -192,6 +192,9 @@ impl AppState {
                             colour: None,
                             custom_colour: None,
                             temporary: !browse.persistent,
+                            // A folder taken straight from the host browser never passed the
+                            // creation panel, which is the one place the mode is chosen.
+                            storage: StorageMode::default(),
                         },
                     );
                 }

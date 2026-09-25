@@ -7,7 +7,7 @@ summary: The rail's Tasks mode — a column per status, a card per task, what a 
 read_when: you are changing the tasks board — its columns, its cards, what a drag means, the task panel, a task's attachments or labels, a mission, or the plan surface and its annotations
 updated: 2026-09-25
 verified: 2026-09-25
-code_anchors: [crates/ubiq/src/state/board.rs, crates/ubiq/src/app/board.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/plan/blocks.rs, crates/ubiq-proto/src/blocks.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq/src/app/plan.rs, crates/ubiq/src/state/plan.rs, crates/ubiq/src/state/document.rs, crates/ubiq/src/ui/plan.rs, crates/ubiq/src/ui/document.rs, crates/ubiq/tests/plan.rs, crates/ubiq/src/state/new_mission.rs, crates/ubiq/src/app/new_mission.rs, crates/ubiq/src/ui/new_mission.rs, crates/ubiq/tests/new_mission.rs, crates/ubiq/src/state/mission.rs, crates/ubiq/src/app/mission.rs, crates/ubiq/src/ui/mission/mod.rs, crates/ubiq/src/ui/mission/panel.rs, crates/ubiq/src/ui/mission/full.rs, crates/ubiq/src/ui/mission/wbs.rs, crates/ubiq/src/ui/mission/settings.rs, crates/ubiq/src/ui/mission/menu.rs, crates/ubiq/src/state/wbs.rs, crates/ubiq/tests/mission.rs, crates/ubiq/src/app/wire.rs, crates/ubiq-host/src/mission/mod.rs, crates/ubiq-host/src/mission/scheduler.rs, crates/ubiq-host/src/store/mission.rs, crates/ubiq-host/src/mcp/mission.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/registry.rs, crates/ubiq-host/src/coordinator.rs]
+code_anchors: [crates/ubiq/src/state/board.rs, crates/ubiq/src/app/board.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/plan/service.rs, crates/ubiq-host/src/plan/blocks.rs, crates/ubiq-proto/src/blocks.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq/src/app/plan.rs, crates/ubiq/src/app/editor.rs, crates/ubiq/src/state/plan.rs, crates/ubiq/src/state/document.rs, crates/ubiq/src/ui/plan.rs, crates/ubiq/src/ui/document.rs, crates/ubiq/tests/plan.rs, crates/ubiq/src/state/new_mission.rs, crates/ubiq/src/app/new_mission.rs, crates/ubiq/src/ui/new_mission.rs, crates/ubiq/tests/new_mission.rs, crates/ubiq/src/state/mission.rs, crates/ubiq/src/app/mission.rs, crates/ubiq/src/ui/mission/mod.rs, crates/ubiq/src/ui/mission/panel.rs, crates/ubiq/src/ui/mission/full.rs, crates/ubiq/src/ui/mission/wbs.rs, crates/ubiq/src/ui/mission/settings.rs, crates/ubiq/src/ui/mission/menu.rs, crates/ubiq/src/state/wbs.rs, crates/ubiq/tests/mission.rs, crates/ubiq/src/app/wire.rs, crates/ubiq-host/src/mission/mod.rs, crates/ubiq-host/src/mission/scheduler.rs, crates/ubiq-host/src/store/mission.rs, crates/ubiq-host/src/mcp/mission.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/registry.rs, crates/ubiq-host/src/coordinator.rs]
 depends_on: [feat-workbench, tech-ui]
 review_cycle: monthly
 ---
@@ -45,6 +45,17 @@ blocked, in progress, in review, done, abandoned: moving a card changes where th
 and nothing else about it. Each column carries its own count and a dot in the token that means what
 the stage means — nothing yet, queued, stuck, moving, waiting on a person, over, given up. **A
 wheel over a lane moves that lane**, not the board sideways.
+
+**`Archive` in the toolbar files every finished, ordinary card away at once, and the board stops
+drawing it — it is not even loaded again** (`T-190`). One click sends `ArchiveTasks`; the host
+decides which cards qualify (`Done` or `Abandoned`, and no `level` — a mission's plan and documents
+are not this act's to carry anywhere, so a finished mission stays on the board) and answers with the
+same `TaskDeleted` a delete would, once per card, which is why the panel needs no new rule to stop
+showing them. What leaves the board lands in the project's own paged archive under
+`tasks-archive/`, a hundred tasks to a page (`ubiq-host/src/store/file.rs`), never read back on this
+wire — there is no browse, search or restore yet (`G353`). A reference, a prerequisite or a parent
+naming a card that just left is dropped from whatever still holds it, reported as an ordinary
+`TaskChanged`, the same cleanup a load already gives a hand-edited file.
 
 **A card is filed, and filed in a place.** Unlike the graph's canvas, the column *is* the drop
 target: a label follows the pointer while the card stays where it is, the column under the pointer
@@ -99,10 +110,10 @@ still needs its own card.
 
 **`New mission`, beside them both, writes a card and launches its assistant in the same act.** The
 dialog asks a title, a description, a `require plan` flag and an assistant, picked from whichever
-profiles are marked fit to run one — the empty case reads as a sentence pointing at the profile
+agent definitions are marked fit to run one — the empty case reads as a sentence pointing at the agent definition
 editor rather than as an empty picker. Start is refused until a title is typed and an assistant is
 chosen. On Start the task is created, promoted to a mission and given its description, and the
-chosen profile is launched with `manage-ubiq-tasks` and `ubiq-plan` ticked and an opening turn
+chosen agent definition is launched with `manage-ubiq-tasks` and `ubiq-plan` ticked and an opening turn
 carrying the mission's title, id and description — the `require plan` flag adds one more sentence to
 that turn, a reminder rather than anything the host enforces. The button is labelled with the
 project's own word for a mission, the same reading the board's level chip already gives it.
@@ -187,13 +198,28 @@ planned says so instead of reporting an error, the same way a task with no sub-t
 **A mission's side panel is a fast overview**, opened from the task panel's *Open mission* row or
 the `+` menu's *Missions* list (below). `PanelKind::Mission(TaskId)` is `Free`-class and homed to
 the right region, the same as a chat tab, and several may be open at once — a mission read beside
-whatever the reader is doing rather than a place they have to go. It draws the mission term, the
-key and title, a **live phase stepper**, a
-segmented progress bar over the anchor's children by work state, the roster of agents pointed at
-the mission or one of its children, and a feedback composer. **Every count and every segment of the
-bar is a filter toggle**: clicking one opens the full view on its Tasks tab, filtered to that
-state. Two of its sections still draw their honest empty state rather than a sample — *Latest*
-(S3's journal) and the composer, which takes no input because there is nothing yet to queue it to.
+whatever the reader is doing rather than a place they have to go. Above a fixed top (the mission
+term, the key and title, a **live phase stepper**, and a segmented progress bar over the anchor's
+children by work state) and a fixed feedback composer at the foot, four **sections** scroll as one
+region between them: *Needs you*, *Documents*, the roster of agents pointed at the mission or one
+of its children, and *Latest* (T-184). **Every count and every segment of the bar is a filter
+toggle**: clicking one opens the full view on its Tasks tab, filtered to that state. Two of the
+sections still draw their honest empty state rather than a sample — *Latest* (S3's journal) and the
+composer, which takes no input because there is nothing yet to queue it to.
+
+**Every section opens and shuts on its own, and a mission remembers its own shape** (T-184).
+`kit::disclosure` draws each section's bar — a chevron, the title, a count — and
+`AppState::toggle_mission_section` flips `state::mission::MissionView::shut_sections`, a
+`HashMap<TaskId, HashSet<MissionSection>>` keyed by the mission's own anchor task rather than held
+once, so two side panels open on different missions never share a shape and a mission absent from
+the map opens with everything shown. This is UI-local persistence, not a fact carried on
+`MissionRecord` or a wire message — the host has no opinion about which of a window's panels are
+folded.
+
+***Documents* draws the plan and every name in `MissionRecord::documents`** (M8), each a button onto
+the same document surface the full view's *Plan & docs* tab already raises — `ui/mission/full.rs`'s
+`doc_row` is shared by both rather than redrawn, and `documents` is derived host-side from
+`missions/<TaskId>/docs/` on every read, never queried a second time from the window.
 
 **Moving a phase from a window is always `SetPhase`, never `RequestPhase`.** A step on the stepper,
 the `⋯`'s Complete and Abandon, and both answers in *Needs you* are the one message, and the host
@@ -218,14 +244,14 @@ twice.
 
 **A member asks the mission for another agent, and the window is where that is decided.** The host
 only relays: `spawn_agent` posts a `MissionSpawnRequest` naming a *kind* — one of the mission's
-agent kinds, a name, a resolved profile and a description the requester read off
+agent kinds, a name, a resolved agent definition and a description the requester read off
 `list_agent_kinds` — and returns a request id at once, without launching anything. The window
 applies the mission's spawn policy. `never` declines with a sentence over `AnswerSpawn`. `auto up
 to N` launches while the roster's workers (the coordinator excluded from the count) are under the
 mission's `spawn_limit`, and otherwise leaves the request as a row in *Needs you* rather than
 refusing it outright — over the cap is a reason to ask, not a reason to refuse (`G349`). `ask`
 leaves every request in *Needs you* too, except the scheduler's own (below), which carries its own
-consent. The *Needs you* row lets the user change the kind or the profile before allowing it, and
+consent. The *Needs you* row lets the user change the kind or the agent definition before allowing it, and
 the composition it launches with — the New agent form's own, `manage-ubiq-tasks`/`ubiq-plan` etc.
 ticked the way a coordinator's own launch is — is one function shared by this path and the panel's
 own *Spawn ▾*. **`StartConversation` carries `spawned_by`**, set to the requesting agent, which
@@ -238,7 +264,7 @@ the same project can each answer the same broadcast request, which is `G348`.
 **Spawning from the panel is the same composition, chosen rather than asked for.** *Spawn ▾* on
 the roster section offers the mission's own agent kinds plus *Custom…*, and picking one calls the
 identical `compose_mission_launch` the policy above calls, with `spawned_by` left unset — a
-person started it, not another agent. A kind naming no resolvable profile is the one refusal, read
+person started it, not another agent. A kind naming no resolvable agent definition is the one refusal, read
 back as the sentence a request would have gotten.
 
 **A coordinator handoff detaches, and never kills.** Setting `MissionRecord::coordinator` to a
@@ -388,21 +414,16 @@ under it once and a nested rollup would count it again for a second row on scree
 a thread's own **Show** button in the rail, scrolls the preview to that section —
 `AppState::plan_preview_list`, indexed the same way the list itself is built.
 
-**A document opening with `---` mis-parses at `ParseOptions::gfm()`, and this surface corrects for
-it rather than the parser** (T-153). `ParseOptions::gfm()` — the options both the host's own
-splitter and this surface's own cache are pinned to — has no frontmatter construct, so the opening
-fence becomes a thematic break and the fields up to the closing fence become a Setext heading
-(`crates/ubiq-proto/src/blocks.rs`'s own pinned test, `frontmatter_is_not_a_construct_at_gfm_options`,
-records exactly this shape). The real preview never shows it, because `ui::viewer::markdown` strips
-frontmatter out of the source before any parse runs; this surface draws blocks the host already
-split and has no equivalent step. `state::document::is_frontmatter_fields` recognises the mis-parsed
-shape positionally — a thematic break at block `0` followed by a multi-line, every-line-`key: value`
-heading at block `1`, the one place a document's own opening fence can be — and keeps it out of
-`heading_sections` and `minimap_rows` alike; `ui::document::section` draws it in the preview's own
-collapsed-frontmatter typography (mono, faint, dense) instead of through the block renderer. **This
-is a workaround in a consumer, not a correction in the parser**: the real fix is a `frontmatter` arm
-in `ubiq-proto`'s `kind_of`, unreachable at `gfm()` today, and is a separate card that would delete
-this predicate outright.
+**Frontmatter is a block kind, and the parser is what says so** (T-154). The shared split options
+are `crates/ubiq-proto/src/blocks.rs::options` — `ParseOptions::gfm()` with the frontmatter
+construct turned on — so a document opening with `---` yields one block of kind `frontmatter`,
+delimiters and all, rather than the thematic break plus Setext heading plain GFM produced. Nothing
+downstream needs a special case to keep it out: it has no heading level, so `heading_sections`
+passes it over, and no arm in `minimap_rows`, so it draws no shape. `ui::document::section` reads
+the kind and draws it in the preview's own collapsed-frontmatter typography (mono, faint, dense)
+instead of through the block renderer, because YAML is not prose. This replaced
+`state::document::is_frontmatter_fields`, a positional predicate in the consumer that recognised
+the misparse by its shape and position; the parser telling the truth deleted it outright.
 
 **The section list is virtualized** (T-150). Every section is drawn as its own `TextView` so that
 it can carry its own gutter and its own click target, and an ordinary flex column laid every one of
@@ -412,15 +433,63 @@ annotation view gets slow". `preview` draws the sections through `gpui::list` ag
 `AppState::plan_preview_list`, a `ListState` rather than a `ScrollHandle`: only the sections
 between the scroll top and the bottom of the viewport plus `PLAN_OVERDRAW` reach the row builder,
 and a section off screen contributes its cached height and nothing more. The same measurement after
-the change: a 400-block document is about twenty times cheaper per frame, and what is left that
-still grows is the **thread rail**, which draws every thread and is not virtualized — that cost
-follows the thread count, not the document's length. Two consequences the surface has to keep
-honest: the row builder is kept for the life of the `ListState` rather than for one render, so it
-reads the document fresh off the window's entity rather than borrowing a frame's `AppState` (the
-same shape `ui/board/mod.rs`'s own `render_row` takes, and the reason a section's handlers are
-`window.listener_for` rather than `cx.listener`); and a row's own margin is invisible to
+the change: a 400-block document is about twenty times cheaper per frame. Two consequences the
+surface has to keep honest: the row builder is kept for the life of the `ListState` rather than for
+one render, so it reads the document fresh off the window's entity rather than borrowing a frame's
+`AppState` (the same shape `ui/board/mod.rs`'s own `render_row` takes, and the reason a section's
+handlers are `window.listener_for` rather than `cx.listener`); and a row's own margin is invisible to
 `gpui::list`, so any gap between sections has to be padding — which costs nothing here, because the
 sections are flush by design.
+
+**The thread rail is virtualized the same way** (T-152). `preview`'s own list left one axis
+ungrown: a thread card costs about as much to lay out as a section does — 1.8ms a card, measured
+in a debug build — and that cost follows the *thread count*, not the document's length, so
+`gpui::list` over the sections never touched it. `ui::document::thread_list` is `preview`'s own
+rule read again, against its own `ListState` (`AppState::plan_thread_list`): only the cards between
+the scroll top and the bottom of the viewport plus `PLAN_OVERDRAW` reach `thread_row`, which reads
+the document fresh off the window's entity the way `section_row` does, for the same reason. A
+row's own margin is invisible to `gpui::list` here too, so the gap the unvirtualized column drew
+with `gap_2` is a `pb_2` on each row instead. The composer, while a fresh thread is being drafted,
+takes item `0` and the rest shift down by one; `DocumentEditor::rail_annotation_ids` is already
+empty in the ordinary case this happens (the composer hides the rest, `hides_other_threads()`), so
+the composer and the list only share the rail together when `thread_focus_override` — the rail's
+own "Show all threads" — is on, which is the one case the original, unvirtualized column drew both
+at once. `kit::minimap` was measured alongside it (~12–18ms at 400 blocks in debug) and left alone:
+it draws one element per block already sized from `state::document::minimap_rows`, no per-frame
+layout pass of its own to cut, so there was nothing here cheap enough to be worth the change.
+
+**A source edit no longer warns about annotations that do not exist** (T-183). Two independent
+changes. First, `AppState::has_annotations()` — what the header's annotation dot and the
+source-mode warning both read — no longer answers from the sidecar's mere presence in the
+project's tree. **The sidecar has to be written whether or not anything is annotated, and stays
+that way**: `Plans::write_sidecar` is unconditional, because the block index it carries is what
+keeps a `BlockId` stable across two separate calls — `annotation_list()` mints one from the body
+when nothing is on disk yet, and the `AnnotatePlan` that follows re-reads the sidecar to check the
+id it was given still names a block; skip that write and the second read re-mints every id from
+scratch, refusing the very first annotation ever made on a document. A save's revision watermark
+and its provenance layer are the same story: `Plans::save()`'s conflict arbitration is only real
+because a second call reads back what the first one wrote. None of that is about whether the
+document carries a thread, so presence was never an honest signal for it — a document merely
+opened in the annotation surface, or section-edited once, already earns a sidecar with nothing
+annotated in it. The fix is on the read side instead: a document actually open in the annotation
+surface still answers from its own loaded threads, exactly as before; one that is not — which a
+tab showing raw source always is, since that is exactly what closes it
+(`AppState::close_file_document`, T-124) — now answers from `AppState::annotation_hints`, a
+per-project `HashMap<rel_path, bool>` the real count from `Message::PlanAnnotations` is written
+into (`app/wire.rs`) whenever it names a file document, whether or not that document is still the
+one open below. A path this window has never asked the host about this session falls through to
+the old presence check, which is not this bug — nothing has written an empty sidecar for a file
+nobody has touched yet. The cost kept: a background save's annotations changing while a *different*
+tab on the same file sits in raw source, unopened in the surface, is not heard until the surface
+reopens, since `PlanAnnotationsChanged` only re-asks for the document currently open
+(`AppState::reload_plan_annotations`) — an under-read rather than the over-read this fixes, and the
+narrower failure of the two. Second, `DocumentEditor::track_updates` is a per-document checkbox in
+the rail's header ("Track changes"), not a global setting: `false` by default for a file document,
+`true` for a plan or a mission document, on the reading that telling an agent's lines from a
+human's is core to the surface a plan opens into and beside the point for most ordinary markdown.
+It gates `AppState::ask_for_plan_changes` — the request behind `ListPlanChanges` and the footer's
+line counts — and nothing on the wire carries it; this half is independent of the warning fix
+above, a purely local choice about what the surface asks for.
 
 **The plan is written here, not only read — one section at a time.** Double-clicking a section, or
 its gutter's edit button, opens that section alone as raw markdown in a field under the rest of the
@@ -780,9 +849,14 @@ draws the reverse list — every task naming this one as a prerequisite — read
 this one. `AppState::add_task_prerequisite()`, `::remove_task_prerequisite()` and
 `::toggle_prerequisite_picker()` (`crates/ubiq/src/app/board.rs`) wire the panel;
 `AppState::toggle_board_ready_only()` flips `BoardState::ready_only` for the toolbar's tick. On the
-MCP side, `manage-ubiq-tasks` and `use-task`'s `create_task`/`update_task` take `prerequisites`,
-`get_task` and `search_tasks` report `ready` and `waiting_on` as task keys, and `search_tasks` takes
-a `ready_only` filter (`crates/ubiq-host/src/mcp/tasks.rs`).
+MCP side, `manage-ubiq-tasks` and `use-task`'s `create_task`/`update_task` take `prerequisites`
+(and, T-165, `shape`, `level`, `parent` and `references` — the same set the form edits, minus
+`colour`, which is a swatch pick with nothing for an agent to reason about and is left off the
+schema on purpose), `get_task` and `search_tasks` report `ready` and `waiting_on` as task keys, and
+`search_tasks` takes a `ready_only` filter (`crates/ubiq-host/src/mcp/tasks.rs`). `get_task`'s
+`task_id` also reads a task's `key` (`T-166`) when the raw id is not one — `find_task()` tries the
+id first (a key is never a valid ULID) and the key second, so a model that only ever saw the key a
+human wrote can still look the task up.
 
 `TaskRecord::attachments: Vec<Attachment>` is a reference and never content — a project-relative
 path, or a `kb:{source}:{path}` address, plus an optional label — and is `#[serde(default)]` and
@@ -872,9 +946,12 @@ while it is up and mean the tab underneath otherwise. `Presentation::Viewer` is 
 putting it away on the way out, and standing aside while the dialog is up. A second markdown tab
 left in that layout says so rather than drawing another file's threads. Two things are warned about
 in the tab and nowhere else: a mode that shows the buffer for editing says that editing the source
-can orphan a thread, and a tab holding unsaved edits says the surface is showing the saved file
-instead. The header's annotation button carries a dot when the file is annotated and the reader is
-elsewhere, on `AppState::has_annotations()`'s own sidecar-presence answer. The heading navigator is
+can orphan a thread — never for a file with no annotations to orphan (T-183) — and a tab holding
+unsaved edits says the surface is showing the saved file instead. The header's annotation button
+carries a dot when the file is annotated and the reader is elsewhere, on
+`AppState::has_annotations()`'s own answer — the real count this window last heard for the path,
+where it has heard one, rather than the sidecar's mere presence (T-183, see below). The heading
+navigator is
 offered in all four positions: the open document's own indexed headings, with their thread counts,
 where there is one, and `markdown::heading_marks()` off the buffer otherwise.
 
@@ -897,9 +974,15 @@ file for a project document (`crates/ubiq-host/src/store/plan.rs`'s `PlanSidecar
 and `sidecar_beside()`), so the markdown itself stays untouched by anything of Ubiq's, on a stable
 block id rather than a quoted-context match or a per-run id (`D159`). The two spellings differ —
 singular for the file, plural for the plan — and that is kept rather than migrated (`D161`).
+**A file document's sidecar is written regardless of whether anything is annotated** — its block
+index has to survive between one call and the next for a `BlockId` to mean anything, and a save's
+revision watermark is only real once a second read finds it (T-183, `Plans::write_sidecar`). Its
+mere presence beside a project file is therefore not "carries a thread" and `AppState` reads that
+fact a different way; see the annotation surface's own section, above.
 **What a document splits into is `crates/ubiq-proto/src/blocks.rs`, and there is exactly one copy of
 it.** The walk — container nodes walked through so a list annotates per item, a table one block, a
-block's text its own trimmed source at `ParseOptions::gfm()` — lives in the contract crate because
+block's text its own trimmed source at `blocks::options()`, GFM plus the frontmatter construct —
+lives in the contract crate because
 the host's index and the window's optimistic cache have to split a document identically and neither
 half may depend on the other. Two copies of those rules is drift that would show up as the preview
 disagreeing with the host's re-index, silently (`T-114`).
@@ -929,21 +1012,25 @@ the rail's other two mutating messages. The `ubiq-plan` MCP server adds
 only answers or closes one a window already started.
 
 The new-mission dialog is three modules on the New agent form's own division: `state/new_mission.rs`'s
-`NewMissionForm` holds what was typed and `ready()`, plus `assistants()` — profiles filtered to
-`ProfileInfo::mission_assistant == Some(true)` — and `mission_briefing()`, the one place the opening
+`NewMissionForm` holds what was typed and `ready()`, plus `assistants()` — agent definitions filtered to
+`AgentDefinition::mission_assistant == Some(true)` — and `mission_briefing()`, the one place the opening
 turn's text is built. It collects a **whole brief**: the title (taken from the requirements' first
 line when it is left blank, as a task draft's is), the requirements as markdown, attachments from
 the task attachment picker over the project tree *and* the knowledge base, linked tasks from the
 multi-select picker with its own filter field, the `require plan` gate, the coordinator, and an
 optional plan to start from. **The brief is the anchor task's own fields**: the requirements are its
 `description`, the attachments its `attachments`, the linked tasks its `references`, so nothing new
-crosses the bus for any of them. `Coordinator` is one role in two shapes (M10) — a profile to launch
+crosses the bus for any of them. `Coordinator` is one role in two shapes (M10) — an agent definition to launch
 or an agent already running here to adopt — and both end with one `AgentId` on the record and the
-briefing as its next turn. A plan pasted in is saved as the plan's first revision (`SavePlan` at
+briefing as its next turn. **Already running is checked, not assumed**: the adopt list and the
+roster's own *Attach running agent…* row (`AppState::mission_attach_candidates`) both keep only an
+agent whose conversation `conversation_live` still finds live — `work.agents` keeps a row for one
+whose harness has since been unloaded or stopped, so its transcript stays reachable, and that row is
+not a candidate to adopt. A plan pasted in is saved as the plan's first revision (`SavePlan` at
 revision `0`) and the mission opens in `Refining`; a project file and a KB document are the two
 sources not built, because both need the file's bytes read back first.
 `assistants()` itself is scope-blind; `ui/new_mission.rs` is what hands it
-`SettingsState::profiles_in(app.project(cx))` rather than the global list alone, so a profile scoped
+`SettingsState::profiles_in(app.project(cx))` rather than the global list alone, so an agent definition scoped
 to the dialog's own project is offered beside the global ones, and `app/new_mission.rs`'s
 `settle_new_mission()` resolves the picked id through the same `profiles_in(project_id)` at launch
 time. `ui/new_mission.rs` draws it, titled with `AppState::mission_term`. `app/new_mission.rs`
@@ -1099,8 +1186,10 @@ window edits — `open_mission_panel`/`open_mission_full`/`open_mission_modal`/`
 choose the shape and queue a `PanelEdit::Reveal`, the chat tab's own device for bringing a panel the
 dock already holds forward rather than opening it twice; `open_mission_tasks` is what a progress-bar
 segment calls, setting the Tasks tab and the state filter before opening the full view.
-`ui/mission/panel.rs::render` draws the side panel's six sections; `ui/mission/full.rs::modal`/`tab`
-are the two frames over the shared `body()`, with `TABS` the five drawn today; `ui/mission/menu.rs`
+`ui/mission/panel.rs::render` draws the side panel's fixed chrome, its four foldable sections
+(`MissionSection`) inside their own scrolling region, and the fixed composer;
+`ui/mission/full.rs::modal`/`tab` are the two frames over the shared `body()`, with `TABS` the five
+drawn today; `ui/mission/menu.rs`
 draws the `⋯` from `MissionMenuRow::all()`. `crate::state::work::WorkProjection::work_state` and
 `work_state_counts` are the derivation the progress bar and the Tasks tab read; `ui::work::work_state_colour`/`work_state_soft`
 are its tokens. `app/wire.rs`'s `Message::MissionList`/`MissionChanged`/`MissionDeleted`/`MissionError`
@@ -1213,7 +1302,7 @@ first call of a fresh host run answers with everything since the mission began.
 | A mission panel or full view is open in a window that does not hold the project it was opened for | Both surfaces draw an empty page saying so, rather than nothing or a stale record |
 | A mission panel or full view is open for a task whose `TaskRecord` has not arrived yet | Both draw a "Loading" empty page — a frame, not a state, since the record and its `MissionRecord` sidecar answer separately |
 | A `MissionDeleted` names the task a `MissionView` is selected on | The selection clears. The record leaves `OpenProject::missions`, so a panel or a full view still open for that task falls back to the "not held" empty page above rather than reporting a stale mission |
-| A spawn request names a kind that resolves to no profile | `AnswerSpawn::Declined` with the reason, read back to the requester as its next prompt and the journal |
+| A spawn request names a kind that resolves to no agent definition | `AnswerSpawn::Declined` with the reason, read back to the requester as its next prompt and the journal |
 | An agent ends, or holds an auto-mode task past the idle grace, without moving it off `InProgress` | The scheduler releases the task to `Ready` and counts an attempt; past `max_attempts` it goes to `Blocked` and the coordinator is told |
 | Two windows on one project both answer the same `MissionSpawnRequest` | Both launch (`G348`); the host keeps only the first `AnswerSpawn`'s outcome on the record, so the second agent runs with nobody asked for it |
 

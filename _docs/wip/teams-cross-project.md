@@ -5,8 +5,8 @@ kind: wip
 status: current
 summary: How the Teams screen draws every open project's agents at once — a second rail entry in the APP group that the span is read off, one merged projection built from each project's `live_work`, an owner map that answers "whose agent is this" for every write the screen makes, and what the rail, the titlebar and a `ubiq://` link keep meaning when the canvas is about more than one project.
 read_when: you are changing what the Teams screen is scoped to, or adding a reader that must work when the canvas spans several projects
-updated: 2026-09-24
-verified: 2026-09-24
+updated: 2026-09-25
+verified: 2026-09-25
 code_anchors: [crates/ubiq/src/state/teams.rs, crates/ubiq/src/app/teams.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/ui/teams/mod.rs, crates/ubiq/src/ui/teams/graph.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/tests/teams.rs]
 depends_on: [feat-workbench, tech-ui, wip-teams-layout-spike]
 ---

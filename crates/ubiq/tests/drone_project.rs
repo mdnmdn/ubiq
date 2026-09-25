@@ -41,6 +41,7 @@ fn snapshot(id: ProjectId, name: &str, runs_on: Option<DroneOrigin>) -> ProjectS
             path: "/srv/proj".to_string(),
             colour: 3,
             custom_colour: None,
+            storage: Default::default(),
             temporary: false,
             created_at: chrono::Utc::now(),
             last_opened_at: None,
@@ -158,7 +159,7 @@ fn the_form_says_set_local_or_nothing_at_all() {
 fn the_remote_nav_needs_a_record_to_attach_to(cx: &mut gpui::TestAppContext) {
     use gpui::AppContext as _;
 
-    assert_eq!(ProjectNav::all().len(), 7);
+    assert_eq!(ProjectNav::all().len(), 8);
     assert_eq!(ProjectNav::Remote.label(), "Remote");
     assert_eq!(ProjectNav::Kb.label(), "Knowledge base");
 
@@ -198,6 +199,7 @@ fn the_remote_nav_needs_a_record_to_attach_to(cx: &mut gpui::TestAppContext) {
             colour: Default::default(),
             drone: DroneField::default(),
             nav: ProjectNav::General,
+            definitions_use_global: true,
         });
         state.set_sink_project_nav(ProjectNav::Remote, cx);
         assert_eq!(
@@ -213,6 +215,7 @@ fn the_remote_nav_needs_a_record_to_attach_to(cx: &mut gpui::TestAppContext) {
             colour: Default::default(),
             drone: DroneField::default(),
             nav: ProjectNav::General,
+            definitions_use_global: true,
         });
         state.set_sink_project_nav(ProjectNav::Remote, cx);
         assert_eq!(

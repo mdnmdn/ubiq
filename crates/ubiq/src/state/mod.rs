@@ -59,6 +59,7 @@ pub mod when;
 pub mod windows;
 pub mod work;
 pub mod workbench;
+pub mod zoom;
 
 pub use agents::{AgentsView, BenchRow, Column};
 pub use ask::{AskDialog, AskDraft, AskRecord, AskStage};
@@ -112,3 +113,4 @@ pub use workbench::{
     ProjectSettings, ProjectSettingsMode, RailMode, RowAction, SizePrompt, TeamsCreateMenu,
     TeamsCreateStage, ThemeEditor, ThemePrompt, WorkbenchState,
 };
+pub use zoom::ImageZoom;

@@ -86,6 +86,25 @@ pub struct Profile {
     /// the "not mentioned" and "said no" distinction existing only so a leaf can un-mention it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mission_assistant: Option<bool>,
+    /// Whether this profile runs the coordinator side of a mission or a task. Recorded only,
+    /// never read by the library — the same posture as `mission_assistant`: what the flag implies
+    /// (which servers a coordinator needs) is the embedder's answer, not this crate's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mission_coordinator: Option<bool>,
+    /// Whether this profile runs the worker side of a mission or a task. Recorded only, exactly
+    /// as `mission_coordinator` is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mission_worker: Option<bool>,
+    /// Whether the embedder has switched this profile off. Recorded only: a disabled profile is
+    /// still stored, still readable and still resolvable — what "off" means is the embedder's
+    /// question, and for Ubiq it means "not offered anywhere a run is started from".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disabled: Option<bool>,
+    /// What this profile is for, in prose. Recorded only, never read by the library — the
+    /// embedder's business is what to do with it (Ubiq hands it to another agent through its own
+    /// MCP surface), this crate only carries it through a save and an inheritance chain.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 /// The `[defaults]` sub-table of a profile: the composition a run overlays.
@@ -579,6 +598,18 @@ pub fn flatten(chain: &[Profile]) -> Profile {
         }
         if profile.mission_assistant.is_some() {
             acc.mission_assistant = profile.mission_assistant;
+        }
+        if profile.mission_coordinator.is_some() {
+            acc.mission_coordinator = profile.mission_coordinator;
+        }
+        if profile.mission_worker.is_some() {
+            acc.mission_worker = profile.mission_worker;
+        }
+        if profile.disabled.is_some() {
+            acc.disabled = profile.disabled;
+        }
+        if profile.description.is_some() {
+            acc.description = profile.description.clone();
         }
         acc.defaults.overlay(&profile.defaults);
     }

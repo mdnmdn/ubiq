@@ -326,6 +326,7 @@ fn a_project() -> ProjectSnapshot {
             path: "/tmp/ubiq".to_string(),
             colour: 0,
             custom_colour: None,
+            storage: Default::default(),
             temporary: false,
             created_at: Utc::now(),
             last_opened_at: None,
@@ -631,5 +632,78 @@ fn an_ask_the_host_ended_becomes_read_only(cx: &mut TestAppContext) {
     assert!(
         fixture.said().is_empty(),
         "an ask the host ended sends nothing"
+    );
+}
+
+// ── whose transcript the entry belongs to ───────────────────────────
+
+/// One update from the conversation itself, or from something it spawned.
+fn a_chunk(
+    fixture: &Fixture,
+    seq: u64,
+    text: &str,
+    subagent: Option<&str>,
+    cx: &mut TestAppContext,
+) {
+    fixture.host.send(
+        To::Everyone,
+        Message::ConversationUpdate {
+            agent_id: fixture.agent,
+            seq,
+            update: Box::new(ubiq_proto::conversation::ConvUpdate::AgentChunk {
+                content: ubiq_proto::conversation::ConvContent::Text(text.to_string()),
+                message_id: Some(format!("m{seq}")),
+                subagent: subagent.map(|id| ubiq_proto::conversation::Subagent {
+                    id: id.to_string(),
+                    kind: None,
+                    model: None,
+                    thinking: None,
+                }),
+            }),
+            raw: None,
+        },
+    );
+    cx.run_until_parked();
+}
+
+/// Which transcript the record says it belongs in.
+fn filed_against(fixture: &Fixture, cx: &mut TestAppContext) -> Vec<Option<String>> {
+    fixture.state.read_with(cx, |state, cx| {
+        state
+            .open_project(cx)
+            .unwrap()
+            .conversations
+            .get(&fixture.agent)
+            .map(|conversation| {
+                conversation
+                    .asks
+                    .iter()
+                    .map(|ask| ask.subagent.clone())
+                    .collect()
+            })
+            .unwrap_or_default()
+    })
+}
+
+/// **The ask belongs to the agent that asked it, and to no other.** A conversation and every
+/// subagent it spawns share one `AgentId`, so an ask with nobody named on it is drawn in the main
+/// transcript and in every delegate's at once — the same question wearing several faces.
+#[gpui::test]
+fn an_ask_is_filed_against_the_agent_that_raised_it(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    fixture.show(cx);
+
+    // The conversation's own turn asks: nobody is named, which is the main transcript.
+    a_chunk(&fixture, 1, "thinking about it", None, cx);
+    fixture.asks(AskId::generate(), vec![a_question("Direction", false)], cx);
+    assert_eq!(filed_against(&fixture, cx), vec![None]);
+
+    // A delegate is speaking when the next one lands, so that one is the delegate's.
+    fixture.with_window(cx, |state, window, cx| state.close_ask(window, cx));
+    a_chunk(&fixture, 2, "the delegate reports", Some("t1"), cx);
+    fixture.asks(AskId::generate(), vec![a_question("Approach", false)], cx);
+    assert_eq!(
+        filed_against(&fixture, cx),
+        vec![None, Some("t1".to_string())],
     );
 }

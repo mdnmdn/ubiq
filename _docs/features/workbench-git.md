@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: The rail's Git mode — the refs explorer of branches, remotes, tags, stashes and submodules, the paged commit history with its painted lanes, the conflicted, staged and unstaged change lists with the commit box, the diff under them, and the strip that names the repository and what HEAD is doing.
 read_when: you are changing the Git screen — its refs, history, change lists, commit box or diff — or the strip above it
-updated: 2026-09-24
-verified: 2026-09-24
+updated: 2026-09-25
+verified: 2026-09-25
 code_anchors: [crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/src/ui/git/repo_selector.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/tests/git.rs]
 depends_on: [feat-workbench, tech-ui, tech-version-control]
 review_cycle: monthly

@@ -108,12 +108,21 @@ fn ground_of(scene: &Scene) -> Rgba {
 }
 
 /// A scene in a Markdown fence: drawn at its own size, no camera of its own, because a fence is a
-/// block in a document and the document is what scrolls. A scene wider than the reading column
-/// scrolls inside `super::diagram_frame` (T-126) rather than spilling past the viewport.
+/// block in a document and the document is what scrolls. A scene still wider than the reading
+/// column once scaled down to it (T-185) scrolls inside `super::diagram_frame` (T-126) rather than
+/// spilling past the viewport.
+///
+/// **No zoom button here** (T-185): unlike a Mermaid fence, which resolves to one `Arc<Image>` the
+/// modal and the Copy button can both hand off whole, a scene is vector shapes painted straight
+/// into the panel by [`paint`] — there is no single picture to raise or to copy, only the same
+/// live camera [`draw_live`] already gives the panel view. Reachable only by drawing the zoom
+/// modal's body as a second live scene rather than a picture, which is a card of its own.
 fn draw_static(scene: Scene, key: &str) -> AnyElement {
     let content = content_of(&scene);
-    let panel_w = content.width.max(1.0) + viewport::MARGIN * 2.0;
-    let panel_h = content.height.max(1.0) + viewport::MARGIN * 2.0;
+    let natural_w = content.width.max(1.0) + viewport::MARGIN * 2.0;
+    let natural_h = content.height.max(1.0) + viewport::MARGIN * 2.0;
+    let (panel_w, panel_h) =
+        super::diagram::scale_to_measure(natural_w, natural_h, super::diagram::current_measure());
     let camera = viewport::Viewport::default().camera(content, panel_w, panel_h);
     let ground = ground_of(&scene);
     let pictures = images_static(&scene, camera);

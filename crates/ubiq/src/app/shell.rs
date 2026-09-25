@@ -937,7 +937,7 @@ impl AppState {
                 w.new_agent.as_ref().is_some_and(|form| form.naming),
             ),
             (Layer::NewMission, w.new_mission.is_some()),
-            (Layer::ProfileForm, s.profile_form.is_some()),
+            (Layer::AgentDefinitionForm, s.definition_form.is_some()),
             (Layer::AccountDialog, s.dialog.is_some()),
             (Layer::Connect, s.connect.is_some()),
             (Layer::AppForm, s.app_form.is_some()),
@@ -976,6 +976,7 @@ impl AppState {
                 Layer::Plan,
                 w.plan.as_ref().is_some_and(|doc| doc.is_modal()),
             ),
+            (Layer::ImageZoom, w.image_zoom.is_some()),
             (Layer::Dropdown, dropdown),
             (Layer::HelpTarget, w.help_target.is_some()),
         ]
@@ -1111,6 +1112,10 @@ impl AppState {
             self.decline_paste_image(cx);
         } else if self.workbench.file_dialog.is_some() {
             self.close_file_dialog(cx);
+        } else if self.workbench.image_zoom.is_some() {
+            // Above the plan in paint order — it can be raised from a diagram inside the plan
+            // surface's own rendered markdown as much as from the standard viewer's tab.
+            self.close_image_zoom(cx);
         } else if self
             .workbench
             .plan
@@ -1169,8 +1174,8 @@ impl AppState {
             self.close_new_agent(cx);
         } else if self.workbench.new_mission.is_some() {
             self.close_new_mission(cx);
-        } else if settings.profile_form.is_some() {
-            self.close_profile_form(cx);
+        } else if settings.definition_form.is_some() {
+            self.close_definition_form(cx);
         } else if settings.login.is_some() {
             // Only reached while the login is *not* running: a running one draws a live terminal
             // that takes the keyboard, and a bare Escape belongs to the harness inside it.

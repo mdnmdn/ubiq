@@ -415,6 +415,20 @@ fn toolbar(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl 
             board.popup,
             cx.listener(|this, _, _, cx| this.toggle_board_popup(cx)),
         ))
+        // Files every `Done`/`Abandoned` task away at once (`T-190`); the host decides which
+        // tasks qualify and the panel stops drawing them the moment its answer arrives.
+        .child(
+            icon_button(
+                "board-archive-done",
+                IconName::Inbox,
+                false,
+                cx.listener(|this, _, _, cx| this.archive_done_tasks(cx)),
+            )
+            .tooltip(|window, cx| {
+                gpui_component::tooltip::Tooltip::new("Archive done and abandoned tasks")
+                    .build(window, cx)
+            }),
+        )
         // Straight to the form, the way Teams' own `+ Add agent` goes — the `+` menu's second row
         // offers conversations to attach to a surface, and this board draws no agent to attach one
         // to. The aim is `NewAgentSurface::Chat` (`T-109`): what it starts opens as a chat tab in

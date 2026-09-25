@@ -555,15 +555,20 @@ impl AppState {
     pub fn set_sink_project_nav(&mut self, nav: ProjectNav, cx: &mut Context<Self>) {
         // The live dialog keeps its own nav on `ProjectSettings`: the sink page must not
         // reopen wherever the dialog was left. Only an existing project can carry tools, a task
-        // board, a drone origin or a knowledge base, so those four are the navs a live dialog
+        // board, a drone origin, agent definitions or a knowledge base, so those five are the navs
+        // a live dialog
         // answers to besides General — a folder not yet in the catalogue has no record to attach
-        // any of them to, and stays there. The same four `ui::sink::project::nav` draws enabled.
+        // any of them to, and stays there. The same five `ui::sink::project::nav` draws enabled.
         if let Some(settings) = self.workbench.project_settings.as_mut() {
             let editing = matches!(settings.mode, ProjectSettingsMode::Edit { .. });
             if nav == ProjectNav::General
                 || (matches!(
                     nav,
-                    ProjectNav::Tools | ProjectNav::Tasks | ProjectNav::Remote | ProjectNav::Kb
+                    ProjectNav::Tools
+                        | ProjectNav::AgentDefinitions
+                        | ProjectNav::Tasks
+                        | ProjectNav::Remote
+                        | ProjectNav::Kb
                 ) && editing)
             {
                 settings.nav = nav;
@@ -572,6 +577,22 @@ impl AppState {
             return;
         }
         self.sink.project.nav = nav;
+        cx.notify();
+    }
+
+    /// Whether this project's Agent definitions section is on the globals or on its own list.
+    ///
+    /// The tick is the section's own state, not a record the host keeps: what outlives the dialog
+    /// is whether the project has definitions of its own, which is what the tick is seeded from
+    /// when it opens. Unticking enables the list and the `Add agent` beside it; reticking it
+    /// hides the list, and a definition already written there stays written.
+    pub fn toggle_definitions_use_global(&mut self, cx: &mut Context<Self>) {
+        match self.workbench.project_settings.as_mut() {
+            Some(settings) => settings.definitions_use_global = !settings.definitions_use_global,
+            None => {
+                self.sink.project.definitions_use_global = !self.sink.project.definitions_use_global
+            }
+        }
         cx.notify();
     }
 

@@ -205,11 +205,27 @@ pub struct DocumentEditor {
     /// which is what the rail's "Show all threads" button sets; never persisted, and reset the
     /// moment the composer leaves the new-thread shape (cancelled, sent, or a reply opened instead).
     pub thread_focus_override: bool,
+    /// Whether the surface asks the host where this document has been edited and shows the
+    /// footer's line counts and human/agent split from the answer — `ListPlanChanges`,
+    /// `AppState::ask_for_plan_changes` (T-183).
+    ///
+    /// **Per document, not a global setting**, and defaulted by the document's own kind in
+    /// [`Self::loading`]: a plan defaults to tracking it, because telling an agent's lines from a
+    /// human's is the reason the feature exists; an ordinary file defaults away from it, since
+    /// most of them are never touched by anything but the person editing them and asking anyway
+    /// is a round trip nobody reads the answer to. `AppState::toggle_track_updates` is the one
+    /// way either default changes, and it changes only this document's.
+    pub track_updates: bool,
 }
 
 impl DocumentEditor {
     /// A freshly opened surface, waiting on the host's two answers.
     pub fn loading(doc: DocumentHandle, presentation: Presentation) -> Self {
+        // A file document is markdown in the user's own repository, most often prose nobody but
+        // its one editor ever touches; a plan (or a mission document, on the same footing) is the
+        // kind this surface exists to referee between a human and an agent, so it defaults to
+        // knowing which lines are whose (T-183).
+        let track_updates = !matches!(doc, DocumentHandle::File { .. });
         Self {
             doc,
             presentation,
@@ -238,6 +254,7 @@ impl DocumentEditor {
             notice: None,
             nav_open: false,
             thread_focus_override: false,
+            track_updates,
         }
     }
 
@@ -385,6 +402,26 @@ impl DocumentEditor {
         self.composer_block().is_some() && !self.thread_focus_override
     }
 
+    /// The annotation ids the rail lists, in the document's own order — every open thread, plus
+    /// every resolved one once `show_resolved` is on. Empty while [`Self::hides_other_threads`]
+    /// says so, which is when the composer is drawn instead — never both, unless the user asked
+    /// to see the rest anyway, in which case the composer and this list are drawn together.
+    ///
+    /// A pure read over the loaded annotations (`heading_sections`'s and `thread_marks`'s own
+    /// footing), which is what lets the rail's virtualized list (T-152) ask it fresh for every
+    /// index rather than caching a snapshot the row builder would have to keep in step by hand.
+    pub fn rail_annotation_ids(&self) -> Vec<AnnotationId> {
+        if self.hides_other_threads() {
+            return Vec::new();
+        }
+        self.annotations
+            .annotations()
+            .iter()
+            .filter(|annotation| self.show_resolved || annotation.is_open())
+            .map(|annotation| annotation.id)
+            .collect()
+    }
+
     /// Every annotation naming a given block, open and resolved alike.
     pub fn annotations_for(&self, block_id: BlockId) -> impl Iterator<Item = &Annotation> {
         self.annotations
@@ -497,15 +534,10 @@ pub fn heading_sections(blocks: &[PlanBlock], annotations: &[Annotation]) -> Vec
     }
 
     let mut out: Vec<HeadingEntry> = Vec::new();
-    for (index, block) in blocks.iter().enumerate() {
-        if is_frontmatter_fields(blocks, index) {
-            // Not a real heading (T-153) — falls through to the "before the first heading" arm
-            // below, same as any other block a navigator has nothing yet to say about.
-            if let Some(last) = out.last_mut() {
-                count_into(last, block.id, annotations);
-            }
-            continue;
-        }
+    for block in blocks.iter() {
+        // Frontmatter needs no special case here: it is a block of kind `frontmatter` (T-154), so
+        // it has no heading level and takes the "before the first heading" arm like any other
+        // block the navigator has nothing to say about.
         match heading_level(&block.kind) {
             Some(level) => {
                 let label = block.text.trim_start_matches('#').trim().to_string();
@@ -601,11 +633,6 @@ pub(crate) const LINE_LENGTH_CHARS: f32 = 90.0;
 pub fn minimap_rows(blocks: &[PlanBlock]) -> Vec<MinimapRow> {
     let mut out = Vec::new();
     for (block_index, block) in blocks.iter().enumerate() {
-        if is_frontmatter_fields(blocks, block_index) {
-            // Mis-parsed frontmatter (T-153) — no shape in the proposal's table, same as the
-            // thematic break and the definition beside it.
-            continue;
-        }
         if block.kind.starts_with("heading:") {
             out.push(MinimapRow {
                 block_index,
@@ -650,50 +677,6 @@ pub fn minimap_rows(blocks: &[PlanBlock]) -> Vec<MinimapRow> {
 pub(crate) fn is_image_reference(text: &str) -> bool {
     let t = text.trim();
     t.starts_with("![") && t.ends_with(')') && t.matches("![").count() == 1
-}
-
-/// Whether the block at `index` is really a document's YAML frontmatter, mistaken by the host for
-/// a heading (T-153).
-///
-/// `crates/ubiq-proto/src/blocks.rs::kind_of` has no `frontmatter` arm reachable at
-/// `ParseOptions::gfm()` — the options both the host's own splitter and the annotation surface's
-/// preview are pinned to — so a document opening with `---` parses as ordinary Markdown instead:
-/// the opening fence becomes a thematic break, and the fields up to the closing fence become a
-/// Setext heading (`crates/ubiq-proto/src/blocks.rs`'s own pinned test,
-/// `frontmatter_is_not_a_construct_at_gfm_options`, records exactly this). The real preview never
-/// shows it, because `ui::viewer::markdown` splits frontmatter out of the source *before* any
-/// Markdown parse runs over it; the annotation surface has no equivalent step, since it draws
-/// blocks the host already split.
-///
-/// Frontmatter, real or mis-parsed, only ever opens a document, so the check is positional rather
-/// than a text-shape guess: the misparse always leaves the fence at block `0` and the fields at
-/// block `1`, nowhere else. A "heading" of more than one line, every line an unquoted `key: value`
-/// pair, is what a mis-parsed frontmatter fence leaves behind, but that shape alone is not enough —
-/// a real, mid-document Setext heading can read the same way (`Rate: fast\nCost: cheap`). Requiring
-/// `index == 1` *and* a thematic break immediately before it at index `0` is exact, not heuristic:
-/// it is the one place in a document this misparse can occur, because it is the one place a
-/// document's own opening fence can be.
-pub fn is_frontmatter_fields(blocks: &[PlanBlock], index: usize) -> bool {
-    index == 1
-        && blocks.first().is_some_and(|block| block.kind == "break")
-        && blocks.get(index).is_some_and(|block| {
-            block.kind.starts_with("heading:") && looks_like_frontmatter_fields(&block.text)
-        })
-}
-
-fn looks_like_frontmatter_fields(text: &str) -> bool {
-    let is_field_line = |line: &str| {
-        let line = line.trim();
-        line.is_empty()
-            || line.split_once(':').is_some_and(|(key, _)| {
-                !key.is_empty()
-                    && key
-                        .trim()
-                        .chars()
-                        .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
-            })
-    };
-    text.lines().count() > 1 && text.lines().all(is_field_line)
 }
 
 /// A paragraph's or a heading-less prose block's shape, as **one** mark rather than one per source
@@ -1034,12 +1017,13 @@ mod tests {
         }
     }
 
-    /// The shape a document's opening `---` fence takes once parsed (T-153): a thematic break.
-    fn thematic_break() -> PlanBlock {
+    /// A document's opening `---` fence and its fields, as the host now indexes them (T-154): one
+    /// block of kind `frontmatter`, delimiters and all.
+    fn frontmatter(text: &str) -> PlanBlock {
         PlanBlock {
             id: BlockId::generate(),
-            kind: "break".to_string(),
-            text: "---".to_string(),
+            kind: "frontmatter".to_string(),
+            text: text.to_string(),
         }
     }
 
@@ -1216,79 +1200,33 @@ mod tests {
         assert!(entries.is_empty());
     }
 
-    /// T-153: a document opening with `---` mis-parses at `ParseOptions::gfm()` into a thematic
-    /// break and a Setext heading whose text is the frontmatter's fields — see
-    /// `crates/ubiq-proto/src/blocks.rs::frontmatter_is_not_a_construct_at_gfm_options`, which pins
-    /// the same shape on the host side. `is_frontmatter_fields` is what tells the two apart, and it
-    /// is positional: the fields only count as frontmatter at block `1`, right after the break at
-    /// block `0`.
+    /// T-154: frontmatter is a block kind now, so neither the navigator nor the minimap needs a
+    /// positional guess to keep it out — it simply is not a heading and has no shape.
     #[test]
-    fn frontmatter_fields_are_told_apart_from_a_real_heading() {
-        let real = heading(2, "Scope");
-        assert!(!is_frontmatter_fields(&[real], 0));
+    fn frontmatter_is_neither_a_heading_entry_nor_a_minimap_shape() {
+        let opening = frontmatter("---\nverified: 2026-09-24\nreview_cycle: monthly\n---");
+        let scope = heading(2, "## Scope");
+        let blocks = vec![opening, scope];
 
-        let fields = heading(
-            2,
-            "verified: 2026-09-24\ncode_anchors: [a, b]\nreview_cycle: monthly",
-        );
-        let blocks = vec![thematic_break(), fields];
-        assert!(is_frontmatter_fields(&blocks, 1));
+        let entries = heading_sections(&blocks, &[]);
+        assert_eq!(entries.len(), 1, "the frontmatter is not a heading entry");
+        assert_eq!(entries[0].label, "Scope");
 
-        // A one-line heading is never mistaken, however it reads.
-        let one_line = heading(2, "title: x");
-        let blocks = vec![thematic_break(), one_line];
-        assert!(!is_frontmatter_fields(&blocks, 1));
-
-        // Only a heading kind qualifies — an ordinary paragraph shaped the same way is just a
-        // paragraph.
-        let prose = block("verified: 2026-09-24\ncode_anchors: [a, b]");
-        let blocks = vec![thematic_break(), prose];
-        assert!(!is_frontmatter_fields(&blocks, 1));
-
-        // The right shape, at index 1, but nothing before it is the fence — not frontmatter's
-        // position, so not frontmatter.
-        let scope = heading(2, "Scope");
-        let fields = heading(2, "verified: 2026-09-24\ncode_anchors: [a, b]");
-        let blocks = vec![scope, fields];
-        assert!(!is_frontmatter_fields(&blocks, 1));
+        let rows = minimap_rows(&blocks);
+        assert_eq!(rows.len(), 1, "only the real heading gets a shape");
+        assert_eq!(rows[0].kind, MinimapBlockKind::Heading);
     }
 
-    /// T-153 follow-up: the text-shape check alone false-positived on a real, mid-document Setext
-    /// heading shaped like `key: value` lines — "Rate: fast\nCost: cheap" reads exactly like
-    /// frontmatter fields, but frontmatter can only ever open a document, so a heading anywhere
-    /// else that happens to read the same way is never mistaken for it.
+    /// The other half of the same fix: a real, mid-document Setext heading shaped like `key: value`
+    /// lines — which the old positional predicate had to work to not mistake — is just a heading.
     #[test]
-    fn a_mid_document_setext_heading_shaped_like_fields_is_not_frontmatter() {
+    fn a_setext_heading_shaped_like_fields_is_a_heading() {
         let title = heading(1, "# Title");
         let intro = block("Intro paragraph.");
         let rate = heading(2, "Rate: fast\nCost: cheap");
-        let blocks = vec![title, intro, rate];
-        assert!(!is_frontmatter_fields(&blocks, 2));
-    }
-
-    #[test]
-    fn frontmatter_fields_are_not_listed_as_a_heading() {
-        let opening = thematic_break();
-        let fields = heading(2, "verified: 2026-09-24\nreview_cycle: monthly");
-        let scope = heading(2, "## Scope");
-        let blocks = vec![opening, fields, scope];
-        let entries = heading_sections(&blocks, &[]);
-        assert_eq!(
-            entries.len(),
-            1,
-            "the frontmatter fields are not a heading entry"
-        );
-        assert_eq!(entries[0].label, "Scope");
-    }
-
-    #[test]
-    fn frontmatter_fields_draw_no_minimap_shape() {
-        let opening = thematic_break();
-        let fields = heading(2, "verified: 2026-09-24\nreview_cycle: monthly");
-        let scope = heading(2, "## Scope");
-        let rows = minimap_rows(&[opening, fields, scope]);
-        assert_eq!(rows.len(), 1, "only the real heading gets a shape");
-        assert_eq!(rows[0].kind, MinimapBlockKind::Heading);
+        let entries = heading_sections(&[title, intro, rate], &[]);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[1].label, "Rate: fast\nCost: cheap");
     }
 
     #[test]
@@ -1318,6 +1256,65 @@ mod tests {
         let annotations = vec![annotation(BlockId::generate(), true)];
         let marks = thread_marks(&[kept], &annotations);
         assert!(marks.is_empty());
+    }
+
+    /// T-183: a file document defaults away from tracking updates, a plan defaults into it — the
+    /// default the checkbox starts from, per document kind rather than a global setting.
+    #[test]
+    fn track_updates_defaults_by_document_kind() {
+        let project = ProjectId::generate();
+        let file = DocumentEditor::loading(
+            DocumentHandle::File {
+                project_id: project,
+                rel_path: "notes.md".to_string(),
+            },
+            Presentation::Viewer,
+        );
+        assert!(!file.track_updates, "an ordinary markdown edit opts out");
+
+        let plan = DocumentEditor::loading(
+            DocumentHandle::Plan {
+                project_id: project,
+                task_id: TaskId::generate(),
+            },
+            Presentation::Modal,
+        );
+        assert!(plan.track_updates, "a plan opts in");
+    }
+
+    /// T-152: the rail's own list — every open thread, plus the resolved ones once asked for,
+    /// and nothing while the composer is hiding them.
+    #[test]
+    fn rail_annotation_ids_follow_show_resolved_and_the_composer() {
+        let mut doc = DocumentEditor::loading(
+            DocumentHandle::Plan {
+                project_id: ProjectId::generate(),
+                task_id: TaskId::generate(),
+            },
+            Presentation::Modal,
+        );
+        let a = block("First.");
+        let b = block("Second.");
+        let open = annotation(a.id, true);
+        let resolved = annotation(b.id, false);
+        doc.set_annotations(AnnotationsBody::Loaded {
+            blocks: vec![a, b],
+            annotations: vec![open.clone(), resolved.clone()],
+        });
+
+        assert_eq!(doc.rail_annotation_ids(), vec![open.id]);
+
+        doc.show_resolved = true;
+        assert_eq!(doc.rail_annotation_ids(), vec![open.id, resolved.id]);
+
+        doc.composer = Some(ComposerTarget::Block(BlockId::generate()));
+        assert!(
+            doc.rail_annotation_ids().is_empty(),
+            "a fresh thread hides the rest until the override is on"
+        );
+
+        doc.thread_focus_override = true;
+        assert_eq!(doc.rail_annotation_ids(), vec![open.id, resolved.id]);
     }
 
     #[test]

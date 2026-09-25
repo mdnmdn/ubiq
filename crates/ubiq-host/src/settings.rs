@@ -177,8 +177,8 @@ pub fn stale_ssh_secrets(before: &[SshProfile], after: &[SshProfile]) -> Vec<Ssh
     stale.extend(
         after
             .iter()
-            .filter(|profile| !profile.auth.takes_secret())
-            .map(|profile| profile.id),
+            .filter(|definition| !definition.auth.takes_secret())
+            .map(|definition| definition.id),
     );
     stale
 }

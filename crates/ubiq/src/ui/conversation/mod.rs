@@ -1017,8 +1017,18 @@ fn plan_rows(
     // so nothing already inserted has to move as the conversation goes on; a permission row
     // (`RowKind::Adrift`, `anchor: None`) is transparent to the search, on the same reasoning that
     // keeps it out of `block_shape`'s reach.
+    //
+    // **And only the asks this transcript's agent asked.** A conversation and every subagent it
+    // spawned share one `AgentId`, so an ask is filed against the conversation with the delegate
+    // that raised it named on the record; drawing one in every transcript would show the same
+    // question once per tab. `AskRecord::subagent` is `None` for the conversation's own turns,
+    // which is exactly what `viewing_subagent` reads as the main transcript.
+    let reading = conversation.viewing_subagent();
     for at in 0..conversation.asks.len() {
         let record = &conversation.asks[at];
+        if record.subagent.as_deref() != reading {
+            continue;
+        }
         // The entry's own arithmetic: how tall it is depends on the stage it is in, and only the
         // module that draws it knows what it draws there.
         let lines = crate::ui::ask::entry_lines(record);
@@ -1375,6 +1385,9 @@ fn transcript(
         move |app, range, window, cx| {
             let scroll = app.transcript_scrolls.get(slot);
             let width = scroll.map_or(px(0.), |scroll| scroll.handle.bounds().size.width);
+            // Taken once for the whole pass, not per row: a forced relayout asks every visible
+            // row to be measured again regardless of `needs_measure`'s own answer (T-194).
+            let forced = scroll.is_some_and(TranscriptScroll::take_force);
             // The agent's own project, matching the guard the Teams inspector draws this panel
             // behind: a foreign card under the window span has a conversation the project on
             // screen has never held, and reading it there would draw a panel with no rows in it.
@@ -1409,7 +1422,7 @@ fn transcript(
                 );
                 if let Some(scroll) = scroll
                     && width > px(0.)
-                    && scroll.needs_measure(row.key, row.sig)
+                    && (forced || scroll.needs_measure(row.key, row.sig))
                 {
                     let measured = element.layout_as_root(
                         gpui::size(
@@ -1422,6 +1435,11 @@ fn transcript(
                     again |= scroll.measured(row.key, row.sig, measured.height);
                 }
                 built.push(element);
+            }
+            // The periodic timer that asked for a forced pass reads this back to decide whether
+            // to keep asking — a pass that moved nothing is the transcript settled.
+            if forced && let Some(scroll) = scroll {
+                scroll.report_force_result(again);
             }
             if again {
                 cx.notify();
@@ -2317,8 +2335,21 @@ fn permission(
                 .text_color(theme::text())
                 .child(SharedString::from(what)),
         )
+        // The request's own content is what a long diff or a long plan makes unreadable (T-175):
+        // capped and scrolled in its own region so it cannot push the answer buttons below it out
+        // of reach, the way a modal's body scrolls under `MODAL_MAX_HEIGHT` rather than growing the
+        // modal itself.
         .when(!detail.is_empty(), |this| {
-            this.child(div().flex().flex_col().gap_1().children(detail))
+            this.child(
+                div()
+                    .id(view.eid(&format!("permission-detail-{request_id}")))
+                    .max_h(px(theme::permission_detail_max_h()))
+                    .overflow_y_scroll()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .children(detail),
+            )
         })
         // A request that offered no option at all is still worth drawing: it says the turn is
         // blocked, which is the thing the reader has to know. Answering it needs the harness to

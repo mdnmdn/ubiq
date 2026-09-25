@@ -5,7 +5,7 @@ kind: feature
 status: draft
 summary: A session is a named piece of work that owns a folder and outlives the agents inside it; a workspace is one running agent within it, and the two have separate lifecycles.
 read_when: you are changing how sessions are created, attached to, persisted, or how an agent is spawned into one
-updated: 2026-09-10
+updated: 2026-09-25
 verified: 2026-09-24
 code_anchors: [crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/agent-manager/src/session.rs]
 depends_on: [tech-transport]
@@ -88,7 +88,7 @@ ACP's `session/load`, work after Ubiq has been quit and reopened. A marked conve
 *parked* rather than retired when its window closes or its harness exits: the harness stops, the
 directory stays, and every credential seeded into it is scrubbed on the way out and re-seeded at the
 next launch. Ubiq's own row beside the metadata carries what a relaunch needs and the library's
-record does not — the profile, the picks, where the message sequence had reached, the title, and the
+record does not — the agent definition, the picks, where the message sequence had reached, the title, and the
 flag itself. Copying that directory instead of keeping it is what forks a conversation onto a second
 agent. `D97` is the decision and its costs.
 
@@ -177,7 +177,7 @@ The spawn path, in order: look the project's record up and probe its folder, ref
 anything is opened if it cannot be worked in; resolve the working directory from that record and the
 optional path below it; resolve the agent type, falling back to what the session starts by default;
 compose the run when the library knows that type, which resolves what it is composed of — the picks
-the spawn carried, and the account, model and MCP servers a profile names, included — provisions its
+the spawn carried, and the account, model and MCP servers an agent definition names, included — provisions its
 configuration directory, and resolves the policy it runs under; register the pane with the MCP
 listener, before the process exists to call it; open a pseudo-terminal pair at 80×24; build the command with its
 arguments, its working directory, the environment the composition produced, and the `TERM` and

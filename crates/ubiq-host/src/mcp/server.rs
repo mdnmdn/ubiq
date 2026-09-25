@@ -233,12 +233,18 @@ fn handle(
     // moves onto a thread that can afford to wait for a human, and the listener goes straight back
     // to reading (`D138`). Only `tools/call` is moved: `initialize` and `tools/list` on the same
     // server answer instantly and belong here.
+    //
+    // **And only the parking tool of the two.** `register_question` files a row and returns
+    // (`D175`), so it is an ordinary request and a thread for it would be a thread to do nothing
+    // on.
     if spec.name == catalogue::UBIQ_ASK
         && method == "tools/call"
+        && params.get("name").and_then(Value::as_str) == Some("ask_user_question")
         && let Some(reach) = ask
     {
         let reach = AskReach {
             asks: Arc::clone(&reach.asks),
+            armed: Arc::clone(&reach.armed),
         };
         let voice = voice.clone();
         let spawned = std::thread::Builder::new()
@@ -1591,6 +1597,7 @@ mod tests {
             None,
             Some(crate::mcp::AskReach {
                 asks: Arc::clone(&asks),
+                armed: Arc::new(crate::armed::Armed::new()),
             }),
         )
         .expect("the listener binds");

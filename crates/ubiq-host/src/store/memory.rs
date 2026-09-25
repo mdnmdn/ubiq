@@ -103,6 +103,9 @@ impl ProjectStore for MemoryProjectStore {
 #[derive(Default)]
 pub struct MemoryTaskStore {
     tasks: RwLock<BTreeMap<ProjectId, Vec<TaskRecord>>>,
+    /// What [`TaskStore::archive`] has been given, per project, in the order it arrived — no
+    /// paging here, since nothing in-memory needs the file store's page-size ceiling.
+    archived: RwLock<BTreeMap<ProjectId, Vec<TaskRecord>>>,
     fail_writes: AtomicBool,
     fail_load: AtomicBool,
     writes: AtomicUsize,
@@ -137,6 +140,16 @@ impl MemoryTaskStore {
     /// How many writes actually landed. What the debouncer's coalescing is asserted against.
     pub fn writes(&self) -> usize {
         self.writes.load(Ordering::Relaxed)
+    }
+
+    /// What has been archived for one project, in the order [`TaskStore::archive`] received it.
+    pub fn archived(&self, project: ProjectId) -> Vec<TaskRecord> {
+        self.archived
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&project)
+            .cloned()
+            .unwrap_or_default()
     }
 }
 
@@ -179,6 +192,16 @@ impl TaskStore for MemoryTaskStore {
             .write()
             .unwrap_or_else(|e| e.into_inner())
             .remove(&project);
+        Ok(())
+    }
+
+    fn archive(&self, project: ProjectId, tasks: &[TaskRecord]) -> Result<(), StoreError> {
+        self.archived
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .entry(project)
+            .or_default()
+            .extend_from_slice(tasks);
         Ok(())
     }
 }

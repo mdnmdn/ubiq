@@ -815,6 +815,88 @@ impl Work {
         replies
     }
 
+    /// Move every finished, ordinary task out of the live list and into the project's paged
+    /// archive (`T-190`).
+    ///
+    /// **A mission is left on the board even once `Done` or `Abandoned`.** Its record, its plan and
+    /// its documents are not this file's to carry somewhere else, and archiving the anchor without
+    /// them would strand every one of those under an id nothing on the board can reach any more —
+    /// so only a task with no `level` qualifies, the same test [`Self::parent_refusal`] uses for
+    /// "can this be a parent at all", read the other way round.
+    ///
+    /// A reference, a prerequisite or a parent naming a task this call just archived is dropped
+    /// rather than left pointing at a task the board can no longer show — [`sanitize_relations`]'s
+    /// own rule, applied here instead of only at load, with a [`Message::TaskChanged`] for every
+    /// record it actually touched.
+    pub fn archive(&mut self, project: ProjectId) -> Vec<Reply> {
+        let mut replies = self.prepare(project);
+        let Some(list) = self.loaded.get_mut(&project) else {
+            return replies;
+        };
+
+        let mut archived = Vec::new();
+        list.retain(|task| {
+            let eligible =
+                task.level.is_none() && matches!(task.status, Status::Done | Status::Abandoned);
+            if eligible {
+                archived.push(task.clone());
+            }
+            !eligible
+        });
+        if archived.is_empty() {
+            return replies;
+        }
+
+        let archived_ids: HashSet<TaskId> = archived.iter().map(|t| t.id).collect();
+        let now = Utc::now();
+        let mut changed = Vec::new();
+        for task in list.iter_mut() {
+            let before = (
+                task.parent,
+                task.references.clone(),
+                task.prerequisites.clone(),
+            );
+            if task
+                .parent
+                .is_some_and(|parent| archived_ids.contains(&parent))
+            {
+                task.parent = None;
+            }
+            task.references.retain(|id| !archived_ids.contains(id));
+            task.prerequisites.retain(|id| !archived_ids.contains(id));
+            let after = (
+                task.parent,
+                task.references.clone(),
+                task.prerequisites.clone(),
+            );
+            if before != after {
+                task.updated_at = now;
+                changed.push(task.clone());
+            }
+        }
+
+        for task in &archived {
+            replies.extend(self.unlink(project, task.id));
+            replies.push(Reply::Asker(Message::TaskDeleted {
+                project_id: project,
+                task_id: task.id,
+            }));
+        }
+        for task in changed {
+            replies.push(Reply::Asker(Message::TaskChanged {
+                project_id: project,
+                task,
+            }));
+        }
+        replies.extend(self.keep(project));
+
+        if let Err(error) = self.tasks.archive(project, &archived) {
+            replies.push(Reply::Asker(work_error(project, None, error.to_string())));
+        }
+
+        replies
+    }
+
     /// Clear `parent` on every task that named the one just deleted, and say so.
     ///
     /// Deleting a parent orphans its children rather than refusing the delete or cascading it —

@@ -168,7 +168,7 @@ pub fn render(task_id: TaskId, mission: &MissionRecord, cx: &mut Context<AppStat
             setting_row(
                 "Default kind",
                 "Which kind a request that names none resolves to. With none set, a request \
-                 without a kind gets whatever profile it named.",
+                 without a kind gets whatever definition it named.",
                 default_kind(task_id, mission, cx),
             ),
         ]))

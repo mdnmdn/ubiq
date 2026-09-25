@@ -36,9 +36,10 @@
 //!   its `ops` on the same shape
 //! - `help`: the `ubiq-help` server, reaching Ubiq's own documentation through [`crate::help`] —
 //!   an agent's read of the same manual a person opens with the `?` in the titlebar
-//! - `ask`: the `ubiq-ask` server, the one tool that does not answer itself — it parks on
-//!   [`crate::ask::Asks`] until a person answers, on a thread of its own so the listener stays
-//!   free (`D138`)
+//! - `ask`: the `ubiq-ask` server, the two tools that do not answer themselves —
+//!   `ask_user_question` parks on [`crate::ask::Asks`] until a person answers, on a thread of its
+//!   own so the listener stays free (`D138`); `register_question` files a dialog in
+//!   [`crate::armed::Armed`] and returns at once, to be raised when the turn ends (`D175`)
 //!
 //! The boundary this sits inside is the ordinary one: nothing here draws. A notification a tool
 //! raised goes through [`ubiq_proto::bus::Voice`] as
@@ -112,6 +113,13 @@ pub struct PlanReach {
 pub struct MissionReach {
     pub missions: crate::mission::Handle,
     pub everyone: Mailbox,
+    /// Ubiq's own config root, so `list_agent_kinds` can hand back the description of the
+    /// definition an agent kind names — [`crate::agent::Agents::definition_description`] takes
+    /// just this path rather than a whole `Agents`, because `Agents` itself is the
+    /// coordinator's own and never leaves its thread. Nothing else here reads this: an agent kind
+    /// is the most a launch says (see `list_agent_kinds`'s own doc), and a description is the one
+    /// addition to that rule, written for another agent to read rather than to act on.
+    pub agent_definitions_root: std::path::PathBuf,
 }
 
 /// How the knowledge-base tools reach a project's documents, and how they tell every window what
@@ -141,13 +149,19 @@ pub struct HelpReach {
     pub help: Arc<crate::help::Help>,
 }
 
-/// How the ask tool parks a call until a person answers it.
+/// How the ask tools reach the user: the table a parked call waits in, and the table a registered
+/// dialog waits in.
 ///
-/// One field, and it is the table itself: the question goes out to the coordinator through the
+/// Two tables and no sink: the question goes out to the coordinator through the
 /// [`ubiq_proto::bus::Voice`] the listener already holds — the same route a notification takes —
 /// so nothing extra is needed to *raise* an ask, only somewhere to hold it while it waits. `Arc`
-/// for the reason [`KbReach`]'s is: the coordinator answers into the same table the serving
-/// thread is parked on, and two copies would be two different waits.
+/// for the reason [`KbReach`]'s is: the coordinator answers into the same tables the serving
+/// thread parked in, and two copies would be two different waits.
+///
+/// The two are the two ask modes and never the same row. [`crate::ask::Asks`] holds
+/// `ask_user_question`'s parked call; [`crate::armed::Armed`] holds `register_question`'s
+/// registration, which parks nothing and is raised when the turn ends (`D175`).
 pub struct AskReach {
     pub asks: Arc<crate::ask::Asks>,
+    pub armed: Arc<crate::armed::Armed>,
 }

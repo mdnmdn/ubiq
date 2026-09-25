@@ -169,6 +169,7 @@ fn a_project() -> ProjectSnapshot {
             path: "/tmp/ubiq".to_string(),
             colour: 0,
             custom_colour: None,
+            storage: Default::default(),
             temporary: false,
             created_at: Utc::now(),
             last_opened_at: None,
@@ -647,7 +648,7 @@ fn the_forms_answers_ride_out_on_spawn_workspace_as_picks(cx: &mut TestAppContex
         picks,
         AgentPicks {
             account: Some("work".to_string()),
-            profile: None,
+            definition: None,
             model: Some("opus5".to_string()),
             thinking: Some("high".to_string()),
             mode: Some("plan".to_string()),

@@ -18,7 +18,12 @@
 //!
 //!    The **permission mode** is checked the same way, against the harness itself rather than a
 //!    catalog: `Harness::accepts_mode` (which answers from the fixed `Harness::modes()` enum).
-//!    `resolve` finds the harness from `flags.harness`, so no caller passes one in.
+//!    `resolve` finds the harness from `flags.harness`, so no caller passes one in. Three sources
+//!    can name a mode — `--permission-mode`, a profile's `mode`, and a `--safe` preset's own
+//!    `permission_mode` — and whichever one wins precedence is the one checked: an invalid preset
+//!    mode is dropped and reported the same as an invalid flag or profile one (T-140), so
+//!    `[presets.safe] permission_mode = "restricted"` (Codex's own alias for `read-only`) reaches
+//!    Codex but is dropped for Claude, which has no such mode.
 //!    The **model** is checked by nobody — `Harness::discover_models` spawns the harness binary
 //!    and may need the login and the network, so there is no list to check against here, and a
 //!    half-loaded one would drop working models. An unknown model reaches the harness, which is
@@ -456,6 +461,26 @@ pub fn resolve(
                     .permission_mode = Some(mode);
             }
         }
+    } else if let (Some(policy), Some(h)) = (spec.policy.as_mut(), harness_impl.as_ref()) {
+        // --- T-140: no flag or profile mode overrode it, so the preset's own mode is what
+        // reaches the harness — check it the same way. `[presets.safe]` is authored settings,
+        // not a flag, but its `permission_mode` is just as capable of naming a mode the target
+        // harness doesn't have (the sample ships `permission_mode = "restricted"`, a real Codex
+        // alias — see `accepts_mode` in `harness/codex.rs` — but not one of Claude Code's six
+        // modes). Dropped and reported the same way; everything else the preset set (allow/ask/
+        // deny) is untouched.
+        if let Some(mode) = policy.permission_mode.clone()
+            && !h.accepts_mode(&mode)
+        {
+            let available: Vec<String> = h.modes().into_iter().map(|m| m.id).collect();
+            problems.push(format!(
+                "unknown permission mode '{mode}' (preset 'safe') for harness '{}', dropped; \
+                 near matches: {}",
+                flags.harness,
+                suggest(&mode, &available).join(", ")
+            ));
+            policy.permission_mode = None;
+        }
     }
     // The model is **not** checked, deliberately. The harness's model list is not a fixed enum
     // like `modes()`: `Harness::discover_models` shells out to the harness's own binary (Claude's
@@ -751,7 +776,10 @@ mod tests {
         settings.presets.insert(
             "safe".to_string(),
             Policy {
-                permission_mode: Some("restricted".to_string()),
+                // One of Claude Code's own six modes — the preset's mode is checked against
+                // the harness the same way a flag or profile mode is (see
+                // `an_invalid_preset_mode_is_dropped_and_reported` below for the reject path).
+                permission_mode: Some("plan".to_string()),
                 allow: vec![],
                 ask: vec![],
                 deny: vec!["Bash(rm *)".to_string()],
@@ -762,8 +790,69 @@ mod tests {
         let spec =
             resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
         let policy = spec.policy.expect("policy should be set");
-        assert_eq!(policy.permission_mode.as_deref(), Some("restricted"));
+        assert_eq!(policy.permission_mode.as_deref(), Some("plan"));
         assert_eq!(policy.deny, vec!["Bash(rm *)".to_string()]);
+        assert!(spec.problems.is_empty());
+    }
+
+    #[test]
+    fn an_invalid_preset_mode_is_dropped_and_reported() {
+        // T-140: the sample `[presets.safe] permission_mode = "restricted"` is a real Codex
+        // alias (see `codexs_restricted_alias_is_accepted_though_it_is_not_a_picker_mode`) but
+        // not one of Claude Code's six modes, and previously reached `settings.json`'s
+        // `defaultMode` unchecked. It must be dropped for Claude the same way an unknown flag
+        // or profile mode is.
+        let mut f = flags("claude");
+        f.safe = true;
+
+        let mut settings = Settings::default();
+        settings.presets.insert(
+            "safe".to_string(),
+            Policy {
+                permission_mode: Some("restricted".to_string()),
+                allow: vec![],
+                ask: vec![],
+                deny: vec!["Bash(rm *)".to_string()],
+            },
+        );
+
+        let reg = test_registry();
+        let spec =
+            resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
+        let policy = spec.policy.expect("policy should still be set");
+        // The mode is dropped; everything else the preset set survives.
+        assert_eq!(policy.permission_mode, None);
+        assert_eq!(policy.deny, vec!["Bash(rm *)".to_string()]);
+        assert_eq!(spec.problems.len(), 1);
+        assert!(spec.problems[0].contains("restricted"));
+        assert!(spec.problems[0].contains("preset 'safe'"));
+    }
+
+    #[test]
+    fn codexs_restricted_preset_mode_is_accepted() {
+        // Same preset value, a different harness: `restricted` is Codex's own documented alias
+        // for `read-only` (`Harness::accepts_mode`), so the preset's mode must survive here even
+        // though it is dropped for Claude above.
+        let mut f = flags("codex");
+        f.safe = true;
+
+        let mut settings = Settings::default();
+        settings.presets.insert(
+            "safe".to_string(),
+            Policy {
+                permission_mode: Some("restricted".to_string()),
+                allow: vec![],
+                ask: vec![],
+                deny: vec![],
+            },
+        );
+
+        let reg = test_registry();
+        let spec =
+            resolve(&f, &settings, &reg, &EmptyAccountStore, &EmptyProfileStore).expect("resolve");
+        let policy = spec.policy.expect("policy should be set");
+        assert_eq!(policy.permission_mode.as_deref(), Some("restricted"));
+        assert!(spec.problems.is_empty());
     }
 
     #[test]
@@ -790,6 +879,9 @@ mod tests {
         assert_eq!(policy.permission_mode.as_deref(), Some("plan"));
         // Everything else the preset set survives untouched.
         assert_eq!(policy.deny, vec!["Bash(rm *)".to_string()]);
+        // The invalid preset mode was overridden by a valid flag before it could be checked
+        // and reported on its own, so there is nothing to drop.
+        assert!(spec.problems.is_empty());
     }
 
     #[test]

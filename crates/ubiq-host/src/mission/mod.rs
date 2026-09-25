@@ -976,20 +976,20 @@ impl Missions {
         mission: TaskId,
         by: Actor,
         kind: &str,
-        profile: Option<String>,
+        definition: Option<String>,
         task: Option<TaskId>,
         prompt: String,
         reason: String,
     ) -> Result<(SpawnId, Vec<Reply>), String> {
         let (mut record, mut replies) = self.touch(project, mission)?;
-        let kind = self.resolve_kind(&record, kind, profile.as_deref())?;
+        let kind = self.resolve_kind(&record, kind, definition.as_deref())?;
 
         let now = Utc::now();
         let request = PendingSpawn {
             id: SpawnId::generate(),
             by,
             kind: kind.clone(),
-            profile,
+            definition,
             task,
             prompt: prompt.trim().to_string(),
             reason: reason.trim().to_string(),
@@ -1033,20 +1033,20 @@ impl Missions {
     /// Which kind a request resolves to, or why it does not.
     ///
     /// `custom` is the one name that need not be in the table — it is M13's escape hatch for a
-    /// request that names a profile outright — and it still names a profile, never a harness, an
+    /// request that names a definition outright — and it still names a definition, never a harness, an
     /// account or anything carrying credential material.
     fn resolve_kind(
         &self,
         record: &MissionRecord,
         kind: &str,
-        profile: Option<&str>,
+        definition: Option<&str>,
     ) -> Result<String, String> {
         let asked = kind.trim();
         if asked.eq_ignore_ascii_case("custom") {
-            return match profile {
-                Some(profile) if !profile.trim().is_empty() => Ok("custom".to_string()),
+            return match definition {
+                Some(definition) if !definition.trim().is_empty() => Ok("custom".to_string()),
                 _ => Err(
-                    "the 'custom' kind needs a profile — name one, or call list_agent_kinds and \
+                    "the 'custom' kind needs a definition — name one, or call list_agent_kinds and \
                      ask for a kind this mission already has"
                         .to_string(),
                 ),
@@ -1325,7 +1325,7 @@ impl Missions {
                         id: SpawnId::generate(),
                         by: Actor::Host,
                         kind: kind.clone(),
-                        profile: None,
+                        definition: None,
                         task: Some(task),
                         prompt: briefing(&tasks, task),
                         reason: format!(
@@ -1690,7 +1690,7 @@ impl Missions {
 /// The sentence a mission with no agent kinds answers a spawn request with.
 ///
 /// It says what is true — the table is empty — rather than inventing a kind, because the table is
-/// the user's to seed from the project's profiles and nothing the host could guess belongs in it.
+/// the user's to seed from the project's definitions and nothing the host could guess belongs in it.
 fn no_kinds(record: &MissionRecord) -> String {
     if record.agent_kinds.is_empty() {
         return "this mission has no agent kinds yet, so there is nothing to spawn — a person has \

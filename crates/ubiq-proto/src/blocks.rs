@@ -10,6 +10,11 @@
 //! The parser is the interface's own — the `markdown` crate at [`markdown::ParseOptions::gfm`],
 //! which is what `crates/ubiq/src/ui/viewer/markdown.rs` and gpui-component's text view parse with
 //! — so a block split out here is a block the preview draws, and the user annotates what they see.
+//! One construct is turned on over those options: **frontmatter** (see [`options`]). GFM alone has
+//! no frontmatter construct, so a document opening with `---` parsed as a thematic break plus a
+//! Setext heading whose text was the YAML — a phantom heading in every navigator and minimap that
+//! read the split, and a consumer-side positional guess to undo it (T-154). The parser tells the
+//! truth instead.
 //!
 //! The rules:
 //!
@@ -46,9 +51,20 @@ impl Block {
     }
 }
 
+/// The options every split runs at: GFM, plus the frontmatter construct.
+///
+/// Public because the split is only meaningful against the options that produced it — a caller
+/// parsing the same document for itself (the interface's navigator and minimap walks) has to parse
+/// it the same way or disagree with the blocks the host indexed.
+pub fn options() -> markdown::ParseOptions {
+    let mut options = markdown::ParseOptions::gfm();
+    options.constructs.frontmatter = true;
+    options
+}
+
 /// The blocks of a document, in document order.
 pub fn blocks(source: &str) -> Vec<Block> {
-    let Ok(ast) = markdown::to_mdast(source, &markdown::ParseOptions::gfm()) else {
+    let Ok(ast) = markdown::to_mdast(source, &options()) else {
         return Vec::new();
     };
     let mut out = Vec::new();
@@ -95,9 +111,10 @@ fn is_container(node: &Node) -> bool {
 /// The kind two blocks have to share to be the same block. `None` for a node that is not
 /// block-level — phrasing inside a paragraph is never a block of its own.
 ///
-/// `math` and `frontmatter` are unreachable at [`markdown::ParseOptions::gfm`], which enables
-/// neither construct; they are kept so that turning either on is a one-line change here rather
-/// than a silently dropped block.
+/// `frontmatter` is reachable: [`options`] turns the construct on, so a document's opening `---`
+/// block is one block of kind `frontmatter`, delimiters and all. `math` is not — the construct
+/// stays off — and its arm is kept so that turning it on is a one-line change here rather than a
+/// silently dropped block.
 fn kind_of(node: &Node) -> Option<String> {
     Some(match node {
         Node::Paragraph(_) => "paragraph".to_string(),
@@ -207,16 +224,30 @@ mod tests {
     }
 
     #[test]
-    fn frontmatter_is_not_a_construct_at_gfm_options() {
-        // Pinned rather than assumed: `kind_of` has a `frontmatter` arm and it is dead, because
-        // `ParseOptions::gfm()` does not enable the construct. A `---` fence becomes a thematic
-        // break, the `title: x` line a setext heading closed by the second `---`, and the body an
-        // ordinary paragraph. Wrong-looking, and deliberately recorded: it is what both halves do,
-        // which is what matters, and turning frontmatter on is a `ParseOptions` change that would
-        // have to be made in the interface's renderer at the same time.
+    fn frontmatter_is_its_own_block_kind() {
+        // T-154: at plain `ParseOptions::gfm()` this document split into `break`, `heading:2`,
+        // `paragraph` — the opening fence a thematic break, the fields a Setext heading closed by
+        // the second fence. `options()` turns the construct on, so the whole fenced region is one
+        // `frontmatter` block and the navigator, the minimap and the annotation surface all get
+        // to read a kind instead of guessing from a block's position.
         assert_eq!(
             kinds("---\ntitle: x\n---\n\nBody.\n"),
-            vec!["break", "heading:2", "paragraph"],
+            vec!["frontmatter", "paragraph"],
+        );
+        assert_eq!(
+            blocks("---\ntitle: x\n---\n\nBody.\n")[0].text,
+            "---\ntitle: x\n---",
+            "a frontmatter block carries its own delimiters, like a fence does",
+        );
+    }
+
+    #[test]
+    fn a_mid_document_fence_is_still_a_thematic_break() {
+        // The construct only fires at the very start of a document, so `---` anywhere else keeps
+        // meaning what it always meant.
+        assert_eq!(
+            kinds("Intro.\n\n---\ntitle: x\n---\n\nBody.\n"),
+            vec!["paragraph", "break", "heading:2", "paragraph"],
         );
     }
 

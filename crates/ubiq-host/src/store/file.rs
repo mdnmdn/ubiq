@@ -17,6 +17,7 @@ use ubiq_proto::projects::{ProjectRecord, Scope};
 use ubiq_proto::settings::{HOST_SETTINGS_SCHEMA, HostSettings, SettingsLayer};
 use ubiq_proto::work::TaskRecord;
 
+use super::project_dir::ProjectDirs;
 use super::{PreferenceStore, ProjectStore, SettingsStore, StoreError, TaskStore};
 use crate::atomic::{preserve_aside, write_atomic};
 
@@ -204,24 +205,55 @@ struct TasksFile {
 /// a cache here would be a second copy of the same truth; and the told-once flag belongs where it
 /// can be kept per project rather than for the store as a whole.
 pub struct FileTaskStore {
-    root: PathBuf,
+    /// Where each project's data directory is. Tasks are the user's own data and are shared with
+    /// whoever clones a project-managed one, so this is the store that has to ask rather than
+    /// composing a path under the config root — see [`crate::store::project_dir`].
+    dirs: ProjectDirs,
 }
 
 impl FileTaskStore {
     pub fn new(root: PathBuf) -> Self {
-        Self { root }
+        Self {
+            dirs: ProjectDirs::new(root),
+        }
     }
 
     /// One file per project, for `FilePreferenceStore::path`'s reason: a task edit must not rewrite
-    /// the catalogue the user may be hand-editing. Under the project's own directory, so Forget and
-    /// the orphan collector already cover it.
+    /// the catalogue the user may be hand-editing. Under the project's data directory, so Forget
+    /// and the orphan collector already cover a Ubiq-managed project's copy and a project-managed
+    /// one lands where the project itself can carry it.
     pub fn path(&self, project: ProjectId) -> PathBuf {
-        self.root
-            .join("projects")
-            .join(project.to_string())
-            .join("tasks.toml")
+        self.dirs.dir(project).join("tasks.toml")
+    }
+
+    /// Where a project's archived tasks live — beside `tasks.toml` rather than inside it, so
+    /// Forget and the orphan collector cover this the same way they already cover the live file.
+    fn archive_dir(&self, project: ProjectId) -> PathBuf {
+        self.dirs.dir(project).join("tasks-archive")
+    }
+
+    /// Every archive page already on disk, oldest first, named by the page number that decides the
+    /// order — `0001.toml`, `0002.toml`, … — rather than by read order, which a directory listing
+    /// does not promise.
+    fn archive_pages(&self, project: ProjectId) -> Vec<(u32, PathBuf)> {
+        let mut pages: Vec<(u32, PathBuf)> = std::fs::read_dir(self.archive_dir(project))
+            .into_iter()
+            .flatten()
+            .filter_map(|entry| entry.ok())
+            .filter_map(|entry| {
+                let path = entry.path();
+                let number: u32 = path.file_stem()?.to_str()?.parse().ok()?;
+                Some((number, path))
+            })
+            .collect();
+        pages.sort_by_key(|(number, _)| *number);
+        pages
     }
 }
+
+/// One archive page holds at most this many tasks (`T-190`), so a project archiving for years
+/// never asks a reader to open a file that grows without bound.
+pub const ARCHIVE_PAGE_SIZE: usize = 100;
 
 impl TaskStore for FileTaskStore {
     fn load(&self, project: ProjectId) -> Result<Option<Vec<TaskRecord>>, StoreError> {
@@ -282,6 +314,65 @@ impl TaskStore for FileTaskStore {
             Err(source) => Err(StoreError::Io { path, source }),
         }
     }
+
+    fn archive(&self, project: ProjectId, tasks: &[TaskRecord]) -> Result<(), StoreError> {
+        if tasks.is_empty() {
+            return Ok(());
+        }
+        let pages = self.archive_pages(project);
+        let mut remaining = tasks;
+        let mut next_number = pages.last().map_or(1, |(number, _)| number + 1);
+
+        // Top up the last page before opening a new one, so a page short of `ARCHIVE_PAGE_SIZE`
+        // is filled rather than left short forever.
+        if let Some((_, path)) = pages.last() {
+            let raw = std::fs::read_to_string(path).map_err(|source| StoreError::Io {
+                path: path.clone(),
+                source,
+            })?;
+            let mut file: TasksFile = toml::from_str(&raw).map_err(|error| StoreError::Parse {
+                path: path.clone(),
+                preserved_as: None,
+                message: error.message().to_string(),
+            })?;
+            let room = ARCHIVE_PAGE_SIZE.saturating_sub(file.tasks.len());
+            if room > 0 {
+                let take = room.min(remaining.len());
+                file.tasks.extend_from_slice(&remaining[..take]);
+                remaining = &remaining[take..];
+                write_tasks_file(path, &file)?;
+            }
+        }
+
+        for chunk in remaining.chunks(ARCHIVE_PAGE_SIZE) {
+            let path = self
+                .archive_dir(project)
+                .join(format!("{next_number:04}.toml"));
+            write_tasks_file(
+                &path,
+                &TasksFile {
+                    version: TASKS_VERSION,
+                    tasks: chunk.to_vec(),
+                },
+            )?;
+            next_number += 1;
+        }
+        Ok(())
+    }
+}
+
+/// Write one archive page whole — every page is small enough that a partial rewrite buys nothing
+/// [`FileTaskStore::save`] doesn't already get from doing the same for the live file.
+fn write_tasks_file(path: &Path, file: &TasksFile) -> Result<(), StoreError> {
+    let body = toml::to_string_pretty(file).map_err(|error| StoreError::Parse {
+        path: path.to_path_buf(),
+        preserved_as: None,
+        message: error.to_string(),
+    })?;
+    write_atomic(path, body.as_bytes()).map_err(|source| StoreError::Io {
+        path: path.to_path_buf(),
+        source,
+    })
 }
 
 /// The envelope a view blob is stored in. `value` is opaque: the host writes it and hands it back,

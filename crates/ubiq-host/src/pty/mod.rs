@@ -123,7 +123,7 @@ pub fn spawn(
 /// The command a pane runs, built the way the program it names expects to be started.
 ///
 /// **A shell has to be a login shell.** Started as anything else it never sources
-/// `.zprofile`/`.zlogin`/`.profile` — where Homebrew's `shellenv` and most `pyenv`, `nvm` and
+/// `.zprofile`/`.zlogin`/`.definition` — where Homebrew's `shellenv` and most `pyenv`, `nvm` and
 /// `starship` setup puts things on `PATH` — so tools that are genuinely installed report as
 /// `command not found` inside a pane while working in every other terminal on the machine. On Unix
 /// a login shell is argv0 prefixed with `-`. `portable-pty` does that prefixing itself, but only

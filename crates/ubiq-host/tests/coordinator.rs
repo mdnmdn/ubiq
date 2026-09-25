@@ -16,7 +16,7 @@ use ubiq_proto::conversation::{ConfigCategory, ConfigOption, ConfigValue, ConvUp
 use ubiq_proto::files::{DiffBase, DiffRowKind, FileError, FileVersion};
 use ubiq_proto::ids::{PaneId, ProjectId, SessionId, ToolId};
 use ubiq_proto::messages::{AgentPicks, Message, TaskField};
-use ubiq_proto::projects::Scope;
+use ubiq_proto::projects::{Scope, StorageMode};
 use ubiq_proto::settings::{HostSettings, SettingsLayer};
 use ubiq_proto::tools::{ToolDef, ToolRun};
 use ubiq_proto::work::{AgentId, Kind, Label, Shape, Status};
@@ -90,6 +90,7 @@ fn add_project(ui: &Client, path: &std::path::Path) -> ProjectId {
         colour: None,
         custom_colour: None,
         temporary: false,
+        storage: StorageMode::UbiqManaged,
     });
 
     loop {
@@ -1044,6 +1045,7 @@ fn a_temporary_project_never_reaches_the_catalogue_file_but_still_resolves() {
         colour: None,
         custom_colour: None,
         temporary: true,
+        storage: StorageMode::UbiqManaged,
     });
     let project_id = loop {
         match ui.from_host().recv_timeout(PATIENCE) {
@@ -1093,6 +1095,7 @@ fn naming_a_temporary_project_makes_it_durable() {
         colour: None,
         custom_colour: None,
         temporary: true,
+        storage: StorageMode::UbiqManaged,
     });
     let project_id = loop {
         match ui.from_host().recv_timeout(PATIENCE) {
@@ -1514,7 +1517,7 @@ fn a_shell_pane_is_a_login_shell() {
     let pane_id = spawn(&ui, "/bin/sh", &[]);
 
     // A login shell's argv0 is its name with a `-` on it, which is the whole reason
-    // `.zprofile`/`.profile` run at all — without it a pane's `PATH` is not the user's.
+    // `.zprofile`/`.definition` run at all — without it a pane's `PATH` is not the user's.
     ui.send(Message::TerminalInput {
         pane_id,
         bytes: b"echo argv0=$0\n".to_vec(),
@@ -1585,7 +1588,7 @@ fn start_conversation(
         rel_path: None,
         agent_type: agent_type.to_string(),
         account: account.map(str::to_string),
-        profile: None,
+        definition: None,
         model: None,
         thinking: None,
         mode: None,
@@ -1739,7 +1742,7 @@ fn spawned_by_sets_the_new_agents_parent() {
         rel_path: None,
         agent_type: "claude-code".to_string(),
         account: None,
-        profile: None,
+        definition: None,
         model: None,
         thinking: None,
         mode: None,
@@ -2091,7 +2094,7 @@ fn opening_a_project_starts_its_filesystem_watch() {
 /// A passphrase for a profile that authenticates through `ssh-agent` is refused, not filed.
 ///
 /// The refusal is about the record and not about the keychain, so it reads the same on a machine
-/// with no secret service: an agent profile will never ask for material, and material it would
+/// with no secret service: an agent definition will never ask for material, and material it would
 /// never ask for has no user-visible way back out of the store.
 #[test]
 fn an_ssh_secret_is_refused_for_a_profile_that_holds_none() {
@@ -2123,10 +2126,10 @@ fn an_ssh_secret_is_refused_for_a_profile_that_holds_none() {
     });
     assert!(
         expect_settings_error(&ui).contains("holds no secret"),
-        "an agent profile took a secret"
+        "an agent definition took a secret"
     );
 
-    // Clearing one is refused on the same ground, and an id no profile carries on its own.
+    // Clearing one is refused on the same ground, and an id no definition carries on its own.
     ui.send(Message::ClearSshSecret { profile_id: agent });
     assert!(expect_settings_error(&ui).contains("holds no secret"));
 

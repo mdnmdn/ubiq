@@ -21,8 +21,9 @@ use ubiq_proto::work::AgentId;
 
 use crate::state::PanelKind;
 use crate::state::mission::{
-    COORDINATOR_MCPS, KindTarget, MissionJournal, MissionLaunch, MissionMenuRow, MissionSpawnMenu,
-    MissionSpawnRow, MissionTab, MissionView, SpawnPick, SpawnStage, WORKER_MCPS, worker_briefing,
+    COORDINATOR_MCPS, KindTarget, MissionJournal, MissionLaunch, MissionMenuRow, MissionSection,
+    MissionSpawnMenu, MissionSpawnRow, MissionTab, MissionView, SpawnPick, SpawnStage, WORKER_MCPS,
+    worker_briefing,
 };
 use crate::state::work::WorkState;
 use crate::state::workbench::MenuId;
@@ -229,6 +230,21 @@ impl AppState {
             open.mission_view.state_filter = Some(state);
         }
         self.open_mission_full(task_id, cx);
+    }
+
+    /// Open a shut side-panel section or shut an open one, remembered against this mission's own
+    /// anchor task (T-184) — so two panels open on different missions never step on each other's
+    /// shape.
+    pub fn toggle_mission_section(
+        &mut self,
+        task_id: TaskId,
+        section: MissionSection,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(open) = self.open_project_mut(cx) {
+            open.mission_view.toggle_section(task_id, section);
+        }
+        cx.notify();
     }
 
     // ── moving the phase ────────────────────────────────────────────
@@ -734,7 +750,7 @@ impl AppState {
             .cloned()
             .unwrap_or(SpawnPick {
                 kind: request.kind.clone(),
-                profile: request.profile.clone(),
+                definition: request.definition.clone(),
             });
         let spawned_by = match request.by {
             Actor::Agent(agent) => Some(agent),
@@ -750,7 +766,7 @@ impl AppState {
 
         let launch = MissionLaunch {
             kind: pick.kind.clone(),
-            profile: pick.profile.clone(),
+            definition: pick.definition.clone(),
             coordinator: false,
             spawned_by,
             briefing,
@@ -794,8 +810,8 @@ impl AppState {
     /// Compose and send one mission launch — **the one composition**, shared by the spawn policy
     /// and by the panel's *Spawn ▾*.
     ///
-    /// A kind resolves to a profile, and the kind's own four overrides outrank it exactly as a
-    /// launch's picks already outrank a profile's. A kind that resolves to no harness at all is
+    /// A kind resolves to a definition, and the kind's own four overrides outrank it exactly as a
+    /// launch's picks already outrank a definition's. A kind that resolves to no harness at all is
     /// the one refusal, and the sentence it answers with is what the requester reads.
     fn compose_mission_launch(
         &mut self,
@@ -813,23 +829,27 @@ impl AppState {
                     .find_map(|record| record.kind_named(kind_name))
             })
             .cloned();
-        let profile_id = kind
+        let definition_id = kind
             .as_ref()
-            .and_then(|kind| kind.profile.clone())
-            .or(launch.profile.clone());
-        let profile = profile_id.and_then(|id| {
+            .and_then(|kind| kind.definition.clone())
+            .or(launch.definition.clone());
+        let definition = definition_id.and_then(|id| {
             self.workbench
                 .settings
-                .profiles_in(Some(project_id))
+                .definitions_in(Some(project_id))
                 .into_iter()
-                .find(|profile| profile.id == id)
+                .find(|definition| definition.id == id)
         });
         let agent_type = kind
             .as_ref()
             .and_then(|kind| kind.agent_type.clone())
-            .or_else(|| profile.as_ref().map(|profile| profile.agent_type.clone()))
+            .or_else(|| {
+                definition
+                    .as_ref()
+                    .map(|definition| definition.agent_type.clone())
+            })
             .ok_or_else(|| {
-                format!("no profile or harness resolves the kind \u{201c}{kind_name}\u{201d}")
+                format!("no agent or harness resolves the kind \u{201c}{kind_name}\u{201d}")
             })?;
 
         let agent_id = AgentId::generate();
@@ -842,17 +862,29 @@ impl AppState {
             account: kind
                 .as_ref()
                 .and_then(|kind| kind.account.clone())
-                .or_else(|| profile.as_ref().and_then(|profile| profile.account.clone())),
-            profile: profile.as_ref().map(|profile| profile.id.clone()),
+                .or_else(|| {
+                    definition
+                        .as_ref()
+                        .and_then(|definition| definition.account.clone())
+                }),
+            definition: definition.as_ref().map(|definition| definition.id.clone()),
             model: kind
                 .as_ref()
                 .and_then(|kind| kind.model.clone())
-                .or_else(|| profile.as_ref().and_then(|profile| profile.model.clone())),
+                .or_else(|| {
+                    definition
+                        .as_ref()
+                        .and_then(|definition| definition.model.clone())
+                }),
             thinking: None,
             mode: kind
                 .as_ref()
                 .and_then(|kind| kind.permission_mode.clone())
-                .or_else(|| profile.as_ref().and_then(|profile| profile.mode.clone())),
+                .or_else(|| {
+                    definition
+                        .as_ref()
+                        .and_then(|definition| definition.mode.clone())
+                }),
             mcps: match launch.coordinator {
                 true => COORDINATOR_MCPS.iter().map(|it| it.to_string()).collect(),
                 false => WORKER_MCPS.iter().map(|it| it.to_string()).collect(),
@@ -877,7 +909,7 @@ impl AppState {
             .cloned()
             .unwrap_or(SpawnPick {
                 kind: request.kind.clone(),
-                profile: request.profile.clone(),
+                definition: request.definition.clone(),
             })
     }
 
@@ -905,6 +937,10 @@ impl AppState {
     }
 
     /// Every agent running in this window's project that the mission has not already got.
+    ///
+    /// **Running** is checked, not assumed: `work.agents` keeps a row for an agent whose harness
+    /// has been unloaded or stopped too (so its transcript stays reachable), and one of those is
+    /// not a candidate to attach — offering it here would be a placeholder nothing can resolve.
     pub fn mission_attach_candidates(&self, task_id: TaskId, cx: &gpui::App) -> Vec<AgentId> {
         let held = self.mission_members(task_id);
         self.work(cx)
@@ -912,7 +948,7 @@ impl AppState {
                 work.agents
                     .iter()
                     .map(|agent| agent.id)
-                    .filter(|id| !held.contains(id))
+                    .filter(|id| !held.contains(id) && self.conversation_live(*id))
                     .collect()
             })
             .unwrap_or_default()
@@ -1013,7 +1049,7 @@ impl AppState {
 
     /// Launch a coordinator for a mission that has none, and crown it.
     ///
-    /// The kind called `coordinator` where the table has one, and otherwise the first profile
+    /// The kind called `coordinator` where the table has one, and otherwise the first definition
     /// ticked *mission assistant* — the same list the new-mission dialog offers, so the two ways
     /// to put a coordinator on a mission resolve against one answer.
     pub fn spawn_mission_coordinator(&mut self, task_id: TaskId, cx: &mut Context<Self>) {
@@ -1026,15 +1062,15 @@ impl AppState {
             .and_then(|open| open.missions.get(&task_id))
             .and_then(|record| record.kind_named("coordinator"))
             .map(|kind| kind.name.clone());
-        let profile = match &named {
+        let definition = match &named {
             Some(_) => None,
             None => {
-                let profiles = self.workbench.settings.profiles_in(Some(project_id));
-                match crate::state::new_mission::assistants(&profiles).first() {
-                    Some(profile) => Some(profile.id.clone()),
+                let definitions = self.workbench.settings.definitions_in(Some(project_id));
+                match crate::state::new_mission::assistants(&definitions).first() {
+                    Some(definition) => Some(definition.id.clone()),
                     None => {
                         self.workbench.work_error = Some(
-                            "no profile is ticked \u{201c}mission assistant\u{201d}, so there is \
+                            "no definition is ticked \u{201c}mission assistant\u{201d}, so there is \
                              nothing to run a coordinator as"
                                 .to_string(),
                         );
@@ -1065,7 +1101,7 @@ impl AppState {
 
         let launch = MissionLaunch {
             kind: named.unwrap_or_else(|| "coordinator".to_string()),
-            profile,
+            definition,
             coordinator: true,
             briefing,
             assign_to: Some(task_id),
@@ -1146,25 +1182,25 @@ impl AppState {
             .unwrap_or_default()
     }
 
-    /// Add a kind from a profile: the profile's name is the kind's, and the profile is what it
+    /// Add a kind from a definition: the definition's name is the kind's, and the definition is what it
     /// resolves to. A name already in the table is not added twice.
     pub fn add_mission_agent_kind(
         &mut self,
         task_id: TaskId,
-        profile_id: String,
+        definition_id: String,
         cx: &mut Context<Self>,
     ) {
         let mut kinds = self.mission_kinds(task_id);
         if kinds
             .iter()
-            .any(|kind| kind.name.eq_ignore_ascii_case(&profile_id))
+            .any(|kind| kind.name.eq_ignore_ascii_case(&definition_id))
         {
             return;
         }
         kinds.push(AgentKind {
-            name: profile_id.clone(),
+            name: definition_id.clone(),
             description: String::new(),
-            profile: Some(profile_id),
+            definition: Some(definition_id),
             ..AgentKind::default()
         });
         self.set_mission_agent_kinds(task_id, kinds, cx);
@@ -1184,19 +1220,19 @@ impl AppState {
         self.set_mission_agent_kinds(task_id, kinds, cx);
     }
 
-    /// Point one row at another profile.
-    pub fn set_mission_kind_profile(
+    /// Point one row at another definition.
+    pub fn set_mission_kind_definition(
         &mut self,
         task_id: TaskId,
         index: usize,
-        profile_id: String,
+        definition_id: String,
         cx: &mut Context<Self>,
     ) {
         let mut kinds = self.mission_kinds(task_id);
         let Some(kind) = kinds.get_mut(index) else {
             return;
         };
-        kind.profile = Some(profile_id);
+        kind.definition = Some(definition_id);
         self.set_mission_agent_kinds(task_id, kinds, cx);
     }
 
@@ -1227,8 +1263,8 @@ impl AppState {
     }
 
     /// What the kind picker offers, for the target it was opened on: a pending row may be changed
-    /// to any of the mission's kinds *or* to a profile outright (the `custom` case), while a
-    /// table row only ever resolves to a profile.
+    /// to any of the mission's kinds *or* to a definition outright (the `custom` case), while a
+    /// table row only ever resolves to a definition.
     pub fn mission_kind_picks(
         &self,
         task_id: TaskId,
@@ -1247,9 +1283,9 @@ impl AppState {
             rows.extend(
                 self.workbench
                     .settings
-                    .profiles_in(Some(project_id))
+                    .definitions_in(Some(project_id))
                     .into_iter()
-                    .map(|profile| KindPick::Profile(profile.id)),
+                    .map(|definition| KindPick::AgentDefinition(definition.id)),
             );
         }
         rows
@@ -1266,25 +1302,25 @@ impl AppState {
         self.dismiss_mission_kind_menu(cx);
         match (target, pick) {
             (KindTarget::Pending(id), pick) => {
-                let (kind, profile) = match pick {
+                let (kind, definition) = match pick {
                     KindPick::Kind(name) => (name, None),
-                    // A profile named outright is the `custom` kind — the one case the record's
+                    // A definition named outright is the `custom` kind — the one case the record's
                     // own vocabulary has a word for.
-                    KindPick::Profile(id) => ("custom".to_string(), Some(id)),
+                    KindPick::AgentDefinition(id) => ("custom".to_string(), Some(id)),
                 };
                 if let Some(project_id) = self.project_of_mission(task_id)
                     && let Some(open) = self.projects.get_mut(&project_id)
                 {
                     open.mission_view
                         .spawn_picks
-                        .insert(id, SpawnPick { kind, profile });
+                        .insert(id, SpawnPick { kind, definition });
                 }
                 cx.notify();
             }
-            (KindTarget::Row(row), KindPick::Profile(id)) => {
-                self.set_mission_kind_profile(task_id, row, id, cx)
+            (KindTarget::Row(row), KindPick::AgentDefinition(id)) => {
+                self.set_mission_kind_definition(task_id, row, id, cx)
             }
-            (KindTarget::Add, KindPick::Profile(id)) => {
+            (KindTarget::Add, KindPick::AgentDefinition(id)) => {
                 self.add_mission_agent_kind(task_id, id, cx)
             }
             (KindTarget::Row(_) | KindTarget::Add, KindPick::Kind(_)) => {}

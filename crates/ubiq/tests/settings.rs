@@ -48,6 +48,8 @@ fn a_blob_survives_the_round_trip() {
         md_minimap_side: ubiq::theme::MdMinimapSide::Right,
         md_width: ubiq::theme::MdWidth::Wide,
         md_density: ubiq::theme::MdDensity::Compact,
+        md_char_scale_default: 1.25,
+        md_text_shade_default: ubiq::state::editor::TextShade::Strong,
     };
     let back = settings::decode(&settings::encode(&settings)).expect("decodes");
     assert_eq!(back, settings);
@@ -205,6 +207,7 @@ fn a_project() -> ProjectSnapshot {
             path: "/tmp/ubiq".to_string(),
             colour: 0,
             custom_colour: None,
+            storage: Default::default(),
             temporary: false,
             created_at: Utc::now(),
             last_opened_at: None,
@@ -937,10 +940,11 @@ fn drone_version_skew_compares_against_this_build() {
     ));
 }
 
-/// A profile the host answered with, in the scope it was found in.
-fn a_profile(id: &str, project: Option<ProjectId>) -> ubiq_proto::messages::ProfileInfo {
-    ubiq_proto::messages::ProfileInfo {
+/// A definition the host answered with, in the scope it was found in.
+fn a_definition(id: &str, project: Option<ProjectId>) -> ubiq_proto::messages::AgentDefinition {
+    ubiq_proto::messages::AgentDefinition {
         id: id.to_string(),
+        description: None,
         agent_type: "claude-code".to_string(),
         account: None,
         model: None,
@@ -950,19 +954,22 @@ fn a_profile(id: &str, project: Option<ProjectId>) -> ubiq_proto::messages::Prof
         prompt: None,
         mcps: Vec::new(),
         mission_assistant: None,
+        mission_coordinator: false,
+        mission_worker: false,
+        disabled: false,
         project,
     }
 }
 
-/// A project's own profiles are offered in that project and listed nowhere else.
+/// A project's own definitions are offered in that project and listed nowhere else.
 ///
-/// The two scopes ride in one `Profiles`, and the window splits them on arrival: the app-wide
-/// settings screen draws `settings.profiles`, which stays global, and anything that means "what
-/// can start here" asks `profiles_in`. A profile of another project is never on offer, and a
-/// project profile of the same name as a global one shadows it — the rule the host resolves the
+/// The two scopes ride in one `AgentDefinitions`, and the window splits them on arrival: the app-wide
+/// settings screen draws `settings.definitions`, which stays global, and anything that means "what
+/// can start here" asks `definitions_in`. A definition of another project is never on offer, and a
+/// project definition of the same name as a global one shadows it — the rule the host resolves the
 /// launch by, so the picker and the launch cannot disagree.
 #[gpui::test]
-fn project_profiles_are_offered_in_their_project_and_not_globally(cx: &mut TestAppContext) {
+fn project_definitions_are_offered_in_their_project_and_not_globally(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
     let project = fixture
         .state
@@ -972,13 +979,13 @@ fn project_profiles_are_offered_in_their_project_and_not_globally(cx: &mut TestA
 
     fixture.host.send(
         To::Everyone,
-        Message::Profiles {
-            profiles: vec![
-                a_profile("standard", None),
-                a_profile("shared", None),
-                a_profile("reviewer", Some(project)),
-                a_profile("shared", Some(project)),
-                a_profile("theirs", Some(elsewhere)),
+        Message::AgentDefinitions {
+            definitions: vec![
+                a_definition("standard", None),
+                a_definition("shared", None),
+                a_definition("reviewer", Some(project)),
+                a_definition("shared", Some(project)),
+                a_definition("theirs", Some(elsewhere)),
             ],
         },
     );
@@ -986,21 +993,21 @@ fn project_profiles_are_offered_in_their_project_and_not_globally(cx: &mut TestA
 
     let (global, offered, outside, other) = fixture.state.read_with(cx, |state, _| {
         let settings = &state.workbench.settings;
-        let ids = |list: Vec<ubiq_proto::messages::ProfileInfo>| {
+        let ids = |list: Vec<ubiq_proto::messages::AgentDefinition>| {
             list.into_iter().map(|it| it.id).collect::<Vec<_>>()
         };
         (
-            ids(settings.profiles.clone()),
-            ids(settings.profiles_in(Some(project))),
-            ids(settings.profiles_in(None)),
-            ids(settings.profiles_in(Some(elsewhere))),
+            ids(settings.definitions.clone()),
+            ids(settings.definitions_in(Some(project))),
+            ids(settings.definitions_in(None)),
+            ids(settings.definitions_in(Some(elsewhere))),
         )
     });
 
     assert_eq!(
         global,
         vec!["standard".to_string(), "shared".to_string()],
-        "the global list is global: no project's profile is in it"
+        "the global list is global: no project's definition is in it"
     );
     assert_eq!(
         offered,
@@ -1022,11 +1029,60 @@ fn project_profiles_are_offered_in_their_project_and_not_globally(cx: &mut TestA
     );
 }
 
-/// Add profile inside a project writes a project profile; the settings screen's own writes a
-/// global one. The scope is the surface the form was opened from, never a pick inside it — and
-/// an edit keeps the scope its profile was found in.
+/// A switched-off definition stays on the settings screens and is offered nowhere a run begins,
+/// and `Clone` names the copy itself rather than sending one the host would refuse.
 #[gpui::test]
-fn the_profile_form_carries_the_scope_it_was_opened_from(cx: &mut TestAppContext) {
+fn a_disabled_definition_is_listed_and_not_offered(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let project = fixture
+        .state
+        .read_with(cx, |state, cx| state.project(cx))
+        .expect("the window holds a project");
+
+    let mut off = a_definition("retired", None);
+    off.disabled = true;
+    fixture.host.send(
+        To::Everyone,
+        Message::AgentDefinitions {
+            definitions: vec![a_definition("standard", None), off, {
+                let mut copy = a_definition("standard copy", None);
+                copy.account = Some("work".to_string());
+                copy
+            }],
+        },
+    );
+    cx.run_until_parked();
+
+    let (listed, startable, free) = fixture.state.read_with(cx, |state, _| {
+        let settings = &state.workbench.settings;
+        (
+            settings.definitions.len(),
+            settings
+                .startable_definitions_in(Some(project))
+                .into_iter()
+                .map(|it| it.id)
+                .collect::<Vec<_>>(),
+            settings.free_definition_name("standard", None),
+        )
+    });
+
+    assert_eq!(listed, 3, "every definition is still listed");
+    assert_eq!(
+        startable,
+        vec!["standard".to_string(), "standard copy".to_string()],
+        "the switched-off one is offered nowhere a run begins"
+    );
+    assert_eq!(
+        free, "standard copy 2",
+        "a clone never overwrites, so the interface picks a name that is free"
+    );
+}
+
+/// Add definition inside a project writes a project definition; the settings screen's own writes a
+/// global one. The scope is the surface the form was opened from, never a pick inside it — and
+/// an edit keeps the scope its definition was found in.
+#[gpui::test]
+fn the_definition_form_carries_the_scope_it_was_opened_from(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
     let project = fixture
         .state
@@ -1034,55 +1090,63 @@ fn the_profile_form_carries_the_scope_it_was_opened_from(cx: &mut TestAppContext
         .expect("the window holds a project");
 
     fixture.with(cx, |state, window, cx| {
-        state.open_profile_form(None, Some(project), window, cx)
+        state.open_definition_form(None, Some(project), window, cx)
     });
     let scoped = fixture.state.read_with(cx, |state, _| {
         let form = state
             .workbench
             .settings
-            .profile_form
+            .definition_form
             .as_ref()
             .expect("the form is up");
-        form.as_profile("reviewer".to_string()).project
+        form.as_definition("reviewer".to_string()).project
     });
     assert_eq!(
         scoped,
         Some(project),
-        "a project's form writes a project profile"
+        "a project's form writes a project definition"
     );
 
     fixture.with(cx, |state, window, cx| {
-        state.open_profile_form(None, None, window, cx)
+        state.open_definition_form(None, None, window, cx)
     });
     let global = fixture.state.read_with(cx, |state, _| {
         state
             .workbench
             .settings
-            .profile_form
+            .definition_form
             .as_ref()
             .expect("the form is up")
-            .as_profile("standard".to_string())
+            .as_definition("standard".to_string())
             .project
     });
-    assert_eq!(global, None, "the settings screen writes a global profile");
+    assert_eq!(
+        global, None,
+        "the settings screen writes a global definition"
+    );
 
-    // Editing keeps the scope the profile was found in, whatever the surface passes.
+    // Editing keeps the scope the definition was found in, whatever the surface passes.
     fixture.with(cx, |state, window, cx| {
-        state.open_profile_form(Some(a_profile("reviewer", Some(project))), None, window, cx)
+        state.open_definition_form(
+            Some(a_definition("reviewer", Some(project))),
+            None,
+            window,
+            cx,
+        )
     });
     let edited = fixture.state.read_with(cx, |state, _| {
         state
             .workbench
             .settings
-            .profile_form
+            .definition_form
             .as_ref()
             .expect("the form is up")
-            .as_profile("reviewer".to_string())
+            .as_definition("reviewer".to_string())
             .project
     });
     assert_eq!(
         edited,
         Some(project),
-        "an edit saves the profile back where it came from"
+        "an edit saves the definition back where it came from"
     );
 }

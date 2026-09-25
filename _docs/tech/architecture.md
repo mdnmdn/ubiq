@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: The two halves — coordinator and UI — the single bus between them, the rules neither may break, and why the split is drawn before it is needed.
 read_when: you are about to add a capability that crosses the UI/coordinator line, or you want to know why the code is shaped this way
-updated: 2026-09-24
-verified: 2026-09-24
+updated: 2026-09-25
+verified: 2026-09-25
 code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq/src/lib.rs, crates/ubiq/src/version.rs, crates/ubiq-app/src/lib.rs, crates/ubiq-app/src/main.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/state/windows.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-proto/src/lib.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/files/mod.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/kb/mod.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq-host/src/store/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/store/memory.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq-host/src/links.rs, crates/ubiq/src/web_export/mod.rs, crates/ubiq-host/src/mcp/mod.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-drone/src/lib.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/store/plan.rs]
 review_cycle: quarterly
 ---
@@ -186,7 +186,7 @@ host-scoped:** a `ProjectList` is the whole truth about the host that sent it an
 any other, so `Bus::projects_not_on` names the rows belonging to every other host and
 `WindowRegistry::replace_all_except` keeps them, which is what lets one window hold the local
 machine's projects and a remote's in one list. **Only the local host's `HostInfo` is applied:** the
-config root the status bar names, and the shells, agent types, accounts and profiles a new pane is
+config root the status bar names, and the shells, agent types, accounts and agent definitions a new pane is
 started from, stay the local machine's (`../backlog.md`, `G188`). Losing a host is a defined
 teardown rather than a reroute — `Bus::client_for` has no fall back to the local client, so a
 message addressed to a host that is gone is dropped and logged instead of reaching a coordinator
@@ -281,7 +281,7 @@ they did before an index existed.
 **The boot is a library, and the binary is three lines.** `crates/ubiq-app/src/lib.rs` holds the
 whole start sequence in one function, `run(boot)`. Before any of it, `run` checks whether this launch
 is the SSH askpass helper — `UBIQ_ASKPASS_PROFILE` set in the environment — and if so reads the named
-profile's secret from the host's own store and writes it to standard output, then exits; nothing else
+agent definition's secret from the host's own store and writes it to standard output, then exits; nothing else
 in the sequence runs, and nothing else may print to standard output ahead of that check, because
 `ssh` reads whatever is there as the password. Otherwise `run` proceeds: install logging, resolve the
 config root, open the stores and start the one host — the same steps whether or not the interface is

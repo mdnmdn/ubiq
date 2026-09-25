@@ -227,11 +227,11 @@ fn change_search_row(app: &AppState, window: &Window, cx: &Context<AppState>) ->
         .pt_2()
         .flex()
         .flex_none()
-        .child(filter_bar(
+        .child(div().flex_1().min_w(px(0.)).child(filter_bar(
             Input::new(&app.git_change_query).appearance(false),
             div(),
             focused,
-        ))
+        )))
         .into_any_element()
 }
 

@@ -63,13 +63,20 @@ impl AppState {
     /// Whether a markdown tab's file is annotated — what the header's annotation badge and the
     /// source-mode warning both read.
     ///
-    /// **Answered from the explorer's own tree, not from the host.** Asking the host
-    /// (`ListPlanAnnotations`) indexes the document and *writes* the sidecar beside it, so a
-    /// question asked for every markdown file opened would scatter `.md.annotation.json` files
-    /// through the user's project. The sidecar's presence in the tree is free, has no side effect
-    /// and is the same fact — over-reading it slightly, since a document listed once and never
-    /// annotated has an empty sidecar. A document actually open in the annotation surface answers
-    /// from its own threads instead, which is exact.
+    /// **Three answers, most exact first.** A document actually open in the annotation surface
+    /// answers from its own loaded threads. One that is not — which a tab showing raw source
+    /// always is, since that is exactly what closes it (`close_file_document`, T-124) — answers
+    /// from `AppState::annotation_hints` instead: the real count the host last stated for this
+    /// path, in *this* window, kept after the surface closed rather than only while it was open.
+    /// **Sidecar presence is not this answer, and cannot be** (T-183): the sidecar's block index
+    /// has to be written whether or not anything is annotated — a second call re-matching a
+    /// `BlockId` against nothing on disk would re-mint every id and refuse the very first
+    /// annotation ever made — so a file's sidecar existing has never told the truth about whether
+    /// it carries a thread. A path this window has not asked the host about at all — no tab has
+    /// opened it in the annotation surface this session — falls through to the explorer's own
+    /// presence check, which is a hint nobody can confirm and is better a guess than nothing: it
+    /// costs no round trip and is the one case an over-read cannot yet have been recorded to
+    /// correct.
     ///
     /// A folder nobody has listed yet answers `false`: the badge is a hint, and a hint nobody can
     /// confirm is better absent than guessed.
@@ -84,6 +91,12 @@ impl AppState {
             )
         {
             return !doc.annotations.annotations().is_empty();
+        }
+        if let Some(known) = self
+            .open_project(cx)
+            .and_then(|open| open.annotation_hints.get(&file.path))
+        {
+            return *known;
         }
         self.explorer(cx)
             .map(|explorer| explorer.presence(&file.annotation_sidecar()))
@@ -213,6 +226,93 @@ impl AppState {
     /// [`AppState::set_md_width`].
     pub fn set_md_density(&mut self, density: crate::theme::MdDensity, cx: &mut Context<Self>) {
         self.workbench.settings.ui.md_density = density;
+        self.remember_settings();
+        cx.notify();
+    }
+
+    /// Raise the zoom modal on one picture (T-185) — a corner button on a scaled-down image or
+    /// diagram, wherever a markdown preview draws one.
+    pub fn open_image_zoom(
+        &mut self,
+        target: crate::state::zoom::ImageZoom,
+        cx: &mut Context<Self>,
+    ) {
+        self.workbench.image_zoom = Some(target);
+        cx.notify();
+    }
+
+    /// Put the zoom modal away. The camera it was showing is left in the viewport cache under its
+    /// own key exactly as any other panel's is — reopening the same picture resumes where the
+    /// reader left it, on the same terms a diagram panel does.
+    pub fn close_image_zoom(&mut self, cx: &mut Context<Self>) {
+        self.workbench.image_zoom = None;
+        cx.notify();
+    }
+
+    /// The zoom modal's own Copy button: the picture's bytes, straight to the platform clipboard.
+    pub fn copy_zoomed_image(&mut self, cx: &mut Context<Self>) {
+        if let Some(zoom) = &self.workbench.image_zoom {
+            cx.write_to_clipboard(gpui::ClipboardItem::new_image(&zoom.image));
+        }
+    }
+
+    /// The reading-options popover's character-size slider (T-188), one tab's own in-memory
+    /// setting — see [`crate::state::editor::MdReading`].
+    pub fn set_md_char_scale(&mut self, key: &str, scale: f32, cx: &mut Context<Self>) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        let Some(open) = self.projects.get_mut(&project) else {
+            return;
+        };
+        let Some(file) = open.editor.find_key_mut(key) else {
+            return;
+        };
+        file.md_reading.char_scale = scale.clamp(
+            crate::state::editor::MD_CHAR_SCALE_MIN,
+            crate::state::editor::MD_CHAR_SCALE_MAX,
+        );
+        cx.notify();
+    }
+
+    /// The reading-options popover's text-colour picker (T-188), on the same per-tab terms as
+    /// [`Self::set_md_char_scale`].
+    pub fn set_md_text_shade(
+        &mut self,
+        key: &str,
+        shade: crate::state::editor::TextShade,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        let Some(open) = self.projects.get_mut(&project) else {
+            return;
+        };
+        let Some(file) = open.editor.find_key_mut(key) else {
+            return;
+        };
+        file.md_reading.text_shade = shade;
+        cx.notify();
+    }
+
+    /// The reading-options popover's "make default, system-wide" button (T-188): this tab's own
+    /// character size and text-colour shade, written into `UiSettings` as what a newly opened
+    /// document starts from — through the same `SetSettings { layer: Ui }` every other UI
+    /// preference already persists by, since that layer is exactly the interface-owned, opaque-to
+    /// the-host blob this is. `MdReading` itself stays in memory, per tab; only these two numbers
+    /// cross to the host.
+    ///
+    /// **Per-project is not this method.** A per-project default needs a settings record scoped
+    /// to a project, and no message in `ubiq-proto` carries one today — seeing this through would
+    /// mean inventing one, which this card stops short of. See the doc comment on
+    /// `ui::viewer::md_options` for what such a message would have to carry.
+    pub fn make_md_reading_default(&mut self, key: &str, cx: &mut Context<Self>) {
+        let Some(reading) = self.file(key, cx).map(|file| file.md_reading) else {
+            return;
+        };
+        self.workbench.settings.ui.md_char_scale_default = reading.char_scale;
+        self.workbench.settings.ui.md_text_shade_default = reading.text_shade;
         self.remember_settings();
         cx.notify();
     }

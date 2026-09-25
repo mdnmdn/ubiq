@@ -9,6 +9,7 @@
 //! avoid once the buffer *is* the file's state. The mapping from a language onto the highlighter's
 //! own enum still lives in `ui/editor.rs`, because that is a drawing decision and this is not.
 
+use std::cell::Cell;
 use std::ops::Range;
 
 use gpui::{Entity, Pixels, Point, Subscription};
@@ -413,6 +414,78 @@ pub enum SaveState {
     Failed(String),
 }
 
+/// The reading-options popover's four-way text-colour picker (T-188) — one rectangle per
+/// [`crate::theme::TextColors`] step, `Primary` the same body colour every other surface reads at.
+///
+/// `Serialize`/`Deserialize` for the one path that does write it down: the "make default,
+/// system-wide" button, through `UiSettings.md_text_shade_default` — the per-document picker
+/// itself is in-memory only and never serialised.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TextShade {
+    Faint,
+    Muted,
+    #[default]
+    Primary,
+    Strong,
+}
+
+impl TextShade {
+    pub const ALL: [TextShade; 4] = [
+        TextShade::Faint,
+        TextShade::Muted,
+        TextShade::Primary,
+        TextShade::Strong,
+    ];
+
+    /// The token this shade draws with — see `theme::text_faint`/`text_muted`/`text`/`text_strong`.
+    pub fn colour(self) -> gpui::Rgba {
+        match self {
+            TextShade::Faint => crate::theme::text_faint(),
+            TextShade::Muted => crate::theme::text_muted(),
+            TextShade::Primary => crate::theme::text(),
+            TextShade::Strong => crate::theme::text_strong(),
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            TextShade::Faint => "Faint",
+            TextShade::Muted => "Muted",
+            TextShade::Primary => "Primary",
+            TextShade::Strong => "Strong",
+        }
+    }
+}
+
+/// The reading-options popover's per-document memory (T-188): a character-size multiplier over
+/// the system font size, and which of the four text-colour shades the body draws in.
+///
+/// **In memory only, and per document.** Held on the tab itself rather than in `UiSettings` (which
+/// the host writes down) or on the window (which every tab would then share) — closing the tab, or
+/// restarting, drops it, on the same footing `frontmatter_open` already keeps for this file.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MdReading {
+    /// Over [`crate::theme::font`]'s own body size — `1.0` is the system size untouched, never an
+    /// absolute point size of its own.
+    pub char_scale: f32,
+    pub text_shade: TextShade,
+}
+
+impl Default for MdReading {
+    fn default() -> Self {
+        Self {
+            char_scale: 1.0,
+            text_shade: TextShade::default(),
+        }
+    }
+}
+
+/// What [`MdReading::char_scale`] is allowed to be, the ladder [`crate::ui::kit::slider_state`]
+/// quantises the popover's slider to.
+pub const MD_CHAR_SCALE_MIN: f32 = 0.8;
+pub const MD_CHAR_SCALE_MAX: f32 = 1.6;
+
 pub struct OpenFile {
     pub name: String,
     /// Project-relative, as every path the interface holds is.
@@ -460,6 +533,16 @@ pub struct OpenFile {
     /// markdown files open side by side cannot steer each other's minimap. Meaningless, and
     /// harmless, for every other viewer.
     pub md_scroll: gpui::ScrollHandle,
+    /// The split layout's own proportional scroll sync (T-166): the fraction down the document
+    /// each side was at as of the last frame the sync reconciled — `(source, preview)`. Not the
+    /// scroll position itself, which the buffer and `md_scroll` already own; this is only what
+    /// `ui::viewer`'s split render reads to tell which side moved *since* that frame, because
+    /// whichever fraction changed more is the one the reader is scrolling right now. Interior
+    /// mutability because a render function only ever holds `&OpenFile`.
+    pub md_split_scroll: Cell<(f32, f32)>,
+    /// The reading-options popover's per-document memory (T-188) — a character-size multiplier
+    /// and a text-colour shade, in memory only for the life of this tab.
+    pub md_reading: MdReading,
     /// Whether an image tab is showing its annotation tools. Per-tab UI state, not written down:
     /// a capture opens in Edit, a picture from the explorer opens in View and the header's toggle
     /// is what moves between them.
@@ -514,6 +597,8 @@ impl OpenFile {
             untitled: false,
             frontmatter_open: false,
             md_scroll: gpui::ScrollHandle::new(),
+            md_split_scroll: Cell::new((0.0, 0.0)),
+            md_reading: MdReading::default(),
             image_editing: false,
             dirty: false,
             _change: None,

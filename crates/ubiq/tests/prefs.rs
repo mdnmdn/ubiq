@@ -232,7 +232,7 @@ fn the_interface_blob_carries_the_last_start() {
         last_start: Some(prefs::LastStart {
             agent_type: "claude-code".to_string(),
             account: Some("mdn".to_string()),
-            profile: None,
+            definition: None,
             mode: Some("bypass".to_string()),
             max_subagents: Some(3),
         }),

@@ -1,8 +1,10 @@
 //! The catalogue as the host runs it: what each message in the project family does.
 //!
-//! Nothing here draws, and nothing here decides how a project looks — the colour arrives from the
-//! interface, because the palette is the interface's. What this owns is the record, the folder it
-//! points at, and whether either can be trusted.
+//! Nothing here draws, and nothing here decides what a swatch looks like — the palette is the
+//! interface's. But every creation path funnels through [`Projects::add`], so when a caller passes
+//! no colour, this is the one place that picks the next unused index rather than leaving every such
+//! project at swatch zero. It applies the same fewest-used rule as the interface's own
+//! `AppState::next_colour`, over [`PROJECT_COLOUR_COUNT`], so the two never disagree.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -12,6 +14,7 @@ use chrono::Utc;
 use ubiq_proto::ids::ProjectId;
 use ubiq_proto::projects::{
     DroneChange, IndexChange, LanePref, MissionTermChange, ProjectRecord, ProjectSnapshot, Scope,
+    StorageMode,
 };
 use ubiq_proto::tools::ToolDef;
 
@@ -20,6 +23,7 @@ use crate::gc;
 use crate::health::probe;
 use crate::host_path::{request_path, wire_string};
 use crate::reply::Reply;
+use crate::store::project_dir;
 use crate::store::{PreferenceStore, ProjectStore, StoreError};
 
 /// The directory inside a project's own that belongs to the interface.
@@ -33,6 +37,14 @@ pub const WORKAREA: &str = "ui";
 /// The mirror of [`WORKAREA`]: the interface is never told this exists, and everything in it is
 /// derived data that is deleted rather than repaired.
 pub const INDEX_DIR: &str = "index";
+
+/// The number of distinct project swatches before they repeat.
+///
+/// Mirrors `crates/ubiq/src/theme.rs`'s `Palette::project`'s `swatches: [Rgba; 16]` — a fixed-size
+/// array in both palettes, not something the host can read (the palette is the interface's), so the
+/// count is pinned here instead. If that array's length ever changes, this constant has to change
+/// with it or [`Projects::next_colour`] and the interface's `AppState::next_colour` drift apart.
+const PROJECT_COLOUR_COUNT: usize = 16;
 
 /// Where the shared workarea is, under the config root.
 ///
@@ -160,6 +172,7 @@ impl Projects {
             Ok(records) => {
                 this.records = records;
                 this.loaded = true;
+                this.reconcile_in_project_metadata();
                 // Only ever after a load that worked. Collecting against the empty catalogue a
                 // *corrupt* file produces would delete every project's view state.
                 #[cfg(feature = "harness")]
@@ -178,6 +191,45 @@ impl Projects {
 
     pub fn records(&self) -> &[ProjectRecord] {
         &self.records
+    }
+
+    /// Take the name from each project-managed project's own folder, where the two disagree.
+    ///
+    /// The catalogue keeps the name so the picker can draw every project without opening a folder
+    /// that may be slow, unmounted or gone — that is the fast lookup, and it is the copy that goes
+    /// stale. The in-project copy travelled with the project: somebody renamed it on another
+    /// machine, or edited `project.toml` by hand, and this machine's catalogue has not heard.
+    /// So the folder wins, and the catalogue is corrected rather than argued with.
+    ///
+    /// Silent about everything it cannot read: a folder that is not mounted keeps the name the
+    /// catalogue has, which is the whole reason the catalogue keeps one.
+    fn reconcile_in_project_metadata(&mut self) {
+        let corrections: Vec<(ProjectId, String)> = self
+            .records
+            .iter()
+            .filter(|record| record.storage.is_project_managed())
+            .filter_map(|record| {
+                let dir = project_dir::in_project_dir(&record.path);
+                let metadata = project_dir::read_metadata(&dir)?;
+                let name = metadata.name.trim();
+                (!name.is_empty() && name != record.name).then(|| (record.id, name.to_string()))
+            })
+            .collect();
+
+        for (id, name) in corrections {
+            let Some(record) = self.records.iter_mut().find(|record| record.id == id) else {
+                continue;
+            };
+            tracing::info!(
+                "taking {id}'s name from its own folder: {} becomes {name}",
+                record.name
+            );
+            record.name = name;
+            let record = record.clone();
+            if let Err(error) = self.catalogue.upsert(&record) {
+                tracing::warn!("could not correct {id}'s name in the catalogue: {error}");
+            }
+        }
     }
 
     /// Every project, probed.
@@ -278,10 +330,39 @@ impl Projects {
         if temporary {
             return None;
         }
+        // The project's own copy, for a project-managed project: one write per change to what it
+        // holds, so a rename reaches the folder as well as the catalogue. A failure is a log line
+        // and not a `ProjectError` — the catalogue below is the durable answer, and the folder is
+        // the copy that can be behind.
+        if record.storage.is_project_managed() {
+            let dir = project_dir::in_project_dir(&record.path);
+            if let Err(error) = project_dir::write_metadata(&dir, &record) {
+                tracing::warn!("could not write {}: {error}", dir.display());
+            }
+        }
         match self.catalogue.upsert(&record) {
             Ok(()) => None,
             Err(error) => self.warn_once(&error),
         }
+    }
+
+    /// The swatch a new project gets when its caller names none: the one fewest existing projects
+    /// use, so the palette spreads before it repeats.
+    ///
+    /// The host-side twin of the interface's `AppState::next_colour` — same rule, same tie-break
+    /// (lowest index wins a tie), so a project coloured here and one coloured there never disagree.
+    /// This is the one point every creation path goes through, unlike the interface's helper, which
+    /// only the "Add project" dialog calls.
+    fn next_colour(&self) -> usize {
+        let mut used = vec![0usize; PROJECT_COLOUR_COUNT];
+        for record in &self.records {
+            used[record.colour % PROJECT_COLOUR_COUNT] += 1;
+        }
+        used.iter()
+            .enumerate()
+            .min_by_key(|(index, taken)| (**taken, *index))
+            .map(|(index, _)| index)
+            .unwrap_or(0)
     }
 
     fn warn_once(&mut self, error: &StoreError) -> Option<Reply> {
@@ -306,6 +387,11 @@ impl Projects {
     /// Adding is not creating: a path that is not there is refused rather than made. A folder
     /// already in the catalogue resolves to the project that is there, so the picker points at it
     /// and no duplicate appears.
+    ///
+    /// This is the one place [`StorageMode`] is chosen. A project-managed add makes the project's
+    /// `.ubiq/` before the record exists, and a failure to make it refuses the add — see
+    /// [`crate::store::project_dir::provision`]. A temporary folder is never written down at all,
+    /// so it is always Ubiq-managed whatever it asked for.
     pub fn add(
         &mut self,
         path: &str,
@@ -313,6 +399,7 @@ impl Projects {
         colour: Option<usize>,
         custom_colour: Option<u32>,
         temporary: bool,
+        storage: StorageMode,
     ) -> Vec<Reply> {
         let canonical = match std::fs::canonicalize(request_path(path)) {
             Ok(canonical) => canonical,
@@ -369,7 +456,11 @@ impl Projects {
                 name.unwrap_or_else(|| leaf(&canonical))
             },
             path: as_text,
-            colour: if temporary { 0 } else { colour.unwrap_or(0) },
+            colour: if temporary {
+                0
+            } else {
+                colour.unwrap_or_else(|| self.next_colour())
+            },
             custom_colour: if temporary { None } else { custom_colour },
             temporary,
             created_at: Utc::now(),
@@ -382,7 +473,27 @@ impl Projects {
             lanes: Vec::new(),
             runs_on: None,
             initials: String::new(),
+            storage: if temporary {
+                StorageMode::UbiqManaged
+            } else {
+                storage
+            },
         };
+
+        // Before the record exists anywhere, so a refusal leaves no half-made project behind.
+        // `keep` writes the metadata again below; this is the call that makes the folder, the
+        // ignore file and the pointer a store resolves through.
+        if record.storage.is_project_managed()
+            && let Err(error) = project_dir::provision(&self.root, &record)
+        {
+            return vec![Reply::Asker(message_error(
+                None,
+                format!(
+                    "could not make {}: {error}",
+                    project_dir::in_project_dir(&record.path).display()
+                ),
+            ))];
+        }
 
         let snapshot = self.snapshot(&record);
         let mut replies = vec![Reply::Everyone(
@@ -458,6 +569,11 @@ impl Projects {
     ///
     /// The order matters: the catalogue is authoritative, so it goes first, and a directory left
     /// behind by a crash between the two is collected at the next load.
+    ///
+    /// A project-managed project's `.ubiq/` is **not** touched. It is inside the user's own
+    /// folder, which Forget has never deleted anything from, and it is committed — removing it
+    /// would be a change to the user's repository rather than to what Ubiq remembers. Adding the
+    /// folder again as project-managed picks the tasks back up, under a new id.
     pub fn forget(&mut self, id: ProjectId) -> Vec<Reply> {
         let Some(folder) = self
             .find(id)
@@ -648,6 +764,20 @@ impl Projects {
 
         // The id, the colour and the history are the point of Locate: only the path moves.
         record.path = as_text;
+        // A project-managed project's `.ubiq/` moved with the folder it is inside, but the pointer
+        // under the config root still names where the folder was. Re-provisioning rewrites it —
+        // and makes the folder again if the move was a copy that left it behind.
+        if record.storage.is_project_managed()
+            && let Err(error) = project_dir::provision(&self.root, &record)
+        {
+            return vec![Reply::Asker(message_error(
+                Some(id),
+                format!(
+                    "could not reach {}: {error}",
+                    project_dir::in_project_dir(&record.path).display()
+                ),
+            ))];
+        }
         let snapshot = self.snapshot(&record);
         let mut replies = vec![Reply::Everyone(
             ubiq_proto::messages::Message::ProjectChanged { project: snapshot },

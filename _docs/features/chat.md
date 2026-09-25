@@ -5,9 +5,9 @@ kind: feature
 status: draft
 summary: Editor-like chat tabs — many, movable to any dockable region, each a view onto a host-owned conversation or onto none, drawn by the composer, transcript and tool blocks the whole window shares.
 read_when: you are changing a chat tab, the control that starts or attaches a conversation, or which conversation a tab shows
-updated: 2026-09-24
-verified: 2026-09-24
-code_anchors: [crates/ubiq/src/ui/chat/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/conversation/info.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/ask.rs, crates/ubiq/src/app/ask.rs, crates/ubiq/src/ui/ask.rs, crates/ubiq-proto/src/ask.rs]
+updated: 2026-09-25
+verified: 2026-09-25
+code_anchors: [crates/ubiq/src/ui/chat/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/conversation/info.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/ask.rs, crates/ubiq/src/app/ask.rs, crates/ubiq/src/ui/ask.rs, crates/ubiq-proto/src/ask.rs]
 depends_on: [feat-workbench]
 review_cycle: monthly
 ---
@@ -119,7 +119,7 @@ behind it is the conversation family's `ConversationNamed`
 ([`../tech/transport-contract.md`](../tech/transport-contract.md)), and `D90` is why a name Ubiq
 invented may be replaced by one it read.
 
-**Before that naming lands, the tab shows the profile it was started from rather than the bare
+**Before that naming lands, the tab shows the agent definition it was started from rather than the bare
 harness label (T-102).** `AppState::agent_title` is what every surface that used to print
 `WorkAgent::name` directly reads now — the dock tab included — and it prefers the session-only
 `agent_started_profile` record over the harness-and-counter default for as long as
@@ -237,6 +237,16 @@ drawn is an estimate of a line of prose per eighty characters. Either of the las
 the frame that draws it, which asks for one more, so an estimate lasts a frame. The plan also records which block each row stands for, which is how the strip above
 resolves a block to a row to scroll to.
 
+**A forced re-measure runs on a timer too, underneath `needs_measure`'s own signature check.** A
+long, busy conversation's virtualized rows are seen to drift out of position in a way nothing in the
+signature — content, width, the conversation family's body size — explains or reproduces on demand;
+resizing the panel always fixes it, because the width change forces every row to re-measure whether
+or not its signature moved. `TranscriptScroll::force_relayout` asks the next frame to do exactly
+that unconditionally, and `AppState::new` (`app/boot.rs`) runs one such pass per composer slot every
+four seconds, reading back through `TranscriptScroll::take_force_result` whether anything actually
+moved: a pass that changes nothing ends that slot's loop, one that does keeps it going. This is a
+mitigation for an unexplained symptom, not a fix for a known cause — `backlog.md`'s `G354`.
+
 **Two things in the transcript fold, and their rules differ.** A run of same-kind tool calls needs
 three before folding pays and keeps its last card out; a run of reasoning folds unconditionally into
 one box. Both judge a run over the blocks *on screen* — contiguity is read across `visible_blocks()`,
@@ -274,6 +284,15 @@ transcript. There is one button per `PermissionOption` the harness offered, labe
 option's own `name` and differentiated by its `kind` — allow from reject, with an "always" variant
 marked as lasting. `kind` decides only how a button reads: the `option_id` is opaque, echoed back
 unchanged, and nothing on this side interprets it or remembers a choice.
+
+**The request's own detail scrolls in its own capped region, so a long one cannot push the answer
+buttons out of reach** (T-175). A `switch_mode` prompt's plan or a pre-approval diff is unbounded —
+`permission()`'s `detail`, drawn from the request's own `content` rather than the block above it —
+and before this it grew the card without limit, so a long one meant scrolling the whole transcript
+past it to find Allow/Reject. It is now `max_h(theme::permission_detail_max_h())` (base
+`PERMISSION_DETAIL_MAX_H`) plus `overflow_y_scroll()`, on its own `id` keyed by the request id, the
+way a modal's body scrolls under `MODAL_MAX_HEIGHT` rather than growing the modal itself — the title
+and the buttons stay put; only the detail between them scrolls.
 
 **A conversation set to accept everything is shown no ask at all.** The three-dots menu's
 *Accept all* (`SetConversationAcceptAll`, described with the rest of the menu on the agents screen) is answered
@@ -336,6 +355,22 @@ beside an option's label** — the whole card is the target and picked reads as 
 and edge, the same rule `kit::card`'s `selected` draws everywhere else. The tab strip stays put while
 only the question below it scrolls, so a tall list of options never pushes the strip itself out of
 reach.
+
+**A question arrives in one of two ways, and the dialog is the same either way.** An agent that
+calls `ask_user_question` parks its tool call and the dialog is raised there and then, mid-turn. An
+agent that calls `register_question` is not waiting for anything: the dialog is raised the moment
+that agent's **turn ends**, and answering it is what opens the next turn — the prose of what was
+picked is submitted as the prompt, so the transcript shows the dialog and its answer rather than
+that prose. Typing into the composer instead closes the dialog: answering it and speaking for the
+same turn are the same act, and the user may do either once. A turn that fails after registering
+raises nothing — the user is left with the error. The transport contract states both modes; `D175`
+is the choice.
+
+**One ask is drawn in one transcript: the asking agent's.** A conversation and every subagent it
+spawns share one `AgentId` and one `ubiq-ask` endpoint, so the record carries who was speaking when
+the ask landed (`AskRecord::subagent`, from `Conversation::asking_subagent`) and the row is drawn in
+that transcript alone — the main agent's when the conversation itself asked, a delegate's tab when a
+running delegate did.
 
 **The transcript row reads as `warning` while it blocks the harness, and as `accent` once it
 does not.** `theme::warning`/`warning_soft` are the same tokens `ui::conversation::permission`
@@ -812,7 +847,7 @@ field the filter. A grouped, searchable, partly-inert list was already what that
 | A naming answers Markdown, an emoji or a label it was asked not to add | Both are taken off before the title is written down. The wording asks for simple plain text in so many words; `ubiq_proto::assist::plain_text` is the net under it, and a line that was nothing but decoration is dropped rather than becoming an empty name |
 | The chat range's composer slots are all taken | The strip's `+` and a re-opened empty right region do nothing; there is no ninth slot to hand out, the same ceiling a ninth column meets |
 | A harness is uninstalled between the draw and the click | The start form refuses rather than sending a `StartConversation` that would fail as a spawn, and the tab stays attached to what it had |
-| The remembered harness is gone, or the remembered profile deleted | The form answers nothing rather than opening on a start that would fail |
+| The remembered harness is gone, or the remembered agent definition deleted | The form answers nothing rather than opening on a start that would fail |
 | A saved arrangement names a chat id this window never minted | The leaf is dropped, and the tree normalises around the gap, the same as an unfamiliar saved terminal leaf |
 | A picker's filter matches nothing | The panel says so; a row already disabled is never what a filter with no matches is confused for |
 | A menu is open and the user clicks elsewhere | The menu dismisses; no other menu opens on the same click |
@@ -839,6 +874,9 @@ field the filter. A grouped, searchable, partly-inert list was already what that
 | An `AskUser` arrives while its conversation is off screen, or while any dialog is already up | A notification is raised instead of the modal, and the transcript's "Ask for feedback" entry is the way back to it; the drafts wait there until it is opened |
 | An ask's dialog is opened after it was answered, chatted away, timed out or its conversation ended | The same dialog, with no controls — the questions and what was chosen, read-only |
 | A conversation an ask belongs to ends, is unloaded, or its harness dies while the ask is still waiting | `AskEnded` closes it as `Gone`; the entry and a reopened dialog say so instead of offering a control that would send into nothing |
+| A registered dialog is on screen and the user types a prompt instead of answering it | The prompt is the turn; `AskEnded{Gone}` closes the dialog, and an answer that races it lands nowhere |
+| A turn fails, is cancelled or is refused after the agent registered a dialog | Nothing is raised: the armed row is dropped, and the transcript shows the error alone |
+| A delegate registers a dialog and the reader is on the main agent's transcript | The modal opens as usual; the transcript row is in the delegate's tab, where that delegate's turns are read |
 
 ## Related docs
 

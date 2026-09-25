@@ -11,7 +11,8 @@ use serde_json::{Value, json};
 use ubiq_proto::ids::{ProjectId, StepId, TaskId};
 use ubiq_proto::messages::{Message, TaskField};
 use ubiq_proto::work::{
-    Attachment, Comment, CommentAuthor, Complexity, Kind, Label, Priority, Status, Step, TaskRecord,
+    Attachment, Comment, CommentAuthor, Complexity, Kind, Label, Level, Priority, Shape, Status,
+    Step, TaskRecord,
 };
 
 use super::WorkAccess;
@@ -221,8 +222,12 @@ fn create_task(
     let labels = opt_str_list(arguments, "labels")?;
     let attachments = opt_attachments(arguments, "attachments")?;
     let prerequisites = opt_task_id_list(arguments, "prerequisites")?;
+    let shape = opt_str(arguments, "shape")?.map(parse_shape).transpose()?;
+    let level = opt_str(arguments, "level")?.map(parse_level).transpose()?;
+    let parent = opt_clearable_task_id(arguments, "parent")?;
+    let references = opt_task_id_list(arguments, "references")?;
 
-    let prereq_error: RefCell<Option<String>> = RefCell::new(None);
+    let work_error: RefCell<Option<String>> = RefCell::new(None);
     let messages = mutate(access, |work| {
         let mut replies = work.create(project, title.to_string(), None);
         let Some(id) = created_id(&replies) else {
@@ -233,6 +238,12 @@ fn create_task(
         }
         if let Some(kind) = kind {
             replies.extend(work.set_field(project, id, TaskField::Kind(Some(kind))));
+        }
+        if let Some(shape) = shape {
+            replies.extend(work.set_field(project, id, TaskField::Shape(Some(shape))));
+        }
+        if let Some(level) = level {
+            replies.extend(work.set_field(project, id, TaskField::Level(Some(level))));
         }
         if let Some(complexity) = complexity {
             replies.extend(work.set_field(project, id, TaskField::Complexity(Some(complexity))));
@@ -253,10 +264,18 @@ fn create_task(
         if let Some(attachments) = attachments.clone() {
             replies.extend(work.set_field(project, id, TaskField::Attachments(attachments)));
         }
+        if let Some(references) = references.clone() {
+            replies.extend(work.set_field(project, id, TaskField::References(references)));
+        }
+        if let Some(parent) = parent {
+            let field_replies = work.set_field(project, id, TaskField::Parent(parent));
+            capture_work_error(&field_replies, &work_error);
+            replies.extend(field_replies);
+        }
         if let Some(prerequisites) = prerequisites.clone() {
             let field_replies =
                 work.set_field(project, id, TaskField::Prerequisites(prerequisites));
-            capture_work_error(&field_replies, &prereq_error);
+            capture_work_error(&field_replies, &work_error);
             replies.extend(field_replies);
         }
         if let Some(status) = status {
@@ -264,7 +283,7 @@ fn create_task(
         }
         replies
     })?;
-    if let Some(error) = prereq_error.into_inner() {
+    if let Some(error) = work_error.into_inner() {
         return Err(error);
     }
     let tasks = load_tasks(access, project)?;
@@ -295,8 +314,12 @@ fn update_task(
     let labels = opt_str_list(arguments, "labels")?;
     let attachments = opt_attachments(arguments, "attachments")?;
     let prerequisites = opt_task_id_list(arguments, "prerequisites")?;
+    let shape = opt_str(arguments, "shape")?.map(parse_shape).transpose()?;
+    let level = opt_str(arguments, "level")?.map(parse_level).transpose()?;
+    let parent = opt_clearable_task_id(arguments, "parent")?;
+    let references = opt_task_id_list(arguments, "references")?;
 
-    let prereq_error: RefCell<Option<String>> = RefCell::new(None);
+    let work_error: RefCell<Option<String>> = RefCell::new(None);
     let messages = mutate(access, |work| {
         let mut replies = Vec::new();
         if title.is_some() || description.is_some() || priority.is_some() {
@@ -304,6 +327,12 @@ fn update_task(
         }
         if let Some(kind) = kind {
             replies.extend(work.set_field(project, id, TaskField::Kind(Some(kind))));
+        }
+        if let Some(shape) = shape {
+            replies.extend(work.set_field(project, id, TaskField::Shape(Some(shape))));
+        }
+        if let Some(level) = level {
+            replies.extend(work.set_field(project, id, TaskField::Level(Some(level))));
         }
         if let Some(complexity) = complexity {
             replies.extend(work.set_field(project, id, TaskField::Complexity(Some(complexity))));
@@ -324,10 +353,18 @@ fn update_task(
         if let Some(attachments) = attachments.clone() {
             replies.extend(work.set_field(project, id, TaskField::Attachments(attachments)));
         }
+        if let Some(references) = references.clone() {
+            replies.extend(work.set_field(project, id, TaskField::References(references)));
+        }
+        if let Some(parent) = parent {
+            let field_replies = work.set_field(project, id, TaskField::Parent(parent));
+            capture_work_error(&field_replies, &work_error);
+            replies.extend(field_replies);
+        }
         if let Some(prerequisites) = prerequisites.clone() {
             let field_replies =
                 work.set_field(project, id, TaskField::Prerequisites(prerequisites));
-            capture_work_error(&field_replies, &prereq_error);
+            capture_work_error(&field_replies, &work_error);
             replies.extend(field_replies);
         }
         if let Some(status) = status {
@@ -335,7 +372,7 @@ fn update_task(
         }
         replies
     })?;
-    if let Some(error) = prereq_error.into_inner() {
+    if let Some(error) = work_error.into_inner() {
         return Err(error);
     }
     if messages.is_empty() {
@@ -367,13 +404,27 @@ fn delete_task(
 }
 
 fn get_task(arguments: &Value, project: ProjectId, access: &WorkAccess) -> Result<Value, String> {
-    let id = parse_task_id(required_str(arguments, "task_id")?)?;
+    let raw = required_str(arguments, "task_id")?;
     let tasks = load_tasks(access, project)?;
-    let task = tasks
-        .iter()
-        .find(|task| task.id == id)
-        .ok_or_else(|| "no such task".to_string())?;
+    let task = find_task(&tasks, raw)?;
     Ok(json!({"task": task_json(task, &tasks)}))
+}
+
+/// `task_id` read either way a model might have it in hand: the host's own id, or the user-set
+/// [`TaskRecord::key`] (`T-166`) — the same value [`task_ref`] hands back for a prerequisite or a
+/// parent, so a round trip through `get_task` never needs the raw id at all. The id is tried
+/// first (cheap and unambiguous — a key is never a valid ULID), the key second.
+fn find_task<'a>(tasks: &'a [TaskRecord], raw: &str) -> Result<&'a TaskRecord, String> {
+    let raw = raw.trim();
+    if let Ok(id) = parse_task_id(raw)
+        && let Some(task) = tasks.iter().find(|task| task.id == id)
+    {
+        return Ok(task);
+    }
+    tasks
+        .iter()
+        .find(|task| task.key.as_deref() == Some(raw))
+        .ok_or_else(|| "no such task".to_string())
 }
 
 fn add_comment(
@@ -638,17 +689,22 @@ fn task_json(task: &TaskRecord, tasks: &[TaskRecord]) -> Value {
         "status": task.status.label(),
         "priority": priority_name(task.priority),
         "kind": task.kind.map(|kind| kind.label()),
+        "level": task.level.map(|_| "mission"),
+        "shape": task.shape.map(shape_name),
+        "parent": task.parent.map(|id| task_ref(tasks, id)),
         "complexity": task.complexity.map(|complexity| complexity.label()),
         "assigned_to": task.assigned_to,
         "key": task.key,
         "link": task.link,
         "labels": task.labels.iter().map(label_json).collect::<Vec<_>>(),
         "attachments": task.attachments.iter().map(attachment_json).collect::<Vec<_>>(),
+        "references": task.references.iter().map(|id| task_ref(tasks, *id)).collect::<Vec<_>>(),
         "prerequisites": task.prerequisites.iter().map(|id| task_ref(tasks, *id)).collect::<Vec<_>>(),
         "ready": task.ready(tasks),
         "waiting_on": task.waiting_on(tasks).iter().map(|id| task_ref(tasks, *id)).collect::<Vec<_>>(),
         "todos": task.steps.iter().map(todo_json).collect::<Vec<_>>(),
         "comments": task.comments.iter().map(comment_json).collect::<Vec<_>>(),
+        "session": task.session.map(|id| id.to_string()),
         "created_at": task.created_at.to_rfc3339(),
         "updated_at": task.updated_at.to_rfc3339(),
     })
@@ -715,6 +771,16 @@ fn label_json(label: &Label) -> Value {
 
 fn priority_name(priority: Priority) -> &'static str {
     priority.label().unwrap_or("normal")
+}
+
+/// Lower-case, round-trips through [`parse_shape`] — unlike [`Shape::label`], which is the
+/// board's own upper-case display form.
+fn shape_name(shape: Shape) -> &'static str {
+    match shape {
+        Shape::Direct => "direct",
+        Shape::Chain => "chain",
+        Shape::Coordinated => "coordinated",
+    }
 }
 
 fn task_matches_text(task: &TaskRecord, text: &str) -> bool {
@@ -856,6 +922,23 @@ fn opt_task_id_list(arguments: &Value, key: &str) -> Result<Option<Vec<TaskId>>,
         .transpose()
 }
 
+/// `parent`, read the same way [`opt_str`]'s other clearable fields (`assigned_to`, `key`,
+/// `link`) are: omitted or null leaves it alone (`None`), a task id sets it (`Some(Some(id))`),
+/// and an empty string clears it (`Some(None)`) — the same distinction `labels: []` and
+/// `prerequisites: []` draw with an empty array, spelled the only way a single id can.
+fn opt_clearable_task_id(arguments: &Value, key: &str) -> Result<Option<Option<TaskId>>, String> {
+    opt_str(arguments, key)?
+        .map(|value| {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                Ok(None)
+            } else {
+                parse_task_id(trimmed).map(Some)
+            }
+        })
+        .transpose()
+}
+
 fn parse_task_id(value: &str) -> Result<TaskId, String> {
     value.parse().map_err(|_| format!("not a task id: {value}"))
 }
@@ -904,6 +987,27 @@ fn parse_complexity(value: &str) -> Result<Complexity, String> {
         _ => Err(format!(
             "unknown complexity '{value}': use low, medium, or high"
         )),
+    }
+}
+
+fn parse_shape(value: &str) -> Result<Shape, String> {
+    match value.trim().to_lowercase().as_str() {
+        "direct" => Ok(Shape::Direct),
+        "chain" => Ok(Shape::Chain),
+        "coordinated" => Ok(Shape::Coordinated),
+        _ => Err(format!(
+            "unknown shape '{value}': use direct, chain, or coordinated"
+        )),
+    }
+}
+
+/// The only level today — see [`Level::all`] — but matched by name rather than by "is this
+/// non-empty", so a second one added there fails loudly here instead of silently accepting
+/// anything.
+fn parse_level(value: &str) -> Result<Level, String> {
+    match value.trim().to_lowercase().as_str() {
+        "mission" => Ok(Level::Mission),
+        _ => Err(format!("unknown level '{value}': use mission")),
     }
 }
 
@@ -1178,5 +1282,86 @@ mod tests {
     #[test]
     fn fixture_project_id_matches_facts() {
         assert_eq!(project().to_string(), facts().project.id);
+    }
+
+    /// T-165: `create_task`/`update_task` now reach `shape`, `level`, `parent` and `references`
+    /// the same way they already reached `kind` and `prerequisites` — the fields the board's
+    /// form has carried for a while (`_docs/features/workbench-tasks.md`) but the tools had not
+    /// caught up to yet.
+    #[test]
+    fn create_and_update_task_set_shape_level_parent_and_references() {
+        let (access, _hub, _host) = access();
+        let facts = facts();
+
+        let mission = manage_call(
+            "create_task",
+            &json!({"title": "mission", "level": "mission"}),
+            &facts,
+            &access,
+        )
+        .unwrap();
+        assert_eq!(mission["task"]["level"], json!("mission"));
+        let mission_id = task_id(&mission);
+        let mission_key = task_key(&mission);
+
+        let other =
+            manage_call("create_task", &json!({"title": "other"}), &facts, &access).unwrap();
+        let other_id = task_id(&other);
+        let other_key = task_key(&other);
+
+        let child = manage_call(
+            "create_task",
+            &json!({
+                "title": "child",
+                "shape": "coordinated",
+                "parent": mission_id,
+                "references": [other_id],
+            }),
+            &facts,
+            &access,
+        )
+        .unwrap();
+        assert_eq!(child["task"]["shape"], json!("coordinated"));
+        assert_eq!(child["task"]["parent"], json!(mission_key));
+        assert_eq!(child["task"]["references"], json!([other_key]));
+        let child_id = task_id(&child);
+
+        // Clearing the parent: an empty string, the same convention `assigned_to`/`key`/`link`
+        // use for "rub it out".
+        let cleared = manage_call(
+            "update_task",
+            &json!({"task_id": child_id, "parent": ""}),
+            &facts,
+            &access,
+        )
+        .unwrap();
+        assert_eq!(cleared["task"]["parent"], Value::Null);
+    }
+
+    /// T-165: `get_task` reads a task by its user-set key as well as by its own id — a model that
+    /// only ever saw `T-166` should not have to ask for the raw id first.
+    #[test]
+    fn get_task_resolves_by_key_as_well_as_id() {
+        let (access, _hub, _host) = access();
+        let facts = facts();
+
+        let created = manage_call(
+            "create_task",
+            &json!({"title": "a", "key": "T-166"}),
+            &facts,
+            &access,
+        )
+        .unwrap();
+        let id = task_id(&created);
+
+        let by_key =
+            manage_call("get_task", &json!({"task_id": "T-166"}), &facts, &access).unwrap();
+        assert_eq!(by_key["task"]["id"], json!(id));
+
+        let by_id = manage_call("get_task", &json!({"task_id": id}), &facts, &access).unwrap();
+        assert_eq!(by_id["task"]["id"], json!(id));
+
+        let missing = manage_call("get_task", &json!({"task_id": "T-999"}), &facts, &access);
+        assert!(missing.is_err());
     }
 }

@@ -153,6 +153,16 @@ pub fn new_column_strip() -> f32 {
     scaled(NEW_COLUMN_STRIP)
 }
 
+/// A permission ask's own detail — the patch or plan a `switch_mode` / pre-approval prompt carries
+/// (`ui::conversation::permission`). Unbounded, so it is the one part of the card that scrolls: capped
+/// at this height rather than left to push the answer buttons out of reach the way a long diff did
+/// (T-175).
+pub const PERMISSION_DETAIL_MAX_H: f32 = 220.0;
+
+pub fn permission_detail_max_h() -> f32 {
+    scaled(PERMISSION_DETAIL_MAX_H)
+}
+
 /// The start control on an empty chat panel: about three times a chrome `kit::icon_button`,
 /// because it is the page's whole subject rather than one control among a row of them.
 pub const EMPTY_START_SIZE: f32 = 90.0;
@@ -527,6 +537,15 @@ pub struct TextColors {
     pub primary: Rgba,
     pub muted: Rgba,
     pub faint: Rgba,
+    /// The boldest of the four body-text shades the reading-options menu offers (T-188) — the
+    /// step past `primary`, toward whichever end of the palette's own range is furthest from the
+    /// ground. In most palettes that is a plain white or black; in one already at that extreme
+    /// (`CONTRAST_DARK`/`CONTRAST_LIGHT`) there is nowhere further to go, so it equals `primary`
+    /// there — an honest four-swatch picker still offers four picks, two of which happen to read
+    /// the same in that one palette. Four tokens, not a computed alpha over one: `theme::fade`'s
+    /// alpha would still be a fixed value dressed up as a decision, and it composites over
+    /// whatever is behind the text rather than reading as a shade of it.
+    pub strong: Rgba,
     pub on_accent: Rgba,
     /// The brand mark drawn as a watermark behind an empty surface. GPUI paints an `svg()` as a
     /// single-colour alpha mask, so the ring needs one flat colour rather than a per-theme asset —
@@ -1671,6 +1690,12 @@ pub fn text_faint() -> Rgba {
     Theme::current().palette.text.faint
 }
 
+/// The fourth and boldest of the reading-options text-colour picker's four rectangles (T-188).
+/// See [`TextColors::strong`].
+pub fn text_strong() -> Rgba {
+    Theme::current().palette.text.strong
+}
+
 pub fn on_accent() -> Rgba {
     Theme::current().palette.text.on_accent
 }
@@ -1937,6 +1962,7 @@ const DARK: Palette = Palette {
         primary: rgba_hex(0xe8e8ed),
         muted: rgba_hex(0x8f8f9a),
         faint: rgba_hex(0x5c5c68),
+        strong: rgba_hex(0xffffff),
         on_accent: rgba_hex(0xffffff),
         mark: rgba_hex(0xffffff),
     },
@@ -2012,6 +2038,7 @@ const LIGHT: Palette = Palette {
         primary: rgba_hex(0x1a1a2e),
         muted: rgba_hex(0x6b6b80),
         faint: rgba_hex(0x9a9aac),
+        strong: rgba_hex(0x000000),
         on_accent: rgba_hex(0xffffff),
         mark: rgba_hex(0x003d6e),
     },
@@ -2145,6 +2172,7 @@ const EMBER_DARK: Palette = Palette {
         primary: rgba_hex(0xe3d7c8),
         muted: rgba_hex(0xa89583),
         faint: rgba_hex(0x7c6c5c),
+        strong: rgba_hex(0xfaf1e6),
         on_accent: rgba_hex(0x1b1409),
         mark: rgba_hex(0xffffff),
     },
@@ -2200,6 +2228,7 @@ const EMBER_LIGHT: Palette = Palette {
         primary: rgba_hex(0x3b3229),
         muted: rgba_hex(0x7a6b58),
         faint: rgba_hex(0xa2947f),
+        strong: rgba_hex(0x241a10),
         on_accent: rgba_hex(0xfdfaf3),
         mark: rgba_hex(0x003d6e),
     },
@@ -2256,6 +2285,9 @@ const CONTRAST_DARK: Palette = Palette {
         primary: rgba_hex(0xffffff),
         muted: rgba_hex(0xd4d4d4),
         faint: rgba_hex(0xa8a8a8),
+        // Already the palette's own extreme — `_docs`'s note on `TextColors::strong` — so this
+        // one shade has nowhere bolder to offer.
+        strong: rgba_hex(0xffffff),
         on_accent: rgba_hex(0x000000),
         mark: rgba_hex(0xffffff),
     },
@@ -2311,6 +2343,8 @@ const CONTRAST_LIGHT: Palette = Palette {
         primary: rgba_hex(0x000000),
         muted: rgba_hex(0x333333),
         faint: rgba_hex(0x555555),
+        // Already the palette's own extreme, on the same footing as `CONTRAST_DARK`'s.
+        strong: rgba_hex(0x000000),
         on_accent: rgba_hex(0xffffff),
         mark: rgba_hex(0x003d6e),
     },
@@ -2367,6 +2401,7 @@ const NAVY_DARK: Palette = Palette {
         primary: rgba_hex(0xd8e4f0),
         muted: rgba_hex(0x7e90a6),
         faint: rgba_hex(0x546478),
+        strong: rgba_hex(0xffffff),
         on_accent: rgba_hex(0xffffff),
         mark: rgba_hex(0xffffff),
     },
@@ -2422,6 +2457,7 @@ const NAVY_LIGHT: Palette = Palette {
         primary: rgba_hex(0x15202e),
         muted: rgba_hex(0x4a5d73),
         faint: rgba_hex(0x7a8ca0),
+        strong: rgba_hex(0x000000),
         on_accent: rgba_hex(0xffffff),
         mark: rgba_hex(0x003d6e),
     },
@@ -2478,6 +2514,7 @@ const VIOLET_DARK: Palette = Palette {
         primary: rgba_hex(0xece6f4),
         muted: rgba_hex(0x9a8cad),
         faint: rgba_hex(0x6c5e80),
+        strong: rgba_hex(0xffffff),
         on_accent: rgba_hex(0xffffff),
         mark: rgba_hex(0xffffff),
     },
@@ -2533,6 +2570,7 @@ const VIOLET_LIGHT: Palette = Palette {
         primary: rgba_hex(0x2a1f38),
         muted: rgba_hex(0x6a5a7c),
         faint: rgba_hex(0x9488a4),
+        strong: rgba_hex(0x000000),
         on_accent: rgba_hex(0xffffff),
         mark: rgba_hex(0x003d6e),
     },

@@ -724,6 +724,10 @@ impl AppState {
     ///
     /// `temporary` is a folder dropped in rather than chosen: it opens the same way, but the host
     /// never writes it to the catalogue unless the user later keeps it from the titlebar.
+    ///
+    /// `storage` is where the project keeps its own data, and the host takes it only here: it is
+    /// chosen when the project is created and never changed afterwards.
+    #[allow(clippy::too_many_arguments)]
     pub fn add_project(
         &mut self,
         path: String,
@@ -731,6 +735,7 @@ impl AppState {
         colour: Option<usize>,
         custom: Option<u32>,
         temporary: bool,
+        storage: StorageMode,
         cx: &mut Context<Self>,
     ) {
         self.adding = true;
@@ -740,7 +745,15 @@ impl AppState {
             colour,
             custom_colour: custom,
             temporary,
+            storage,
         });
+        cx.notify();
+    }
+
+    /// Choose where a project being created will keep its data. Nothing is sent: the answer rides
+    /// on the `AddProject` the panel's Create commits.
+    pub fn set_create_storage(&mut self, storage: StorageMode, cx: &mut Context<Self>) {
+        self.create_storage = storage;
         cx.notify();
     }
 
@@ -805,6 +818,9 @@ impl AppState {
     /// frame, because `set_value` needs a window and the chooser does not come with one.
     pub fn open_create_project(&mut self, path: String, cx: &mut Context<Self>) {
         let colour = self.next_colour(cx);
+        // Every creation starts from the default, so a folder the user once made project-managed
+        // does not silently decide for the next one.
+        self.create_storage = StorageMode::default();
         self.workbench.open_menu = None;
         self.workbench.settings.open = false;
         self.workbench.project_settings = Some(ProjectSettings {
@@ -817,6 +833,8 @@ impl AppState {
             // not enabled over it either.
             drone: DroneField::default(),
             nav: ProjectNav::General,
+            // A folder with no record has no definitions of its own either.
+            definitions_use_global: true,
         });
         self.fill_project_form = true;
         cx.notify();
@@ -853,6 +871,14 @@ impl AppState {
             },
             drone: DroneField::from_origin(snapshot.record.runs_on.as_ref()),
             nav: ProjectNav::General,
+            // Read off the definitions rather than stored: a project that has written none of its
+            // own is a project on the globals.
+            definitions_use_global: !self
+                .workbench
+                .settings
+                .project_definitions
+                .iter()
+                .any(|it| it.project == Some(project)),
         });
         // The KB nav's sources and the explorer's are the same configuration, so whichever asks
         // first is the one that lands: a dialog opened before the mode was ever visited must not
@@ -892,7 +918,8 @@ impl AppState {
                 // The record does not exist until `AddProject` answers, so an override typed
                 // during creation has nowhere to be sent yet — the same reason `fill_project_form`
                 // never seeds this field for Create.
-                self.add_project(path, Some(name), Some(colour), custom, false, cx);
+                let storage = self.create_storage;
+                self.add_project(path, Some(name), Some(colour), custom, false, storage, cx);
             }
             ProjectSettingsMode::Edit { project } => {
                 // Nothing marks this as a promotion: the host treats an `UpdateProject` on a

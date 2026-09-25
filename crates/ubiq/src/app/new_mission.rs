@@ -36,9 +36,9 @@ impl AppState {
         let query = self.new_mission_task_query.clone();
         query.update(cx, |state, cx| state.set_value("", window, cx));
         title.update(cx, |state, cx| state.focus(window, cx));
-        // The assistant picker filters this list itself; asked fresh so a profile ticked
+        // The assistant picker filters this list itself; asked fresh so a definition ticked
         // `mission assistant` since the window opened is offered without a restart.
-        self.bus.send(Message::ListProfiles);
+        self.bus.send(Message::ListAgentDefinitions);
         cx.notify();
     }
 
@@ -74,7 +74,7 @@ impl AppState {
         cx.notify();
     }
 
-    /// Everyone the coordinator picker offers, in the order it draws them: the profiles ticked as
+    /// Everyone the coordinator picker offers, in the order it draws them: the definitions ticked as
     /// mission assistants, then every agent already running in this window (M10's *attach a
     /// running agent*).
     ///
@@ -82,13 +82,24 @@ impl AppState {
     /// in the row, so the picker's labels and what a pick resolves to cannot disagree.
     pub fn new_mission_coordinators(&self, cx: &App) -> Vec<(String, Coordinator)> {
         let project = self.project(cx);
-        let profiles = self.workbench.settings.profiles_in(project);
-        let mut rows: Vec<(String, Coordinator)> = assistants(&profiles)
+        let definitions = self.workbench.settings.definitions_in(project);
+        let mut rows: Vec<(String, Coordinator)> = assistants(&definitions)
             .into_iter()
-            .map(|profile| (profile.id.clone(), Coordinator::Profile(profile.id.clone())))
+            .map(|definition| {
+                (
+                    definition.id.clone(),
+                    Coordinator::AgentDefinition(definition.id.clone()),
+                )
+            })
             .collect();
         if let Some(work) = self.work(cx) {
             for agent in &work.agents {
+                // Only an agent whose conversation is actually live is "running" — one whose
+                // harness has been unloaded or stopped is not a candidate to adopt as it is, and
+                // offering it here would be a placeholder entry nothing can resolve.
+                if !self.conversation_live(agent.id) {
+                    continue;
+                }
                 rows.push((
                     format!("{} \u{2014} running", self.agent_title(agent)),
                     Coordinator::Running(agent.id),
@@ -276,20 +287,20 @@ impl AppState {
             project_id,
             task_id,
         });
-        // **The agent-kinds table is seeded from the project's profiles** (M13). A mission whose
-        // table is empty can only be spawned into by naming a profile outright, so the dialog
+        // **The agent-kinds table is seeded from the project's definitions** (M13). A mission whose
+        // table is empty can only be spawned into by naming a definition outright, so the dialog
         // fills it with what the project already has — the same list the panel's picker offers,
         // so the two never disagree about what a kind may resolve to. Edited on the mission's
         // Agents tab afterwards; seeding is a starting point, not a decision.
         let kinds: Vec<AgentKind> = self
             .workbench
             .settings
-            .profiles_in(Some(project_id))
+            .definitions_in(Some(project_id))
             .into_iter()
-            .map(|profile| AgentKind {
-                name: profile.id.clone(),
+            .map(|definition| AgentKind {
+                name: definition.id.clone(),
                 description: String::new(),
-                profile: Some(profile.id),
+                definition: Some(definition.id),
                 ..AgentKind::default()
             })
             .collect();
@@ -343,18 +354,18 @@ impl AppState {
         // `send_prompt` queues behind it.
         let agent_id = match pending.coordinator {
             Coordinator::Running(agent_id) => agent_id,
-            Coordinator::Profile(id) => {
-                // `profiles_in` rather than the global list alone: the picker offered this
-                // project's own scoped profiles too (G331), so the launch has to resolve against
+            Coordinator::AgentDefinition(id) => {
+                // `definitions_in` rather than the global list alone: the picker offered this
+                // project's own scoped definitions too (G331), so the launch has to resolve against
                 // the same list or a project-scoped pick would vanish here.
-                let Some(profile) = self
+                let Some(definition) = self
                     .workbench
                     .settings
-                    .profiles_in(Some(project_id))
+                    .definitions_in(Some(project_id))
                     .into_iter()
-                    .find(|profile| profile.id == id)
+                    .find(|definition| definition.id == id)
                 else {
-                    // The profile the dialog offered is gone by the time the mission exists — the
+                    // The definition the dialog offered is gone by the time the mission exists — the
                     // mission itself still stands; there is just nobody left to launch.
                     return;
                 };
@@ -364,9 +375,9 @@ impl AppState {
                     project_id,
                     session_id: self.session,
                     rel_path: None,
-                    agent_type: profile.agent_type.clone(),
-                    account: profile.account.clone(),
-                    profile: Some(profile.id.clone()),
+                    agent_type: definition.agent_type.clone(),
+                    account: definition.account.clone(),
+                    definition: Some(definition.id.clone()),
                     model: None,
                     thinking: None,
                     mode: None,

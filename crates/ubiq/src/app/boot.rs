@@ -360,9 +360,9 @@ impl AppState {
         // Placeholder reseeded with the picked harness's own command whenever one is picked.
         let login_command_input = cx.new(|cx| InputState::new(window, cx).placeholder("claude"));
 
-        // Seeded whenever the profile form opens: empty for a new setup, the profile's own
+        // Seeded whenever the definition form opens: empty for a new setup, the definition's own
         // values when one is being edited.
-        let profile_id_input =
+        let definition_id_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("reviewer, planner\u{2026}"));
         // The new-mission dialog's title and description. Seeded empty on every open — a mission
         // draft holds nothing worth restoring if the dialog is dismissed.
@@ -381,12 +381,20 @@ impl AppState {
         });
         let new_mission_task_query =
             cx.new(|cx| InputState::new(window, cx).placeholder("Search tasks\u{2026}"));
-        // The opening prompt, for the New agent modal and the profile form alike. Seeded when
-        // either opens: empty for a bare harness, the profile's own words when one is picked.
+        // The opening prompt, for the New agent modal and the definition form alike. Seeded when
+        // either opens: empty for a bare harness, the definition's own words when one is picked.
         let new_agent_prompt = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .placeholder("What should this agent do first?\u{2026}")
                 .auto_grow(3, 8)
+        });
+        // The definition form's own free-form field: what this setup is for, read by another
+        // agent through the mission MCP rather than by the host. Seeded the same way the opening
+        // prompt is, and only ever drawn under `Purpose::AgentDefinition`.
+        let new_agent_description = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .placeholder("What is this for, and what does it carry\u{2026}")
+                .auto_grow(2, 6)
         });
 
         // Seeded fresh with the account's current id whenever the rename dialog opens, so this
@@ -436,7 +444,7 @@ impl AppState {
         // The API-provider form's typed fields. Seeded whenever the form opens — empty for a
         // provider being added, the record's own values when one is being edited — and the key box
         // is always left empty, because a stored key is never read back. No `PressEnter` or `Blur`
-        // subscription: every one of them is read at save time, the way the profile form's are,
+        // subscription: every one of them is read at save time, the way the definition form's are,
         // and the model boxes are also written by the picker that sits beside them.
         let ai_name_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("work, local\u{2026}"));
@@ -1511,8 +1519,9 @@ impl AppState {
             sink_modal_input.read(cx).focus_handle(cx),
             login_account_input.read(cx).focus_handle(cx),
             login_command_input.read(cx).focus_handle(cx),
-            profile_id_input.read(cx).focus_handle(cx),
+            definition_id_input.read(cx).focus_handle(cx),
             new_agent_prompt.read(cx).focus_handle(cx),
+            new_agent_description.read(cx).focus_handle(cx),
             new_mission_title_input.read(cx).focus_handle(cx),
             new_mission_description_input.read(cx).focus_handle(cx),
             new_mission_plan_input.read(cx).focus_handle(cx),
@@ -1627,6 +1636,49 @@ impl AppState {
         })
         .detach();
 
+        // A transcript's virtualized rows sometimes drift out of position over a long, busy
+        // conversation — a cached height that `needs_measure` had no signal to invalidate (T-194).
+        // Resizing the panel always fixes it, because the width change forces every row's
+        // signature to move; this is the same forced pass asked for on a timer instead, one per
+        // composer slot, so a transcript nobody is resizing straightens itself out too. Bounded:
+        // a pass that moves nothing means the transcript is settled, and the loop for that slot
+        // ends rather than polling forever.
+        for slot in 0..COMPOSER_SLOTS {
+            cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+                loop {
+                    let settle = cx.background_executor().timer(Duration::from_secs(4));
+                    settle.await;
+                    let asked = this.update(cx, |state, cx| {
+                        if let Some(scroll) = state.transcript_scrolls.get(slot) {
+                            scroll.force_relayout();
+                        }
+                        cx.notify();
+                    });
+                    if asked.is_err() {
+                        break;
+                    }
+                    // A frame to answer the request with, before the result is read back.
+                    let answered = cx.background_executor().timer(Duration::from_millis(150));
+                    answered.await;
+                    let result = this.update(cx, |state, _cx| {
+                        state
+                            .transcript_scrolls
+                            .get(slot)
+                            .and_then(TranscriptScroll::take_force_result)
+                    });
+                    match result {
+                        // Nothing moved: this slot's transcript is settled, so stop asking.
+                        Ok(Some(false)) => break,
+                        // Something moved, or nothing answered because the slot was not on
+                        // screen to run the pass — either way, ask again after the next wait.
+                        Ok(_) => {}
+                        Err(_) => break,
+                    }
+                }
+            })
+            .detach();
+        }
+
         let mut this = Self {
             window_id,
             this: cx.weak_entity(),
@@ -1672,6 +1724,7 @@ impl AppState {
             task_naming: None,
             adopt_on_list: false,
             adding: false,
+            create_storage: ubiq_proto::projects::StorageMode::default(),
             adding_select: None,
             pending_files: Vec::new(),
             pending_kb_docs: Vec::new(),
@@ -1759,8 +1812,9 @@ impl AppState {
             theme_hex_input,
             login_account_input,
             login_command_input,
-            profile_id_input,
+            definition_id_input,
             new_agent_prompt,
+            new_agent_description,
             new_mission_title_input,
             new_mission_description_input,
             new_mission_plan_input,
@@ -1818,6 +1872,11 @@ impl AppState {
             task_reference_scroll: ScrollHandle::new(),
             task_prerequisite_scroll: ScrollHandle::new(),
             plan_preview_list: gpui::ListState::new(
+                0,
+                gpui::ListAlignment::Top,
+                gpui::px(crate::ui::document::PLAN_OVERDRAW),
+            ),
+            plan_thread_list: gpui::ListState::new(
                 0,
                 gpui::ListAlignment::Top,
                 gpui::px(crate::ui::document::PLAN_OVERDRAW),

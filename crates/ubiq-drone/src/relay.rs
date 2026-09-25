@@ -883,6 +883,9 @@ fn record_for(root: &Root) -> ProjectRecord {
         lanes: Vec::new(),
         runs_on: None,
         initials: String::new(),
+        // A drone writes nothing down at all, so the mode that decides *where* it would is the
+        // plain one — there is no `.ubiq/` to make on the far machine and nobody to make it.
+        storage: ubiq_proto::projects::StorageMode::UbiqManaged,
     }
 }
 
@@ -916,7 +919,7 @@ fn refusal(message: &Message) -> Option<Message> {
             error: NOT_HERE.to_string(),
         },
 
-        // ── accounts, logins, profiles, MCP servers, agent types ──
+        // ── accounts, logins, definitions, MCP servers, agent types ──
         ListAgentTypes
         | CheckAgentCommand { .. }
         | ListHarnessCatalogue { .. }
@@ -926,8 +929,9 @@ fn refusal(message: &Message) -> Option<Message> {
         | RenameAccount { .. }
         | DeleteAccount { .. }
         | DeleteHarnessLogin { .. }
-        | ListProfiles
-        | SaveProfile { .. }
+        | ListAgentDefinitions
+        | SaveAgentDefinition { .. }
+        | CloneAgentDefinition { .. }
         | ListMcps
         | ListTools { .. }
         | RunTool { .. } => AccountError {
@@ -993,6 +997,7 @@ fn refusal(message: &Message) -> Option<Message> {
         | MoveTask { project_id, .. }
         | AssignTask { project_id, .. }
         | DeleteTask { project_id, .. }
+        | ArchiveTasks { project_id, .. }
         | AddStep { project_id, .. }
         | RenameStep { project_id, .. }
         | RemoveStep { project_id, .. }

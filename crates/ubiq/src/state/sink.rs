@@ -486,6 +486,8 @@ pub enum ProjectNav {
     #[default]
     General,
     Tools,
+    /// The setups a start inside this project is offered: the globals, or this project's own.
+    AgentDefinitions,
     /// Which lanes this project's task board draws, and which of them shut themselves when empty.
     Tasks,
     /// Where the project's folder actually is: here, or behind a drone on another machine.
@@ -501,6 +503,7 @@ impl ProjectNav {
         &[
             ProjectNav::General,
             ProjectNav::Tools,
+            ProjectNav::AgentDefinitions,
             ProjectNav::Tasks,
             ProjectNav::Remote,
             ProjectNav::Kb,
@@ -520,9 +523,10 @@ impl ProjectNav {
 }
 
 /// Label and the count beside it, one row per [`ProjectNav`], in variant order.
-const PROJECT_NAV_COPY: [(&str, Option<u32>); 7] = [
+const PROJECT_NAV_COPY: [(&str, Option<u32>); 8] = [
     ("General", None),
     ("Tools", None),
+    ("Agent definitions", None),
     ("Tasks", None),
     ("Remote", None),
     // The fixture's root count. The live dialog prints the project's own instead, because the
@@ -699,11 +703,25 @@ impl DroneField {
 }
 
 /// What the project settings dialog holds between frames.
-#[derive(Default)]
 pub struct ProjectDemo {
     pub nav: ProjectNav,
     pub colour: ColourField,
     pub drone: DroneField,
+    /// The Agent definitions section's `Use the global agents` tick. The fixture opens on it the
+    /// way a project with no setups of its own does.
+    pub definitions_use_global: bool,
+}
+
+impl Default for ProjectDemo {
+    fn default() -> Self {
+        Self {
+            nav: ProjectNav::default(),
+            colour: ColourField::default(),
+            drone: DroneField::default(),
+            // Ticked is the answer a project gives until it writes a setup of its own.
+            definitions_use_global: true,
+        }
+    }
 }
 
 impl ProjectDemo {

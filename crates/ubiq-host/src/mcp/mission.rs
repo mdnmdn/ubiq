@@ -720,12 +720,15 @@ fn list_agents(
 
 /// The mission's agent kinds, for an agent choosing one (M13).
 ///
-/// **A profile name is the most this ever says about a launch.** An agent kind names a saved
+/// **A definition name is the most this ever says about a launch.** An agent kind names a saved
 /// setup; it never carries an account's credential material, and there is nothing here for one to
-/// leak into.
+/// leak into. Its `description` is prose, not a launch fact — resolved from the named definition
+/// itself (`AgentDefinition::description`), it is the one addition to that rule: what the saved
+/// setup is for and which MCP servers it carries, so the caller can tell two kinds with the same
+/// harness apart before spawning either.
 ///
 /// An empty table is reported as empty, with the sentence that says what to do about it: the table
-/// is seeded from the project's profiles by the dialog and edited in the panel, so a mission whose
+/// is seeded from the project's definitions by the dialog and edited in the panel, so a mission whose
 /// table nobody has filled has genuinely nothing to offer and pretending otherwise would send the
 /// agent into `spawn_agent` to be refused.
 fn list_agent_kinds(
@@ -738,10 +741,22 @@ fn list_agent_kinds(
         .agent_kinds
         .iter()
         .map(|kind| {
+            // The kind's own blurb is whoever set up the mission's words; the definition's own
+            // description is the saved setup's own, written for exactly this — another agent
+            // deciding what to spawn. Both are handed over: the first is why this kind exists in
+            // this mission, the second is what it actually carries.
+            let definition_description = kind.definition.as_deref().and_then(|id| {
+                crate::agent::Agents::definition_description(
+                    &reach.agent_definitions_root,
+                    id,
+                    Some(project),
+                )
+            });
             json!({
                 "name": kind.name,
                 "description": kind.description,
-                "profile": kind.profile,
+                "definition": kind.definition,
+                "definition_description": definition_description,
                 "labels": kind.labels,
                 "default": record.default_kind.as_deref() == Some(kind.name.as_str()),
             })
@@ -777,8 +792,8 @@ fn spawn_agent(
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_string();
-    let profile = arguments
-        .get("profile")
+    let definition = arguments
+        .get("definition")
         .and_then(Value::as_str)
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
@@ -793,10 +808,9 @@ fn spawn_agent(
     let prompt = required_str(arguments, "prompt")?.to_string();
     let reason = required_str(arguments, "reason")?.to_string();
 
-    let (id, replies) = reach
-        .missions
-        .lock()
-        .request_spawn(project, mission, by, &kind, profile, task, prompt, reason)?;
+    let (id, replies) = reach.missions.lock().request_spawn(
+        project, mission, by, &kind, definition, task, prompt, reason,
+    )?;
     broadcast(&reach.everyone, replies);
     Ok(json!({
         "in_mission": true,
@@ -1057,6 +1071,7 @@ mod tests {
             MissionReach {
                 missions,
                 everyone: host.mailbox(bus::To::Everyone),
+                agent_definitions_root: dir.path().to_path_buf(),
             },
             WorkAccess {
                 work,
@@ -1476,14 +1491,14 @@ mod tests {
             empty["message"]
         );
 
-        // Seeded, as the dialog will seed it from the project's profiles.
+        // Seeded, as the dialog will seed it from the project's definitions.
         mission.missions.lock().set_field(
             project(),
             id,
             ubiq_proto::mission::MissionField::AgentKinds(vec![ubiq_proto::mission::AgentKind {
                 name: "worker".to_string(),
                 description: "Does one task and stops.".to_string(),
-                profile: Some("worker-profile".to_string()),
+                definition: Some("worker-definition".to_string()),
                 ..Default::default()
             }]),
         );
@@ -1502,8 +1517,8 @@ mod tests {
             kinds["kinds"][0]["description"],
             json!("Does one task and stops.")
         );
-        // A kind names a profile and nothing else — never an account, never a credential.
-        assert_eq!(kinds["kinds"][0]["profile"], json!("worker-profile"));
+        // A kind names a definition and nothing else — never an account, never a credential.
+        assert_eq!(kinds["kinds"][0]["definition"], json!("worker-definition"));
 
         let spawned = call(
             "spawn_agent",
@@ -1539,6 +1554,80 @@ mod tests {
         )
         .unwrap_err();
         assert!(unknown.contains("'worker'"), "{unknown}");
+    }
+
+    /// `list_agent_kinds` hands back not just the kind's own blurb but the description of the
+    /// definition it names — the point of `AgentDefinition::description`: a spawning agent reads
+    /// what the saved setup actually carries, not just what the mission's kind table calls it.
+    #[test]
+    fn list_agent_kinds_resolves_the_named_definitions_description() {
+        let task = anchor();
+        let id = task.id;
+        let (mission, work, plan, dir, _hub, _host) = reaches(vec![task]);
+        let facts = facts(Some(id));
+
+        let mut agents = crate::agent::Agents::new(dir.path(), false);
+        agents.set_commands(std::collections::BTreeMap::from([(
+            "claude-code".to_string(),
+            "echo".to_string(),
+        )]));
+        agents
+            .save_definition(ubiq_proto::messages::AgentDefinition {
+                id: "worker-definition".to_string(),
+                description: Some("Reads a task and reports progress.".to_string()),
+                agent_type: "claude-code".to_string(),
+                account: None,
+                model: None,
+                mode: None,
+                thinking: None,
+                max_subagents: None,
+                prompt: None,
+                mcps: Vec::new(),
+                mission_assistant: None,
+                mission_coordinator: false,
+                mission_worker: true,
+                disabled: false,
+                project: None,
+            })
+            .unwrap();
+
+        mission.missions.lock().set_field(
+            project(),
+            id,
+            ubiq_proto::mission::MissionField::AgentKinds(vec![
+                ubiq_proto::mission::AgentKind {
+                    name: "worker".to_string(),
+                    description: "Does one task and stops.".to_string(),
+                    definition: Some("worker-definition".to_string()),
+                    ..Default::default()
+                },
+                ubiq_proto::mission::AgentKind {
+                    name: "ghost".to_string(),
+                    description: "Names nothing on disk.".to_string(),
+                    definition: Some("no-such-definition".to_string()),
+                    ..Default::default()
+                },
+            ]),
+        );
+
+        let kinds = call(
+            "list_agent_kinds",
+            &json!({}),
+            &facts,
+            &mission,
+            Some(&work),
+            Some(&plan),
+        )
+        .unwrap();
+        assert_eq!(
+            kinds["kinds"][0]["definition_description"],
+            json!("Reads a task and reports progress.")
+        );
+        assert_eq!(
+            kinds["kinds"][1]["definition_description"],
+            json!(null),
+            "a kind naming a definition that is not there gets null, not an error"
+        );
     }
 
     /// The brief is the anchor task, read back in the words it was written with.

@@ -382,6 +382,11 @@ development run is self-contained only as far as Ubiq's own stores, which is fil
 mattered for Ubiq's own files — nothing Ubiq owns lands in the project's folder — and the half
 that keeps a status walk from touching the index.
 
+**One exception, by `D173`.** A **project-managed** project keeps its data in a `.ubiq/` folder
+inside its own directory, because the point of that mode is that the data is committed and shared.
+This is the default rule for every other project, and the exception is chosen once, by the person
+creating the project, in the creation panel.
+
 ### D31 — Locating a project is its own message, and the interface chooses the colour
 
 `UpdateProject` is display only: it renames and recolours, touches no filesystem, and cannot fail.
@@ -754,13 +759,13 @@ stand as written for Unix.
 
 `pty::spawn` starts a program with no arguments that `shells::is_shell()` recognises the way a
 terminal application starts a shell: argv0 prefixed with `-` on Unix, which is what makes
-`.zprofile` and `.profile` run. The menu on the new-pane control offers a fixed candidate list the
+`.zprofile` and `.agent definition` run. The menu on the new-pane control offers a fixed candidate list the
 host checked for existence — never a path the interface guessed at, and never an open field.
 
-**Why:** a non-login shell reads `.zshrc` and not the profile that put Homebrew, `pyenv` and the
+**Why:** a non-login shell reads `.zshrc` and not the agent definition that put Homebrew, `pyenv` and the
 rest on `PATH`, so a pane reported `command not found` for tools that were installed and worked in
 every other terminal — and Ubiq launched from Finder starts from a `PATH` that nothing has set up,
-which is exactly the case the profile exists to fix. Picking a different shell from a menu would
+which is exactly the case the agent definition exists to fix. Picking a different shell from a menu would
 have moved that same defect onto a different program, so the spawn path was fixed first. The list
 being the host's is not a preference: a program on disk is a local fact, and no path crosses into
 UI code.
@@ -1011,7 +1016,7 @@ placeholder rather than a final answer: the harness may replace it with a `ConvU
 `WorkbenchState::harness_choices` used to offer a harness bare only when nothing was signed into it
 — the moment one account logged in, its bare row vanished, and the New agent menu offered nothing
 but named identities. That was an accident of the fold, not a decision: the library's own answer to
-"what does a bare pick run as" — a profile, or the user's own home — never stopped existing, only
+"what does a bare pick run as" — an agent definition, or the user's own home — never stopped existing, only
 the menu's way to reach it did. The menu offers both, grouped as `Default` (every available
 harness bare) and `Configured` (one row per signed-in `(harness, account)` pair), with the second
 group — heading and separator included — omitted entirely when nothing is signed in.
@@ -1696,7 +1701,7 @@ A missing or malformed file is silently the empty environment rather than a star
 in a grant is a `cargo` denial with no message pointing at the file that caused it, discoverable
 only in the log line `Environment::load` writes.
 
-### D92 — One form asks every question a start answers, and a profile is a saved answer to it
+### D92 — One form asks every question a start answers, and an agent definition is a saved answer to it
 
 Starting a conversation used to be a menu pick: a row naming a harness, or a harness and an
 identity, sent `StartConversation` on the click. Everything else about the run — the model, the
@@ -1709,8 +1714,8 @@ them only afterwards.
 `ListHarnessCatalogue` removes the reason: the models and reasoning levels a harness will answer
 for can be asked before anything is started. So there is one form, `NewAgentForm`, raised from the
 `+` on every surface that hosts a conversation, and it asks the target, the identity, the model,
-the level, the mode, a subagent ceiling and an opening prompt together. The settings page's profile
-form is the same form with a different `Purpose`, because a profile *is* a saved answer to those
+the level, the mode, a subagent ceiling and an opening prompt together. The settings page's agent definition
+form is the same form with a different `Purpose`, because an agent definition *is* a saved answer to those
 questions and two forms asking them differently is how the two drift apart. Nothing is created
 until `Message::ConversationStarted` lands, so a dismissed form leaves no empty column and no empty
 tab. The subagent ceiling and the opening prompt have no launch flag anywhere — no harness has
@@ -2590,7 +2595,7 @@ agent and the well-known identity files are. Clone still refuses ssh (`G149`).
 ### D124 — An SSH profile is the interface's record and its secret is the host's
 
 `HostSettings.ssh_profiles` rides `SetSettings` whole, in the ownership class `remote_hosts` is in
-rather than the host-owned class `connections` and `ai_providers` are in. Nothing writes a profile
+rather than the host-owned class `connections` and `ai_providers` are in. Nothing writes an agent definition
 unattended: one is added, renamed or forgotten only by a person on one settings page, so there is
 no background writer for a UI write to clobber and no reason for `Settings::set` to re-overwrite
 the list from disk.
@@ -2603,14 +2608,14 @@ flags on the record are **re-stamped by the host from that store on every write*
 from the blob that arrived, because the interface is never sent the material and so cannot be the
 half that knows whether there is any.
 
-That leaves one hazard the host also owns: a profile the user deleted, or switched to `Agent`, would
+That leaves one hazard the host also owns: an agent definition the user deleted, or switched to `Agent`, would
 otherwise leave its secret filed under an id nothing on disk names. So every host-layer write prunes
 the store to the ids the incoming list still carries and whose auth still takes a secret. It is the
 same inseparability `AddAiProvider` buys by owning the record; bought here on the write path
 instead, which is what lets the record stay the interface's.
 
 **Cost.** The reconcile runs on every host-layer settings write, not only on the ones that touched a
-profile — a keychain read per profile, for a list that is small by nature. And the split is a seam a
+agent definition — a keychain read per agent definition, for a list that is small by nature. And the split is a seam a
 future writer can get wrong: a code path that writes `ssh_profiles` without going through that
 reconcile would file a flag the store does not back. `SetSettings` is the only such path today.
 
@@ -2618,7 +2623,7 @@ reconcile would file a flag the store does not back. `SetSettings` is the only s
 
 OpenSSH reads a password from `/dev/tty`, not standard input, so a shelled-out `ssh` cannot be fed
 one. `SSH_ASKPASS` points at Ubiq's own binary with `SSH_ASKPASS_REQUIRE=force`, and the child's
-environment carries `UBIQ_ASKPASS_PROFILE` and `UBIQ_ASKPASS_ROOT` — a profile id and a config root,
+environment carries `UBIQ_ASKPASS_PROFILE` and `UBIQ_ASKPASS_ROOT` — an agent definition id and a config root,
 both references. The helper mode lives in `ubiq-app`, the one crate that names both halves, so it
 opens the host's secret store under that root and writes the secret on its own standard output,
 which is where OpenSSH reads an askpass answer from.
@@ -2653,7 +2658,7 @@ only `~/Library/Keychains`, so the harness has no reachable keychain and stays o
 
 The alternative was dropping `integrations/keychain` from the harness's layer set by name. That
 fails silently: `agents/claude-code` drags the layer back in through its own `requires`, and
-auto-matched layers resolve after named ones, so a later-named deny loses. A profile path replaces
+auto-matched layers resolve after named ones, so a later-named deny loses. An agent definition path replaces
 a same-named built-in wherever it is pulled in, which is the one form nothing can outrank.
 
 **Why.** The symptom — a pane that works for hours and then cannot refresh, `.credentials.json` gone
@@ -2661,7 +2666,7 @@ from the run dir — is a token rotated into a keychain item this crate has no w
 retire. Denying the keychain keeps the harness on the one backend `agent-manager` harvests and
 rotates correctly.
 
-**Cost.** A generated override directory (`<state_dir>/profiles-no-keychain/`) per machine, and a
+**Cost.** A generated override directory (`<state_dir>/agent definitions-no-keychain/`) per machine, and a
 copy of the built-in layer's other grants inside it — the mach-lookups and system trust paths TLS
 needs. That copy is the real cost: an isol8 release that changes `integrations/keychain` must be
 mirrored there, or a denied run keeps the old grants. The layer path is named once
@@ -3545,32 +3550,32 @@ invisible to the agent that wrote it. And the per-save counts are capped at the 
 so `human_revisions` for a watermark older than that is short — the stamps that answer *where* are
 complete for all time, but the tally that answers *how much* is not.
 
-### D158 — A profile's scope is where it is stored, and inheritance may only point outwards
+### D158 — An agent definition's scope is where it is stored, and inheritance may only point outwards
 
-A profile can be written inside a project and is then offered there and nowhere else. Two ways to
+An agent definition can be written inside a project and is then offered there and nowhere else. Two ways to
 say so: a `project` field on the record in one flat store, or a second store rooted under the
-project's own directory. **The location is the scope.** A project profile is deleted when the
+project's own directory. **The location is the scope.** A project agent definition is deleted when the
 project is, and copied when the project is, because it sits under `<config root>/projects/<id>/
-profiles/` — and a file whose location *is* its scope cannot contradict itself, where a
-`project = X` field can sit in the global root and lie. `ProfileInfo` still gains a `project` field,
+agent definitions/` — and a file whose location *is* its scope cannot contradict itself, where a
+`project = X` field can sit in the global root and lie. `AgentDefinition` still gains a `project` field,
 because the interface has to label a row it did not read off a path; that field is the host
 reporting a location, never a record claiming one.
 
-**Inheritance points outwards only.** A project profile may `extends` a global one — specialising
+**Inheritance points outwards only.** A project agent definition may `extends` a global one — specialising
 the standard setup is the obvious want — and may extend another in the same project. A global
-profile extending a project-scoped one is **refused**, in `profile::resolve_chain`, beside the
-cycle and depth refusals and in the same voice: a global profile resolves everywhere, and a
+agent definition extending a project-scoped one is **refused**, in `agent definition::resolve_chain`, beside the
+cycle and depth refusals and in the same voice: a global agent definition resolves everywhere, and a
 dependency on a project that may not exist on this machine, or may be forgotten tomorrow, would
 make it compose in one place and fail in another. Across projects is not a rule at all but an
-impossibility: a run resolves through one project's store, so another project's profile is not a
+impossibility: a run resolves through one project's store, so another project's agent definition is not a
 name it can see.
 
 **Cost:** three. The refusal can only be *reached* by a hand-edited `profile.toml` — Ubiq's own
 form writes no `extends` — so it surfaces as a launch failing with that sentence rather than as a
-form refusing to save, which is late. A project profile is invisible to every surface that has no
+form refusing to save, which is late. A project agent definition is invisible to every surface that has no
 project in hand, including the new-mission dialog's assistant picker, so a project-scoped assistant
 cannot be picked there yet (`_docs/backlog.md`). And two roots mean two traversals for one list:
-`Message::Profiles` carries every project's profiles to every window, which is one message rather
+`Message::AgentDefinitions` carries every project's agent definitions to every window, which is one message rather
 than a per-project ask, and is only cheap while a catalogue holds tens of projects.
 
 ### D159 — A plan's annotations anchor to a stable block id kept in a sidecar, not a quoted-context match or a run-level id
@@ -3817,8 +3822,8 @@ never launches anything itself. The alternative was letting the host read `Spawn
 the harness directly, the way a phase move's gate lives on the host: rejected, because the
 one-minter rule for an `AgentId` (`StartConversation`'s own precedent) would otherwise be broken
 twice over — the host would need to mint an id no window chose, and it would need the window's own
-profile resolution (which harnesses exist, which account is signed in, which project-scoped
-profile shadows a global one, `D158`) duplicated on a side that has none of it. Keeping the decision
+agent definition resolution (which harnesses exist, which account is signed in, which project-scoped
+agent definition shadows a global one, `D158`) duplicated on a side that has none of it. Keeping the decision
 in the window also means the policy lives beside the composition it launches with — the New agent
 form's own `compose_mission_launch` — so `ask`, `auto` and `never` are three branches over one
 function rather than a second implementation the host would have to keep in step with.
@@ -3860,6 +3865,99 @@ guarantees it reads what is actually current.
 **Cost:** the incoming coordinator's first turn is spent reading rather than acting, where a pasted
 briefing would have let it start immediately — accepted because a mission large enough to need a
 handoff is exactly the one where starting from a stale copy costs more.
+
+### D173 — A project may keep its data in its own folder, as the one exception to `D30`
+
+`ProjectRecord::storage` names one of two modes. **Ubiq-managed** is `D30` exactly: everything
+hangs off the config root under `projects/<project ulid>/`, and nothing at all is written inside
+the project's folder. **Project-managed** puts the same data in a `.ubiq/` folder inside the
+project's own directory, so a team commits its tasks, its plans and its project settings and every
+clone of the repository arrives with them. The mode is chosen in the creation panel and nowhere
+else, because the two trees are different places and changing the answer is a migration rather
+than a setting.
+
+Three pieces make it work without any other part of the host learning about it. A **pointer** file,
+`<config root>/projects/<ulid>/storage.toml`, names where the data went — that directory still
+exists for a project-managed project, so Forget and the orphan collector need no change, and a
+store resolves through `store::project_dir::ProjectDirs` rather than reading a catalogue it has no
+business reading. A **`.gitignore`** inside `.ubiq/`, written once and never rewritten, keeps the
+per-machine half out of the user's commits — view state, the interface's workarea, the index, the
+caches, a cloned knowledge base, run and session state. And **`project.toml`** carries the
+project's name and metadata in the folder itself: the catalogue keeps the name too, as the fast
+lookup every window draws without opening a folder that may be unmounted, and where the two
+disagree the folder wins and the catalogue is corrected at load.
+
+The alternative was a per-project setting that moved the data on change. Rejected for the first
+cut: the move has to be atomic across two trees, has to decide what happens to the half the ignore
+file says is per-machine, and has to answer for a project open in two windows. Naming the mode at
+creation gets the capability without any of that.
+
+**Cost:** two places a project's data can be, which every future per-project store has to ask
+about rather than compose a path for. A project-managed project that is forgotten leaves its
+`.ubiq/` behind, by design — it is in the user's own tree — and adding the folder back gives it a
+new id. And the mode cannot be changed afterwards, which is a real limitation and a filed gap
+rather than a design position.
+
+### D174 — A saved setup is an **agent definition**, and the type is `AgentDefinition`, never `Agent`
+
+The word users reach for is "agent", and the saved setup a run starts from is what they mean by it.
+The code cannot take that word bare: an `AgentId` names a *running* agent, a live conversation with
+a pane and a process, and a second `Agent` type would make the tree read as though the two were one
+thing — the trap the word "session" fell into, and the one the domain rules call out.
+
+So the vocabulary is split by construction. The interface says **Agent** and **Agent definitions**.
+The wire type is `AgentDefinition`, the family is `ListAgentDefinitions` / `AgentDefinitions` /
+`SaveAgentDefinition` / `CloneAgentDefinition`, and the store is `<config root>/agent-definitions/`
+and `<config root>/projects/<id>/agent-definitions/`. The **library keeps `Profile`** — a
+`Profile` there is a run composition and the name is right for what that crate does; `agent.rs` is
+the one place the two words meet, and it is the same place that turns a record into a wire type.
+
+A tree written before this reads back whole. The `profiles/` directory is renamed in place the
+first time the new name is asked for, in both roots, and every field that moved — a conversation
+record's, a mission's `PendingSpawn` and `AgentKind`, the interface's remembered last start —
+carries `#[serde(alias = "profile")]`, so no record loses what it named.
+
+**Cost:** two words for one idea across the crate boundary, and a reader of `agent.rs` has to hold
+both. A rename this wide also touches prose in nearly every document, where "profile" still
+legitimately means an SSH profile or a shell profile — the mechanical pass had to be read back by
+eye, and the SSH sense is the one a future pass will trip over again.
+
+### D175 — A second ask mode: a dialog registered mid-turn and raised when the turn ends
+
+`ask_user_question` parks its tool call while a person is asked (`D138`, `D155`). Every harness in
+front of that call has a tool timeout of its own, and every one of them is far shorter than
+`ASK_TIMEOUT_SECS` — so the harness gives up before the human does, and no timeout Ubiq controls can
+fix a timer it does not own.
+
+`register_question` removes the wait instead of lengthening it. The call validates the same
+`questions` with `ubiq_proto::ask::check`, mints the `AskId`, files it as *armed* against the calling
+conversation in `crates/ubiq-host/src/armed.rs`, and returns `{"registered": "<ask id>"}` on the
+listener's own thread — no thread spawned, nothing parked, nothing for a timeout to reach. The
+conversation's pump raises what is armed the instant it sees `TurnEnded`
+(`crates/ubiq-host/src/conversation.rs`, `fire_armed`), as the same `Message::AskUser` the parked
+mode raises; the coordinator addresses it as it always did, the window draws the modal it always
+drew. On `AnswerAsk` the coordinator asks the armed table first: a row there has no call to release,
+so the outcome is rendered to prose and submitted as the next turn's prompt, exactly as
+`Message::PromptAgent` would. `AskOutcome::Chat` sends nothing — the user talks instead.
+
+**A registration lives for one turn.** Everything armed is raised when the turn ends, or dropped
+when that turn ends `Failed`, `Cancelled` or `Refusal`, or carries an error: a dialog over a broken
+turn asks the user to choose between options the agent has stopped being able to act on. A prompt typed into the
+composer closes whatever the mode has on screen (`AskEnded{Gone}`), so a turn is answered or spoken
+to, never both.
+
+**A second mode, not a replacement.** The parked call is the only shape that can pause an agent
+*mid-sequence* — per-item confirmation inside a long mechanical run, anything holding an open
+resource — and `crates/ubiq-host/src/ask.rs` keeps it unchanged. The two share
+`ubiq_proto::ask`'s vocabulary, the three transport messages and the whole of the dialog; the only
+difference is what the outcome is delivered into, a channel or a prompt.
+
+**Cost:** two tools a model can pick wrongly between — the descriptions carry that weight, and
+picking the parked one degrades to the old behaviour. The answer arrives as a user message rather
+than a tool result, so a model cannot resume a half-finished sequence from it; it must stop and
+re-derive, which is why the tool description makes ending the turn a hard requirement. And a dialog
+registered early in a turn is not seen until that turn ends, so a model that ignores the description
+produces a question that arrives late rather than one that arrives wrong.
 
 ## Related docs
 

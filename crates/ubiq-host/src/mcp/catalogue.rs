@@ -3,7 +3,7 @@
 //!
 //! **One table, three readers.** The settings panel's checklist comes from here through
 //! [`Message::Mcps`], the `tools/list` a harness asks for comes from here, and
-//! [`crate::agent::Agents::compose_run`] asks here whether a name a profile saved is one this
+//! [`crate::agent::Agents::compose_run`] asks here whether a name a definition saved is one this
 //! build still knows. A server described in two places is a server the panel and the harness can
 //! disagree about, and the disagreement would only show as a tool that is offered and then is not
 //! there.
@@ -50,9 +50,39 @@ pub const UBIQ_KB: &str = "ubiq-kb";
 /// The slug of the server that reads Ubiq's own documentation.
 pub const UBIQ_HELP: &str = "ubiq-help";
 
-/// The slug of the server that asks the user a question and waits for the answer. The one server
-/// here whose tool does not answer itself — see [`super::ask`] and `D138`.
+/// The slug of the server that asks the user a question. The one server here whose tools do not
+/// answer from a fact the host holds: `ask_user_question` parks until a person answers (`D138`),
+/// `register_question` arms a dialog for the end of the turn (`D175`) — see [`super::ask`].
 pub const UBIQ_ASK: &str = "ubiq-ask";
+
+/// What a **mission/task coordinator** agent definition runs with: it runs the mission, writes
+/// the plan, manages the tasks, and keeps the knowledge base. The `manage` side of every split
+/// pair, because running the work is what a coordinator does.
+///
+/// Held here rather than beside the definitions, so the set and the slugs it names cannot drift.
+pub const COORDINATOR_MCPS: &[&str] = &[UBIQ_MISSION, UBIQ_PLAN, MANAGE_UBIQ_TASKS, UBIQ_KB];
+
+/// What a **mission/task worker** agent definition runs with: the `use` side of the mission and
+/// task servers, what project it is working in, and the knowledge base.
+pub const WORKER_MCPS: &[&str] = &[USE_MISSION, USE_TASK, PROJECT_INFO, UBIQ_KB];
+
+/// The servers the two role flags imply between them, in catalogue order and without repeats —
+/// a definition carrying both roles gets both sets, and `ubiq-kb` only once.
+pub fn role_mcps(coordinator: bool, worker: bool) -> Vec<String> {
+    let mut named: Vec<String> = Vec::new();
+    let sets = [(coordinator, COORDINATOR_MCPS), (worker, WORKER_MCPS)];
+    for (on, set) in sets {
+        if !on {
+            continue;
+        }
+        for name in set {
+            if !named.iter().any(|it| it == name) {
+                named.push((*name).to_string());
+            }
+        }
+    }
+    named
+}
 
 /// One tool, as the catalogue holds it: what the panel shows plus what a harness needs in order
 /// to call it.
@@ -99,6 +129,63 @@ const UPDATE_TODO: ToolSpec = ToolSpec {
         "required": ["task_id", "todo_id"]
     }"#,
 };
+/// The `questions` array both `ubiq-ask` tools take: the two modes differ in when the dialog is
+/// raised and where the answer is delivered, never in what may be asked.
+const ASK_QUESTIONS_SCHEMA: &str = r#"{
+                "type": "object",
+                "properties": {
+                    "questions": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 4,
+                        "description": "The questions to ask, at most four. Ask everything you need in one call.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "question": {
+                                    "type": "string",
+                                    "description": "The question in full, ending with a question mark."
+                                },
+                                "header": {
+                                    "type": "string",
+                                    "description": "A label of at most 12 characters, drawn as the question's tab. E.g. 'Database'."
+                                },
+                                "options": {
+                                    "type": "array",
+                                    "minItems": 2,
+                                    "maxItems": 4,
+                                    "description": "Two to four options. Do not offer 'Other' — it is always there.",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "label": {
+                                                "type": "string",
+                                                "description": "What the control says: a few words."
+                                            },
+                                            "description": {
+                                                "type": "string",
+                                                "description": "What picking it means, drawn under the label."
+                                            },
+                                            "preview": {
+                                                "type": "string",
+                                                "description": "Something to show beside the choice — a snippet, a sketch, a diff. Single-select questions only."
+                                            }
+                                        },
+                                        "required": ["label"]
+                                    }
+                                },
+                                "multiSelect": {
+                                    "type": "boolean",
+                                    "description": "Whether more than one option may be picked. A multi-select question may carry no previews."
+                                }
+                            },
+                            "required": ["question", "header", "options"]
+                        }
+                    }
+                },
+                "required": ["questions"]
+            }"#;
+
 const DELETE_TODO: ToolSpec = ToolSpec {
     name: "delete_todo",
     description: "Remove a todo from a task.",
@@ -341,6 +428,20 @@ pub const SERVERS: &[ServerSpec] = &[
                         },
                         "priority": {"type": "string", "enum": ["low", "normal", "high"]},
                         "kind": {"type": "string", "enum": ["bug", "feature", "chore", "docs"]},
+                        "level": {
+                            "type": "string",
+                            "enum": ["mission"],
+                            "description": "Promote the task to a mission — allowed to have children and to carry a plan. Omit for an ordinary task."
+                        },
+                        "shape": {
+                            "type": "string",
+                            "enum": ["direct", "chain", "coordinated"],
+                            "description": "How the agents on it are arranged: one agent asked directly, a hand-off chain, or a coordinator splitting work across workers. Omit if nobody has said."
+                        },
+                        "parent": {
+                            "type": "string",
+                            "description": "The mission task this one is a child of, by id. Only a task with level mission may be a parent."
+                        },
                         "complexity": {
                             "type": "string",
                             "enum": ["low", "medium", "high"],
@@ -374,6 +475,11 @@ pub const SERVERS: &[ServerSpec] = &[
                             },
                             "description": "Files and knowledge-base documents to hang on the card, as references not content. Each is a project-relative path (docs/spec.md) or a knowledge-base address (kb:{source}:{path}), optionally with a label."
                         },
+                        "references": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Other task ids this one is related to — untyped and symmetric, unlike prerequisites. Shows as a chip list linking to the other card."
+                        },
                         "prerequisites": {
                             "type": "array",
                             "items": {"type": "string"},
@@ -398,6 +504,20 @@ pub const SERVERS: &[ServerSpec] = &[
                         },
                         "priority": {"type": "string", "enum": ["low", "normal", "high"]},
                         "kind": {"type": "string", "enum": ["bug", "feature", "chore", "docs"]},
+                        "level": {
+                            "type": "string",
+                            "enum": ["mission"],
+                            "description": "Promote the task to a mission — allowed to have children and to carry a plan. There is no way to demote it back through this tool."
+                        },
+                        "shape": {
+                            "type": "string",
+                            "enum": ["direct", "chain", "coordinated"],
+                            "description": "How the agents on it are arranged: one agent asked directly, a hand-off chain, or a coordinator splitting work across workers."
+                        },
+                        "parent": {
+                            "type": "string",
+                            "description": "The mission task this one is a child of, by id. Only a task with level mission may be a parent. Omit or null to leave it alone; an empty string clears it."
+                        },
                         "complexity": {
                             "type": "string",
                             "enum": ["low", "medium", "high"],
@@ -431,6 +551,11 @@ pub const SERVERS: &[ServerSpec] = &[
                             },
                             "description": "The full attachment set, replaced — send every one the card should have. Each is a project-relative path (docs/spec.md) or a knowledge-base address (kb:{source}:{path}), optionally with a label. Omit or null to leave them alone; [] clears them."
                         },
+                        "references": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "The full reference set, replaced — untyped and symmetric, unlike prerequisites. Omit or null to leave them alone; [] clears them."
+                        },
                         "prerequisites": {
                             "type": "array",
                             "items": {"type": "string"},
@@ -460,7 +585,7 @@ pub const SERVERS: &[ServerSpec] = &[
                 schema: r#"{
                     "type": "object",
                     "properties": {
-                        "task_id": {"type": "string"}
+                        "task_id": {"type": "string", "description": "The task's id, or its key (e.g. T-166) if it has one."}
                     },
                     "required": ["task_id"]
                 }"#,
@@ -529,7 +654,7 @@ pub const SERVERS: &[ServerSpec] = &[
                 schema: r#"{
                     "type": "object",
                     "properties": {
-                        "task_id": {"type": "string"}
+                        "task_id": {"type": "string", "description": "The task's id, or its key (e.g. T-166) if it has one."}
                     },
                     "required": ["task_id"]
                 }"#,
@@ -832,65 +957,19 @@ pub const SERVERS: &[ServerSpec] = &[
     ServerSpec {
         name: UBIQ_ASK,
         title: "Ask the user",
-        description: "Ask the person watching a structured question and wait for their answer. Use it when a choice is theirs to make — an approach, a trade-off, a name — rather than guessing and writing something they did not ask for. The call blocks until they answer, so ask once, ask everything you need at once, and keep working from the answer.",
-        tools: &[ToolSpec {
-            name: "ask_user_question",
-            description: "Put one to four multiple-choice questions to the user and wait for their reply. Each question shows two to four options you wrote; 'Other' is always offered beside them and is never one of yours, so do not write it. The answer names the options the user picked by their labels, plus anything they typed. If the user would rather talk it through, the result says so and they will say the rest in the chat — carry on from the conversation, do not ask again.",
-            schema: r#"{
-                "type": "object",
-                "properties": {
-                    "questions": {
-                        "type": "array",
-                        "minItems": 1,
-                        "maxItems": 4,
-                        "description": "The questions to ask, at most four. Ask everything you need in one call.",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "question": {
-                                    "type": "string",
-                                    "description": "The question in full, ending with a question mark."
-                                },
-                                "header": {
-                                    "type": "string",
-                                    "description": "A label of at most 12 characters, drawn as the question's tab. E.g. 'Database'."
-                                },
-                                "options": {
-                                    "type": "array",
-                                    "minItems": 2,
-                                    "maxItems": 4,
-                                    "description": "Two to four options. Do not offer 'Other' — it is always there.",
-                                    "items": {
-                                        "type": "object",
-                                        "properties": {
-                                            "label": {
-                                                "type": "string",
-                                                "description": "What the control says: a few words."
-                                            },
-                                            "description": {
-                                                "type": "string",
-                                                "description": "What picking it means, drawn under the label."
-                                            },
-                                            "preview": {
-                                                "type": "string",
-                                                "description": "Something to show beside the choice — a snippet, a sketch, a diff. Single-select questions only."
-                                            }
-                                        },
-                                        "required": ["label"]
-                                    }
-                                },
-                                "multiSelect": {
-                                    "type": "boolean",
-                                    "description": "Whether more than one option may be picked. A multi-select question may carry no previews."
-                                }
-                            },
-                            "required": ["question", "header", "options"]
-                        }
-                    }
-                },
-                "required": ["questions"]
-            }"#,
-        }],
+        description: "Ask the person watching a structured question. Use it when a choice is theirs to make — an approach, a trade-off, a name — rather than guessing and writing something they did not ask for. Prefer register_question: it returns instantly and cannot time out, and the dialog is shown the moment your turn ends. Use ask_user_question only when you cannot stop — when the answer is needed in the middle of a sequence you are holding open — because that call blocks until they answer.",
+        tools: &[
+            ToolSpec {
+                name: "register_question",
+                description: "Register one to four multiple-choice questions to put to the user, and return immediately. HARD REQUIREMENT: after this call you MUST end your turn at once. Do not call another tool, do not read another file, do not keep working. The dialog is only shown to the user when your turn ends, and their answer arrives as your next turn — so anything you do after registering delays the question and is thrown-away work. Register last, say in one short message what you are waiting on, and stop. Each question shows two to four options you wrote; 'Other' is always offered beside them and is never one of yours, so do not write it. The registration is for this turn only: it is raised when the turn ends, and dropped if the turn fails. You are given the id it was filed under; you do not need to remember it.",
+                schema: ASK_QUESTIONS_SCHEMA,
+            },
+            ToolSpec {
+                name: "ask_user_question",
+                description: "Put one to four multiple-choice questions to the user and wait for their reply. This call blocks for as long as the user takes, so use it only when you cannot stop and come back — otherwise register_question, which cannot time out. Each question shows two to four options you wrote; 'Other' is always offered beside them and is never one of yours, so do not write it. The answer names the options the user picked by their labels, plus anything they typed. If the user would rather talk it through, the result says so and they will say the rest in the chat — carry on from the conversation, do not ask again.",
+                schema: ASK_QUESTIONS_SCHEMA,
+            },
+        ],
     },
     ServerSpec {
         name: UBIQ_MISSION,
@@ -974,8 +1053,8 @@ pub const SERVERS: &[ServerSpec] = &[
                 schema: r#"{
                     "type": "object",
                     "properties": {
-                        "kind": {"type": "string", "description": "A kind from list_agent_kinds, by name. Omit for the mission's default kind. Use 'custom' only with a profile."},
-                        "profile": {"type": "string", "description": "A saved profile, for kind 'custom' only. Never a harness, an account or anything secret."},
+                        "kind": {"type": "string", "description": "A kind from list_agent_kinds, by name. Omit for the mission's default kind. Use 'custom' only with a definition."},
+                        "definition": {"type": "string", "description": "A saved definition, for kind 'custom' only. Never a harness, an account or anything secret."},
                         "task_id": {"type": "string", "description": "The task this agent is for, if there is one."},
                         "prompt": {"type": "string", "description": "What to tell it when it starts — the whole of what it needs to begin."},
                         "reason": {"type": "string", "description": "Why you need it, in a sentence. The person reads this before answering."}

@@ -45,7 +45,7 @@ impl AppState {
     ///
     /// `picks` is what a terminal harness resolves the identity, the model and the rest against —
     /// the pseudo-terminal has no composer to fold a start's answers into, so they travel with the
-    /// spawn instead. A shell ignores them: it has no account, no profile and no modes to be picked.
+    /// spawn instead. A shell ignores them: it has no account, no definition and no modes to be picked.
     pub fn spawn_pane(
         &mut self,
         agent_type: Option<String>,
@@ -1799,6 +1799,20 @@ impl AppState {
                 blocks,
                 annotations,
             } => {
+                // Kept for a file document independent of whether the surface stays the one open
+                // below — `AppState::has_annotations()`'s own read once it does not
+                // (T-183): switching a tab to raw source is exactly what closes it
+                // (`close_file_document`), and that is the one place the warning this answers for
+                // is drawn.
+                if let crate::state::document::DocumentHandle::File {
+                    project_id,
+                    rel_path,
+                } = &doc
+                    && let Some(open) = self.projects.get_mut(project_id)
+                {
+                    open.annotation_hints
+                        .insert(rel_path.clone(), !annotations.is_empty());
+                }
                 if let Some(plan) = self.workbench.plan.as_mut()
                     && plan.doc == doc
                 {
@@ -2284,7 +2298,7 @@ impl AppState {
             //
             // Only the local host's answer is taken. Every host greets a new client with this
             // unsolicited, so a remote's would otherwise arrive on attach and repaint the config
-            // root — and, worse, re-ask for the shells, harnesses, accounts and profiles, whose
+            // root — and, worse, re-ask for the shells, harnesses, accounts and definitions, whose
             // answers replace those lists whole. The menus name what can be started on *this*
             // machine; a remote's belong to a per-host set of them that does not exist yet.
             Message::HostInfo {
@@ -2308,8 +2322,8 @@ impl AppState {
                 // it as nobody in particular.
                 self.bus.send(Message::ListAccounts);
                 // And the setups built on top of them, for the same reason: the menu offers a
-                // row per profile.
-                self.bus.send(Message::ListProfiles);
+                // row per definition.
+                self.bus.send(Message::ListAgentDefinitions);
                 // And the bell, so a window that has just attached draws the badge the other
                 // windows are already drawing rather than an empty one until something arrives.
                 self.bus.send(Message::ListNotifications);
@@ -2397,11 +2411,11 @@ impl AppState {
                 last_model,
                 last_thinking,
             } => {
-                let profile_model = self
+                let definition_model = self
                     .new_agent_form()
                     .and_then(|form| form.model.clone())
                     .filter(|it| !it.is_empty());
-                let profile_thinking = self
+                let definition_thinking = self
                     .new_agent_form()
                     .and_then(|form| form.thinking.clone())
                     .filter(|it| !it.is_empty());
@@ -2412,11 +2426,11 @@ impl AppState {
                     // Preselection, in order of how much it knows: what the form was opened
                     // holding, then what this harness was last launched with, then the harness's
                     // own default.
-                    let model = profile_model
+                    let model = definition_model
                         .or_else(|| (!last_model.is_empty()).then(|| last_model.clone()))
                         .or_else(|| models.iter().find(|it| it.default).map(|it| it.id.clone()))
                         .filter(|id| models.iter().any(|it| it.id == *id));
-                    let thinking = profile_thinking
+                    let thinking = definition_thinking
                         .or_else(|| (!last_thinking.is_empty()).then(|| last_thinking.clone()))
                         .or_else(|| {
                             model.as_ref().and_then(|id| {
@@ -2549,17 +2563,17 @@ impl AppState {
                 cx.notify();
             }
             // The saved setups, replaced whole for the reason the accounts are: the host's
-            // answer is the list. It also closes the form, since a `Profiles` right after a
-            // `SaveProfile` is what says the write landed.
-            // Split by scope on arrival rather than at every read: `settings.profiles` is the
+            // answer is the list. It also closes the form, since an `AgentDefinitions` right after a
+            // `SaveAgentDefinition` is what says the write landed.
+            // Split by scope on arrival rather than at every read: `settings.definitions` is the
             // global list every surface without a project already draws, and the project-scoped
-            // ones are only ever reached through `profiles_in`.
-            Message::Profiles { profiles } => {
+            // ones are only ever reached through `definitions_in`.
+            Message::AgentDefinitions { definitions } => {
                 let (scoped, global): (Vec<_>, Vec<_>) =
-                    profiles.into_iter().partition(|it| it.project.is_some());
-                self.workbench.settings.profiles = global;
-                self.workbench.settings.project_profiles = scoped;
-                self.workbench.settings.profile_form = None;
+                    definitions.into_iter().partition(|it| it.project.is_some());
+                self.workbench.settings.definitions = global;
+                self.workbench.settings.project_definitions = scoped;
+                self.workbench.settings.definition_form = None;
                 cx.notify();
             }
             // What this build can inject into a harness. Replaced whole, the same way the harness

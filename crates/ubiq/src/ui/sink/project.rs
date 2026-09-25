@@ -17,8 +17,8 @@ use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use ubiq_proto::ids::ProjectId;
 use ubiq_proto::kb::KbSourceState;
-use ubiq_proto::messages::ProfileInfo;
-use ubiq_proto::projects::{IndexChange, IndexLevel, MissionTermChange};
+use ubiq_proto::messages::AgentDefinition;
+use ubiq_proto::projects::{IndexChange, IndexLevel, MissionTermChange, StorageMode};
 use ubiq_proto::settings::DronePreset;
 use ubiq_proto::work::Status;
 
@@ -37,7 +37,7 @@ use crate::ui::board::status_colour;
 use crate::ui::hsv;
 use crate::ui::kit::{
     UbiqIcon, check_box, choice_pill, elided, ghost_button, heading, icon_button, mono, nav_item,
-    primary_button, setting_row, toggle_pill,
+    primary_button, section_label, setting_row, toggle_pill,
 };
 use crate::ui::rail::mode_icon;
 use crate::ui::sink::style::{framed_active, input_on, textarea_on};
@@ -342,7 +342,11 @@ fn nav(app: &AppState, form: Form, cx: &mut Context<AppState>) -> AnyElement {
                 || item == ProjectNav::General
                 || (matches!(
                     item,
-                    ProjectNav::Tools | ProjectNav::Tasks | ProjectNav::Remote | ProjectNav::Kb
+                    ProjectNav::Tools
+                        | ProjectNav::AgentDefinitions
+                        | ProjectNav::Tasks
+                        | ProjectNav::Remote
+                        | ProjectNav::Kb
                 ) && live_record);
             // The one count that is a live fact rather than fixture copy: it is how many sources
             // the section below lists.
@@ -381,6 +385,8 @@ fn project_icon(item: ProjectNav) -> Icon {
     match item {
         ProjectNav::General => Icon::new(IconName::Settings),
         ProjectNav::Tools => Icon::new(IconName::Play),
+        // The rail's own Agents mark, the same one the app-wide section wears.
+        ProjectNav::AgentDefinitions => Icon::new(UbiqIcon::ModeAgents),
         // The rail's own Tasks mark, so the row that configures the board and the rail that opens
         // it read as the same thing — `Kb` below takes its icon for the same reason.
         ProjectNav::Tasks => Icon::new(UbiqIcon::ModeTasks),
@@ -408,11 +414,12 @@ fn body(app: &AppState, window: &Window, cx: &mut Context<AppState>, form: Form)
     let content = match nav {
         ProjectNav::General => general(app, window, cx, form),
         ProjectNav::Tools => project_tools(app, cx, form),
+        ProjectNav::AgentDefinitions => agent_definitions(app, form, window, cx),
         ProjectNav::Tasks => tasks(app, window, cx, form),
         ProjectNav::Remote => remote(app, cx, form),
         ProjectNav::Kb => kb(app, form, window, cx),
         ProjectNav::Documentation => documentation(),
-        ProjectNav::Integrations => integrations(app, form, window, cx),
+        ProjectNav::Integrations => integrations(),
     };
     let prefix = form.prefix();
 
@@ -588,6 +595,81 @@ fn form_project(app: &AppState, form: Form, _cx: &gpui::App) -> Option<ProjectId
             _ => None,
         },
     }
+}
+
+/// Where this project keeps its own data: Ubiq's config folder, or a `.ubiq/` inside the project.
+///
+/// **Chosen once, when the project is created.** The Edit panel draws the same two pills and does
+/// not take a click: moving an existing project's data between the two trees is a migration, and a
+/// control that looked like it performed one while only rewriting a record would be a lie about
+/// where the tasks are. See `StorageMode` and `D173`.
+fn storage_row(app: &AppState, form: Form, cx: &mut Context<AppState>) -> Option<AnyElement> {
+    // Only the live panel asks this; the kitchen sink's copy has no folder behind it to make.
+    if form != Form::Live {
+        return None;
+    }
+    let mode = match app.workbench.project_settings.as_ref().map(|s| &s.mode)? {
+        ProjectSettingsMode::Create { .. } => None,
+        ProjectSettingsMode::Edit { project } => {
+            Some(WindowRegistry::read(cx).project(*project)?.record.storage)
+        }
+    };
+    let creating = mode.is_none();
+    let current = mode.unwrap_or(app.create_storage);
+
+    let pill = |id: &'static str, label: &'static str, want: StorageMode| {
+        let chosen = current == want;
+        let element = choice_pill(
+            ElementId::Name(id.into()),
+            label,
+            chosen,
+            cx.listener(move |this, _, _, cx| {
+                if creating {
+                    this.set_create_storage(want, cx);
+                }
+            }),
+        );
+        // An existing project's panel shows what is true and takes no click. Drawn rather than
+        // hidden: "where is this project's data" is a question the panel should answer.
+        if creating {
+            element
+        } else {
+            element
+                .cursor_default()
+                .opacity(if chosen { 1.0 } else { 0.5 })
+        }
+    };
+
+    let note = if creating {
+        "Ubiq's config folder keeps the project's tasks and settings out of the project entirely. \
+         In the project writes them to a .ubiq/ folder you can commit, so they travel with a \
+         clone — with a .gitignore that leaves this machine's caches and view state out."
+    } else {
+        "Chosen when the project was created, and shown here so you know where its tasks are. \
+         Moving the data between the two is not something this panel does."
+    };
+
+    Some(setting_row(
+        "Project data",
+        note,
+        div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap_1()
+            .flex_wrap()
+            .child(pill(
+                "project-storage-ubiq",
+                "Ubiq's config folder",
+                StorageMode::UbiqManaged,
+            ))
+            .child(pill(
+                "project-storage-project",
+                "In the project (.ubiq/)",
+                StorageMode::ProjectManaged,
+            ))
+            .into_any_element(),
+    ))
 }
 
 /// This project's own runnable tools, on top of the machine-wide rows.
@@ -1148,6 +1230,7 @@ fn general(app: &AppState, window: &Window, cx: &mut Context<AppState>, form: Fo
             )
             .into_any_element(),
         ))
+        .children(storage_row(app, form, cx))
         .children(form_project(app, form, cx).and_then(|project| index_row(app, project, cx)))
         .children(
             form_project(app, form, cx)
@@ -1546,12 +1629,7 @@ fn documentation() -> AnyElement {
         .into_any_element()
 }
 
-fn integrations(
-    app: &AppState,
-    form: Form,
-    window: &Window,
-    cx: &mut Context<AppState>,
-) -> AnyElement {
+fn integrations() -> AnyElement {
     div()
         .flex()
         .flex_col()
@@ -1566,20 +1644,86 @@ fn integrations(
                 .text_color(theme::text_muted())
                 .child("One integration in the fixture. Wiring it is the host's."),
         )
-        .children(project_profiles(app, form, window, cx))
         .into_any_element()
 }
 
-/// The setups written inside this project: offered when a start is aimed here, and nowhere else.
+/// The Agent definitions section: whether this project uses the globals, and the list it uses
+/// instead.
 ///
-/// The app-wide settings screen lists the global profiles and never these — "visible only in the
-/// project they were created in" is the ask, and a second listing of them under Settings would
-/// contradict it. A profile of the same name as a global one shadows it here, which is the rule
-/// the host resolves a launch by.
+/// **Ticked is the answer until the project writes a setup of its own.** The globals are what a
+/// start in any project is offered, so a project that has written nothing has nothing to say here
+/// — and unticking is what says "this project has its own", which is the gesture that enables the
+/// list and the `Add agent` beside it. The globals stay in that list, ticked and not editable
+/// from here: a project adds to what it inherits, it does not take from it, and the app-wide
+/// settings screen is where a global is edited.
+fn agent_definitions(
+    app: &AppState,
+    form: Form,
+    window: &Window,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let use_global = match form {
+        Form::Sink => app.sink.project.definitions_use_global,
+        Form::Live => app
+            .workbench
+            .project_settings
+            .as_ref()
+            .is_none_or(|settings| settings.definitions_use_global),
+    };
+    let prefix = form.prefix();
+
+    div()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .child(heading(
+            "Agent definitions",
+            "Which saved setups a start inside this project is offered.",
+        ))
+        .child(setting_row(
+            "Use the global agents",
+            "Every definition written under the application's own settings, and nothing else. \
+             Untick it to give this project a list of its own \u{2014} the globals stay on it.",
+            check_box(
+                ElementId::Name(format!("{prefix}-definitions-use-global").into()),
+                use_global,
+                cx.listener(|this, _, _, cx| this.toggle_definitions_use_global(cx)),
+            )
+            .into_any_element(),
+        ))
+        .children(
+            (!use_global)
+                .then(|| project_definitions(app, form, window, cx))
+                .flatten(),
+        )
+        // The fixture has no project behind it, so there is no list to draw: the page shows the
+        // question, and the live dialog is where the answer has rows.
+        .children(
+            (!use_global && form_project(app, form, cx).is_none()).then(|| {
+                div()
+                    .text_size(theme::font(Family::Chrome, Role::Meta))
+                    .text_color(theme::text_faint())
+                    .child(
+                        "A definition is filed under a project id \u{2014} a folder that is not \
+                         in the catalogue yet has nowhere to put one.",
+                    )
+            }),
+        )
+        .into_any_element()
+}
+
+/// The list this project offers, once it has said it is not on the globals alone.
 ///
-/// Absent entirely for a folder that is not yet a project in the catalogue: a profile is filed
+/// Two groups, and they are not the same thing: the project's **own** setups, which are written
+/// here, edited here and deleted with the project, and the **globals** they are offered alongside
+/// — listed so the reader can see what a start here is actually offered, and not editable from a
+/// project screen, because a global belongs to the application's own settings. A project setup of
+/// the same name shadows the global one, which is the rule the host resolves a launch by, and the
+/// shadowed row says so rather than quietly disappearing.
+///
+/// Absent entirely for a folder that is not yet a project in the catalogue: a definition is filed
 /// under a project id, so there is nowhere to put one until the project exists.
-fn project_profiles(
+fn project_definitions(
     app: &AppState,
     form: Form,
     window: &Window,
@@ -1587,43 +1731,25 @@ fn project_profiles(
 ) -> Option<AnyElement> {
     let _ = window;
     let project = form_project(app, form, cx)?;
-    let profiles: Vec<ProfileInfo> = app
+    let own: Vec<AgentDefinition> = app
         .workbench
         .settings
-        .project_profiles
+        .project_definitions
         .iter()
         .filter(|it| it.project == Some(project))
         .cloned()
         .collect();
+    let globals: Vec<AgentDefinition> = app.workbench.settings.definitions.clone();
 
-    let rows: Vec<AnyElement> = profiles
+    let own_rows: Vec<AnyElement> = own
         .iter()
-        .map(|profile| {
-            let edit = profile.clone();
-            div()
-                .flex()
-                .items_center()
-                .justify_between()
-                .gap_2()
-                .py_1()
-                .child(
-                    div()
-                        .text_size(theme::font(Family::Chrome, Role::Body))
-                        .text_color(theme::text())
-                        .child(SharedString::from(format!(
-                            "{} \u{2014} {}",
-                            profile.id, profile.agent_type
-                        ))),
-                )
-                .child(ghost_button(
-                    ElementId::Name(format!("project-profile-{}-edit", profile.id).into()),
-                    None,
-                    "Edit",
-                    cx.listener(move |this, _, window, cx| {
-                        this.open_profile_form(Some(edit.clone()), None, window, cx)
-                    }),
-                ))
-                .into_any_element()
+        .map(|definition| crate::ui::settings::definition_row(app, definition, Some(project), cx))
+        .collect();
+    let global_rows: Vec<AnyElement> = globals
+        .iter()
+        .map(|definition| {
+            let shadowed = own.iter().any(|it| it.id == definition.id);
+            inherited_row(app, definition, shadowed)
         })
         .collect();
 
@@ -1643,18 +1769,16 @@ fn project_profiles(
                         div()
                             .text_size(theme::font(Family::Chrome, Role::Label))
                             .text_color(theme::text_muted())
-                            .child("Profiles"),
+                            .child("This project's own"),
                     )
-                    .child(ghost_button(
-                        "project-profile-add",
-                        None,
-                        "Add profile",
-                        cx.listener(move |this, _, window, cx| {
-                            this.open_profile_form(None, Some(project), window, cx)
-                        }),
+                    .child(crate::ui::settings::add_definition_button(
+                        app,
+                        "project-definition-add",
+                        Some(project),
+                        cx,
                     )),
             )
-            .children(rows)
+            .children(own_rows)
             .child(
                 div()
                     .text_size(theme::font(Family::Chrome, Role::Meta))
@@ -1665,8 +1789,55 @@ fn project_profiles(
                          deletes it.",
                     ),
             )
+            .child(div().pt_2().child(section_label("From the application")))
+            .children(global_rows)
             .into_any_element(),
     )
+}
+
+/// One global, as a project screen shows it: what it is and what it runs, and no action.
+///
+/// A global is edited where it was written. Drawn ticked because that is what it is — on offer
+/// here — and struck through in words when this project has written a setup of the same name,
+/// which shadows it inside this project only.
+fn inherited_row(app: &AppState, definition: &AgentDefinition, shadowed: bool) -> AnyElement {
+    let harness = app
+        .workbench
+        .agent_types
+        .iter()
+        .find(|it| it.id == definition.agent_type)
+        .map(|it| it.label.clone())
+        .unwrap_or_else(|| definition.agent_type.clone());
+    let note = match (shadowed, definition.disabled) {
+        (true, _) => " \u{2014} shadowed by this project's own".to_string(),
+        (false, true) => " \u{2014} off".to_string(),
+        (false, false) => String::new(),
+    };
+
+    div()
+        .flex()
+        .items_center()
+        .gap_2()
+        .py_1()
+        .child(check_box(
+            ElementId::Name(format!("project-definition-global-{}", definition.id).into()),
+            !shadowed && !definition.disabled,
+            |_, _, _| {},
+        ))
+        .child(
+            div()
+                .text_size(theme::font(Family::Chrome, Role::Body))
+                .text_color(if shadowed || definition.disabled {
+                    theme::text_faint()
+                } else {
+                    theme::text()
+                })
+                .child(SharedString::from(format!(
+                    "{} \u{2014} {harness}{note}",
+                    definition.id
+                ))),
+        )
+        .into_any_element()
 }
 
 fn footer(app: &AppState, form: Form, cx: &mut Context<AppState>) -> AnyElement {

@@ -173,7 +173,7 @@ pub struct PendingPhase {
 ///
 /// Nothing here is a launch. The host relays what was asked for; the window resolves the kind to a
 /// composition, applies the spawn policy and mints the [`AgentId`] — so this names a **kind**, and
-/// a profile only for the `custom` case where the requester named one outright.
+/// a definition only for the `custom` case where the requester named one outright.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PendingSpawn {
     /// Minted host-side at the `spawn_agent` call and handed straight back to the requester, which
@@ -182,12 +182,16 @@ pub struct PendingSpawn {
     /// Who asked. Never [`Actor::User`]: the user does not ask for an agent, the user spawns one.
     #[serde(default)]
     pub by: Actor,
-    /// One of [`MissionRecord::agent_kinds`] by name, or `custom` beside a [`Self::profile`].
+    /// One of [`MissionRecord::agent_kinds`] by name, or `custom` beside a [`Self::definition`].
     pub kind: String,
-    /// A profile named outright, for the `custom` kind. The window still resolves it — an agent
-    /// naming a profile is naming a saved setup, never a harness, an account or a credential.
-    #[serde(default)]
-    pub profile: Option<String>,
+    /// A definition named outright, for the `custom` kind. The window still resolves it — an agent
+    /// naming a definition is naming a saved setup, never a harness, an account or a credential.
+    ///
+    /// `alias` because this field was called `profile` before the rename (`D174`): a mission
+    /// record written by an older build still says so, and a spawn request that lost its
+    /// definition would silently launch the wrong thing.
+    #[serde(default, alias = "profile")]
+    pub definition: Option<String>,
     /// The task the new agent is for, when the requester had one in mind.
     #[serde(default)]
     pub task: Option<TaskId>,
@@ -395,9 +399,10 @@ pub struct AgentKind {
     #[serde(default)]
     pub description: String,
     /// The saved setup it resolves to. The four fields below override it, exactly as a launch's
-    /// picks already outrank a profile's.
-    #[serde(default)]
-    pub profile: Option<String>,
+    /// picks already outrank a definition's. `alias` reads what older records call `profile`
+    /// (`D174`).
+    #[serde(default, alias = "profile")]
+    pub definition: Option<String>,
     #[serde(default)]
     pub agent_type: Option<String>,
     #[serde(default)]
@@ -512,7 +517,7 @@ pub struct MissionRecord {
     /// The concurrency cap for [`SpawnPolicy::Auto`], ignored by the other two.
     #[serde(default = "default_spawn_limit")]
     pub spawn_limit: usize,
-    /// The kinds of agent this mission may spawn, seeded from the project's profiles.
+    /// The kinds of agent this mission may spawn, seeded from the project's definitions.
     #[serde(default)]
     pub agent_kinds: Vec<AgentKind>,
     /// Which of [`Self::agent_kinds`] a request that names none resolves to, by name.

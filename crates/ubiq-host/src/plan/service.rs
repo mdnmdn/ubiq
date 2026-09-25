@@ -319,6 +319,19 @@ impl Plans {
         crate::store::plan::load_sidecar(&self.sidecar_path(target)).map_err(|e| e.to_string())
     }
 
+    /// Replace a document's sidecar, whole and atomically.
+    ///
+    /// **Unconditional, on purpose.** The block index this carries is what keeps a `BlockId`
+    /// stable across two separate calls — `annotation_list()` computes it fresh from the body
+    /// when none is on disk yet, and an `AnnotatePlan` that follows re-reads the sidecar to check
+    /// the id it was given still names a block; skipping this write between the two would re-mint
+    /// every id on the second read and refuse the very first annotation ever made on a document,
+    /// every time. A save's revision and provenance are the same story: `Plans::save()`'s
+    /// watermark and conflict arbitration are only as real as what a *second* call reads back, so
+    /// they are only real if this wrote them. T-183's fix — no stale-source warning for a document
+    /// with nothing annotated — reads real annotation content instead of this file's mere
+    /// presence (`AppState::has_annotations`); it does not, and cannot without breaking the above,
+    /// live in whether this write happens.
     fn write_sidecar(&self, target: &Target, sidecar: &PlanSidecar) -> Result<(), String> {
         crate::store::plan::save_sidecar(&self.sidecar_path(target), sidecar, target.placement())
             .map_err(|error| error.to_string())
@@ -1693,7 +1706,10 @@ mod tests {
             std::fs::read_to_string(repo.path().join("notes.md")).unwrap(),
             "# Notes\n\nFirst thought."
         );
-        // And the sidecar is beside it, named by appending rather than replacing the extension.
+        // And the sidecar is beside it, named by appending rather than replacing the extension —
+        // written regardless of whether anything has been annotated, because the save it just
+        // took a revision for is the same read a second call has to find again (T-183's note on
+        // `Plans::write_sidecar`).
         let sidecar = repo.path().join("notes.md.annotation.json");
         assert!(sidecar.exists(), "the sidecar sits beside the file");
         assert!(
@@ -1708,6 +1724,28 @@ mod tests {
             .annotation_list(&target)
             .expect("the block index reads");
         assert_eq!(blocks.len(), 2);
+    }
+
+    /// A document nobody has saved or read yet, and one whose body is empty, leave no sidecar —
+    /// `Plans::sidecar()`'s own early return, unrelated to whether it carries an annotation: there
+    /// is no block to index at all, so there is nothing yet worth writing down.
+    #[test]
+    fn an_untouched_or_empty_file_document_leaves_no_sidecar() {
+        let (mut plans, _work, project, _dir) = plans_with_work();
+        let repo = tempfile::tempdir().unwrap();
+        std::fs::write(repo.path().join("notes.md"), "").unwrap();
+        let target = file_target(&repo, project, "notes.md");
+        let sidecar = repo.path().join("notes.md.annotation.json");
+
+        let (blocks, annotations) = plans
+            .annotation_list(&target)
+            .expect("an empty file still answers, with nothing in it");
+        assert!(blocks.is_empty());
+        assert!(annotations.is_empty());
+        assert!(
+            !sidecar.exists(),
+            "reading an empty, never-saved file writes nothing beside it"
+        );
     }
 
     #[test]

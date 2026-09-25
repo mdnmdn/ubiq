@@ -18,7 +18,7 @@ use ubiq::state::WindowRegistry;
 use ubiq::state::mission::{KindPick, KindTarget, MissionMenuRow, MissionSpawnRow};
 use ubiq_proto::bus::{self, FromClient, To};
 use ubiq_proto::ids::{ProjectId, SpawnId, TaskId};
-use ubiq_proto::messages::{Message, ProfileInfo};
+use ubiq_proto::messages::{AgentDefinition, Message};
 use ubiq_proto::mission::{
     Actor, AgentKind, ExecutionMode, JournalEntry, JournalEvent, MissionField, MissionRecord,
     MissionRole, PendingPhase, PendingSpawn, Phase, RosterEntry, SpawnOutcome, SpawnPolicy,
@@ -121,6 +121,7 @@ fn a_project() -> ProjectSnapshot {
             path: "/tmp/ubiq".to_string(),
             colour: 0,
             custom_colour: None,
+            storage: Default::default(),
             temporary: false,
             created_at: Utc::now(),
             last_opened_at: None,
@@ -273,9 +274,10 @@ fn a_mission_nobody_holds_moves_nowhere(cx: &mut TestAppContext) {
 // what went out on the bus. What a policy does is the whole of what these assert: the host has no
 // opinion, and `MissionRecord::spawn_policy` is read nowhere else.
 
-fn a_profile(id: &str) -> ProfileInfo {
-    ProfileInfo {
+fn a_definition(id: &str) -> AgentDefinition {
+    AgentDefinition {
         id: id.to_string(),
+        description: None,
         agent_type: "claude-code".to_string(),
         account: None,
         model: None,
@@ -285,6 +287,9 @@ fn a_profile(id: &str) -> ProfileInfo {
         prompt: None,
         mcps: Vec::new(),
         mission_assistant: Some(true),
+        mission_coordinator: false,
+        mission_worker: false,
+        disabled: false,
         project: None,
     }
 }
@@ -294,7 +299,7 @@ fn a_request(kind: &str) -> PendingSpawn {
         id: SpawnId::generate(),
         by: Actor::Agent(AgentId::generate()),
         kind: kind.to_string(),
-        profile: None,
+        definition: None,
         task: None,
         prompt: "Fix the retries.".to_string(),
         reason: "I need a second pair of hands.".to_string(),
@@ -303,7 +308,7 @@ fn a_request(kind: &str) -> PendingSpawn {
     }
 }
 
-/// A mission whose table knows one kind, resolving to one profile the window has been told about.
+/// A mission whose table knows one kind, resolving to one definition the window has been told about.
 fn a_mission_with_kinds(
     fixture: &Fixture,
     task: TaskId,
@@ -311,8 +316,8 @@ fn a_mission_with_kinds(
     cx: &mut TestAppContext,
 ) -> MissionRecord {
     fixture.deliver(
-        Message::Profiles {
-            profiles: vec![a_profile("worker")],
+        Message::AgentDefinitions {
+            definitions: vec![a_definition("worker")],
         },
         cx,
     );
@@ -320,7 +325,7 @@ fn a_mission_with_kinds(
     record.spawn_policy = policy;
     record.agent_kinds = vec![AgentKind {
         name: "reviewer".to_string(),
-        profile: Some("worker".to_string()),
+        definition: Some("worker".to_string()),
         ..AgentKind::default()
     }];
     record
@@ -389,8 +394,8 @@ fn auto_launches_under_the_cap_and_answers_with_the_kind_used(cx: &mut TestAppCo
     let started = said.iter().position(|m| {
         matches!(
             m,
-            Message::StartConversation { spawned_by, profile, .. }
-                if *spawned_by == Some(asked_by) && profile.as_deref() == Some("worker")
+            Message::StartConversation { spawned_by, definition, .. }
+                if *spawned_by == Some(asked_by) && definition.as_deref() == Some("worker")
         )
     });
     let answered = said.iter().position(|m| {
@@ -549,7 +554,7 @@ fn a_changed_kind_is_what_the_outcome_names(cx: &mut TestAppContext) {
     let mut record = a_mission_with_kinds(&fixture, task, SpawnPolicy::Ask, cx);
     record.agent_kinds.push(AgentKind {
         name: "tester".to_string(),
-        profile: Some("worker".to_string()),
+        definition: Some("worker".to_string()),
         ..AgentKind::default()
     });
     let request = a_request("reviewer");
@@ -845,8 +850,8 @@ fn spawn_offers_the_coordinator_every_kind_any_agent_and_attach(cx: &mut TestApp
     assert!(
         said.iter().any(|m| matches!(
             m,
-            Message::StartConversation { profile, spawned_by: None, .. }
-                if profile.as_deref() == Some("worker")
+            Message::StartConversation { definition, spawned_by: None, .. }
+                if definition.as_deref() == Some("worker")
         )),
         "the user's own spawn asks nobody and answers nobody: {said:#?}"
     );

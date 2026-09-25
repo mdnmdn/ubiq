@@ -5,8 +5,8 @@ kind: tech
 status: draft
 summary: What the embedded harness-management library owns, what Ubiq owns, how the application consumes it, and the rule that keeps the two from growing into each other.
 read_when: you are about to write code that launches a harness, drives one as a conversation, names a harness config path, or touches accounts, skills or MCP servers
-updated: 2026-09-24
-verified: 2026-09-24
+updated: 2026-09-25
+verified: 2026-09-25
 code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/main.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/quota.rs, crates/agent-manager/src/credentials/mod.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/examples/confined_shell_probe.rs, crates/agent-manager/src/io/structured.rs, crates/ubiq-app/src/lib.rs, crates/agent-manager/src/io/mod.rs, crates/agent-manager/src/io/acp.rs, crates/agent-manager/src/io/acp_caps.rs, crates/agent-manager/src/io/acp_client.rs, crates/ubiq-host/src/mcp/mod.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-host/src/mcp/ask.rs, crates/ubiq-proto/src/ask.rs]
 depends_on: [tech-structure]
 review_cycle: monthly
@@ -103,69 +103,72 @@ when that isolation is on — the permission mode, because a confined run is con
 rather than by the prompts and would otherwise stop on every ask the sandbox has already answered.
 Ubiq names no mode to do it: `Harness::unattended_mode` is the library's own word for which of its
 `modes()` means "ask nothing" (`None` for a harness that has no such mode or already asks nothing),
-and an explicit mode picked for this run outranks it — a profile's `mode` does not, being a default
+and an explicit mode picked for this run outranks it — an agent definition's `mode` does not, being a default
 under the same toggle. Everything else — which account, which model, which skills and MCP servers, which config overlays — is the library's
-answer, read from the profile that names them. So an account reaches a pane without `agent.rs`
+answer, read from the agent definition that names them. So an account reaches a pane without `agent.rs`
 learning what an account is, and a harness that grows a new composition knob needs no change here.
 
 The stores `resolve` reads are the filesystem defaults, each rooted under Ubiq's own config root so
-a development run never touches what the `am` CLI manages: `<root>/accounts`, `<root>/profiles`,
+a development run never touches what the `am` CLI manages: `<root>/accounts`, `<root>/agent-definitions`,
 `<root>/catalog`. A missing directory is an empty store, not an error, so this resolves on a machine
 that has configured nothing. The library's own settings file is deliberately **not** read — Ubiq's
 settings are the settings surface, and a second file answering the same question is a second
-answer — which leaves `resolve`'s precedence as flags, then the profile.
+answer — which leaves `resolve`'s precedence as flags, then the agent definition.
 
-**A configured harness entry is a `Profile`.** The pair a user thinks of as "Claude Code, work
+**A configured harness entry is a library `Profile`.** The pair a user thinks of as "Claude Code, work
 account" is `agent_manager::profile::Profile` with its `harness` and `account` set, and the agent
-layer that comes later is the same type with `defaults.instructions` filled. A `Profile` also
+layer that comes later is the same type with `defaults.instructions` filled. That record is what an
+agent definition is stored as — the library keeps the word `Profile`, Ubiq's own vocabulary is
+`AgentDefinition` (`D174`). A `Profile` also
 carries a `mode` beside its `isolate` — the harness-native permission mode, which `resolve` reads
-into `spec.policy.permission_mode` under a flag and above nothing, so it sits on the profile rather
+into `spec.policy.permission_mode` under a flag and above nothing, so it sits on the `Profile` rather
 than in `ProfileDefaults`: it is a policy axis, not a composition input. Beside it sits
 `max_subagents`, and `ProfileDefaults` carries `thinking` and `prompt`. **Those three the library
 records and never reads.** No harness has a subagent-ceiling flag and an opening prompt is a turn
 rather than a launch, so there is nothing for `resolve` to compose them into; they are on the
-profile because a saved setup has to remember what it asked for, and it is Ubiq's start that acts
-on them. `thinking` is an ordinary default, on the same terms as `model`. The profile named
+agent definition because a saved setup has to remember what it asked for, and it is Ubiq's start that acts
+on them. `thinking` is an ordinary default, on the same terms as `model`. The agent definition named
 `default` is what a run with no explicit selection resolves to.
 
-**A reference in a profile that resolves to nothing degrades the run rather than refusing
+**A reference in an agent definition that resolves to nothing degrades the run rather than refusing
 it** — an mcp, skill, account or hook id nothing answers to, or a `mode` the harness's own
 `Harness::modes()` does not list, is dropped, and named, on
 `RunSpec::problems`; a `model`, alone among them, is passed through unchecked, because the harness
 only answers what models it serves by being spawned; see `crates/agent-manager/_docs/registry.md` for the rule and its two
 deliberate exceptions. `agent.rs` carries that list forward as `Composed::problems`, and
 `Coordinator::report_run_problems` raises it as one `NotificationRequest::warning(Family::Agents,
-…).with_category("profile")` per run, once the harness has already started — so the person who set
-the profile up hears about the dropped entry without the launch failing over it. The CLI front end
+…).with_category("agent definition")` per run, once the harness has already started — so the person who set
+the agent definition up hears about the dropped entry without the launch failing over it. The CLI front end
 takes the same list and prints each line to stderr instead.
 
-**Ubiq writes the form over profiles and none of the mechanism behind them.**
+**Ubiq writes the form over agent definitions and none of the mechanism behind them.**
 `crates/ubiq-host/src/agent.rs` reads and writes them through an `FsProfileStore` rooted at
-`<root>/profiles` — `profiles()` projects each into a `ProfileInfo` for the wire, skipping any that
-pins no harness, and `save_profile()` folds one back into a `Profile` and calls
+`<root>/agent-definitions` — `definitions()` projects each into an `AgentDefinition` for the wire,
+skipping any that
+pins no harness, and `save_definition()` folds one back into a `Profile` and calls
 `FsProfileStore::save`. The store owns the on-disk shape, the id and the resolution; the host owns
 only where the root is. There is no delete, because the library offers none: adding a `remove_dir_all`
 here rather than a `delete` there is exactly the shape rule 1 forbids — [`../backlog.md`](../backlog.md).
 The seven fields the interface can set are the harness, the account, the model, the reasoning
 level, the mode, the subagent ceiling and the opening prompt — the same seven questions the start
-form asks, since a profile is a saved answer to them. The skills, MCP servers, hooks, instructions,
+form asks, since an agent definition is a saved answer to them. The skills, MCP servers, hooks, instructions,
 isolation and `extends` chain a `Profile` can carry are still written by hand, because nothing
 lists the catalog on the wire.
 
-**A profile can belong to a project, and belonging is a location** (`D158`). Beside the global
-root there is one store per project, rooted at `<root>/projects/<id>/profiles`, and nothing about
-the record says which — `Agents::project_profiles` stamps `ProfileInfo::project` from the root it
-read, and `save_profile` writes into the root that field names. Forgetting a project already
-removes `<root>/projects/<id>` whole, so its profiles go with it without `Projects::forget`
+**An agent definition can belong to a project, and belonging is a location** (`D158`). Beside the global
+root there is one store per project, rooted at `<root>/projects/<id>/agent-definitions`, and nothing about
+the record says which — `Agents::project_definitions` stamps `AgentDefinition::project` from the root it
+read, and `save_definition` writes into the root that field names. Forgetting a project already
+removes `<root>/projects/<id>` whole, so its agent definitions go with it without `Projects::forget`
 knowing they were there.
 
 `compose_run` is handed **both**, as one `agent_manager::profile::ScopedProfileStore` over the
 global store and — when the run belongs to a project — that project's: a name resolves in the
-project first and in the global root second, so a project profile shadows a global one of the same
+project first and in the global root second, so a project agent definition shadows a global one of the same
 name inside that project and nowhere else. `ConverseOptions::project` is what says which project,
 and `None` (a login pane, anything outside a project) is the global root alone, exactly as before
 this existed. The library resolves the `extends` chain through the same pair, which is where a
-global profile naming a project-scoped parent is refused — beside the cycle and depth refusals, in
+global agent definition naming a project-scoped parent is refused — beside the cycle and depth refusals, in
 `profile::resolve_chain`, and never here.
 
 **A workspace has two faces, and `agent.rs` composes both.** `Agents::compose` is the terminal one:
@@ -174,8 +177,8 @@ other: `IoModes::Structured`, and a `structured_bridge` over the harness's own J
 launch, because a conversation's harness writes frames on a pipe rather than drawing a screen. What
 differs between them beyond the mode is the run directory's name and the isolation, both below.
 
-**A bare run with no account and no profile still reuses the login already on the machine.**
-`seed_zero_config_login` in `crates/agent-manager/src/provision.rs` runs after profile resolution
+**A bare run with no account and no agent definition still reuses the login already on the machine.**
+`seed_zero_config_login` in `crates/agent-manager/src/provision.rs` runs after agent definition resolution
 finds no login named, and tries two tiers in order: first, copy the harness's own
 `Harness::config_anchor().login_seed` files out of the real `$HOME` — correct for every harness
 whose credential is a plain file, since that is the same file the harness itself reads. If that
@@ -183,7 +186,7 @@ copy places no **credential**, it falls back to `Harness::ambient_login()`, a ha
 of its live login when that login is **not** a `$HOME` file the first tier could ever find — Claude
 Code overrides it to read the OAuth blob the macOS Keychain holds, which is where it actually keeps
 a session rather than in `~/.claude/.credentials.json`. Either tier is skipped once a login has
-already landed from an account home or a profile overlay, and `ambient_login`'s default is `None`,
+already landed from an account home or an agent definition overlay, and `ambient_login`'s default is `None`,
 so a harness that keeps no such out-of-band login is unaffected.
 
 **Only a `SeedFile::credential` counts as a login having landed** — in both tier checks, in
@@ -497,7 +500,7 @@ emulation. A confined Windows pane therefore has no working POSIX shell, so Clau
 tool run inside one never returns; the only escape today is `HostSettings.isolate_agents` off for
 the whole machine, with no per-pane override (`G301`). A third, cosmetic fault the same probe's
 policy surfaced: a rendered Windows spec carries a hundred macOS-shaped grants that isol8's own
-profile files ship with their `filter.os` commented out rather than set to `macos`, so nothing on
+agent definition files ship with their `filter.os` commented out rather than set to `macos`, so nothing on
 this side zeroes them — inert, never functional (`G302`). All three are written up with their
 evidence in [`../inbox/isol8-upstream.md`](../inbox/isol8-upstream.md); only the first is fixed
 here.
@@ -508,7 +511,7 @@ form, applying between `fork` and `exec`, so `confined_launch` errors on Linux;
 `refs/isol8-pty-seam-update.md` specifies the seam that replaces it on unix.
 
 Everything an embedder can substitute is a trait: the catalog registry, the account store, the
-secret store, profiles, templates, session history, and an in-process MCP service behind the
+secret store, agent definitions, templates, session history, and an in-process MCP service behind the
 `inproc-mcp` feature. Ubiq supplies its own implementations where it wants application-specific
 behaviour and takes the filesystem defaults elsewhere.
 
@@ -537,8 +540,8 @@ either. `just host` and `just ui` are the mechanical checks that this stayed tru
 is the check that the host only ever reaches for the library's ungated core — `cli` and `pty` are
 absent from this build, so the CLI's own helpers are not available to it and the host builds its
 stores itself. Letting the *user* choose a composition is on the wire: `StartConversation` carries a
-profile id beside the account, and a profile's own fields are read by `resolve` under any flag the
-launch passes. `StartConversation.mcps` and `ProfileInfo.mcps` do the same for Ubiq's own built-in
+agent definition id beside the account, and an agent definition's own fields are read by `resolve` under any flag the
+launch passes. `StartConversation.mcps` and `AgentDefinition.mcps` do the same for Ubiq's own built-in
 MCP servers. What a composition can still not name from the interface — the catalog's skills, and a
 catalog MCP server reference beyond Ubiq's built-ins — is tracked in
 [`../backlog.md`](../backlog.md).

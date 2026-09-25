@@ -130,9 +130,9 @@ pub fn kind_overlay(
     let picks = app.mission_kind_picks(task_id, target);
     let items: Vec<_> = match picks.is_empty() {
         true => vec![
-            kit::ContextItem::new("No profiles to choose from")
+            kit::ContextItem::new("No agents to choose from")
                 .disabled()
-                .tooltip("Write a profile in settings and it will be offered here."),
+                .tooltip("Write an agent in settings and it will be offered here."),
         ],
         false => picks
             .iter()

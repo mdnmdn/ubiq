@@ -110,7 +110,7 @@ fn anything_that_is_not_a_repository_is_refused() {
         "https://github.com/rust-lang/rust?tab=readme",
         "https://github.com/rust-lang/rust#install",
         // GitHub paths that look like `owner/name` and are not.
-        "https://github.com/settings/profile",
+        "https://github.com/settings/definition",
         "https://github.com/marketplace/actions/checkout",
         "https://github.com/orgs/rust-lang",
         "https://github.com/notifications/beta",

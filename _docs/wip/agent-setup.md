@@ -5,8 +5,8 @@ kind: wip
 status: draft
 summary: The protocol, the library work and the order of packages behind a real conversation with a composed harness — what has landed, and the honest inventory of what today's library cannot yet deliver.
 read_when: you are picking up the next agent-integration package, or judging whether a proposed conversation message belongs on the wire
-updated: 2026-09-14
-verified: 2026-09-24
+updated: 2026-09-25
+verified: 2026-09-25
 code_anchors: [crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/coordinator.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/harness/claude.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/model.rs, crates/agent-manager/src/io/jsonl.rs, crates/ubiq-proto/src/work.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/state/conversation.rs, crates/agent-manager/src/profile.rs]
 depends_on: [tech-agent-manager, feat-workbench, feat-chat]
 review_cycle: monthly
@@ -62,7 +62,7 @@ false are deleted rather than annotated: this is what is true now.
 | All five harnesses accept a second turn on the same process (`IoSupport::multi_turn`) — opencode and Copilot joined Claude, Codex and Grok once both moved to an ACP launch (`opencode acp` / `copilot --acp`) instead of a one-shot argv prompt | Nothing left to reconcile between the two kinds; the coordinator's one-shot path (`finish_one_shot_turn`, relaunching with the harness's own session id on the next prompt via `RunSpec::resume`) has no harness exercising it, but stays in place for a future harness that needs it |
 | **Only Codex auto-approves.** Its reader auto-accepts every approval RPC. Claude, Grok, opencode and Copilot all ask: Claude's `control_request` and the three ACP harnesses' `session/request_permission` (`AcpBridge` parks it by request id) both wait for an `AgentInput::AnswerPermission`. Grok is the one that can be told not to ask: launched under `bypassPermissions` or `dontAsk` it carries `--always-approve` and raises no request at all | A permission prompt in the UI is theatre only for Codex — the tool has already run. This is the one item with a security consequence, and it gates any "ask me first" feature |
 | **Model discovery is implemented for all five harnesses** — `Harness::discover_models` (`harness/mod.rs:501`) is overridden by every one. But it takes **no account and no directory**, so a list is per harness rather than per identity, and Claude's probe reads the *ambient* login; discovery **is** cached now — `FileHarnessCache` (`crates/ubiq-host/src/store/harness.rs`) writes `<config root>/cache/harness-models.toml`, keyed on `(harness, account, version)`, with `version` read off the harness binary's own `--version` — so a hit skips the probe outright and a harness whose version cannot be read bypasses the cache in both directions. `ListHarnessCatalogue` reaches the same probe and the same cache with no conversation in the picture | A model picker is available before a start as well as after one, and its list is the same whichever account was chosen. Per-account lists need the trait signature to change. The catalogue can go stale until the harness binary's version string changes |
-| **A thinking / reasoning-effort catalog exists in Rust for four of five harnesses.** `Harness::discover_thinking` (`harness/mod.rs`) returns `BTreeMap<String, ModelThinking>` (`ModelThinking { levels: Vec<ThinkingLevel>, default_level }`, `ThinkingLevel { value, label, description }`), defaulted to empty; `Claude` scrapes `claude --help`'s `--effort` parenthetical and applies it to every model, `Codex` reads `supported_reasoning_levels`/`default_reasoning_level` off the same `codex debug models --bundled` value `discover_models` already parses, `Opencode` reads each model's `variants` map, and `Grok` states its own four efforts — `xhigh`, `high`, `medium`, `low`, default `high` — against every model, a fixed CLI/API enum rather than a probe. Copilot CLI alone answers the empty default: it exposes no reasoning concept a command can read. `ConfigCategory::ThoughtLevel` is a *label on an option* rather than a reading of this catalog | The catalog reaches the interface through `HarnessCatalogue`, which folds each model's levels into the `CatalogueModel` beside it, so the New agent form draws a level picker and a profile can pin one. The one harness with no reasoning concept draws no level row at all, which is the honest shape of an empty catalog |
+| **A thinking / reasoning-effort catalog exists in Rust for four of five harnesses.** `Harness::discover_thinking` (`harness/mod.rs`) returns `BTreeMap<String, ModelThinking>` (`ModelThinking { levels: Vec<ThinkingLevel>, default_level }`, `ThinkingLevel { value, label, description }`), defaulted to empty; `Claude` scrapes `claude --help`'s `--effort` parenthetical and applies it to every model, `Codex` reads `supported_reasoning_levels`/`default_reasoning_level` off the same `codex debug models --bundled` value `discover_models` already parses, `Opencode` reads each model's `variants` map, and `Grok` states its own four efforts — `xhigh`, `high`, `medium`, `low`, default `high` — against every model, a fixed CLI/API enum rather than a probe. Copilot CLI alone answers the empty default: it exposes no reasoning concept a command can read. `ConfigCategory::ThoughtLevel` is a *label on an option* rather than a reading of this catalog | The catalog reaches the interface through `HarnessCatalogue`, which folds each model's levels into the `CatalogueModel` beside it, so the New agent form draws a level picker and an agent definition can pin one. The one harness with no reasoning concept draws no level row at all, which is the honest shape of an empty catalog |
 | **`AcpBridge` is the one producer of `ConfigOptionUpdate`, and the one bridge that accepts `SetConfigOption`.** It publishes the pickers a `session/new` result names — a standards-compliant agent's `configOptions` and `modes`, or the vendor `models` and `x.ai/sessionConfig` blocks Grok sends instead — and routes a set back through the method that option's `ConfigSource` names: `session/set_model`, `session/set_mode` or `session/set_config_option`. The native `jsonl` and `codex` bridges reject a set with an error naming the option. `Message::SetAgentConfig` is plumbed host-side through `coordinator.rs` | A model or a reasoning effort chosen at launch works everywhere; changing one mid-conversation works for an ACP harness and for no other |
 | `Policy` carries an opaque `permission_mode` string, passed through per harness. Claude's `init` event already reports `permissionMode`, and the bridge surfaces it as `SessionStarted.mode` | The mode is the one item of the three that is free — it is already on the wire as `ConvUpdate::Started` |
 | **Ubiq writes a session record of its own.** `crates/ubiq-host/src/agent.rs` calls `agent_manager::session::save` the moment a run is composed, into `<ubiq root>/sessions` — a directory it passes explicitly, so `AM_SESSIONS` cannot redirect a user's Ubiq transcripts — and copies the harness's own transcript in at teardown. Ubiq's sessions and agents are otherwise in-memory (`ubiq-host/src/work/mod.rs`), and only tasks persist | A run's record and the harness's own file outlive the run directory. `am session ls` reads the library's store and so does not list Ubiq's runs; and the record is metadata plus a harness file, not an `AgentEvent` transcript. The live conversation state still does not survive a restart |
@@ -82,7 +82,7 @@ Three words, decided:
 layer is deferred. That is a labelling decision rather than a data-model one, because all three
 collapse onto one library type: a **`Profile`** (`crates/agent-manager/src/profile.rs`) is
 `{ id, extends, account, harness, defaults: { mcps, skills, model, hooks, instructions }, isolate,
-mode }`. Today's pair is a `Profile` with `harness` and `account` set; tomorrow's agent is the same
+mode }`. Today's pair is a library `Profile` with `harness` and `account` set; tomorrow's agent is the same
 `Profile` with `defaults.instructions` filled. So the split, when it comes, is a rename in
 `crates/ubiq` and no migration — and the persistence and the resolution are the library's, through
 `FsProfileStore::save` and `resolve`, with Ubiq holding only the form over them.
@@ -327,7 +327,7 @@ Two changes that together are what made an identity reachable at all.
 **`compose_run` calls `resolve`.** `crates/ubiq-host/src/agent.rs` no longer hand-sets five fields
 of a `RunSpec`; it calls `agent_manager::resolve::resolve` and overrides only the four answers that
 are Ubiq's — see [`../tech/agent-manager.md`](../tech/agent-manager.md), which owns that division and
-the stores behind it. Everything else comes from the profile, so an account reaches a pane without
+the stores behind it. Everything else comes from the agent definition, so an account reaches a pane without
 `agent.rs` learning what an account is. An unknown id fails the spawn with the fuzzy suggestions
 `resolve` already produces, because a misconfigured account must say so rather than starting
 unauthenticated.
@@ -399,9 +399,9 @@ its first turn, and the harness launches with the one picked.
 are asked; the first is now the New agent form, which asks them before the start. The catalogue
 reaches it through `ListHarnessCatalogue`/`HarnessCatalogue` — the same `probe_catalogue` and the
 same version-keyed cache, answered on a one-off thread with no conversation in the picture — so
-`Harness::discover_thinking`'s two-harness catalog has a consumer, and a profile can pin a level
+`Harness::discover_thinking`'s two-harness catalog has a consumer, and an agent definition can pin a level
 (`ProfileDefaults::thinking`) as well as a model. `StartConversation` carries `model`, `thinking`
-and `mode`, each outranking the profile's own record, and `AgentTypeInfo::unattended_mode` is what
+and `mode`, each outranking the agent definition's own record, and `AgentTypeInfo::unattended_mode` is what
 the mode picker opens on so the interface never guesses which id means "ask nothing".
 
 ### P4 — Agent definitions — **landed**
@@ -416,8 +416,8 @@ turn already taken was taken as somebody.
 **The definition half.** A `Profile` carries a `mode` beside its `isolate`, because a permission
 mode is a policy axis rather than a composition input — it lands in `spec.policy.permission_mode`,
 not in the overlay `ProfileDefaults` describes, so `ProfileDefaults` is the wrong home for it.
-`resolve` reads it as `flags.permission_mode.or_else(profile.mode)`, which makes the precedence flag,
-then profile, then nothing at all — no `Policy` is minted when neither answers. Nothing else in the
+`resolve` reads it as `flags.permission_mode.or_else(agent definition.mode)`, which makes the precedence flag,
+then agent definition, then nothing at all — no `Policy` is minted when neither answers. Nothing else in the
 library was needed: `FsProfileStore::save` and `ProfileStore::profiles()` already existed, and the
 mode's vocabulary was already `Harness::modes()`, a fixed per-harness list — six for Claude, six for
 Grok, three for Codex, empty for opencode and Copilot, which is how a harness says it has no such
@@ -425,28 +425,28 @@ concept. Grok's six are its top-level TUI flag's values, so only two of them rea
 `grok agent stdio` has no `--permission-mode`, and `bypassPermissions` and `dontAsk` map onto the
 one lever it does have, `--always-approve`.
 
-`ProfileInfo { id, agent_type, account, model, mode }` crosses the bus, `AgentTypeInfo` gained the
-`modes` a picker draws from, and the profile family is `ListProfiles` / `Profiles` / `SaveProfile`
+`AgentDefinition { id, agent_type, account, model, mode }` crosses the bus, `AgentTypeInfo` gained the
+`modes` a picker draws from, and the agent definition family is `ListAgentDefinitions` / `AgentDefinitions` / `SaveAgentDefinition`
 — documented in [`../tech/transport-contract.md`](../tech/transport-contract.md). `account` stays
-beside `profile` on `StartConversation` rather than being folded into it: a bare harness row starts
-with no profile at all, and `resolve` puts `flags.account` above the profile's, which is the "the
-user picked this one" rule. Host-side, `crates/ubiq-host/src/agent.rs` grows `profiles()` and
+beside `agent definition` on `StartConversation` rather than being folded into it: a bare harness row starts
+with no agent definition at all, and `resolve` puts `flags.account` above the agent definition's, which is the "the
+user picked this one" rule. Host-side, `crates/ubiq-host/src/agent.rs` grows `agent definitions()` and
 `save_profile()` over an `FsProfileStore` rooted at `<ubiq root>/profiles` — a profile that pins no
 harness is skipped, since a row with no `agent_type` names nothing that can be started — and
-`compose_run` and `converse` thread the id through to `RunFlags.profile`. The pane path passes
+`compose_run` and `converse` thread the id through to `RunFlags.agent definition`. The pane path passes
 `None`: P4 is conversation-only.
 
 **The trap, and it is P3's ordering coming back.** A launch passes the picked model as
-`flags.model`, which outranks the profile inside `resolve` — so if the pending conversation's
-pickers started empty, a profile's model would be silently launched over. `start_conversation`
-therefore seeds `chosen_model` and `chosen_mode` from the profile's record before discovery runs,
+`flags.model`, which outranks the agent definition inside `resolve` — so if the pending conversation's
+pickers started empty, an agent definition's model would be silently launched over. `start_conversation`
+therefore seeds `chosen_model` and `chosen_mode` from the agent definition's record before discovery runs,
 the mode picker's `current` reads that seed, and the discovery thread hands the seeded model to
-`advertised_model` rather than a `None` that would have redrawn the picker as unset. A profile whose
+`advertised_model` rather than a `None` that would have redrawn the picker as unset. An agent definition whose
 picks launch correctly while displaying as empty is the failure this shape avoids.
 
-Interface-side, `SettingsState` holds `profiles` and a `profile_form`; `harness_choices` grows a
+Interface-side, `SettingsState` holds `agent definitions` and a `profile_form`; `harness_choices` grows a
 third group, `Defined`, omitted whole when there are none exactly as `Configured` already is, whose
-rows are `HarnessChoice::Profile(usize)`. A row reads `reviewer — Codex · syn · gpt-5 · Plan` and is
+rows are `HarnessChoice::AgentDefinition(usize)`. A row reads `reviewer — Codex · syn · gpt-5 · Plan` and is
 drawn faint when that harness is not installed. The form is built like the login modal — a name
 field, `choice_pill`s for harness, account and mode, and a free-text model field — and switching
 harness clears both mode and account, because both are scoped to a harness and neither survives the
@@ -459,8 +459,8 @@ the form: the library supports chains, and a first offering of one is a tree edi
 for. No mcps, skills, instructions or isolate fields, which is `G78` from the catalogue's side. The
 model is free text because there is no `ListModels` message and discovery happens only inside
 `start_conversation`'s own thread (`G166`) — the conversation-start picker still shows the harness's
-real list before the first turn. No `thinking`, because `resolve` has no profile leg for one
-(`G167`). And no `suggest()` for an unknown profile id: it fails the compose, which
+real list before the first turn. No `thinking`, because `resolve` has no agent definition leg for one
+(`G167`). And no `suggest()` for an unknown agent definition id: it fails the compose, which
 `refuse_conversation` already reports.
 
 ### P5 — Credentials, through a login modal — **landed**
@@ -532,8 +532,8 @@ a state directory of `<root>/isol8`.
 `HomeMode` is a *sandboxed*-run feature — `isolate::plan` answers `None` for `Isolation::None`, so an
 unconfined run materialises no home and replaces no `$HOME`. That is why this waited on `G92`'s
 confinement half: `compose_run` used to set `Isolation::None` unconditionally for a conversation, and
-a conversation is the only thing carrying a profile after P4. With confinement applied to both faces,
-`compose_run` reads `RunFlags.profile` and sets `Managed(<sanitised id>)` when one is there,
+a conversation is the only thing carrying an agent definition after P4. With confinement applied to both faces,
+`compose_run` reads `RunFlags.agent definition` and sets `Managed(<sanitised id>)` when one is there,
 `Ephemeral` when it is not — so a pane, which deliberately names no identity, still starts clean.
 The one awkwardness, `sanitize_segment` being private to the feature-gated `cli` module, is four
 lines copied as `Agents::home_id` rather than a name exported across that boundary. Teardown needed
@@ -544,8 +544,8 @@ HOME-shaped capture tree used as the login's `$HOME` and afterwards a read-only 
 each run; a managed home is the run's own live writable `$HOME`. Pointing one at the other would
 close P5's copy-back gap and let a bad run corrupt the stored credential.
 
-**Rejected:** keying `ConfigStrategy::Fixed` by profile id rather than by run and never deleting it.
-Two conversations on one profile would share a config directory concurrently — two Claude processes
+**Rejected:** keying `ConfigStrategy::Fixed` by agent definition id rather than by run and never deleting it.
+Two conversations on one agent definition would share a config directory concurrently — two Claude processes
 writing one `.claude.json` — and it is a second persistence mechanism real P6 would have to unwind.
 
 **Done when** a defined agent's second run finds its own cache warm, and an ad-hoc run still starts
@@ -615,15 +615,15 @@ wrote it — and waits only on the replay that hands it to a fresh harness (`G12
 - **A pending agent's `WorkAgent.account` is what was asked for, not what a run resolves.** Before
   P3, `composed.account()` filled it, taken from the actual run; a pending agent has no run yet, so
   it carries the requested account (or empty) until launch, and nothing corrects it afterwards. The
-  two differ whenever a profile supplies an account nobody named on the row — a `Defined` pick with
-  an account, or a profile called `default` — and the settings form can now write both, so the gap
+  two differ whenever an agent definition supplies an account nobody named on the row — a `Defined` pick with
+  an account, or an agent definition called `default` — and the settings form can now write both, so the gap
   is real rather than hypothetical. It is accepted: the footer reads the resolved account once the
   run exists, and only the pending line can be wrong.
-- **A profile's pick outranks nothing — a launch flag outranks *it*.** `resolve` reads
-  `flags.model` above `profile.defaults.model` and `flags.permission_mode` above `profile.mode`, and
-  a launch always passes what the pickers hold. So a picker that failed to display the profile's
+- **An agent definition's pick outranks nothing — a launch flag outranks *it*.** `resolve` reads
+  `flags.model` above `agent definition.defaults.model` and `flags.permission_mode` above `agent definition.mode`, and
+  a launch always passes what the pickers hold. So a picker that failed to display the agent definition's
   choice does not merely look wrong, it launches wrong; seeding the pending conversation from the
-  profile before discovery is what keeps the two the same answer. See P4.
+  agent definition before discovery is what keeps the two the same answer. See P4.
 
 ## Open questions
 

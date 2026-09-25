@@ -90,7 +90,7 @@ pub const COLUMN_MIN_WIDTH: f32 = 360.0;
 /// **Grouped by availability alone**: the bench, then whatever is already on screen in some other
 /// column. That is the one honest split [`WorkAgent`] supports today — it also carries `role` and
 /// `task`, but neither is filled from a real run yet (see the backlog row on grouping by them once
-/// a `Profile` does), and a group drawn from a mock value would read as real.
+/// an `AgentDefinition` does), and a group drawn from a mock value would read as real.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum BenchRow {
     /// An agent. Pickable unless `disabled` — already on screen in another column, shown rather

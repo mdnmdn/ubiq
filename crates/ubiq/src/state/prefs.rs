@@ -102,8 +102,9 @@ pub struct LastStart {
     pub agent_type: String,
     #[serde(default)]
     pub account: Option<String>,
-    #[serde(default)]
-    pub profile: Option<String>,
+    /// `alias` reads a blob written while this was called `profile` (`D174`).
+    #[serde(default, alias = "profile")]
+    pub definition: Option<String>,
     /// What the last start was allowed to do without asking. `None` is "the harness's own", which
     /// is a real answer as well as what a blob written before this field carried.
     #[serde(default)]

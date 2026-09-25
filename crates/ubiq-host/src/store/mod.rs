@@ -15,12 +15,17 @@
 //!   grows without bound, so it is a database and a concrete type — see [`usage`].
 //! - **Settings split in two.** The Ui layer is opaque, like view state. The Host layer is the
 //!   host's to parse, like the catalogue: a corrupt file is preserved and reported.
+//!
+//! *Where* a per-project file lands is a separate question from what it holds, and
+//! [`project_dir`] is the only place that answers it: under the config root for a Ubiq-managed
+//! project, inside the project's own `.ubiq/` for a project-managed one.
 
 pub mod file;
 pub mod harness;
 pub mod memory;
 pub mod mission;
 pub mod plan;
+pub mod project_dir;
 /// The usage meter — not a trait, and not a file. See the module for why it is neither.
 #[cfg(feature = "harness")]
 pub mod usage;
@@ -87,6 +92,11 @@ pub trait TaskStore: Send + Sync {
     fn load(&self, project: ProjectId) -> Result<Option<Vec<TaskRecord>>, StoreError>;
     fn save(&self, project: ProjectId, tasks: &[TaskRecord]) -> Result<(), StoreError>;
     fn clear(&self, project: ProjectId) -> Result<(), StoreError>;
+    /// Append tasks moved off the board to the project's archive (`T-190`), paged so a page never
+    /// grows without bound — `ARCHIVE_PAGE_SIZE` (`file::ARCHIVE_PAGE_SIZE`) per file. The caller
+    /// already dropped these from the live list; this is only where they land next. Nothing on
+    /// this trait reads the archive back — there is no browse or restore yet (`backlog.md`).
+    fn archive(&self, project: ProjectId, tasks: &[TaskRecord]) -> Result<(), StoreError>;
 }
 
 /// The interface's view state, which the host holds and never reads.

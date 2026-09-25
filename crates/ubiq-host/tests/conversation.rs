@@ -221,8 +221,17 @@ fn what_the_harness_says_reaches_the_bus_in_order() {
     ]);
 
     let host = host_end.mailbox(To::Client(client.id()));
-    let conversation =
-        Conversation::start(id, Box::new(bridge), host, 0, None, None, false, flags());
+    let conversation = Conversation::start(
+        id,
+        Box::new(bridge),
+        host,
+        0,
+        None,
+        None,
+        false,
+        flags(),
+        None,
+    );
     let messages = drain(&client, 4);
 
     let seqs: Vec<u64> = messages
@@ -289,6 +298,7 @@ fn a_tool_call_and_its_completion_keep_the_same_id() {
         None,
         false,
         flags(),
+        None,
     );
     let messages = drain(&client, 3);
 
@@ -330,6 +340,7 @@ fn a_prompt_reaches_a_bridge_the_pump_thread_owns() {
         None,
         false,
         flags(),
+        None,
     );
     assert!(conversation.accepts_input());
 
@@ -356,6 +367,7 @@ fn a_one_shot_harness_refuses_a_second_turn() {
         None,
         false,
         flags(),
+        None,
     );
 
     assert!(!conversation.accepts_input());
@@ -382,6 +394,7 @@ fn two_conversations_share_one_bus_without_interleaving() {
         None,
         false,
         flags(),
+        None,
     );
     let b = Conversation::start(
         second,
@@ -392,6 +405,7 @@ fn two_conversations_share_one_bus_without_interleaving() {
         None,
         false,
         flags(),
+        None,
     );
 
     let messages = drain(&client, 6);
@@ -430,6 +444,7 @@ fn a_pump_continues_from_its_start_seq() {
         None,
         false,
         flags(),
+        None,
     );
     let messages = drain(&client, 1);
 
@@ -449,8 +464,17 @@ fn a_quiet_stop_sends_no_conversation_ended_and_returns_the_last_seq() {
     let (bridge, tx) = Cancellable::new();
 
     let host = host_end.mailbox(To::Client(client.id()));
-    let conversation =
-        Conversation::start(id, Box::new(bridge), host, 0, None, None, false, flags());
+    let conversation = Conversation::start(
+        id,
+        Box::new(bridge),
+        host,
+        0,
+        None,
+        None,
+        false,
+        flags(),
+        None,
+    );
 
     tx.send(Some(text("hello"))).unwrap();
     tx.send(Some(text("again"))).unwrap();
@@ -485,8 +509,17 @@ fn a_stop_that_is_not_quiet_still_sends_conversation_ended() {
     let (bridge, _tx) = Cancellable::new();
 
     let host = host_end.mailbox(To::Client(client.id()));
-    let conversation =
-        Conversation::start(id, Box::new(bridge), host, 0, None, None, false, flags());
+    let conversation = Conversation::start(
+        id,
+        Box::new(bridge),
+        host,
+        0,
+        None,
+        None,
+        false,
+        flags(),
+        None,
+    );
     conversation.stop(false);
 
     let messages = drain(&client, 1);
@@ -502,8 +535,17 @@ fn a_relaunch_after_an_unload_continues_the_conversations_own_sequence() {
     let (bridge, tx) = Cancellable::new();
 
     let host = host_end.mailbox(To::Client(client.id()));
-    let conversation =
-        Conversation::start(id, Box::new(bridge), host, 0, None, None, false, flags());
+    let conversation = Conversation::start(
+        id,
+        Box::new(bridge),
+        host,
+        0,
+        None,
+        None,
+        false,
+        flags(),
+        None,
+    );
     tx.send(Some(text("hello"))).unwrap();
     drain(&client, 1);
     let last_seq = conversation.stop(true);
@@ -519,6 +561,7 @@ fn a_relaunch_after_an_unload_continues_the_conversations_own_sequence() {
         None,
         false,
         flags(),
+        None,
     );
     let messages = drain(&client, 1);
     assert!(matches!(
@@ -554,6 +597,7 @@ fn the_opening_reply_is_gathered_whole_and_published_when_the_turn_ends() {
         None,
         false,
         flags(),
+        None,
     );
     // Draining past the turn's own update means the pump has already published: the publish
     // happens before the send that carries `TurnEnded` onto the bus.
@@ -583,6 +627,7 @@ fn a_turn_of_only_subagent_prose_publishes_no_opening_reply() {
         None,
         false,
         flags(),
+        None,
     );
     drain(&client, 3);
 
@@ -634,6 +679,7 @@ fn accept_all_answers_the_permission_and_emits_nothing() {
         None,
         false,
         ConvFlags::new(id, true, false),
+        None,
     );
     // Two events in, one update out: the permission is answered here and never sent.
     let messages = drain(&client, 2);
@@ -688,6 +734,7 @@ fn accept_all_shows_a_request_it_has_no_allowing_answer_for() {
         None,
         false,
         ConvFlags::new(id, true, false),
+        None,
     );
     let messages = drain(&client, 1);
     assert!(
@@ -719,6 +766,7 @@ fn the_capture_writes_the_conversation_to_a_file() {
         None,
         false,
         ConvFlags::new(id, false, true),
+        None,
     );
     let path = ubiq_host::conversation::ConvFlags::dump_path_for(id);
     assert_eq!(
@@ -737,4 +785,122 @@ fn the_capture_writes_the_conversation_to_a_file() {
     let parsed: serde_json::Value = serde_json::from_str(line).expect("one JSON object per line");
     assert_eq!(parsed["kind"], "ConversationUpdate");
     assert_eq!(parsed["agent"], id.to_string());
+}
+
+// ── the registered dialogs (`D175`) ─────────────────────────────────
+
+/// One well-formed question, as `register_question` files it.
+fn armed_question() -> ubiq_proto::ask::AskQuestion {
+    ubiq_proto::ask::AskQuestion {
+        question: "Which way?".to_string(),
+        header: "Direction".to_string(),
+        options: vec![
+            ubiq_proto::ask::AskOption {
+                label: "Left".to_string(),
+                description: String::new(),
+                preview: None,
+            },
+            ubiq_proto::ask::AskOption {
+                label: "Right".to_string(),
+                description: String::new(),
+                preview: None,
+            },
+        ],
+        multi_select: false,
+    }
+}
+
+/// The turn boundary is the whole mechanism: what the agent registered mid-turn is raised the
+/// instant the turn ends, as the same `AskUser` the parked mode raises, on the host's own voice so
+/// the coordinator can address it.
+#[test]
+fn a_turn_ending_raises_the_dialogs_that_turn_registered() {
+    let (_hub, host_end, client) = bus_pair();
+    let id = AgentId::generate();
+    let armed = Arc::new(ubiq_host::armed::Armed::new());
+    let ask_id = armed.arm(id, vec![armed_question()]);
+    // A second conversation's registration, which this turn ending must not touch.
+    let theirs = armed.arm(AgentId::generate(), vec![armed_question()]);
+
+    let (bridge, _) = Scripted::new(vec![text("hello"), turn_ended()]);
+    let mailbox = host_end.mailbox(To::Client(client.id()));
+    let _conversation = Conversation::start(
+        id,
+        Box::new(bridge),
+        mailbox,
+        0,
+        None,
+        None,
+        false,
+        flags(),
+        Some(ubiq_host::conversation::AskFire {
+            armed: Arc::clone(&armed),
+            voice: host_end.voice(),
+        }),
+    );
+
+    let raised = loop {
+        match host_end
+            .recv_timeout(PATIENCE)
+            .expect("the dialog is raised")
+        {
+            bus::FromClient::Said {
+                message:
+                    Message::AskUser {
+                        agent_id, ask_id, ..
+                    },
+                ..
+            } => break (agent_id, ask_id),
+            _ => continue,
+        }
+    };
+    assert_eq!(raised, (id, ask_id));
+    // The other conversation's registration is still armed, and still not raised: a turn boundary
+    // belongs to one conversation.
+    assert_eq!(armed.len(), 2, "both rows are still held");
+    assert!(armed.answer(theirs).is_none(), "theirs was never raised");
+    assert!(armed.answer(ask_id).is_some(), "ours was");
+}
+
+/// A turn that broke drops what it armed rather than putting a dialog on screen over an error:
+/// the user is left with the failure, which is the honest reading (`D175`).
+#[test]
+fn a_failed_turn_drops_the_dialogs_it_registered() {
+    let (_hub, host_end, client) = bus_pair();
+    let id = AgentId::generate();
+    let armed = Arc::new(ubiq_host::armed::Armed::new());
+    armed.arm(id, vec![armed_question()]);
+
+    let (bridge, _) = Scripted::new(vec![AgentEvent::TurnEnded {
+        stop_reason: LibStop::Failed,
+        error: Some("the model gave up".to_string()),
+    }]);
+    let mailbox = host_end.mailbox(To::Client(client.id()));
+    let _conversation = Conversation::start(
+        id,
+        Box::new(bridge),
+        mailbox,
+        0,
+        None,
+        None,
+        false,
+        flags(),
+        Some(ubiq_host::conversation::AskFire {
+            armed: Arc::clone(&armed),
+            voice: host_end.voice(),
+        }),
+    );
+
+    // The turn's own update still goes to the window; no question is said on the host's voice.
+    drain(&client, 1);
+    while let Ok(said) = host_end.recv_timeout(Duration::from_millis(100)) {
+        if let bus::FromClient::Said {
+            message: Message::AskUser { .. },
+            ..
+        } = said
+        {
+            panic!("a failed turn raised a dialog");
+        }
+    }
+    assert!(armed.is_empty(), "and forgets what it armed");
 }

@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: The rail's IDE mode — the project's file explorer and its right-click menu, the editor tabs each open file is a panel of, the viewer that draws one by kind, Markdown reading width and its minimap, diagrams and Excalidraw scenes, the image editor over any picture, and how a file is saved.
 read_when: you are changing the explorer tree, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, capturing the window, editing a picture, or saving a file
-updated: 2026-09-24
-verified: 2026-09-24
+updated: 2026-09-25
+verified: 2026-09-25
 code_anchors: [crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/app/explorer.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/src/state/explorer/menu.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/ui/mark.rs, crates/ubiq/src/app/mark.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/md_options.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/ui/viewer/web.rs, crates/ubiq/src/ui/kit/md_navigator.rs, crates/ubiq/src/ui/kit/minimap.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/feedback.rs, crates/ubiq/src/state/feedback.rs, crates/ubiq/src/ui/feedback.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/tests/image_gestures.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/tests/viewer_kind.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/ui/web_view.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/state/web_panel.rs]
 depends_on: [feat-workbench, tech-ui]
 review_cycle: monthly
@@ -361,6 +361,20 @@ pane's edge. `render_linked_scrollable` draws `gpui_component::scroll::Scrollbar
 absolutely-positioned sibling of a pane-width scroll `div`, so the bar sits flush at the panel's own
 edge regardless of where the reading column is centred.
 
+**Split draws the same way, uncapped, and its two panes stay at the same fraction down the
+document** (T-166). `ui/viewer/mod.rs`'s `markdown_split` gives the preview half `file.md_scroll`
+through `markdown::render_split` rather than the plain `markdown::render` every other viewer
+position calls — the same external-scroll-handle fix `markdown_preview` carries, so the split's
+preview stops leaving dead space below its last line too. `render_split` also does not cap the
+column at the width preset: a half-pane is already narrower than the full viewer, and pinning it to
+the reading measure on top of that left it using less width than it had, not more, so it reflows to
+whatever the pane actually offers. `markdown_split`'s own `sync_markdown_split_scroll` keeps the
+buffer and the preview at the same **fraction** down the document, not a mapped line or block — the
+two lay the same content out at different heights per block, so there is no pixel-honest way to
+line up a byte offset in one against a byte offset in the other. Whichever side moved further since
+the last frame is read as this frame's mover, from `OpenFile::md_split_scroll`'s memory of both
+sides' fractions as of the last reconciliation, and its fraction is copied onto the other side.
+
 **A Markdown preview reads at a measured width, and the user picks how wide and how dense.** The
 text column is capped at a width preset — Readable (~75 characters, the default), Wide (~95) or
 Full (the pane's own width) — computed from the body font's average character width rather than a
@@ -396,12 +410,33 @@ Comfortable regardless of what the reader had picked. `md_minimap` is `plan_mini
 the plan modal's thread strip and the standard viewer's own minimap (below) answer to the one
 flag and the one side setting now, rather than the plan surface alone.
 
+**The same popover carries a character-size slider and a four-way text-colour picker, per
+document and in memory only** (T-188) — `OpenFile::md_reading`, a `MdReading { char_scale,
+text_shade }` held on the tab itself rather than in `UiSettings`: closing the tab, or restarting,
+drops it, unlike every other row on this panel. `char_scale` is a multiplier over
+`theme::font(Family::Content, Role::Body)`, never an absolute size of its own, and it does reach
+the document — `markdown.rs::render_linked_scrollable` multiplies the body size by it before
+`typography` ever sees it. `text_shade` is one of four `theme::TextColors` tokens
+(`faint`/`muted`/`primary`/`strong`, the last added by this card), each with a value in both
+palettes — **and it does not reach the rendered prose**: the vendored `TextView`'s own style type
+carries no foreground colour a caller can set per instance, only a window-wide default installed
+once from the active theme, so the picker, the per-document state and the persistence all landed
+but the body still draws in the theme's own colour regardless of which rectangle is picked
+(`markdown.rs::typography`'s own doc comment states this beside the line-height and tracking gaps
+it already reported). A **"Make default, system-wide"** button writes the tab's own pair into
+`UiSettings.md_char_scale_default`/`md_text_shade_default`, through the same
+`Message::SetSettings { layer: Ui }` path every other row on this popover already persists by — no
+new wire message, because that layer is exactly the interface-owned, opaque-to-the-host blob this
+needed. **There is no per-project counterpart.** `ubiq-proto` carries no message that scopes a
+settings blob to one project, and this card stops at reporting the shape one would need —
+`ui/viewer/md_options.rs`'s own module doc comment — rather than adding it.
+
 **The standard viewer draws the same block-shaped minimap the plan surface does, when `md_minimap`
 is on** — `ui/viewer/mod.rs`'s `markdown_preview`, over `markdown::structure_marks`. Before T-134
 this strip drew a heading-only tick and the plan surface's own minimap drew one mark per source
 line; both read as noise next to the reference minimap's handful of legible bars, so both now draw
 the same block shapes through the same `ui::document::mark_style` palette — `structure_marks` walks
-the raw source's top-level blocks directly, since a standard preview is one `TextView` rather than a
+the source's own top-level blocks directly, since a standard preview is one `TextView` rather than a
 block per heading and has no host block index to read the way the plan surface does. A block's
 fraction down the strip is its own byte offset over the document's length, the same honest
 approximation the plan surface's own minimap places every mark by — there is no per-heading layout
@@ -427,9 +462,17 @@ moved. **They stay two walks, not one**: they read the tree at different depths 
 lists, while `structure_marks` reads only the root's own children, because a block nested inside a
 larger one is part of that block's shape as far as a minimap is concerned. What they wanted to
 share was the parse, not the walk. The fence scan is a third walk and stays separate for a reason
-of its own: it runs over the **body**, after the frontmatter split, and needs each fence's exact
-`Code::value` byte for byte, because that string is the key the block renderer later looks its
-picture up by.
+of its own: it needs each fence's exact `Code::value` byte for byte, because that string is the key
+the block renderer later looks its picture up by.
+
+**Every one of those walks runs over the body, after the frontmatter split** (T-155, T-151). The
+preview hands `TextView` the body and draws the frontmatter as its own collapsed bar, so a walk
+over the raw source describes a document nobody is looking at: it put a phantom top-level entry in
+the navigator and a phantom shape in the minimap for every document with frontmatter, and measured
+every fraction against a length the rendered document does not have, so every mark landed short of
+what it points at. `walks` calls `split_frontmatter` first, the same step the preview and the fence
+scan take, and parses the body at `ubiq_proto::blocks::options` — the options the host splits a
+document with, so the navigator and the host's block index cannot disagree about what a block is.
 
 **A diagram is drawn in the interface, on a background thread.** A Mermaid document is just text;
 the bus already carries a file's bytes, so nothing about a diagram crosses it. The window renders it
@@ -450,10 +493,38 @@ config root, which is what makes a host on another machine a change of value rat
 **A diagram or a scene in a panel can be panned and zoomed.** It opens fitted to the panel, aspect
 ratio preserved, with a margin. The wheel zooms about the pointer, a drag pans, a double-click or a
 pinch-out to the floor restores the fit. The camera belongs to the tab, not the file, and is not
-written down. A fence inside a Markdown document is not a panel: it is drawn at the picture's own
-size inside `ui/viewer/mod.rs`'s `diagram_frame` (`diagram.rs::draw`, `scene.rs::draw_static`),
-which scrolls it horizontally when it is wider than the reading column rather than letting it spill
-past the panel; the document is what scrolls vertically.
+written down. A fence inside a Markdown document is not a panel: it draws inside `ui/viewer/mod.rs`'s
+`diagram_frame` (`diagram.rs::draw`, `scene.rs::draw_static`), which scrolls it horizontally when it
+is still wider than the reading column rather than letting it spill past the panel; the document is
+what scrolls vertically.
+
+**A fence scales down to the document's own reading measure before that, never up past its own
+size** (T-185) — `diagram::scale_to_measure`, published once per document render as
+`diagram::publish_measure` (the same hand-off `RESOLVED` already is, since a block renderer is
+handed no `AppState` to read `md_width` from), and read back by both `diagram::draw` and
+`scene::draw_static`. A picture already narrower than the measure is untouched; one wider shrinks
+to it, aspect preserved. Publishing is unconditional on every render — `render_block`'s own single
+blocks (the plan surface's unit) explicitly publish `None`, so a full document rendered earlier in
+the same frame can never leave its measure behind for an unrelated block's fence to pick up — and
+`render_split`'s right-hand pane (already narrower than the full viewer) also publishes `None`, so
+a fence there still draws at its own size exactly as before this card.
+
+**A Mermaid fence, and a standalone Markdown image, carry a corner zoom button** (T-185) — a small
+`Maximize` icon, top-right, that raises `ui::viewer::zoom_modal::render` near-fullscreen with pan,
+zoom (the same `state::viewport::Viewport` camera a panel already draws on, under its own key so it
+does not fight the inline picture's) and a Copy-to-clipboard button
+(`gpui::ClipboardItem::new_image`). `WorkbenchState::image_zoom` carries which picture, one at a
+time on `state::overlay::Layer::ImageZoom`'s rung — above the plan surface, since a fence inside
+its own rendered markdown can raise the same button. The button is built through `window.root`
+rather than `cx.listener`, because a fence's block renderer is handed only a `Window` and an `App`.
+A standalone image is a paragraph holding nothing else — `markdown::ImageBlock`, the same shape
+`state::document::is_image_reference` already told the minimap apart by — intercepted through the
+same `MarkdownExtensions::block_parser`/`block_renderer` hook a fence already used, so it can carry
+the same measure cap; it resizes but **carries no zoom button**, because there is no decoded pixel
+size in hand at parse time to seed the modal's camera with, unlike a diagram's own renderer output.
+**An Excalidraw fence resizes but carries no zoom button either** — it is vector shapes painted
+straight into the panel, not one picture a modal or a clipboard button could hand off whole; only a
+Mermaid fence's `Arc<Image>` and a standalone image's `img(url)` are reachable today.
 
 **An Excalidraw scene sits on Excalidraw's own white canvas.** A file that names a canvas colour
 keeps it; a file that names none — `transparent`, an absent key — gets the format's default white
@@ -485,8 +556,9 @@ the editor once to draw this." instead of a picture.
 fence is drawn by the diagram viewer and a ```` ```excalidraw ```` one by the scene viewer — one
 renderer per format, two call sites for each. A Mermaid fence resolves against the same cache the
 panel uses, so a document with several fences fills in as each of them lands rather than waiting for
-all of them. A picture is drawn at its own size, which the renderer reads out of the SVG's
-`viewBox`, rather than stretched to whatever box it landed in.
+all of them. A picture is drawn at the size the renderer reads out of the SVG's `viewBox` — never
+stretched past it — scaled down further to the reading measure when this document caps one, per
+the zoom-modal paragraph above.
 
 **The fence body is a cache key, so there is one parser and not two.** The document resolves a
 fence's picture before the block renderer that draws it is reached, and the two halves meet in a map

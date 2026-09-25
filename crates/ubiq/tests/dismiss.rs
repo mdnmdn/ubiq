@@ -57,6 +57,7 @@ fn escape_peels_one_layer_at_a_time(cx: &mut gpui::TestAppContext) {
             colour: ColourField::default(),
             drone: DroneField::default(),
             nav: ProjectNav::General,
+            definitions_use_global: true,
         });
         state.workbench.settings.open = true;
         state.workbench.confirm_end_conversation = Some(AgentId::generate());
@@ -212,6 +213,7 @@ fn the_composers_picker_draws_with_the_rail_off_the_sink(cx: &mut gpui::TestAppC
             path: "/tmp/ubiq".to_string(),
             colour: 0,
             custom_colour: None,
+            storage: Default::default(),
             temporary: false,
             created_at: chrono::Utc::now(),
             last_opened_at: None,
@@ -462,6 +464,7 @@ fn an_outside_click_in_a_higher_layer_leaves_the_layer_under_it_up(cx: &mut gpui
             colour: ColourField::default(),
             drone: DroneField::default(),
             nav: ProjectNav::General,
+            definitions_use_global: true,
         });
         state.workbench.kb_source = Some(KbSourceForm::default());
     });

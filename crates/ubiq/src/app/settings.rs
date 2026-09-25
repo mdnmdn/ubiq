@@ -274,9 +274,9 @@ impl AppState {
             // harness list is: an account logged in from elsewhere should appear without a
             // restart, and the answer is cheap.
             self.bus.send(Message::ListAccounts);
-            self.bus.send(Message::ListProfiles);
+            self.bus.send(Message::ListAgentDefinitions);
             self.bus.send(Message::ListAgentTypes);
-            // And what the profile form's MCP checklist offers, which the profile section is the
+            // And what the definition form's MCP checklist offers, which the definition section is the
             // other surface for — see `AppState::open_new_agent`.
             self.bus.send(Message::ListMcps);
             // Same reasoning, for the other half of the identities: a connection made in
@@ -1536,39 +1536,44 @@ impl AppState {
         cx.notify();
     }
 
-    // ── Profiles ────────────────────────────────────────────────────
+    // ── Agent definitions ────────────────────────────────────────────────────
 
-    /// Raise the profile form. `profile` is `None` for a new setup, or the one being edited —
+    /// Raise the definition form. `definition` is `None` for a new setup, or the one being edited —
     /// the id is what the host overwrites by, so editing keeps it and typing a new one saves a
-    /// second profile rather than renaming the first.
+    /// second definition rather than renaming the first.
     ///
-    /// It is the New agent form with [`Purpose::Profile`]: the same questions, so the same rows,
+    /// It is the New agent form with [`Purpose::AgentDefinition`]: the same questions, so the same rows,
     /// and every pick below the name is answered by that form's own mutators. The two typed
     /// fields are seeded here, the way the rename dialog seeds its own.
     ///
     /// `project` is the scope a *new* setup is written into: `None` from the app-wide settings
-    /// screen, `Some` from a project's own. An edit keeps the scope its profile was found in and
-    /// ignores this, because moving a profile between roots is not what Edit means.
-    pub fn open_profile_form(
+    /// screen, `Some` from a project's own. An edit keeps the scope its definition was found in and
+    /// ignores this, because moving a definition between roots is not what Edit means.
+    pub fn open_definition_form(
         &mut self,
-        profile: Option<ProfileInfo>,
+        definition: Option<AgentDefinition>,
         project: Option<ProjectId>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let mut form = match &profile {
-            Some(profile) => NewAgentForm::from_profile(profile, Purpose::Profile),
-            None => NewAgentForm::new(Purpose::Profile),
+        let mut form = match &definition {
+            Some(definition) => NewAgentForm::from_definition(definition, Purpose::AgentDefinition),
+            None => NewAgentForm::new(Purpose::AgentDefinition),
         };
-        if profile.is_none() {
+        if definition.is_none() {
             form.project = project;
         }
-        let id = profile.as_ref().map(|it| it.id.clone()).unwrap_or_default();
+        let id = definition
+            .as_ref()
+            .map(|it| it.id.clone())
+            .unwrap_or_default();
         let prompt = form.prompt.clone();
-        self.profile_id_input
+        let description = form.description.clone();
+        self.definition_id_input
             .update(cx, |state, cx| state.set_value(&id, window, cx));
         self.set_new_agent_prompt(&prompt, window, cx);
-        self.workbench.settings.profile_form = Some(form);
+        self.set_new_agent_description(&description, window, cx);
+        self.workbench.settings.definition_form = Some(form);
         self.workbench.settings.error = None;
         // What the harness offers is what the model and level rows are drawn from, so an edit
         // opens asking for it rather than showing an empty list until something is repicked.
@@ -1576,10 +1581,47 @@ impl AppState {
         cx.notify();
     }
 
-    pub fn close_profile_form(&mut self, cx: &mut Context<Self>) {
-        self.workbench.settings.profile_form = None;
+    pub fn close_definition_form(&mut self, cx: &mut Context<Self>) {
+        self.workbench.settings.definition_form = None;
         cx.notify();
     }
+
+    /// Copy a definition, in the scope it already lives in.
+    ///
+    /// The copy is named here rather than asked for: the host refuses a clone onto a name already
+    /// taken — a clone never overwrites a saved setup — so the interface picks a free one and the
+    /// user renames it by saving it under another name, which is what the form's name field does.
+    /// What is copied is the record, fields no screen shows included, which is why this is one
+    /// message rather than a read and a save.
+    pub fn clone_definition(
+        &mut self,
+        id: String,
+        project: Option<ProjectId>,
+        cx: &mut Context<Self>,
+    ) {
+        let new_id = self.workbench.settings.free_definition_name(&id, project);
+        self.workbench.settings.error = None;
+        self.bus.send(Message::CloneAgentDefinition {
+            id,
+            new_id,
+            project,
+        });
+        cx.notify();
+    }
+
+    /// Whether this machine can carry a **new** agent definition at all.
+    ///
+    /// A definition names a harness, so with none available there is nothing one could run and the
+    /// host refuses to write one. The screens ask this before drawing `Add agent`: a control that
+    /// is going to be refused is drawn unavailable with the reason on it, not left live to fail
+    /// after the click.
+    pub fn can_write_definition(&self) -> bool {
+        self.workbench.agent_types.iter().any(|it| it.available)
+    }
+
+    /// Why `Add agent` is unavailable, for the tooltip on the control that is not offering it.
+    pub const NO_HARNESS_REASON: &'static str = "No harness is configured on this machine \u{2014} add one under Harnesses before writing \
+         an agent definition.";
 
     // ── Connectors ──────────────────────────────────────────────────
 

@@ -274,7 +274,7 @@ impl SshAuth {
         }
     }
 
-    /// Whether this variant can have a secret at all. An [`Self::Agent`] profile with a
+    /// Whether this variant can have a secret at all. An [`Self::Agent`] definition with a
     /// passphrase filed against it is a leak, not a feature, so the host prunes one.
     pub fn takes_secret(&self) -> bool {
         matches!(self, Self::KeyFile { .. } | Self::Password { .. })

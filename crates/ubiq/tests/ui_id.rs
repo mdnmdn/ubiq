@@ -681,6 +681,7 @@ fn render_real_shell(cx: &mut gpui::TestAppContext) -> Vec<UiMark> {
             path: format!("/tmp/{name}"),
             colour: 0,
             custom_colour: None,
+            storage: Default::default(),
             temporary: false,
             created_at: chrono::Utc::now(),
             last_opened_at: None,

@@ -13,18 +13,18 @@ impl AppState {
     /// What a reader is shown as this agent's name — the dock tab, the column's own header and
     /// its tab strip, every surface that used to print [`WorkAgent::name`] directly.
     ///
-    /// **The profile it was started from outranks the harness-label default, until something real
+    /// **The definition it was started from outranks the harness-label default, until something real
     /// replaces both.** `WorkAgent::summary` is `None` until the harness (or a user rename) names
     /// the conversation for itself — `refresh_agent_record`'s own signal — so that is the gate:
-    /// a fresh agent nothing has named yet shows the profile it was picked from rather than the
+    /// a fresh agent nothing has named yet shows the definition it was picked from rather than the
     /// bare harness label every unnamed conversation used to wear, and a named one shows what it
-    /// was actually named, same as before. No profile remembered (a bare harness start, or a
+    /// was actually named, same as before. No definition remembered (a bare harness start, or a
     /// window reloaded since) falls through to `WorkAgent::name` unchanged.
     pub fn agent_title(&self, agent: &ubiq_proto::work::WorkAgent) -> SharedString {
         if agent.summary.is_none()
-            && let Some(profile) = self.workbench.agent_started_profile.get(&agent.id)
+            && let Some(definition) = self.workbench.agent_started_definition.get(&agent.id)
         {
-            return SharedString::from(profile.clone());
+            return SharedString::from(definition.clone());
         }
         if agent.name.is_empty() {
             SharedString::from(agent.harness.clone())
@@ -1343,7 +1343,7 @@ impl AppState {
     /// [`Self::pick_new_agent_menu`] is where that is answered.
     ///
     /// The lists it leads to are asked for again here, for the reason
-    /// [`Self::open_new_pane_menu`] asks: a harness installed, an account signed in or a profile
+    /// [`Self::open_new_pane_menu`] asks: a harness installed, an account signed in or a definition
     /// written since the window opened is offered without a restart.
     pub fn open_new_agent_menu(
         &mut self,
@@ -1362,7 +1362,7 @@ impl AppState {
         });
         self.bus.send(Message::ListAgentTypes);
         self.bus.send(Message::ListAccounts);
-        self.bus.send(Message::ListProfiles);
+        self.bus.send(Message::ListAgentDefinitions);
         cx.notify();
     }
 
@@ -1584,7 +1584,7 @@ impl AppState {
         &mut self,
         agent_type: &str,
         account: Option<&str>,
-        profile: Option<&str>,
+        definition: Option<&str>,
         mode: Option<&str>,
         max_subagents: Option<u8>,
         _cx: &mut Context<Self>,
@@ -1592,7 +1592,7 @@ impl AppState {
         let last = crate::state::prefs::LastStart {
             agent_type: agent_type.to_string(),
             account: account.map(str::to_string),
-            profile: profile.map(str::to_string),
+            definition: definition.map(str::to_string),
             mode: mode.map(str::to_string),
             max_subagents,
         };

@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: The window's shell — the activity rail and the nine modes it selects between, the dock of movable panels the user arranges around the centre, the titlebar and its navigator, the projects a window holds and the empty state one with none shows, the picker that adds, clones and opens them, project and application settings, the file picker any screen raises, and the status bar that reports on all of it. Each mode's own screen has a document of its own.
 read_when: you are changing the window layout, the rail, the dock, where a panel may sit or when it is drawn, the titlebar, the navigator, the project picker, cloning a project, project or application settings, remote hosts, the file picker, vim mode, or the status bar
-updated: 2026-09-24
-verified: 2026-09-24
+updated: 2026-09-25
+verified: 2026-09-25
 code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/tests/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/src/ui/new_project_menu.rs, crates/ubiq/tests/new_project.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/project_face.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
@@ -272,6 +272,15 @@ opens over the window with only General enabled, the path filled and immutable, 
 prefilled from the folder's last component. Create sends `AddProject`. Cancel leaves the catalogue
 untouched.
 
+**Where the project keeps its data is chosen in that panel, and only there.** A "Project data" row
+offers two answers: Ubiq's config folder, which is the default and writes nothing inside the
+project, and "In the project (.ubiq/)", which writes the tasks, the project metadata and the
+configuration to a `.ubiq/` folder the project commits — with a `.gitignore` that leaves this
+machine's caches and view state out. The edit panel draws the same row for an existing project and
+does not take a click: it says where the data is, and moving it between the two trees is not
+something the panel does. `D173` and [`../tech/project-structure.md`](../tech/project-structure.md)
+are the shape of the folder.
+
 **Cloning is the picker's second way in.** A "Clone a project…" row sits beside Add and opens a
 modal of its own. With a connection to GitHub, GitLab or Gitea the modal lists that identity's
 repositories and filters them as the user types; a repository URL pasted into the modal's own field
@@ -317,20 +326,36 @@ which of them no record names.
 The path stays as it is: "Project path" is a read-only field rather than a plain label, so a long
 path can be scrolled and selected instead of overflowing, and the home directory is abbreviated to
 `~` for display (`ui/sink/project.rs::home_abbreviated`; nothing stored or sent is ever the
-abbreviated form). Documentation is drawn and disabled; Integrations is a fixture too, apart from
-the profiles block below it. Save writes the name and colour through `UpdateProject`.
+abbreviated form). Documentation and Integrations are drawn and disabled. Save writes the name and
+colour through `UpdateProject`.
 
-**Integrations is where a project's own profiles are written.** A profile saved here belongs to the
+**Agent definitions is the project's own nav item, and it opens on `Use the global agents`.**
+Ticked is the answer a project gives until it has written a setup of its own: the globals are what
+a start in any project is offered, so a project with nothing of its own has nothing to say here.
+Unticking it enables the list below — this project's own setups, each with `Clone` and `Edit`,
+`Add agent` above them under the same no-harness guard the application section's carries, and then
+the globals, listed ticked and with no action on them, because a global is edited where it was
+written and a project adds to what it inherits rather than taking from it. A global a project
+setup shadows by name says so on its row.
+
+**The tick is seeded, not stored.** What outlives the dialog is whether the project has
+definitions of its own — `ProjectSettings::definitions_use_global` is read off
+`project_definitions` when the dialog opens and is the section's own state thereafter. There is
+deliberately no record of it on the wire: a second record of "does this project use the globals"
+could disagree with the definitions themselves. A project that wants *only* its own, with no
+global on offer at all, is `G358` in the backlog.
+
+An agent definition saved here belongs to the
 project, which is a fact about where it is stored and not a field it carries (`D158`): the host
 keeps it under that project's own directory, offers it when an agent starts in that project, and
-deletes it with the project — forgetting the project takes the whole directory, profiles included,
-and nothing asks first. `Add profile` raises the same profile form the settings page raises, aimed
+deletes it with the project — forgetting the project takes the whole directory, agent definitions included,
+and nothing asks first. `Add agent` raises the same agent definition form the settings page raises, aimed
 at this project; `Edit` on a row reopens it in the scope it was found in, because Edit is not a
-way to move a profile between roots. **These rows appear nowhere else.** The application's own
-Harnesses section lists the global profiles only — "visible only in the project they were created
+way to move an agent definition between roots. **The project's own rows appear nowhere else.** The application's own
+Agent definitions section lists the global ones only — "visible only in the project they were created
 in" is the ask, and a second listing under Settings would contradict it. The cost of reading it
 that way is that a surface holding no project offers none of them: the new-mission dialog's
-assistant picker is the one that bites, so a project-scoped profile cannot be a mission assistant
+assistant picker is the one that bites, so a project-scoped agent definition cannot be a mission assistant
 yet — a row in the backlog rather than a hedge here.
 
 **Tasks says which lanes this project's board draws.** Every one of the seven statuses is listed —
@@ -641,7 +666,7 @@ good, until stopped from the Drones settings section, below). `Session` and `Man
 the drone with a `--listen … && exec … --attach …` line that *adopts* one already running on those
 roots rather than starting a rival — reconnecting after a dropped link is a fresh instance of that
 same line, on the same terms. `Connected` attaches the dialled host to the window's `Bus` as a `HostRef::Remote`,
-labelled — for a fresh dial, by the address or the picked profile's name, or the saved host's own
+labelled — for a fresh dial, by the address or the picked agent definition's name, or the saved host's own
 name for a reconnect started from the Hosts settings section, below — what `Bus::remotes()` hands
 back to the project picker's "Open remote project…" row (above) so a project can be opened on it. A
 dial that succeeds is saved automatically, its carrier included, so it can be offered again after a
@@ -821,7 +846,8 @@ single click opens a preview tab, and the two folders a clone lands in — the d
 and the ephemeral folder, each with a chooser and a clear button, and each showing the host's own
 default as a placeholder rather than a path the interface invented), **Editor** (whether a new markdown file opens in preview or
 source), **Harnesses** (the accounts
-registered here, the profiles defined here, and an Add button for each), **Isolation** (whether an
+registered here, and an `Add harness` above them), **Agent definitions** (the saved setups, with
+`Add agent` above them), **Isolation** (whether an
 agent is confined, whose home it runs in, and the directories it may reach beyond its policy),
 **Search** (what every project's search skips, and what a project is indexed to), **Connectors**
 (the named identities at each provider, and the registrations a flow picks from), **Hosts** (the
@@ -964,33 +990,67 @@ modal is the only thing that draws it, which is also what keeps one emulator fro
 two places at once. The rename, delete and sign-out questions are painted the same way, over
 whatever raised them, for the same reason.
 
-**A Profiles block sits below the accounts, and it is where a conversation's setup gets a name.**
-One row per saved profile, read as `reviewer — Codex · syn · gpt-5 · Plan · 2 MCPs`: the id, then
+**Agent definitions is its own section, and it is where a conversation's setup gets a name.** A
+harness is a tool this machine has and a definition is a recipe written against one; the two lists
+grow at different rates, and reading the recipes under the heading of the tools made them read as
+one list. One row per saved agent definition, read as `reviewer — Codex · syn · gpt-5 · Plan · 2
+MCPs`: the id, then
 whichever of the harness, the account, the model, the mode and a count of the MCP servers it
-launches with that profile pins, the mode drawn by its label rather than its harness-native id, and
-the MCP count left off a profile that pins none. A row whose harness is not installed on this machine is drawn
+launches with that agent definition pins, the mode drawn by its label rather than its harness-native id, and
+the MCP count left off an agent definition that pins none. Badges before the summary say what the
+record says about itself — `Coordinator`, `Worker`, `Off` — because a status is shown by colour
+from the status group and never by wording alone. A row whose harness is not installed on this machine is drawn
 faint, the same way a harness type is in the New-agent menu, because a definition survives a machine
-that cannot run it. Clicking a row opens it for editing; `+ Add profile` opens the same form empty.
-Nothing here deletes or renames — see [`../backlog.md`](../backlog.md) — so correcting a profile
-means saving over its id, and typing a different name saves a second profile beside the first.
+that cannot run it; a switched-off one reads faint for the same reason, being listed and not on
+offer. A definition carrying `AgentDefinition::description` draws it on a second line under the
+name, elided to one rather than wrapped — the field is written for another agent to read through
+the mission tools (`tech/transport-contract.md`), and the row is a summary, not the form it can be
+read in full from. Each row carries `Clone` and `Edit`, and `+ Add agent` opens the same form empty.
+Nothing here deletes or renames — see [`../backlog.md`](../backlog.md) — so correcting an agent definition
+means saving over its id, and typing a different name saves a second agent definition beside the first.
 
-**The profile form is the New agent form with a name field above it.** A profile is a saved answer
+**`Clone` names the copy itself.** The host refuses a clone onto a name already taken — a clone
+never overwrites a saved setup — so the interface sends `CloneAgentDefinition` with the first free
+`<id> copy`, `<id> copy 2` in that definition's own scope, rather than a name it can already see
+will be rejected. What is copied is the record, fields no screen shows included, which is why it
+is one message rather than a read and a save.
+
+**`Add agent` is drawn unavailable where the host would refuse it.** A definition names a harness,
+so a machine with none has nothing one could run and `Agents::save_definition` rejects a *create*
+(never an edit: a machine that lost its harness must still be able to repair what it wrote). The
+interface asks the same question of `AgentTypeInfo::available` and draws the button faint, taking
+no click, with the reason on its hover. A refusal the interface can see coming is drawn, not
+waited for.
+
+**The agent definition form is the New agent form with a name field above it.** An agent definition is a saved answer
 to the questions a start asks, so it asks them with the same rows, drawn from the same
 `NewAgentForm` — a second form asking one set of questions differently is how the two drift apart.
-What `Purpose::Profile` changes is only what a profile does not have: no profile row in the target
-picker (a profile built out of a profile is the `extends` chain, and that is written by hand), no
+What `Purpose::AgentDefinition` changes is only what an agent definition does not have: no agent definition row in the target
+picker (an agent definition built out of an agent definition is the `extends` chain, and that is written by hand), no
 `Start`, and a `Save` under a name that is typed rather than asked for afterwards. The model and
 the level are drawn from `HarnessCatalogue`, asked for as the form opens, so a model is chosen off
-the harness's real list here as it is at a start. Save is dimmed until the profile is named and a
-target is chosen; everything else may be left unset, because "no answer" is a real answer a profile
+the harness's real list here as it is at a start. Save is dimmed until the agent definition is named and a
+target is chosen; everything else may be left unset, because "no answer" is a real answer an agent definition
 can hold.
 
-**A `Mission assistant` checkbox sits under `Purpose::Profile` only**, beside `persistent`, and
-answers one question a start never asks: whether this profile should be offered by the new-mission
-dialog's assistant picker. Ticking it writes `Profile::mission_assistant`, read forward from the
-opened profile so a save never silently clears a flag already set. `None` and untucked both read as
-"not an assistant" to every filter over the field — the distinction exists only so a profile
+**A `Mission assistant` checkbox sits under `Purpose::AgentDefinition` only**, beside `persistent`, and
+answers one question a start never asks: whether this agent definition should be offered by the new-mission
+dialog's assistant picker. Ticking it writes `AgentDefinition::mission_assistant`, read forward from the
+opened agent definition so a save never silently clears a flag already set. `None` and untucked both read as
+"not an assistant" to every filter over the field — the distinction exists only so an agent definition
 extending one that is ticked can un-mention it.
+
+**Three more checkboxes sit under it, and they are the record's own answers**: `Mission/task
+coordinator`, `Mission/task worker` and `Disabled`. The two roles are not labels — the host holds
+the MCP set each implies and re-adds it on every save, so a definition carrying a role cannot be
+left without the servers the role needs, however the checklist was edited. The MCPs panel draws
+that: a server a role implies is ticked, says `Required by this agent's role` under its name, and
+takes no click, because a tick the next save would put straight back is not the checklist's to
+remove. The slugs are mirrored in `state::new_agent::{COORDINATOR_MCPS, WORKER_MCPS}` the way
+`TASK_ASSIGN_MCPS` already is — the interface names no host type, and the slug is the contract —
+and the form still writes down only what was ticked by hand, leaving the merge to the host.
+`Disabled` is the off switch: the definition is kept, still listed and still editable, and offered
+nowhere a run is started from.
 
 **The Isolation section is the one the host acts on**, so its three rows are the only ones that write
 the Host layer rather than the interface's own — an agent runs under a policy, and the half that
@@ -1327,7 +1387,7 @@ saying no file is open, because the files are panels of their own:
 | Settings | `ui/sink/settings.rs` | The kitchen sink, on its seventh page | Fills it; nav plus a scrolling body | `SinkState::settings`, and the window's settings fields |
 | Project settings | `ui/sink/project.rs` | The kitchen sink, on its eighth page | A dialog-shaped panel in the page | `SinkState::project`, and the window's project-name fields |
 | Script page | `ui/sink/script.rs` | The kitchen sink, on its last page | Fills it; the settings panel discloses under the chrome, the console scrolls under the two editors, and the right half switches between the reference and the declared panel | `script_buffer` and `script_prelude` on `AppState`, and `SinkState::script` — the last `ScriptOutcome`, the `OxcOptions`, and the `Live` a declared panel draws into |
-| New agent form | `ui/new_agent.rs` | A modal over the whole window, above the settings overlay | `MODAL_WIDTH`; its body scrolls inside it | `WorkbenchState::new_agent`, or the settings page's `profile_form` — one `NewAgentForm` either way |
+| New agent form | `ui/new_agent.rs` | A modal over the whole window, above the settings overlay | `MODAL_WIDTH`; its body scrolls inside it | `WorkbenchState::new_agent`, or the settings page's `definition_form` — one `NewAgentForm` either way |
 | Add KB source form | `ui/kb/source_form.rs` | A modal over the whole window, above the project settings overlay that raises it | `MODAL_WIDTH`; its body scrolls inside it | `WorkbenchState::kb_source`, one `KbSourceForm` |
 | Plan editor | `ui/plan.rs` over `ui/document.rs` | A surface over the whole window, raised from a mission's task panel — **a dialog by decision**, and the one frame of the shared annotation surface that is one | `MINIMAP_WIDTH` + `DOC_WIDTH` + `RAIL_WIDTH` by `DOC_HEIGHT`; the minimap, the document and the thread rail each scroll (or, for the minimap, position marks) inside it, arranged left-to-right by `UiSettings::md_minimap_side` | `WorkbenchState::plan`, one `DocumentEditor`, over the window's `plan_editor` buffer; the minimap's own show/hide is `UiSettings::md_minimap` |
 | File picker | `ui/file_picker.rs` | Over the whole window, wherever it was raised | `DEFAULT_WIDTH` by `DEFAULT_HEIGHT`, resized from its corner grip and floored at `MIN_WIDTH`/`MIN_HEIGHT` | `AppState::file_picker`, and the window's `picker_filter` |

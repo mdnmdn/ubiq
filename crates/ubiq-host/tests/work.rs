@@ -22,8 +22,8 @@ use ubiq_host::work::{Work, mock};
 use ubiq_proto::ids::{ProjectId, SessionId, StepId, TaskId};
 use ubiq_proto::messages::{Message, TaskField};
 use ubiq_proto::work::{
-    AgentId, Attachment, Comment, CommentAuthor, Complexity, Kind, Label, Priority, Shape, Speaker,
-    Status, Step, StepState, TaskRecord, WorkAgent, WorkSession,
+    AgentId, Attachment, Comment, CommentAuthor, Complexity, Kind, Label, Level, Priority, Shape,
+    Speaker, Status, Step, StepState, TaskRecord, WorkAgent, WorkSession,
 };
 
 // ── the store, against a real file ──────────────────────────────────
@@ -104,6 +104,58 @@ fn a_projects_tasks_live_under_its_own_directory_which_the_first_save_creates() 
     assert!(!store.path(project).parent().unwrap().exists());
     store.save(project, &[record("the first one")]).unwrap();
     assert!(store.path(project).exists());
+}
+
+#[test]
+fn the_archive_pages_at_a_hundred_tasks_and_tops_up_a_short_page_before_starting_another() {
+    use ubiq_host::store::file::ARCHIVE_PAGE_SIZE;
+
+    let dir = TempDir::new().unwrap();
+    let store = file_store(&dir);
+    let project = ProjectId::generate();
+
+    let batch_of = |n: usize, from: &str| -> Vec<TaskRecord> {
+        (0..n).map(|i| record(&format!("{from}-{i}"))).collect()
+    };
+
+    // The first, short page: 10 tasks, well under one page.
+    store.archive(project, &batch_of(10, "a")).unwrap();
+    let page_1 = dir
+        .path()
+        .join("projects")
+        .join(project.to_string())
+        .join("tasks-archive")
+        .join("0001.toml");
+    assert_eq!(
+        toml::from_str::<TasksFileProbe>(&fs::read_to_string(&page_1).unwrap())
+            .unwrap()
+            .task
+            .len(),
+        10
+    );
+
+    // A second batch that overruns the first page: it tops the first page up to
+    // `ARCHIVE_PAGE_SIZE` and spills the rest into a second page rather than starting the new
+    // page from nothing.
+    store
+        .archive(project, &batch_of(ARCHIVE_PAGE_SIZE, "b"))
+        .unwrap();
+    let first: TasksFileProbe = toml::from_str(&fs::read_to_string(&page_1).unwrap()).unwrap();
+    assert_eq!(first.task.len(), ARCHIVE_PAGE_SIZE);
+    let page_2 = page_1.with_file_name("0002.toml");
+    let second: TasksFileProbe = toml::from_str(&fs::read_to_string(&page_2).unwrap()).unwrap();
+    assert_eq!(
+        second.task.len(),
+        10,
+        "the 90 that topped up page one plus the 10 left over is the whole second batch of 100"
+    );
+}
+
+/// A page's shape, read back without pulling in every field [`TaskRecord`] carries.
+#[derive(serde::Deserialize)]
+struct TasksFileProbe {
+    #[serde(default, rename = "task")]
+    task: Vec<toml::Value>,
 }
 
 /// An absent file is `Ok(None)` and a file holding an empty list is `Ok(Some(vec![]))`.
@@ -366,6 +418,10 @@ impl TaskStore for Shared {
 
     fn clear(&self, project: ProjectId) -> Result<(), StoreError> {
         self.0.clear(project)
+    }
+
+    fn archive(&self, project: ProjectId, tasks: &[TaskRecord]) -> Result<(), StoreError> {
+        self.0.archive(project, tasks)
     }
 }
 
@@ -1041,6 +1097,102 @@ fn deleting_a_task_takes_every_agent_off_it() {
     assert!(!board(&mut work, project).iter().any(|t| t.id == target.id));
 
     assert_eq!(refusals(&work.delete(project, target.id)).len(), 1);
+}
+
+#[test]
+fn archiving_moves_finished_ordinary_tasks_off_the_board_and_into_the_store() {
+    let mut done = record("shipped");
+    done.status = Status::Done;
+    let mut abandoned = record("given up on");
+    abandoned.status = Status::Abandoned;
+    let mut still_open = record("in progress");
+    still_open.status = Status::InProgress;
+
+    let project = ProjectId::generate();
+    let store = Arc::new(MemoryTaskStore::with(
+        project,
+        vec![done.clone(), abandoned.clone(), still_open.clone()],
+    ));
+    let mut work = work(&store);
+
+    let replies = work.archive(project);
+
+    assert_eq!(
+        titles(&board(&mut work, project)),
+        ["in progress"],
+        "only the finished ordinary tasks left the board"
+    );
+    let archived = store.archived(project);
+    let archived_titles: HashSet<&str> = archived.iter().map(|t| t.title.as_str()).collect();
+    assert_eq!(
+        archived_titles,
+        HashSet::from(["shipped", "given up on"]),
+        "and both landed in the store's archive"
+    );
+    let told: HashSet<TaskId> = replies
+        .iter()
+        .filter_map(|r| match r.message() {
+            Message::TaskDeleted { task_id, .. } => Some(*task_id),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(told, HashSet::from([done.id, abandoned.id]));
+}
+
+#[test]
+fn archiving_leaves_a_finished_mission_on_the_board() {
+    // A mission's plan and documents are not this call's to move, so a mission stays put even
+    // once its phase reads `Done` — the same task that would leave if it named no `level`.
+    let mut mission = record("ship the thing");
+    mission.status = Status::Done;
+    mission.level = Some(Level::Mission);
+
+    let project = ProjectId::generate();
+    let store = Arc::new(MemoryTaskStore::with(project, vec![mission.clone()]));
+    let mut work = work(&store);
+
+    let replies = work.archive(project);
+
+    assert_eq!(titles(&board(&mut work, project)), ["ship the thing"]);
+    assert!(store.archived(project).is_empty());
+    assert!(
+        replies.is_empty(),
+        "nothing changed, so nothing is said: {replies:?}"
+    );
+}
+
+#[test]
+fn archiving_drops_dangling_links_to_what_it_removed() {
+    let mut finished = record("finished");
+    finished.status = Status::Done;
+    let mut child = record("names it as parent, a reference and a prerequisite");
+    child.parent = Some(finished.id);
+    child.references = vec![finished.id];
+    child.prerequisites = vec![finished.id];
+
+    let project = ProjectId::generate();
+    let store = Arc::new(MemoryTaskStore::with(
+        project,
+        vec![finished.clone(), child.clone()],
+    ));
+    let mut work = work(&store);
+
+    let replies = work.archive(project);
+
+    let survivor = board(&mut work, project);
+    assert_eq!(
+        titles(&survivor),
+        ["names it as parent, a reference and a prerequisite"]
+    );
+    let survivor = &survivor[0];
+    assert_eq!(survivor.parent, None);
+    assert!(survivor.references.is_empty());
+    assert!(survivor.prerequisites.is_empty());
+    assert_eq!(
+        changed(&replies).id,
+        child.id,
+        "the child is reported changed, not just silently rewritten"
+    );
 }
 
 #[test]

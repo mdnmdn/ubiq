@@ -2,7 +2,7 @@
 //! stream.
 //!
 //! It exists so that a machine can be *used* by an interface running somewhere else without that
-//! machine having to be an Ubiq. It knows nothing about agents, harnesses, accounts, profiles,
+//! machine having to be an Ubiq. It knows nothing about agents, harnesses, accounts, definitions,
 //! version control or a full-text index — those are the coordinator's, and the coordinator stays
 //! where the user is. What is here is the irreducible part: open a pseudo-terminal, move bytes,
 //! list a directory, read and write a file, and say what this machine is.

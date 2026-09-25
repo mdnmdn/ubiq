@@ -23,7 +23,7 @@ use agent_manager::harness::{self, Launch, ModelInfo};
 use agent_manager::io::IoBridge;
 use agent_manager::isolate::{self, Confined, IsolateOptions};
 use agent_manager::profile::{
-    FsProfileStore, Profile, ProfileDefaults, ProfileStore, ScopedProfileStore,
+    FsProfileStore, Profile as DefinitionRecord, ProfileDefaults, ProfileStore, ScopedProfileStore,
 };
 use agent_manager::provision;
 use agent_manager::registry::FsRegistry;
@@ -35,11 +35,71 @@ use agent_manager::spec::{ConfigStrategy, IoModes, Isolation, McpRef, Policy};
 use anyhow::{Context, Result, anyhow, bail};
 use ubiq_proto::conversation::ConfigChoice;
 use ubiq_proto::ids::{PaneId, ProjectId};
-use ubiq_proto::messages::{AccountInfo, AgentTypeInfo, LoginStatus, ProfileInfo};
+use ubiq_proto::messages::{AccountInfo, AgentDefinition, AgentTypeInfo, LoginStatus};
 use ubiq_proto::settings::{AgentHome, Grant};
 use ubiq_proto::work::AgentId;
 
 use crate::environment::Environment;
+use crate::mcp::catalogue;
+
+/// Where agent definitions live, under the config root and under a project's own folder.
+pub const DEFINITIONS_DIR: &str = "agent-definitions";
+
+/// What that directory was called while an agent definition was still called a profile
+/// (`D174`). A tree written by an older build is renamed in place the first time the new name
+/// is asked for, so nobody's saved setups are orphaned by the rename.
+const LEGACY_DEFINITIONS_DIR: &str = "profiles";
+
+/// The definitions directory under `base`, migrating the old name onto the new one if that is
+/// what is there. A rename that fails is reported and the old directory used, because reading
+/// the user's definitions from where they are beats refusing to read them at all.
+fn definitions_dir(base: &Path) -> PathBuf {
+    let dir = base.join(DEFINITIONS_DIR);
+    let legacy = base.join(LEGACY_DEFINITIONS_DIR);
+    if !dir.exists() && legacy.is_dir() {
+        if let Err(error) = std::fs::rename(&legacy, &dir) {
+            tracing::warn!(
+                "the profiles under {} could not be renamed to {}: {error}",
+                legacy.display(),
+                dir.display()
+            );
+            return legacy;
+        }
+        tracing::info!(
+            "profiles under {} are now agent definitions",
+            base.display()
+        );
+    }
+    dir
+}
+
+/// Whether a save may go ahead: a **new** definition needs a harness to name, an existing one
+/// does not.
+///
+/// A machine with no harness has nothing a definition could run, so creating one is refused in
+/// the host rather than left to a hidden button — every surface that writes a definition writes
+/// it through here. Editing is not refused: a machine that has lost its harness must still be
+/// able to repair what it already wrote.
+fn may_write_definition(exists: bool, has_harness: bool) -> Result<()> {
+    if !exists && !has_harness {
+        bail!(
+            "no harness is configured on this machine \u{2014} install one, or set its command \
+             in settings, before writing an agent definition"
+        );
+    }
+    Ok(())
+}
+
+/// Merge back the MCP servers this definition's role flags imply, keeping what it already names
+/// and its order. The rule the flags exist for: a coordinator without the coordinator's servers
+/// is not a coordinator, whatever a checklist was left saying.
+fn apply_role_mcps(definition: &mut AgentDefinition) {
+    for name in catalogue::role_mcps(definition.mission_coordinator, definition.mission_worker) {
+        if !definition.mcps.contains(&name) {
+            definition.mcps.push(name);
+        }
+    }
+}
 
 /// The agent types this machine can run, and the composer behind them.
 ///
@@ -95,10 +155,10 @@ pub struct Composed {
     /// What the library provisioned, kept because a structured bridge is
     /// built from it rather than from the launch alone.
     provisioned: provision::Provisioned,
-    /// The id of the account this run resolved to, when a profile named one.
+    /// The id of the account this run resolved to, when a definition named one.
     spec_account: Option<String>,
     /// A stale catalog reference (an mcp id, a skill id, an account id, a hook id) that the
-    /// profile or the run's flags named and `resolve` could not find — dropped from the spec
+    /// definition or the run's flags named and `resolve` could not find — dropped from the spec
     /// rather than failing this run. See [`agent_manager::spec::RunSpec::problems`]. Reported by
     /// the caller as a dismissable notification once the run has actually started; empty in the
     /// overwhelmingly common case.
@@ -112,8 +172,8 @@ pub struct Composed {
 /// [`Agents::compose`] hand the identical set through to the same place, and a pane's answer to
 /// all of it is `Default::default()` — the library resolves what nothing named.
 ///
-/// Every field is a *pick*, and a pick outranks the profile inside the library's `resolve`. `None`
-/// everywhere is the zero-config start: whatever the harness, its profile and its own defaults
+/// Every field is a *pick*, and a pick outranks the definition inside the library's `resolve`. `None`
+/// everywhere is the zero-config start: whatever the harness, its definition and its own defaults
 /// say.
 #[derive(Default)]
 pub struct ConverseOptions {
@@ -126,10 +186,10 @@ pub struct ConverseOptions {
     /// One of the harness's own `modes()` ids.
     pub mode: Option<String>,
     /// The saved setup the picks above sit on top of.
-    pub profile: Option<String>,
+    pub definition: Option<String>,
     /// The project this run belongs to, when it belongs to one. Not a pick: it is what decides
-    /// **which profiles exist** for this run — that project's own are resolvable here and
-    /// nowhere else, and they shadow a global profile of the same name. `None` (a login pane, a
+    /// **which definitions exist** for this run — that project's own are resolvable here and
+    /// nowhere else, and they shadow a global definition of the same name. `None` (a login pane, a
     /// run outside any project) resolves against the global root alone, which is what every run
     /// did before project scoping.
     pub project: Option<ProjectId>,
@@ -145,8 +205,8 @@ pub struct ConverseOptions {
     /// host's own listener; a name this build does not offer is dropped with a warning rather
     /// than failing the run, the same rule a stale reference lives by everywhere else.
     ///
-    /// The picks only. What the profile saved is read from the profile inside `compose_run`,
-    /// because that is where the profile is known — see the note there.
+    /// The picks only. What the definition saved is read from the definition inside `compose_run`,
+    /// because that is where the definition is known — see the note there.
     pub mcps: Vec<String>,
 }
 
@@ -233,7 +293,7 @@ impl Composed {
         self.confined.is_some()
     }
 
-    /// The account this run resolved to, when a profile named one. An id, never a
+    /// The account this run resolved to, when a definition named one. An id, never a
     /// credential — which is the whole of what Ubiq is allowed to know about it.
     pub fn account(&self) -> Option<&str> {
         self.spec_account.as_deref()
@@ -470,127 +530,284 @@ impl Agents {
             .collect()
     }
 
-    /// The global profile store, over Ubiq's own root. Built per call, for the same reason
+    /// The global definition store, over Ubiq's own root. Built per call, for the same reason
     /// [`account_store`](Self::account_store) is.
-    fn profile_store(&self) -> FsProfileStore {
-        FsProfileStore::new(self.root.join("profiles"))
+    fn definition_store(&self) -> FsProfileStore {
+        FsProfileStore::new(definitions_dir(&self.root))
     }
 
-    /// One project's own profile store, under the directory that project already owns.
+    /// One project's own definition store, under the directory that project already owns.
     ///
-    /// A project profile **is** its location (decision 8): the scope cannot contradict the
+    /// A project definition **is** its location (decision 8): the scope cannot contradict the
     /// record, and `Projects::forget` removing `<root>/projects/<id>` takes these with it
     /// without knowing they are there — the same way it already takes the plans and the index.
-    fn project_profile_store(&self, project: ProjectId) -> FsProfileStore {
-        FsProfileStore::new(
-            self.root
-                .join("projects")
-                .join(project.to_string())
-                .join("profiles"),
-        )
+    fn project_definition_store(&self, project: ProjectId) -> FsProfileStore {
+        FsProfileStore::new(definitions_dir(
+            &self.root.join("projects").join(project.to_string()),
+        ))
     }
 
-    /// Every global profile Ubiq knows: a saved setup, flattened to the four references the
-    /// interface shows. A profile with no harness pin is skipped — the interface offers
-    /// profiles per harness row, and one that names none belongs to no row.
-    pub fn profiles(&self) -> Result<Vec<ProfileInfo>> {
-        let store = self.profile_store();
-        Ok(Self::infos(&store, None).context("reading the profiles Ubiq knows")?)
+    /// Every global definition Ubiq knows: a saved setup, flattened to the four references the
+    /// interface shows. A definition with no harness pin is skipped — the interface offers
+    /// definitions per harness row, and one that names none belongs to no row.
+    pub fn definitions(&self) -> Result<Vec<AgentDefinition>> {
+        let store = self.definition_store();
+        Ok(Self::infos(&store, None).context("reading the definitions Ubiq knows")?)
     }
 
-    /// One project's own profiles, each carrying the project it is scoped to. Empty for a
+    /// One project's own definitions, each carrying the project it is scoped to. Empty for a
     /// project that has none, which is every project until one is written there.
-    pub fn project_profiles(&self, project: ProjectId) -> Result<Vec<ProfileInfo>> {
-        let store = self.project_profile_store(project);
+    pub fn project_definitions(&self, project: ProjectId) -> Result<Vec<AgentDefinition>> {
+        let store = self.project_definition_store(project);
         Self::infos(&store, Some(project))
-            .with_context(|| format!("reading the profiles of project {project}"))
+            .with_context(|| format!("reading the definitions of project {project}"))
     }
 
-    /// One store's profiles as the interface is told them, stamped with the scope they were
-    /// found in. The one place a `Profile` becomes a `ProfileInfo`, so the two scopes cannot
-    /// drift into two answers.
-    fn infos(store: &FsProfileStore, project: Option<ProjectId>) -> Result<Vec<ProfileInfo>> {
+    /// One store's definitions as the interface is told them, stamped with the scope they were
+    /// found in. The one place a library `Profile` record becomes an [`AgentDefinition`], so the
+    /// two scopes cannot drift into two answers.
+    fn infos(store: &FsProfileStore, project: Option<ProjectId>) -> Result<Vec<AgentDefinition>> {
         Ok(store
             .profiles()?
             .into_iter()
-            .filter_map(|profile| {
-                Some(ProfileInfo {
-                    id: profile.id,
-                    agent_type: profile.harness?,
-                    account: profile.account,
-                    model: profile.defaults.model,
-                    mode: profile.mode,
-                    thinking: profile.defaults.thinking,
-                    max_subagents: profile.max_subagents,
-                    prompt: profile.defaults.prompt,
-                    // "This profile mentioned nothing" and "this profile picked none" are the
+            .filter_map(|record| {
+                Some(AgentDefinition {
+                    id: record.id,
+                    description: record.description,
+                    agent_type: record.harness?,
+                    account: record.account,
+                    model: record.defaults.model,
+                    mode: record.mode,
+                    thinking: record.defaults.thinking,
+                    max_subagents: record.max_subagents,
+                    prompt: record.defaults.prompt,
+                    // "This definition mentioned nothing" and "this definition picked none" are the
                     // same row in a checklist, so the interface is told the empty list for both.
-                    // The distinction still matters on disk — see [`save_profile`](Self::save_profile).
-                    mcps: profile.defaults.mcps.unwrap_or_default(),
-                    mission_assistant: profile.mission_assistant,
+                    // The distinction still matters on disk — see [`save_definition`](Self::save_definition).
+                    mcps: record.defaults.mcps.unwrap_or_default(),
+                    mission_assistant: record.mission_assistant,
+                    mission_coordinator: record.mission_coordinator.unwrap_or(false),
+                    mission_worker: record.mission_worker.unwrap_or(false),
+                    disabled: record.disabled.unwrap_or(false),
                     project,
                 })
             })
             .collect())
     }
 
-    /// What a profile saved under `defaults.mcps`, or `None` when it mentioned none — the
-    /// distinction the library's own merge turns on, kept rather than flattened to a list.
+    /// One definition's description, scoped the same way [`Self::definition_mcps`] is: a
+    /// project's own definition of `id` answers before the global one.
     ///
-    /// Resolved through the run's own scope: inside a project, that project's profile of this
-    /// name answers before the global one, exactly as it will when the run is composed.
-    ///
-    /// The named profile's own row, not its inheritance chain: Ubiq writes no parent, and
-    /// flattening one here would be this module holding a second answer to a question
-    /// `resolve` already answers.
-    fn profile_mcps(&self, id: &str, project: Option<ProjectId>) -> Option<Vec<String>> {
-        let global = self.profile_store();
-        let scoped = project.map(|project| self.project_profile_store(project));
+    /// A standalone function rather than a method, and taking just the config root rather than a
+    /// whole `&Agents`, because this is what lets a caller with no `Agents` at all — the mission
+    /// MCP listener's own thread, which the coordinator's `Agents` never leaves (`D120`'s own
+    /// reasoning: reading it must not need the coordinator's thread) — resolve a definition's
+    /// description. The read is a fresh `FsProfileStore` lookup, exactly as [`Self::definitions`]
+    /// itself is, so there is no coordinator state to share, only a path.
+    pub fn definition_description(
+        root: &Path,
+        id: &str,
+        project: Option<ProjectId>,
+    ) -> Option<String> {
+        let global = FsProfileStore::new(definitions_dir(root));
+        let scoped = project.map(|project| {
+            FsProfileStore::new(definitions_dir(
+                &root.join("projects").join(project.to_string()),
+            ))
+        });
         ScopedProfileStore::new(&global, scoped.as_ref().map(|it| it as &dyn ProfileStore))
             .profile(id)
             .ok()
             .flatten()
-            .and_then(|profile| profile.defaults.mcps)
+            .and_then(|record| record.description)
     }
 
-    /// Write a profile, creating it when its id names none. Overwrites in place: a saved
+    /// What a definition saved under `defaults.mcps`, or `None` when it mentioned none — the
+    /// distinction the library's own merge turns on, kept rather than flattened to a list.
+    ///
+    /// Resolved through the run's own scope: inside a project, that project's definition of this
+    /// name answers before the global one, exactly as it will when the run is composed.
+    ///
+    /// The named definition's own row, not its inheritance chain: Ubiq writes no parent, and
+    /// flattening one here would be this module holding a second answer to a question
+    /// `resolve` already answers.
+    fn definition_mcps(&self, id: &str, project: Option<ProjectId>) -> Option<Vec<String>> {
+        let global = self.definition_store();
+        let scoped = project.map(|project| self.project_definition_store(project));
+        ScopedProfileStore::new(&global, scoped.as_ref().map(|it| it as &dyn ProfileStore))
+            .profile(id)
+            .ok()
+            .flatten()
+            .and_then(|record| record.defaults.mcps)
+    }
+
+    /// Write a definition, creating it when its id names none. Overwrites in place: a saved
     /// setup is edited, not versioned.
     ///
     /// An empty pick is written as `None` rather than as an empty list, because
-    /// [`ProfileDefaults`] draws a real distinction between them: `None` is "this profile did not
-    /// mention MCP servers", which lets a parent profile's — or the library's own — answer stand,
-    /// and `Some([])` is "this profile says none", which overrides one. A checklist with nothing
+    /// [`ProfileDefaults`] draws a real distinction between them: `None` is "this definition did not
+    /// mention MCP servers", which lets a parent definition's — or the library's own — answer stand,
+    /// and `Some([])` is "this definition says none", which overrides one. A checklist with nothing
     /// ticked is the first of those. Nothing in Ubiq's own interface can express the second, and
-    /// inventing it here would mean every profile saved through this window silently overriding a
+    /// inventing it here would mean every definition saved through this window silently overriding a
     /// default it was never shown.
-    /// Which root it lands in is [`ProfileInfo::project`]: the global one when absent, that
+    /// Which root it lands in is [`AgentDefinition::project`]: the global one when absent, that
     /// project's own when present. The two are separate namespaces, so saving `review` into a
     /// project never overwrites the global `review` — it shadows it, inside that project.
-    pub fn save_profile(&self, profile: ProfileInfo) -> Result<()> {
-        let store = match profile.project {
-            Some(project) => self.project_profile_store(project),
-            None => self.profile_store(),
+    ///
+    /// Two rules are enforced here rather than in a screen, so they hold however the definition
+    /// was edited:
+    ///
+    /// - **A role flag re-asserts its MCP servers.** `mission_coordinator` and `mission_worker`
+    ///   each imply a set ([`role_mcps`]), and the set is merged back in on every save — a user
+    ///   who unticks one of them by hand gets it back with the flag still on, because the flag is
+    ///   what the role means and a half-equipped coordinator is a broken one.
+    /// - **A new definition needs a harness.** With no harness available on this machine there is
+    ///   nothing a definition could name, so creating one is refused rather than left to a hidden
+    ///   button. Editing an existing one is not refused: a machine that lost its harness must
+    ///   still be able to repair what it already wrote.
+    pub fn save_definition(&self, mut definition: AgentDefinition) -> Result<()> {
+        let store = match definition.project {
+            Some(project) => self.project_definition_store(project),
+            None => self.definition_store(),
         };
-        let record = Profile {
-            id: profile.id,
-            harness: Some(profile.agent_type),
-            account: profile.account,
+        let exists = store.profile(&definition.id).unwrap_or(None).is_some();
+        may_write_definition(exists, self.has_available_harness())?;
+        apply_role_mcps(&mut definition);
+        let record = DefinitionRecord {
+            id: definition.id,
+            description: definition.description,
+            harness: Some(definition.agent_type),
+            account: definition.account,
             defaults: ProfileDefaults {
-                model: profile.model,
-                thinking: profile.thinking,
-                prompt: profile.prompt,
-                mcps: (!profile.mcps.is_empty()).then_some(profile.mcps),
+                model: definition.model,
+                thinking: definition.thinking,
+                prompt: definition.prompt,
+                mcps: (!definition.mcps.is_empty()).then_some(definition.mcps),
                 ..Default::default()
             },
-            mode: profile.mode,
-            max_subagents: profile.max_subagents,
-            mission_assistant: profile.mission_assistant,
+            mode: definition.mode,
+            max_subagents: definition.max_subagents,
+            mission_assistant: definition.mission_assistant,
+            mission_coordinator: definition.mission_coordinator.then_some(true),
+            mission_worker: definition.mission_worker.then_some(true),
+            disabled: definition.disabled.then_some(true),
             ..Default::default()
         };
         store
             .save(&record)
-            .with_context(|| format!("saving profile '{}'", record.id))?;
+            .with_context(|| format!("saving agent definition '{}'", record.id))?;
         Ok(())
+    }
+
+    /// Copy a definition under a new name, inside the scope it already lives in.
+    ///
+    /// The copy is of the *record*, not of what the interface was shown, so a field no screen
+    /// draws is carried across too. Refused when the source is not there or the name is taken:
+    /// a clone that overwrites is a delete nobody asked for.
+    pub fn clone_definition(
+        &self,
+        id: &str,
+        new_id: &str,
+        project: Option<ProjectId>,
+    ) -> Result<()> {
+        let store = match project {
+            Some(project) => self.project_definition_store(project),
+            None => self.definition_store(),
+        };
+        let Some(mut record) = store
+            .profile(id)
+            .with_context(|| format!("reading agent definition '{id}'"))?
+        else {
+            bail!("there is no agent definition called '{id}'");
+        };
+        if store.profile(new_id).unwrap_or(None).is_some() {
+            bail!("an agent definition called '{new_id}' already exists");
+        }
+        record.id = new_id.to_string();
+        store
+            .save(&record)
+            .with_context(|| format!("saving agent definition '{new_id}'"))?;
+        Ok(())
+    }
+
+    /// Whether this machine has a harness a definition could name at all — its binary found, or
+    /// its command overridden in settings.
+    pub fn has_available_harness(&self) -> bool {
+        self.types().iter().any(|it| it.available)
+    }
+
+    /// Write the three definitions a fresh install starts with, if and only if the global root
+    /// holds none and there is a harness to pin them to.
+    ///
+    /// The three are the roles Ubiq's own MCP servers are split along — a mission's coordinator,
+    /// a mission's worker, and a helper that reads Ubiq's documentation — so a new install has a
+    /// working agent for each without anyone assembling a server list by hand. Only ever a
+    /// seeding: once one definition exists, the user's list is theirs, and deleting all three
+    /// back to nothing is not an invitation to write them again on the next start.
+    pub fn ensure_default_definitions(&self) -> Result<bool> {
+        let store = self.definition_store();
+        if !store.profiles().unwrap_or_default().is_empty() {
+            return Ok(false);
+        }
+        let Some(harness) = self
+            .types()
+            .into_iter()
+            .find(|it| it.available)
+            .map(|it| it.id)
+        else {
+            return Ok(false);
+        };
+        for (id, description, coordinator, worker, mcps) in [
+            (
+                "Coordinator",
+                "Runs a mission end to end: writes the plan, breaks it into tasks and hands \
+                 them to workers, then tracks progress to completion. Carries ubiq-mission \
+                 (mission lifecycle), ubiq-plan (the plan document), manage-ubiq-tasks (create, \
+                 assign and update tasks) and ubiq-kb (the shared knowledge base).",
+                true,
+                false,
+                Vec::new(),
+            ),
+            (
+                "Ubiq helper",
+                "Answers questions about Ubiq itself — its features, screens and settings — by \
+                 reading Ubiq's own documentation. Carries ubiq-help.",
+                false,
+                false,
+                vec![catalogue::UBIQ_HELP.to_string()],
+            ),
+            (
+                "Worker",
+                "Works one task at a time inside a mission: reads the mission and the task it \
+                 was assigned, reports progress, and looks up project facts as needed. Carries \
+                 use-mission (read the mission), use-task (read and update the assigned task), \
+                 project-info (facts about the project) and ubiq-kb (the shared knowledge base).",
+                false,
+                true,
+                Vec::new(),
+            ),
+        ] {
+            self.save_definition(AgentDefinition {
+                id: id.to_string(),
+                description: Some(description.to_string()),
+                agent_type: harness.clone(),
+                account: None,
+                model: None,
+                mode: None,
+                thinking: None,
+                max_subagents: None,
+                prompt: None,
+                mcps,
+                mission_assistant: None,
+                mission_coordinator: coordinator,
+                mission_worker: worker,
+                disabled: false,
+                project: None,
+            })
+            .with_context(|| format!("writing the default agent definition '{id}'"))?;
+        }
+        Ok(true)
     }
 
     /// Whether `account` has a usable, current credential for `agent_type`, as the credential
@@ -846,7 +1063,7 @@ impl Agents {
     ) -> Result<Composed> {
         // A pane's run takes the same picks a conversation's does — the new-pane menu and a
         // shell row still hand it `ConverseOptions::default()`, but a pane started with an
-        // account, profile, model or MCP list resolves exactly what was named.
+        // account, definition, model or MCP list resolves exactly what was named.
         self.compose_run(
             &pane.to_string(),
             agent_type,
@@ -906,7 +1123,7 @@ impl Agents {
             }
         } else {
             match composed.account() {
-                // A profile named an account and its login still did not land, so the
+                // A definition named an account and its login still did not land, so the
                 // account itself is the thing that is not logged in.
                 Some(account) => tracing::warn!(
                     harness = %agent_type,
@@ -936,13 +1153,13 @@ impl Agents {
         Ok((composed, bridge))
     }
 
-    /// A profile id as a single path segment isol8 will accept for a managed home: no
+    /// A definition id as a single path segment isol8 will accept for a managed home: no
     /// separator, no `..`, nothing empty.
     ///
     /// The library's CLI keeps its own copy of this. Sharing one would mean exporting a name
     /// across a feature gate the `cli` module sits behind, for four lines.
-    fn home_id(profile: &str) -> String {
-        let cleaned: String = profile
+    fn home_id(definition: &str) -> String {
+        let cleaned: String = definition
             .chars()
             .map(|c| {
                 if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
@@ -974,12 +1191,12 @@ impl Agents {
         // Which of Ubiq's own MCP servers this run gets, and — the reason this is here rather
         // than left to the library — which names still belong to `resolve`.
         //
-        // A profile's `defaults.mcps` is read by `resolve` as a list of ids in the **on-disk
+        // A definition's `defaults.mcps` is read by `resolve` as a list of ids in the **on-disk
         // catalog**, and an id not found there is dropped to `RunSpec::problems`. Ubiq's
         // built-ins are in no catalog: they are this process, on a port it bound at startup. So
-        // the profile's list is split here — the names this build answers are lifted out and
+        // the definition's list is split here — the names this build answers are lifted out and
         // injected below, and only the rest is handed back down as `flags.mcps`, which outranks
-        // the profile in the library's own merge. A `--mcp-as-skill` flag naming an id outside
+        // the definition in the library's own merge. A `--mcp-as-skill` flag naming an id outside
         // the run's injected set and `--safe` naming a missing preset still hard-fail: both are
         // flag misuse, not a stale saved reference.
         let mut injected: Vec<String> = Vec::new();
@@ -995,9 +1212,9 @@ impl Agents {
             }
         }
         let catalog_mcps = options
-            .profile
+            .definition
             .as_deref()
-            .and_then(|profile| self.profile_mcps(profile, options.project))
+            .and_then(|definition| self.definition_mcps(definition, options.project))
             .map(|saved| {
                 saved
                     .into_iter()
@@ -1014,30 +1231,30 @@ impl Agents {
                     .collect::<Vec<String>>()
             });
 
-        // What a run is composed *of* — its account, its model, the profile that names
+        // What a run is composed *of* — its account, its model, the definition that names
         // them — is the library's question, and `resolve` is the one place that answers it.
         // Ubiq builds no `RunSpec` of its own beyond the three fields below, so an account
-        // named in a profile reaches a pane without this module learning what an account is.
+        // named in a definition reaches a pane without this module learning what an account is.
         //
         // The library's own settings file is deliberately not read: Ubiq's settings are the
         // settings surface, and a second file answering the same question is a second
-        // answer. That leaves `resolve`'s precedence as flags, then the profile.
+        // answer. That leaves `resolve`'s precedence as flags, then the definition.
         let flags = resolve::RunFlags {
             harness: harness.id(),
             cwd: cwd.to_path_buf(),
             passthrough_args: args,
             // Highest precedence in `resolve`, which is what "the user picked this one" has to
             // mean: an identity — or a model, a thinking level, a mode — chosen when the
-            // conversation started outranks the profile's.
+            // conversation started outranks the definition's.
             account: options.account,
             model: options.model,
             thinking: options.thinking,
             permission_mode: options.mode,
             // The saved setup the picks sit on top of. `None` is a bare start, and the
-            // library then falls back to whatever profile it resolves on its own.
-            profile: options.profile,
-            // Whatever the profile named that Ubiq does not answer itself, passed back as a flag
-            // so the built-ins never reach the catalog lookup. `None` when the profile mentioned
+            // library then falls back to whatever definition it resolves on its own.
+            profile: options.definition,
+            // Whatever the definition named that Ubiq does not answer itself, passed back as a flag
+            // so the built-ins never reach the catalog lookup. `None` when the definition mentioned
             // no servers at all, which leaves the library's own precedence untouched.
             mcps: catalog_mcps,
             // The two fields a one-shot harness converses through: its prompt is argv, and the
@@ -1048,35 +1265,37 @@ impl Agents {
             resume: options.resume,
             ..Default::default()
         };
-        // Two profile stores, read as one: this project's own over the global root. Which of the
+        // Two definition stores, read as one: this project's own over the global root. Which of the
         // two a name resolves in is the whole of what "project-scoped" means — the record says
         // nothing about a project, its location does. `None` for a run belonging to no project
         // is the global root alone, which is every run's answer before and after this.
         //
-        // The library resolves the `extends` chain through the same pair, so a project profile
-        // may specialise a global one, and a global profile naming a project's is refused there
+        // The library resolves the `extends` chain through the same pair, so a project definition
+        // may specialise a global one, and a global definition naming a project's is refused there
         // rather than here (`agent_manager::profile::resolve_chain`).
-        let global_profiles = self.profile_store();
-        let project_profiles = options
+        let global_definitions = self.definition_store();
+        let project_definitions = options
             .project
-            .map(|project| self.project_profile_store(project));
-        let profiles = ScopedProfileStore::new(
-            &global_profiles,
-            project_profiles.as_ref().map(|it| it as &dyn ProfileStore),
+            .map(|project| self.project_definition_store(project));
+        let definitions = ScopedProfileStore::new(
+            &global_definitions,
+            project_definitions
+                .as_ref()
+                .map(|it| it as &dyn ProfileStore),
         );
         let mut spec = resolve::resolve(
             &flags,
             &Settings::default(),
             &FsRegistry::new(self.root.join("catalog")),
             &FsAccountStore::new(self.root.join("accounts")),
-            &profiles,
+            &definitions,
         )
         .with_context(|| format!("composing a {agent_type} run"))?;
 
         // The five answers that are Ubiq's rather than the library's: which directory this
         // run's configuration lives in, which face it wears, whether it is confined, — when
         // it is — that it asks nothing, and which of Ubiq's own MCP servers it can reach.
-        // The isolation replaces whatever a profile asked for,
+        // The isolation replaces whatever a definition asked for,
         // because the toggle belongs to Ubiq's own settings and applies to both faces alike.
         let structured = io == IoModes::Structured;
         spec.config = ConfigStrategy::Fixed(self.run_dir_for(key));
@@ -1089,7 +1308,7 @@ impl Agents {
         // A confined run is contained by the sandbox, not by the prompts, so it launches with
         // permissions bypassed — otherwise every step stops on an ask the sandbox already
         // answered. Which mode that *is* stays the harness's own word (`unattended_mode`);
-        // Ubiq names none. An explicit pick for this run outranks it: the profile's mode does
+        // Ubiq names none. An explicit pick for this run outranks it: the definition's mode does
         // not, being a default like the isolation toggle it sits under.
         if self.isolate
             && flags.permission_mode.is_none()
@@ -1146,7 +1365,7 @@ impl Agents {
         self.add_machine_env(&mut provisioned.launch);
 
         // Every confined run keeps the real home unless the user said otherwise. A home of its
-        // own was once the answer to "a second run of the same profile should find its caches,
+        // own was once the answer to "a second run of the same definition should find its caches,
         // its indexes and its logins where it left them" — but the real home is already where
         // those are, and a replaced one aims every toolchain layer's `~/.cargo`-shaped grant at
         // an empty directory, so the agent could not build. What stays per-run is the
@@ -1422,7 +1641,7 @@ impl Agents {
     /// Whether anything that makes a session logged in landed in `dir`.
     ///
     /// The library seeds a harness's own login files into the run it composes — from the account a
-    /// profile named, or failing that from the user's real home. It cannot seed what is not a file,
+    /// definition named, or failing that from the user's real home. It cannot seed what is not a file,
     /// so a login held in the operating system's keychain leaves nothing behind and the run starts
     /// unauthenticated. A harness that declares no login files at all is not answerable this way,
     /// so it counts as fine.
@@ -1480,7 +1699,7 @@ impl Agents {
     /// All of them, not only the ones marked credential:
     /// `provision::seed_zero_config_login` early-returns the moment *any*
     /// `login_seed` destination already exists, on the reasoning that a login
-    /// already materialized (an account home, a profile overlay) wins over the
+    /// already materialized (an account home, a definition overlay) wins over the
     /// zero-config fallback. So one leftover file — for Claude Code that is
     /// the non-credential `.claude.json` — is enough to make the next launch
     /// skip seeding entirely: the credential is never refreshed, and the
@@ -2046,36 +2265,27 @@ mod tests {
         }
     }
 
-    /// A profile written into a project is offered in that project and nowhere else, and a
+    /// A definition written into a project is offered in that project and nowhere else, and a
     /// global-only setup is untouched by the second store existing at all.
     #[test]
-    fn a_project_profile_is_listed_in_its_project_and_not_globally() {
+    fn a_project_definition_is_listed_in_its_project_and_not_globally() {
         let root = tempfile::TempDir::new().unwrap();
-        let agents = Agents::new(root.path(), false);
+        let agents = with_a_harness(root.path());
         let project = ProjectId::generate();
         let other = ProjectId::generate();
 
-        let info = |id: &str, project: Option<ProjectId>| ProfileInfo {
-            id: id.to_string(),
-            agent_type: "claude-code".to_string(),
-            account: None,
-            model: None,
-            mode: None,
-            thinking: None,
-            max_subagents: None,
-            prompt: None,
-            mcps: Vec::new(),
-            mission_assistant: None,
+        let info = |id: &str, project: Option<ProjectId>| AgentDefinition {
             project,
+            ..a_definition(id)
         };
 
-        agents.save_profile(info("standard", None)).unwrap();
+        agents.save_definition(info("standard", None)).unwrap();
         agents
-            .save_profile(info("reviewer", Some(project)))
+            .save_definition(info("reviewer", Some(project)))
             .unwrap();
 
         let global: Vec<String> = agents
-            .profiles()
+            .definitions()
             .unwrap()
             .into_iter()
             .map(|it| it.id)
@@ -2086,50 +2296,328 @@ mod tests {
             "global list is global"
         );
 
-        let scoped = agents.project_profiles(project).unwrap();
+        let scoped = agents.project_definitions(project).unwrap();
         assert_eq!(scoped.len(), 1);
         assert_eq!(scoped[0].id, "reviewer");
         assert_eq!(
             scoped[0].project,
             Some(project),
-            "a project profile says which project it is in"
+            "a project definition says which project it is in"
         );
         assert!(
-            agents.project_profiles(other).unwrap().is_empty(),
+            agents.project_definitions(other).unwrap().is_empty(),
             "another project sees none of it"
         );
 
         // On disk under the project's own directory, which is what `Projects::forget`
-        // removes whole — so forgetting the project takes the profile with it.
+        // removes whole — so forgetting the project takes the definition with it.
         let dir = root
             .path()
             .join("projects")
             .join(project.to_string())
-            .join("profiles")
+            .join(DEFINITIONS_DIR)
             .join("reviewer");
         assert!(dir.join("profile.toml").is_file());
         std::fs::remove_dir_all(root.path().join("projects").join(project.to_string())).unwrap();
-        assert!(agents.project_profiles(project).unwrap().is_empty());
+        assert!(agents.project_definitions(project).unwrap().is_empty());
         assert_eq!(
-            agents.profiles().unwrap().len(),
+            agents.definitions().unwrap().len(),
             1,
             "the global root stands"
         );
     }
 
-    /// The two stores read as one at composition time: inside a project, that project's profile
+    /// The two stores read as one at composition time: inside a project, that project's definition
     /// of a name answers before the global one; outside it, the global one does. Asserted
-    /// through `profile_mcps`, which is the one place `compose_run` asks a profile a question
+    /// through `definition_mcps`, which is the one place `compose_run` asks a definition a question
     /// and needs no harness binary to answer.
     #[test]
-    fn a_project_profile_shadows_a_global_one_only_inside_its_project() {
+    fn a_project_definition_shadows_a_global_one_only_inside_its_project() {
         let root = tempfile::TempDir::new().unwrap();
-        let agents = Agents::new(root.path(), false);
+        let agents = with_a_harness(root.path());
         let project = ProjectId::generate();
         let other = ProjectId::generate();
 
-        let info = |mcps: &[&str], project: Option<ProjectId>| ProfileInfo {
-            id: "review".to_string(),
+        let info = |mcps: &[&str], project: Option<ProjectId>| AgentDefinition {
+            mcps: mcps.iter().map(|it| it.to_string()).collect(),
+            project,
+            ..a_definition("review")
+        };
+
+        agents
+            .save_definition(info(&["manage-ubiq-tasks"], None))
+            .unwrap();
+        agents
+            .save_definition(info(&["ubiq-plan"], Some(project)))
+            .unwrap();
+
+        assert_eq!(
+            agents.definition_mcps("review", Some(project)),
+            Some(vec!["ubiq-plan".to_string()]),
+            "inside the project, the project's definition answers"
+        );
+        assert_eq!(
+            agents.definition_mcps("review", Some(other)),
+            Some(vec!["manage-ubiq-tasks".to_string()]),
+            "another project sees the global one"
+        );
+        assert_eq!(
+            agents.definition_mcps("review", None),
+            Some(vec!["manage-ubiq-tasks".to_string()]),
+            "a run in no project sees the global one"
+        );
+    }
+
+    /// A definition written under the old `profiles/` directory is still the user's definition
+    /// after the rename: the directory is moved onto the new name the first time it is asked
+    /// for, records and all (`D174`).
+    #[test]
+    fn a_profiles_directory_written_before_the_rename_is_migrated_in_place() {
+        let root = tempfile::TempDir::new().unwrap();
+        let legacy = root.path().join("profiles").join("reviewer");
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::write(
+            legacy.join("profile.toml"),
+            "id = \"reviewer\"\nharness = \"claude-code\"\n",
+        )
+        .unwrap();
+
+        let agents = Agents::new(root.path(), false);
+        let found: Vec<String> = agents
+            .definitions()
+            .unwrap()
+            .into_iter()
+            .map(|it| it.id)
+            .collect();
+
+        assert_eq!(
+            found,
+            vec!["reviewer".to_string()],
+            "the record came across"
+        );
+        assert!(
+            root.path()
+                .join("agent-definitions")
+                .join("reviewer")
+                .is_dir(),
+            "under the new name"
+        );
+        assert!(
+            !root.path().join("profiles").exists(),
+            "and the old directory is gone rather than left as a second answer"
+        );
+    }
+
+    /// The whole point of the two role flags: the servers the role needs come back on save, even
+    /// when the definition that arrived had them stripped out by hand.
+    #[test]
+    fn a_role_flag_re_adds_its_mcp_servers_on_save() {
+        let root = tempfile::TempDir::new().unwrap();
+        let agents = with_a_harness(root.path());
+
+        agents
+            .save_definition(AgentDefinition {
+                mission_coordinator: true,
+                mission_worker: true,
+                // Ticked off by hand, which is what the flags outrank.
+                mcps: vec!["ubiq-help".to_string()],
+                ..a_definition("both")
+            })
+            .unwrap();
+
+        let saved = agents.definitions().unwrap().remove(0);
+        assert_eq!(
+            saved.mcps.first().map(String::as_str),
+            Some("ubiq-help"),
+            "what the user picked keeps its place"
+        );
+        for implied in crate::mcp::catalogue::role_mcps(true, true) {
+            assert!(
+                saved.mcps.contains(&implied),
+                "a coordinator-and-worker definition carries {implied}"
+            );
+        }
+        assert!(saved.mission_coordinator && saved.mission_worker);
+    }
+
+    /// `description` round-trips like every other optional field: written, read back verbatim,
+    /// and an old record with none stays `None` rather than becoming `Some("")`.
+    #[test]
+    fn a_description_round_trips_and_an_old_record_still_loads() {
+        let root = tempfile::TempDir::new().unwrap();
+        let agents = with_a_harness(root.path());
+
+        agents
+            .save_definition(AgentDefinition {
+                description: Some("Reviews pull requests against the style guide.".to_string()),
+                ..a_definition("reviewer")
+            })
+            .unwrap();
+        agents.save_definition(a_definition("bare")).unwrap();
+
+        let mut saved = agents.definitions().unwrap();
+        saved.sort_by(|a, b| a.id.cmp(&b.id));
+        let bare = saved.iter().find(|it| it.id == "bare").unwrap();
+        let reviewer = saved.iter().find(|it| it.id == "reviewer").unwrap();
+        assert_eq!(
+            reviewer.description.as_deref(),
+            Some("Reviews pull requests against the style guide.")
+        );
+        assert_eq!(
+            bare.description, None,
+            "a definition written with no description reads back as None, not Some(\"\")"
+        );
+    }
+
+    /// `disabled` is a fact the record keeps: written, read back, and not something a save has to
+    /// be told twice.
+    #[test]
+    fn a_disabled_definition_stays_disabled() {
+        let root = tempfile::TempDir::new().unwrap();
+        let agents = with_a_harness(root.path());
+
+        agents
+            .save_definition(AgentDefinition {
+                disabled: true,
+                ..a_definition("retired")
+            })
+            .unwrap();
+
+        assert!(agents.definitions().unwrap()[0].disabled);
+    }
+
+    /// A clone is a copy under a new name in the same scope, and it never overwrites: the thing
+    /// it would overwrite is the user's own saved setup.
+    #[test]
+    fn a_clone_copies_the_record_and_refuses_a_name_already_taken() {
+        let root = tempfile::TempDir::new().unwrap();
+        let agents = with_a_harness(root.path());
+        agents
+            .save_definition(AgentDefinition {
+                mcps: vec!["ubiq-kb".to_string()],
+                mission_worker: true,
+                ..a_definition("worker")
+            })
+            .unwrap();
+
+        agents
+            .clone_definition("worker", "worker copy", None)
+            .unwrap();
+
+        let mut saved = agents.definitions().unwrap();
+        saved.sort_by(|a, b| a.id.cmp(&b.id));
+        let copy = saved.iter().find(|it| it.id == "worker copy").unwrap();
+        let source = saved.iter().find(|it| it.id == "worker").unwrap();
+        assert_eq!(copy.mcps, source.mcps, "the servers came with it");
+        assert!(copy.mission_worker, "and so did the role");
+
+        assert!(
+            agents.clone_definition("worker", "worker", None).is_err(),
+            "a clone never overwrites"
+        );
+        assert!(
+            agents.clone_definition("nobody", "somebody", None).is_err(),
+            "and there is nothing to copy from a name that is not there"
+        );
+    }
+
+    /// The three a fresh install starts with, and only on a fresh install: seeding is what an
+    /// empty root gets, never something a later start adds to a list the user has made their own.
+    #[test]
+    fn the_three_default_definitions_are_written_once_into_an_empty_root() {
+        let root = tempfile::TempDir::new().unwrap();
+        let agents = with_a_harness(root.path());
+
+        assert!(
+            agents.ensure_default_definitions().unwrap(),
+            "a fresh root is seeded"
+        );
+        let mut names: Vec<String> = agents
+            .definitions()
+            .unwrap()
+            .into_iter()
+            .map(|it| it.id)
+            .collect();
+        names.sort();
+        assert_eq!(
+            names,
+            vec![
+                "Coordinator".to_string(),
+                "Ubiq helper".to_string(),
+                "Worker".to_string()
+            ]
+        );
+
+        let by_id = |id: &str| {
+            agents
+                .definitions()
+                .unwrap()
+                .into_iter()
+                .find(|it| it.id == id)
+                .unwrap()
+        };
+        assert_eq!(
+            by_id("Coordinator").mcps,
+            crate::mcp::catalogue::COORDINATOR_MCPS
+                .iter()
+                .map(|it| it.to_string())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            by_id("Worker").mcps,
+            crate::mcp::catalogue::WORKER_MCPS
+                .iter()
+                .map(|it| it.to_string())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(by_id("Ubiq helper").mcps, vec!["ubiq-help".to_string()]);
+
+        for id in ["Coordinator", "Worker", "Ubiq helper"] {
+            assert!(
+                by_id(id).description.is_some_and(|it| !it.is_empty()),
+                "{id} carries a real description another agent can read"
+            );
+        }
+
+        assert!(
+            !agents.ensure_default_definitions().unwrap(),
+            "a root that holds one already is left alone"
+        );
+    }
+
+    /// With no harness on the machine there is nothing a definition could name, so writing a new
+    /// one is refused — and repairing one that already exists is not.
+    #[test]
+    fn a_new_definition_needs_a_harness_and_an_existing_one_does_not() {
+        assert!(may_write_definition(false, true).is_ok());
+        assert!(
+            may_write_definition(true, false).is_ok(),
+            "an edit still goes through"
+        );
+        let refused = may_write_definition(false, false).unwrap_err().to_string();
+        assert!(
+            refused.contains("no harness is configured"),
+            "the refusal says why: {refused}"
+        );
+    }
+
+    /// An `Agents` over `root` that has a harness to pin a definition to, whatever this machine
+    /// has installed: a command override is what makes one available (`Agents::types`).
+    fn with_a_harness(root: &Path) -> Agents {
+        let mut agents = Agents::new(root, false);
+        agents.set_commands(BTreeMap::from([(
+            "claude-code".to_string(),
+            "echo".to_string(),
+        )]));
+        agents
+    }
+
+    /// A bare definition of `id`, for the tests above: the one harness they all pin to, nothing
+    /// else mentioned.
+    fn a_definition(id: &str) -> AgentDefinition {
+        AgentDefinition {
+            id: id.to_string(),
+            description: None,
             agent_type: "claude-code".to_string(),
             account: None,
             model: None,
@@ -2137,33 +2625,13 @@ mod tests {
             thinking: None,
             max_subagents: None,
             prompt: None,
-            mcps: mcps.iter().map(|it| it.to_string()).collect(),
+            mcps: Vec::new(),
             mission_assistant: None,
-            project,
-        };
-
-        agents
-            .save_profile(info(&["manage-ubiq-tasks"], None))
-            .unwrap();
-        agents
-            .save_profile(info(&["ubiq-plan"], Some(project)))
-            .unwrap();
-
-        assert_eq!(
-            agents.profile_mcps("review", Some(project)),
-            Some(vec!["ubiq-plan".to_string()]),
-            "inside the project, the project's profile answers"
-        );
-        assert_eq!(
-            agents.profile_mcps("review", Some(other)),
-            Some(vec!["manage-ubiq-tasks".to_string()]),
-            "another project sees the global one"
-        );
-        assert_eq!(
-            agents.profile_mcps("review", None),
-            Some(vec!["manage-ubiq-tasks".to_string()]),
-            "a run in no project sees the global one"
-        );
+            mission_coordinator: false,
+            mission_worker: false,
+            disabled: false,
+            project: None,
+        }
     }
 
     /// An id the library does not know converses no more than one it knows cannot. Refusing is
@@ -2290,7 +2758,7 @@ mod tests {
         );
     }
 
-    /// P6: every confined run keeps the real home, whether its conversation named a profile
+    /// P6: every confined run keeps the real home, whether its conversation named a definition
     /// or not. A home of its own would aim each toolchain layer's `~/.cargo`-shaped grant at
     /// an empty directory, so an agent could hold `cargo` in its `PATH` and still not build;
     /// what stays per-run is the configuration dir, not the home. The rendered policy's home
@@ -2302,7 +2770,7 @@ mod tests {
         given_an_account(root.path(), "work.setup", "work");
         let agents = Agents::new(root.path(), true);
 
-        let compose = |profile: Option<String>| {
+        let compose = |definition: Option<String>| {
             agents
                 .compose_run(
                     "agent-1",
@@ -2311,7 +2779,7 @@ mod tests {
                     Vec::new(),
                     IoModes::Structured,
                     ConverseOptions {
-                        profile,
+                        definition,
                         ..Default::default()
                     },
                 )
@@ -2320,8 +2788,8 @@ mod tests {
 
         let real_home = isolate::real_home();
 
-        for profile in [Some("work.setup".to_string()), None] {
-            let composed = compose(profile.clone());
+        for definition in [Some("work.setup".to_string()), None] {
+            let composed = compose(definition.clone());
             let home = isolate::describe(composed.confined.as_ref().unwrap())
                 .unwrap()
                 .home_path;
@@ -2329,7 +2797,7 @@ mod tests {
                 home,
                 real_home,
                 "a {} run keeps the real home, not {}",
-                if profile.is_some() {
+                if definition.is_some() {
                     "defined"
                 } else {
                     "an ad-hoc"
@@ -2339,9 +2807,9 @@ mod tests {
         }
     }
 
-    /// Write a profile naming an account, and the account's own captured-login home,
+    /// Write a definition naming an account, and the account's own captured-login home,
     /// under a Ubiq config root. This is the fixture `am account login` produces.
-    fn given_an_account(root: &Path, profile: &str, account: &str) {
+    fn given_an_account(root: &Path, definition: &str, account: &str) {
         let home = root.join("accounts").join(account);
         std::fs::create_dir_all(home.join(".claude")).unwrap();
         std::fs::write(
@@ -2355,7 +2823,7 @@ mod tests {
         )
         .unwrap();
 
-        let dir = root.join("profiles").join(profile);
+        let dir = root.join(DEFINITIONS_DIR).join(definition);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
             dir.join("profile.toml"),
@@ -2364,12 +2832,12 @@ mod tests {
         .unwrap();
     }
 
-    /// The point of the whole package: a profile named `default` names an account, and the
+    /// The point of the whole package: a definition named `default` names an account, and the
     /// account's captured credential is what the run is composed with — not whatever
     /// happens to be in the user's own home. The byte comparison is the proof, because a
     /// zero-config seed from `$HOME` would also leave a file at that path.
     #[test]
-    fn a_profile_s_account_is_what_composes_the_run() {
+    fn a_definition_s_account_is_what_composes_the_run() {
         let root = tempfile::TempDir::new().unwrap();
         let cwd = tempfile::TempDir::new().unwrap();
         given_an_account(root.path(), "default", "work");
@@ -2384,7 +2852,7 @@ mod tests {
                 Vec::new(),
                 ConverseOptions::default(),
             )
-            .expect("composing a claude-code run against the default profile");
+            .expect("composing a claude-code run against the default definition");
 
         assert_eq!(composed.account(), Some("work"));
         assert_eq!(
@@ -2397,14 +2865,14 @@ mod tests {
     }
 
     /// An account id nothing answers to used to fail the whole compose. It now degrades like
-    /// every other stale profile reference (T-73): the run still starts, with no account
+    /// every other stale definition reference (T-73): the run still starts, with no account
     /// resolved, and the dropped id is named on `Composed::problems` for the caller to surface —
-    /// a typo in one line of a profile must not be the reason nothing launches.
+    /// a typo in one line of a definition must not be the reason nothing launches.
     #[test]
     fn an_unknown_account_degrades_rather_than_refusing_the_run() {
         let root = tempfile::TempDir::new().unwrap();
         let cwd = tempfile::TempDir::new().unwrap();
-        let dir = root.path().join("profiles").join("default");
+        let dir = root.path().join(DEFINITIONS_DIR).join("default");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
             dir.join("profile.toml"),
@@ -2432,10 +2900,10 @@ mod tests {
         );
     }
 
-    /// No profile at all resolves exactly as it did before this seam existed, which is what
+    /// No definition at all resolves exactly as it did before this seam existed, which is what
     /// keeps a machine that has never configured an account working.
     #[test]
-    fn no_profile_composes_a_run_with_no_account() {
+    fn no_definition_composes_a_run_with_no_account() {
         let root = tempfile::TempDir::new().unwrap();
         let cwd = tempfile::TempDir::new().unwrap();
         let agents = Agents::new(root.path(), false);
@@ -2449,7 +2917,7 @@ mod tests {
                 Vec::new(),
                 ConverseOptions::default(),
             )
-            .expect("composing with no profiles root at all");
+            .expect("composing with no definitions root at all");
 
         assert_eq!(composed.account(), None);
         agents.retire(pane);

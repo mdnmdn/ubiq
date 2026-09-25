@@ -193,7 +193,7 @@ mod tests {
             agent_type: "claude-code".to_string(),
             cwd: PathBuf::from("/tmp/project"),
             account: None,
-            profile: None,
+            definition: None,
             model: None,
             thinking: None,
             mode: None,

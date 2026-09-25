@@ -102,13 +102,13 @@ use ubiq_proto::ids::{
 };
 use ubiq_proto::kb::{KbAccess, KbSource, KbStore};
 use ubiq_proto::messages::{
-    AgentPicks, CliShortcutAction, Message, ProfileInfo, Secret, WorkspaceInfo,
+    AgentDefinition, AgentPicks, CliShortcutAction, Message, Secret, WorkspaceInfo,
 };
 use ubiq_proto::mission::MissionRecord;
 use ubiq_proto::notifications::{
     Family, HISTORY_CAP, Level, MuteFor, MuteScope, NotificationRequest, UbiqLink,
 };
-use ubiq_proto::projects::{ProjectSnapshot, Scope};
+use ubiq_proto::projects::{ProjectSnapshot, Scope, StorageMode};
 use ubiq_proto::settings::{
     AgentHome, DronePreset, Grant, HOST_SETTINGS_SCHEMA, HostSettings, RemoteCarrier, RemoteScheme,
     SavedRemoteHost, SettingsLayer, SshAuth, SshProfile,
@@ -346,6 +346,22 @@ pub struct OpenProject {
     /// and one record at a time by `MissionChanged`, so a record arriving twice changes nothing.
     /// Empty rather than absent until the `ListMissions` is answered.
     pub missions: HashMap<TaskId, MissionRecord>,
+    /// The last real annotation count this window was told for a project file, by its
+    /// project-relative path — `true` for at least one, `false` for none — kept after the
+    /// annotation surface closes rather than only while `workbench.plan` names the document.
+    ///
+    /// **What `AppState::has_annotations()` reads instead of the sidecar's mere presence**
+    /// (T-183). The sidecar is written whenever a save or a first read needs its block index
+    /// persisted, whether or not anything is annotated — that write cannot be gated on annotation
+    /// count without breaking `BlockId` stability and the revision watermark, so presence was
+    /// never going to be an honest signal for "carries a thread". This is: filled in whenever
+    /// `Message::PlanAnnotations` names a file document (`AppState::wire`'s own handler), read by
+    /// the header's annotation dot and the source-mode warning alike for a file the annotation
+    /// surface is not currently open on — a tab switched to raw source, most often, since that is
+    /// exactly what closes it (`AppState::close_file_document`). A path never opened this session
+    /// falls through to the old presence check, which is not this bug: nothing has written an
+    /// empty sidecar for a file nobody has touched.
+    pub annotation_hints: HashMap<String, bool>,
     /// How those missions are being looked at — the tab, the WBS selection, the state filter.
     /// Per project, for the reason the board's and the graph's views are.
     pub mission_view: MissionView,
@@ -411,6 +427,7 @@ impl OpenProject {
             teams: TeamsView::default(),
             board: BoardState::default(),
             missions: HashMap::new(),
+            annotation_hints: HashMap::new(),
             mission_view: MissionView::default(),
             mission_journals: HashMap::new(),
             prefs,
@@ -746,6 +763,11 @@ pub struct AppState {
     /// Whether an `AddProject` this window asked for is still outstanding, so the project it
     /// answers with is opened here rather than merely appearing in every picker.
     adding: bool,
+    /// Which storage mode the creation panel is offering — where a project being created will
+    /// keep its data. Held here rather than on `ProjectSettings` because it is answered once, on
+    /// the way in: only Create can choose it, and an existing project's panel shows what its
+    /// record already says.
+    pub(crate) create_storage: StorageMode,
     /// A file dropped with no project open: its folder is added as `adding` above, and this is the
     /// leaf to select once the project the host answers with is actually open.
     adding_select: Option<String>,
@@ -887,7 +909,7 @@ pub struct AppState {
     /// places is one caret in two places; they are otherwise identical and both send through
     /// `AppState::send_mission_feedback`, at the mission `WorkbenchState::feedback_mission` names.
     /// Nothing mirrors what is typed: the value is read off the field when it is sent, the way
-    /// the profile-naming prompt's is.
+    /// the definition-naming prompt's is.
     pub mission_feedback_input: Entity<InputState>,
     pub mission_feedback_tab_input: Entity<InputState>,
     pub task_description_input: Entity<TextareaState>,
@@ -1047,10 +1069,10 @@ pub struct AppState {
     /// where the library expects. Empty means "whatever the library would run"; its placeholder
     /// says what that is.
     pub login_command_input: Entity<InputState>,
-    /// The profile form's two typed fields: what the setup is called, and which model it picks.
+    /// The definition form's two typed fields: what the setup is called, and which model it picks.
     /// The model is free text rather than a picker — the conversation's own model list is the
     /// harness's answer, and it is offered where a conversation starts.
-    pub profile_id_input: Entity<InputState>,
+    pub definition_id_input: Entity<InputState>,
     /// The new-mission dialog's two typed fields — title and description, on the same contract as
     /// `task_title_input`/`task_description_input`: they belong to the window, and what is typed
     /// into them mirrors into `workbench.new_mission`'s own form.
@@ -1063,9 +1085,13 @@ pub struct AppState {
     /// The linked-task picker's filter field. The task panel's references picker has one of these
     /// too; the dialog's is separate because both can be up at once.
     pub new_mission_task_query: Entity<InputState>,
-    /// The opening prompt, shared by the New agent modal and the profile form — only one of the
+    /// The opening prompt, shared by the New agent modal and the definition form — only one of the
     /// two is ever up, and a second field would be a second thing to keep in step.
     pub new_agent_prompt: Entity<TextareaState>,
+    /// The definition form's description field — [`AgentDefinition::description`]. On the same
+    /// footing as `new_agent_prompt`, and only ever drawn under `Purpose::AgentDefinition`: a bare
+    /// start has no definition to write the field onto.
+    pub new_agent_description: Entity<TextareaState>,
     /// The accounts section's rename dialog field, seeded with the account's current id when
     /// the dialog opens. Its own field for the same reason `login_account_input` is: a state
     /// drawn once, in its own dialog.
@@ -1201,6 +1227,14 @@ pub struct AppState {
     /// the viewport, plus [`crate::ui::document::PLAN_OVERDRAW`], and a section off screen
     /// contributes its cached height and nothing more.
     pub plan_preview_list: gpui::ListState,
+    /// The thread rail beside it, virtualized the same way and for the same reason (T-152): a
+    /// thread card costs roughly as much to lay out as a section does, and an unvirtualized column
+    /// of them grew with the *thread count* rather than the document's length — the one axis
+    /// `plan_preview_list` does not touch, since `gpui::list` over the sections never draws a
+    /// thread. `ui::document::thread_list` is `preview`'s own re-sync rule read again: a composer
+    /// opening, a reply's field or `show_resolved` all change the count, and this keeps the
+    /// reader's place across it the same way.
+    pub plan_thread_list: gpui::ListState,
     /// Incremented on every filter keystroke so a debounce that lost the race does not start a
     /// walk for a query the user has already left.
     explorer_filter_gen: u64,

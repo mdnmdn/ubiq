@@ -42,7 +42,7 @@ use crate::plan::{
     SaveOrigin,
 };
 use crate::projects::{
-    DroneChange, IndexChange, LanePref, MissionTermChange, ProjectSnapshot, Scope,
+    DroneChange, IndexChange, LanePref, MissionTermChange, ProjectSnapshot, Scope, StorageMode,
 };
 use crate::quota::{QuotaSnapshot, QuotaSource};
 use crate::repos::{CloneError, CloneRequest, CloneStage, RemoteRepo, RepoSource};
@@ -118,7 +118,7 @@ pub enum Message {
         agent_type: Option<String>,
         args: Vec<String>,
         /// What this start chose beyond the harness and the folder, when `agent_type` names one.
-        /// Ignored for a shell, which has no account, no profile and no modes.
+        /// Ignored for a shell, which has no account, no definition and no modes.
         ///
         /// `Default::default()` is a pane that names nothing and lets the library resolve
         /// everything — which is what the new-pane menu and every shell row send.
@@ -464,38 +464,55 @@ pub enum Message {
         failure: FeedbackError,
     },
 
-    // ── Profile family: the saved setups a conversation starts from ──
-    /// Which profiles exist. Answered with [`Message::Profiles`].
-    ListProfiles,
-    /// The profiles the host holds. A profile names an account, a model and a mode — every
+    // ── AgentDefinition family: the saved setups a conversation starts from ──
+    /// Which definitions exist. Answered with [`Message::AgentDefinitions`].
+    ListAgentDefinitions,
+    /// The definitions the host holds. A definition names an account, a model and a mode — every
     /// field a reference, the same rule as [`Message::Accounts`].
     ///
-    /// Both scopes ride in one list: the global profiles and every project's own, each saying
-    /// which it is through [`ProfileInfo::project`]. One message rather than a per-project ask
+    /// Both scopes ride in one list: the global definitions and every project's own, each saying
+    /// which it is through [`AgentDefinition::project`]. One message rather than a per-project ask
     /// because the interface already holds every project, and a scope is a field to filter on.
-    Profiles {
-        profiles: Vec<ProfileInfo>,
+    AgentDefinitions {
+        definitions: Vec<AgentDefinition>,
     },
-    /// Write a profile, creating it when its id names none. Answered with
-    /// [`Message::Profiles`], or [`Message::AccountError`] when the id is empty or not a
-    /// name a directory can carry — profiles are stored beside accounts and fail the same
+    /// Write a definition, creating it when its id names none. Answered with
+    /// [`Message::AgentDefinitions`], or [`Message::AccountError`] when the id is empty or not a
+    /// name a directory can carry — definitions are stored beside accounts and fail the same
     /// way, which is why they share the error rather than minting a second one.
     ///
-    /// [`ProfileInfo::project`] says which root it is written into: absent is the global one,
+    /// [`AgentDefinition::project`] says which root it is written into: absent is the global one,
     /// present is that project's own, and the two are separate namespaces — the same name in
-    /// both is a project profile shadowing a global one inside that project only.
+    /// both is a project definition shadowing a global one inside that project only.
     ///
-    /// There is deliberately no delete: a profile is a saved setup, and a stale one costs a
-    /// row in a list. A project's profiles are deleted with the project, by the directory they
+    /// There is deliberately no delete: a definition is a saved setup, and a stale one costs a
+    /// row in a list. A project's definitions are deleted with the project, by the directory they
     /// live in going with it.
-    SaveProfile {
-        profile: ProfileInfo,
+    SaveAgentDefinition {
+        definition: AgentDefinition,
+    },
+    /// Copy a definition under a new name, in the scope it already lives in. Answered with
+    /// [`Message::AgentDefinitions`], or [`Message::AccountError`] when `id` names none, when
+    /// `new_id` is empty or not a name a directory can carry, or when `new_id` is already taken
+    /// in that scope — a clone never overwrites, because the thing it would overwrite is the
+    /// user's own saved setup.
+    ///
+    /// A clone is a host operation rather than "read one and save it back" so the copy is
+    /// exactly what the record holds, including fields no screen shows.
+    CloneAgentDefinition {
+        /// The definition to copy, by [`AgentDefinition::id`].
+        id: String,
+        /// The name the copy takes.
+        new_id: String,
+        /// Which scope both live in: absent is the global root, present is that project's own.
+        /// A clone stays in its scope; moving one between scopes is a save, not a copy.
+        project: Option<ProjectId>,
     },
     /// Which MCP servers this build offers to inject into a harness. Answered with
     /// [`Message::Mcps`].
     ListMcps,
-    /// The MCP servers Ubiq itself can start, each with the tools it answers. A profile's
-    /// [`ProfileInfo::mcps`] and a bare start's own pick both name one of these by
+    /// The MCP servers Ubiq itself can start, each with the tools it answers. A definition's
+    /// [`AgentDefinition::mcps`] and a bare start's own pick both name one of these by
     /// [`McpInfo::name`]; this is where the settings panel and the start form get the slugs and
     /// the descriptions to offer.
     Mcps {
@@ -754,9 +771,21 @@ pub enum Message {
         custom_colour: Option<u32>,
         #[serde(default)]
         temporary: bool,
+        /// Where this project's own data is written, chosen here and only here — see
+        /// [`StorageMode`]. Absent is [`StorageMode::UbiqManaged`], which is what every caller
+        /// before this field meant. A [`StorageMode::ProjectManaged`] add that cannot make its
+        /// `.ubiq/` folder is refused with [`Message::ProjectError`] rather than quietly falling
+        /// back: the user asked for the project's own folder, and a silent config-root project
+        /// would be the wrong answer written down.
+        ///
+        /// Ignored for a `temporary` folder, which is never written down at all.
+        #[serde(default, skip_serializing_if = "StorageMode::is_default")]
+        storage: StorageMode,
     },
     /// Drop the record and the project's own directory in Ubiq's config. Nothing inside the
-    /// project's folder is touched — which is why the word in the interface is "Forget".
+    /// project's folder is touched — which is why the word in the interface is "Forget". A
+    /// project-managed project keeps its `.ubiq/` folder for the same reason: it is inside the
+    /// user's own tree.
     ForgetProject {
         project_id: ProjectId,
     },
@@ -1471,6 +1500,18 @@ pub enum Message {
         project_id: ProjectId,
         task_id: TaskId,
     },
+    /// Move every `Done` or `Abandoned` task — a mission's anchor excepted — out of the live list
+    /// and into the project's paged archive (`T-190`).
+    ///
+    /// Its own variant rather than a `TaskField` or a second `DeleteTask` shape: nothing here names
+    /// a task, because which ones qualify is the host's question to answer, not the window's to
+    /// enumerate and send one at a time. An archived task is answered exactly as a deleted one is —
+    /// [`Message::TaskDeleted`], once per task — because the panel's rule is the same either way:
+    /// stop drawing it. The archive itself is never read back on this wire; browsing, searching or
+    /// restoring what it holds is unbuilt (`backlog.md`).
+    ArchiveTasks {
+        project_id: ProjectId,
+    },
     AddStep {
         project_id: ProjectId,
         task_id: TaskId,
@@ -2012,27 +2053,27 @@ pub enum Message {
         /// The library's harness id, from [`AgentTypeInfo`].
         agent_type: String,
         /// Which identity to run as, from [`AccountInfo`]. Absent falls back to whatever the
-        /// library resolves — the profile named `default`, or the user's own home.
+        /// library resolves — the definition named `default`, or the user's own home.
         ///
         /// Chosen once, at the start, and never after: a turn already taken was taken as
         /// somebody, and a conversation that changed identity halfway would be two
         /// conversations wearing one transcript.
         account: Option<String>,
-        /// Which saved setup to start from, from [`ProfileInfo`]. Absent is a bare start with
-        /// no profile at all. `account` above still wins where both name one — the profile is
+        /// Which saved setup to start from, from [`AgentDefinition`]. Absent is a bare start with
+        /// no definition at all. `account` above still wins where both name one — the definition is
         /// the default, the pick is the user saying otherwise.
-        profile: Option<String>,
+        definition: Option<String>,
         /// Which model to launch on, from [`Message::HarnessCatalogue`]. `None` or empty leaves
-        /// the harness on its own default. Outranks the profile's, the way a pick always does.
+        /// the harness on its own default. Outranks the definition's, the way a pick always does.
         model: Option<String>,
         /// Which reasoning-effort level, same convention as `model`.
         thinking: Option<String>,
         /// Which permission mode, from [`AgentTypeInfo::modes`], same convention.
         mode: Option<String>,
         /// The MCP servers to inject into this run, by [`McpInfo::name`], for a start that is
-        /// not from a saved profile — or that is overriding one. Empty is not "none of the
-        /// profile's": it is read the way `model`/`thinking`/`mode` are, a pick that stands on
-        /// its own rather than a diff against [`ProfileInfo::mcps`].
+        /// not from a saved definition — or that is overriding one. Empty is not "none of the
+        /// definition's": it is read the way `model`/`thinking`/`mode` are, a pick that stands on
+        /// its own rather than a diff against [`AgentDefinition::mcps`].
         #[serde(default)]
         mcps: Vec<String>,
         /// The agent that asked for this one, for a launch answering a
@@ -2726,6 +2767,7 @@ impl Message {
             | Message::MoveTask { project_id, .. }
             | Message::AssignTask { project_id, .. }
             | Message::DeleteTask { project_id, .. }
+            | Message::ArchiveTasks { project_id, .. }
             | Message::AddStep { project_id, .. }
             | Message::RenameStep { project_id, .. }
             | Message::RemoveStep { project_id, .. }
@@ -2852,19 +2894,19 @@ pub enum TaskField {
 /// is the same run wearing a different face, and a pane that could not name an account or an MCP
 /// server would be a second, poorer way to start the same agent.
 ///
-/// Every field is a **pick**, and a pick outranks what the profile saved. `Default::default()` is
-/// the zero-config start: whatever the harness, its profile and its own defaults say. Isolation is
+/// Every field is a **pick**, and a pick outranks what the definition saved. `Default::default()` is
+/// the zero-config start: whatever the harness, its definition and its own defaults say. Isolation is
 /// not here and never will be — it is a host setting, not something a start chooses.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentPicks {
     /// Which identity to run as, from [`AccountInfo`]. Absent falls back to whatever the library
-    /// resolves — the profile named `default`, or the user's own home.
+    /// resolves — the definition named `default`, or the user's own home.
     #[serde(default)]
     pub account: Option<String>,
-    /// Which saved setup to start from, from [`ProfileInfo`]. Absent is a bare start with no
-    /// profile at all. `account` above still wins where both name one.
+    /// Which saved setup to start from, from [`AgentDefinition`]. Absent is a bare start with no
+    /// definition at all. `account` above still wins where both name one.
     #[serde(default)]
-    pub profile: Option<String>,
+    pub definition: Option<String>,
     /// Which model to launch on, from [`Message::HarnessCatalogue`]. `None` or empty leaves the
     /// harness on its own default.
     #[serde(default)]
@@ -2876,8 +2918,8 @@ pub struct AgentPicks {
     #[serde(default)]
     pub mode: Option<String>,
     /// The MCP servers to inject into this run, by [`crate::mcp::McpInfo::name`]. Empty is not
-    /// "none of the profile's": it is read the way the fields above are, a pick that stands on its
-    /// own rather than a diff against [`ProfileInfo::mcps`].
+    /// "none of the definition's": it is read the way the fields above are, a pick that stands on its
+    /// own rather than a diff against [`AgentDefinition::mcps`].
     #[serde(default)]
     pub mcps: Vec<String>,
 }
@@ -3011,17 +3053,21 @@ pub struct AccountInfo {
     pub logged_in: Vec<String>,
 }
 
-/// One profile, as the UI is told about it.
+/// One **agent definition**, as the UI is told about it.
 ///
-/// A profile is a saved setup: which harness, as whom, with which model and which permission
+/// A definition is a saved setup: which harness, as whom, with which model and which permission
 /// mode. Like [`AccountInfo`] every field is a reference — an id the library resolves — and
-/// nothing here is credential material or a path. `None` on a field means the profile does not
+/// nothing here is credential material or a path. `None` on a field means the definition does not
 /// mention that axis, and a lower layer decides.
+///
+/// **A definition is not an agent.** A [`crate::work::AgentId`] names a *running* agent, a live
+/// conversation; this is the saved recipe one may be started from, and the two are never the same
+/// word in prose (`D174`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ProfileInfo {
+pub struct AgentDefinition {
     /// What the user named this setup, e.g. `review`.
     pub id: String,
-    /// The library's harness id this profile is for, from [`AgentTypeInfo`].
+    /// The library's harness id this definition is for, from [`AgentTypeInfo`].
     pub agent_type: String,
     /// Which identity it runs as, from [`AccountInfo`].
     pub account: Option<String>,
@@ -3038,29 +3084,55 @@ pub struct ProfileInfo {
     /// An opening prompt to send as the conversation's first turn. It is a turn like any other,
     /// which is why it is text here rather than anything the run is composed from.
     pub prompt: Option<String>,
-    /// The MCP servers this profile enables, by [`McpInfo::name`]. Empty is the normal case —
-    /// most profiles ask for none — and a name a build no longer offers is simply not injected,
-    /// the same "a stale reference costs nothing but the row" rule [`Message::SaveProfile`]
+    /// What this definition is for and what it carries, in prose — free-form, may be several
+    /// lines. This is the one field written for another agent to read rather than for the host to
+    /// act on: the mission MCP's `list_agent_kinds` and `spawn_agent` hand it back alongside a
+    /// definition's name and harness, so a coordinator can pick a definition by what it actually
+    /// does instead of by name alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// The MCP servers this definition enables, by [`McpInfo::name`]. Empty is the normal case —
+    /// most definitions ask for none — and a name a build no longer offers is simply not injected,
+    /// the same "a stale reference costs nothing but the row" rule [`Message::SaveAgentDefinition`]
     /// already lives by.
     #[serde(default)]
     pub mcps: Vec<String>,
-    /// Whether this profile is fit to run as a planning assistant. The new-mission dialog's
-    /// assistant picker filters to profiles carrying `true`; every other screen ignores it.
+    /// Whether this definition is fit to run as a planning assistant. The new-mission dialog's
+    /// assistant picker filters to definitions carrying `true`; every other screen ignores it.
     /// `None`/`Some(false)` read the same to a filter — the distinction between them exists only
-    /// on disk, so an inherited profile can un-mention it.
+    /// on disk, so an inherited definition can un-mention it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mission_assistant: Option<bool>,
-    /// The project this setup belongs to, when it belongs to one. `None` is a global profile —
-    /// every profile written before this field existed, and every one the app-wide settings
+    /// Whether this definition runs the **coordinator** side of a mission or a task: it runs the
+    /// mission, writes the plan, and manages the tasks.
+    ///
+    /// The flag is not a label. The host holds the MCP set it implies and **re-adds that set on
+    /// every save**, so a definition carrying the flag cannot be left without the servers the
+    /// role needs, however it was edited — see [`Message::SaveAgentDefinition`].
+    #[serde(default)]
+    pub mission_coordinator: bool,
+    /// Whether this definition runs the **worker** side of a mission or a task: it reads the
+    /// mission, works a task, and reports progress. Implies its own MCP set, re-asserted on save
+    /// exactly as [`Self::mission_coordinator`]'s is. Both flags together imply both sets.
+    #[serde(default)]
+    pub mission_worker: bool,
+    /// Whether the user has switched this definition off. A disabled definition is still listed
+    /// and still editable — it is simply not offered anywhere a run is started from. Nothing
+    /// about a run already under way changes when its definition is disabled.
+    #[serde(default)]
+    pub disabled: bool,
+    /// The project this setup belongs to, when it belongs to one. `None` is a global definition —
+    /// every definition written before this field existed, and every one the app-wide settings
     /// screen writes.
     ///
-    /// The scope is not a preference the record carries: it is **where the profile is stored**
-    /// (`<config root>/projects/<id>/profiles/` against the global `profiles/`), so a record
-    /// cannot claim a scope its location contradicts, and forgetting a project takes its
-    /// profiles with it. This field is the host reporting which root a profile came from, and —
-    /// on [`Message::SaveProfile`] — the interface saying which root to write it into.
+    /// The scope is not a preference the record carries: it is **where the definition is stored**
+    /// (`<config root>/projects/<id>/agent-definitions/` against the global `agent-definitions/`),
+    /// so a record cannot claim a scope its location contradicts, and forgetting a project takes
+    /// its definitions with it. This field is the host reporting which root a definition came
+    /// from, and — on [`Message::SaveAgentDefinition`] — the interface saying which root to write
+    /// it into.
     ///
-    /// A project profile is offered inside its project and nowhere else; the app-wide settings
+    /// A project definition is offered inside its project and nowhere else; the app-wide settings
     /// screen lists only the global ones.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project: Option<ProjectId>,

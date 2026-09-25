@@ -907,6 +907,19 @@ impl AppState {
         cx.notify();
     }
 
+    /// Move every finished task off the board and into the project's archive (`T-190`).
+    ///
+    /// The host decides what "finished" means and does the moving; this sends the one message and
+    /// nothing else, on the family's own rule — every change here is a message, and the host
+    /// answers. There is no confirmation: unlike `delete_task`, nothing is thrown away, only filed
+    /// elsewhere, so this takes no more ceremony than a drag to another column would.
+    pub fn archive_done_tasks(&mut self, cx: &mut Context<Self>) {
+        let Some(project_id) = self.project(cx) else {
+            return;
+        };
+        self.bus.send(Message::ArchiveTasks { project_id });
+    }
+
     /// Open the form for a new task, seeded by whatever is in the filter field.
     ///
     /// One field finds work and names it: what you typed to look for a card is what you meant to

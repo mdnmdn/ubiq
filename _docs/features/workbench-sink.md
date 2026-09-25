@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: The rail's Sink mode — the application's own test bench, twelve pages of fixtures with nothing behind them — a buffer, one page per special viewer, the style reference, the file picker in each shape a screen can ask for, the two settings layouts, a live conversation beside its bus traffic, the A2UI surface, the script scratchpad and the teamsim testbed.
 read_when: you are changing the kitchen sink's pages or fixtures, the A2UI renderer, the script scratchpad, the teamsim testbed, or looking for a surface to try a primitive on
-updated: 2026-09-24
-verified: 2026-09-24
+updated: 2026-09-25
+verified: 2026-09-25
 code_anchors: [crates/ubiq/src/state/sink.rs, crates/ubiq/src/app/sink.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/sink/script.rs, crates/ubiq/src/ui/sink/teamsim.rs, crates/ubiq/src/ui/sink/a2ui.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/src/state/script.rs, crates/ubiq/src/state/teamsim.rs, crates/ubiq/src/state/a2ui.rs, crates/ubiq/src/state/a2ui/value.rs, crates/ubiq/src/state/a2ui/eval.rs, crates/ubiq/src/state/a2ui/action.rs, crates/ubiq/src/state/a2ui/live.rs, crates/ubiq/src/state/a2ui/svg.rs, crates/ubiq/src/state/a2ui/path.rs, crates/ubiq/src/state/a2ui/ubiq-catalog.json, crates/ubiq/src/ui/a2ui.rs, crates/ubiq/src/ui/a2ui/registry.rs, crates/ubiq/src/ui/a2ui/svg.rs, crates/ubiq/src/ui/a2ui/path.rs, crates/ubiq/src/ui/kit/blocks.rs, crates/ubiq/src/ui/kit/menu.rs, _tools/teamsim/FORMAT.md, crates/ubiq/tests/a2ui.rs, crates/ubiq/tests/script.rs, crates/ubiq/tests/sink.rs]
 depends_on: [feat-workbench, tech-ui]
 review_cycle: monthly
@@ -230,9 +230,14 @@ of the same controls the style reference already draws: `choice_pill` for a pinn
 interface size, `check_box` for a boolean, `stepper` and `meter` for a number, `card` for a permission
 mode, `Picker` for a dropdown, `slab` for a harness that opens. Project settings is that same
 furniture in the shape of a dialog: a coloured left edge, a nav, a form. On the sink, Cancel puts
-the fixture back and Save writes nothing, because the sink has no project behind it. Over the
+the fixture back and Save writes nothing, because the sink has no project behind it. Its Agent
+definitions nav item is the one section the fixture can only half draw: the tick is real, and the
+list under it is a project's own definitions, which a page with no project has none of — it says
+so instead. Over the
 workbench the same dialog is the create and edit surface: only General is enabled, the path is
-immutable, Create sends `AddProject`, and Save sends `UpdateProject`. Its colour row is a strip of
+immutable, Create sends `AddProject`, and Save sends `UpdateProject`. Its "Project data" row is
+`choice_pill` too, and it is the one control that only Create can work: it names where the project
+keeps its tasks and metadata, which is answered once and shown read-only afterwards. Its colour row is a strip of
 swatches plus `kit::colour_picker` — saturation/value, a hue bar, and a `#RRGGBB` field — so a
 custom colour is chosen rather than only indexed. The picker is the kit's, not this dialog's: it
 reports a hue, a saturation and a value, and this form is the one that turns them into the

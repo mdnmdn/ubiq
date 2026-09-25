@@ -33,13 +33,13 @@ use gpui_component::{Icon, IconName, Sizable as _, Size};
 use crate::app::{AppState, SubmitSearch};
 use crate::state::document::{
     AnnotationsBody, ComposerTarget, DocumentBody, DocumentEditor, MinimapBlockKind, Notice,
-    heading_sections, is_frontmatter_fields, minimap_rows, thread_marks,
+    heading_sections, minimap_rows, thread_marks,
 };
 use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::kit::{
-    MdNavEntry, MinimapMark, MinimapTick, MinimapViewport, UbiqIcon, choice_pill, ghost_button,
-    icon_button, md_navigator, minimap, mono, primary_button, slab, status_dot,
+    MdNavEntry, MinimapMark, MinimapTick, MinimapViewport, UbiqIcon, check_box, choice_pill,
+    ghost_button, icon_button, md_navigator, minimap, mono, primary_button, slab, status_dot,
 };
 use crate::ui::viewer::markdown;
 use crate::ui::{eid, eid2, indexed, scrub};
@@ -437,15 +437,11 @@ fn section(
         root = root.bg(theme::selected());
     }
 
-    // T-153: a document opening with `---` has no `frontmatter` block kind to read at
-    // `ParseOptions::gfm()` (see `is_frontmatter_fields`) — the host hands this surface a
-    // mis-parsed heading instead, and drawing it through the same renderer as prose reproduced
-    // the misparse a second time. The preview never shows this at all, because it splits
-    // frontmatter out of the source before any Markdown parse runs over it
-    // (`ui::viewer::markdown::split_frontmatter`); the closest this surface can get without that
-    // same pre-parse step is the preview's own collapsed-frontmatter typography — monospace,
-    // faint, dense — rather than another pass through the block renderer.
-    let content = if is_frontmatter_fields(blocks, index) {
+    // A document's frontmatter is its own block kind (T-154), so this surface reads the kind
+    // rather than guessing from the block's position. It is still not prose: drawing it through
+    // the block renderer would render YAML as Markdown, so it gets the preview's own
+    // collapsed-frontmatter typography — monospace, faint, dense.
+    let content = if block.kind == "frontmatter" {
         mono(block.text.clone(), theme::text_faint())
             .text_size(theme::font(Family::Content, Role::Dense))
             .into_any_element()
@@ -615,50 +611,7 @@ fn rail(app: &AppState, doc: &DocumentEditor, cx: &mut Context<AppState>) -> Any
     let body = match &doc.annotations {
         AnnotationsBody::Loading => note("Reading annotations\u{2026}", theme::text_faint()),
         AnnotationsBody::Failed(reason) => note(reason.clone(), theme::danger()),
-        AnnotationsBody::Loaded { annotations, .. } => {
-            let composer = doc
-                .composer_block()
-                .map(|_| new_thread_composer(app, doc, cx));
-            let shown: Vec<&Annotation> = if focused {
-                Vec::new()
-            } else {
-                annotations
-                    .iter()
-                    .filter(|annotation| doc.show_resolved || annotation.is_open())
-                    .collect()
-            };
-            if shown.is_empty() && composer.is_none() {
-                div()
-                    .flex()
-                    .flex_col()
-                    .flex_1()
-                    .min_h(px(0.))
-                    .p_3()
-                    .child(note(
-                        "No threads here yet. Select a passage and annotate it.",
-                        theme::text_faint(),
-                    ))
-                    .into_any_element()
-            } else {
-                div()
-                    .id(eid("plan-annotations-list", &key))
-                    .flex()
-                    .flex_col()
-                    .flex_1()
-                    .min_h(px(0.))
-                    .overflow_y_scroll()
-                    .gap_2()
-                    .p_3()
-                    .children(composer)
-                    .children(
-                        shown
-                            .into_iter()
-                            .map(|annotation| annotation_card(app, doc, annotation, cx))
-                            .collect::<Vec<_>>(),
-                    )
-                    .into_any_element()
-            }
-        }
+        AnnotationsBody::Loaded { .. } => thread_list(app, doc, cx),
     };
 
     let resolved = doc
@@ -686,6 +639,18 @@ fn rail(app: &AppState, doc: &DocumentEditor, cx: &mut Context<AppState>) -> Any
                 .border_b_1()
                 .border_color(theme::border())
                 .child("Threads")
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_1p5()
+                        .child(check_box(
+                            eid("plan-track-updates", &key),
+                            doc.track_updates,
+                            cx.listener(|this, _, _, cx| this.toggle_track_updates(cx)),
+                        ))
+                        .child("Track changes"),
+                )
                 .child(div().flex_1().min_w(px(0.)))
                 .children(focused.then(|| {
                     ghost_button(
@@ -709,12 +674,114 @@ fn rail(app: &AppState, doc: &DocumentEditor, cx: &mut Context<AppState>) -> Any
         .into_any_element()
 }
 
+/// The rail's own list, virtualized the section list's own way and for the same reason (T-152):
+/// a thread card costs roughly as much to lay out as a section does, measured at 1.8ms a card in
+/// a debug build, and that cost followed the *thread count* rather than the document's length —
+/// the one axis `preview`'s own virtualization (T-150) never touched, since `gpui::list` over the
+/// sections never draws a thread.
+///
+/// **The composer, when a fresh thread is being drafted, takes item `0`** and every other row
+/// shifts down by one — `DocumentEditor::rail_annotation_ids` is already empty in the ordinary
+/// case this happens (the composer hides the rest), so the two only share the list together when
+/// `thread_focus_override` (the rail's own "Show all threads") is on, which is the one case the
+/// original, unvirtualized column drew both at once.
+fn thread_list(app: &AppState, doc: &DocumentEditor, cx: &mut Context<AppState>) -> AnyElement {
+    let key = doc.surface_key();
+    let composing = doc.composer_block().is_some();
+    let ids = doc.rail_annotation_ids();
+    let len = if composing { 1 } else { 0 } + ids.len();
+
+    if len == 0 {
+        return div()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_h(px(0.))
+            .p_3()
+            .child(note(
+                "No threads here yet. Select a passage and annotate it.",
+                theme::text_faint(),
+            ))
+            .into_any_element();
+    }
+
+    // The same re-sync `preview` runs for the section list (T-150): `reset` is the only way to
+    // change a list's length and it drops the scroll position with the measurements, so the
+    // reader's place is taken before and put back after. Opening the composer, a reply's field,
+    // resolving a thread and `show_resolved` all change the count the way a section edit changes
+    // the block count.
+    let list_state = app.plan_thread_list.clone();
+    if list_state.item_count() != len {
+        let at = list_state
+            .logical_scroll_top()
+            .item_ix
+            .min(len.saturating_sub(1));
+        list_state.reset(len);
+        if at > 0 {
+            list_state.scroll_to(gpui::ListOffset {
+                item_ix: at,
+                offset_in_item: px(0.),
+            });
+        }
+    }
+    let view = cx.entity();
+
+    div()
+        .id(eid("plan-annotations-list", &key))
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_h(px(0.))
+        .p_3()
+        .child(
+            list(list_state, move |index, window, cx| {
+                thread_row(index, &view, window, cx)
+            })
+            .flex_1()
+            .min_h(px(0.)),
+        )
+        .into_any_element()
+}
+
+/// The one row `gpui::list` asked for, at the index it asked for.
+///
+/// Kept for the life of the list's `ListState` rather than for one render, the same shape
+/// `section_row` takes above and for the same reason: the document is looked up fresh off `view`
+/// rather than borrowed from a particular frame's `AppState`.
+fn thread_row(
+    index: usize,
+    view: &Entity<AppState>,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
+    let app = view.read(cx);
+    let Some(doc) = app.workbench.plan.as_ref() else {
+        return div().into_any_element();
+    };
+    let composing = doc.composer_block().is_some();
+    let row = if composing && index == 0 {
+        new_thread_composer(app, doc, view, window)
+    } else {
+        let offset = if composing { index - 1 } else { index };
+        let ids = doc.rail_annotation_ids();
+        let Some(annotation) = ids.get(offset).and_then(|id| doc.annotation(*id)) else {
+            return div().into_any_element();
+        };
+        annotation_card(app, doc, annotation, view, window)
+    };
+    // A row's own margin is invisible to `gpui::list` (`layout_as_root` reports the border box),
+    // so the gap between cards the unvirtualized column drew with `gap_2` is padding here instead
+    // — `ui-ui`'s own note on `section_row`.
+    div().pb_2().child(row).into_any_element()
+}
+
 /// The field claimed for a fresh thread — shown above the rail's list while it is open, and
 /// nowhere else: one composer at a time.
 fn new_thread_composer(
     app: &AppState,
     doc: &DocumentEditor,
-    cx: &mut Context<AppState>,
+    view: &Entity<AppState>,
+    window: &Window,
 ) -> AnyElement {
     let block_id = doc.composer_block();
     let passage = doc.composer_quote.clone().or_else(|| {
@@ -737,7 +804,7 @@ fn new_thread_composer(
                 .child("New thread"),
         )
         .children(passage.map(preview_line))
-        .child(composer_field(app, doc, cx))
+        .child(composer_field(app, doc, view, window))
         .into_any_element()
 }
 
@@ -748,7 +815,8 @@ fn annotation_card(
     app: &AppState,
     doc: &DocumentEditor,
     annotation: &Annotation,
-    cx: &mut Context<AppState>,
+    view: &Entity<AppState>,
+    window: &Window,
 ) -> AnyElement {
     let annotation_id = annotation.id;
     let edge = match annotation.state {
@@ -788,32 +856,36 @@ fn annotation_card(
             eid2("plan-reply", annotation_id, "btn"),
             None,
             "Reply",
-            cx.listener(move |this, _, window, cx| this.compose_reply(annotation_id, window, cx)),
+            window.listener_for(view, move |this, _, window, cx| {
+                this.compose_reply(annotation_id, window, cx)
+            }),
         ))
-        .child(resolve_button(annotation, cx))
+        .child(resolve_button(annotation, view, window))
         .child(ghost_button(
             eid2("plan-thread-show", annotation_id, "btn"),
             Some(IconName::ArrowRight),
             "Show",
-            cx.listener(move |this, _, _, cx| this.open_annotation_thread(annotation_id, cx)),
+            window.listener_for(view, move |this, _, _, cx| {
+                this.open_annotation_thread(annotation_id, cx)
+            }),
         ));
     root = root.child(actions);
 
     if replying {
-        root = root.child(composer_field(app, doc, cx));
+        root = root.child(composer_field(app, doc, view, window));
     }
 
     root.into_any_element()
 }
 
-fn resolve_button(annotation: &Annotation, cx: &mut Context<AppState>) -> AnyElement {
+fn resolve_button(annotation: &Annotation, view: &Entity<AppState>, window: &Window) -> AnyElement {
     let annotation_id = annotation.id;
     match annotation.state {
         AnnotationState::Open => ghost_button(
             eid2("plan-resolve", annotation_id, "btn"),
             Some(IconName::Check),
             "Resolve",
-            cx.listener(move |this, _, _, cx| {
+            window.listener_for(view, move |this, _, _, cx| {
                 this.set_annotation_resolved(annotation_id, true, cx)
             }),
         )
@@ -822,7 +894,7 @@ fn resolve_button(annotation: &Annotation, cx: &mut Context<AppState>) -> AnyEle
             eid2("plan-reopen", annotation_id, "btn"),
             None,
             "Reopen",
-            cx.listener(move |this, _, _, cx| {
+            window.listener_for(view, move |this, _, _, cx| {
                 this.set_annotation_resolved(annotation_id, false, cx)
             }),
         )
@@ -918,7 +990,12 @@ fn comment_row(comment: &Comment) -> AnyElement {
 
 /// The one composer field, wherever it is currently shown — a fresh thread's or a reply's,
 /// `DocumentEditor::composer` says which.
-fn composer_field(app: &AppState, doc: &DocumentEditor, cx: &mut Context<AppState>) -> AnyElement {
+fn composer_field(
+    app: &AppState,
+    doc: &DocumentEditor,
+    view: &Entity<AppState>,
+    window: &Window,
+) -> AnyElement {
     let can_send = !doc.composer_text.trim().is_empty();
     div()
         .flex()
@@ -943,14 +1020,16 @@ fn composer_field(app: &AppState, doc: &DocumentEditor, cx: &mut Context<AppStat
                     "plan-composer-cancel",
                     None,
                     "Cancel",
-                    cx.listener(|this, _, window, cx| this.cancel_annotation_composer(window, cx)),
+                    window.listener_for(view, |this, _, window, cx| {
+                        this.cancel_annotation_composer(window, cx)
+                    }),
                 ))
-                .child(send_button(can_send, cx)),
+                .child(send_button(can_send, view, window)),
         )
         .into_any_element()
 }
 
-fn send_button(enabled: bool, cx: &mut Context<AppState>) -> AnyElement {
+fn send_button(enabled: bool, view: &Entity<AppState>, window: &Window) -> AnyElement {
     let colour = if enabled {
         theme::accent()
     } else {
@@ -970,9 +1049,9 @@ fn send_button(enabled: bool, cx: &mut Context<AppState>) -> AnyElement {
         root = root
             .cursor_pointer()
             .hover(|this| this.bg(theme::hover()))
-            .on_click(
-                cx.listener(|this, _, window, cx| this.submit_annotation_composer(window, cx)),
-            );
+            .on_click(window.listener_for(view, |this, _, window, cx| {
+                this.submit_annotation_composer(window, cx)
+            }));
     }
     root.child("Send").into_any_element()
 }

@@ -1,7 +1,7 @@
 //! The New agent modal: every question a start answers, in one place.
 //!
 //! The body is drawn from [`crate::state::new_agent::NewAgentForm`] and nothing else, which is
-//! why the settings page's profile form can draw the same rows — a profile is a saved answer to
+//! why the settings page's definition form can draw the same rows — a definition is a saved answer to
 //! the same questions, and two forms asking them differently is how the two drift apart.
 //!
 //! **Every row is one line**: the label and its hint mark on the left, the control on the right.
@@ -24,13 +24,13 @@ use ubiq_proto::mcp::McpInfo;
 use crate::app::{AppState, DialogConfirm, SubmitSearch};
 use crate::state::Layer;
 use crate::state::navigator::subsequence;
-use crate::state::new_agent::{NewAgentForm, OpenList, Purpose, Target};
+use crate::state::new_agent::{NewAgentForm, NewAgentTab, OpenList, Purpose, Target};
 use crate::state::workbench::HarnessChoice;
 use crate::theme;
 use crate::ui::kit::menu::{MENU_ANCHOR_UP, MODAL_MENU_LAYER};
 use crate::ui::kit::{
-    Picker, PickerStyle, check_box, elided, field, ghost_button, hint_row, label_hint, modal,
-    primary_button, prompt_modal, slab,
+    Picker, PickerStyle, check_box, choice_pill, elided, field, ghost_button, hint_row, label_hint,
+    modal, primary_button, prompt_modal, slab,
 };
 use crate::ui::{eid, handler, indexed};
 
@@ -45,21 +45,21 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
     };
     let view = cx.entity();
     let ready = form.target.is_some();
-    // Only a bare harness is worth writing down: a start already pointed at a profile would be
-    // saving that profile back over itself.
+    // Only a bare harness is worth writing down: a start already pointed at a definition would be
+    // saving that definition back over itself.
     let savable = matches!(form.target, Some(Target::Harness { .. }));
 
     let mut actions = div().flex().items_center().gap_2();
     if savable {
         actions = actions.child(ghost_button(
-            "new-agent-save-profile",
+            "new-agent-save-definition",
             None,
-            "Save profile",
+            "Save agent",
             cx.listener(|this, _, window, cx| this.open_new_agent_naming(window, cx)),
         ));
     }
     // No `Purpose` gate needed: this `render` draws only `workbench.new_agent`, which is never
-    // raised except as `Purpose::Start` (see `open_new_agent`) — the settings page's profile form
+    // raised except as `Purpose::Start` (see `open_new_agent`) — the settings page's definition form
     // is the same body with its own footer, drawn elsewhere. "Start in terminal" sits beside
     // Start, faded the same way while nothing is chosen yet.
     actions = actions.child(
@@ -109,21 +109,21 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
 
     // The name question is painted over the form rather than instead of it: what is being named
     // is on screen behind it, which is the whole reason the prompt is worth reading.
-    let named = !app.profile_id_input.read(cx).value().trim().is_empty();
+    let named = !app.definition_id_input.read(cx).value().trim().is_empty();
     confirmable(div().child(modal), cx)
         .when(form.naming, |this| {
             this.child(prompt_modal(
                 "new-agent-name",
-                "Save profile",
+                "Save agent",
                 Some(
                     "A saved setup answers all of this at once. Saving over an existing name \
                      replaces it.",
                 ),
                 "Name",
-                &app.profile_id_input,
+                &app.definition_id_input,
                 "Save",
                 named,
-                handler(&view, |this, _, cx| this.save_new_agent_profile(cx)),
+                handler(&view, |this, _, cx| this.save_new_agent_definition(cx)),
                 handler(&view, |this, _, cx| this.close_new_agent_naming(cx)),
                 window,
                 cx,
@@ -139,7 +139,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
 /// before the window's own, which is what takes the keystroke rather than sharing it.
 ///
 /// Enter is deliberately not bound inside a field, so the opening-prompt textarea keeps it as a
-/// newline; ⌘⏎ is what confirms from in there. Both are the settings page's profile form as well
+/// newline; ⌘⏎ is what confirms from in there. Both are the settings page's definition form as well
 /// as this modal's, which is why this wraps rather than being written into either.
 pub fn confirmable(element: gpui::Div, cx: &mut Context<AppState>) -> gpui::Div {
     element
@@ -197,7 +197,9 @@ pub fn footer_row(app: &AppState, actions: AnyElement, cx: &mut Context<AppState
 fn mcps_button(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     let view = cx.entity();
     let form = app.new_agent_form();
-    let chosen = form.map(|form| form.mcps.len()).unwrap_or_default();
+    // What a role implies counts: the host adds those servers on save, so a label that left them
+    // out would be counting something other than what the run gets.
+    let chosen = form.map(NewAgentForm::mcp_count).unwrap_or_default();
     let open = form.is_some_and(|form| form.open == Some(OpenList::Mcps));
     let offered = !app.workbench.mcps.is_empty();
     let label = match chosen {
@@ -235,18 +237,22 @@ fn mcps_button(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
 /// raises it sits on the form's footer and a list dropping from there would drop off the window.
 ///
 /// Painted at [`MODAL_MENU_LAYER`]: both surfaces that draw this footer are modals, so the layer
-/// that clears a modal is the layer either of them needs — the settings page's profile form is a
+/// that clears a modal is the layer either of them needs — the settings page's definition form is a
 /// modal over the page, not a page of its own.
 fn mcp_panel(app: &AppState, view: &Entity<AppState>) -> AnyElement {
-    let chosen = app
-        .new_agent_form()
-        .map(|form| form.mcps.clone())
-        .unwrap_or_default();
+    let form = app.new_agent_form();
     let rows: Vec<AnyElement> = app
         .workbench
         .mcps
         .iter()
-        .map(|server| mcp_row(server, chosen.iter().any(|it| it == &server.name), view))
+        .map(|server| {
+            let checked = form.is_some_and(|form| form.wants_mcp(&server.name));
+            // A server one of the role flags asks for is ticked *by the flag*: the host re-adds it
+            // on every save, so the row says which and takes no click rather than offering a tick
+            // that would come straight back.
+            let implied = form.is_some_and(|form| form.implies_mcp(&server.name));
+            mcp_row(server, checked, implied, view)
+        })
         .collect();
 
     deferred(
@@ -288,7 +294,7 @@ fn mcp_panel(app: &AppState, view: &Entity<AppState>) -> AnyElement {
 /// Three lines rather than one, which is the exception the rest of the window's rows are not: a
 /// server is picked on what its tools are, and a name alone — `test`, `project-info` — says
 /// nothing about that. Each line is still one line, elided with the whole of itself on hover.
-fn mcp_row(server: &McpInfo, checked: bool, view: &Entity<AppState>) -> AnyElement {
+fn mcp_row(server: &McpInfo, checked: bool, implied: bool, view: &Entity<AppState>) -> AnyElement {
     let name = server.name.clone();
     let tools = server
         .tools
@@ -325,6 +331,16 @@ fn mcp_row(server: &McpInfo, checked: bool, view: &Entity<AppState>) -> AnyEleme
         ));
     }
 
+    // What the role asked for, said on the row it ticked: a tick nobody can undo has to say why.
+    if implied {
+        lines = lines.child(elided(
+            eid("new-agent-mcp-role", &server.name),
+            "Required by this agent's role",
+            theme::accent(),
+            theme::font(theme::Family::Chrome, theme::Role::Micro),
+        ));
+    }
+
     div()
         .id(eid("new-agent-mcp", &server.name))
         .px_2()
@@ -332,7 +348,7 @@ fn mcp_row(server: &McpInfo, checked: bool, view: &Entity<AppState>) -> AnyEleme
         .flex()
         .items_start()
         .gap_2()
-        .cursor_pointer()
+        .when(!implied, |this| this.cursor_pointer())
         .hover(|this| this.bg(theme::hover()))
         // **The row owns the click, not the box.** An 18px tick is a small target for a row three
         // lines tall, and wiring both would toggle twice and land back where it started.
@@ -372,16 +388,48 @@ pub fn body(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> 
     // them means anything until it is answered.
     let live = form.target.is_some();
     // A target that is a harness *is* the harness and the identity, both answered at once. The two
-    // rows that ask them again stay only for a profile, where overriding what the profile named is
+    // rows that ask them again stay only for a definition, where overriding what the definition named is
     // the point of having them.
-    let from_profile = matches!(form.target, Some(Target::Profile(_)));
+    let from_definition = matches!(form.target, Some(Target::AgentDefinition(_)));
+    // Which half of the start dialog is in front. A definition form has no tabs — it is always
+    // written against a harness — and reads as the Harness tab throughout.
+    let tabbed = matches!(form.purpose, Purpose::Start);
+    let on_agents = tabbed && form.tab == NewAgentTab::Agents;
+    // On the Agents tab what the definition runs on is a line on its row until `Customize` is
+    // pressed; everywhere else those rows are the form.
+    let engine_shown = !on_agents || form.customize;
 
     let mut rows = div().flex().flex_col().gap_1().pt_1();
+
+    // 0 ─ the two questions, as two tabs. *Which saved agent* and *which tool, as whom* are
+    // different questions, and one list with a hairline in it made the second read as a footnote
+    // to the first.
+    if tabbed {
+        rows = rows.child(tab_strip(form.tab, cx));
+    }
 
     // 1 ─ what is being started. The one row that is always live, and the one the rest of the
     // form is downstream of — so it is drawn as a question of its own rather than as the first of
     // a column: its label above it, the control the full width of the body, and a gap under it
     // that says everything below is a consequence of this answer.
+    let (target_label, target_note, target_placeholder) = match on_agents {
+        true => (
+            "Agent",
+            "A saved setup starts with every answer already given. Customize overrides what it \
+             runs on, for this start only.",
+            "Choose an agent\u{2026}",
+        ),
+        false => (
+            "Harness",
+            "A harness signed into an account starts fresh, on the answers below.",
+            "Choose a harness\u{2026}",
+        ),
+    };
+    let offered = target_rows(app, &form, cx);
+    // Nothing to choose from says so under the dropdown rather than opening an empty list: on this
+    // tab that is a machine with no agent definition written yet, and the settings screen is where
+    // one is.
+    let empty = offered.iter().all(|(_, value)| value.is_none());
     rows = rows.child(
         div()
             .flex()
@@ -390,30 +438,40 @@ pub fn body(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> 
             .pb_2()
             .child(label_hint(
                 "new-agent-target-hint",
-                "Agent",
-                "A harness signed into an account starts fresh; a profile starts with every \
-                 answer below already given.",
+                target_label,
+                target_note,
             ))
             .child(picker_of(
                 app,
                 &view,
                 &form,
                 "new-agent-target",
-                "Choose\u{2026}",
-                target_rows(app, &form, cx),
+                target_placeholder,
+                offered,
                 form.target.clone(),
                 OpenList::Target,
                 true,
                 window,
                 cx,
                 |this, target, window, cx| this.pick_new_agent_target(target, window, cx),
-            )),
+            ))
+            // What the chosen definition runs on, and the one control that turns it into rows.
+            .children(on_agents.then(|| customize_row(app, &form, cx)))
+            .children((on_agents && empty).then(|| {
+                div()
+                    .text_size(theme::font(theme::Family::Chrome, theme::Role::Micro))
+                    .text_color(theme::text_faint())
+                    .child(
+                        "No agent definitions to start from. Settings \u{203a} Agent definitions \
+                         is where one is written; Harness starts one without a setup.",
+                    )
+            })),
     );
 
     // 2 ─ the harness and the identity, as one control, because they are one question: the first
-    // row offers them together and a profile is overridden the same way it was chosen. Drawn only
-    // for a profile — a target that is a pair has already answered this.
-    if from_profile {
+    // row offers them together and a definition is overridden the same way it was chosen. Drawn only
+    // for a definition — a target that is a pair has already answered this.
+    if from_definition && engine_shown {
         rows = rows.child(picker_row(
             app,
             &view,
@@ -524,7 +582,9 @@ pub fn body(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> 
         cx,
         |this, mode, window, cx| this.pick_new_agent_mode(mode, window, cx),
     ));
-    rows = rows.child(engine);
+    if engine_shown {
+        rows = rows.child(engine);
+    }
 
     // 5 ─ the one control here with nothing behind it. Drawn, faint, and taking no click.
     rows = rows.child(
@@ -543,9 +603,45 @@ pub fn body(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> 
     );
 
     // 5b ─ the one flag a saved setup can carry that a bare start cannot: whether this is fit to
-    // run as a planning assistant. Only the profile form asks — a start form has nothing to save
+    // run as a planning assistant. Only the definition form asks — a start form has nothing to save
     // the answer onto — and the new-mission dialog's picker is what reads it back.
-    if matches!(form.purpose, Purpose::Profile) {
+    if matches!(form.purpose, Purpose::AgentDefinition) {
+        // 5a ─ what this setup is for, in prose. The one field here written for another agent to
+        // read rather than for the host to act on: `list_agent_kinds` hands it back so a
+        // coordinator can tell two definitions with the same harness apart before spawning either.
+        let description_focused = app
+            .new_agent_description
+            .read(cx)
+            .focus_handle(cx)
+            .is_focused(window);
+        rows = rows.child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .when(!live, |this| this.opacity(0.5))
+                .child(label_hint(
+                    "new-agent-description-hint",
+                    "Description",
+                    "What this is for and which MCP servers it carries. Read by another agent \
+                     choosing between saved setups, through the mission tools — not by the host.",
+                ))
+                .child(
+                    field(theme::border(), description_focused)
+                        .flex_col()
+                        .items_stretch()
+                        .child(
+                            div().px_2().py_1p5().cursor_text().child(
+                                Textarea::new(&app.new_agent_description)
+                                    .appearance(false)
+                                    .bordered(false)
+                                    .w_full()
+                                    .text_size(theme::font(theme::Family::Chrome, theme::Role::Body)),
+                            ),
+                        ),
+                ),
+        );
+
         rows = rows.child(
             div().when(!live, |this| this.opacity(0.5)).child(hint_row(
                 "new-agent-mission-assistant-hint",
@@ -568,6 +664,49 @@ pub fn body(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> 
                     .into_any_element(),
             )),
         );
+
+        // 5c ─ the two roles and the off switch. A role is not a label: the host holds the MCP
+        // servers it implies and re-adds them on every save, so the checklist below draws them
+        // ticked and takes no click on them — see `NewAgentForm::implies_mcp`.
+        rows = rows.child(flag_row(
+            "new-agent-mission-coordinator",
+            "Mission/task coordinator",
+            "Runs the mission, writes the plan, manages the tasks. Ticking it adds the servers \
+             the role needs, and they cannot be unticked while it is on.",
+            form.mission_coordinator,
+            live,
+            cx.listener(move |this, _, _, cx| {
+                if live {
+                    this.toggle_new_agent_mission_coordinator(cx);
+                }
+            }),
+        ));
+        rows = rows.child(flag_row(
+            "new-agent-mission-worker",
+            "Mission/task worker",
+            "Reads the mission, works a task, reports progress. Adds its own servers on the same \
+             terms.",
+            form.mission_worker,
+            live,
+            cx.listener(move |this, _, _, cx| {
+                if live {
+                    this.toggle_new_agent_mission_worker(cx);
+                }
+            }),
+        ));
+        rows = rows.child(flag_row(
+            "new-agent-disabled",
+            "Disabled",
+            "Kept and still editable, and offered nowhere a run is started from. Nothing already \
+             running changes.",
+            form.disabled,
+            live,
+            cx.listener(move |this, _, _, cx| {
+                if live {
+                    this.toggle_new_agent_disabled(cx);
+                }
+            }),
+        ));
     }
 
     // 6 ─ the subagent ceiling. Never a launch flag: it is written into the preamble the first
@@ -684,6 +823,102 @@ pub fn body(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> 
     rows.into_any_element()
 }
 
+/// The two tabs, as the row of choice pills every other set-of-one in the window is drawn as.
+/// Not a new primitive: a tab strip here is a choice between two answers, and `kit::choice_pill`
+/// is what that reads as.
+fn tab_strip(current: NewAgentTab, cx: &mut Context<AppState>) -> AnyElement {
+    div()
+        .flex()
+        .items_center()
+        .gap_1()
+        .pb_1()
+        .children(NewAgentTab::all().into_iter().map(|tab| {
+            choice_pill(
+                ElementId::Name(format!("new-agent-tab-{}", tab.label()).into()),
+                tab.label(),
+                tab == current,
+                cx.listener(move |this, _, window, cx| this.set_new_agent_tab(tab, window, cx)),
+            )
+            .into_any_element()
+        }))
+        .into_any_element()
+}
+
+/// What the chosen definition runs on, and `Customize` beside it.
+///
+/// The Agents tab answers "which saved agent", and a saved agent already names its harness, its
+/// model and its effort — so they are *reported* here rather than asked for, and the button is
+/// what turns them back into the rows the Harness tab draws. Nothing chosen yet reports nothing:
+/// there is no definition to read a harness off.
+fn customize_row(app: &AppState, form: &NewAgentForm, cx: &mut Context<AppState>) -> AnyElement {
+    if form.target.is_none() {
+        return div().into_any_element();
+    }
+    let mut parts = vec![harness_label(app, &form.agent_type).to_string()];
+    parts.extend(form.account.clone().filter(|it| !it.is_empty()));
+    parts.extend(form.model.clone().filter(|it| !it.is_empty()));
+    parts.extend(form.thinking.clone().filter(|it| !it.is_empty()));
+
+    div()
+        .flex()
+        .items_center()
+        .justify_between()
+        .gap_2()
+        .child(elided(
+            "new-agent-definition-summary",
+            parts.join(" \u{b7} "),
+            theme::text_muted(),
+            theme::font(theme::Family::Chrome, theme::Role::Meta),
+        ))
+        .child(ghost_button(
+            "new-agent-customize",
+            None,
+            match form.customize {
+                true => "Done",
+                false => "Customize",
+            },
+            cx.listener(|this, _, _, cx| this.toggle_new_agent_customize(cx)),
+        ))
+        .into_any_element()
+}
+
+/// The harness's display name through what the host offers, falling back to the raw id — the
+/// same reading `ui::settings` does of a definition's row.
+fn harness_label<'a>(app: &'a AppState, agent_type: &'a str) -> &'a str {
+    app.workbench
+        .agent_types
+        .iter()
+        .find(|info| info.id == agent_type)
+        .map(|info| info.label.as_str())
+        .unwrap_or(agent_type)
+}
+
+/// One labelled row holding one tick box — the shape every yes/no answer on this form takes.
+fn flag_row(
+    id: &'static str,
+    label: &str,
+    note: &str,
+    checked: bool,
+    live: bool,
+    on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+) -> AnyElement {
+    div()
+        .when(!live, |this| this.opacity(0.5))
+        .child(hint_row(
+            ElementId::Name(format!("{id}-hint").into()),
+            label,
+            note,
+            div()
+                .flex()
+                .flex_none()
+                .justify_end()
+                .w(px(CONTROL_WIDTH))
+                .child(check_box(id, checked, on_click))
+                .into_any_element(),
+        ))
+        .into_any_element()
+}
+
 /// The first row's list: the harness-and-identity pairs this machine has signed in and — for a
 /// start — the setups already written down, under their own headings with a hairline between.
 ///
@@ -693,22 +928,49 @@ pub fn body(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> 
 /// installing it is the fix.
 fn target_rows(app: &AppState, form: &NewAgentForm, cx: &App) -> Vec<(String, Option<Target>)> {
     // Which project this start is aimed at — the Teams toolbar's override, else the window's
-    // active project — because that is what decides which profiles exist for it. A project's own
+    // active project — because that is what decides which definitions exist for it. A project's own
     // setups are offered here and in no other project, and a global one of the same name is the
     // one they shadow, exactly as the host will resolve the launch.
     let project = app
         .new_agent_project
         .filter(|id| app.window_projects(cx).contains(id))
         .or_else(|| app.project(cx));
-    let profiles = app.workbench.settings.profiles_in(project);
-    // A profile is a saved answer to this form, so a profile form does not offer one as its own
-    // starting point.
-    let offered: &[ubiq_proto::messages::ProfileInfo] = match form.purpose {
-        Purpose::Start => &profiles,
-        Purpose::Profile => &[],
-    };
+    // A switched-off definition is listed on the settings screens and offered nowhere a run
+    // begins, which is here.
+    let definitions = app.workbench.settings.startable_definitions_in(project);
+    // The Agents tab lists definitions and nothing else — a harness with no setup behind it is the
+    // other tab's answer — so it builds its own rows rather than asking `harness_choices` for a
+    // grouped list with one group in it. Each row says what the setup runs on, which is the
+    // question the tab does not ask again.
+    if matches!(
+        (form.purpose, form.tab),
+        (Purpose::Start, NewAgentTab::Agents)
+    ) {
+        return definitions
+            .iter()
+            .map(|it| {
+                let mut parts = vec![harness_label(app, &it.agent_type).to_string()];
+                parts.extend(it.model.clone().filter(|model| !model.is_empty()));
+                parts.extend(it.thinking.clone().filter(|level| !level.is_empty()));
+                // A project's own setup says so in the row: the same name may mean a different
+                // definition in the next project, and "visible only in the project it was created
+                // in" is only readable if the row admits which one it is.
+                if it.project.is_some() {
+                    parts.push("this project".to_string());
+                }
+                (
+                    format!("{} \u{2014} {}", it.id, parts.join(" \u{b7} ")),
+                    Some(Target::AgentDefinition(it.id.clone())),
+                )
+            })
+            .collect();
+    }
+
+    // Everything else — the Harness tab and the definition form — asks which tool, as whom. No
+    // definition is on offer: on one it is the other tab's answer, on the other it is what the
+    // form is being written as.
     app.workbench
-        .harness_choices(&app.workbench.settings.accounts, offered)
+        .harness_choices(&app.workbench.settings.accounts, &[])
         .into_iter()
         .filter_map(|choice| match choice {
             HarnessChoice::Label(label) => Some((label.to_string(), None)),
@@ -721,19 +983,9 @@ fn target_rows(app: &AppState, form: &NewAgentForm, cx: &App) -> Vec<(String, Op
                 });
                 Some((format!("{} \u{00b7} {account}", harness.label), target))
             }
-            // A project's own setup says so in the row: the same name may mean a different
-            // profile in the next project, and "visible only in the project it was created in"
-            // is only readable if the row admits which one it is.
-            HarnessChoice::Profile(index) => offered.get(index).map(|it| {
-                let label = match it.project {
-                    Some(_) => format!("{} \u{00b7} this project", it.id),
-                    None => it.id.clone(),
-                };
-                (label, Some(Target::Profile(it.id.clone())))
-            }),
             // Never offered: a bare harness with no identity is what this form is for asking about,
             // not something to start.
-            HarnessChoice::Harness(_) => None,
+            HarnessChoice::Harness(_) | HarnessChoice::AgentDefinition(_) => None,
         })
         .collect()
 }
@@ -884,7 +1136,7 @@ fn picker_of<T: Clone + PartialEq + 'static>(
 
 /// Every harness-and-identity this machine has signed in, labelled as the first row labels them.
 ///
-/// The same pairs, read the same way, so overriding a profile's harness is the same gesture as
+/// The same pairs, read the same way, so overriding a definition's harness is the same gesture as
 /// choosing one — and a harness with no identity is no more startable here than it is there.
 fn pair_rows(app: &AppState) -> Vec<(String, Option<Pair>)> {
     app.workbench
@@ -900,7 +1152,7 @@ fn pair_rows(app: &AppState) -> Vec<(String, Option<Pair>)> {
                     .then(|| (harness.id.clone(), Some(account.clone())));
                 Some((format!("{} \u{00b7} {account}", harness.label), value))
             }
-            HarnessChoice::Harness(_) | HarnessChoice::Profile(_) => None,
+            HarnessChoice::Harness(_) | HarnessChoice::AgentDefinition(_) => None,
         })
         .collect()
 }

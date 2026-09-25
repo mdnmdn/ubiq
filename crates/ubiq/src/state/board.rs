@@ -112,7 +112,7 @@ pub struct PendingMission {
     /// Markdown to save as the plan's first revision, which also starts the mission in `Refining`.
     /// Empty is no plan.
     pub plan_seed: String,
-    /// Who runs it (M10): a profile to launch, or an agent already running to adopt.
+    /// Who runs it (M10): a definition to launch, or an agent already running to adopt.
     pub coordinator: crate::state::new_mission::Coordinator,
 }
 

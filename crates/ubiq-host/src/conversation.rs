@@ -98,6 +98,20 @@ pub struct QuotaVoice {
     pub account: String,
 }
 
+/// How the dialogs an agent registered during a turn reach the user when that turn ends.
+///
+/// **The turn boundary is the whole mechanism** (`D175`). `register_question` files a row in
+/// [`crate::armed::Armed`] and returns on the listener's own thread, so nothing is waiting and
+/// nothing on the harness's side knows a question was asked; the pump is the one place that sees
+/// the turn end, so it is the one place that can raise what was armed. The question goes out on a
+/// [`Voice`] rather than the pump's own [`Mailbox`] because only the coordinator knows which
+/// window owns the conversation — the same route `ubiq-ask`'s parked mode takes (`D138`).
+#[derive(Clone)]
+pub struct AskFire {
+    pub armed: Arc<crate::armed::Armed>,
+    pub voice: Voice,
+}
+
 /// Ubiq's own two overrides on a conversation, shared between the coordinator that flips them and
 /// the pump thread that obeys them.
 ///
@@ -370,6 +384,7 @@ impl Conversation {
         quota: Option<QuotaVoice>,
         quiet: bool,
         flags: Arc<ConvFlags>,
+        fire: Option<AskFire>,
     ) -> Self {
         let input = bridge.input();
         let kill = bridge.killer();
@@ -407,6 +422,7 @@ impl Conversation {
                     quota,
                     pump_flags,
                     pump_input,
+                    fire,
                 )
             })
             .ok();
@@ -659,6 +675,7 @@ fn pump(
     quota: Option<QuotaVoice>,
     flags: Arc<ConvFlags>,
     input: Option<Arc<dyn AgentInputSink>>,
+    fire: Option<AskFire>,
 ) {
     let mut seq = start_seq;
     let mut stop_reason = StopReason::EndTurn;
@@ -684,13 +701,20 @@ fn pump(
 
         // The last turn's reason is the conversation's, since a harness that
         // ends after a failed turn ended because of it.
-        if let AgentEvent::TurnEnded { stop_reason: r, .. } = &event {
+        if let AgentEvent::TurnEnded {
+            stop_reason: r,
+            error,
+        } = &event
+        {
             stop_reason = map_stop_reason(r);
             // Nothing is waiting on an answer once the turn is over, and a stale id would make a
             // later cancel answer a request that closed with the turn.
             if let Ok(mut held) = outstanding.lock() {
                 held.clear();
             }
+            // And this is the boundary the other ask mode is built on: whatever this conversation
+            // registered during the turn is raised now, or dropped if the turn broke.
+            fire_armed(fire.as_ref(), id, stop_reason, error.as_deref());
         }
 
         // Recorded rather than merely forwarded: for a one-shot harness this id is the only
@@ -1211,6 +1235,48 @@ fn map_status(status: agent_manager::io::ToolStatus) -> ToolStatus {
     }
 }
 
+/// Raise every dialog this conversation registered during the turn that just ended — or drop them,
+/// where the turn did not end well.
+///
+/// **A failed turn is silent.** A dialog put on screen over a broken turn asks the user to pick
+/// between options the agent cannot act on, and its answer would open a turn the agent never asked
+/// for; dropping the row leaves the user with the error and nothing else, which is the honest
+/// reading. Cancelled is the same case: the user stopped the turn, and a question from it is not
+/// what they stopped it for.
+///
+/// Only the rows this turn armed. One already on screen belongs to an earlier turn and is still
+/// the user's to answer.
+fn fire_armed(fire: Option<&AskFire>, id: AgentId, stop_reason: StopReason, error: Option<&str>) {
+    let Some(fire) = fire else {
+        return;
+    };
+    let broke = error.is_some()
+        || matches!(
+            stop_reason,
+            StopReason::Failed | StopReason::Cancelled | StopReason::Refusal
+        );
+    if broke {
+        let dropped = fire.armed.disarm(id);
+        if dropped > 0 {
+            tracing::info!(
+                agent = %id,
+                dropped,
+                ?stop_reason,
+                "a turn that did not finish dropped the dialogs it registered",
+            );
+        }
+        return;
+    }
+    for (ask_id, questions) in fire.armed.fire(id) {
+        tracing::debug!(agent = %id, ask = %ask_id, "raising a dialog registered during the turn");
+        fire.voice.say(Message::AskUser {
+            agent_id: id,
+            ask_id,
+            questions,
+        });
+    }
+}
+
 fn map_stop_reason(reason: &agent_manager::io::StopReason) -> StopReason {
     use agent_manager::io::StopReason as Lib;
     match reason {
@@ -1267,27 +1333,42 @@ fn map_config(option: agent_manager::io::ConfigOption) -> ConfigOption {
 /// bridge that never says anything is the whole of what they need.
 #[cfg(test)]
 pub(crate) mod test_support {
-    use std::sync::Arc;
     use std::sync::mpsc;
+    use std::sync::{Arc, Mutex};
 
     use agent_manager::io::{AgentEvent, AgentInput, AgentInputSink, IoBridge};
 
+    /// Everything written into a fake harness, in order — what a test asserting that something
+    /// reached the agent reads.
+    pub(crate) type Written = Arc<Mutex<Vec<AgentInput>>>;
+
     /// Blocks in `next_event` until shut down, the same way a real child blocks until closing its
-    /// input makes it exit.
+    /// input makes it exit, and records what was written to it.
     pub(crate) struct Idle {
         rx: mpsc::Receiver<()>,
         tx: mpsc::Sender<()>,
+        sent: Written,
     }
 
     impl Idle {
         pub(crate) fn new() -> Self {
             let (tx, rx) = mpsc::channel();
-            Self { tx, rx }
+            Self {
+                tx,
+                rx,
+                sent: Arc::new(Mutex::new(Vec::new())),
+            }
+        }
+
+        /// The far end of the harness, for a test that has handed the bridge away.
+        pub(crate) fn written(&self) -> Written {
+            Arc::clone(&self.sent)
         }
     }
 
     impl IoBridge for Idle {
-        fn send(&mut self, _input: AgentInput) -> anyhow::Result<()> {
+        fn send(&mut self, input: AgentInput) -> anyhow::Result<()> {
+            self.sent.lock().unwrap().push(input);
             Ok(())
         }
 
@@ -1299,12 +1380,14 @@ pub(crate) mod test_support {
         fn input(&self) -> Option<Arc<dyn AgentInputSink>> {
             Some(Arc::new(IdleInput {
                 tx: self.tx.clone(),
+                sent: Arc::clone(&self.sent),
             }))
         }
     }
 
     struct IdleInput {
         tx: mpsc::Sender<()>,
+        sent: Written,
     }
 
     impl AgentInputSink for IdleInput {
@@ -1314,6 +1397,7 @@ pub(crate) mod test_support {
             if matches!(input, AgentInput::Shutdown) {
                 let _ = self.tx.send(());
             }
+            self.sent.lock().unwrap().push(input);
             Ok(())
         }
     }

@@ -10,13 +10,14 @@
 //! drag to pan. A fence inside a Markdown document is drawn at the SVG's own size instead, because
 //! a fence is a block in a document and the document is what scrolls.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 
 use gpui::{AnyElement, Context, ImageSource, IntoElement, ParentElement, Styled, div, img, px};
 
 use crate::app::{AppState, DiagramEntry};
 use crate::state::viewport::Content;
+use crate::state::zoom::ImageZoom;
 use crate::theme;
 use crate::ui::kit::mono;
 
@@ -98,6 +99,36 @@ thread_local! {
     /// state of its own — the cache it is copied from is `AppState`'s, and this holds nothing that
     /// is not already there.
     static RESOLVED: RefCell<HashMap<String, DiagramEntry>> = RefCell::new(HashMap::new());
+    /// The reading measure the document publishing right now is capped at, in pixels — `None` for
+    /// no cap (the `Full` width preset, or a caller that does not cap at all, like the split
+    /// layout's own preview pane). A fence's block renderer is handed no `AppState`, so this is
+    /// the same hand-off `RESOLVED` already is: `markdown::render_linked_scrollable` publishes it
+    /// before the text view it is about to build lays out, and [`draw`] reads it back for every
+    /// fence that document holds (T-185).
+    static MEASURE: Cell<Option<f32>> = const { Cell::new(None) };
+}
+
+/// Publish the measure a document's fences should scale down to fit, or `None` for no cap.
+/// Published unconditionally by every markdown render, so a stale value from a previous document
+/// can never bleed into this one's.
+pub fn publish_measure(measure: Option<f32>) {
+    MEASURE.with(|cell| cell.set(measure));
+}
+
+pub(crate) fn current_measure() -> Option<f32> {
+    MEASURE.with(|cell| cell.get())
+}
+
+/// A dimension scaled down to fit `max`, never up — a diagram or an image smaller than the reading
+/// column keeps its own size, one bigger is shrunk to it, aspect preserved.
+pub(crate) fn scale_to_measure(width: f32, height: f32, max: Option<f32>) -> (f32, f32) {
+    match max {
+        Some(max) if max > 0.0 && width > max => {
+            let factor = max / width;
+            (max, height * factor)
+        }
+        _ => (width, height),
+    }
 }
 
 /// One diagram, in whichever of its three states it is in. Used by a fence, which has no camera.
@@ -105,18 +136,34 @@ fn draw(entry: DiagramEntry, source: &str) -> AnyElement {
     match entry {
         // A viewer whose picture has not arrived draws an empty body until it does.
         DiagramEntry::Pending => super::note("Drawing\u{2026}", theme::text_faint()),
-        // Drawn at the size the renderer measured, which is the size the SVG's own viewBox gives:
-        // stretching a diagram to whatever box it landed in is what that field exists to prevent.
-        // `img` and never `svg().data()`, which reduces the markup to an alpha mask and would draw
-        // every diagram in one colour. A diagram wider than the reading column scrolls inside
+        // Drawn at the size the renderer measured — the SVG's own viewBox — scaled down to the
+        // document's reading measure when it is wider than that (T-185): stretching a diagram
+        // past its own size is still never done, only shrinking one down that overruns the
+        // column. `img` and never `svg().data()`, which reduces the markup to an alpha mask and
+        // would draw every diagram in one colour. A diagram still wider than the reading column
+        // once at that ceiling (the `Full` preset, which caps at nothing) scrolls inside
         // `super::diagram_frame` (T-126) rather than spilling past the viewport.
-        DiagramEntry::Ready(picture) => super::diagram_frame(
-            source,
-            img(ImageSource::Image(picture.image))
-                .flex_none()
-                .w(px(picture.width))
-                .h(px(picture.height)),
-        ),
+        DiagramEntry::Ready(picture) => {
+            let (width, height) =
+                scale_to_measure(picture.width, picture.height, current_measure());
+            let target = ImageZoom {
+                key: source.to_string(),
+                title: "Diagram".to_string(),
+                image: picture.image.clone(),
+                width: picture.width,
+                height: picture.height,
+            };
+            super::diagram_frame(
+                source,
+                super::with_zoom_button(
+                    img(ImageSource::Image(picture.image))
+                        .flex_none()
+                        .w(px(width))
+                        .h(px(height)),
+                    target,
+                ),
+            )
+        }
         DiagramEntry::Failed(reason) => failed(&reason, source),
     }
 }
@@ -133,4 +180,30 @@ fn failed(reason: &str, source: &str) -> AnyElement {
         .child(mono(reason.to_string(), theme::danger()))
         .child(mono(source.to_string(), theme::text_muted()))
         .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A picture narrower than the measure keeps its own size — never blown up (T-185).
+    #[test]
+    fn a_smaller_picture_is_not_upscaled() {
+        assert_eq!(scale_to_measure(200.0, 100.0, Some(400.0)), (200.0, 100.0));
+    }
+
+    /// A picture wider than the measure shrinks to it, aspect preserved.
+    #[test]
+    fn a_wider_picture_shrinks_to_the_measure_keeping_aspect() {
+        let (w, h) = scale_to_measure(800.0, 400.0, Some(400.0));
+        assert_eq!(w, 400.0);
+        assert_eq!(h, 200.0);
+    }
+
+    /// No measure — the `Full` width preset, or a caller that never caps at all — draws at the
+    /// picture's own size, exactly as before T-185.
+    #[test]
+    fn no_measure_is_no_cap() {
+        assert_eq!(scale_to_measure(800.0, 400.0, None), (800.0, 400.0));
+    }
 }

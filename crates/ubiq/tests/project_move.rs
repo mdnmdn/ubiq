@@ -79,6 +79,7 @@ fn a_project() -> ProjectSnapshot {
             path: "/tmp/ubiq-test/moved".to_string(),
             colour: 0,
             custom_colour: None,
+            storage: Default::default(),
             temporary: false,
             created_at: Utc::now(),
             last_opened_at: None,

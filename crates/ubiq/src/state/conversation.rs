@@ -641,6 +641,23 @@ impl Conversation {
         self.index().subagents.contains(id)
     }
 
+    /// Whose transcript an ask arriving *now* belongs in: the spawned subagent that is speaking,
+    /// or `None` for the conversation's own turns.
+    ///
+    /// **Because an ask names no subagent and cannot.** A conversation and everything it spawns
+    /// share one `AgentId`, and the host's `ubiq-ask` listener is keyed by that id alone — so the
+    /// only evidence of who called the tool is who was talking when the call landed. That is the
+    /// last block, and it counts only while that subagent is still running: a delegate whose
+    /// spawning `Task` call has finished is not the one asking, and attributing the ask to it
+    /// would file the question in a transcript nobody is reading.
+    pub fn asking_subagent(&self) -> Option<String> {
+        let id = self.blocks.last()?.subagent_id()?;
+        match self.subagent_status(id) {
+            Some(ToolStatus::Pending | ToolStatus::InProgress) | None => Some(id.to_string()),
+            Some(ToolStatus::Completed | ToolStatus::Failed) => None,
+        }
+    }
+
     /// Whose transcript is on screen, once a stale id is discounted: a subagent that has gone from
     /// the transcript — a resume, a cleared history — falls back to the main agent rather than
     /// leaving the reader looking at nothing.
@@ -1411,6 +1428,16 @@ pub struct TranscriptScroll {
     /// opening shifts every row below it and a height cache that moved with them would guess wrong
     /// about the whole transcript below the fold.
     heights: RefCell<HashMap<u64, (u64, Pixels)>>,
+    /// A forced re-measure asked of the next frame's visible rows, whatever their signature says
+    /// (T-194). `needs_measure` only catches a row whose *content* moved; nothing here claims that
+    /// covers every way a virtualized transcript's block positions can drift over a long, busy
+    /// conversation, so a window periodically asks for one anyway and watches whether it changes
+    /// anything.
+    force: Cell<bool>,
+    /// What the last forced pass found, for the periodic timer that asked for it: `Some(true)` a
+    /// height actually moved, `Some(false)` nothing did (the signal to stop asking), `None` no
+    /// forced pass has reported back yet — the transcript was not on screen to run one.
+    force_result: Cell<Option<bool>>,
 }
 
 impl Default for TranscriptScroll {
@@ -1426,6 +1453,8 @@ impl Default for TranscriptScroll {
             own_move: Cell::default(),
             settled: Cell::default(),
             heights: RefCell::default(),
+            force: Cell::default(),
+            force_result: Cell::default(),
         }
     }
 }
@@ -1580,6 +1609,31 @@ impl TranscriptScroll {
     /// by block, once the caller has resolved it to a row.
     pub fn scroll_to_row(&self, row: usize) {
         self.handle.scroll_to_item(row, gpui::ScrollStrategy::Top);
+    }
+
+    /// Ask the next frame to re-measure every row it draws, whether or not its signature moved
+    /// (T-194's periodic maintenance). Idempotent — asking twice before a frame answers is asking
+    /// once.
+    pub fn force_relayout(&self) {
+        self.force.set(true);
+    }
+
+    /// Take the forced-relayout request, if this is the frame answering one. Consumed once, the
+    /// way [`Self::take_request`] is: the frame that measures under it is the frame that clears it.
+    pub fn take_force(&self) -> bool {
+        self.force.replace(false)
+    }
+
+    /// Record whether a forced pass actually moved a height, for the timer that asked for it to
+    /// read back.
+    pub fn report_force_result(&self, changed: bool) {
+        self.force_result.set(Some(changed));
+    }
+
+    /// The last forced pass's answer, taken once: `Some(true)` to keep asking, `Some(false)` to
+    /// stop, `None` while none has landed yet (the transcript was not drawn to run one).
+    pub fn take_force_result(&self) -> Option<bool> {
+        self.force_result.take()
     }
 }
 

@@ -1250,6 +1250,9 @@ impl AppState {
                     None,
                     None,
                     true,
+                    // A dropped folder is temporary and is never written down, so it is never
+                    // project-managed either: the creation panel is where that is asked.
+                    StorageMode::default(),
                     cx,
                 );
                 continue;
@@ -1282,6 +1285,7 @@ impl AppState {
                 None,
                 None,
                 true,
+                StorageMode::default(),
                 cx,
             );
         }

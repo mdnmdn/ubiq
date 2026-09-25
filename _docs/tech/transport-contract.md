@@ -3,11 +3,11 @@ id: tech-transport
 title: Transport contract
 kind: tech
 status: draft
-summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, quota, profile, command-line, host browse, connector, repository, assist, notification, web asset and carrier families, the framing rules, and the procedure for adding a variant.
+summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, quota, agent definition, command-line, host browse, connector, repository, assist, notification, web asset and carrier families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
 updated: 2026-09-25
 verified: 2026-09-25
-code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ask.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/feedback.rs, crates/ubiq-host/src/feedback/mod.rs, crates/ubiq-host/src/feedback/api.rs, crates/ubiq-host/src/feedback/issues.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq-drone/src/search.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq-proto/src/mission.rs, crates/ubiq-host/src/mission/mod.rs, crates/ubiq-host/src/mission/scheduler.rs, crates/ubiq-host/src/store/mission.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/mcp/mission.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/registry.rs]
+code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ask.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-host/src/armed.rs, crates/ubiq-host/src/mcp/ask.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/feedback.rs, crates/ubiq-host/src/feedback/mod.rs, crates/ubiq-host/src/feedback/api.rs, crates/ubiq-host/src/feedback/issues.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq-drone/src/search.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq-proto/src/mission.rs, crates/ubiq-host/src/mission/mod.rs, crates/ubiq-host/src/mission/scheduler.rs, crates/ubiq-host/src/store/mission.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/mcp/mission.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/registry.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
 ---
@@ -96,11 +96,11 @@ to the project's own root, and `agent_type` to the agent type the session starts
 nothing. `args` is the argument list the harness is launched with, empty for a plain start.
 
 **`SpawnWorkspace` carries the same picks `StartConversation` does**, gathered into one `AgentPicks`
-record — `account?`, `profile?`, `model?`, `thinking?`, `mode?`, `mcps` — because a harness in a
+record — `account?`, `definition?`, `model?`, `thinking?`, `mode?`, `mcps` — because a harness in a
 terminal pane is the same run wearing a different face, and a pane that could not name an account or
 an MCP server would be a second, poorer way to start the same agent. The empty record is a pane that
 names nothing and lets the library resolve everything, which is what the new-pane menu sends. A
-shell ignores the field entirely: it has no account, no profile and no modes. Isolation is not in
+shell ignores the field entirely: it has no account, no agent definition and no modes. Isolation is not in
 the record and never will be — it is a host setting, applied to both faces alike, not something a
 start chooses.
 
@@ -125,7 +125,7 @@ recolour and a move on disk.
 | Message | Direction | Payload | Responds with |
 |---|---|---|---|
 | `ListProjects` | UI → host | — | `ProjectList` |
-| `AddProject` | UI → host | `path`, `name?`, `colour?`, `custom_colour?`, `temporary` | `ProjectAdded` or `ProjectError` |
+| `AddProject` | UI → host | `path`, `name?`, `colour?`, `custom_colour?`, `temporary`, `storage` | `ProjectAdded` or `ProjectError` |
 | `ForgetProject` | UI → host | `project_id` | `ProjectForgotten` |
 | `UpdateProject` | UI → host | `project_id`, `name?`, `colour?`, `custom_colour?`, `search_excludes?`, `index?`, `mission_term?`, `tools?`, `managed_repos?`, `lanes?`, `runs_on?` | `ProjectChanged` |
 | `SetProjectInitials` | UI → host | `project_id`, `initials` | `ProjectChanged` |
@@ -191,10 +191,10 @@ on disk it is TOML of that same record. The Ui record's schema lives in the inte
 itself — name, host, port, user, auth method, key path — rides `SetSettings` whole with every other
 interface-owned setting; only the passphrase or password comes this way, and only in a `Secret`
 (`D65`), because the host is the half with a keychain. What comes back is the whole host-layer
-`Settings` record rather than an acknowledgement, because the profile's `has_passphrase` and
+`Settings` record rather than an acknowledgement, because the agent definition's `has_passphrase` and
 `has_password` flags move with the secret and the interface draws them. The host re-stamps those
 flags from the secret store on every host-layer write and prunes the store to the ids the list still
-names, so a profile the user deleted cannot strand its material — `D124` argues that split and names
+names, so an agent definition the user deleted cannot strand its material — `D124` argues that split and names
 what it costs.
 
 **`LocateProject` is separate from `UpdateProject`** because the two differ in kind. A rename or a
@@ -762,6 +762,7 @@ sessions and agents are minted per project. A task id alone would not say which 
 | `MoveTask` | UI → host | `project_id`, `task_id`, `status`, `before?` | `TaskChanged` or `WorkError` |
 | `AssignTask` | UI → host | `project_id`, `task_id`, `session?` | `TaskChanged` or `WorkError` |
 | `DeleteTask` | UI → host | `project_id`, `task_id` | `TaskDeleted` or `WorkError` |
+| `ArchiveTasks` | UI → host | `project_id` | `TaskDeleted`/`TaskChanged` (zero or more), or `WorkError` |
 | `AddStep` | UI → host | `project_id`, `task_id`, `title` | `TaskChanged` or `WorkError` |
 | `RenameStep` | UI → host | `project_id`, `task_id`, `step_id`, `title` | `TaskChanged` or `WorkError` |
 | `RemoveStep` | UI → host | `project_id`, `task_id`, `step_id` | `TaskChanged` or `WorkError` |
@@ -818,6 +819,15 @@ filter-proof by construction, and it needs no clamp — a `before` naming a task
 holds, deleted mid-drag, lands at the end of the column rather than refusing the drag. A card that
 only changes its place inside one column is the same message: the host always removes and reinserts,
 so "changed column" is just the case where `status` changed too.
+
+**`ArchiveTasks` names no task, unlike `DeleteTask` beside it (`T-190`).** Which cards qualify —
+`Done` or `Abandoned`, and no `level` — is the host's question, not the window's to enumerate one at
+a time; the window sends one message for the whole board. Each archived card is reported exactly the
+way a deleted one is, `TaskDeleted`, since the panel's rule is the same either way: stop drawing it.
+A `TaskChanged` rides along for any survivor whose `parent`, `references` or `prerequisites` named a
+card that just left, on `Message::TaskDeleted`'s own cleanup extended to more than one id at once.
+Where the record ends up — a paged file under the project's own directory — is never read back on
+this wire; there is no browse, search or restore message yet ([`backlog.md`](../backlog.md), `G353`).
 
 **`WorkList` is one message, not three.** Sessions, agents and tasks arrive in the same frame,
 because two round trips would let the board draw a card naming a session it has not heard of.
@@ -1158,7 +1168,7 @@ directory is already the truth `write_document` writes to (`D169`).
 ### Spawning (M13)
 
 **The host relays a request; it never launches.** `ubiq-mission::spawn_agent` posts
-`MissionSpawnRequest` — a `PendingSpawn` (`id`, `by`, `kind`, `profile?`, `task?`, `prompt`,
+`MissionSpawnRequest` — a `PendingSpawn` (`id`, `by`, `kind`, `definition?`, `task?`, `prompt`,
 `reason`, `at`, `auto`) — broadcast the way every mission mutation is (`D120`), and the same record
 carries it on `MissionRecord::pending_spawns` so a window opened after the broadcast still finds it.
 The window that answers applies `SpawnPolicy` (`Ask`, `Auto { limit }`, `Never`) — the host reads
@@ -1204,7 +1214,7 @@ is what multiplexes several of them down one channel.
 
 | Message | Direction | Payload | Responds with |
 |---|---|---|---|
-| `StartConversation` | UI → host | `agent_id`, `project_id`, `session_id`, `rel_path?`, `agent_type`, `account?`, `profile?`, `model?`, `thinking?`, `mode?`, `mcps`, `spawned_by?` | `ConversationStarted` or `ConversationError` |
+| `StartConversation` | UI → host | `agent_id`, `project_id`, `session_id`, `rel_path?`, `agent_type`, `account?`, `definition?`, `model?`, `thinking?`, `mode?`, `mcps`, `spawned_by?` | `ConversationStarted` or `ConversationError` |
 | `PromptAgent` | UI → host | `agent_id`, `text` | — |
 | `CancelTurn` | UI → host | `agent_id` | — |
 | `AnswerPermission` | UI → host | `agent_id`, `request_id`, `option_id` | — |
@@ -1236,9 +1246,9 @@ them are one vocabulary rather than three, and that a harness which speaks ACP n
 rather than translated.
 
 **`StartConversation` carries the picks the start form asked for**, and each of `model`,
-`thinking` and `mode` outranks the profile's own record, the way a pick always does: the host
-seeds `chosen_model`, `chosen_thinking` and `chosen_mode` from the field first and the profile
-second. An absent or empty field says nothing, which is what leaves the profile — or, failing
+`thinking` and `mode` outranks the agent definition's own record, the way a pick always does: the host
+seeds `chosen_model`, `chosen_thinking` and `chosen_mode` from the field first and the agent definition
+second. An absent or empty field says nothing, which is what leaves the agent definition — or, failing
 that, the harness's own default — in charge. Empty rather than `None` alone because the interface
 sends the form's answer whatever it is, and "the user did not choose" and "the field is not on
 this message" have to read the same.
@@ -1321,7 +1331,7 @@ without knowing what is in it.
 
 **There is deliberately no `max_subagents` here.** No harness has a flag for it, so there is
 nothing for the host to pass; the interface says it to the agent instead, as a directive folded in
-front of the conversation's first turn. `ProfileInfo` still carries the number, because a saved
+front of the conversation's first turn. `AgentDefinition` still carries the number, because a saved
 setup has to remember what it asked for; *The workbench* says what a start does with it.
 
 **A conversation is a workspace's other face.** `SpawnWorkspace` makes a terminal one and
@@ -1520,10 +1530,24 @@ labelled options, single- or multi-select, previews on single-select only. The h
 that **before** it parks anything — a malformed ask is answered as a tool error and no user ever
 sees it.
 
+**There are two ask modes and one message set.** `ask_user_question` parks the tool call, as above.
+`register_question` parks nothing: the host validates the same `questions`, mints the `AskId`, files
+it as *armed* against the calling conversation in `crates/ubiq-host/src/armed.rs`, and answers the
+call on the listener's own thread with `{"registered": "<ask id>"}`. The dialog is raised when that
+conversation's **turn ends** — `crates/ubiq-host/src/conversation.rs` sees `TurnEnded` and says the
+same `AskUser` — and what the user answers is submitted as the next turn's prompt rather than as a
+tool result. A turn that ends `Failed`, `Cancelled` or `Refusal`, or carries an error, drops what it
+armed instead of raising a dialog over a broken turn. Nothing survives into the next turn: a prompt
+from the window closes whatever the mode has on screen with `AskEnded{Gone}`, so the same turn is
+never both answered and spoken to. `AskUser`, `AnswerAsk`, `AskEnded` and the dialog are the same in
+both modes; the window cannot tell them apart and does not need to (`D175`).
+
 **The answer travels as labels and free text, and `Chat` is a real answer.** `AnswerAsk` carries
 either `AskOutcome::Answered` — one `AskAnswer` per question, naming the options the user picked by
 label, plus whatever they wrote under "Other" and whatever notes they added — or `AskOutcome::Chat`,
-which ends the ask having answered nothing and tells the agent the user would rather talk. Labels
+which ends the ask having answered nothing and tells the agent the user would rather talk. On a
+registered dialog `Chat` sends nothing at all: there is no call to answer, and the user talks
+instead. Labels
 rather than indices, so a result outliving the question list still says what was chosen; "Other" is
 never one of the options the agent wrote.
 
@@ -1604,7 +1628,7 @@ Forty-seven records travel inside payloads.
 | `Notifications` | `items[]` newest first, `mutes[]` |
 | `McpInfo` | `name`, `title`, `description`, `tools[]` |
 | `McpToolInfo` | `name`, `description` |
-| `ProfileInfo` | `id`, `agent_type`, `account?`, `model?`, `mode?`, `thinking?`, `max_subagents?`, `prompt?`, `mcps`, `mission_assistant?`, `project?` |
+| `AgentDefinition` | `id`, `description?`, `agent_type`, `account?`, `model?`, `mode?`, `thinking?`, `max_subagents?`, `prompt?`, `mcps`, `mission_assistant?`, `mission_coordinator`, `mission_worker`, `disabled`, `project?` |
 | `PermissionOption` | `option_id`, `name`, `kind` |
 | `CliDir` | `path`, `exists`, `on_path` |
 | `PlanEntry` | `content`, `priority`, `status` |
@@ -2038,66 +2062,102 @@ destination is compiled into the binary the interface itself booted with, and th
 who answered `FeedbackOffered` — a remote host attached later would report its own build's
 destination, which is not the one the send button offered.
 
-## The profile family
+## The agent definition family
 
-The thirteenth family, and the account family's neighbour. A **profile** is a saved setup — which
-harness, as whom, with which model, reasoning level and permission mode, how many subagents at
-once, and what to open with — and this family is how one is listed and written. It is deliberately three messages: profiles are stored beside accounts by the
+The thirteenth family, and the account family's neighbour. An **agent definition** is a saved setup —
+which harness, as whom, with which model, reasoning level and permission mode, how many subagents at
+once, and what to open with — and this family is how one is listed, written and copied. It is
+deliberately four messages: agent definitions are stored beside accounts by the
 harness library, so they fail the same way and share `AccountError` rather than minting a second
 error variant.
 
+**A definition is not an agent.** An `AgentId` names a *running* agent; an `AgentDefinition` is the
+saved recipe one may be started from, and the two never share a word in prose (`D174`).
+
 | Message | Direction | Payload | Responds with |
 |---|---|---|---|
-| `ListProfiles` | UI → host | — | `Profiles` |
-| `Profiles` | host → UI | `profiles` | — |
-| `SaveProfile` | UI → host | `profile` | `Profiles`, or `AccountError` |
+| `ListAgentDefinitions` | UI → host | — | `AgentDefinitions` |
+| `AgentDefinitions` | host → UI | `definitions` | — |
+| `SaveAgentDefinition` | UI → host | `definition` | `AgentDefinitions`, or `AccountError` |
+| `CloneAgentDefinition` | UI → host | `id`, `new_id`, `project?` | `AgentDefinitions`, or `AccountError` |
 | `ListMcps` | UI → host | — | `Mcps` |
 | `Mcps` | host → UI | `servers` | — |
 
-**There is no delete.** A profile is a saved setup, and a stale one costs a row in a list — not a
-credential on disk, which is what makes deleting an account worth a message and deleting a profile
-not. A *project's* profiles are deleted with the project, by the directory they live in going with
+**A clone stays in its scope and never overwrites.** `CloneAgentDefinition` copies the *record* —
+including the fields no screen draws — under a new name in the root it already lives in, and is
+refused when the source is missing or the name is taken, because what it would overwrite is the
+user's own saved setup.
+
+**There is no delete.** An agent definition is a saved setup, and a stale one costs a row in a list — not a
+credential on disk, which is what makes deleting an account worth a message and deleting an agent definition
+not. A *project's* agent definitions are deleted with the project, by the directory they live in going with
 it — `ProjectForgotten` is their delete, and it names none of them.
 
-**One list carries both scopes.** `ProfileInfo::project` is absent for a global profile and names
+**One list carries both scopes.** `AgentDefinition::project` is absent for a global agent definition and names
 the project for one written inside it (`D158`); the scope is where the host found the record, not
-something the record claims. `Profiles` carries the global profiles and every project's in one
+something the record claims. `AgentDefinitions` carries the global agent definitions and every project's in one
 message — the window already holds every project, so filtering is cheaper than a per-project ask —
-and `SaveProfile` reads the same field as "which root to write into". The app-wide settings screen
+and `SaveAgentDefinition` reads the same field as "which root to write into". The app-wide settings screen
 lists only the global ones; a project's own are offered in that project and labelled there.
 
-**References only, like the account family.** `ProfileInfo` names an account, a model, a reasoning
+**References only, like the account family.** `AgentDefinition` names an account, a model, a reasoning
 level and a mode by id; nothing here is credential material or a path. `None` on a field means the
-profile does not mention that axis and a lower layer decides, which is the library's
+agent definition does not mention that axis and a lower layer decides, which is the library's
 replace-by-default rule crossing the bus intact.
 
-**A profile answers the same questions a start does**, which is why the record grew `thinking`,
+**Three defaults exist before anyone writes one.** A config root holding no definition at all is
+seeded, once, with `Coordinator`, `Ubiq helper` and `Worker` — the roles Ubiq's own MCP servers are
+split along — pinned to whichever harness this machine has. A root that holds one is left alone,
+so deleting back to nothing is not an invitation to write them again.
+
+**No harness, no new definition.** With no harness binary found and no command override set there
+is nothing a definition could name, so `SaveAgentDefinition` is refused for an id that does not
+exist yet. Editing one that does is not refused: a machine that has lost its harness must still be
+able to repair what it wrote.
+
+**The two role flags re-assert their MCP servers on save.** `mission_coordinator` implies
+`ubiq-mission`, `ubiq-plan`, `manage-ubiq-tasks` and `ubiq-kb`; `mission_worker` implies
+`use-mission`, `use-task`, `project-info` and `ubiq-kb`. The host merges the implied set back into
+`mcps` on every save, whatever arrived, because a coordinator without a coordinator's servers is
+not a coordinator. `disabled` is the third flag and the simplest: a disabled definition is listed
+and editable, and offered nowhere a run is started from.
+
+**`description` is written for another agent, not for the host.** It is free-form prose — what this
+setup is for and which MCP servers it carries — and nothing in `crates/ubiq-host` reads it to
+compose a run; the host only carries it through a save, exactly as `prompt` is carried but never
+interpreted. Its one reader is `ubiq-mission`'s `list_agent_kinds`: each agent kind names a
+definition (`AgentKind::definition`), and the tool resolves that definition's `description`
+alongside it, in the same project scope `SaveAgentDefinition` writes into — so a coordinator
+choosing which kind to spawn reads what a saved setup actually carries, not just the kind's own
+one-line blurb. See `features/workbench-tasks.md` for `list_agent_kinds` and `spawn_agent` in full.
+
+**An agent definition answers the same questions a start does**, which is why the record grew `thinking`,
 `max_subagents` and `prompt` when the start form did: one form asks both, so anything the form can
-answer is something a profile can save. The last two are the interface's own — no harness has a
+answer is something an agent definition can save. The last two are the interface's own — no harness has a
 subagent flag and an opening prompt is a turn, not a launch — so the library records them and
 never reads them, and it is the start that acts on them. `mission_assistant` is the same posture
 again, on a question no start asks at all: whether the new-mission dialog's assistant picker should
-offer this profile. The library folds it in `flatten()` alongside `max_subagents` and never reads
+offer this agent definition. The library folds it in `flatten()` alongside `max_subagents` and never reads
 it either; `None` and `Some(false)` both mean "not offered."
 
-**A profile named on `StartConversation` seeds the picker, it does not bypass it.** The host reads
-the profile's record and copies its model, level and mode into the pending conversation's picks, so the
-`ConfigOptions` the window draws show the profile's choices and a launch that nobody touched
+**An agent definition named on `StartConversation` seeds the picker, it does not bypass it.** The host reads
+the agent definition's record and copies its model, level and mode into the pending conversation's picks, so the
+`ConfigOptions` the window draws show the agent definition's choices and a launch that nobody touched
 sends them. It has to work this way round: the host passes the picks as flags, and a flag outranks
-the profile inside the library's `resolve`, so a profile left unseeded would be displayed wrong and
+the agent definition inside the library's `resolve`, so an agent definition left unseeded would be displayed wrong and
 then launched over. `account`, `model`, `thinking` and `mode` on the same message stay separate and
-win over the profile's, which is what "the user picked this one" means — a profile is the default
+win over the agent definition's, which is what "the user picked this one" means — an agent definition is the default
 a form opened on, and every field the user then changed is the user saying otherwise.
 
-**The MCP catalogue rides here** because a profile is where a pick is saved. `Mcps` answers with an
+**The MCP catalogue rides here** because an agent definition is where a pick is saved. `Mcps` answers with an
 `McpInfo` per server this *build* offers — a slug, a title, a paragraph, and an `McpToolInfo` per
 tool — `test`, `project-info`, `manage-ubiq-tasks`, `use-task` and `ubiq-kb` in this build — and
-`ProfileInfo.mcps` and
+`AgentDefinition.mcps` and
 `StartConversation.mcps` both name one of those slugs. Nothing on
 the wire says how a server is reached: the host binds one loopback port and hands each run a URL
 carrying its own agent id, and neither the URL nor the port is a fact the interface is told. A slug
 a build no longer offers is dropped at composition with a warning, which is the same "a stale
-reference costs a row in a list" rule the profile family already lives by.
+reference costs a row in a list" rule the agent definition family already lives by.
 
 ## The command-line family
 

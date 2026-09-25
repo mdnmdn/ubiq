@@ -5,7 +5,7 @@ kind: feature
 status: draft
 summary: What a pane shows, how exactly one of them holds focus, how a resize reaches the harness, and how a pane is moved around the window's dock.
 read_when: you are changing where a pane sits, pane focus, resize, pane chrome, or how terminal bytes reach the screen
-updated: 2026-09-24
+updated: 2026-09-25
 verified: 2026-09-24
 code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/editor.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/new_pane_menu.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/tools.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/tests/coordinator.rs, crates/ubiq-host/src/pty/mod.rs, crates/ubiq-host/src/shells.rs, vendor/gpui-terminal/src/view.rs, vendor/gpui-terminal/src/render.rs, vendor/gpui-terminal/src/input.rs, vendor/gpui-terminal/src/mouse.rs, vendor/gpui-terminal/src/clipboard.rs, vendor/gpui-terminal/src/event.rs, vendor/gpui-terminal/src/terminal.rs]
 depends_on: [tech-transport]
@@ -87,7 +87,7 @@ project and is not drawn without one; the chevron is drawn either way, and with 
 console is the only row it offers, because a shell that cannot be started is not worth a row.
 
 **A shell pane is a login shell.** It is started the way the user's own terminal starts one, so
-`.zprofile`, `.zlogin` and `.profile` run and a pane's `PATH` is the `PATH` the user has everywhere
+`.zprofile`, `.zlogin` and `.agent definition` run and a pane's `PATH` is the `PATH` the user has everywhere
 else. Without it a tool that is genuinely installed reports as `command not found` in a pane while
 working in Terminal.app, because Ubiq launched from Finder inherits a `PATH` that nothing has set up
 yet. Only a shell started with no arguments is treated this way: a harness, or a shell handed a

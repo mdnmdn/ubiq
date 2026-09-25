@@ -87,7 +87,7 @@ same `PanelEdit::Reveal` device *Attach existing agent* uses to bring a panel th
 forward rather than opening it twice.
 
 **The New agent form asks every question a start answers** — `D92` is why it is one form and why a
-profile is the same form saved. It is a modal, `state::new_agent::NewAgentForm`,
+agent definition is the same form saved. It is a modal, `state::new_agent::NewAgentForm`,
 painted by the shell over whatever is underneath — the same treatment the clone and remote-connect
 modals get, and for the same reason: it is raised from the workbench rather than from any one page.
 Its rows, top to bottom, are the target, then the harness and its identity, the model, the
@@ -98,37 +98,53 @@ made this form taller than the window. **Everything below the first row is drawn
 target is chosen**, faint and taking no click rather than hidden, because a form whose shape jumps
 as it is filled in has to be re-read after every answer.
 
-**The target is a harness signed into an identity, or a saved setup**, and those are the two groups
-`WorkbenchState::harness_choices` offers. It reads the same `ListAgentTypes` answer the new-pane
-menu reads, plus the accounts signed in and the profiles saved, but not the same rows from it: it
-keeps only the harnesses whose `AgentTypeInfo::chat` is true, because a harness with no structured
-bridge (Grok) can draw a pane's screen but has nothing to turn into a `ConvUpdate` — offering it
-here would start a conversation that never speaks. **No harness is a new-pane row at all** —
-that menu offers the terminals that are not agents, and starting one is this form's job. What
-survives that filter is
-grouped into a `Configured` heading with one row per `(harness, account)` pair and a `Defined`
-heading with one row per saved profile, `HarnessChoice::Profile(usize)` indexing the list settings
-holds — the global profiles plus the ones saved inside the project this start is aimed at, each of
-those labelled `· this project`, and a project profile of the same name as a global one
-standing in its place here and in no other project (`D158`); a group with nothing in it is omitted whole, heading and separator together, rather than
-drawn empty. **A bare harness is not a row.** Starting one with nothing else answered is what the
-form is for, and it asks the identity, the model, the level and the mode in the same breath — a
-row that launched on whatever the library happened to resolve was that same launch with every
-question skipped. A harness whose binary is not on this machine is still what a row draws disabled
-over, so a list says a tool is missing rather than omitting it.
+**The target is a harness signed into an identity, or a saved setup, and the form asks which of
+those two through a tab** (`NewAgentTab`, drawn as the row of choice pills every other set-of-one
+in the window is drawn as). They were one list with a hairline in it, which made the second group
+read as a footnote to the first; they are two questions, so they are two tabs. Moving between them
+starts the answer again — a definition is not an answer to "which tool, as whom" — while the
+project the start is aimed at, the task it is assigned to and the harness catalogue already
+fetched stay where they are.
 
-**A profile is a saved answer to the same questions**, which is why the settings page's profile
-form is this same form with a different `Purpose`: no profile row in the target picker, no `Start`
+**Agents** lists the agent definitions and nothing else, one row each, read as
+`reviewer — Codex · gpt-5 · high`: the name, then what it runs on, because that is the question
+this tab does not ask again. It offers the global definitions plus the ones saved inside the
+project this start is aimed at, those labelled `· this project`, and a project definition of the
+same name as a global one stands in its place here and in no other project (`D158`). **A disabled
+definition is not a row** (`AgentDefinition::disabled`, read through
+`SettingsState::startable_definitions_in`): it is listed on the settings screens and offered
+nowhere a run begins. Under the dropdown sits the line of what the chosen definition runs on and a
+**Customize** button, which turns the harness, model, thinking-effort and mode rows back on so
+this one start can override them; until it is pressed those rows are not drawn, because the
+definition has already answered them.
+
+**Harness** is the other question and draws what the form always drew, minus any way to pick a
+definition. `WorkbenchState::harness_choices` offers it: the same `ListAgentTypes` answer the
+new-pane menu reads plus the accounts signed in, keeping only the harnesses whose
+`AgentTypeInfo::chat` is true, because a harness with no structured bridge (Grok) can draw a
+pane's screen but has nothing to turn into a `ConvUpdate` — offering it here would start a
+conversation that never speaks. **No harness is a new-pane row at all** — that menu offers the
+terminals that are not agents, and starting one is this form's job. What survives is grouped under
+a `Configured` heading, one row per `(harness, account)` pair. **A bare harness is not a row.**
+Starting one with nothing else answered is what the form is for, and it asks the identity, the
+model, the level and the mode in the same breath — a row that launched on whatever the library
+happened to resolve was that same launch with every question skipped. A harness whose binary is
+not on this machine is still what a row draws disabled over, so a list says a tool is missing
+rather than omitting it.
+
+**An agent definition is a saved answer to the same questions**, which is why the settings page's agent definition
+form is this same form with a different `Purpose`: no tabs and no agent definition row in the
+target picker — a definition is always written against a harness — no `Start`
 button, and a name and a `Save` instead. Two forms asking one set of questions differently is how
-the two drift apart. Picking a profile as the target fills every row below from what it saved;
-`Save profile` on a start form writes the answers back out under a name the window's prompt asks
+the two drift apart. Picking an agent definition as the target fills every row below from what it saved;
+`Save agent definition` on a start form writes the answers back out under a name the window's prompt asks
 for, offered only when the target is a bare harness — saving a start that already points at a
-profile would be writing that profile over itself.
+agent definition would be writing that agent definition over itself.
 
 **The form's footer offers the MCP servers Ubiq itself injects.** `MCPs` opens a checklist of the
 `McpInfo` rows the host answered `ListMcps` with — one tick box per server, its title, what it is
 for and the tools it answers — and what is ticked rides out on `StartConversation::mcps` or is
-written into `ProfileInfo::mcps`. This build lists Test, Project info, Manage Ubiq tasks, and Use
+written into `AgentDefinition::mcps`. This build lists Test, Project info, Manage Ubiq tasks, and Use
 ubiq tasks. It is a checklist and not a picker because several servers may be
 asked for at once, so the panel is the same `deferred`/`anchored` shape the pickers are built on
 with check-box rows in it, opening upward from the footer and staying down across ticks. The
@@ -170,7 +186,7 @@ begun with. The model and the level are deliberately not in it: the host already
 per harness and hands them back with the catalogue, and the two the host knows nothing about are
 the two written here. It is interface scope rather than a project's — which harnesses this machine
 has and which account is signed into them is a fact about the machine — and it is a hint, never a
-promise: a harness uninstalled or a profile deleted since answers nothing rather than opening the
+promise: a harness uninstalled or an agent definition deleted since answers nothing rather than opening the
 form on a start that would fail.
 
 **A subagent ceiling is said to the agent, not passed as a flag.** No harness has such an option,
@@ -206,7 +222,7 @@ says why — so the form ignores the outside click while one is open rather than
 half-filled form because a list was down. One gesture peels one layer, the same rule Escape obeys.
 
 **`Start` sends `StartConversation` at once**, carrying the model, the level and the mode the form
-answered, each of which outranks the profile's own record. The conversation's name is not the UI's
+answered, each of which outranks the agent definition's own record. The conversation's name is not the UI's
 to set: the host derives it from the harness's command, with a per-project counter from the second
 occurrence onward. What a start eventually makes is a conversation rather than a pane — the same
 question asked of the other face of a workspace, and a conversation has no size.
@@ -316,7 +332,7 @@ screen in some other column — shown, disabled rather than dropped from the lis
 vanished would read as an agent that had ended, and `AgentsView::open_in` already refuses to draw one
 twice. Neither group is split further by role or task: `WorkAgent` carries both, but neither is filled
 from a real run yet, so a grouping built from them would be drawing real groups over invented values.
-A profile is a real thing a conversation can start from, and it still does not help here — it
+An agent definition is a real thing a conversation can start from, and it still does not help here — it
 pins a harness, an identity and how the run is set up, and carries no role and no task — so the backlog row
 on grouping by role, task or team waits on those fields existing rather than on definitions. The list is
 searchable exactly the way every other filter in the window is: a lowercase substring typed into the
@@ -522,13 +538,13 @@ nothing in it names a colour, and it is tested without a frame in `crates/ubiq/t
 
 **The New agent form is three modules with the window's usual division of labour.**
 `state/new_agent.rs` is `NewAgentForm` and small pure readings of it — `Purpose` (start, or write a
-profile), `Target` (a harness with its identity, or a profile), `OpenList` (which of its pickers — or its MCP
+agent definition), `Target` (a harness with its identity, or an agent definition), `OpenList` (which of its pickers — or its MCP
 checklist — is down, one at a time, and `has_filter()` for which of them carry the shared filter
 field), `toggle_mcp()`, `model_levels()`, `default_mode()`, `preamble()` and `fold_preamble()`, all
 tested without a frame. `app/new_agent.rs` is the mutators, and reaches for whichever of the two
 forms is up rather than taking a discriminator — two ways to answer one question is how the two
 would drift apart again — plus `start_new_agent()`, `send_prompt()` and `take_agent_preamble()`.
-`ui/new_agent.rs` draws the modal, and its `body()` is what the settings page's profile form draws
+`ui/new_agent.rs` draws the modal, and its `body()` is what the settings page's agent definition form draws
 too. `WorkbenchState` holds the live form as `new_agent`, the `+` menu as `new_agent_menu`
 (`NewAgentMenu`: where it opened, which `NewAgentSurface` asked, and whether the attach stage is
 drawn), and the held preambles as `agent_preambles`, one entry per conversation, taken on first use.

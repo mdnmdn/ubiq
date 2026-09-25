@@ -1,21 +1,49 @@
-//! The form behind "New agent" — and behind the settings page's profile form, which asks the
+//! The form behind "New agent" — and behind the settings page's definition form, which asks the
 //! same questions.
 //!
-//! A profile *is* a saved answer to "how should this agent start", so one form asks it once and
+//! A definition *is* a saved answer to "how should this agent start", so one form asks it once and
 //! [`Purpose`] says what is done with the answer. Everything here is state and small pure
 //! readings of it: no element, no colour, and nothing that names a message.
 
 use ubiq_proto::conversation::ConfigChoice;
 use ubiq_proto::ids::{ProjectId, TaskId};
-use ubiq_proto::messages::{AgentTypeInfo, CatalogueModel, ProfileInfo};
+use ubiq_proto::messages::{AgentDefinition, AgentTypeInfo, CatalogueModel};
 
 /// What the form is for. The same fields answer both questions, so the same form asks them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Purpose {
-    /// Start a conversation now. Offers profiles in the target picker and a `Start` button.
+    /// Start a conversation now. Offers definitions in the target picker and a `Start` button.
     Start,
-    /// Write a profile. No profile row in the target picker, no `Start`, a name and a `Save`.
-    Profile,
+    /// Write a definition. No definition row in the target picker, no `Start`, a name and a `Save`.
+    AgentDefinition,
+}
+
+/// Which half of the New agent dialog is in front.
+///
+/// The two answers to "what is being started" were one list with a hairline in it; they are two
+/// tabs because they are two different questions — *which saved agent* and *which tool, as whom* —
+/// and a list that mixed them made the second read as a footnote to the first.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum NewAgentTab {
+    /// The saved setups, one dropdown. What it runs on is shown on the row rather than asked for.
+    #[default]
+    Agents,
+    /// A harness signed into an identity, and every question a bare start answers itself. No
+    /// definition is on offer here: that is the other tab.
+    Harness,
+}
+
+impl NewAgentTab {
+    pub fn all() -> [NewAgentTab; 2] {
+        [NewAgentTab::Agents, NewAgentTab::Harness]
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            NewAgentTab::Agents => "Agents",
+            NewAgentTab::Harness => "Harness",
+        }
+    }
 }
 
 /// The first answer: a harness signed into an identity, or a saved setup. Two groups in one list,
@@ -29,10 +57,10 @@ pub enum Target {
     Harness {
         agent_type: String,
         /// `None` is "whichever identity the harness would use itself". Not on offer in the target
-        /// list for now — every row there names an account — but a profile may still carry one.
+        /// list for now — every row there names an account — but a definition may still carry one.
         account: Option<String>,
     },
-    Profile(String),
+    AgentDefinition(String),
 }
 
 /// Which list is down. One at a time — the window's rule — and held on the form rather than in
@@ -69,8 +97,20 @@ impl OpenList {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NewAgentForm {
     pub purpose: Purpose,
+    /// Which tab the start dialog is on. Meaningless under [`Purpose::AgentDefinition`], which
+    /// draws no tabs — a definition is always written against a harness.
+    pub tab: NewAgentTab,
+    /// Whether the Agents tab's `Customize` has been pressed: the harness, model and effort the
+    /// chosen definition names are drawn as overridable rows instead of as a line on its row.
+    /// Reset whenever the tab or the definition changes — a customization belongs to the answer it
+    /// was made against.
+    pub customize: bool,
     /// `None` is nothing chosen: every row below the first is drawn inert until this is answered.
     pub target: Option<Target>,
+    /// What this setup is for, in prose — [`AgentDefinition::description`]. Read by another agent
+    /// through the mission MCP, not by the host: unlike every other field here, nothing downstream
+    /// acts on it, so it is free-form and may be several lines.
+    pub description: String,
     pub agent_type: String,
     pub account: Option<String>,
     pub model: Option<String>,
@@ -79,15 +119,25 @@ pub struct NewAgentForm {
     /// Always false, and the control is disabled: an agent that survives a restart is not built
     /// yet, and a checkbox that lied about it would be worse than one that says "not yet".
     pub persistent: bool,
-    /// Whether this setup is fit to run as a planning assistant — [`ProfileInfo::mission_assistant`].
-    /// Drawn only under [`Purpose::Profile`]: a bare start has nothing to save the flag onto, and
+    /// Whether this setup is fit to run as a planning assistant — [`AgentDefinition::mission_assistant`].
+    /// Drawn only under [`Purpose::AgentDefinition`]: a bare start has nothing to save the flag onto, and
     /// the new-mission dialog's picker is what reads it back.
     pub mission_assistant: bool,
+    /// Whether this definition runs the coordinator side of a mission or a task —
+    /// [`AgentDefinition::mission_coordinator`]. The host re-asserts the MCP servers the role
+    /// implies on every save, so the form never has to hold that set itself.
+    pub mission_coordinator: bool,
+    /// Whether this definition runs the worker side of one — [`AgentDefinition::mission_worker`],
+    /// on the same terms.
+    pub mission_worker: bool,
+    /// Whether the definition is switched off — [`AgentDefinition::disabled`]. Carried through a
+    /// round trip so saving an edit never quietly switches one back on.
+    pub disabled: bool,
     /// The subagent ceiling this start asks for. `None` says nothing about it at all; `Some(0)`
     /// asks for none, which is a real answer and states itself.
     pub max_subagents: Option<u8>,
     /// The MCP servers Ubiq is asked to inject into this start, by
-    /// [`ubiq_proto::mcp::McpInfo::name`] — the slug, which is what a profile stores and what a
+    /// [`ubiq_proto::mcp::McpInfo::name`] — the slug, which is what a definition stores and what a
     /// start names. Order is the order they were ticked in and is kept stable, so saving a form
     /// twice writes the same list rather than a reshuffle of it.
     ///
@@ -95,22 +145,22 @@ pub struct NewAgentForm {
     /// [`crate::state::WorkbenchState::mcps`], one list for the build rather than a copy per form.
     pub mcps: Vec<String>,
     /// The opening prompt. Typed into a textarea the window owns, and copied in here when the
-    /// form is read — the same way the profile form reads its name field at save time.
+    /// form is read — the same way the definition form reads its name field at save time.
     pub prompt: String,
     pub open: Option<OpenList>,
     /// Whether the "what should this be called" prompt is up over the form. Only a start form
-    /// ever raises one: a profile form already has its name field.
+    /// ever raises one: a definition form already has its name field.
     pub naming: bool,
     /// What the harness offers, from `Message::HarnessCatalogue`. Empty until one lands.
     pub models: Vec<CatalogueModel>,
     /// Whether a catalogue has been asked for and not yet answered. The model row says so rather
     /// than drawing an empty list, which would read as a harness with no models.
     pub probing: bool,
-    /// The project a [`Purpose::Profile`] form writes its profile into, when it was opened from
-    /// one. `None` — the app-wide settings screen — writes a global profile, which is every
-    /// profile that existed before scoping. Never a pick inside the form: where a profile lives
-    /// is settled by where the user asked for it, and a saved profile is edited in the scope it
-    /// was written in ([`ProfileInfo::project`]).
+    /// The project a [`Purpose::AgentDefinition`] form writes its definition into, when it was opened from
+    /// one. `None` — the app-wide settings screen — writes a global definition, which is every
+    /// definition that existed before scoping. Never a pick inside the form: where a definition lives
+    /// is settled by where the user asked for it, and a saved definition is edited in the scope it
+    /// was written in ([`AgentDefinition::project`]).
     pub project: Option<ProjectId>,
     /// The task this start is being assigned to, where the form was raised from the board's own
     /// "Assign to an agent" button — `None` for every other way in. Drives the two checkboxes
@@ -132,6 +182,20 @@ pub struct NewAgentForm {
 /// on `crates/ubiq-host`, and the slug — not the constant — is the wire contract
 /// ([`ubiq_proto::mcp::McpInfo::name`]).
 pub const TASK_ASSIGN_MCPS: [&str; 2] = ["manage-ubiq-tasks", "ubiq-ask"];
+
+/// What the **mission/task coordinator** flag implies — mirrors
+/// `crates/ubiq-host/src/mcp/catalogue::COORDINATOR_MCPS` by slug, duplicated for
+/// `TASK_ASSIGN_MCPS`'s reason: the interface names no host type, and the slug is the contract.
+///
+/// The host re-adds this set on every save of a definition carrying the flag, so the interface
+/// draws these servers as ticked and takes no click on them: a checklist that let one be unticked
+/// would be describing a save that is not going to happen.
+pub const COORDINATOR_MCPS: [&str; 4] =
+    ["ubiq-mission", "ubiq-plan", "manage-ubiq-tasks", "ubiq-kb"];
+
+/// What the **mission/task worker** flag implies — mirrors `catalogue::WORKER_MCPS`, on the same
+/// terms as [`COORDINATOR_MCPS`].
+pub const WORKER_MCPS: [&str; 4] = ["use-mission", "use-task", "project-info", "ubiq-kb"];
 
 /// The opening prompt a task assignment starts the agent on: what to work on, and how it should
 /// handle a gap in what it knows.
@@ -164,7 +228,10 @@ impl NewAgentForm {
     pub fn new(purpose: Purpose) -> Self {
         Self {
             purpose,
+            tab: NewAgentTab::default(),
+            customize: false,
             target: None,
+            description: String::new(),
             agent_type: String::new(),
             account: None,
             model: None,
@@ -172,6 +239,9 @@ impl NewAgentForm {
             mode: None,
             persistent: false,
             mission_assistant: false,
+            mission_coordinator: false,
+            mission_worker: false,
+            disabled: false,
             max_subagents: Some(DEFAULT_SUBAGENTS),
             mcps: Vec::new(),
             prompt: String::new(),
@@ -187,38 +257,44 @@ impl NewAgentForm {
     }
 
     /// The form as a saved setup already answers it. Its own harness is the target, so editing a
-    /// profile opens on the profile rather than on the question it has already answered.
-    pub fn from_profile(profile: &ProfileInfo, purpose: Purpose) -> Self {
+    /// definition opens on the definition rather than on the question it has already answered.
+    pub fn from_definition(definition: &AgentDefinition, purpose: Purpose) -> Self {
         Self {
             target: Some(match purpose {
-                Purpose::Start => Target::Profile(profile.id.clone()),
-                Purpose::Profile => Target::Harness {
-                    agent_type: profile.agent_type.clone(),
-                    account: profile.account.clone(),
+                Purpose::Start => Target::AgentDefinition(definition.id.clone()),
+                Purpose::AgentDefinition => Target::Harness {
+                    agent_type: definition.agent_type.clone(),
+                    account: definition.account.clone(),
                 },
             }),
-            agent_type: profile.agent_type.clone(),
-            account: profile.account.clone(),
-            model: profile.model.clone(),
-            thinking: profile.thinking.clone(),
-            mode: profile.mode.clone(),
-            max_subagents: profile.max_subagents,
-            mcps: profile.mcps.clone(),
-            prompt: profile.prompt.clone().unwrap_or_default(),
-            mission_assistant: profile.mission_assistant.unwrap_or(false),
-            // Editing keeps the scope it was found in: a project profile saved from its own
+            description: definition.description.clone().unwrap_or_default(),
+            agent_type: definition.agent_type.clone(),
+            account: definition.account.clone(),
+            model: definition.model.clone(),
+            thinking: definition.thinking.clone(),
+            mode: definition.mode.clone(),
+            max_subagents: definition.max_subagents,
+            mcps: definition.mcps.clone(),
+            prompt: definition.prompt.clone().unwrap_or_default(),
+            mission_assistant: definition.mission_assistant.unwrap_or(false),
+            mission_coordinator: definition.mission_coordinator,
+            mission_worker: definition.mission_worker,
+            disabled: definition.disabled,
+            // Editing keeps the scope it was found in: a project definition saved from its own
             // project's settings goes back where it came from, and the global form never
             // acquires a project it was not opened with.
-            project: profile.project,
+            project: definition.project,
             ..Self::new(purpose)
         }
     }
 
     /// What the form would be written down as. The id is the name field's, which the form does
-    /// not hold: a profile is filed under whatever it is called, and renaming is saving a second.
-    pub fn as_profile(&self, id: String) -> ProfileInfo {
-        ProfileInfo {
+    /// not hold: a definition is filed under whatever it is called, and renaming is saving a second.
+    pub fn as_definition(&self, id: String) -> AgentDefinition {
+        AgentDefinition {
             id,
+            description: (!self.description.trim().is_empty())
+                .then(|| self.description.trim().to_string()),
             agent_type: self.agent_type.clone(),
             account: self.account.clone(),
             model: self.model.clone(),
@@ -231,6 +307,11 @@ impl NewAgentForm {
             // read the same to every filter, and `None` is the ordinary "says nothing" shape every
             // other optional field here already uses.
             mission_assistant: self.mission_assistant.then_some(true),
+            // The two role flags and the off switch are plain booleans: what they imply is the
+            // host's answer (it re-adds the role's MCP servers on save), not the form's.
+            mission_coordinator: self.mission_coordinator,
+            mission_worker: self.mission_worker,
+            disabled: self.disabled,
             // Which root the host writes it into. The scope is not a field the user picks; it
             // is the surface the form was opened from.
             project: self.project,
@@ -242,12 +323,41 @@ impl NewAgentForm {
     /// Ticking appends rather than inserting in the catalogue's order: the list is what the user
     /// built, and a set that reordered itself as it was filled in is one nobody can read back.
     pub fn toggle_mcp(&mut self, name: &str) {
+        // A server a role flag implies is not the checklist's to remove: the host re-adds it on
+        // save, so unticking it would flicker back on the next answer.
+        if self.implies_mcp(name) {
+            return;
+        }
         match self.mcps.iter().position(|it| it == name) {
             Some(at) => {
                 self.mcps.remove(at);
             }
             None => self.mcps.push(name.to_string()),
         }
+    }
+
+    /// Whether one of the two role flags already asks for this server. Such a server is drawn
+    /// ticked and inert: what it is ticked by is the flag, not the checklist.
+    pub fn implies_mcp(&self, name: &str) -> bool {
+        (self.mission_coordinator && COORDINATOR_MCPS.contains(&name))
+            || (self.mission_worker && WORKER_MCPS.contains(&name))
+    }
+
+    /// Whether this server is ticked at all, by hand or by a role.
+    pub fn wants_mcp(&self, name: &str) -> bool {
+        self.implies_mcp(name) || self.mcps.iter().any(|it| it == name)
+    }
+
+    /// How many servers this start asks for — the roles' included, each counted once. `ubiq-kb`
+    /// is in both role sets, and it is one server however many flags name it.
+    pub fn mcp_count(&self) -> usize {
+        let mut named: Vec<&str> = self.mcps.iter().map(String::as_str).collect();
+        for name in COORDINATOR_MCPS.iter().chain(WORKER_MCPS.iter()) {
+            if self.implies_mcp(name) && !named.contains(name) {
+                named.push(name);
+            }
+        }
+        named.len()
     }
 
     /// The reasoning-effort levels the chosen model accepts — empty where the model has none,
@@ -428,22 +538,23 @@ mod tests {
 
     #[test]
     fn ticking_a_server_appends_and_unticking_removes_it() {
-        let mut form = NewAgentForm::new(Purpose::Profile);
+        let mut form = NewAgentForm::new(Purpose::AgentDefinition);
         form.toggle_mcp("project-info");
         form.toggle_mcp("test");
         assert_eq!(form.mcps, vec!["project-info", "test"]);
         form.toggle_mcp("project-info");
         assert_eq!(form.mcps, vec!["test"], "unticking takes it back out");
         assert_eq!(
-            form.as_profile("saved".to_string()).mcps,
+            form.as_definition("saved".to_string()).mcps,
             vec!["test"],
             "what is ticked is what is written down"
         );
     }
 
-    fn a_profile(mission_assistant: Option<bool>) -> ProfileInfo {
-        ProfileInfo {
+    fn a_definition(mission_assistant: Option<bool>) -> AgentDefinition {
+        AgentDefinition {
             id: "reviewer".to_string(),
+            description: None,
             agent_type: "claude-code".to_string(),
             account: None,
             model: None,
@@ -453,39 +564,46 @@ mod tests {
             prompt: None,
             mcps: Vec::new(),
             mission_assistant,
+            mission_coordinator: false,
+            mission_worker: false,
+            disabled: false,
             project: None,
         }
     }
 
     #[test]
-    fn saving_a_profile_carries_the_mission_assistant_flag_forward() {
-        // The bug this closes: a profile already marked as a mission assistant, opened and saved
+    fn saving_a_definition_carries_the_mission_assistant_flag_forward() {
+        // The bug this closes: a definition already marked as a mission assistant, opened and saved
         // again through the form with nothing touched, must not come back out unmarked.
-        let form = NewAgentForm::from_profile(&a_profile(Some(true)), Purpose::Profile);
-        assert!(form.mission_assistant, "the form reads the profile's flag");
+        let form =
+            NewAgentForm::from_definition(&a_definition(Some(true)), Purpose::AgentDefinition);
+        assert!(
+            form.mission_assistant,
+            "the form reads the definition's flag"
+        );
         assert_eq!(
-            form.as_profile("reviewer".to_string()).mission_assistant,
+            form.as_definition("reviewer".to_string()).mission_assistant,
             Some(true),
             "and writes it back rather than dropping it"
         );
     }
 
     #[test]
-    fn ticking_it_from_a_profile_with_none_writes_it_down() {
-        let mut form = NewAgentForm::from_profile(&a_profile(None), Purpose::Profile);
+    fn ticking_it_from_a_definition_with_none_writes_it_down() {
+        let mut form = NewAgentForm::from_definition(&a_definition(None), Purpose::AgentDefinition);
         assert!(!form.mission_assistant);
         form.mission_assistant = true;
         assert_eq!(
-            form.as_profile("reviewer".to_string()).mission_assistant,
+            form.as_definition("reviewer".to_string()).mission_assistant,
             Some(true)
         );
     }
 
     #[test]
     fn an_unticked_flag_writes_none_not_false() {
-        let form = NewAgentForm::new(Purpose::Profile);
+        let form = NewAgentForm::new(Purpose::AgentDefinition);
         assert_eq!(
-            form.as_profile("fresh".to_string()).mission_assistant,
+            form.as_definition("fresh".to_string()).mission_assistant,
             None,
             "None and Some(false) read the same to a filter, and None is the ordinary shape"
         );
@@ -518,6 +636,36 @@ mod tests {
         let planning = task_assignment_prompt("T-64", true, true);
         assert!(planning.contains("Ask for feedback"));
         assert!(planning.contains("plan mode"));
+    }
+
+    /// A role flag ticks its own servers and holds them ticked: the host re-adds them on every
+    /// save, so the checklist must neither let one go nor count it twice when both roles name it.
+    #[test]
+    fn a_role_ticks_its_servers_and_the_checklist_cannot_untick_them() {
+        let mut form = NewAgentForm::new(Purpose::AgentDefinition);
+        form.toggle_mcp("test");
+        assert!(!form.wants_mcp("ubiq-plan"), "no role, no implied server");
+
+        form.mission_coordinator = true;
+        assert!(form.implies_mcp("ubiq-plan"));
+        assert!(form.wants_mcp("ubiq-plan"));
+        form.toggle_mcp("ubiq-plan");
+        assert!(
+            form.wants_mcp("ubiq-plan") && !form.mcps.iter().any(|it| it == "ubiq-plan"),
+            "unticking an implied server does nothing, and it is not written onto the list either"
+        );
+        assert_eq!(form.mcp_count(), 1 + COORDINATOR_MCPS.len());
+
+        // `ubiq-kb` is in both role sets, and it is one server.
+        form.mission_worker = true;
+        assert_eq!(
+            form.mcp_count(),
+            1 + COORDINATOR_MCPS.len() + WORKER_MCPS.len() - 1
+        );
+
+        // What the form writes down stays what the user ticked: the role's set is the host's to
+        // merge back, and writing it here would make an unticked role leave its servers behind.
+        assert_eq!(form.as_definition("runner".to_string()).mcps, vec!["test"]);
     }
 
     /// The MCPs a task assignment preselects are the board and the one tool that waits for a

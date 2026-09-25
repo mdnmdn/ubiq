@@ -115,6 +115,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
         return strip
             .child(mono("no project", theme::text_faint()))
             .child(div().flex_1().min_w(px(0.)))
+            .child(size_control(app, cx))
             .child(made_with_love())
             .child(version_label());
     }
@@ -166,6 +167,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                 )
             }))
             .child(div().flex_1().min_w(px(0.)))
+            .child(size_control(app, cx))
             .child(version_label())
             .child(made_with_love())
             .child(mono(harnesses.join(" \u{b7} "), theme::text_muted()));
@@ -199,6 +201,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                 )
             }))
             .child(div().flex_1().min_w(px(0.)))
+            .child(size_control(app, cx))
             .child(version_label())
             .child(made_with_love());
     }
@@ -224,6 +227,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                 )
             }))
             .child(div().flex_1().min_w(px(0.)))
+            .child(size_control(app, cx))
             .child(version_label())
             .child(made_with_love())
             .child(mono(

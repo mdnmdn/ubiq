@@ -7,7 +7,7 @@
 //! **It sits beside the library's `meta.json`, not inside it.** `agent_manager::session::SessionMeta`
 //! already records what the *library* knows about a run — the harness, the cwd, the account, the
 //! argv, and `harness_session_id`, which is the token a resume needs. What it does not know about is
-//! Ubiq's own vocabulary: which profile the start named, which model, thinking level and permission
+//! Ubiq's own vocabulary: which definition the start named, which model, thinking level and permission
 //! mode the picker settled on, where the transcript's sequence had reached, and whether the user
 //! asked for any of it to be kept. Those are Ubiq's questions, so they are in Ubiq's file, and the
 //! boundary that keeps `crates/agent-manager` from learning what a chat tab is stays where it is.
@@ -52,9 +52,10 @@ pub struct ConversationRecord {
     /// Which identity it answered as, when one was named.
     #[serde(default)]
     pub account: Option<String>,
-    /// The saved setup the picks below sit on top of.
-    #[serde(default)]
-    pub profile: Option<String>,
+    /// The saved setup the picks below sit on top of. `alias` reads the records written while
+    /// this was called `profile` (`D174`), so a resumed conversation keeps what it started from.
+    #[serde(default, alias = "profile")]
+    pub definition: Option<String>,
     /// What the pickers settled on. Empty and absent both mean "whatever the harness defaults to",
     /// which is the convention the coordinator's `chosen_*` fields already read by.
     #[serde(default)]
@@ -230,7 +231,7 @@ mod tests {
             agent_type: "claude-code".to_string(),
             cwd: PathBuf::from("/tmp/project"),
             account: Some("work".to_string()),
-            profile: None,
+            definition: None,
             model: Some("sonnet".to_string()),
             thinking: None,
             mode: None,

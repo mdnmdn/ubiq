@@ -20,6 +20,7 @@ pub mod md_options;
 pub mod scene;
 pub mod viewport;
 pub mod web;
+pub mod zoom_modal;
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -86,7 +87,7 @@ fn header(app: &AppState, file: &OpenFile, cx: &mut Context<AppState>) -> impl I
         .when(markdown, |this| this.child(navigator(app, file, cx)))
         .child(div().flex_1().min_w(px(0.)))
         .when(markdown && current != ViewLayout::Source, |this| {
-            this.child(md_options::control(app, cx))
+            this.child(md_options::control(app, file, cx))
         })
         .child(div().flex().items_center().gap_1().children(
             file.viewer.layouts().iter().copied().map(|layout| {
@@ -235,6 +236,14 @@ fn drawn(
         ViewLayout::Edit => web::render(app, file, cx),
         // Only Markdown offers it, and only a file in the project's tree has a document handle.
         ViewLayout::Annotation => annotation(app, file, cx),
+        // Markdown's split gets its own render (T-166): the preview needs the external-scroll
+        // path `markdown_preview` already uses (no dead space below the content, no internal
+        // virtualised scroller of its own to keep in step with anything), and the two panes are
+        // kept at the same fraction down the document. Mermaid/Excalidraw/Drawio have no text
+        // buffer worth scroll-linking to a diagram, so they keep the plain side-by-side split.
+        ViewLayout::Split if file.viewer == ViewerKind::Markdown => {
+            warned(app, file, markdown_split(app, file, state, cx), cx)
+        }
         ViewLayout::Split => warned(
             app,
             file,
@@ -408,6 +417,132 @@ fn markdown_preview(
     .into_any_element()
 }
 
+/// The split layout's own markdown render (T-166): the buffer on the left, the preview on the
+/// right, proportionally scroll-linked.
+///
+/// The preview draws through [`markdown::render_split`] rather than the plain
+/// [`markdown::render`] every other viewer position calls — the same fix `markdown_preview`
+/// already carries for the full-pane `Preview` layout: an external `ScrollHandle` gives a
+/// naturally-sized document with no dead space below its last line, instead of `TextView`'s own
+/// internal virtualised scroller, which leaves exactly that gap. `render_split` also does not cap
+/// the column at the reading-width preset — a half-pane is already narrower than the full viewer,
+/// and pinning it to the measure on top of that left it reading at less than the width it had, not
+/// more.
+fn markdown_split(
+    app: &AppState,
+    file: &OpenFile,
+    state: &Entity<EditorState>,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let key = file.key();
+    let source = state.read(cx).value().to_string();
+
+    sync_markdown_split_scroll(file, state, cx);
+
+    let preview = markdown::render_split(
+        app,
+        &key,
+        &source,
+        file.frontmatter_open,
+        &file.md_scroll,
+        cx,
+    );
+
+    div()
+        .flex()
+        .flex_1()
+        .min_w(px(0.))
+        .min_h(px(0.))
+        .child(
+            half(buffer(state))
+                .border_r_1()
+                .border_color(theme::border()),
+        )
+        .child(half(preview))
+        .into_any_element()
+}
+
+/// Keeps the split layout's two panes at the same fraction down the document (T-166).
+///
+/// **Proportional, not a per-line mapping.** The buffer lays the source out one line per row; the
+/// preview lays the *rendered* document out at whatever height each block takes once drawn — a
+/// heading, a table and a fenced diagram are none of them one source line tall on that side. There
+/// is no shared unit to map a byte offset or a line number between the two in any way that would
+/// still be true after the next edit, so the honest answer is the same fraction down each pane's
+/// own scrollable length, not a claim that a particular line of source lines up with a particular
+/// pixel of preview.
+///
+/// **Which side is "moving" is read off the delta, not an event.** Neither the buffer's own
+/// internal scroll nor the preview's `ScrollHandle` tells this function who the reader just
+/// dragged; both are re-read from scratch every frame. So `file.md_split_scroll` remembers what
+/// each side's fraction was as of the last frame this function reconciled, and whichever side has
+/// moved further since then is this frame's mover — its fraction is copied onto the other side, and
+/// both halves of the memory are set to it so next frame starts from agreement rather than from the
+/// stale, pre-copy pair.
+fn sync_markdown_split_scroll(
+    file: &OpenFile,
+    state: &Entity<EditorState>,
+    cx: &mut Context<AppState>,
+) {
+    // Below this: the source fraction, approximated off row counts because the buffer keeps its
+    // content height to itself the way `TextView` keeps its scroll offset — `EditorState` exposes
+    // `visible_row_range` and `line_height`, not a content height or a max scroll offset, so a row
+    // count over a row count is what is reachable rather than a true pixel measure. Honest, not
+    // exact: a soft-wrapped line counts as one row here same as a bare one.
+    let (line_height, visible_rows, current_offset) = {
+        let editor = state.read(cx);
+        let Some(line_height) = editor.line_height() else {
+            return; // Nothing laid out yet to measure a fraction against.
+        };
+        let Some(visible) = editor.visible_row_range() else {
+            return;
+        };
+        (
+            line_height,
+            (visible.end - visible.start) as f32,
+            editor.scroll_offset(),
+        )
+    };
+    let total_lines = state.read(cx).value().lines().count().max(1) as f32;
+    let max_scroll_rows = (total_lines - visible_rows).max(0.0);
+    let source_fraction = if max_scroll_rows > 0.0 {
+        (-current_offset.y / (max_scroll_rows * line_height)).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+
+    let preview_max = file.md_scroll.max_offset().y;
+    let preview_fraction = if preview_max > px(0.) {
+        (-file.md_scroll.offset().y / preview_max).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+
+    let (last_source, last_preview) = file.md_split_scroll.get();
+    let source_delta = (source_fraction - last_source).abs();
+    let preview_delta = (preview_fraction - last_preview).abs();
+    // Below this both settle to the same value: without a deadband, two fractions that never quite
+    // agree (one is row-quantised, the other continuous) would keep tripping the "moved" branch and
+    // re-notifying forever.
+    const EPSILON: f32 = 0.0005;
+    if source_delta <= EPSILON && preview_delta <= EPSILON {
+        return;
+    }
+
+    if source_delta >= preview_delta {
+        file.md_scroll
+            .set_offset(gpui::point(px(0.), -preview_max * source_fraction));
+        file.md_split_scroll.set((source_fraction, source_fraction));
+    } else {
+        let target = -(max_scroll_rows * line_height) * preview_fraction;
+        state.update(cx, |editor_state, cx| {
+            editor_state.set_scroll_offset(gpui::point(px(0.), target), cx);
+        });
+        file.md_split_scroll
+            .set((preview_fraction, preview_fraction));
+    }
+}
+
 /// The file's own buffer. Never a copy of it: the source half of a split is the same entity the
 /// source layout draws, so a toggle costs nothing and loses no undo history. It draws at the
 /// content family's body size, which already carries the user's zoom.
@@ -479,5 +614,27 @@ pub(crate) fn diagram_frame(key: &str, picture: impl IntoElement) -> AnyElement 
         .items_start()
         .py_3()
         .child(picture)
+        .into_any_element()
+}
+
+/// A picture with the small zoom button (T-185) in its top-right corner — what turns a scaled-down
+/// image or diagram into one the reader can raise near-fullscreen. `target.key` is what keys the
+/// zoom modal's own camera, distinct from any camera the inline picture is drawn on.
+pub(crate) fn with_zoom_button(
+    picture: impl IntoElement,
+    target: crate::state::zoom::ImageZoom,
+) -> AnyElement {
+    let id = eid("zoom-open", &target.key);
+    div()
+        .relative()
+        .flex_none()
+        .child(picture)
+        .child(
+            div()
+                .absolute()
+                .top_1()
+                .right_1()
+                .child(zoom_modal::zoom_button(id, target)),
+        )
         .into_any_element()
 }

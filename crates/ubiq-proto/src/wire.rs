@@ -187,6 +187,7 @@ mod tests {
                 lanes: vec![],
                 runs_on: None,
                 initials: String::new(),
+                storage: crate::projects::StorageMode::UbiqManaged,
             },
             health: ProjectHealth::Ok,
             open_panes: 2,

@@ -14,7 +14,7 @@
 //! Per project, the way the board's and the graph's views are: a window holding three projects
 //! holds three of these.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use ubiq_proto::ids::{SpawnId, TaskId};
 use ubiq_proto::mission::JournalEntry;
@@ -77,8 +77,8 @@ pub fn worker_briefing(
 pub struct SpawnPick {
     /// The kind to launch, replacing the request's.
     pub kind: String,
-    /// The profile to resolve it through, for the `custom` kind.
-    pub profile: Option<String>,
+    /// The definition to resolve it through, for the `custom` kind.
+    pub definition: Option<String>,
 }
 
 /// One mission's journal, as this window has read it back (M12).
@@ -161,8 +161,8 @@ pub struct MissionSpawnMenu {
 pub struct MissionLaunch {
     /// The kind to resolve, by name.
     pub kind: String,
-    /// A profile named outright, for the `custom` case and for a kind the table has no row for.
-    pub profile: Option<String>,
+    /// A definition named outright, for the `custom` case and for a kind the table has no row for.
+    pub definition: Option<String>,
     /// Whether this is the coordinator — which is the whole of the difference between the two MCP
     /// sets, and nothing else.
     pub coordinator: bool,
@@ -174,7 +174,7 @@ pub struct MissionLaunch {
     pub assign_to: Option<TaskId>,
 }
 
-/// One row of a kind-picking menu: one of the mission's own kinds, or a profile named outright.
+/// One row of a kind-picking menu: one of the mission's own kinds, or a definition named outright.
 ///
 /// Both in one list because they answer one question — *what should this be* — and a menu that
 /// split them into two controls would make the `custom` case read as a different kind of answer
@@ -182,14 +182,14 @@ pub struct MissionLaunch {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum KindPick {
     Kind(String),
-    Profile(String),
+    AgentDefinition(String),
 }
 
 impl KindPick {
     pub fn label(&self) -> String {
         match self {
             KindPick::Kind(name) => name.clone(),
-            KindPick::Profile(id) => format!("profile \u{00b7} {id}"),
+            KindPick::AgentDefinition(id) => format!("agent \u{00b7} {id}"),
         }
     }
 }
@@ -199,9 +199,9 @@ impl KindPick {
 pub enum KindTarget {
     /// A pending spawn row: change what will be launched before allowing it.
     Pending(SpawnId),
-    /// One row of the agent-kinds table: which profile it resolves to.
+    /// One row of the agent-kinds table: which definition it resolves to.
     Row(usize),
-    /// The table's `+`: a new kind, from a profile.
+    /// The table's `+`: a new kind, from a definition.
     Add,
 }
 
@@ -320,6 +320,32 @@ impl MissionMenuRow {
     }
 }
 
+/// One of the side panel's own sections (T-184) — the ones drawn with a `section_bar`, each of
+/// which opens and shuts on its own rather than as one switch over the whole panel.
+///
+/// **Not the header, the phase line or the progress bar.** Those are the panel's chrome — always
+/// there, the way a card's title never folds — and the panel's fixed feedback composer at the foot
+/// is not a section either: what folds is the content between them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum MissionSection {
+    NeedsYou,
+    Documents,
+    Agents,
+    Latest,
+}
+
+impl MissionSection {
+    /// A bare id fragment for this section's element id — never shown, an `eid2` component.
+    pub fn label(self) -> &'static str {
+        match self {
+            MissionSection::NeedsYou => "needs-you",
+            MissionSection::Documents => "documents",
+            MissionSection::Agents => "agents",
+            MissionSection::Latest => "latest",
+        }
+    }
+}
+
 /// How one project's missions are being looked at.
 ///
 /// The side panel uses [`Self::state_filter`] to say which segment of its progress bar was
@@ -348,6 +374,12 @@ pub struct MissionView {
     /// Dropped when the row is answered; a request the record no longer holds leaves a dead entry
     /// nobody reads, which is cheaper than watching for one.
     pub spawn_picks: HashMap<SpawnId, SpawnPick>,
+    /// Which of a mission's side-panel sections (T-184) are shut, by the mission's own anchor
+    /// task — so several side panels open on different missions at once each remember their own
+    /// shape, the way [`Self::spawn_picks`] is keyed per request rather than held once. A mission
+    /// absent from the map has every section open: this is UI-local persistence, not a fact the
+    /// host has an opinion about.
+    pub shut_sections: HashMap<TaskId, HashSet<MissionSection>>,
 }
 
 impl Default for MissionView {
@@ -360,6 +392,7 @@ impl Default for MissionView {
             wbs_critical: false,
             state_filter: None,
             spawn_picks: HashMap::new(),
+            shut_sections: HashMap::new(),
         }
     }
 }
@@ -372,5 +405,22 @@ impl MissionView {
             Some(held) if held == state => None,
             _ => Some(state),
         };
+    }
+
+    /// Whether one mission's section is open — every section starts open, which is why this reads
+    /// the absence of a shut mark rather than the presence of an open one (T-184).
+    pub fn section_open(&self, task_id: TaskId, section: MissionSection) -> bool {
+        !self
+            .shut_sections
+            .get(&task_id)
+            .is_some_and(|shut| shut.contains(&section))
+    }
+
+    /// Open a shut section or shut an open one, remembered against this mission's own anchor task.
+    pub fn toggle_section(&mut self, task_id: TaskId, section: MissionSection) {
+        let shut = self.shut_sections.entry(task_id).or_default();
+        if !shut.remove(&section) {
+            shut.insert(section);
+        }
     }
 }

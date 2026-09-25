@@ -34,12 +34,12 @@ pub enum Layer {
     Login,
     /// The New agent modal.
     NewAgent,
-    /// Its "Save profile" name prompt, painted over it.
+    /// Its "Save agent" name prompt, painted over it.
     NewAgentNaming,
     /// The new-mission dialog, raised from the tasks board's toolbar.
     NewMission,
-    /// The profile form, beside the login modal.
-    ProfileForm,
+    /// The agent-definition form, beside the login modal.
+    AgentDefinitionForm,
     /// The accounts section's rename, delete or sign-out question.
     AccountDialog,
     /// The connect flow.
@@ -79,6 +79,10 @@ pub enum Layer {
     Mission,
     /// A task's plan, read as rendered markdown — raised from the task panel.
     Plan,
+    /// The image/diagram zoom modal (T-185) — raised from a corner button on a scaled-down
+    /// picture in a markdown preview, wherever one is drawn, so it sits above both the standard
+    /// viewer's tab and the plan surface's own rendered markdown.
+    ImageZoom,
     /// The file question — new, rename, save-as and the rest, and the plan modal's own Export
     /// prompt, painted over it on the same terms `FileDialog` already sits over everything else
     /// that can raise it.

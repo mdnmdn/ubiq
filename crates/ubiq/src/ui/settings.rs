@@ -17,8 +17,8 @@ use ubiq_proto::connectors::{
     AuthKind, CertReason, Connection, InstanceNeed, OAUTH_REDIRECT, OauthApp, ProviderId,
     TrustedCert, origin,
 };
-use ubiq_proto::ids::PaneId;
-use ubiq_proto::messages::{AccountInfo, CliShortcutAction, LoginStatus, ProfileInfo};
+use ubiq_proto::ids::{PaneId, ProjectId};
+use ubiq_proto::messages::{AccountInfo, AgentDefinition, CliShortcutAction, LoginStatus};
 use ubiq_proto::projects::IndexLevel;
 use ubiq_proto::settings::{AgentHome, RemoteCarrier, SshAuth, SshProfile};
 
@@ -185,6 +185,9 @@ fn nav_icon(item: SettingsSection) -> Icon {
         // The asterisk is Claude's own mark — a generic "Harnesses" section wears the honest
         // fallback instead.
         SettingsSection::Harnesses => UbiqIcon::HarnessAny.into(),
+        // The rail's own Agents mark, so the section that writes a setup and the screen that runs
+        // one read as the same thing.
+        SettingsSection::AgentDefinitions => UbiqIcon::ModeAgents.into(),
         SettingsSection::Isolation => UbiqIcon::Isolation.into(),
         SettingsSection::Assist => IconName::Cpu.into(),
         SettingsSection::Connectors => UbiqIcon::FamilyConnectors.into(),
@@ -205,6 +208,7 @@ fn body(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         SettingsSection::Editor => editor(app, cx),
         SettingsSection::Search => search(app, cx),
         SettingsSection::Harnesses => harnesses(app, cx),
+        SettingsSection::AgentDefinitions => agent_definitions(app, cx),
         SettingsSection::Isolation => isolation(app, cx),
         SettingsSection::Assist => assist(app, cx),
         SettingsSection::Connectors => connectors(app, cx),
@@ -1414,17 +1418,75 @@ fn harnesses(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                 "Add harness",
                 cx.listener(|this, _, window, cx| this.open_harness_login(window, cx)),
             ))
-            .child(ghost_button(
-                "app-settings-add-profile",
-                Some(IconName::Plus),
-                "Add profile",
-                cx.listener(|this, _, window, cx| this.open_profile_form(None, None, window, cx)),
-            ))
             .into_any_element(),
     );
     rows.push(accounts(app, cx));
-    rows.push(profiles(app, cx));
     column(rows)
+}
+
+/// The saved setups, their own section: what exists, and the one button that writes another.
+///
+/// Its own section rather than the tail of Harnesses (where it lived until `T-206`): a harness is
+/// a tool this machine has and a definition is a recipe written against one, and reading a list of
+/// recipes under the heading of the tools is what made the two read as one list.
+fn agent_definitions(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+    let mut rows = vec![heading(
+        "Agent definitions",
+        "A definition is a saved setup \u{2014} which harness, as whom, on which model, with what \
+         it may do without asking. Every start is offered one, and a mission's coordinator and \
+         workers are chosen from them.",
+    )];
+    if let Some(error) = app.workbench.settings.error.clone() {
+        rows.push(error_banner(&error, cx));
+    }
+    rows.push(add_definition_button(
+        app,
+        "app-settings-add-definition",
+        None,
+        cx,
+    ));
+    rows.push(definitions(app, cx));
+    column(rows)
+}
+
+/// `Add agent`, drawn unavailable where the host would refuse it.
+///
+/// **A refusal the interface can see coming is drawn, not waited for.** With no harness on this
+/// machine a definition names nothing that could run, and the host rejects the save; the button
+/// says so on its hover and takes no click, rather than opening a form whose Save fails. Editing
+/// an existing definition stays available on such a machine — that is the host's rule too, and it
+/// is what repairs one.
+pub(crate) fn add_definition_button(
+    app: &AppState,
+    id: &'static str,
+    project: Option<ProjectId>,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    if !app.can_write_definition() {
+        return div()
+            .id(ElementId::Name(format!("{id}-unavailable").into()))
+            .opacity(0.5)
+            .child(ghost_button(
+                id,
+                Some(IconName::Plus),
+                "Add agent",
+                |_, _, _| {},
+            ))
+            .tooltip(|window, cx| {
+                gpui_component::tooltip::Tooltip::new(AppState::NO_HARNESS_REASON).build(window, cx)
+            })
+            .into_any_element();
+    }
+    div()
+        .child(ghost_button(
+            id,
+            Some(IconName::Plus),
+            "Add agent",
+            cx.listener(move |this, _, window, cx| {
+                this.open_definition_form(None, project, window, cx)
+            }),
+        ))
+        .into_any_element()
 }
 
 /// The `ubiq` command on the shell's `PATH`.
@@ -1654,54 +1716,64 @@ fn accounts(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
 
 /// The saved setups, one row each: what it is called, and what it starts.
 ///
-/// Empty draws nothing at all — the `Add profile` button above already says the list can grow,
-/// and a second empty-state beside the accounts' one would be two notices about one section.
-fn profiles(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
-    if app.workbench.settings.profiles.is_empty() {
-        return div().into_any_element();
+/// Empty says so in one line rather than drawing a headed list with nothing under it: this is the
+/// section's own list now, so the absence is the section's answer.
+fn definitions(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+    if app.workbench.settings.definitions.is_empty() {
+        return note("No agent definitions yet.", theme::text_faint());
     }
-    let profiles = app.workbench.settings.profiles.clone();
+    let definitions = app.workbench.settings.definitions.clone();
     div()
         .flex()
         .flex_col()
         .gap_1()
-        .child(section_label("Profiles"))
-        .children(profiles.iter().map(|profile| profile_row(app, profile, cx)))
+        // No section label: the section's own heading says the same words a line above it.
+        .children(
+            definitions
+                .iter()
+                .map(|definition| definition_row(app, definition, None, cx)),
+        )
         .into_any_element()
 }
 
 /// One saved setup: `reviewer — Codex · gpt-5 · plan`, and the way back into its form.
 ///
 /// Every field after the harness is optional and an empty one is left out rather than drawn as an
-/// empty pill. A profile naming a harness this machine does not have reads faint, the same way a
+/// empty pill. A definition naming a harness this machine does not have reads faint, the same way a
 /// harness row that is not installed does.
-fn profile_row(app: &AppState, profile: &ProfileInfo, cx: &mut Context<AppState>) -> AnyElement {
+pub(crate) fn definition_row(
+    app: &AppState,
+    definition: &AgentDefinition,
+    scope: Option<ProjectId>,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
     let available = app
         .workbench
         .agent_types
         .iter()
-        .any(|info| info.id == profile.agent_type && info.available);
+        .any(|info| info.id == definition.agent_type && info.available);
 
-    let mut parts = vec![harness_label(app, &profile.agent_type).to_string()];
-    parts.extend(profile.account.clone().filter(|it| !it.is_empty()));
-    parts.extend(profile.model.clone().filter(|it| !it.is_empty()));
+    let mut parts = vec![harness_label(app, &definition.agent_type).to_string()];
+    parts.extend(definition.account.clone().filter(|it| !it.is_empty()));
+    parts.extend(definition.model.clone().filter(|it| !it.is_empty()));
     parts.extend(
-        profile
+        definition
             .mode
             .as_deref()
             .filter(|it| !it.is_empty())
-            .map(|mode| mode_label(app, &profile.agent_type, mode).to_string()),
+            .map(|mode| mode_label(app, &definition.agent_type, mode).to_string()),
     );
-    // The MCP servers this profile launches with — saved on it the same way the account, model
+    // The MCP servers this definition launches with — saved on it the same way the account, model
     // and mode above are, so the summary line names everything a run of it starts composed of.
-    if !profile.mcps.is_empty() {
-        parts.push(match profile.mcps.len() {
+    if !definition.mcps.is_empty() {
+        parts.push(match definition.mcps.len() {
             1 => "1 MCP".to_string(),
             n => format!("{n} MCPs"),
         });
     }
 
-    let edit = profile.clone();
+    let edit = definition.clone();
+    let clone_id = definition.id.clone();
     div()
         .flex()
         .items_center()
@@ -1711,38 +1783,97 @@ fn profile_row(app: &AppState, profile: &ProfileInfo, cx: &mut Context<AppState>
         .child(
             div()
                 .flex()
-                .items_center()
-                .gap_2()
+                .flex_col()
+                .gap_0p5()
                 .min_w(px(0.))
                 .child(
                     div()
-                        .text_size(theme::font(Family::Chrome, Role::Body))
-                        .text_color(if available {
-                            theme::text()
-                        } else {
-                            theme::text_faint()
-                        })
-                        .child(SharedString::from(profile.id.clone())),
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .min_w(px(0.))
+                        .child(
+                            div()
+                                .text_size(theme::font(Family::Chrome, Role::Body))
+                                // A switched-off setup reads faint for the same reason a harness
+                                // that is not installed does: it is listed, and it is not on offer.
+                                .text_color(if available && !definition.disabled {
+                                    theme::text()
+                                } else {
+                                    theme::text_faint()
+                                })
+                                .child(SharedString::from(definition.id.clone())),
+                        )
+                        .children(definition_marks(definition))
+                        .child(
+                            div()
+                                .text_size(theme::font(Family::Chrome, Role::Meta))
+                                .text_color(theme::text_muted())
+                                .child(SharedString::from(format!(
+                                    "\u{2014} {}",
+                                    parts.join(" \u{b7} ")
+                                ))),
+                        ),
                 )
-                .child(
-                    div()
-                        .text_size(theme::font(Family::Chrome, Role::Meta))
-                        .text_color(theme::text_muted())
-                        .child(SharedString::from(format!(
-                            "\u{2014} {}",
-                            parts.join(" \u{b7} ")
-                        ))),
-                ),
+                // What the definition is for, under the name — one line, elided rather than
+                // wrapped: this row is a summary, not the form.
+                .children(definition.description.as_deref().filter(|it| !it.is_empty()).map(
+                    |description| {
+                        elided(
+                            ElementId::Name(
+                                format!("app-settings-definition-{}-description", definition.id)
+                                    .into(),
+                            ),
+                            description.to_string(),
+                            theme::text_muted(),
+                            theme::font(Family::Chrome, Role::Meta),
+                        )
+                    },
+                )),
         )
-        .child(ghost_button(
-            ElementId::Name(format!("app-settings-profile-{}-edit", profile.id).into()),
-            None,
-            "Edit",
-            cx.listener(move |this, _, window, cx| {
-                this.open_profile_form(Some(edit.clone()), None, window, cx)
-            }),
-        ))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap_1()
+                .child(ghost_button(
+                    ElementId::Name(
+                        format!("app-settings-definition-{}-clone", definition.id).into(),
+                    ),
+                    None,
+                    "Clone",
+                    cx.listener(move |this, _, _, cx| {
+                        this.clone_definition(clone_id.clone(), scope, cx)
+                    }),
+                ))
+                .child(ghost_button(
+                    ElementId::Name(
+                        format!("app-settings-definition-{}-edit", definition.id).into(),
+                    ),
+                    None,
+                    "Edit",
+                    cx.listener(move |this, _, window, cx| {
+                        this.open_definition_form(Some(edit.clone()), None, window, cx)
+                    }),
+                )),
+        )
         .into_any_element()
+}
+
+/// The badges a row wears for what the record says about itself: the two roles, and the off
+/// switch. Colour, not wording alone — "Off" is a status, and the status group is what says so.
+fn definition_marks(definition: &AgentDefinition) -> Vec<AnyElement> {
+    let mut marks = Vec::new();
+    if definition.mission_coordinator {
+        marks.push(badge("Coordinator", theme::accent()).into_any_element());
+    }
+    if definition.mission_worker {
+        marks.push(badge("Worker", theme::info()).into_any_element());
+    }
+    if definition.disabled {
+        marks.push(badge("Off", theme::warning()).into_any_element());
+    }
+    marks
 }
 
 /// A mode's display name, through the harness's own list — falling back to the raw value when
@@ -2237,18 +2368,22 @@ pub fn account_dialog(
 /// This is a modal rather than a tab on purpose: an OAuth flow wants the whole of the user's
 /// attention for the half-minute it takes, and a login that scrolled away behind a pane is a
 /// login nobody finishes.
-/// The profile form: a name, and every question a start answers.
+/// The definition form: a name, and every question a start answers.
 ///
-/// It is [`crate::ui::new_agent::body`] with a name field above it — a profile is a saved answer
+/// It is [`crate::ui::new_agent::body`] with a name field above it — a definition is a saved answer
 /// to the same questions, so it asks them with the same rows rather than with a second set that
-/// would drift. What it drops is what a saved setup does not have: the profile half of the target
+/// would drift. What it drops is what a saved setup does not have: the definition half of the target
 /// picker, and the Start button.
-pub fn profile_form(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> AnyElement {
-    let Some(form) = app.workbench.settings.profile_form.clone() else {
+pub fn definition_form(
+    app: &AppState,
+    window: &mut Window,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let Some(form) = app.workbench.settings.definition_form.clone() else {
         return div().into_any_element();
     };
     let view = cx.entity();
-    let named = !app.profile_id_input.read(cx).value().trim().is_empty();
+    let named = !app.definition_id_input.read(cx).value().trim().is_empty();
     let ready = named && !form.agent_type.is_empty();
 
     let body = div()
@@ -2262,21 +2397,21 @@ pub fn profile_form(app: &AppState, window: &mut Window, cx: &mut Context<AppSta
                 .flex_col()
                 .gap_2()
                 .child(crate::ui::kit::label_hint(
-                    "app-settings-profile-name-hint",
+                    "app-settings-definition-name-hint",
                     "Name",
                     "What to call this setup. Saving over an existing name replaces it.",
                 ))
                 .child(
                     field(
                         theme::border(),
-                        app.profile_id_input
+                        app.definition_id_input
                             .read(cx)
                             .focus_handle(cx)
                             .is_focused(window),
                     )
                     .h(px(30.))
                     .px_2()
-                    .child(Input::new(&app.profile_id_input).appearance(false)),
+                    .child(Input::new(&app.definition_id_input).appearance(false)),
                 ),
         )
         .child(crate::ui::new_agent::body(app, window, cx))
@@ -2291,17 +2426,17 @@ pub fn profile_form(app: &AppState, window: &mut Window, cx: &mut Context<AppSta
             .items_center()
             .gap_2()
             .child(ghost_button(
-                "app-settings-profile-cancel",
+                "app-settings-definition-cancel",
                 None,
                 "Cancel",
-                cx.listener(|this, _, _, cx| this.close_profile_form(cx)),
+                cx.listener(|this, _, _, cx| this.close_definition_form(cx)),
             ))
             .child(
                 primary_button(
-                    "app-settings-profile-save",
+                    "app-settings-definition-save",
                     None,
                     "Save",
-                    cx.listener(|this, _, _, cx| this.save_new_agent_profile(cx)),
+                    cx.listener(|this, _, _, cx| this.save_new_agent_definition(cx)),
                 )
                 .when(!ready, |button| button.opacity(0.5)),
             )
@@ -2311,13 +2446,13 @@ pub fn profile_form(app: &AppState, window: &mut Window, cx: &mut Context<AppSta
 
     crate::ui::new_agent::confirmable(
         div().child(modal(
-            "app-settings-profile",
+            "app-settings-definition",
             theme::accent(),
-            "Profile",
+            "Agent",
             body,
             footer,
-            crate::ui::dismiss(&view, Layer::ProfileForm, |this, _, cx| {
-                this.close_profile_form(cx)
+            crate::ui::dismiss(&view, Layer::AgentDefinitionForm, |this, _, cx| {
+                this.close_definition_form(cx)
             }),
             window,
         )),
@@ -2469,7 +2604,7 @@ fn choosing(
                         .flex_wrap()
                         .gap_2()
                         // Every harness, installed or not: one that is missing is exactly the
-                        // case a custom command fixes, so it reads faint — the way a profile
+                        // case a custom command fixes, so it reads faint — the way a definition
                         // naming an absent harness does — and stays pickable.
                         .children(app.workbench.agent_types.iter().map(|agent_type| {
                             let id = agent_type.id.clone();

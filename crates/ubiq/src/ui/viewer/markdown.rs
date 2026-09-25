@@ -16,8 +16,9 @@ use std::rc::Rc;
 use std::sync::OnceLock;
 
 use gpui::{
-    AnyElement, HighlightStyle, InteractiveElement, IntoElement, Overflow, ParentElement, Pixels,
-    SharedString, StatefulInteractiveElement, StyleRefinement, Styled, div, px, relative,
+    AnyElement, HighlightStyle, ImageSource, InteractiveElement, IntoElement, Overflow,
+    ParentElement, Pixels, Resource, SharedString, SharedUri, StatefulInteractiveElement,
+    StyleRefinement, Styled, div, img, px, relative,
 };
 use gpui_component::scroll::Scrollbar;
 use gpui_component::text::{
@@ -31,6 +32,50 @@ use crate::ui::{eid, eid2, on_link};
 
 /// The name the fence parser gives its nodes and the renderer answers to.
 const FENCE: &str = "ubiq-diagram-fence";
+
+/// The name the standalone-image parser gives its nodes (T-185) — a paragraph holding nothing but
+/// one `![alt](url)`, the same shape `state::document::is_image_reference` already tells the
+/// minimap apart by. Its own block, rather than left to the text view's built-in inline image,
+/// because only a block this module owns can carry the reading-measure cap and the zoom button —
+/// the same treatment a fenced diagram gets, and for the same reason: T-185 asks for both.
+const IMAGE_BLOCK: &str = "ubiq-image-block";
+
+/// What the standalone-image parser carries from the parse to the drawing: just enough to build
+/// the same `img(...)` element the library's own inline image would, plus a title for the zoom
+/// modal.
+#[derive(Clone)]
+struct ImageBlock {
+    url: String,
+    alt: String,
+}
+
+impl ImageBlock {
+    /// A paragraph that is nothing but one image is a block of its own; a paragraph carrying an
+    /// image beside any other inline content — prose before or after it, a second image — is left
+    /// to the text view's own inline rendering, which draws it as part of the running text it
+    /// actually is. Mirrors `state::document::is_image_reference`'s own rule, read off the AST
+    /// directly rather than off the rendered text it inspects.
+    fn of(node: &markdown_ast::Node) -> Option<Self> {
+        let markdown_ast::Node::Paragraph(paragraph) = node else {
+            return None;
+        };
+        let [markdown_ast::Node::Image(image)] = paragraph.children.as_slice() else {
+            return None;
+        };
+        Some(ImageBlock {
+            url: image.url.clone(),
+            alt: image.alt.clone(),
+        })
+    }
+}
+
+/// The same `img(...)` source the library's own inline image renderer resolves a markdown image
+/// URL through (`gpui_base::text::utils::image_source`) — a `SharedUri` unconditionally, not the
+/// generic `From<String>` GPUI offers, which reads a non-URI string as an embedded asset rather
+/// than a project-relative path and would silently stop a real image from loading.
+fn image_source(url: &str) -> ImageSource {
+    ImageSource::Resource(Resource::Uri(SharedUri::from(url.to_string())))
+}
 
 /// Which renderer a fence's tag names.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -158,6 +203,19 @@ fn scan_and_publish(app: &AppState, key: &str, source: &str) -> (Option<String>,
 /// and headings alike, sized so it reads well at the tightest heading as well as the loosest
 /// paragraph — proposal principle 1 loses some of its "leading shrinks as size grows" nuance, but
 /// nothing renders wrong.
+///
+/// **A third thing this cannot reach, added by T-188:** the reading-options popover's four-way
+/// text-colour picker (`crate::state::editor::TextShade`) has nowhere to attach either. Unlike
+/// `paragraph_gap`/`code_block`/`table`, this `TextViewStyle` (the `ui`-crate facade, not
+/// `gpui_base`'s richer one `crate::ui::conversation` reaches through a different path) carries no
+/// foreground colour at all — the prose colour is installed once, window-wide, from the active
+/// theme (`install_text_view_defaults` in the vendored `crates/ui/src/text/mod.rs`), and nothing
+/// `TextView::style(...)` is handed can override it per instance. So `MdReading::char_scale` above
+/// reaches the document (`body_size` is multiplied by it before this function ever sees it) and
+/// `MdReading::text_shade` does not: the picker, the per-document state and the persistence all
+/// landed, but the rendered body still draws in the theme's own colour regardless of which
+/// rectangle is picked. Reaching this needs either an upstream `TextViewStyle` foreground hook or
+/// a small patch to the vendored copy — a card of its own, not this one.
 fn typography(app: &AppState, body: Pixels) -> (TextViewStyle, f32) {
     let line_height = theme::md_body_line_height(
         app.workbench.settings.ui.md_width,
@@ -231,7 +289,7 @@ pub fn render(
         cx.entity(),
         Some(crate::state::editor::from_tab_key(key).0.into()),
     );
-    render_linked_scrollable(app, key, source, frontmatter_open, follow, None, cx)
+    render_linked_scrollable(app, key, source, frontmatter_open, follow, None, true, cx)
 }
 
 /// The same document, scrolled by the caller's own handle rather than the text view's internal
@@ -252,7 +310,46 @@ pub fn render_scrollable(
         cx.entity(),
         Some(crate::state::editor::from_tab_key(key).0.into()),
     );
-    render_linked_scrollable(app, key, source, frontmatter_open, follow, Some(scroll), cx)
+    render_linked_scrollable(
+        app,
+        key,
+        source,
+        frontmatter_open,
+        follow,
+        Some(scroll),
+        true,
+        cx,
+    )
+}
+
+/// The same document again, for the split layout's right-hand pane (T-166): an external scroll
+/// handle exactly like [`render_scrollable`]'s, but uncapped — a half-pane is already narrower
+/// than the full viewer, so pinning it to the reading measure on top of that left it using less
+/// width than it had, not more. The split's own pane already bounds the line length; the measure
+/// preset is what the full-width preview needs to keep an unbounded window from reading like a
+/// newspaper, and does not apply here.
+pub fn render_split(
+    app: &AppState,
+    key: &str,
+    source: &str,
+    frontmatter_open: bool,
+    scroll: &gpui::ScrollHandle,
+    cx: &mut gpui::Context<AppState>,
+) -> AnyElement {
+    let follow = on_link(
+        cx.entity(),
+        Some(crate::state::editor::from_tab_key(key).0.into()),
+    );
+    render_linked_scrollable(
+        app,
+        key,
+        source,
+        frontmatter_open,
+        follow,
+        Some(scroll),
+        false,
+        cx,
+    )
 }
 
 /// The same document, with a caller's own answer to a clicked link.
@@ -273,7 +370,7 @@ pub fn render_linked(
     + 'static,
     cx: &mut gpui::Context<AppState>,
 ) -> AnyElement {
-    render_linked_scrollable(app, key, source, frontmatter_open, follow, None, cx)
+    render_linked_scrollable(app, key, source, frontmatter_open, follow, None, true, cx)
 }
 
 fn render_linked_scrollable(
@@ -286,14 +383,37 @@ fn render_linked_scrollable(
     + Sync
     + 'static,
     scroll: Option<&gpui::ScrollHandle>,
+    // Whether the document is capped at the preset's reading measure (§5.1). Every caller but
+    // [`render_split`] wants it; a half-pane is narrower already and reflowing to what width it
+    // actually has is the split layout's own fix (T-166).
+    cap_width: bool,
     cx: &mut gpui::Context<AppState>,
 ) -> AnyElement {
     let (frontmatter, body) = scan_and_publish(app, key, source);
 
-    let body_size = theme::font(theme::Family::Content, theme::Role::Body);
+    // T-188: the reading-options popover's per-document character-size multiplier, over the
+    // system font size rather than an absolute point size — `MdReading::char_scale`, `1.0` for a
+    // tab (or a caller like `render_linked`'s help page) that never opened the popover at all.
+    let char_scale = app
+        .file(key, cx)
+        .map_or(1.0, |file| file.md_reading.char_scale);
+    let body_size = theme::font(theme::Family::Content, theme::Role::Body) * char_scale;
     let (style, line_height) = typography(app, body_size);
     let measure = theme::md_measure_width(app.workbench.settings.ui.md_width, body_size);
     let line_height_px = body_size * line_height;
+
+    // T-185: every fence and every standalone image in this document scales down to fit the same
+    // measure the column itself is capped at — never published when this call does not cap the
+    // column (the split layout's right pane), so a picture there keeps drawing at its own size,
+    // scrolling horizontally past it exactly as it always has. A fence's block renderer is handed
+    // no `AppState`, so this is a hand-off exactly like `scan_and_publish`'s own `diagram::publish`
+    // a few lines below, and it is published unconditionally so a stale measure from whichever
+    // document rendered last in this frame can never bleed into this one.
+    super::diagram::publish_measure(if cap_width {
+        measure.map(f32::from)
+    } else {
+        None
+    });
 
     // Keyed on the settled point size as well as the file: the text view keeps the height it
     // measured each block at and only reconsiders when its width changes, so a zoom needs a new
@@ -322,7 +442,7 @@ fn render_linked_scrollable(
         // offset is `pub(super)` in the component library and cannot be read or moved from here.
         .scrollable(scroll.is_none())
         .selectable(true);
-    if let Some(measure) = measure {
+    if cap_width && let Some(measure) = measure {
         document = document.max_w(measure);
     }
 
@@ -393,6 +513,10 @@ fn render_linked_scrollable(
 /// Not scrollable and not padded like a full document — a block is short by construction, and it
 /// sits inside a container the caller already gives padding and a click target.
 pub fn render_block(app: &AppState, key: &str, text: &str) -> AnyElement {
+    // T-185: a block draws at its own natural size, same as before this card — no measure to cap
+    // it at here, and published explicitly so a full document rendered earlier this frame cannot
+    // leave its own measure behind for this block's fence to pick up.
+    super::diagram::publish_measure(None);
     let (_, body) = scan_and_publish(app, key, text);
     let body_size = theme::font(theme::Family::Content, theme::Role::Body);
     let (style, line_height) = typography(app, body_size);
@@ -514,7 +638,43 @@ fn extensions() -> &'static MarkdownExtensions {
                     Format::Excalidraw => super::scene::render(&fence.source),
                 }
             })
+            .block_parser(|node, _| {
+                let block = ImageBlock::of(node)?;
+                let text = format!("![{}]({})", block.alt, block.url);
+                Some(MarkdownNode::new(IMAGE_BLOCK, block).text(text))
+            })
+            .block_renderer(IMAGE_BLOCK, |node, _, _| {
+                let Some(block) = node.data::<ImageBlock>() else {
+                    return super::note("Not an image this build draws", theme::text_faint());
+                };
+                render_image_block(block)
+            })
     })
+}
+
+/// A standalone markdown image (T-185): the picture, capped at the document's reading measure —
+/// never blown up past its own size, only shrunk down when it overruns the column, the same rule
+/// `diagram::scale_to_measure` gives a fenced diagram — with the corner zoom button beside it.
+///
+/// **The zoom modal needs the picture's own pixel size** to seed its pan-and-zoom camera, and a
+/// fenced diagram already carries that from the renderer that drew it. A plain image does not:
+/// GPUI decodes it lazily behind the same `img(url)` element the library's own inline image already
+/// draws, and there is no width or height in hand at parse time to publish one with. So this block
+/// gets the resize half of T-185 and not the modal — reading its decoded size back out to raise one
+/// is a card of its own.
+fn render_image_block(block: &ImageBlock) -> AnyElement {
+    let mut picture = img(image_source(&block.url)).flex_none();
+    if let Some(measure) = super::diagram::current_measure() {
+        picture = picture.max_w(px(measure));
+    }
+    div()
+        .id(eid("md-image", &block.url))
+        .w_full()
+        .flex()
+        .items_start()
+        .py_1()
+        .child(picture)
+        .into_any_element()
 }
 
 /// The fenced blocks a document holds that a diagram renderer draws.
@@ -655,14 +815,21 @@ thread_local! {
 /// the navigator lists, while [`structure_marks`] reads only the root's own children, because a
 /// block nested inside a larger one is part of that block's shape as far as a minimap is
 /// concerned. What they wanted to share was the parse, not the walk.
+///
+/// **Both run over the body, not the source** — [`split_frontmatter`] first, exactly as the
+/// preview and [`fences`] already do. Walking the raw source instead put a phantom top-level entry
+/// in the navigator and a phantom shape in the minimap for every document with frontmatter (T-155),
+/// and measured every fraction against a length the rendered document does not have, so every mark
+/// landed short of the thing it points at (T-151).
 fn walks(key: &str, source: &str) -> (Rc<Vec<HeadingMark>>, Rc<Vec<StructureMark>>) {
     let (len, hash) = fingerprint(source);
     WALK_CACHE.with_borrow_mut(|cache| {
         let stale =
             !matches!(cache.get(key), Some(cached) if cached.len == len && cached.hash == hash);
         if stale {
-            let ast = markdown::to_mdast(source, &markdown::ParseOptions::gfm()).ok();
-            let source_len = source.len().max(1) as f32;
+            let (_, body) = split_frontmatter(source);
+            let ast = markdown::to_mdast(body, &ubiq_proto::blocks::options()).ok();
+            let source_len = body.len().max(1) as f32;
             let mut headings = Vec::new();
             let mut structure = Vec::new();
             if let Some(ast) = &ast {
@@ -893,5 +1060,56 @@ mod tests {
             structure[0].kind,
             crate::state::document::MinimapBlockKind::Heading
         );
+    }
+
+    /// Frontmatter is split off before the structural walk, so it contributes no navigator entry
+    /// and no minimap shape (T-155) — and every fraction is measured against the body, which is
+    /// what the document draws, so the first heading of a document with frontmatter still sits at
+    /// the top of the strip rather than partway down it (T-151).
+    #[test]
+    fn frontmatter_is_split_before_the_document_is_walked() {
+        let with = "---\ntitle: x\nstatus: draft\n---\n\n# One\n\nbody\n\n## Two\n";
+        let without = "# One\n\nbody\n\n## Two\n";
+
+        let marks = heading_marks("walk-with-frontmatter", with);
+        let bare = heading_marks("walk-without-frontmatter", without);
+        assert_eq!(marks.len(), 2, "the YAML is not a heading");
+        assert_eq!(marks[0].label, "One");
+        // The YAML is most of this document's bytes, so measuring against the whole source put
+        // the first heading past the middle of the strip. Against the body it opens it — not at
+        // exactly `0.0`, because `split_frontmatter` leaves the blank line after the closing
+        // fence, and that blank line is in what the view draws too.
+        assert!(marks[0].fraction < 0.1, "{}", marks[0].fraction);
+        assert!((marks[1].fraction - bare[1].fraction).abs() < 0.1);
+
+        let structure = structure_marks("walk-with-frontmatter", with);
+        assert_eq!(
+            structure.len(),
+            structure_marks("walk-without-frontmatter", without).len(),
+            "the YAML draws no shape of its own",
+        );
+        assert!(structure[0].fraction < 0.1);
+    }
+
+    /// A paragraph that is nothing but one image is the standalone-image block T-185's resize and
+    /// zoom button reach — the same shape `state::document::is_image_reference` names.
+    #[test]
+    fn a_paragraph_holding_only_an_image_is_the_image_block() {
+        let ast = markdown::to_mdast("![a cat](cat.png)\n", &markdown::ParseOptions::gfm())
+            .expect("parses");
+        let paragraph = &ast.children().expect("root has children")[0];
+        let block = ImageBlock::of(paragraph).expect("an image-only paragraph is a block");
+        assert_eq!(block.url, "cat.png");
+        assert_eq!(block.alt, "a cat");
+    }
+
+    /// An image beside any other inline content is left to the text view's own inline rendering —
+    /// only a paragraph that is *nothing else* becomes a block.
+    #[test]
+    fn an_image_beside_prose_is_not_the_image_block() {
+        let ast = markdown::to_mdast("look: ![a cat](cat.png)\n", &markdown::ParseOptions::gfm())
+            .expect("parses");
+        let paragraph = &ast.children().expect("root has children")[0];
+        assert!(ImageBlock::of(paragraph).is_none());
     }
 }

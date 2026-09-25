@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use ubiq_proto::ask::AskClosed;
+use ubiq_proto::ask::{AskClosed, AskOutcome};
 use ubiq_proto::assist::{AssistProvider, SuggestSubject};
 use ubiq_proto::bus::{ClientId, FromClient, HostEnd, MovingAddress, To};
 use ubiq_proto::conversation::{
@@ -20,7 +20,7 @@ use ubiq_proto::conversation::{
 };
 use ubiq_proto::files::{FileError, FileVersion};
 use ubiq_proto::ids::{
-    KbSourceId, PaneId, ProjectId, SearchId, SessionId, SshProfileId, SuggestId, ToolId,
+    AskId, KbSourceId, PaneId, ProjectId, SearchId, SessionId, SshProfileId, SuggestId, ToolId,
 };
 use ubiq_proto::messages::{AgentPicks, CatalogueModel, Message, Secret, TaskField, WorkspaceInfo};
 use ubiq_proto::notifications::{Family, NotificationRequest};
@@ -285,6 +285,11 @@ struct Coordinator {
     /// the MCP listener parks its tool calls on the same table this thread answers into — the two
     /// halves of an ask never meet anywhere else (`D138`, [`crate::ask`]).
     asks: Arc<crate::ask::Asks>,
+    /// Every dialog an agent registered for the end of its turn and not yet had an answer to.
+    /// `Arc` for the reason [`Self::asks`] is, and between the same threads: the MCP listener arms
+    /// a row, the conversation's pump raises it at the turn boundary, and this thread turns the
+    /// answer into the next turn's prompt (`D175`, [`crate::armed`]).
+    armed: Arc<crate::armed::Armed>,
     /// The launch recipe for every agent this window has asked for, kept for the agent's whole
     /// life rather than only until its first launch. Before a first [`Message::PromptAgent`] it is
     /// what P3's loader is waiting on; after `UnloadConversation` it is what
@@ -343,8 +348,8 @@ struct PendingConversation {
     account: Option<String>,
     /// The saved setup this conversation was started from, passed through to the library's
     /// `resolve` at launch. Its model and mode are *also* copied into the `chosen_*` fields
-    /// below, because those outrank a profile inside `resolve`.
-    profile: Option<String>,
+    /// below, because those outrank a definition inside `resolve`.
+    definition: Option<String>,
     cwd: PathBuf,
     /// Set by a `SetAgentConfig{config_id: "model", ..}` before launch. `None`, or an empty
     /// string, both mean "whatever this harness defaults to" — no `--model` flag at all.
@@ -803,6 +808,9 @@ impl Coordinator {
         // The parked questions, shared with the listener for the reason the knowledge base is:
         // `ubiq-ask`'s tool waits on this table from its own thread and this one answers into it.
         let asks = Arc::new(crate::ask::Asks::new());
+        // The registered dialogs, shared the same way and with the same two halves — armed on the
+        // listener's thread, raised on a pump's, answered on this one.
+        let armed = Arc::new(crate::armed::Armed::new());
         let mcp = crate::mcp::start(
             mcp_agents.clone(),
             host.voice(),
@@ -820,13 +828,17 @@ impl Coordinator {
             Some(crate::mcp::MissionReach {
                 missions: missions.clone(),
                 everyone: host.mailbox(To::Everyone),
+                agent_definitions_root: root.path.clone(),
             }),
             Some(crate::mcp::KbReach {
                 kb: kb.clone(),
                 everyone: host.mailbox(To::Everyone),
             }),
             Some(crate::mcp::HelpReach { help: help.clone() }),
-            Some(crate::mcp::AskReach { asks: asks.clone() }),
+            Some(crate::mcp::AskReach {
+                asks: asks.clone(),
+                armed: armed.clone(),
+            }),
         )
         .inspect_err(|error| {
             tracing::warn!("Ubiq's own MCP servers are not available: {error:#}");
@@ -847,6 +859,11 @@ impl Coordinator {
             agents
         };
         agents.sweep();
+        // A fresh install gets its three agent definitions here, once, before any window asks
+        // for the list — and only when the root holds none, so nobody's own list is added to.
+        if let Err(error) = agents.ensure_default_definitions() {
+            tracing::warn!("the default agent definitions could not be written: {error:#}");
+        }
         let settings = Arc::new(settings);
         let connectors = Connectors::new(settings.clone(), &root.path);
         let repos = Repos::new(settings.clone(), connectors.store());
@@ -908,7 +925,7 @@ impl Coordinator {
                         project_id: row.project_id,
                         agent_type: row.agent_type,
                         account: row.account,
-                        profile: row.profile,
+                        definition: row.definition,
                         cwd: row.cwd,
                         chosen_model: row.model,
                         chosen_thinking: row.thinking,
@@ -968,6 +985,7 @@ impl Coordinator {
             conversations: HashMap::new(),
             conversation_owners: HashMap::new(),
             asks,
+            armed,
             pending_conversations,
             logins: HashMap::new(),
             started: Instant::now(),
@@ -1247,9 +1265,17 @@ impl Coordinator {
     fn register_clones(&mut self) {
         for done in self.repos.registered() {
             tracing::info!("clone {} landed at {}", done.clone_id, done.path);
-            let replies =
-                self.projects
-                    .add(&done.path, Some(done.name), None, None, done.ephemeral);
+            // A clone is Ubiq-managed: nothing in the clone request says otherwise, and writing
+            // a `.ubiq/` into a tree that was just fetched from somebody else's remote is not
+            // something the user asked for.
+            let replies = self.projects.add(
+                &done.path,
+                Some(done.name),
+                None,
+                None,
+                done.ephemeral,
+                ubiq_proto::projects::StorageMode::UbiqManaged,
+            );
             self.answer(done.client, replies);
         }
     }
@@ -1448,10 +1474,11 @@ impl Coordinator {
                 colour,
                 custom_colour,
                 temporary,
+                storage,
             } => {
-                let replies = self
-                    .projects
-                    .add(&path, name, colour, custom_colour, temporary);
+                let replies =
+                    self.projects
+                        .add(&path, name, colour, custom_colour, temporary, storage);
                 self.answer(client, replies);
             }
             Message::ForgetProject { project_id } => {
@@ -1578,11 +1605,26 @@ impl Coordinator {
             Message::ListAccounts => {
                 self.send_accounts(client);
             }
-            Message::ListProfiles => {
-                self.send_profiles(client);
+            Message::ListAgentDefinitions => {
+                self.send_definitions(client);
             }
-            Message::SaveProfile { profile } => match self.agents.save_profile(profile) {
-                Ok(()) => self.send_profiles(client),
+            Message::SaveAgentDefinition { definition } => {
+                match self.agents.save_definition(definition) {
+                    Ok(()) => self.send_definitions(client),
+                    Err(error) => self.host.send(
+                        To::Client(client),
+                        Message::AccountError {
+                            error: format!("{error:#}"),
+                        },
+                    ),
+                }
+            }
+            Message::CloneAgentDefinition {
+                id,
+                new_id,
+                project,
+            } => match self.agents.clone_definition(&id, &new_id, project) {
+                Ok(()) => self.send_definitions(client),
                 Err(error) => self.host.send(
                     To::Client(client),
                     Message::AccountError {
@@ -2233,7 +2275,7 @@ impl Coordinator {
             }
 
             // ── the work family ─────────────────────────────────────
-            // Fifteen arms and one helper. Every one names a project, and none of them touches a
+            // Sixteen arms and one helper. Every one names a project, and none of them touches a
             // user's folder — a task file lives under Ubiq's own config root, which the catalogue
             // and the view state already write from this thread.
             Message::ListWork { project_id } => {
@@ -2356,6 +2398,9 @@ impl Coordinator {
                     let replies = self.missions.lock().delete(project_id, task_id);
                     self.answer(client, replies);
                 }
+            }
+            Message::ArchiveTasks { project_id } => {
+                self.work_job(client, project_id, |work| work.archive(project_id));
             }
             Message::AddStep {
                 project_id,
@@ -2661,7 +2706,7 @@ impl Coordinator {
                 rel_path,
                 agent_type,
                 account,
-                profile,
+                definition,
                 model,
                 thinking,
                 mode,
@@ -2670,7 +2715,7 @@ impl Coordinator {
             } => {
                 self.start_conversation(
                     client, agent_id, project_id, session_id, rel_path, agent_type, account,
-                    profile, model, thinking, mode, mcps, spawned_by,
+                    definition, model, thinking, mode, mcps, spawned_by,
                 );
             }
             Message::PromptAgent { agent_id, text } => {
@@ -2685,6 +2730,14 @@ impl Coordinator {
                 // started: for an agent that has not launched, the line is already in its thread
                 // and that is the whole of the delivery.
                 let voiced = client.is_host_voice();
+                // **The user typed instead of answering.** A registered dialog *is* the question
+                // this turn ended on, and answering it is what opens the next one — so a prompt
+                // from the window closes whatever is on screen for it, and there is no path where
+                // the same turn is both answered and spoken to (`D175`). Only a window's own
+                // prompt: the host's voice is a mission line, not the user.
+                if !voiced {
+                    self.close_armed_dialogs(agent_id);
+                }
                 let client = if voiced {
                     let Some((owner, _)) = self.conversation_owners.get(&agent_id) else {
                         return;
@@ -2748,6 +2801,9 @@ impl Coordinator {
                             "an ask was raised by a conversation nobody owns",
                         );
                         self.asks.end(ask_id, AskClosed::Gone);
+                        // The same for the other mode, where there is no call to end and only a
+                        // row to forget.
+                        self.armed.close(ask_id);
                     }
                 }
             }
@@ -2756,11 +2812,27 @@ impl Coordinator {
                 ask_id,
                 outcome,
             } => {
-                // The same owner gate every conversation-family message passes, then the table.
-                // An answer naming an ask nobody is holding — one that timed out while the dialog
-                // was still open, or a second answer — is dropped quietly there.
-                if self.drives(client, agent_id) {
-                    self.asks.answer(ask_id, outcome);
+                // The same owner gate every conversation-family message passes, then whichever
+                // table is holding this ask. An answer naming an ask nobody is holding — one that
+                // timed out while the dialog was still open, or a second answer — is dropped
+                // quietly by both.
+                if !self.drives(client, agent_id) {
+                    return;
+                }
+                // The two modes differ only here. A parked call is released with the outcome and
+                // reads it as its own tool result; a registered dialog has no call left to
+                // release, so the outcome becomes the next turn instead (`D175`). `Chat` sends
+                // nothing either way: the user would rather type, and that is what they do next.
+                match self.armed.answer(ask_id) {
+                    Some(questions) => {
+                        if let AskOutcome::Answered(answers) = outcome {
+                            let text = crate::armed::prose(&questions, &answers);
+                            self.drive(client, agent_id, |conversation| conversation.prompt(text));
+                        }
+                    }
+                    None => {
+                        self.asks.answer(ask_id, outcome);
+                    }
                 }
             }
             // The one ask message that travels both ways, so the sender is what tells them apart.
@@ -2776,8 +2848,10 @@ impl Coordinator {
             } => match self.conversation_owners.get(&agent_id).copied() {
                 Some((owner, _)) if owner == client => {
                     // An id the host is no longer holding — one that timed out first — is
-                    // dropped quietly by the table.
+                    // dropped quietly by the table. Both tables: a window that cannot draw a
+                    // registered dialog leaves nothing to answer either.
                     self.asks.end(ask_id, why);
+                    self.armed.close(ask_id);
                 }
                 Some((owner, _)) => self.host.send(
                     To::Client(owner),
@@ -2996,7 +3070,7 @@ impl Coordinator {
         rel_path: Option<String>,
         agent_type: String,
         account: Option<String>,
-        profile: Option<String>,
+        definition: Option<String>,
         model: Option<String>,
         thinking: Option<String>,
         mode: Option<String>,
@@ -3067,7 +3141,7 @@ impl Coordinator {
             harness: label,
             // No run has happened yet to say which identity actually answered, so this reports
             // what was *asked* for rather than what compose_run resolves — a known, accepted gap
-            // while there is no profile UI to make the two differ; see the doc's Traps.
+            // while there is no definition UI to make the two differ; see the doc's Traps.
             account: account.clone().unwrap_or_default(),
             // Empty until the harness says which model answered — it is the only thing that
             // knows, and guessing would put a wrong name under a real conversation.
@@ -3113,19 +3187,19 @@ impl Coordinator {
         // `account` is inert in `discover_models` today, but it is already the cache key's
         // identity leg — captured before `account` moves into the pending record below.
         let account_key = account.clone().unwrap_or_default();
-        // A profile's model and mode are seeded into the picks rather than left to `resolve`:
+        // A definition's model and mode are seeded into the picks rather than left to `resolve`:
         // `launch_picks` fills `flags.model` from the catalogue's default when `chosen_model`
-        // is empty, and a flag outranks the profile — so a profile left unseeded would be
+        // is empty, and a flag outranks the definition — so a definition left unseeded would be
         // shown wrong by the picker *and* launched over. One read, both problems.
-        let record = profile.as_deref().and_then(|name| {
+        let record = definition.as_deref().and_then(|name| {
             self.agents
-                .profiles()
+                .definitions()
                 .unwrap_or_default()
                 .into_iter()
                 .find(|record| record.id == name)
         });
-        // An explicit pick outranks the profile's, the way a pick always does: a flag was the
-        // user overriding what the profile set, and the profile's own record is only the
+        // An explicit pick outranks the definition's, the way a pick always does: a flag was the
+        // user overriding what the definition set, and the definition's own record is only the
         // fallback when there was no pick.
         let chosen_model = model
             .filter(|value| !value.is_empty())
@@ -3145,7 +3219,7 @@ impl Coordinator {
                 project_id,
                 agent_type: agent_type.clone(),
                 account,
-                profile,
+                definition,
                 cwd,
                 chosen_model,
                 chosen_thinking,
@@ -3201,7 +3275,7 @@ impl Coordinator {
                     &last_model,
                 );
                 // A seeded thinking pick (from an explicit `StartConversation` field or the
-                // profile record) outranks the remembered last-used level, the same way
+                // definition record) outranks the remembered last-used level, the same way
                 // `chosen_model` outranks `last_model` above.
                 let thinking_for_options = if seeded_thinking.is_empty() {
                     &last_thinking
@@ -3316,8 +3390,8 @@ impl Coordinator {
                 model: model.clone(),
                 thinking: thinking.clone(),
                 mode,
-                profile: pending.profile.clone(),
-                // Which profiles this run can even see: the project's own, over the global
+                definition: pending.definition.clone(),
+                // Which definitions this run can even see: the project's own, over the global
                 // ones. A conversation always belongs to a project, so this is never absent.
                 project: Some(pending.project_id),
                 prompt: first_prompt,
@@ -3352,8 +3426,8 @@ impl Coordinator {
             dir = %composed.dir.display(),
             "conversation started"
         );
-        // A stale reference in the profile this run resolved does not stop it launching (see
-        // `Composed::problems`) — it still has to reach the person who set the profile up, as a
+        // A stale reference in the definition this run resolved does not stop it launching (see
+        // `Composed::problems`) — it still has to reach the person who set the definition up, as a
         // dismissable entry in the bell rather than nothing at all.
         self.report_run_problems(client, &pending.agent_type, &composed.problems);
 
@@ -3435,6 +3509,12 @@ impl Coordinator {
             quota,
             quiet,
             flags,
+            // Where a dialog this agent registers mid-turn is raised from: the pump sees the turn
+            // end, and the coordinator is what addresses the question it says (`D175`).
+            Some(crate::conversation::AskFire {
+                armed: self.armed.clone(),
+                voice: self.host.voice(),
+            }),
         );
         self.conversations.insert(agent_id, conversation);
         if dump_path.is_some() {
@@ -3770,7 +3850,7 @@ impl Coordinator {
                     pending.agent_type.clone(),
                     pending.cwd.clone(),
                     pending.account.clone(),
-                    pending.profile.clone(),
+                    pending.definition.clone(),
                     pending.chosen_model.clone(),
                     pending.chosen_thinking.clone(),
                     pending.chosen_mode.clone(),
@@ -3782,14 +3862,14 @@ impl Coordinator {
                         row.agent_type,
                         row.cwd,
                         row.account,
-                        row.profile,
+                        row.definition,
                         row.model,
                         row.thinking,
                         row.mode,
                     )
                 })
             });
-        let Some((agent_type, cwd, account, profile, model, thinking, mode)) = facts else {
+        let Some((agent_type, cwd, account, definition, model, thinking, mode)) = facts else {
             self.refuse_conversation(
                 client,
                 agent_id,
@@ -3864,7 +3944,7 @@ impl Coordinator {
             rel_path,
             agent_type,
             account,
-            profile,
+            definition,
             model,
             thinking,
             mode,
@@ -4001,8 +4081,25 @@ impl Coordinator {
     /// its error rather than waiting out the hour, and the owning window is told per ask so a
     /// dialog still on screen stops offering an answer that can no longer land. The owner is read
     /// before it is removed, which is why this runs ahead of the removal at each site.
+    /// Close the registered dialogs this conversation has on screen, leaving its parked calls
+    /// alone. What a prompt from the window does: the user answered by typing.
+    fn close_armed_dialogs(&mut self, agent_id: AgentId) {
+        let closed = self.armed.close_for_agent(agent_id);
+        self.tell_asks_closed(agent_id, closed, AskClosed::Gone);
+    }
+
     fn close_asks(&mut self, agent_id: AgentId, why: AskClosed) {
-        let closed = self.asks.end_for_agent(agent_id, why);
+        let mut closed = self.asks.end_for_agent(agent_id, why);
+        // The registered dialogs go the same way: there is no call to release, but a dialog on
+        // screen must stop offering an answer that would open a turn on a conversation that has
+        // gone. A row still armed is simply forgotten — nothing was ever drawn for it.
+        closed.extend(self.armed.close_for_agent(agent_id));
+        self.tell_asks_closed(agent_id, closed, why);
+    }
+
+    /// Tell the owning window that these asks stopped waiting, so a dialog still on screen for one
+    /// of them stops offering an answer that can no longer land.
+    fn tell_asks_closed(&mut self, agent_id: AgentId, closed: Vec<AskId>, why: AskClosed) {
         if closed.is_empty() {
             return;
         }
@@ -4070,7 +4167,7 @@ impl Coordinator {
             agent_type: pending.agent_type.clone(),
             cwd: pending.cwd.clone(),
             account: pending.account.clone(),
-            profile: pending.profile.clone(),
+            definition: pending.definition.clone(),
             model: pending.chosen_model.clone(),
             thinking: pending.chosen_thinking.clone(),
             mode: pending.chosen_mode.clone(),
@@ -4385,11 +4482,11 @@ impl Coordinator {
     }
 
     /// A run composed with a stale catalog reference still launches — see
-    /// [`crate::agent::Composed::problems`] — but the person who set up that profile still gets
+    /// [`crate::agent::Composed::problems`] — but the person who set up that definition still gets
     /// to hear about the entry that was dropped, as a dismissable notification rather than a run
     /// that silently came up short. `harness` and `actor` name what the bell attributes it to;
     /// several problems on one run collapse into one notification rather than one per line, so a
-    /// profile with three stale ids does not flash the bell three times for a single launch.
+    /// definition with three stale ids does not flash the bell three times for a single launch.
     fn report_run_problems(&mut self, client: ClientId, harness: &str, problems: &[String]) {
         if problems.is_empty() {
             return;
@@ -4398,7 +4495,7 @@ impl Coordinator {
             format!("{harness}: {}", problems[0])
         } else {
             format!(
-                "{harness}: {} entries in this profile were dropped — {}",
+                "{harness}: {} entries in this definition were dropped — {}",
                 problems.len(),
                 problems.join("; ")
             )
@@ -4406,7 +4503,7 @@ impl Coordinator {
         let replies = self.notifications.raise(
             NotificationRequest::warning(Family::Agents, text)
                 .with_actor(harness)
-                .with_category("profile"),
+                .with_category("agent-definition"),
         );
         self.answer(client, replies);
     }
@@ -5431,8 +5528,8 @@ impl Coordinator {
             model: picks.model,
             thinking: picks.thinking,
             mode: picks.mode,
-            profile: picks.profile,
-            // A terminal pane runs in a project's folder, so a profile scoped to that project
+            definition: picks.definition,
+            // A terminal pane runs in a project's folder, so a definition scoped to that project
             // resolves here exactly as it does for a conversation.
             project: Some(project_id),
             mcps: picks.mcps,
@@ -5457,8 +5554,8 @@ impl Coordinator {
         } else {
             None
         };
-        // Same rule `launch` follows for a conversation: a stale profile reference does not stop
-        // this pane from opening, but the person who set that profile up still gets to hear
+        // Same rule `launch` follows for a conversation: a stale definition reference does not stop
+        // this pane from opening, but the person who set that definition up still gets to hear
         // about the entry that was dropped.
         if let Some(composed) = &composed {
             self.report_run_problems(client, &agent_type, &composed.problems);
@@ -5795,36 +5892,38 @@ impl Coordinator {
         }
     }
 
-    /// Tell one window which profiles exist. References only, the same rule as
-    /// [`Self::send_accounts`] — a profile names an account, it never carries one.
+    /// Tell one window which definitions exist. References only, the same rule as
+    /// [`Self::send_accounts`] — a definition names an account, it never carries one.
     ///
-    /// Both scopes, in one list: the global profiles, then every project's own, each stamped
+    /// Both scopes, in one list: the global definitions, then every project's own, each stamped
     /// with the project it belongs to. The window already holds every project, so a scope is a
-    /// field to filter on rather than a second ask — and a project whose profiles cannot be
+    /// field to filter on rather than a second ask — and a project whose definitions cannot be
     /// read contributes none rather than emptying the list.
-    fn send_profiles(&mut self, client: ClientId) {
-        match self.agents.profiles() {
-            Ok(mut profiles) => {
+    fn send_definitions(&mut self, client: ClientId) {
+        match self.agents.definitions() {
+            Ok(mut definitions) => {
                 let ids: Vec<ProjectId> = self.projects.records().iter().map(|it| it.id).collect();
                 for project in ids {
-                    match self.agents.project_profiles(project) {
-                        Ok(scoped) => profiles.extend(scoped),
+                    match self.agents.project_definitions(project) {
+                        Ok(scoped) => definitions.extend(scoped),
                         Err(error) => {
                             tracing::warn!(
-                                "the profiles of project {project} could not be read: {error:#}"
+                                "the definitions of project {project} could not be read: {error:#}"
                             );
                         }
                     }
                 }
-                self.host
-                    .send(To::Client(client), Message::Profiles { profiles })
-            }
-            Err(error) => {
-                tracing::warn!("the profiles could not be read: {error:#}");
                 self.host.send(
                     To::Client(client),
-                    Message::Profiles {
-                        profiles: Vec::new(),
+                    Message::AgentDefinitions { definitions },
+                )
+            }
+            Err(error) => {
+                tracing::warn!("the definitions could not be read: {error:#}");
+                self.host.send(
+                    To::Client(client),
+                    Message::AgentDefinitions {
+                        definitions: Vec::new(),
                     },
                 );
             }
@@ -6451,6 +6550,22 @@ mod tests {
         client: &ubiq_proto::bus::Client,
         last_seq: u64,
     ) -> (AgentId, ProjectId) {
+        let (agent_id, project_id, _) =
+            seed_live_conversation_writing(coordinator, client, last_seq);
+        (agent_id, project_id)
+    }
+
+    /// The same, handing back the far end of the fake harness: what a test that has to prove
+    /// something was *written to the agent* — a prompt out of an answered dialog — reads.
+    fn seed_live_conversation_writing(
+        coordinator: &mut Coordinator,
+        client: &ubiq_proto::bus::Client,
+        last_seq: u64,
+    ) -> (
+        AgentId,
+        ProjectId,
+        crate::conversation::test_support::Written,
+    ) {
         let agent_id = AgentId::generate();
         let project_id = ProjectId::generate();
         let session_id = SessionId::generate();
@@ -6497,7 +6612,7 @@ mod tests {
                 project_id,
                 agent_type: "not-a-real-harness".to_string(),
                 account: None,
-                profile: None,
+                definition: None,
                 cwd: std::path::PathBuf::from("."),
                 chosen_model: None,
                 chosen_thinking: None,
@@ -6511,19 +6626,25 @@ mod tests {
             },
         );
         let mailbox = coordinator.host.mailbox(To::Client(client.id()));
+        let bridge = Idle::new();
+        let written = bridge.written();
         let conversation = Conversation::start(
             agent_id,
-            Box::new(Idle::new()),
+            Box::new(bridge),
             mailbox,
             last_seq,
             None,
             None,
             false,
             ConvFlags::new(agent_id, false, false),
+            Some(crate::conversation::AskFire {
+                armed: coordinator.armed.clone(),
+                voice: coordinator.host.voice(),
+            }),
         );
         coordinator.conversations.insert(agent_id, conversation);
 
-        (agent_id, project_id)
+        (agent_id, project_id, written)
     }
 
     fn drain_all(client: &ubiq_proto::bus::Client) -> Vec<Message> {
@@ -7068,6 +7189,7 @@ mod tests {
                 None,
                 None,
                 false,
+                ubiq_proto::projects::StorageMode::UbiqManaged,
             )
             .into_iter()
             .find_map(|reply| match reply.into_message() {
@@ -7116,6 +7238,197 @@ mod tests {
         assert!(
             messages.is_empty(),
             "a probe sends neither HarnessLoginCaptured nor HarnessLoginFailed: {messages:?}"
+        );
+    }
+
+    // ── the registered dialogs (`D175`) ─────────────────────────────
+
+    /// One well-formed question, as `register_question` would have filed it.
+    fn armed_question() -> ubiq_proto::ask::AskQuestion {
+        ubiq_proto::ask::AskQuestion {
+            question: "Which way?".to_string(),
+            header: "Direction".to_string(),
+            options: vec![
+                ubiq_proto::ask::AskOption {
+                    label: "Left".to_string(),
+                    description: String::new(),
+                    preview: None,
+                },
+                ubiq_proto::ask::AskOption {
+                    label: "Right".to_string(),
+                    description: String::new(),
+                    preview: None,
+                },
+            ],
+            multi_select: false,
+        }
+    }
+
+    fn prompts(written: &crate::conversation::test_support::Written) -> Vec<String> {
+        written
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|input| match input {
+                agent_manager::io::AgentInput::Prompt { content } => Some(
+                    content
+                        .iter()
+                        .map(|chunk| match chunk {
+                            agent_manager::io::Content::Text { text } => text.clone(),
+                            _ => String::new(),
+                        })
+                        .collect::<String>(),
+                ),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The whole of the second ask mode's answer: a dialog raised at the turn boundary is
+    /// answered, and what the user picked opens the next turn as a prompt — there is no parked
+    /// call left to give it to.
+    #[test]
+    fn answering_a_registered_dialog_opens_the_next_turn() {
+        let (mut coordinator, client) = test_coordinator();
+        let (agent_id, _project, written) =
+            seed_live_conversation_writing(&mut coordinator, &client, 0);
+
+        let ask_id = coordinator.armed.arm(agent_id, vec![armed_question()]);
+        assert_eq!(coordinator.armed.fire(agent_id).len(), 1, "the turn ended");
+
+        coordinator.dispatch(
+            client.id(),
+            Message::AnswerAsk {
+                agent_id,
+                ask_id,
+                outcome: AskOutcome::Answered(vec![ubiq_proto::ask::AskAnswer {
+                    question: 0,
+                    chosen: vec!["Left".to_string()],
+                    other: None,
+                    notes: None,
+                }]),
+            },
+        );
+
+        let said = prompts(&written);
+        assert_eq!(
+            said.len(),
+            1,
+            "exactly one turn, out of the answer: {said:?}"
+        );
+        assert!(said[0].contains("Direction — Which way?"), "{}", said[0]);
+        assert!(said[0].contains("- Answer: Left"), "{}", said[0]);
+        assert!(coordinator.armed.is_empty(), "the row is answered and gone");
+
+        coordinator
+            .conversations
+            .remove(&agent_id)
+            .unwrap()
+            .stop(true);
+    }
+
+    /// "Chat about this" arms nothing and sends nothing: the user would rather type, and typing is
+    /// what they do next.
+    #[test]
+    fn chatting_about_a_registered_dialog_sends_nothing() {
+        let (mut coordinator, client) = test_coordinator();
+        let (agent_id, _project, written) =
+            seed_live_conversation_writing(&mut coordinator, &client, 0);
+
+        let ask_id = coordinator.armed.arm(agent_id, vec![armed_question()]);
+        coordinator.armed.fire(agent_id);
+        coordinator.dispatch(
+            client.id(),
+            Message::AnswerAsk {
+                agent_id,
+                ask_id,
+                outcome: AskOutcome::Chat,
+            },
+        );
+
+        assert!(prompts(&written).is_empty(), "nothing went to the harness");
+        assert!(coordinator.armed.is_empty());
+
+        coordinator
+            .conversations
+            .remove(&agent_id)
+            .unwrap()
+            .stop(true);
+    }
+
+    /// The user typed instead of answering. The dialog on screen stops offering an answer, so the
+    /// same turn cannot be both answered and spoken to — and a later answer for it lands nowhere.
+    #[test]
+    fn a_prompt_closes_the_registered_dialog_on_screen() {
+        let (mut coordinator, client) = test_coordinator();
+        let (agent_id, _project, written) =
+            seed_live_conversation_writing(&mut coordinator, &client, 0);
+
+        let ask_id = coordinator.armed.arm(agent_id, vec![armed_question()]);
+        coordinator.armed.fire(agent_id);
+        coordinator.dispatch(
+            client.id(),
+            Message::PromptAgent {
+                agent_id,
+                text: "never mind, do it the other way".to_string(),
+            },
+        );
+
+        assert!(coordinator.armed.is_empty(), "the dialog is over");
+        let closed = drain_all(&client);
+        assert!(
+            closed.iter().any(|message| matches!(
+                message,
+                Message::AskEnded { ask_id: id, .. } if *id == ask_id
+            )),
+            "the window is told the dialog stopped waiting: {closed:?}"
+        );
+
+        // And the answer that raced it changes nothing.
+        coordinator.dispatch(
+            client.id(),
+            Message::AnswerAsk {
+                agent_id,
+                ask_id,
+                outcome: AskOutcome::Answered(vec![ubiq_proto::ask::AskAnswer {
+                    question: 0,
+                    chosen: vec!["Left".to_string()],
+                    other: None,
+                    notes: None,
+                }]),
+            },
+        );
+        let said = prompts(&written);
+        assert_eq!(said, vec!["never mind, do it the other way".to_string()]);
+
+        coordinator
+            .conversations
+            .remove(&agent_id)
+            .unwrap()
+            .stop(true);
+    }
+
+    /// A conversation going takes its registrations with it, raised or not, and the window is told
+    /// about the one it has on screen.
+    #[test]
+    fn unloading_a_conversation_closes_its_registered_dialogs() {
+        let (mut coordinator, client) = test_coordinator();
+        let (agent_id, _project) = seed_live_conversation(&mut coordinator, &client, 0);
+
+        let raised = coordinator.armed.arm(agent_id, vec![armed_question()]);
+        coordinator.armed.fire(agent_id);
+        coordinator.armed.arm(agent_id, vec![armed_question()]);
+
+        coordinator.unload_conversation(client.id(), agent_id);
+
+        assert!(coordinator.armed.is_empty());
+        let messages = drain_all(&client);
+        assert!(
+            messages.iter().any(|message| matches!(
+                message,
+                Message::AskEnded { ask_id, why: AskClosed::Gone, .. } if *ask_id == raised
+            )),
+            "only the dialog that was drawn is worth a message: {messages:?}"
         );
     }
 }

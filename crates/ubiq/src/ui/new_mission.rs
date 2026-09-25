@@ -41,8 +41,8 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
     };
     let view = cx.entity();
     let term = app.mission_term(cx);
-    // Profiles fit to run one, then the agents already running here — `profiles_in` rather than
-    // the global list alone, because a profile scoped to this project is on offer too (G331).
+    // Definitions fit to run one, then the agents already running here — `definitions_in` rather than
+    // the global list alone, because a definition scoped to this project is on offer too (G331).
     let candidates = app.new_mission_coordinators(cx);
 
     let mut body = div().flex().flex_col().gap_3().pt_1();
@@ -136,8 +136,8 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .text_color(theme::text_muted())
                 .text_size(theme::font(theme::Family::Chrome, theme::Role::Body))
                 .child(
-                    "No profile is marked as a mission assistant yet, and no agent is running. \
-                     Tick \u{201c}Mission assistant\u{201d} on a profile in the profile editor to \
+                    "No definition is marked as a mission assistant yet, and no agent is running. \
+                     Tick \u{201c}Mission assistant\u{201d} on a definition in the definition editor to \
                      offer it here.",
                 ),
         );
@@ -172,7 +172,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         body = body.child(hint_row(
             "new-mission-assistant-hint",
             "Coordinator",
-            "One role (M10): a profile ticked as a mission assistant, or an agent already running \
+            "One role (M10): a definition ticked as a mission assistant, or an agent already running \
              here, adopted as it is.",
             div()
                 .flex_none()

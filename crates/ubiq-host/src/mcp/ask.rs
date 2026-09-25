@@ -1,11 +1,20 @@
-//! The `ubiq-ask` server: one tool, and the only one that waits for a human.
+//! The `ubiq-ask` server: two ways to put a question to the person watching.
 //!
-//! Every other built-in tool answers from a fact the host already holds. This one puts a question
-//! on screen and parks until the person watching answers it, says they would rather talk, or an
-//! hour passes — [`crate::ask::Asks`] holds the call meanwhile, and `D138` is why that table
-//! exists at all. **It never runs on the listener's thread**: [`super::server::handle`] moves the
-//! request onto a thread of its own before calling in here, because every other agent's tool calls
-//! come through that one listener and a parked call would hold all of them up.
+//! Every other built-in tool answers from a fact the host already holds. These two do not.
+//!
+//! **`ask_user_question` parks.** It puts a question on screen and waits until the person answers
+//! it, says they would rather talk, or an hour passes — [`crate::ask::Asks`] holds the call
+//! meanwhile, and `D138` is why that table exists at all. **It never runs on the listener's
+//! thread**: [`super::server::handle`] moves the request onto a thread of its own before calling
+//! in here, because every other agent's tool calls come through that one listener and a parked
+//! call would hold all of them up.
+//!
+//! **`register_question` does not.** It files the same questions in [`crate::armed::Armed`] and
+//! returns the minted id on the listener's own thread; the dialog is raised when the agent's turn
+//! ends, and the user's answer arrives as the next turn rather than as this call's result. Nothing
+//! waits, so no harness's own tool timeout can reach it (`D175`). The cost is that the agent must
+//! stop after registering — the tool's description says so, because the dialog is only raised at
+//! the turn boundary.
 //!
 //! **The wire shape is Claude Code's `AskUserQuestion`.** A harness that already knows how to ask
 //! a structured question does not have to learn a second form of it, so the arguments below are
@@ -66,11 +75,55 @@ pub fn call(
 ) -> Result<Value, String> {
     match tool {
         "ask_user_question" => ask(arguments, facts, voice, reach),
+        "register_question" => register(arguments, facts, reach),
         _ => Err(format!(
             "unknown tool: {}/{tool}",
             super::catalogue::UBIQ_ASK
         )),
     }
+}
+
+/// The questions and who is asking them, checked — everything both tools need before either does
+/// anything of its own.
+///
+/// A malformed ask is refused here, before a call parks or a dialog is armed: the model is told
+/// what is wrong and can correct it. A pane's key is a `PaneId` and names no conversation, so
+/// there is no transcript to raise the question in and nothing to answer it with; that is refused
+/// here too.
+fn reading(
+    tool: &str,
+    arguments: &Value,
+    facts: &AgentFacts,
+) -> Result<(AgentId, Vec<AskQuestion>), String> {
+    let asking: Asking = serde_json::from_value(arguments.clone())
+        .map_err(|error| format!("{tool} could not read its arguments: {error}"))?;
+    let questions: Vec<AskQuestion> = asking
+        .questions
+        .into_iter()
+        .map(AskQuestion::from)
+        .collect();
+    ubiq_proto::ask::check(&questions)
+        .map_err(|wrong| format!("this ask cannot be drawn: {wrong}"))?;
+    let agent_id: AgentId = facts.key.parse().map_err(|_| {
+        "only a conversation can ask the user a question; this agent is a terminal pane".to_string()
+    })?;
+    Ok((agent_id, questions))
+}
+
+/// Register a dialog for the end of this turn and return at once.
+///
+/// **The whole of the call.** No thread is spawned and nothing waits: the row goes into
+/// [`crate::armed::Armed`], the conversation's pump raises it as `Message::AskUser` when the turn
+/// ends, and what the user says comes back as the next turn's prompt. The handle returned exists
+/// so the model can name its own registration; it is not an id it has to remember, because a
+/// registration lives for one turn.
+fn register(arguments: &Value, facts: &AgentFacts, reach: &AskReach) -> Result<Value, String> {
+    let (agent_id, questions) = reading("register_question", arguments, facts)?;
+    let ask_id = reach.armed.arm(agent_id, questions);
+    Ok(json!({
+        "registered": ask_id.to_string(),
+        "summary": "Registered. End your turn now — say what you are waiting on and stop. The dialog is raised the moment this turn ends, and the user's answer arrives as your next turn.",
+    }))
 }
 
 /// Raise the question, wait for the answer, and turn whatever ended it into a tool result.
@@ -80,21 +133,7 @@ fn ask(
     voice: &Voice,
     reach: &AskReach,
 ) -> Result<Value, String> {
-    let asking: Asking = serde_json::from_value(arguments.clone())
-        .map_err(|error| format!("ask_user_question could not read its arguments: {error}"))?;
-    let questions: Vec<AskQuestion> = asking
-        .questions
-        .into_iter()
-        .map(AskQuestion::from)
-        .collect();
-    ubiq_proto::ask::check(&questions)
-        .map_err(|wrong| format!("this ask cannot be drawn: {wrong}"))?;
-
-    // A pane's key is a `PaneId` and names no conversation, so there is no transcript to raise the
-    // question in and nothing to answer it with. Refused rather than parked.
-    let agent_id: AgentId = facts.key.parse().map_err(|_| {
-        "only a conversation can ask the user a question; this agent is a terminal pane".to_string()
-    })?;
+    let (agent_id, questions) = reading("ask_user_question", arguments, facts)?;
 
     let (ask_id, waiting) = reach.asks.raise(agent_id, &questions);
     // The coordinator alone knows which window owns the conversation, so the ask goes to it as an
@@ -189,10 +228,19 @@ fn answered(questions: &[AskQuestion], answers: &[AskAnswer]) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::armed::Armed;
     use crate::ask::Asks;
     use std::sync::Arc;
     use std::time::Duration;
     use ubiq_proto::bus;
+
+    /// The parked table under test, with an armed table nothing in these reaches.
+    fn reaching(asks: Arc<Asks>) -> AskReach {
+        AskReach {
+            asks,
+            armed: Arc::new(Armed::new()),
+        }
+    }
 
     fn facts(key: &str) -> AgentFacts {
         AgentFacts {
@@ -218,9 +266,7 @@ mod tests {
     fn a_malformed_ask_is_refused_without_parking() {
         let asks = Arc::new(Asks::with_timeout(Duration::from_millis(20)));
         let (hub, host) = bus::hub();
-        let reach = AskReach {
-            asks: Arc::clone(&asks),
-        };
+        let reach = reaching(Arc::clone(&asks));
         let voice = host.voice();
         let agent = AgentId::generate().to_string();
 
@@ -260,9 +306,7 @@ mod tests {
     fn an_agent_that_is_not_a_conversation_is_refused() {
         let asks = Arc::new(Asks::with_timeout(Duration::from_millis(20)));
         let (hub, host) = bus::hub();
-        let reach = AskReach {
-            asks: Arc::clone(&asks),
-        };
+        let reach = reaching(Arc::clone(&asks));
         let refused = call(
             "ask_user_question",
             &well_formed(),
@@ -282,9 +326,7 @@ mod tests {
     fn an_answer_comes_back_as_labels_and_a_summary() {
         let asks = Arc::new(Asks::new());
         let (hub, host) = bus::hub();
-        let reach = AskReach {
-            asks: Arc::clone(&asks),
-        };
+        let reach = reaching(Arc::clone(&asks));
         let voice = host.voice();
         let agent = AgentId::generate().to_string();
 
@@ -295,7 +337,7 @@ mod tests {
                 &well_formed(),
                 &facts(&agent),
                 &voice,
-                &AskReach { asks: waiting },
+                &reaching(waiting),
             )
         });
 
@@ -346,9 +388,7 @@ mod tests {
             &well_formed(),
             &facts(&agent),
             &voice,
-            &AskReach {
-                asks: Arc::clone(&asks),
-            },
+            &reaching(Arc::clone(&asks)),
         )
         .unwrap_err();
         assert!(refusal.contains("nobody answered"), "{refusal}");
@@ -393,7 +433,7 @@ mod tests {
                 &well_formed(),
                 &facts(&agent),
                 &voice,
-                &AskReach { asks: waiting },
+                &reaching(waiting),
             )
         });
 
@@ -435,7 +475,7 @@ mod tests {
                 &well_formed(),
                 &facts(&agent),
                 &voice,
-                &AskReach { asks: waiting },
+                &reaching(waiting),
             )
         });
 
@@ -456,6 +496,90 @@ mod tests {
             .expect_err("an unloaded conversation cannot answer");
         assert!(refusal.contains("has gone"), "{refusal}");
         assert!(asks.is_empty());
+        drop(hub);
+    }
+
+    /// The other mode, on the listener's own thread: the call returns the id it minted, the row is
+    /// armed against the caller alone, and nothing is raised and nothing parked until the turn
+    /// ends.
+    #[test]
+    fn registering_arms_a_dialog_and_returns_at_once() {
+        let asks = Arc::new(Asks::new());
+        let armed = Arc::new(Armed::new());
+        let (hub, host) = bus::hub();
+        let reach = AskReach {
+            asks: Arc::clone(&asks),
+            armed: Arc::clone(&armed),
+        };
+        let agent_id = AgentId::generate();
+
+        let result = call(
+            "register_question",
+            &well_formed(),
+            &facts(&agent_id.to_string()),
+            &host.voice(),
+            &reach,
+        )
+        .expect("a registration answers itself");
+        assert!(result["registered"].is_string());
+        assert!(
+            result["summary"]
+                .as_str()
+                .unwrap()
+                .contains("End your turn")
+        );
+        assert_eq!(armed.len(), 1);
+        assert!(asks.is_empty());
+
+        // Nothing went out: the dialog is raised at the turn boundary, by the pump, not here.
+        assert!(
+            host.recv_timeout(Duration::from_millis(20)).is_err(),
+            "a registration says nothing on the bus",
+        );
+
+        // And it is the caller's alone — another conversation's turn ending raises nothing.
+        assert!(armed.fire(AgentId::generate()).is_empty());
+        assert_eq!(armed.fire(agent_id).len(), 1);
+        drop(hub);
+    }
+
+    /// The same refusals, on the same reading: a registration that cannot be drawn never becomes a
+    /// row, and a pane has no transcript to draw one in.
+    #[test]
+    fn a_registration_that_cannot_be_drawn_is_refused() {
+        let armed = Arc::new(Armed::new());
+        let (hub, host) = bus::hub();
+        let reach = AskReach {
+            asks: Arc::new(Asks::new()),
+            armed: Arc::clone(&armed),
+        };
+        let agent = AgentId::generate().to_string();
+
+        let one_option = json!({"questions": [{
+            "question": "Which way?",
+            "header": "Direction",
+            "options": [{"label": "Left"}],
+        }]});
+        let refusal = call(
+            "register_question",
+            &one_option,
+            &facts(&agent),
+            &host.voice(),
+            &reach,
+        )
+        .unwrap_err();
+        assert!(refusal.contains("cannot be drawn"), "{refusal}");
+
+        let refused = call(
+            "register_question",
+            &well_formed(),
+            &facts("not-a-ulid"),
+            &host.voice(),
+            &reach,
+        )
+        .unwrap_err();
+        assert!(refused.contains("only a conversation"), "{refused}");
+        assert!(armed.is_empty());
         drop(hub);
     }
 }

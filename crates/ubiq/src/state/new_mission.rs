@@ -12,7 +12,7 @@
 //! off the task rather than off the mission.
 
 use ubiq_proto::ids::TaskId;
-use ubiq_proto::messages::ProfileInfo;
+use ubiq_proto::messages::AgentDefinition;
 use ubiq_proto::work::AgentId;
 
 /// Who is to run the mission (M10 — coordinator and assistant are one role).
@@ -22,8 +22,8 @@ use ubiq_proto::work::AgentId;
 /// somewhere — a mission has at most one coordinator at a time.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Coordinator {
-    /// A profile to launch, by [`ProfileInfo::id`].
-    Profile(String),
+    /// A definition to launch, by [`AgentDefinition::id`].
+    AgentDefinition(String),
     /// A conversation already running here, adopted as it is. Nothing is launched for it.
     Running(AgentId),
 }
@@ -87,10 +87,10 @@ impl NewMissionForm {
             .unwrap_or_default()
     }
 
-    /// The profile to launch, where the coordinator is one.
-    pub fn profile(&self) -> Option<&str> {
+    /// The definition to launch, where the coordinator is one.
+    pub fn definition(&self) -> Option<&str> {
         match self.coordinator.as_ref() {
-            Some(Coordinator::Profile(id)) => Some(id),
+            Some(Coordinator::AgentDefinition(id)) => Some(id),
             _ => None,
         }
     }
@@ -109,7 +109,7 @@ impl NewMissionForm {
 /// — the bug this once was is a trigger that drew the placeholder unconditionally, ignoring what
 /// the form held — the same idiom `kit::multi_label` follows for the multi-select picker.
 ///
-/// `rows` is the picker's own list in its own order: the profiles fit to run one, then the agents
+/// `rows` is the picker's own list in its own order: the definitions fit to run one, then the agents
 /// already running here (M10's *attach a running agent*).
 pub fn coordinator_label(
     form: &NewMissionForm,
@@ -123,13 +123,13 @@ pub fn coordinator_label(
         .unwrap_or_else(|| placeholder.to_string())
 }
 
-/// The profiles fit to run as a planning assistant, in the order the host listed them —
-/// [`ProfileInfo::mission_assistant`] ticked. `None`/`Some(false)` are both "not an assistant",
+/// The definitions fit to run as a planning assistant, in the order the host listed them —
+/// [`AgentDefinition::mission_assistant`] ticked. `None`/`Some(false)` are both "not an assistant",
 /// the same reading every other filter over this field gives.
-pub fn assistants(profiles: &[ProfileInfo]) -> Vec<&ProfileInfo> {
-    profiles
+pub fn assistants(definitions: &[AgentDefinition]) -> Vec<&AgentDefinition> {
+    definitions
         .iter()
-        .filter(|profile| profile.mission_assistant == Some(true))
+        .filter(|definition| definition.mission_assistant == Some(true))
         .collect()
 }
 
@@ -180,9 +180,10 @@ pub fn mission_briefing(
 mod tests {
     use super::*;
 
-    fn profile(id: &str, mission_assistant: Option<bool>) -> ProfileInfo {
-        ProfileInfo {
+    fn definition(id: &str, mission_assistant: Option<bool>) -> AgentDefinition {
+        AgentDefinition {
             id: id.to_string(),
+            description: None,
             agent_type: "claude-code".to_string(),
             account: None,
             model: None,
@@ -192,19 +193,22 @@ mod tests {
             prompt: None,
             mcps: Vec::new(),
             mission_assistant,
+            mission_coordinator: false,
+            mission_worker: false,
+            disabled: false,
             project: None,
         }
     }
 
     #[test]
-    fn only_a_profile_ticked_true_is_offered() {
-        let profiles = vec![
-            profile("reviewer", Some(true)),
-            profile("writer", None),
-            profile("planner", Some(false)),
-            profile("coach", Some(true)),
+    fn only_a_definition_ticked_true_is_offered() {
+        let definitions = vec![
+            definition("reviewer", Some(true)),
+            definition("writer", None),
+            definition("planner", Some(false)),
+            definition("coach", Some(true)),
         ];
-        let ids: Vec<&str> = assistants(&profiles)
+        let ids: Vec<&str> = assistants(&definitions)
             .into_iter()
             .map(|p| p.id.as_str())
             .collect();
@@ -217,7 +221,7 @@ mod tests {
         assert!(!form.ready());
         form.title = "Ship v2".to_string();
         assert!(!form.ready(), "no coordinator chosen yet");
-        form.coordinator = Some(Coordinator::Profile("reviewer".to_string()));
+        form.coordinator = Some(Coordinator::AgentDefinition("reviewer".to_string()));
         assert!(form.ready());
         form.title = "   ".to_string();
         assert!(
@@ -266,11 +270,11 @@ mod tests {
         let rows = vec![
             (
                 "planner".to_string(),
-                Coordinator::Profile("planner".to_string()),
+                Coordinator::AgentDefinition("planner".to_string()),
             ),
             (
                 "coach".to_string(),
-                Coordinator::Profile("coach".to_string()),
+                Coordinator::AgentDefinition("coach".to_string()),
             ),
         ];
         let mut form = NewMissionForm::new();
@@ -278,11 +282,11 @@ mod tests {
             coordinator_label(&form, &rows, "Choose\u{2026}"),
             "Choose\u{2026}"
         );
-        form.coordinator = Some(Coordinator::Profile("coach".to_string()));
+        form.coordinator = Some(Coordinator::AgentDefinition("coach".to_string()));
         assert_eq!(coordinator_label(&form, &rows, "Choose\u{2026}"), "coach");
-        // A pick whose row is gone — a profile deleted while the dialog is up — falls back rather
+        // A pick whose row is gone — a definition deleted while the dialog is up — falls back rather
         // than drawing a stale name.
-        form.coordinator = Some(Coordinator::Profile("ghost".to_string()));
+        form.coordinator = Some(Coordinator::AgentDefinition("ghost".to_string()));
         assert_eq!(
             coordinator_label(&form, &rows, "Choose\u{2026}"),
             "Choose\u{2026}"

@@ -181,6 +181,7 @@ impl AppState {
         // a section edit that splits a block does not throw them back to the first line. Opening
         // a document is the case where keeping the place would be wrong, so it is said here.
         self.plan_preview_list.reset(0);
+        self.plan_thread_list.reset(0);
         cx.notify();
     }
 
@@ -415,10 +416,18 @@ impl AppState {
     /// Ask where the document has been edited, for the body that just arrived. Asked with every
     /// body and nowhere else: the regions are in the *current* body's line numbers, so an answer
     /// is only usable against the body it was asked alongside.
+    ///
+    /// **Nothing is asked for a document that is not tracking updates** (T-183,
+    /// `DocumentEditor::track_updates`) — a round trip whose answer the surface would not show is
+    /// a round trip not worth asking for, and this is the one place both the automatic ask (every
+    /// body arrival) and the manual one (`AppState::toggle_track_updates`) go through.
     pub(crate) fn ask_for_plan_changes(&mut self) {
         let Some(doc) = self.workbench.plan.as_ref() else {
             return;
         };
+        if !doc.track_updates {
+            return;
+        }
         self.bus.send(doc.doc.list_changes(None));
     }
 
@@ -794,6 +803,25 @@ impl AppState {
     pub fn toggle_resolved_annotations(&mut self, cx: &mut Context<Self>) {
         if let Some(doc) = self.workbench.plan.as_mut() {
             doc.show_resolved = !doc.show_resolved;
+        }
+        cx.notify();
+    }
+
+    /// Flip whether this document tracks who has edited it — the footer's line counts and
+    /// human/agent split (T-183). Turning it on asks the host at once rather than waiting for the
+    /// next save to land, so the reader is not left looking at an empty footer for one round
+    /// trip's worth of nothing; turning it off drops what was already shown, which is exactly
+    /// [`Self::ask_for_plan_changes`]'s own gate read the other way.
+    pub fn toggle_track_updates(&mut self, cx: &mut Context<Self>) {
+        let Some(doc) = self.workbench.plan.as_mut() else {
+            return;
+        };
+        doc.track_updates = !doc.track_updates;
+        let tracking = doc.track_updates;
+        if tracking {
+            self.ask_for_plan_changes();
+        } else if let Some(doc) = self.workbench.plan.as_mut() {
+            doc.set_changes(Vec::new(), PlanChangeStats::default());
         }
         cx.notify();
     }

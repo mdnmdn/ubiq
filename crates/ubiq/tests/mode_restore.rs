@@ -18,6 +18,7 @@ use ubiq::app::{AppState, BusHub};
 use ubiq::state::RailMode;
 use ubiq::state::WindowRegistry;
 use ubiq::state::dock::Region;
+use ubiq::state::editor::ViewLayout;
 use ubiq::state::prefs;
 use ubiq::ui::dock::placement_of;
 use ubiq_proto::bus;
@@ -194,6 +195,39 @@ impl Fixture {
             serde_json::to_string(&state.dock().read(cx).dump(cx)).unwrap_or_default()
         })
     }
+
+    /// The gesture that opens a file in the centre, and the frame that puts its panel in the dock —
+    /// mirrors `panel_reentrancy`'s fixture.
+    fn open_file(&self, path: &str, cx: &mut TestAppContext) {
+        let path = path.to_string();
+        self.state
+            .update(cx, |state, cx| state.select_file(path, cx));
+        cx.run_until_parked();
+    }
+
+    /// Which tab the editor says is active, for the project on screen.
+    fn active_file(&self, cx: &mut TestAppContext) -> Option<String> {
+        self.state.read_with(cx, |state, cx| {
+            state
+                .editor(cx)
+                .and_then(|editor| editor.active_file())
+                .map(|file| file.key())
+        })
+    }
+
+    /// The layout a given open file's viewer is currently in.
+    fn file_layout(&self, key: &str, cx: &mut TestAppContext) -> Option<ViewLayout> {
+        self.state
+            .read_with(cx, |state, cx| state.file(key, cx).map(|file| file.layout))
+    }
+
+    /// Put a file's viewer into a layout, the way its toggle does.
+    fn set_layout(&self, key: &str, layout: ViewLayout, cx: &mut TestAppContext) {
+        let key = key.to_string();
+        self.gesture(cx, move |state, _, cx| {
+            state.set_view_layout(&key, layout, cx)
+        });
+    }
 }
 
 fn a_project() -> ProjectSnapshot {
@@ -204,6 +238,7 @@ fn a_project() -> ProjectSnapshot {
             path: "/tmp/ubiq".to_string(),
             colour: 0,
             custom_colour: None,
+            storage: Default::default(),
             temporary: false,
             created_at: Utc::now(),
             last_opened_at: None,
@@ -726,4 +761,53 @@ fn hiding_modes_never_empties_the_rail(cx: &mut TestAppContext) {
         assert_eq!(left.len(), 1, "one mode always survives: {left:?}");
     });
     cx.run_until_parked();
+}
+
+/// T-196: a document open in the IDE — which file is active and what layout its viewer is in — is
+/// exactly the kind of state a mode switch must not disturb.
+///
+/// This is not new machinery: `OpenFile` lives on the project (`OpenProject::editor`), not on the
+/// mode, so it is never rebuilt by a rail-mode switch — only the dock's *tree* is, and that tree is
+/// what `ModeLayout::layout` already remembers per mode (`file_payload` writes the tab's key and its
+/// `ViewLayout` into the same blob `returning_from_any_non_ide_mode_restores_the_side_panels`
+/// exercises for regions). This fixture is the round trip for the document half of that same
+/// mechanism: open two files, put one in `Preview`, leave IDE for another mode entirely and come
+/// back, and both which file was in front and which layout it was left in must still be true.
+#[gpui::test]
+fn a_document_and_its_view_mode_survive_a_trip_away_from_ide(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    assert_eq!(fixture.mode(cx), RailMode::Ide);
+
+    fixture.open_file("README.md", cx);
+    fixture.open_file("notes.md", cx);
+    let active = fixture
+        .active_file(cx)
+        .expect("the most recently opened file is in front");
+    assert!(
+        active.ends_with("notes.md"),
+        "the second file opened is the one in front: {active}"
+    );
+
+    // Put the front file's viewer into `Preview` — a real toggle, not a default: the markdown
+    // default here is `Preview` already (see `ViewLayout::default`), so prove the round trip on
+    // `Source` instead, which nothing defaults to.
+    fixture.set_layout(&active, ViewLayout::Source, cx);
+    assert_eq!(fixture.file_layout(&active, cx), Some(ViewLayout::Source));
+
+    // Leave the IDE for a mode with nothing to do with files, and come back.
+    fixture.switch_to(RailMode::Agents, cx);
+    assert_ne!(fixture.mode(cx), RailMode::Ide);
+    fixture.switch_to(RailMode::Ide, cx);
+    assert_eq!(fixture.mode(cx), RailMode::Ide);
+
+    assert_eq!(
+        fixture.active_file(cx).as_deref(),
+        Some(active.as_str()),
+        "the file that was in front is still in front"
+    );
+    assert_eq!(
+        fixture.file_layout(&active, cx),
+        Some(ViewLayout::Source),
+        "the layout the viewer was left in is still the one it is in"
+    );
 }

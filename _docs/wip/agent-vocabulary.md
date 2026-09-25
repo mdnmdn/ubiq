@@ -5,7 +5,7 @@ kind: wip
 status: draft
 summary: What landed in the round that made a login reach its harness's runtime, gave a conversation its model, thinking level and mode, turned the IDE chat into editor-like tabs, and gave every conversation a lifecycle — and what of it is verified against a running binary rather than only against tests.
 read_when: you are picking up this work, or you need to know which parts of it have been seen working and which have only been reasoned about
-updated: 2026-09-23
+updated: 2026-09-25
 verified: 2026-09-24
 code_anchors: [crates/agent-manager/src/isolate.rs, crates/agent-manager/src/harness/mod.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/store/harness.rs, crates/ubiq-host/src/shells.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/ui/agents/column.rs]
 depends_on: [wip-agent-setup, tech-agent-manager, feat-chat, feat-workbench]
@@ -131,9 +131,9 @@ so signing an account in no longer removes the ability to start that harness zer
 **Until a conversation names itself, T-102 gives its title one more source than the bare harness
 label.** `AppState::agent_title` (`crates/ubiq/src/app/agents.rs`) reads a session-only
 `agent_started_profile: HashMap<AgentId, String>` (`state::workbench::WorkbenchState`) — the
-profile a `Message::StartConversation` was launched from — and shows that name in place of the
+agent definition a `Message::StartConversation` was launched from — and shows that name in place of the
 harness label for exactly as long as `WorkAgent::summary` stays `None`. A window reload, or an
-agent started with no profile, falls back to `WorkAgent::name` unchanged. Every surface that used to
+agent started with no agent definition, falls back to `WorkAgent::name` unchanged. Every surface that used to
 print `agent.name` or `agent.summary` directly — the dock tab, the agents column's tab and header —
 now reads this one function instead.
 
