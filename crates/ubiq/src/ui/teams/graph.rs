@@ -25,9 +25,9 @@
 //! same arrangement through the same module, which is the only way the two cannot drift apart.
 
 use gpui::{
-    App, AppContext as _, Context, DragMoveEvent, Entity, InteractiveElement, IntoElement,
-    ParentElement, Render, Rgba, SharedString, StatefulInteractiveElement, Styled, Window, div,
-    point, px,
+    AnyElement, App, AppContext as _, Context, DragMoveEvent, Entity, InteractiveElement,
+    IntoElement, ParentElement, Render, Rgba, SharedString, StatefulInteractiveElement, Styled,
+    Window, div, point, px,
 };
 use gpui_component::{Icon, Sizable as _};
 
@@ -38,20 +38,22 @@ use crate::app::AppState;
 use crate::state::conversation::{Conversation, SubagentTab, short_model_label};
 use crate::state::status::Status;
 use crate::state::teams::{
-    CARD_WIDTH, GROUP_LABEL, GROUP_PAD, TEAMS_CARD_HEIGHT, TeamsSpan, agent_status,
-    delegate_status, fence,
+    CARD_WIDTH, GROUP_LABEL, GROUP_PAD, MISSION_BAND, MISSION_HANDLE, TEAMS_CARD_HEIGHT, TeamsSpan,
+    agent_status, delegate_status, fence,
 };
 use crate::state::work;
+use crate::state::work::WorkState;
 use crate::state::{TeamsHeld, TeamsSelection};
 use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::kit::blocks::{self, Board, Fence, Look, Word};
 use crate::ui::kit::canvas::{self, Link};
-use crate::ui::kit::{elided_with, ghost_button, harness_icon, mono, progress_ring_in};
+use crate::ui::kit::{elided_with, ghost_button, harness_icon, mono, progress_ring_in, state_chip};
 use crate::ui::mark;
+use crate::ui::mission::panel::{mission_hex, phase_colour};
 use crate::ui::project_face::{ProjectFace, project_face};
 use crate::ui::teams::status::{card_colour, project_chip, status_chip, status_mark};
-use crate::ui::work::{activity_colour, lifecycle_colour};
+use crate::ui::work::{activity_colour, lifecycle_colour, work_state_colour};
 use crate::ui::{eid, eid2};
 
 /// What the pointer is carrying. It holds only what was picked up: where the thing is belongs to
@@ -197,8 +199,49 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
     // card dragged out of one takes the outline with it.
     let over = graph.carry.as_ref().and_then(|c| c.over);
     let held = graph.carry.as_ref().map(|c| c.held.clone());
+
+    // The mission fences, outside every task container and inside the project's (M15's nesting).
+    // **Derived, never stored**: the union of the mission's own container and its children's, plus
+    // whoever is on it by spawn alone, measured here every frame exactly as a task container is.
+    // Sorted so two frames stack them in the same order.
+    let mut mission_fences: Vec<(TaskId, (f32, f32, f32, f32))> = graph
+        .missions
+        .keys()
+        .filter(|mission| work.task(**mission).is_some())
+        .map(|mission| (*mission, graph.mission_bounds(&work, *mission)))
+        .collect();
+    mission_fences.sort_by_key(|(mission, _)| *mission);
+    let anchors: std::collections::HashSet<TaskId> =
+        mission_fences.iter().map(|(mission, _)| *mission).collect();
+
+    for (mission, rect) in &mission_fences {
+        // Lit is the drop state, and for a mission it is the *anchor* task being the container the
+        // card would land in — dropping on the mission's own open ground attaches it to the
+        // mission, which is that same task.
+        let lit = over == Some(*mission);
+        let phase = app
+            .mission_anywhere(*mission)
+            .map(|record| record.phase)
+            .unwrap_or_default();
+        board.fence(Fence::new(
+            *rect,
+            if lit {
+                theme::accent()
+            } else {
+                theme::fade(phase_colour(phase), 0.8)
+            },
+            lit,
+        ));
+    }
+
     for (task, (x, y, w, h)) in boxes {
         let id = task.id;
+        // **The anchor's own container merges into the mission fence** rather than drawing inside
+        // it: the fence is measured off this box, so a second outline a pad away from it would say
+        // nothing the outer one did not (`T-105`, M15).
+        if anchors.contains(&id) {
+            continue;
+        }
         let lit = over == Some(id);
         let carried = held == Some(TeamsHeld::Task(id));
         let view = view.clone();
@@ -230,6 +273,11 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 // inside it.
                 if lit || carried {
                     theme::accent()
+                } else if !task.ready(&work.tasks) {
+                    // **A stalled branch reads from the canvas** (M26): a task whose prerequisites
+                    // are not in review or done wears the one waiting colour every mission surface
+                    // already gives that state, through the one mapping that owns it.
+                    work_state_colour(WorkState::Waiting)
                 } else {
                     tint.unwrap_or_else(theme::border)
                 },
@@ -372,6 +420,29 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         }
     }
 
+    // The band along the top of each mission fence: the handle at its left, the coordinator beside
+    // it. Blocks rather than the fence's own ground, because the ground inside a mission fence has
+    // to stay free — that ground is what a card is dropped onto to join the mission.
+    for (mission, rect) in &mission_fences {
+        board.block(
+            handle_rect(*rect),
+            mission_handle(
+                app,
+                &work,
+                *mission,
+                *rect,
+                graph.mission_in_focus() == Some(*mission),
+                held == Some(TeamsHeld::Mission(*mission)),
+                zoom,
+                &view,
+                cx,
+            ),
+        );
+        if let Some(chip) = coordinator_chip(app, &work, *mission, *rect, zoom) {
+            board.block(coordinator_rect(*rect), chip);
+        }
+    }
+
     for agent in &visible {
         let conversation = app.teams_conversation(agent.id, cx);
         let project = spanning
@@ -468,9 +539,198 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         )
         .on_drop(cx.listener(|this, _: &Carried, _, cx| this.end_teams_carry(cx)));
 
+    // The handle's right-click menu is the panel's `⋯`, drawn by the one module that owns those
+    // rows — a second menu over the same mission is a second place for them to drift.
+    let menu = app
+        .workbench
+        .mission_menu
+        .map(|(mission, _)| mission)
+        .filter(|mission| anchors.contains(mission))
+        .and_then(|mission| crate::ui::mission::menu::overlay(app, mission, cx));
+
     blocks::scroller("teams-graph", &app.teams_scroll)
         .child(content)
+        .children(menu)
         .into_any_element()
+}
+
+/// Where the handle block sits in its fence's band: the band's left, vertically centred in it.
+fn handle_rect((x, y, _, _): (f32, f32, f32, f32)) -> (f32, f32, f32, f32) {
+    (
+        x + GROUP_PAD * 0.5,
+        y + (MISSION_BAND - MISSION_HANDLE.1) / 2.0,
+        MISSION_HANDLE.0,
+        MISSION_HANDLE.1,
+    )
+}
+
+/// Where the coordinator sits: the same band, immediately right of the handle.
+fn coordinator_rect(rect: (f32, f32, f32, f32)) -> (f32, f32, f32, f32) {
+    let (x, y, w, h) = handle_rect(rect);
+    (
+        x + w + 8.0,
+        y,
+        (rect.2 - w - GROUP_PAD * 1.5 - 8.0).max(0.0),
+        h,
+    )
+}
+
+/// The mission's handle: **the one new object on this canvas** (M15).
+///
+/// The mission term the project chose for it (M18), its key, its short title, its phase and the
+/// hexagon the panel's header already draws — the same mark, from the same function, so a mission
+/// never reads two ways in one window. Dragging it translates every card inside the fence, which
+/// is [`crate::state::teams::TeamsView::carry_to`]'s business and not this row's; clicking it
+/// selects the mission and opens its panel in the right dock; right-clicking it raises the panel's
+/// own `⋯`.
+#[allow(clippy::too_many_arguments)]
+fn mission_handle(
+    app: &AppState,
+    work: &work::WorkProjection,
+    mission: TaskId,
+    rect: (f32, f32, f32, f32),
+    selected: bool,
+    carried: bool,
+    zoom: f32,
+    view: &Entity<AppState>,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let record = app.mission_anywhere(mission);
+    let phase = record.map(|record| record.phase).unwrap_or_default();
+    let colour = phase_colour(phase);
+    let task = work.task(mission);
+    let title: SharedString = task
+        .map(|task| task.title.clone())
+        .unwrap_or_default()
+        .into();
+    let (x, y, w, h) = handle_rect(rect);
+    let grabbed = view.clone();
+
+    div()
+        .id(eid("teams-mission", mission))
+        .absolute()
+        .left(px(x * zoom))
+        .top(px(y * zoom))
+        .w(px(w * zoom))
+        .h(px(h * zoom))
+        .flex()
+        .items_center()
+        .gap(px(5.0 * zoom))
+        .px(px(6.0 * zoom))
+        .overflow_hidden()
+        .bg(if carried {
+            theme::surface_raised()
+        } else {
+            theme::pane_bg()
+        })
+        .border_l(px(
+            theme::accent_edge() * if selected || carried { 2.0 } else { 1.0 }
+        ))
+        .border_color(if selected || carried {
+            theme::accent()
+        } else {
+            colour
+        })
+        .cursor_grab()
+        .children(record.map(|record| {
+            mission_hex(
+                work,
+                mission,
+                record,
+                eid("teams-mission-hex", mission),
+                12.0 * zoom,
+            )
+        }))
+        .child(
+            mono(app.mission_term(cx), theme::text_faint())
+                .flex_none()
+                .text_size(theme::font(Family::Chrome, Role::Micro) * zoom),
+        )
+        .children(task.and_then(|task| task.key.clone()).map(|key| {
+            mono(key, theme::text_muted())
+                .flex_none()
+                .text_size(theme::font(Family::Chrome, Role::Micro) * zoom)
+        }))
+        .child(elided_with(
+            eid("teams-mission-title", mission),
+            title.clone(),
+            title,
+            theme::text(),
+            theme::font(Family::Chrome, Role::Meta) * zoom,
+        ))
+        .child(
+            div()
+                .flex_none()
+                .child(state_chip(phase.label(), colour, 0.8 * zoom)),
+        )
+        .on_click(cx.listener(move |this, _, _, cx| {
+            this.select_in_teams(TeamsSelection::Mission(mission), cx)
+        }))
+        .on_mouse_down(
+            gpui::MouseButton::Right,
+            cx.listener(move |this, event: &gpui::MouseDownEvent, _, cx| {
+                let at = event.position;
+                this.open_mission_menu(mission, (at.x.into(), at.y.into()), cx);
+            }),
+        )
+        .on_drag(
+            Carried(TeamsHeld::Mission(mission)),
+            move |_, grab, _, cx: &mut App| {
+                // The grab point is taken against the *fence's* top-left, not the handle's: what
+                // is being carried is the whole enclosure, and `carry_to` moves it by the
+                // difference between where its box is and where the pointer wants it.
+                let grab = (
+                    f32::from(grab.x) + (x - rect.0) * zoom,
+                    f32::from(grab.y) + (y - rect.1) * zoom,
+                );
+                grabbed.update(cx, |this, cx| {
+                    this.start_teams_carry(TeamsHeld::Mission(mission), grab, cx)
+                });
+                cx.new(|_| Empty)
+            },
+        )
+        .into_any_element()
+}
+
+/// The coordinator, drawn in the fence's band — `agent-graph-layout-proposal.md`'s coordinator
+/// band at the mission scale. `None` for a mission with no coordinator attached, or one whose
+/// coordinator is not a card this canvas is drawing: a band naming an agent that is not on screen
+/// is a claim the reader cannot check.
+fn coordinator_chip(
+    app: &AppState,
+    work: &work::WorkProjection,
+    mission: TaskId,
+    rect: (f32, f32, f32, f32),
+    zoom: f32,
+) -> Option<AnyElement> {
+    let agent = work.agent(app.mission_anywhere(mission)?.coordinator?)?;
+    let (x, y, w, h) = coordinator_rect(rect);
+    if w <= 0.0 {
+        return None;
+    }
+    Some(
+        div()
+            .absolute()
+            .left(px(x * zoom))
+            .top(px(y * zoom))
+            .w(px(w * zoom))
+            .h(px(h * zoom))
+            .flex()
+            .items_center()
+            .gap(px(5.0 * zoom))
+            .overflow_hidden()
+            .child(
+                mono("coordinator", theme::text_faint())
+                    .flex_none()
+                    .text_size(theme::font(Family::Chrome, Role::Micro) * zoom),
+            )
+            .child(div().flex_none().child(state_chip(
+                agent.name.clone(),
+                activity_colour(agent.activity),
+                0.8 * zoom,
+            )))
+            .into_any_element(),
+    )
 }
 
 /// What a delegate's third row says it is doing: the permission wait where it has one, its own

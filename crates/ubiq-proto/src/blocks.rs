@@ -147,7 +147,10 @@ mod tests {
     #[test]
     fn an_empty_document_has_no_blocks() {
         assert!(blocks("").is_empty());
-        assert!(blocks("   \n\n\t\n").is_empty(), "whitespace is not a block");
+        assert!(
+            blocks("   \n\n\t\n").is_empty(),
+            "whitespace is not a block"
+        );
     }
 
     #[test]

@@ -22,7 +22,7 @@ use ubiq_proto::files::{FileError, FileVersion};
 use ubiq_proto::ids::{
     KbSourceId, PaneId, ProjectId, SearchId, SessionId, SshProfileId, SuggestId, ToolId,
 };
-use ubiq_proto::messages::{AgentPicks, CatalogueModel, Message, Secret, WorkspaceInfo};
+use ubiq_proto::messages::{AgentPicks, CatalogueModel, Message, Secret, TaskField, WorkspaceInfo};
 use ubiq_proto::notifications::{Family, NotificationRequest};
 use ubiq_proto::projects::{IndexLevel, ProjectHealth, Scope};
 use ubiq_proto::settings::{SettingsLayer, SshProfile};
@@ -151,6 +151,10 @@ struct Coordinator {
     /// A task's plan, one markdown document per mission. Shared with the MCP listener's
     /// `ubiq-plan` server as [`crate::plan::Handle`], on [`Self::work`]'s own footing.
     plans: crate::plan::Handle,
+    /// A mission's own record, one directory per mission beside its plan. Shared on
+    /// [`Self::plans`]'s footing, because the stage that adds `ubiq-mission` hands the same
+    /// instance to the MCP listener.
+    missions: crate::mission::Handle,
     /// Application settings: the Ui layer opaque, the Host layer parsed. Shared, because a
     /// connector flow on its own thread writes the same record — [`Settings::update_host`] is what
     /// makes that safe.
@@ -766,6 +770,19 @@ impl Coordinator {
             crate::store::plan::FilePlanStore::new(root.path.clone()),
             work.clone(),
         ));
+        // The missions, on the plans' own footing and for the same reasons: one implementation, so
+        // it is built here; a work handle of its own, so a mission's refusals are the anchor
+        // task's; a plan store of its own, so a record made lazily can infer its phase from
+        // whether a plan has been written (`crate::mission`).
+        let missions = crate::mission::Handle::new(crate::mission::Missions::open(
+            crate::store::mission::MissionStore::new(root.path.clone()),
+            work.clone(),
+            crate::store::plan::FilePlanStore::new(root.path.clone()),
+            // How a mission line reaches a *live* agent rather than only its row: half of
+            // `Missions` runs on the MCP listener's thread, where the conversation map is out of
+            // reach, so it says `PromptAgent` into this same inbox (`crate::mission`).
+            host.voice(),
+        ));
         // Ubiq's own MCP servers, on one loopback port for every agent this process will start.
         // Bound *before* the agents are built, because the URL a run is composed with is written
         // into the harness's configuration and never revisited — there is no later moment to tell
@@ -792,9 +809,16 @@ impl Coordinator {
             Some(crate::mcp::WorkAccess {
                 work: work.clone(),
                 everyone: host.mailbox(To::Everyone),
+                wake: host.voice(),
             }),
             Some(crate::mcp::PlanReach {
                 plans: plans.clone(),
+                everyone: host.mailbox(To::Everyone),
+            }),
+            // The missions, on the plans' own footing: one handle, shared with the listener, so
+            // `ubiq-mission` writes the same records and the same journal a window reads (`D120`).
+            Some(crate::mcp::MissionReach {
+                missions: missions.clone(),
                 everyone: host.mailbox(To::Everyone),
             }),
             Some(crate::mcp::KbReach {
@@ -910,6 +934,7 @@ impl Coordinator {
             projects,
             work,
             plans,
+            missions,
             settings,
             connectors,
             repos,
@@ -2239,9 +2264,39 @@ impl Coordinator {
                 task_id,
                 field,
             } => {
+                // A mission is its anchor task, so the level control is where one comes into being
+                // and where one is thrown away (M3). Demoting a mission that has been worked is
+                // refused here, before anything is written: `Work` knows nothing about missions
+                // and the refusal has to happen above it.
+                let known = self.projects.record(project_id).is_some();
+                let demoted = matches!(field, TaskField::Level(None));
+                let promoted = matches!(field, TaskField::Level(Some(_)));
+                if demoted
+                    && known
+                    && let Some(refusal) =
+                        self.missions.lock().demotion_refusal(project_id, task_id)
+                {
+                    self.host.send(
+                        To::Client(client),
+                        Message::MissionError {
+                            project_id,
+                            task_id: Some(task_id),
+                            error: refusal,
+                        },
+                    );
+                    return;
+                }
                 self.work_job(client, project_id, |work| {
                     work.set_field(project_id, task_id, field)
                 });
+                if known && (demoted || promoted) {
+                    let replies = if demoted {
+                        self.missions.lock().delete(project_id, task_id)
+                    } else {
+                        self.missions.lock().create(project_id, task_id)
+                    };
+                    self.answer(client, replies);
+                }
             }
             Message::MoveTask {
                 project_id,
@@ -2249,9 +2304,29 @@ impl Coordinator {
                 status,
                 before,
             } => {
+                // **A mission card's column is its phase** (M4). Dragging one to another column is
+                // a phase move under M5's rules — gate and all — not a raw status write, and the
+                // host is where that rule lives whatever the window sends. A drag that lands in
+                // the column the mission's phase already means is a reorder and nothing else, so
+                // it falls through to `move_task` and keeps its `before`.
+                let phase = ubiq_proto::mission::Phase::for_status(status);
+                let mission = self.projects.record(project_id).is_some()
+                    && self.missions.lock().is_mission(project_id, task_id);
+                if mission
+                    && self
+                        .missions
+                        .lock()
+                        .record(project_id, task_id)
+                        .is_none_or(|record| record.phase != phase)
+                {
+                    let replies = self.missions.lock().set_phase(project_id, task_id, phase);
+                    self.answer(client, replies);
+                    return;
+                }
                 self.work_job(client, project_id, |work| {
                     work.move_task(project_id, task_id, status, before)
                 });
+                self.wake_scheduler(project_id, task_id);
             }
             Message::AssignTask {
                 project_id,
@@ -2275,6 +2350,10 @@ impl Coordinator {
                         .plans
                         .lock()
                         .delete(&crate::plan::Target::plan(project_id, task_id));
+                    self.answer(client, replies);
+                    // The mission's directory rides the deletion the same way, for the same
+                    // reason: a record keyed by a task that is gone can never be reached again.
+                    let replies = self.missions.lock().delete(project_id, task_id);
                     self.answer(client, replies);
                 }
             }
@@ -2347,12 +2426,65 @@ impl Coordinator {
                 self.work_job(client, project_id, |work| {
                     work.assign_agent(project_id, agent_id, task_id)
                 });
+                // The assignment is what membership is read from, so the roster and the agent's
+                // own facts are settled straight after it — an agent moved onto a mission's child
+                // task is in that mission from its next tool call (M11).
+                let was = self
+                    .agents
+                    .mcp_agents()
+                    .facts(&agent_id.to_string())
+                    .and_then(|facts| facts.mission);
+                let now = self.settle_mission(project_id, agent_id);
+                if was != now {
+                    if let Some(was) = was {
+                        let replies = self.missions.lock().leave(
+                            project_id,
+                            was,
+                            agent_id,
+                            ubiq_proto::mission::Actor::User,
+                        );
+                        for reply in replies {
+                            self.host.send(To::Everyone, reply.into_message());
+                        }
+                    }
+                    self.agents
+                        .mcp_agents()
+                        .set_mission(&agent_id.to_string(), now);
+                }
+                // **A hand assignment removes that task from the scheduler's pool** (M22), and
+                // taking a task off an agent puts it back. Either way the pool changed.
+                if let Some(mission) = now {
+                    self.wake_scheduler(project_id, mission);
+                }
             }
             Message::SendToAgent {
                 project_id,
                 agent_id,
                 text,
             } => {
+                // **The user talking to a mission's coordinator is the mission's feedback** (M12).
+                // Journaled here, where it already happens, rather than through a second path: the
+                // panel's *Feedback* line is this message, and `read_feedback` reads these lines.
+                let mission = self
+                    .agents
+                    .mcp_agents()
+                    .facts(&agent_id.to_string())
+                    .and_then(|facts| facts.mission)
+                    .filter(|mission| {
+                        self.missions
+                            .lock()
+                            .record(project_id, *mission)
+                            .is_some_and(|record| record.coordinator == Some(agent_id))
+                    });
+                if let Some(mission) = mission {
+                    let replies = self
+                        .missions
+                        .lock()
+                        .feedback(project_id, mission, text.clone());
+                    for reply in replies {
+                        self.host.send(To::Everyone, reply.into_message());
+                    }
+                }
                 self.work_job(client, project_id, |work| {
                     work.send_to_agent(project_id, agent_id, text)
                 });
@@ -2442,6 +2574,86 @@ impl Coordinator {
                 });
             }
 
+            Message::ListMissions { project_id } => {
+                self.mission_job(client, project_id, |missions| missions.list(project_id));
+            }
+            Message::CreateMission {
+                project_id,
+                task_id,
+            } => {
+                self.mission_job(client, project_id, |missions| {
+                    missions.create(project_id, task_id)
+                });
+            }
+            Message::SetMissionField {
+                project_id,
+                task_id,
+                field,
+            } => {
+                self.mission_job(client, project_id, |missions| {
+                    missions.set_field(project_id, task_id, field)
+                });
+                // The mode and the parallelism are two of the four things the scheduler runs on,
+                // and switching into auto is the one that has to act immediately (M22).
+                self.wake_scheduler(project_id, task_id);
+            }
+            Message::RequestPhase {
+                project_id,
+                task_id,
+                phase,
+                summary,
+            } => {
+                self.mission_job(client, project_id, |missions| {
+                    missions.request_phase(project_id, task_id, phase, summary)
+                });
+            }
+            Message::SetPhase {
+                project_id,
+                task_id,
+                phase,
+            } => {
+                self.mission_job(client, project_id, |missions| {
+                    missions.set_phase(project_id, task_id, phase)
+                });
+                // **Auto only runs in the In-progress phase** (M22). Entering it is what starts
+                // the scheduler; leaving it pauses it, and the pass this makes is the no-op that
+                // proves it.
+                self.wake_scheduler(project_id, task_id);
+            }
+            Message::LoadJournal {
+                project_id,
+                task_id,
+                before,
+                limit,
+            } => {
+                self.mission_job(client, project_id, |missions| {
+                    missions.load_journal(project_id, task_id, before, limit)
+                });
+            }
+            // The window has launched, or refused to launch, an agent a member asked for (M13).
+            // The host only relayed the request, so this is where the outcome becomes a fact: the
+            // roster, the journal, and the requester's next prompt.
+            Message::AnswerSpawn {
+                project_id,
+                task_id,
+                request_id,
+                outcome,
+            } => {
+                self.mission_job(client, project_id, |missions| {
+                    missions.answer_spawn(project_id, task_id, request_id, outcome)
+                });
+                // A declined auto spawn gives its slot straight back, and an allowed one may have
+                // freed another: either way the next pass is due now rather than at whatever
+                // happens next.
+                self.wake_scheduler(project_id, task_id);
+            }
+            Message::MissionSchedule {
+                project_id,
+                task_id,
+            } => {
+                self.wake_scheduler(project_id, task_id);
+            }
+
             Message::StartConversation {
                 agent_id,
                 project_id,
@@ -2454,17 +2666,38 @@ impl Coordinator {
                 thinking,
                 mode,
                 mcps,
+                spawned_by,
             } => {
                 self.start_conversation(
                     client, agent_id, project_id, session_id, rel_path, agent_type, account,
-                    profile, model, thinking, mode, mcps,
+                    profile, model, thinking, mode, mcps, spawned_by,
                 );
             }
             Message::PromptAgent { agent_id, text } => {
+                // **A prompt may come from the host's own voice**, not only from a window: a
+                // mission line to a roster member, or the outcome of a spawn reaching the agent
+                // that asked for it (`crate::mission::Missions::tell_agent`). The voice owns no
+                // conversation, so it borrows the owning window's id for the ownership check —
+                // the same re-addressing the `AskUser` arm does in the other direction (`D138`).
+                //
+                // **And it only ever drives a conversation that is already live.** A voice prompt
+                // is a line about the mission, never a reason to start a harness the user has not
+                // started: for an agent that has not launched, the line is already in its thread
+                // and that is the whole of the delivery.
+                let voiced = client.is_host_voice();
+                let client = if voiced {
+                    let Some((owner, _)) = self.conversation_owners.get(&agent_id) else {
+                        return;
+                    };
+                    *owner
+                } else {
+                    client
+                };
                 // The asked half of the opening exchange, kept before the prompt is handed on
                 // and moved. Only the first one: a conversation is named after what it was
                 // started for, and a later turn is about where the work has got to.
-                if let Some(pending) = self.pending_conversations.get_mut(&agent_id)
+                if !voiced
+                    && let Some(pending) = self.pending_conversations.get_mut(&agent_id)
                     && !pending.named
                     && pending.opening_prompt.is_none()
                 {
@@ -2472,7 +2705,7 @@ impl Coordinator {
                 }
                 if self.conversations.contains_key(&agent_id) {
                     self.drive(client, agent_id, |conversation| conversation.prompt(text));
-                } else {
+                } else if !voiced {
                     self.launch_pending(client, agent_id, text);
                 }
             }
@@ -2768,6 +3001,7 @@ impl Coordinator {
         thinking: Option<String>,
         mode: Option<String>,
         mcps: Vec<String>,
+        spawned_by: Option<AgentId>,
     ) {
         let Some(cwd) = self.resolve_cwd(client, project_id, rel_path.as_deref()) else {
             return;
@@ -2818,7 +3052,11 @@ impl Coordinator {
             id: agent_id,
             session: session_id,
             task: None,
-            parent: None,
+            // The **only** production writer of `parent`: an agent the window launched to answer
+            // a `MissionSpawnRequest` names the agent that asked for it. Every other start has
+            // nobody above it, and `Work::assign_agent` clears this on every reassignment — which
+            // is why a mission's roster is written down at the spawn rather than read back off it.
+            parent: spawned_by,
             name,
             summary: None,
             role: "agent".to_string(),
@@ -3050,6 +3288,10 @@ impl Coordinator {
             .map(|agent| (agent.name.clone(), agent.harness.clone()))
             .unwrap_or_else(|| (pending.agent_type.clone(), pending.agent_type.clone()));
         let project = self.project_facts(pending.project_id);
+        // Which mission this run is in, settled before the harness exists to ask — the mission
+        // servers resolve it from the URL identity alone and there is no later moment to fill it
+        // for the first call (M11).
+        let mission = self.settle_mission(pending.project_id, agent_id);
         self.agents.mcp_agents().register(crate::mcp::AgentFacts {
             key: agent_id.to_string(),
             name,
@@ -3062,6 +3304,7 @@ impl Coordinator {
             // fresh run mints its id inside the harness and never says it here.
             session: pending.resume.clone(),
             project,
+            mission,
         });
 
         let (composed, bridge) = match self.agents.converse(
@@ -3626,6 +3869,10 @@ impl Coordinator {
             thinking,
             mode,
             Vec::new(),
+            // A relaunch from a stored recipe, not a spawn: who once asked for this agent is not
+            // on the row, and re-stamping a parent a reassignment has since cleared would invent
+            // a link nobody made.
+            None,
         );
         // `start_conversation` refuses on its own terms — an unknown harness, an unreadable folder
         // — and says so; there is nothing here to add if it did.
@@ -4110,6 +4357,12 @@ impl Coordinator {
         self.close_asks(agent_id, AskClosed::Gone);
         if let Some((_, project_id)) = self.conversation_owners.remove(&agent_id) {
             self.work.lock().remove_live_agent(project_id, agent_id);
+            // **An agent that ends frees its slot** (M23). This is the lifecycle event the
+            // scheduler cares about most: the agent is off the list the sweep reads, so the task
+            // it was holding either counts an attempt or is already finished, and the slot is
+            // filled again on this same pass. Before `retire_agent`, which takes the facts that
+            // say which mission it was in.
+            self.wake_agent_scheduler(project_id, agent_id);
         }
         // The run directory *is* the harness's session store — Claude's `projects/<slug>/*.jsonl`,
         // Codex's rollouts, opencode's data dir — so keeping it is the whole of what lets this
@@ -4182,6 +4435,127 @@ impl Coordinator {
             return;
         }
         let replies = change(&mut self.work.lock());
+        self.answer(client, replies);
+    }
+
+    /// Hand one mission message to the missions, [`Self::work_job`]'s own shape and for its
+    /// reason: a project the catalogue does not hold gets no directory written under it.
+    /// Which mission an agent is in, with its roster entry written down if it is a new member
+    /// (M11) — the one place that decides, called at launch and again on every `AssignAgent`.
+    ///
+    /// **Two ways in, and an assignment wins.** An agent assigned to a mission's anchor or to one
+    /// of its children is in that mission; otherwise it inherits its spawner's, read off the
+    /// spawner's own [`crate::mcp::AgentFacts`]. The second is fixed here, at the moment it is
+    /// asked, because `Work::assign_agent` clears `WorkAgent::parent` on every reassignment and
+    /// the link is gone the next time anybody looks — which is why the roster is stored.
+    ///
+    /// Harness-native subagents are not this: a Claude Code `Task` delegate is read off the stream
+    /// and never becomes a `WorkAgent`, so it is drawn as a delegate ring and counted in spend,
+    /// and it is never rostered (`D47`).
+    ///
+    /// Returns the mission, and leaves every reply it made on the bus.
+    fn settle_mission(
+        &mut self,
+        project_id: ProjectId,
+        agent_id: ubiq_proto::work::AgentId,
+    ) -> Option<ubiq_proto::ids::TaskId> {
+        // The board's lock is taken and released before the missions' is: `Missions` takes the
+        // board's for its own refusals, and holding both in this order would be the one place they
+        // could deadlock.
+        let (task, parent) = {
+            let (_, agents) = self.work.lock().agents(project_id);
+            let agent = agents.iter().find(|agent| agent.id == agent_id)?;
+            (agent.task, agent.parent)
+        };
+        let assigned = task.and_then(|task| self.missions.lock().mission_of_task(project_id, task));
+        let mission = match assigned {
+            Some(mission) => mission,
+            None => parent
+                .and_then(|parent| self.agents.mcp_agents().facts(&parent.to_string()))
+                .and_then(|facts| facts.mission)?,
+        };
+
+        let role = self
+            .missions
+            .lock()
+            .record(project_id, mission)
+            .filter(|record| record.coordinator == Some(agent_id))
+            .map_or(ubiq_proto::mission::MissionRole::Worker, |_| {
+                ubiq_proto::mission::MissionRole::Coordinator
+            });
+        let replies = self.missions.lock().join(
+            project_id,
+            mission,
+            agent_id,
+            role,
+            ubiq_proto::mission::Actor::Host,
+        );
+        for reply in replies {
+            self.host.send(To::Everyone, reply.into_message());
+        }
+        Some(mission)
+    }
+
+    /// Run the scheduler of whatever mission `task_id` belongs to (M23).
+    ///
+    /// **This is where the scheduler runs**: the coordinator's own thread, on an event it was
+    /// already handling, with no thread and no timer of its own. It is a record read for every
+    /// mission that is not in auto *and* in the In-progress phase, so calling it from more places
+    /// than strictly necessary is cheap and missing one is not.
+    ///
+    /// Everything it decides goes out broadcast, [`Self::settle_mission`]'s own posture: nobody
+    /// asked for any of it, so there is no asker to answer.
+    fn wake_scheduler(&mut self, project_id: ProjectId, task_id: ubiq_proto::ids::TaskId) {
+        if self.projects.record(project_id).is_none() {
+            return;
+        }
+        let Some(mission) = self.missions.lock().mission_of_task(project_id, task_id) else {
+            return;
+        };
+        let replies = self.missions.lock().schedule(project_id, mission);
+        for reply in replies {
+            self.host.send(To::Everyone, reply.into_message());
+        }
+    }
+
+    /// The same, for an event about an **agent** rather than a task: the mission is read off the
+    /// agent's own facts, which is the only thing that still knows it once its task is gone.
+    fn wake_agent_scheduler(&mut self, project_id: ProjectId, agent_id: AgentId) {
+        if self.projects.record(project_id).is_none() {
+            return;
+        }
+        let Some(mission) = self
+            .agents
+            .mcp_agents()
+            .facts(&agent_id.to_string())
+            .and_then(|facts| facts.mission)
+        else {
+            return;
+        };
+        let replies = self.missions.lock().schedule(project_id, mission);
+        for reply in replies {
+            self.host.send(To::Everyone, reply.into_message());
+        }
+    }
+
+    fn mission_job(
+        &mut self,
+        client: ClientId,
+        project_id: ProjectId,
+        change: impl FnOnce(&mut crate::mission::Missions) -> Vec<Reply>,
+    ) {
+        if self.projects.record(project_id).is_none() {
+            self.host.send(
+                To::Client(client),
+                Message::MissionError {
+                    project_id,
+                    task_id: None,
+                    error: "no such project".to_string(),
+                },
+            );
+            return;
+        }
+        let replies = change(&mut self.missions.lock());
         self.answer(client, replies);
     }
 
@@ -5107,6 +5481,9 @@ impl Coordinator {
                 // A fresh pane resumes nothing.
                 session: None,
                 project,
+                // A pane is not an agent card: it has no `WorkAgent`, so nothing can assign it to
+                // a task and it is never on a mission's roster.
+                mission: None,
             });
         }
 

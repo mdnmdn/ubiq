@@ -19,7 +19,7 @@ use ubiq::state::board::{BoardState, Field};
 use ubiq::state::work::{WorkProjection, fraction};
 use ubiq_proto::ids::{SessionId, TaskId};
 use ubiq_proto::work::{
-    Activity, AgentId, Bucket, Label, Priority, Shape, Status, Step, StepState, TaskRecord,
+    Activity, AgentId, Bucket, Label, Level, Priority, Shape, Status, Step, StepState, TaskRecord,
     WorkAgent, WorkSession,
 };
 
@@ -83,6 +83,7 @@ fn task(
         level: None,
         parent: None,
         references: Vec::new(),
+        prerequisites: Vec::new(),
         attachments: Vec::new(),
         complexity: None,
         key: None,
@@ -435,6 +436,181 @@ fn a_label_pill_ands_with_the_text_and_with_the_other_pills() {
     assert_eq!(
         ids(&board.column(&f.work, Status::InProgress)),
         vec![f.cache, f.pane]
+    );
+}
+
+/// M20: a task waits on whatever prerequisite is not yet `InReview` or `Done`. `pane` waits on
+/// `parser`, still `Backlog`, so `pane` is not ready and `Ready only` drops it from its column and
+/// from the counts, ANDed with the other filters the same way a label pill is.
+#[test]
+fn ready_only_narrows_to_tasks_whose_prerequisites_are_done() {
+    let mut f = seeded();
+    edit_task(&mut f.work, f.pane, |task| {
+        task.prerequisites = vec![f.parser];
+    });
+    let mut board = BoardState::default();
+    assert!(!board.filtering(), "an untouched board hides nothing");
+
+    let pane_waits = f
+        .work
+        .task(f.pane)
+        .expect("the fixture has pane")
+        .waiting_on(&f.work.tasks);
+    assert_eq!(pane_waits, vec![f.parser]);
+    assert!(!f.work.task(f.pane).unwrap().ready(&f.work.tasks));
+    assert!(f.work.task(f.cache).unwrap().ready(&f.work.tasks));
+
+    board.toggle_ready_only();
+    assert!(board.ready_only);
+    assert!(board.filtering());
+    assert_eq!(
+        ids(&board.column(&f.work, Status::InProgress)),
+        vec![f.cache]
+    );
+    assert_eq!(
+        board
+            .counts(&f.work)
+            .into_iter()
+            .find(|(status, _)| *status == Status::InProgress)
+            .map(|(_, count)| count),
+        Some(1)
+    );
+
+    // Finishing the prerequisite clears the wait without touching the tick.
+    edit_task(&mut f.work, f.parser, |task| {
+        task.status = Status::Done;
+    });
+    assert!(f.work.task(f.pane).unwrap().ready(&f.work.tasks));
+    assert_eq!(
+        ids(&board.column(&f.work, Status::InProgress)),
+        vec![f.cache, f.pane]
+    );
+
+    board.clear_filters();
+    assert!(!board.ready_only, "the reset clears Ready only too");
+}
+
+/// M27: the mission filter shows only the mission's own anchor card and its children, stacks
+/// (ANDs) with the text field, the labels and `Ready only` exactly as they stack with each other,
+/// and the reset that clears the other filters clears this one too.
+#[test]
+fn the_mission_filter_narrows_to_the_anchor_and_its_children_and_ands_with_the_rest() {
+    let mut f = seeded();
+    // `cache` becomes the mission; `parser` is its child. `pane` and `unstarted` belong to
+    // neither, even though `pane` shares `cache`'s column and `parser`'s text.
+    edit_task(&mut f.work, f.cache, |task| {
+        task.level = Some(Level::Mission);
+    });
+    edit_task(&mut f.work, f.parser, |task| {
+        task.parent = Some(f.cache);
+    });
+
+    let mut board = BoardState::default();
+    assert!(board.mission.is_none(), "no mission is narrowed by default");
+    assert!(!board.filtering());
+
+    board.set_mission(Some(f.cache));
+    assert!(board.filtering());
+    assert_eq!(
+        ids(&board.column(&f.work, Status::InProgress)),
+        vec![f.cache],
+        "pane shares the column but is not the mission or its child"
+    );
+    assert_eq!(
+        ids(&board.column(&f.work, Status::Backlog)),
+        vec![f.parser],
+        "parser is the mission's child; unstarted is neither"
+    );
+
+    // ANDs with the text field: a query that matches a task outside the mission still narrows to
+    // nothing, because the mission filter has already excluded it.
+    board.filter = "pane".to_string();
+    assert!(board.column(&f.work, Status::InProgress).is_empty());
+    board.filter.clear();
+
+    // ANDs with a label pill: lighting a label neither the mission nor its child carries empties
+    // the column even though the mission filter alone would have shown it.
+    edit_task(&mut f.work, f.pane, |task| {
+        task.labels = vec![Label::new("urgent".to_string(), 0)];
+    });
+    board.toggle_label("urgent");
+    assert!(board.column(&f.work, Status::InProgress).is_empty());
+    board.toggle_label("urgent");
+
+    // ANDs with `Ready only`: parser is not ready once it waits on a prerequisite still open.
+    edit_task(&mut f.work, f.parser, |task| {
+        task.prerequisites = vec![f.pane];
+    });
+    board.toggle_ready_only();
+    assert!(board.column(&f.work, Status::Backlog).is_empty());
+    board.toggle_ready_only();
+    assert_eq!(ids(&board.column(&f.work, Status::Backlog)), vec![f.parser]);
+
+    // The status-bar counts follow the same narrowing, through `column`.
+    assert_eq!(
+        board
+            .counts(&f.work)
+            .into_iter()
+            .find(|(status, _)| *status == Status::InProgress)
+            .map(|(_, count)| count),
+        Some(1)
+    );
+
+    board.clear_filters();
+    assert!(board.mission.is_none(), "the reset clears the mission too");
+    assert!(!board.filtering());
+}
+
+/// A demoted or deleted mission clears the board's own filter rather than leaving it narrowed to
+/// a task that is no longer a mission.
+#[test]
+fn clearing_the_filter_only_touches_the_mission_it_names() {
+    let mut board = BoardState::default();
+    let mission = TaskId::generate();
+    let other = TaskId::generate();
+
+    board.set_mission(Some(mission));
+    board.clear_mission_if(other);
+    assert_eq!(
+        board.mission,
+        Some(mission),
+        "a different task's demotion or deletion leaves the filter alone"
+    );
+
+    board.clear_mission_if(mission);
+    assert!(board.mission.is_none());
+}
+
+/// A prerequisite picker never offers the task itself, nor one that would close a cycle in the
+/// project's prerequisite DAG — `pane` already waits on `parser`, so offering `parser` a
+/// prerequisite of `pane` would make one.
+#[test]
+fn eligible_prerequisites_refuses_the_task_itself_and_a_cycle() {
+    let mut f = seeded();
+    edit_task(&mut f.work, f.pane, |task| {
+        task.prerequisites = vec![f.parser];
+    });
+
+    let pane = f.work.task(f.pane).expect("the fixture has pane").clone();
+    let eligible = ids(&f.work.eligible_prerequisites(&pane));
+    assert!(
+        !eligible.contains(&f.pane),
+        "a task is never its own prerequisite"
+    );
+    assert!(
+        eligible.contains(&f.cache),
+        "an unrelated task stays offered"
+    );
+
+    let parser = f
+        .work
+        .task(f.parser)
+        .expect("the fixture has parser")
+        .clone();
+    let parser_eligible = ids(&f.work.eligible_prerequisites(&parser));
+    assert!(
+        !parser_eligible.contains(&f.pane),
+        "parser already waited on by pane cannot also wait on pane"
     );
 }
 

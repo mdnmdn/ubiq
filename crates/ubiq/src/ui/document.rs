@@ -33,13 +33,13 @@ use gpui_component::{Icon, IconName, Sizable as _, Size};
 use crate::app::{AppState, SubmitSearch};
 use crate::state::document::{
     AnnotationsBody, ComposerTarget, DocumentBody, DocumentEditor, MinimapBlockKind, Notice,
-    heading_sections, minimap_rows, thread_marks,
+    heading_sections, is_frontmatter_fields, minimap_rows, thread_marks,
 };
 use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::kit::{
     MdNavEntry, MinimapMark, MinimapTick, MinimapViewport, UbiqIcon, choice_pill, ghost_button,
-    icon_button, md_navigator, minimap, primary_button, slab, status_dot,
+    icon_button, md_navigator, minimap, mono, primary_button, slab, status_dot,
 };
 use crate::ui::viewer::markdown;
 use crate::ui::{eid, eid2, indexed, scrub};
@@ -377,10 +377,11 @@ fn section_row(
     let Some(doc) = app.workbench.plan.as_ref() else {
         return div().into_any_element();
     };
-    let Some(block) = doc.annotations.blocks().get(index) else {
+    let blocks = doc.annotations.blocks();
+    if blocks.get(index).is_none() {
         return div().into_any_element();
-    };
-    section(app, doc, block, view, window)
+    }
+    section(app, doc, blocks, index, view, window)
 }
 
 /// One section of the document: the rendered markdown, and the gutter that says what is true of
@@ -393,10 +394,12 @@ fn section_row(
 fn section(
     app: &AppState,
     doc: &DocumentEditor,
-    block: &PlanBlock,
+    blocks: &[PlanBlock],
+    index: usize,
     view: &Entity<AppState>,
     window: &Window,
 ) -> AnyElement {
+    let block = &blocks[index];
     let block_id = block.id;
     if doc.editing_block() == Some(block_id) {
         return section_editor(doc, block_id, view, window);
@@ -434,14 +437,25 @@ fn section(
         root = root.bg(theme::selected());
     }
 
-    root.child(
-        div()
-            .flex_1()
-            .min_w(px(0.))
-            .child(markdown::render_block(app, &key, &block.text)),
-    )
-    .child(gutter(doc, block_id, group, view, window))
-    .into_any_element()
+    // T-153: a document opening with `---` has no `frontmatter` block kind to read at
+    // `ParseOptions::gfm()` (see `is_frontmatter_fields`) — the host hands this surface a
+    // mis-parsed heading instead, and drawing it through the same renderer as prose reproduced
+    // the misparse a second time. The preview never shows this at all, because it splits
+    // frontmatter out of the source before any Markdown parse runs over it
+    // (`ui::viewer::markdown::split_frontmatter`); the closest this surface can get without that
+    // same pre-parse step is the preview's own collapsed-frontmatter typography — monospace,
+    // faint, dense — rather than another pass through the block renderer.
+    let content = if is_frontmatter_fields(blocks, index) {
+        mono(block.text.clone(), theme::text_faint())
+            .text_size(theme::font(Family::Content, Role::Dense))
+            .into_any_element()
+    } else {
+        markdown::render_block(app, &key, &block.text)
+    };
+
+    root.child(div().flex_1().min_w(px(0.)).child(content))
+        .child(gutter(doc, block_id, group, view, window))
+        .into_any_element()
 }
 
 /// The right-hand strip beside a section: its threads, and — under the pointer — the two things
@@ -548,6 +562,8 @@ fn section_editor(
     };
     slab(theme::accent())
         .id(eid("plan-section-edit-body", block_id))
+        .w_full()
+        .min_w(px(0.))
         .p_2()
         .gap_1p5()
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())

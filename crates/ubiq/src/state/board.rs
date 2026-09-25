@@ -73,6 +73,9 @@ pub struct TaskForm {
     /// text — see `BoardState::text_matches`. Cleared whenever the picker is opened, so a search
     /// left over from the last task never narrows this one.
     pub reference_query: String,
+    /// The prerequisite picker's own search field, `reference_query`'s sibling for
+    /// `TaskField::Prerequisites`.
+    pub prerequisite_query: String,
 }
 
 /// The rest of a new task, waiting for the id the host is about to mint.
@@ -97,13 +100,20 @@ pub struct PendingTask {
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct PendingMission {
     pub title: String,
-    /// Sent as an `UpdateTask` the moment the task exists. Empty means there was none.
+    /// The requirements. Sent as an `UpdateTask` the moment the task exists — empty means there
+    /// were none.
     pub description: String,
-    /// Said in the assistant's briefing as a reminder, not enforced by the host — see
-    /// `crate::state::new_mission::mission_briefing`.
+    /// The brief's other two halves (M7), both `SetTaskField`s on the anchor once it exists.
+    pub attachments: Vec<String>,
+    pub references: Vec<TaskId>,
+    /// The plan gate, written onto the record as `MissionField::RequirePlan` and said in the
+    /// coordinator's briefing — see `crate::state::new_mission::mission_briefing`.
     pub require_plan: bool,
-    /// Which profile to launch, by [`ubiq_proto::messages::ProfileInfo::id`].
-    pub assistant_profile: String,
+    /// Markdown to save as the plan's first revision, which also starts the mission in `Refining`.
+    /// Empty is no plan.
+    pub plan_seed: String,
+    /// Who runs it (M10): a profile to launch, or an agent already running to adopt.
+    pub coordinator: crate::state::new_mission::Coordinator,
 }
 
 /// A task under the pointer, the column a drop would put it in, and where in it.
@@ -133,6 +143,21 @@ pub struct BoardState {
     /// carrying `flaky` in two colours are carrying one label, and the pill filters on what the
     /// user reads.
     pub labels: Vec<String>,
+    /// Narrow to ready tasks only — M20's derived readiness, `TaskRecord::ready`. Like the other
+    /// board filters, it is not persisted.
+    pub ready_only: bool,
+    /// The mission the board is narrowed to (M27): its anchor card and its children, nothing
+    /// else. `None` is every mission, the way `session` being `None` is every session.
+    ///
+    /// **Single choice, not a set**, unlike `labels`: a task belongs to at most one mission, so
+    /// ticking two would read as OR while the labels picker beside it means AND, and the toolbar
+    /// would say two different things in one row.
+    ///
+    /// Not persisted, the same posture as `ready_only` and the labels: only `board_shut` and
+    /// `board_popup` are saved today, and a lone persisted filter among unpersisted ones would
+    /// read as an inconsistency rather than a feature — the whole filter set moving together is a
+    /// separate card.
+    pub mission: Option<TaskId>,
     pub selected: Option<TaskId>,
     pub show_detail: bool,
     /// The columns shut to a strip. A shut column still counts and still takes a drop.
@@ -203,6 +228,8 @@ impl Default for BoardState {
             filter: String::new(),
             session: None,
             labels: Vec::new(),
+            ready_only: false,
+            mission: None,
             selected: None,
             show_detail: true,
             shut: Vec::new(),
@@ -250,11 +277,20 @@ impl BoardState {
         {
             return false;
         }
+        if let Some(mission) = self.mission
+            && task.id != mission
+            && task.parent != Some(mission)
+        {
+            return false;
+        }
         if !self
             .labels
             .iter()
             .all(|name| task.labels.iter().any(|label| label.name == *name))
         {
+            return false;
+        }
+        if self.ready_only && !task.ready(&work.tasks) {
             return false;
         }
         let needle = self.filter.trim().to_lowercase();
@@ -332,7 +368,11 @@ impl BoardState {
     /// Whether anything is being hidden, so the control that clears the filters can say whether it
     /// has anything to do.
     pub fn filtering(&self) -> bool {
-        !self.filter.trim().is_empty() || self.session.is_some() || !self.labels.is_empty()
+        !self.filter.trim().is_empty()
+            || self.session.is_some()
+            || !self.labels.is_empty()
+            || self.ready_only
+            || self.mission.is_some()
     }
 
     /// Put every filter back, which is the toolbar's one control for "show everything".
@@ -343,6 +383,28 @@ impl BoardState {
         self.filter.clear();
         self.session = None;
         self.labels.clear();
+        self.ready_only = false;
+        self.mission = None;
+    }
+
+    /// Flip the `Ready only` tick.
+    pub fn toggle_ready_only(&mut self) {
+        self.ready_only = !self.ready_only;
+    }
+
+    /// Narrow the board to one mission's anchor card and its children, or back to every task —
+    /// the toolbar's mission filter (M27) and a mission card's own *Show only this mission* row.
+    pub fn set_mission(&mut self, mission: Option<TaskId>) {
+        self.mission = mission;
+    }
+
+    /// Clear the mission filter if it currently names `task` — called when that task is demoted
+    /// off `Level::Mission` or deleted, so the board is never left filtered to a mission that no
+    /// longer exists.
+    pub fn clear_mission_if(&mut self, task: TaskId) {
+        if self.mission == Some(task) {
+            self.mission = None;
+        }
     }
 
     /// The cards one column draws, in the order the tasks were defined.

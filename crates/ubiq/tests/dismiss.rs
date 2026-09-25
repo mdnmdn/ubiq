@@ -653,3 +653,120 @@ fn the_cursor_is_only_remembered_while_the_mode_is_up(cx: &mut gpui::TestAppCont
         assert!(state.workbench.help_target.is_none())
     });
 }
+
+/// The mission full view's modal takes a rung of its own, under the plan and the file question.
+///
+/// A modal raised in `ui::shell` without one is a modal Escape walks past, which is what this
+/// file exists to catch — and the mission's is the one whose *Plan & docs* tab raises the plan
+/// surface over it, so the pair's order is the part worth asserting.
+#[gpui::test]
+fn escape_peels_the_mission_full_view(cx: &mut gpui::TestAppContext) {
+    use gpui::AppContext as _;
+
+    let (hub, _host) = ubiq_proto::bus::hub();
+    cx.update(|cx| {
+        gpui_component::init(cx);
+        ubiq::theme::set_mode(ubiq::app::boot_theme(), cx);
+        BusHub::install(hub, cx);
+        WindowRegistry::install(cx);
+        ubiq::app::install_key_bindings(cx);
+    });
+
+    let held: std::rc::Rc<std::cell::RefCell<Option<gpui::Entity<AppState>>>> = Default::default();
+    let taken = held.clone();
+    let handle = cx.add_window(move |window, cx| {
+        let state = cx.new(|cx| AppState::for_project(None, 'A', window, cx));
+        *taken.borrow_mut() = Some(state.clone());
+        gpui_component::Root::new(state, window, cx)
+    });
+    cx.run_until_parked();
+    let state = held
+        .borrow_mut()
+        .take()
+        .expect("the window built its state");
+
+    let task_id = ubiq_proto::ids::TaskId::generate();
+    state.update(cx, |state, cx| {
+        state.open_mission_modal(task_id, cx);
+        state.workbench.file_dialog = Some(FileDialog::New {
+            parent: String::new(),
+            dir: false,
+            ext: None,
+        });
+    });
+    cx.run_until_parked();
+
+    let escape = |state: &gpui::Entity<AppState>, cx: &mut gpui::TestAppContext| {
+        handle
+            .update(cx, |_, window, cx| {
+                state.update(cx, |state, cx| {
+                    state.cancel_dialog(&DialogCancel, window, cx);
+                });
+            })
+            .expect("the window is open");
+        cx.run_until_parked();
+    };
+
+    escape(&state, cx);
+    state.read_with(cx, |state, _| {
+        assert!(state.workbench.file_dialog.is_none());
+        assert_eq!(
+            state.workbench.mission,
+            Some(task_id),
+            "the file question took the mission under it"
+        );
+    });
+
+    escape(&state, cx);
+    state.read_with(cx, |state, _| assert!(state.workbench.mission.is_none()));
+}
+
+/// *Open as tab* is a move, not a copy: the modal goes and a centre-region document takes its
+/// place, so the mission is never on screen twice.
+#[gpui::test]
+fn open_as_tab_moves_the_mission_into_the_centre(cx: &mut gpui::TestAppContext) {
+    use gpui::AppContext as _;
+    use ubiq::state::dock::{PanelClass, PanelKind};
+
+    let (hub, _host) = ubiq_proto::bus::hub();
+    cx.update(|cx| {
+        gpui_component::init(cx);
+        ubiq::theme::set_mode(ubiq::app::boot_theme(), cx);
+        BusHub::install(hub, cx);
+        WindowRegistry::install(cx);
+        ubiq::app::install_key_bindings(cx);
+    });
+
+    let held: std::rc::Rc<std::cell::RefCell<Option<gpui::Entity<AppState>>>> = Default::default();
+    let taken = held.clone();
+    let _handle = cx.add_window(move |window, cx| {
+        let state = cx.new(|cx| AppState::for_project(None, 'A', window, cx));
+        *taken.borrow_mut() = Some(state.clone());
+        gpui_component::Root::new(state, window, cx)
+    });
+    cx.run_until_parked();
+    let state = held
+        .borrow_mut()
+        .take()
+        .expect("the window built its state");
+
+    let task_id = ubiq_proto::ids::TaskId::generate();
+    state.update(cx, |state, cx| {
+        state.open_mission_modal(task_id, cx);
+        state.open_mission_tab(task_id, cx);
+    });
+    cx.run_until_parked();
+
+    state.read_with(cx, |state, _| {
+        assert!(
+            state.workbench.mission.is_none(),
+            "the modal stayed up beside the document"
+        );
+    });
+    // The document's class is what puts it beside the open files rather than in a side region.
+    assert_eq!(
+        PanelKind::MissionView(task_id).class(),
+        PanelClass::Centre,
+        "the full view is a centre-region document"
+    );
+}

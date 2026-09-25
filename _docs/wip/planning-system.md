@@ -5,7 +5,7 @@ kind: wip
 status: draft
 summary: What is still undecided about the planning flow — missions, plans and their annotations — after all seven staged slices (T-56 through T-62) and the follow-on provenance work (T-94) shipped. The built design lives in `features/workbench-tasks.md`, `tech/transport-contract.md` and `tech/decisions.md` (`D157` through `D161`); this file is only the remainder.
 read_when: you are picking up T-85, or deciding whether a mission should inherit anything from its parent, or whether `require plan` should gate anything
-updated: 2026-09-23
+updated: 2026-09-24
 verified: 2026-09-24
 code_anchors: [crates/ubiq/src/state/document.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/plan/service.rs, crates/ubiq-proto/src/plan.rs]
 depends_on: [feat-workbench, tech-transport, tech-decisions, wip-kb]
@@ -60,7 +60,8 @@ What remains is one blocked card and two open questions.
   does today; `parent: Option<TaskId>` carries no propagation.
 
 The plan editor's own known gaps — its decoration layers painting into a buffer the preview-only
-surface no longer draws, and the `/` menu that went with that buffer — are `G332` and `G333` in
+surface no longer draws, the `/` menu that went with that buffer, and frontmatter having no block
+kind of its own on the annotation surface — are `G332`, `G333` and `G341` in
 [`backlog.md`](../backlog.md), not restated here.
 
 ## Related docs
@@ -72,4 +73,4 @@ surface no longer draws, and the `/` menu that went with that buffer — are `G3
 - [`../tech/decisions.md`](../tech/decisions.md) — `D157`–`D161`, and `D30`, `D113`, `D121`,
   `D138` this design builds on
 - [`kb.md`](./kb.md) — the knowledge base T-85's answer would point into
-- [`../backlog.md`](../backlog.md) — `G332`
+- [`../backlog.md`](../backlog.md) — `G332`, `G333`, `G341`

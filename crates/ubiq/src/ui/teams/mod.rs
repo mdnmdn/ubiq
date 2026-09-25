@@ -38,8 +38,8 @@ pub mod status;
 pub mod tasks;
 
 use gpui::{
-    AnyElement, Context, InteractiveElement, IntoElement, ParentElement, Rgba,
-    StatefulInteractiveElement, Styled, Window, div, px,
+    AnyElement, ClickEvent, Context, InteractiveElement, IntoElement, ParentElement, Rgba,
+    StatefulInteractiveElement, Styled, Window, div, point, px,
 };
 use gpui_component::IconName;
 
@@ -47,11 +47,11 @@ use ubiq_proto::work::Bucket;
 
 use crate::app::AppState;
 use crate::state::teams::{Algo, TeamsSpan, ZOOM_STEP};
-use crate::state::{MenuId, TeamsSelection};
+use crate::state::{MenuId, TeamsCreateStage, TeamsSelection};
 use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::kit::{
-    MultiPicker, Picker, check_box, ghost_button, icon_button, section_label, stepper,
+    self, MultiPicker, Picker, check_box, ghost_button, icon_button, section_label, stepper,
 };
 use crate::ui::project_face::project_face;
 use crate::ui::work::bucket_colour;
@@ -238,7 +238,8 @@ fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
                 cx.listener(|this, _, _, cx| this.clear_teams_filters(cx)),
             )
         }))
-        .child(add_agent(app, cx))
+        .child(create_split(app, cx))
+        .children(teams_create_overlay(app, cx))
         .child(div().w(px(12.)).flex_none())
         .child(stepper(
             "teams-zoom",
@@ -306,55 +307,100 @@ fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         .into_any_element()
 }
 
-/// The one control on the row that *makes* something rather than narrowing what is drawn.
+/// The one control on the row that *makes* something rather than narrowing what is drawn: a split
+/// button (M15, §9) — a `+` and a chevron, the titlebar's own pattern (`ui::titlebar`'s
+/// new-terminal `+` and its chevron) reused rather than built again.
 ///
 /// It sits past the flexible gap, beside `Show everything` and before the view controls, because
 /// an action is not a filter: the pills to the left of the gap all answer "what is on screen", and
 /// this one answers "what is there to be on screen". Last in the action group rather than first,
 /// so its distance from the zoom stepper does not move when `Show everything` comes and goes.
 ///
-/// **Its shape is the question it asks.** A canvas spanning several projects gets a picker — a
-/// start raised from a canvas about all of them has to name which one it is for — and anything
-/// else gets a plain button, because a list of one row is a decision already made.
-fn add_agent(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
-    if !app.teams_project_choice(cx) {
-        return ghost_button(
-            "teams-add-agent",
-            Some(IconName::Plus),
-            "Add agent",
-            cx.listener(|this, _, window, cx| this.open_teams_add_agent(window, cx)),
+/// **The `+` does what the toolbar's `+ Add agent` always did** — New agent, asking which project
+/// when the canvas spans more than one ([`AppState::open_teams_add_agent`]). **The chevron's menu
+/// offers New agent and New mission**, each asking the same project question in its own second
+/// stage ([`AppState::open_teams_create_menu`], [`AppState::pick_teams_create_menu`]) — *New
+/// mission* raises the same dialog the board and the side docks' `+` already do
+/// ([`AppState::open_new_mission`]).
+fn create_split(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .child(
+            icon_button(
+                "teams-create",
+                IconName::Plus,
+                false,
+                cx.listener(|this, event: &ClickEvent, window, cx| {
+                    let at = (f32::from(event.position().x), f32::from(event.position().y));
+                    this.open_teams_add_agent(at, window, cx);
+                }),
+            )
+            .tooltip(|window, cx| {
+                gpui_component::tooltip::Tooltip::new("New agent").build(window, cx)
+            }),
         )
-        .into_any_element();
-    }
-    let view = cx.entity();
-    // A row is the project's name in full, resolved through `project_face` so the rail's badges,
-    // a card's chip and this list cannot disagree about which project is which. The initials and
-    // the tint are what a project wears where there is no room for its name; a menu row has the
-    // room, and the name is the thing a choice is made on.
-    let names: Vec<String> = app
-        .window_projects(cx)
-        .into_iter()
-        .map(|id| {
-            project_face(id, cx)
-                .map(|face| face.name.to_string())
-                // The registry is what `window_projects` filtered against, so this is unreachable
-                // in practice — but a row dropped here would shift every index below it, and the
-                // pick is matched by position.
-                .unwrap_or_else(|| "\u{2026}".to_string())
-        })
-        .collect();
-    Picker::new("teams-add-agent", "Add agent")
-        .icon(IconName::Plus)
-        .items(names)
-        .open(app.workbench.open_menu == Some(MenuId::TeamsAddAgent))
-        .on_toggle(handler(&view, |this, window, cx| {
-            this.open_teams_add_agent(window, cx)
-        }))
-        .on_dismiss(handler(&view, |this, _, cx| this.close_menu(cx)))
-        .on_pick(indexed(&view, |this, index, window, cx| {
-            this.pick_teams_add_agent(index, window, cx)
-        }))
+        .child(
+            icon_button(
+                "teams-create-menu",
+                IconName::ChevronDown,
+                app.workbench.open_menu == Some(MenuId::TeamsCreate),
+                cx.listener(|this, event: &ClickEvent, _, cx| {
+                    let at = (f32::from(event.position().x), f32::from(event.position().y));
+                    this.open_teams_create_menu(at, cx);
+                }),
+            )
+            .tooltip(|window, cx| {
+                gpui_component::tooltip::Tooltip::new("New agent or mission").build(window, cx)
+            }),
+        )
         .into_any_element()
+}
+
+/// The split button's chevron menu, at whichever of its stages is down (§9's last bullet, M15):
+/// the fixed *New agent* / *New mission* choice, or either row's own project question. A
+/// `kit::context_menu` rather than a `kit::Picker` — the trigger is the chevron alone, not a
+/// labelled control the panel can hang from, so the anchored click point
+/// [`crate::app::TeamsCreateMenu::at`] carries is what the fixed-rows menu already uses
+/// (`ui::agents::new_agent_menu`'s own first stage).
+fn teams_create_overlay(app: &AppState, cx: &mut Context<AppState>) -> Option<AnyElement> {
+    let menu = app.workbench.teams_create_menu?;
+    let view = cx.entity();
+    let at = point(px(menu.at.0), px(menu.at.1));
+
+    let items = match menu.stage {
+        TeamsCreateStage::Kind => vec![
+            kit::ContextItem::new("New agent"),
+            kit::ContextItem::new("New mission"),
+        ],
+        // A row is the project's name in full, resolved through `project_face` so the rail's
+        // badges, a card's chip and this list cannot disagree about which project is which.
+        TeamsCreateStage::AgentProject | TeamsCreateStage::MissionProject => app
+            .window_projects(cx)
+            .into_iter()
+            .map(|id| {
+                kit::ContextItem::new(
+                    project_face(id, cx)
+                        .map(|face| face.name.to_string())
+                        .unwrap_or_else(|| "\u{2026}".to_string()),
+                )
+            })
+            .collect(),
+    };
+
+    Some(
+        kit::context_menu(
+            "teams-create-overlay",
+            at,
+            items,
+            indexed(&view, |this, index, window, cx| {
+                this.pick_teams_create_menu(index, window, cx);
+            }),
+            handler(&view, |this, _, cx| this.close_menu(cx)),
+        )
+        .into_any_element(),
+    )
 }
 
 /// The one control on the row about *delegates* rather than cards: whether a card goes on drawing

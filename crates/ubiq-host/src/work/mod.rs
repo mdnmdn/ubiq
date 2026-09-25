@@ -321,12 +321,25 @@ impl Work {
         change: impl FnOnce(&mut WorkAgent) -> bool,
     ) -> Vec<Reply> {
         let mut replies = self.prepare(project);
-        let Some(mock) = self.mocks.get_mut(&project) else {
-            return replies;
-        };
-        let Some(record) = mock.agents.iter_mut().find(|a| a.id == agent) else {
-            replies.push(Reply::Asker(work_error(project, None, "no such agent")));
-            return replies;
+        // **The live list first.** `work_list` puts a running agent above the invented ones and
+        // everything downstream reads one list, so a change addressed to a real agent has to find
+        // it — a mission's `message_agent` names a roster member, and every roster member is live.
+        let live = self
+            .live
+            .get_mut(&project)
+            .and_then(|agents| agents.iter_mut().find(|a| a.id == agent));
+        let record = match live {
+            Some(record) => record,
+            None => {
+                let Some(mock) = self.mocks.get_mut(&project) else {
+                    return replies;
+                };
+                let Some(record) = mock.agents.iter_mut().find(|a| a.id == agent) else {
+                    replies.push(Reply::Asker(work_error(project, None, "no such agent")));
+                    return replies;
+                };
+                record
+            }
         };
         if !change(record) {
             return replies;
@@ -539,6 +552,13 @@ impl Work {
                 return replies;
             }
         }
+        if let TaskField::Prerequisites(prerequisites) = &field {
+            let mut replies = self.prepare(project);
+            if let Some(refusal) = self.prerequisite_refusal(project, task, prerequisites) {
+                replies.push(Reply::Asker(work_error(project, Some(task), refusal)));
+                return replies;
+            }
+        }
         self.with_task(project, task, |record| {
             let changed = match field {
                 TaskField::Shape(shape) => {
@@ -569,6 +589,18 @@ impl Work {
                         .collect();
                     let changed = record.references != references;
                     record.references = references;
+                    changed
+                }
+                // The refusals (other project, self, cycle) already ran, above, against the raw
+                // list; this is only the same trim/dedup/self-exclusion `References` does.
+                TaskField::Prerequisites(prerequisites) => {
+                    let mut seen = HashSet::new();
+                    let prerequisites: Vec<TaskId> = prerequisites
+                        .into_iter()
+                        .filter(|id| *id != record.id && seen.insert(*id))
+                        .collect();
+                    let changed = record.prerequisites != prerequisites;
+                    record.prerequisites = prerequisites;
                     changed
                 }
                 // The whole list, replaced, exactly as `References` above: trimmed, empties
@@ -947,6 +979,18 @@ impl Work {
         (replies, tasks)
     }
 
+    /// Every agent this project shows, live ones first — [`Self::work_list`]'s own list, read
+    /// without building the message around it. What a mission's `list_agents` resolves its roster
+    /// against.
+    pub fn agents(&mut self, project: ProjectId) -> (Vec<Reply>, Vec<WorkAgent>) {
+        let replies = self.prepare(project);
+        let mut agents = self.live.get(&project).cloned().unwrap_or_default();
+        if let Some(mock) = self.mocks.get(&project) {
+            agents.extend(mock.agents.iter().cloned());
+        }
+        (replies, agents)
+    }
+
     /// The colour labels this project knows: those on its cards, plus any named this session that
     /// no card has used yet. Most-used first, then by name — the same order the board suggests.
     pub fn labels(&mut self, project: ProjectId) -> (Vec<Reply>, Vec<Label>) {
@@ -1107,6 +1151,35 @@ impl Work {
         }
         None
     }
+
+    /// Why `task` cannot be given `prerequisites`, if there is a reason.
+    ///
+    /// **Call `prepare` first** — like [`Self::parent_refusal`], this reads the loaded list rather
+    /// than minting it. Unlike `parent`, depth is unbounded here, so the three refusals are: a
+    /// prerequisite naming a task in another project (it is simply absent from this project's
+    /// list, the same test `parent_refusal` uses for "no such task"), the task itself, and a
+    /// prerequisite that would close a cycle in the DAG — checked by [`prerequisite_cycle`], a
+    /// walk bounded by the project's task count.
+    fn prerequisite_refusal(
+        &self,
+        project: ProjectId,
+        task: TaskId,
+        prerequisites: &[TaskId],
+    ) -> Option<String> {
+        let list = self.loaded.get(&project)?;
+        for &prerequisite in prerequisites {
+            if prerequisite == task {
+                return Some("a task cannot be its own prerequisite".to_string());
+            }
+            if !list.iter().any(|t| t.id == prerequisite) {
+                return Some("no such task".to_string());
+            }
+        }
+        if prerequisite_cycle(list, task, prerequisites) {
+            return Some("that would make the prerequisites a cycle".to_string());
+        }
+        None
+    }
 }
 
 /// Give each mock agent the task its session is working on, and no task at all when its session is
@@ -1145,7 +1218,34 @@ fn sanitize_relations(list: &mut [TaskRecord]) {
             task.parent = None;
         }
         task.references.retain(|id| ids.contains(id));
+        task.prerequisites.retain(|id| ids.contains(id));
     }
+}
+
+/// Whether giving `task` the prerequisites in `candidates` would close a cycle in the project's
+/// prerequisite DAG, walking `list`'s *existing* edges from each candidate — `task`'s own current
+/// edges are not consulted, since they are exactly what is being replaced. Reaching `task` from a
+/// candidate means `task` would end up depending, transitively, on itself.
+///
+/// Bounded by `list`'s length: each node is visited at most once per candidate, tracked in `seen`.
+fn prerequisite_cycle(list: &[TaskRecord], task: TaskId, candidates: &[TaskId]) -> bool {
+    let by_id: HashMap<TaskId, &TaskRecord> = list.iter().map(|t| (t.id, t)).collect();
+    for &start in candidates {
+        let mut stack = vec![start];
+        let mut seen = HashSet::new();
+        while let Some(id) = stack.pop() {
+            if id == task {
+                return true;
+            }
+            if !seen.insert(id) {
+                continue;
+            }
+            if let Some(record) = by_id.get(&id) {
+                stack.extend(record.prerequisites.iter().copied());
+            }
+        }
+    }
+    false
 }
 
 /// The next `T-<n>` for a project's tasks: one past the highest progressive already in use, which

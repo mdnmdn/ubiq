@@ -5,9 +5,9 @@ kind: tech
 status: draft
 summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, quota, profile, command-line, host browse, connector, repository, assist, notification, web asset and carrier families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
-updated: 2026-09-24
-verified: 2026-09-24
-code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ask.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/feedback.rs, crates/ubiq-host/src/feedback/mod.rs, crates/ubiq-host/src/feedback/api.rs, crates/ubiq-host/src/feedback/issues.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq-drone/src/search.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs]
+updated: 2026-09-25
+verified: 2026-09-25
+code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ask.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/feedback.rs, crates/ubiq-host/src/feedback/mod.rs, crates/ubiq-host/src/feedback/api.rs, crates/ubiq-host/src/feedback/issues.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq-drone/src/search.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq-proto/src/mission.rs, crates/ubiq-host/src/mission/mod.rs, crates/ubiq-host/src/mission/scheduler.rs, crates/ubiq-host/src/store/mission.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/mcp/mission.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/registry.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
 ---
@@ -870,12 +870,17 @@ either way, because a `Box` serialises as what is inside it.
 
 A family of its own beside the work family it extends, sized for what it does: four variants out,
 five back. **Every variant names a `DocumentHandle` and nothing else.** The handle is
-`ubiq_proto::plan::DocumentHandle`, and it has two variants: `Plan { project_id, task_id }` — a
-task's plan under the config root — and `File { project_id, rel_path }` — an ordinary markdown file
-in the project's own working tree, annotated in place. The messages, the block matcher, the
-orphaning rule and the provenance layer are the same for both; where the body and its sidecar sit
-is the host's answer to the handle, resolved once in `Coordinator::plan_job`, and a `rel_path` that
-is not markdown or does not land inside the project is refused there with `PlanError`.
+`ubiq_proto::plan::DocumentHandle`, and it has three variants: `Plan { project_id, task_id }` — a
+task's plan under the config root — `File { project_id, rel_path }` — an ordinary markdown file
+in the project's own working tree, annotated in place — and `MissionDoc { project_id, task_id,
+name }` — a mission document beyond the plan, at `missions/<TaskId>/docs/<name>.md`, `name` a bare
+document name with no path and no nesting. The messages, the block matcher, the orphaning rule and
+the provenance layer are the same for all three; where the body and its sidecar sit is the host's
+answer to the handle, resolved once in `Coordinator::plan_job`, and a `rel_path` that is not
+markdown or does not land inside the project is refused there with `PlanError`, as is a `MissionDoc`
+naming a task whose `Level` is not exactly `Mission`. **`MissionDoc` adds no message of its own**:
+riding the same four-out-five-back family it costs the wire nothing, and a mission document
+inherits annotations, provenance and the conflict rule (`D161`) the same way a project file does.
 
 The names stayed `Plan*` because the records the family carries are (`PlanBlock`, `PlanRevision`,
 `PlanChangedRegion`) and renaming half a vocabulary is not what makes a document generic.
@@ -996,6 +1001,201 @@ the layer existed loads with revision `0` and no stamps. **An unstamped line is 
 changed**, so an older plan reports honestly that nothing is *known* to have changed rather than
 claiming whoever saves next rewrote the document.
 
+## The mission family
+
+A family of its own beside the plan family, for the entity the plan belongs to. **A mission *is*
+its anchor task**: a `TaskRecord` carrying `Level::Mission`, whose `TaskId` is the mission's
+identity. There is no `MissionId`, no second id space and no parallel task model — the mission's
+own state is a sidecar keyed by that same id, exactly as its plan already is (`D165`).
+
+**Every variant names `project_id` and `task_id` directly**, unlike the plan family beside it,
+which keys off a `DocumentHandle`. A mission has no body, no sidecar and no placement to resolve,
+so there is nothing for a handle to say.
+
+| Message | Direction | Payload | Responds with |
+|---|---|---|---|
+| `ListMissions` | UI → host | `project_id` | `MissionList` (asker), plus `MissionChanged` (everyone) for each record it had to create |
+| `CreateMission` | UI → host | `project_id`, `task_id` | `MissionChanged` (everyone) or `MissionError` (asker) |
+| `SetMissionField` | UI → host | `project_id`, `task_id`, `field` | `MissionChanged` (everyone) or `MissionError` (asker); nothing at all when the value already matched |
+| `RequestPhase` | UI → host | `project_id`, `task_id`, `phase`, `summary` | `MissionChanged` (everyone) directly when nothing is at stake, otherwise the pending request rides one |
+| `SetPhase` | UI → host | `project_id`, `task_id`, `phase` | `MissionChanged` (everyone) or `MissionError` (asker) |
+| `LoadJournal` | UI → host | `project_id`, `task_id`, `before?`, `limit?` | `Journal` (asker) |
+| `AnswerSpawn` | UI → host | `project_id`, `task_id`, `request_id`, `outcome` | `MissionChanged` (everyone); the requester is told the outcome as its next prompt and a journal line |
+| `MissionSchedule` | host → host | `project_id`, `task_id` | the host's own wake to itself (below), never sent by a window |
+| `MissionList` | host → UI | `project_id`, `missions` | — |
+| `MissionChanged` | host → UI | `project_id`, `mission` (boxed) | — |
+| `MissionDeleted` | host → UI | `project_id`, `task_id` | — |
+| `MissionError` | host → UI | `project_id`, `task_id?`, `error` | — |
+| `Journal` | host → UI | `project_id`, `task_id`, `entries`, `more` | — |
+| `JournalAppended` | host → UI | `project_id`, `task_id`, `entry` | — |
+| `MissionSpawnRequest` | host → UI | `project_id`, `task_id`, `request` (boxed `PendingSpawn`) | broadcast; whichever window applies the spawn policy answers with `AnswerSpawn` |
+
+**Mutations broadcast and every window filters by project itself.** `To` is one client or
+everyone — there is no per-project address on the bus — so `MissionChanged` and `MissionDeleted`
+go to every window, and `MissionList` and `MissionError` only to whoever asked. That is `D120`'s
+existing cost, followed rather than fixed.
+
+**The host refuses a task that is not there or whose `level` is `None`**, with `MissionError` — the
+plan family's posture, for its reason: there is no mission without a card.
+
+**Records are created lazily, and their phase is inferred.** There is no migration pass. The first
+time a mission is listed, created or touched, a record appears with the phase its anchor implies:
+`Done` → Completed, `Abandoned` → Abandoned, a plan already written → Refining, otherwise
+Requirements. Promoting a task to `Level::Mission` creates one the same way, and that is what makes
+`ListMissions` answer a complete list for a board that predates missions entirely.
+
+**Demoting a mission that has been worked is refused.** Clearing the level throws the record away,
+which is fine while nothing has happened in it: a record with a roster or a journal answers
+`MissionError` with a sentence and nothing is written. An empty record is deleted with the
+demotion, and deleting the task deletes the whole mission directory — the way plan deletion already
+rides `DeleteTask`.
+
+`MissionRecord` is the family's one record, and it is declared whole: `project_id`, `task_id`,
+`phase`, `phase_history` and `pending_phase`, `coordinator` and `coordinator_history`, `roster`,
+`pending_spawns`, `documents`, `require_plan`, `auto_refine`, `execution` and `parallelism`,
+`on_finish`, `max_tasks_per_agent`, `max_attempts`, `spawn_policy` and `spawn_limit`, `agent_kinds`,
+`default_kind`, `scheduler_done`, `created_at` and `updated_at`. Every field carries a serde default
+except the two ids, so one on-disk format serves every stage and a field that arrives later is not
+a migration.
+`MissionField` is the payload of `SetMissionField` — `SetTaskField`'s shape, one variant carrying a
+field enum — and covers everything on the record except the phase, the two histories, the roster
+and `documents`: **moving a mission is a request and a confirmation, not a field write**, the
+roster is written where membership happens rather than set from a window, and `documents` is a
+reading of `docs/`, never written directly (see below).
+
+**The roster is stored, not derived.** An agent is in a mission when it is assigned to the
+mission's task or one of its children, *or* when it was spawned by an agent that is in the mission.
+The second half cannot be recomputed: `Work::assign_agent` clears `WorkAgent::parent` on every
+reassignment, so the spawn link is gone the next time anybody asks. It is written down when it
+happens, with the labels each member has held — the affinity set the scheduler reads. It is
+written by `Missions::join`/`::leave`, called from every mission launch and again on every
+`AssignAgent` the coordinator settles (`crate::coordinator::Coordinator::settle_mission`): an
+explicit assignment to the mission's anchor or a child wins, and failing that the agent inherits
+its spawner's mission, read off the spawner's own `crate::mcp::AgentFacts::mission` at the moment
+it is asked, since that link cannot be re-derived once `assign_agent` has cleared the parent.
+Harness-native subagents are never rostered (`D47`): a Claude Code `Task` delegate has no
+`WorkAgent` behind it to assign.
+
+**`RosterEntry` also carries the scheduler's own bookkeeping (M23)**: `scheduled` (whether the
+scheduler, rather than a hand assignment, put this member to work), `current_task`, `held_since`
+(what the idle grace is measured from), `last_held_at` (the affinity tiebreaker), `tasks_held` and
+`labels` — the union of every task's labels this member has held in the mission, read by
+`RosterEntry::affinity` against a candidate task's own labels. None of it is on the wire as its own
+message; it rides the roster inside `MissionChanged` like every other field above.
+
+Stored at `<config root>/projects/<ProjectId>/missions/<TaskId>/mission.toml`, with `docs/` and
+`journal.jsonl` beside it, and the plan left where it is at `plans/<TaskId>.md`. TOML rather than
+the plan sidecar's JSON, because it is a small record a user may reasonably open in an editor; a
+save merges into the table already on disk, so a key this build does not know survives it — the
+merge carries over only keys the record's own serialisation does not emit, read off a probe record
+with every optional field populated (`crates/ubiq-host/src/store/mission.rs::our_keys`), because
+carrying over every existing key verbatim would resurrect a coordinator or a pending request a save
+had just cleared, a cleared `Option` writing no key at all in TOML.
+
+### The phase (M4, M5)
+
+A mission's phase is its own field, not a reading of the anchor's `Status`: the lifecycle has a
+gate — the user's confirmation — that the seven generic statuses have nowhere to put. `Phase` is
+`Requirements`, `Refining`, `InProgress`, `Completed` or `Abandoned` (terminal, reachable from any
+phase); `Phase::order()` gives each a position so a move can be told forward from back, and
+`Phase::anchor_status()` is what the host writes onto the anchor's `Status` on every transition —
+`InProgress`→`InProgress`, `Refining`→`InReview`, `Completed`→`Done`, `Abandoned`→`Abandoned`,
+Requirements→`InProgress` — so the board, the Teams tasks drawer and every existing status filter
+stay right with no change to any of them. In progress reads `Status::Blocked` instead while
+something is pending, which only the host knows to add. `Phase::for_status()` is the drag
+direction: dropping a mission's card in a board column asks what phase that column means (the three
+columns no phase writes — Backlog, Ready, Blocked — read as the nearest phase either side) and the
+host moves the phase through the rules below rather than writing the status directly — a drop that
+lands in the column the phase already implies is an ordinary reorder and nothing else.
+
+**`RequestPhase` carries no requester.** `Missions::request_phase` reads who asked off
+`MissionRecord::coordinator`, stamping `Actor::Agent(id)` or `Actor::Host` when none is attached —
+a caller cannot claim an identity the wire does not carry (`D167`). Two moves have nothing at stake
+and apply at once: Requirements → Refining when `auto_refine` is on, and either phase → In progress
+when `require_plan` is off. Every other request becomes the mission's one `PendingPhase` — the
+phase asked for, who asked, the requester's sentence and when — which rides the next
+`MissionChanged` rather than a message of its own, and is what the panel's *Needs you* draws.
+
+**`SetPhase` is three acts, told apart by the phase it names (`D168`).** The pending request's own
+phase confirms it; the phase the mission is already in declines it (the pending request is dropped
+and the coordinator told); anything else is the user moving the mission wherever they choose. **The
+plan gate is the one refusal**, and only crossing forward into In progress with `require_plan` on:
+the plan must be non-empty and carry no open annotation thread — `AnnotationState` has only `Open`
+and `Resolved`, no separate "blocking" flag, so every open thread counts as blocking, stricter than
+the design called for and tracked to loosen at T-172. A step back out of any phase is never gated.
+
+Every move — request or set — appends a `PhaseEntry` (`phase`, `at`, `by`) to `phase_history` and a
+line to the journal before it saves and broadcasts, so the history and the journal can never
+disagree about when a mission moved.
+
+### The journal (M12)
+
+`missions/<TaskId>/journal.jsonl`, one `JournalEntry` per line, append-only: written with a real
+`O_APPEND` file open rather than the atomic rewrite-and-rename every other store file uses, because
+rewriting an append-only log on every line would lose everything a crash caught mid-write (`D169`).
+`JournalEntry` carries `seq` — the line's own index, assigned by the store at the append and never
+reused, which is what a cursor pages through rather than a timestamp that could collide within a
+millisecond — `at`, `by` (an `Actor`), `event` and `text`, the one sentence a surface draws, written
+by the host beside the event so a window and an agent never disagree about what a line says.
+`JournalEvent` is a closed, tagged set so the *Activity* tab can filter without parsing sentences:
+`PhaseRequested`, `PhaseChanged`, `AgentJoined`, `AgentLeft`, `SpawnRequested`, `SpawnAnswered`,
+`AgentRoleChanged`, `TaskCreated`, `TaskFinished`, `DocumentWritten`, `Progress`, `Feedback`,
+`AskRaised`, `AskAnswered`, and the scheduler's own six (below): `ExecutionChanged`,
+`TaskScheduled`, `TaskReleased`, `TaskBlocked`, `AgentRetired`, `SchedulerFinished`.
+
+`LoadJournal`'s `before` is a cursor, not a filter: absent asks for the newest page, and a page's
+oldest `seq` is what the next call passes to step further back, so a cursor never skips or repeats
+a line. `Journal` answers the asker with `entries` newest first and `more`, whether anything older
+than the page exists. `JournalAppended` broadcasts one new line the same way `MissionChanged`
+does — every window showing that mission wants it, and the bus has no per-project address — and is
+the "an agent making progress of its own" variant the work family above says the contract otherwise
+lacks, scoped to missions rather than closing the gap generally.
+
+`MissionRecord::documents` is the names in `docs/`, refreshed by the host on every read and ridden
+on the existing `MissionChanged` rather than answered by a listing message of its own — the
+directory is already the truth `write_document` writes to (`D169`).
+
+### Spawning (M13)
+
+**The host relays a request; it never launches.** `ubiq-mission::spawn_agent` posts
+`MissionSpawnRequest` — a `PendingSpawn` (`id`, `by`, `kind`, `profile?`, `task?`, `prompt`,
+`reason`, `at`, `auto`) — broadcast the way every mission mutation is (`D120`), and the same record
+carries it on `MissionRecord::pending_spawns` so a window opened after the broadcast still finds it.
+The window that answers applies `SpawnPolicy` (`Ask`, `Auto { limit }`, `Never`) — the host reads
+none of it — and sends `AnswerSpawn` naming the `SpawnOutcome` actually reached: `Launched { agent,
+kind }`, with the kind the user may have changed, or `Declined { reason }`. **The host drops an
+`AnswerSpawn` naming a request id the record no longer holds** — the `AskId` rule every ask family
+follows — so two windows both answering the one broadcast (`G348`) leaves the record right and
+simply starts an agent nobody else asked for.
+
+`StartConversation` gains `spawned_by: Option<AgentId>`, naming the requester — the field
+`inbox/mission-proposal.md`'s M17 said this wave would add nothing to, which this build makes false.
+The host writes it onto the new agent's `WorkAgent::parent`, which is what the Teams spawn connector
+draws and what M11's roster inherits transitively when the new agent is not itself explicitly
+assigned.
+
+### The scheduler (M22, M23)
+
+`MissionRecord::execution` is `Manual` or `Auto` (`parallelism` sits beside it as its own field on
+the record, not nested in the mode), switchable through `SetMissionField(Execution(_))` like every
+other setting —
+`MissionRecord::scheduling()` is `execution == Auto && phase == InProgress`, and only while it holds
+does anything below run.
+
+**`MissionSchedule { project_id, task_id }` is the host's wake to itself**, never sent by a window:
+`mission::scheduler::plan()` is a pure function of the record, the project's tasks and agents and a
+clock, called from the coordinator's own loop on the events that already reach it — a task changed,
+an agent's activity or lifecycle changed, the mode or `parallelism` changed, `AnswerSpawn`, or this
+message — with no thread and no timer of its own (`D171`). What it decides is carried out by
+`Missions::schedule_at` against one copy of the record, saved once per pass: an `AssignAgent` and a
+`SendToAgent` for a hand-over to an idle member with affinity (M24 — the overlap between a task's
+labels and `RosterEntry::labels`, ties to the most recent holder, zero overlap never reusing), or a
+`PendingSpawn` with `auto: true` for a fresh one — the flag that bypasses `SpawnPolicy::Ask`, since
+choosing auto execution was the consent, capped by `parallelism` instead. A task moved to
+`InReview`/`Done` frees its agent's slot; one held past the five-minute idle grace, or whose agent
+has ended, is released back to `Ready` and counts an attempt, `max_attempts` sending it to `Blocked`
+and telling the coordinator. Every decision is one of the scheduler's six journal events (above).
+
 ## The conversation family
 
 The seventh family, and the only one whose vocabulary was borrowed rather than invented. **Every
@@ -1004,7 +1204,7 @@ is what multiplexes several of them down one channel.
 
 | Message | Direction | Payload | Responds with |
 |---|---|---|---|
-| `StartConversation` | UI → host | `agent_id`, `project_id`, `session_id`, `rel_path?`, `agent_type`, `account?`, `profile?`, `model?`, `thinking?`, `mode?`, `mcps` | `ConversationStarted` or `ConversationError` |
+| `StartConversation` | UI → host | `agent_id`, `project_id`, `session_id`, `rel_path?`, `agent_type`, `account?`, `profile?`, `model?`, `thinking?`, `mode?`, `mcps`, `spawned_by?` | `ConversationStarted` or `ConversationError` |
 | `PromptAgent` | UI → host | `agent_id`, `text` | — |
 | `CancelTurn` | UI → host | `agent_id` | — |
 | `AnswerPermission` | UI → host | `agent_id`, `request_id`, `option_id` | — |
@@ -1381,7 +1581,7 @@ Forty-seven records travel inside payloads.
 | `Label` | `name`, `colour` |
 | `Attachment` | `target`, `label?` |
 | `Comment` | `id`, `author`, `text`, `created_at` |
-| `TaskField` | one of `Shape?`, `Kind?`, `Level?`, `Parent?`, `References[]`, `Attachments[]`, `Complexity?`, `AssignedTo?`, `Key?`, `Link?`, `Labels[]`, `Colour?` |
+| `TaskField` | one of `Shape?`, `Kind?`, `Level?`, `Parent?`, `References[]`, `Prerequisites[]`, `Attachments[]`, `Complexity?`, `AssignedTo?`, `Key?`, `Link?`, `Labels[]`, `Colour?` |
 | `WorkSession` | `id`, `name`, `branch`, `worktree` |
 | `WorkAgent` | `id`, `session`, `task?`, `parent?`, `name`, `summary?`, `role`, `activity`, `note`, `branch`, `tokens`, `harness`, `model`, `context_pct`, `persistent`, `accept_all`, `debug_dump?`, `run_dir?`, `config_dir?`, `thread[]` |
 | `Turn` | `from`, `text` |
@@ -1516,6 +1716,31 @@ walk the tree for a cycle. `Work::sanitize_relations` runs on every load and pol
 written before the rule existed, or hand-edited into something it no longer satisfies, still loads.
 Deleting a task clears `parent` on every child that named it (`Work::orphan_children`) rather than
 deleting them or refusing the delete, each orphaned child getting its own `Message::TaskChanged`.
+
+`TaskRecord.prerequisites: Vec<TaskId>` (serialised `prerequisite`, one per line) names the other
+tasks this one waits on — `references`' typed, directed sibling rather than its extension: a
+prerequisite says *this one first*, a reference says only *related*. It carries `#[serde(default)]`
+and `skip_serializing_if = "Vec::is_empty"`, the same envelope-free addition `references` and
+`level` were. `TaskField::Prerequisites(Vec<TaskId>)` replaces the whole list, deduplicated and
+self-reference dropped, `TaskField::References`' own posture — but unlike a `Parent` or `References`
+write, which the host only ever trims, a `Prerequisites` write is refused outright for a task naming
+itself, a task in another project, or one that would close a cycle in the prerequisite DAG, checked
+by `Work::prerequisite_refusal` and its `prerequisite_cycle` walk (`crates/ubiq-host/src/work/mod.rs`),
+bounded by the project's task count. `parent`'s depth cap needed no cycle check; a prerequisite graph
+has no depth limit, so this is the first one the tree has. `Work::sanitize_relations` drops a
+prerequisite naming no task in the project on every load and poll, `references`' own posture,
+so data written before the rule existed still loads.
+
+**Readiness is derived, never stored and never on the wire.** `TaskRecord::ready(&[TaskRecord])` and
+`::waiting_on(&[TaskRecord])` compute, from the project's whole loaded list, whether every
+prerequisite reads `Status::InReview` or `Status::Done` — nothing is written to `tasks.toml` and
+no `TaskField` carries it, so it can never disagree with the prerequisite list it reads. **This is
+not `Status::Blocked`**: the status is what a person or an agent says about a card, readiness is
+what the prerequisite graph says, and a card can be both, one or neither. `manage-ubiq-tasks` and
+`use-task`'s `get_task` and `search_tasks` report `ready` and `waiting_on` (the latter as task keys)
+alongside the record, and both take a `ready_only` filter over the same computation
+(`crates/ubiq-host/src/mcp/tasks.rs`); the board and the Teams tasks drawer read the same two
+methods to draw a not-ready card's mark and the toolbar's `Ready only` filter.
 
 `TaskRecord.attachments: Vec<Attachment>` (serialised `attachment`) is the one attachment in Ubiq
 that **crosses the bus**. A conversation's attachments never do — they are interface state, folded
@@ -2604,3 +2829,6 @@ attached UIs needs to know which one is typing.
 - [`../features/sessions-and-workspaces.md`](../features/sessions-and-workspaces.md) — what the session family is for
 - [`../features/panes-and-terminals.md`](../features/panes-and-terminals.md) — what the pane family is for
 - [`../features/workbench-tasks.md`](../features/workbench-tasks.md) — what the work family is drawn as
+- [`decisions.md`](./decisions.md) — `D164`, readiness derived rather than stored; `D165`, a
+  mission keyed by its anchor's own `TaskId`; `D167`–`D169`, the phase request's attribution,
+  `SetPhase`'s three acts, and the journal's own shape

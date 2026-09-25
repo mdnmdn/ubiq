@@ -29,6 +29,8 @@
 //!   matcher and the provenance layer (`plan::blocks`, `plan::provenance`) read and write the
 //!   sidecar with no dependency on `work`; `Plans`/`Handle`/`Target`, which check a task's level
 //!   through it, are behind `harness`
+//! - `mission`: a mission's own record — its phase, its roster and how it is run, keyed by the
+//!   anchor task's id, made lazily and never migrated (behind `harness`)
 //! - `reply`: what a service wants said, before the coordinator addresses it
 //! - `coordinator`: the run loop that starts harnesses, supervises them, and answers the bus
 //!   (behind `full`)
@@ -101,6 +103,8 @@ pub mod kb;
 pub mod links;
 #[cfg(feature = "harness")]
 pub mod mcp;
+#[cfg(feature = "harness")]
+pub mod mission;
 #[cfg(feature = "desktop")]
 pub mod notifications;
 pub mod plan;

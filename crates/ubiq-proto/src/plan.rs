@@ -59,31 +59,45 @@ pub enum DocumentHandle {
         /// Project-relative, and refused by the host unless it lands inside the project.
         rel_path: String,
     },
+    /// A mission document beyond the plan (M8), at
+    /// `<config root>/projects/<ProjectId>/missions/<TaskId>/docs/<name>.md`, with its sidecar
+    /// beside it. **Flat**: `name` is a bare document name, never a path — there is no nesting
+    /// under `docs/`. This is the whole of what a second kind of mission document costs the wire:
+    /// the family is keyed by the document, not by the plan, so a mission doc inherits
+    /// annotations, provenance and the conflict rule for free.
+    MissionDoc {
+        project_id: ProjectId,
+        task_id: TaskId,
+        name: String,
+    },
 }
 
 impl DocumentHandle {
     pub fn project_id(&self) -> ProjectId {
         match self {
-            DocumentHandle::Plan { project_id, .. } | DocumentHandle::File { project_id, .. } => {
-                *project_id
-            }
+            DocumentHandle::Plan { project_id, .. }
+            | DocumentHandle::File { project_id, .. }
+            | DocumentHandle::MissionDoc { project_id, .. } => *project_id,
         }
     }
 
-    /// The task a plan belongs to. `None` for a document that is not a plan — which is the point
-    /// of the handle: no caller may assume a task is there.
+    /// The task a plan or a mission document belongs to. `None` for a file document, which
+    /// carries no task — the point of the handle: no caller may assume a task is there.
     pub fn task_id(&self) -> Option<TaskId> {
         match self {
-            DocumentHandle::Plan { task_id, .. } => Some(*task_id),
+            DocumentHandle::Plan { task_id, .. } | DocumentHandle::MissionDoc { task_id, .. } => {
+                Some(*task_id)
+            }
             DocumentHandle::File { .. } => None,
         }
     }
 
-    /// The project-relative path of a file document. `None` for a plan, which has none: a plan
-    /// lives under the config root and the interface never learns where.
+    /// The project-relative path of a file document. `None` for a plan or a mission document,
+    /// neither of which has one: both live under the config root and the interface never learns
+    /// where.
     pub fn rel_path(&self) -> Option<&str> {
         match self {
-            DocumentHandle::Plan { .. } => None,
+            DocumentHandle::Plan { .. } | DocumentHandle::MissionDoc { .. } => None,
             DocumentHandle::File { rel_path, .. } => Some(rel_path),
         }
     }
@@ -93,6 +107,7 @@ impl DocumentHandle {
         match self {
             DocumentHandle::Plan { .. } => "Plan",
             DocumentHandle::File { .. } => "Document",
+            DocumentHandle::MissionDoc { .. } => "Mission document",
         }
     }
 
@@ -104,6 +119,9 @@ impl DocumentHandle {
                 project_id,
                 rel_path,
             } => format!("file:{project_id}:{rel_path}"),
+            DocumentHandle::MissionDoc { task_id, name, .. } => {
+                format!("missiondoc:{task_id}:{name}")
+            }
         }
     }
 }

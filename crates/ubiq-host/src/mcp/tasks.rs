@@ -5,6 +5,8 @@
 //! `TaskCreated` / `TaskChanged` / `TaskDeleted` a click would have produced, so an agent and a
 //! person looking at the same project stay on one list.
 
+use std::cell::RefCell;
+
 use serde_json::{Value, json};
 use ubiq_proto::ids::{ProjectId, StepId, TaskId};
 use ubiq_proto::messages::{Message, TaskField};
@@ -95,7 +97,7 @@ fn overview(arguments: &Value, project: ProjectId, access: &WorkAccess) -> Resul
                 "tasks": in_column
                     .iter()
                     .take(OVERVIEW_PER_STATUS)
-                    .map(|task| task_summary(task))
+                    .map(|task| task_summary(task, &tasks))
                     .collect::<Vec<_>>(),
             })
         })
@@ -134,6 +136,7 @@ fn search_tasks(
         .collect::<Result<Vec<_>, _>>()?;
     let max_rows = opt_usize(arguments, "maxRows")?.unwrap_or(SEARCH_ROWS_DEFAULT);
     let max_rows = max_rows.clamp(1, SEARCH_ROWS_CAP);
+    let ready_only = opt_bool(arguments, "ready_only")?.unwrap_or(false);
 
     let tasks = load_tasks(access, project)?;
     let matched: Vec<&TaskRecord> = tasks
@@ -155,6 +158,9 @@ fn search_tasks(
                     return false;
                 }
             }
+            if ready_only && !task.ready(&tasks) {
+                return false;
+            }
             if let Some(text) = text.as_deref() {
                 task_matches_text(task, text)
             } else {
@@ -168,7 +174,7 @@ fn search_tasks(
         "tasks": matched
             .iter()
             .take(max_rows)
-            .map(|task| task_json(task))
+            .map(|task| task_json(task, &tasks))
             .collect::<Vec<_>>(),
     }))
 }
@@ -214,7 +220,9 @@ fn create_task(
     let link = opt_str(arguments, "link")?.map(str::to_string);
     let labels = opt_str_list(arguments, "labels")?;
     let attachments = opt_attachments(arguments, "attachments")?;
+    let prerequisites = opt_task_id_list(arguments, "prerequisites")?;
 
+    let prereq_error: RefCell<Option<String>> = RefCell::new(None);
     let messages = mutate(access, |work| {
         let mut replies = work.create(project, title.to_string(), None);
         let Some(id) = created_id(&replies) else {
@@ -245,12 +253,22 @@ fn create_task(
         if let Some(attachments) = attachments.clone() {
             replies.extend(work.set_field(project, id, TaskField::Attachments(attachments)));
         }
+        if let Some(prerequisites) = prerequisites.clone() {
+            let field_replies =
+                work.set_field(project, id, TaskField::Prerequisites(prerequisites));
+            capture_work_error(&field_replies, &prereq_error);
+            replies.extend(field_replies);
+        }
         if let Some(status) = status {
             replies.extend(work.move_task(project, id, status, None));
         }
         replies
     })?;
-    task_result(&messages)
+    if let Some(error) = prereq_error.into_inner() {
+        return Err(error);
+    }
+    let tasks = load_tasks(access, project)?;
+    task_result(&messages, &tasks)
 }
 
 fn update_task(
@@ -276,7 +294,9 @@ fn update_task(
     let link = opt_str(arguments, "link")?.map(str::to_string);
     let labels = opt_str_list(arguments, "labels")?;
     let attachments = opt_attachments(arguments, "attachments")?;
+    let prerequisites = opt_task_id_list(arguments, "prerequisites")?;
 
+    let prereq_error: RefCell<Option<String>> = RefCell::new(None);
     let messages = mutate(access, |work| {
         let mut replies = Vec::new();
         if title.is_some() || description.is_some() || priority.is_some() {
@@ -304,11 +324,20 @@ fn update_task(
         if let Some(attachments) = attachments.clone() {
             replies.extend(work.set_field(project, id, TaskField::Attachments(attachments)));
         }
+        if let Some(prerequisites) = prerequisites.clone() {
+            let field_replies =
+                work.set_field(project, id, TaskField::Prerequisites(prerequisites));
+            capture_work_error(&field_replies, &prereq_error);
+            replies.extend(field_replies);
+        }
         if let Some(status) = status {
             replies.extend(work.move_task(project, id, status, None));
         }
         replies
     })?;
+    if let Some(error) = prereq_error.into_inner() {
+        return Err(error);
+    }
     if messages.is_empty() {
         // Nothing changed, or nothing was sent: still answer the current record so the model
         // sees the task it named.
@@ -317,9 +346,10 @@ fn update_task(
             .iter()
             .find(|task| task.id == id)
             .ok_or_else(|| "no such task".to_string())?;
-        return Ok(json!({"task": task_json(task), "changed": false}));
+        return Ok(json!({"task": task_json(task, &tasks), "changed": false}));
     }
-    let mut result = task_result(&messages)?;
+    let tasks = load_tasks(access, project)?;
+    let mut result = task_result(&messages, &tasks)?;
     if let Value::Object(ref mut map) = result {
         map.insert("changed".into(), json!(true));
     }
@@ -343,7 +373,7 @@ fn get_task(arguments: &Value, project: ProjectId, access: &WorkAccess) -> Resul
         .iter()
         .find(|task| task.id == id)
         .ok_or_else(|| "no such task".to_string())?;
-    Ok(json!({"task": task_json(task)}))
+    Ok(json!({"task": task_json(task, &tasks)}))
 }
 
 fn add_comment(
@@ -375,15 +405,26 @@ fn change_state(
     let id = parse_task_id(required_str(arguments, "task_id")?)?;
     let status = parse_status(required_str(arguments, "status")?)?;
     let messages = mutate(access, |work| work.move_task(project, id, status, None))?;
+    // **This is how a worker finishes**, so it is the event a mission's scheduler most needs: the
+    // task moving to `InReview` or `Done` frees a slot, and a task moving anywhere changes what
+    // the pool holds. Said into the host's own inbox rather than decided here, because the
+    // scheduler runs on the coordinator's thread and this is the listener's. Unconditional: a
+    // change that wrote nothing is still worth a pass, and a pass on a mission in manual mode is
+    // a record read.
+    access.wake.say(Message::MissionSchedule {
+        project_id: project,
+        task_id: id,
+    });
     if messages.is_empty() {
         let tasks = load_tasks(access, project)?;
         let task = tasks
             .iter()
             .find(|task| task.id == id)
             .ok_or_else(|| "no such task".to_string())?;
-        return Ok(json!({"task": task_json(task), "changed": false}));
+        return Ok(json!({"task": task_json(task, &tasks), "changed": false}));
     }
-    let mut result = task_result(&messages)?;
+    let tasks = load_tasks(access, project)?;
+    let mut result = task_result(&messages, &tasks)?;
     if let Value::Object(ref mut map) = result {
         map.insert("changed".into(), json!(true));
     }
@@ -483,7 +524,11 @@ fn load_labels(access: &WorkAccess, project: ProjectId) -> Result<Vec<Label>, St
     Ok(labels)
 }
 
-fn labels_from_names(work: &mut Work, project: ProjectId, names: Vec<String>) -> Vec<Label> {
+pub(super) fn labels_from_names(
+    work: &mut Work,
+    project: ProjectId,
+    names: Vec<String>,
+) -> Vec<Label> {
     let (_, known) = work.labels(project);
     names
         .into_iter()
@@ -542,6 +587,17 @@ fn warn_only(replies: &[Reply]) {
     }
 }
 
+/// Records a [`TaskField::Prerequisites`] refusal (self, cross-project or cyclic) into `slot`, so
+/// the caller can surface it even when other field writes in the same batch succeed and would
+/// otherwise leave [`mutate`]'s aggregated error swallowed — see its `out.is_empty()` guard.
+fn capture_work_error(replies: &[Reply], slot: &RefCell<Option<String>>) {
+    for reply in replies {
+        if let Message::WorkError { error, .. } = reply.message() {
+            *slot.borrow_mut() = Some(error.clone());
+        }
+    }
+}
+
 fn created_id(replies: &[Reply]) -> Option<TaskId> {
     replies.iter().find_map(|reply| match reply.message() {
         Message::TaskCreated { task, .. } => Some(task.id),
@@ -549,11 +605,11 @@ fn created_id(replies: &[Reply]) -> Option<TaskId> {
     })
 }
 
-fn task_result(messages: &[Message]) -> Result<Value, String> {
+fn task_result(messages: &[Message], tasks: &[TaskRecord]) -> Result<Value, String> {
     for message in messages.iter().rev() {
         match message {
             Message::TaskCreated { task, .. } | Message::TaskChanged { task, .. } => {
-                return Ok(json!({"task": task_json(task)}));
+                return Ok(json!({"task": task_json(task, tasks)}));
             }
             _ => {}
         }
@@ -574,7 +630,7 @@ fn last_changed(messages: &[Message]) -> Result<TaskRecord, String> {
 
 // ── json ────────────────────────────────────────────────────────────
 
-fn task_json(task: &TaskRecord) -> Value {
+fn task_json(task: &TaskRecord, tasks: &[TaskRecord]) -> Value {
     json!({
         "id": task.id.to_string(),
         "title": task.title,
@@ -588,6 +644,9 @@ fn task_json(task: &TaskRecord) -> Value {
         "link": task.link,
         "labels": task.labels.iter().map(label_json).collect::<Vec<_>>(),
         "attachments": task.attachments.iter().map(attachment_json).collect::<Vec<_>>(),
+        "prerequisites": task.prerequisites.iter().map(|id| task_ref(tasks, *id)).collect::<Vec<_>>(),
+        "ready": task.ready(tasks),
+        "waiting_on": task.waiting_on(tasks).iter().map(|id| task_ref(tasks, *id)).collect::<Vec<_>>(),
         "todos": task.steps.iter().map(todo_json).collect::<Vec<_>>(),
         "comments": task.comments.iter().map(comment_json).collect::<Vec<_>>(),
         "created_at": task.created_at.to_rfc3339(),
@@ -595,7 +654,7 @@ fn task_json(task: &TaskRecord) -> Value {
     })
 }
 
-fn task_summary(task: &TaskRecord) -> Value {
+fn task_summary(task: &TaskRecord, tasks: &[TaskRecord]) -> Value {
     json!({
         "id": task.id.to_string(),
         "key": task.key,
@@ -607,7 +666,19 @@ fn task_summary(task: &TaskRecord) -> Value {
         "labels": task.labels.iter().map(|label| &label.name).collect::<Vec<_>>(),
         "todos_done": task.done(),
         "todos_total": task.steps.len(),
+        "ready": task.ready(tasks),
+        "waiting_on": task.waiting_on(tasks).iter().map(|id| task_ref(tasks, *id)).collect::<Vec<_>>(),
     })
+}
+
+/// A prerequisite id as an agent can act on it: the other task's key if it has one, its raw id
+/// otherwise. Mirrors how [`task_matches_text`] treats a key as the human-facing name.
+fn task_ref(tasks: &[TaskRecord], id: TaskId) -> String {
+    tasks
+        .iter()
+        .find(|task| task.id == id)
+        .and_then(|task| task.key.clone())
+        .unwrap_or_else(|| id.to_string())
 }
 
 fn todo_json(step: &Step) -> Value {
@@ -777,6 +848,14 @@ fn opt_attachments(arguments: &Value, key: &str) -> Result<Option<Vec<Attachment
     }
 }
 
+/// A list of task ids, in either shape [`opt_str_list`] accepts. `task_id` elsewhere in this file
+/// is a raw id too, never a key — this matches that, rather than inventing a second convention.
+fn opt_task_id_list(arguments: &Value, key: &str) -> Result<Option<Vec<TaskId>>, String> {
+    opt_str_list(arguments, key)?
+        .map(|values| values.iter().map(|value| parse_task_id(value)).collect())
+        .transpose()
+}
+
 fn parse_task_id(value: &str) -> Result<TaskId, String> {
     value.parse().map_err(|_| format!("not a task id: {value}"))
 }
@@ -837,5 +916,267 @@ fn parse_kind(value: &str) -> Result<Kind, String> {
         _ => Err(format!(
             "unknown kind '{value}': use bug, feature, chore, or docs"
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+    use ubiq_proto::bus;
+    use ubiq_proto::ids::ProjectId;
+
+    use super::*;
+    use crate::mcp::WorkAccess;
+    use crate::mcp::registry::{AgentFacts, ProjectFacts};
+    use crate::store::memory::MemoryTaskStore;
+    use crate::work::{Handle, Work};
+
+    const PROJECT: &str = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+
+    fn facts() -> AgentFacts {
+        AgentFacts {
+            key: "01JBTESTAGENTIDULID000000".to_string(),
+            name: "claude 1".to_string(),
+            harness: "Claude Code".to_string(),
+            account: Some("work".to_string()),
+            model: Some("opus".to_string()),
+            mode: Some("default".to_string()),
+            cwd: "/tmp/project".to_string(),
+            mission: None,
+            session: None,
+            project: ProjectFacts {
+                id: PROJECT.to_string(),
+                name: "Ubiq".to_string(),
+                path: "/tmp/project".to_string(),
+                colour: 3,
+            },
+        }
+    }
+
+    /// A `WorkAccess` backed by an in-memory store, and the hub it broadcasts through — held for
+    /// the test's life, the same discipline `mcp::server`'s own fixtures follow, since a `Voice`
+    /// or a `Mailbox` holds only a weak sender.
+    fn access() -> (WorkAccess, bus::Hub, bus::HostEnd) {
+        let (hub, host) = bus::hub();
+        let work = Handle::new(Work::open(Box::new(MemoryTaskStore::new())));
+        let access = WorkAccess {
+            work,
+            everyone: host.mailbox(bus::To::Everyone),
+            wake: host.voice(),
+        };
+        (access, hub, host)
+    }
+
+    fn project() -> ProjectId {
+        PROJECT.parse().unwrap()
+    }
+
+    fn task_id(value: &Value) -> String {
+        value["task"]["id"].as_str().unwrap().to_string()
+    }
+
+    /// A task is minted with an auto-assigned `T-<n>` key the moment it has none of its own
+    /// (`Work::create`), so a prerequisite naming it by id is still reported back by that key —
+    /// see [`super::task_ref`]. Tests that read `waiting_on`/`prerequisites` need this, not the
+    /// raw id `task_id` returns.
+    fn task_key(value: &Value) -> String {
+        value["task"]["key"].as_str().unwrap().to_string()
+    }
+
+    #[test]
+    fn create_task_sets_prerequisites_and_reports_readiness() {
+        let (access, _hub, _host) = access();
+        let facts = facts();
+
+        let a = manage_call("create_task", &json!({"title": "a"}), &facts, &access).unwrap();
+        let a_id = task_id(&a);
+        let a_key = task_key(&a);
+
+        let b = manage_call(
+            "create_task",
+            &json!({"title": "b", "prerequisites": [a_id]}),
+            &facts,
+            &access,
+        )
+        .unwrap();
+        assert_eq!(b["task"]["prerequisites"], json!([a_key]));
+        assert_eq!(b["task"]["ready"], json!(false));
+        assert_eq!(b["task"]["waiting_on"], json!([a_key]));
+    }
+
+    #[test]
+    fn waiting_on_reports_keys_not_ids_when_a_key_is_set() {
+        let (access, _hub, _host) = access();
+        let facts = facts();
+
+        let a = manage_call(
+            "create_task",
+            &json!({"title": "a", "key": "UBQ-1"}),
+            &facts,
+            &access,
+        )
+        .unwrap();
+        let a_id = task_id(&a);
+
+        let b = manage_call(
+            "create_task",
+            &json!({"title": "b", "prerequisites": [a_id]}),
+            &facts,
+            &access,
+        )
+        .unwrap();
+        assert_eq!(b["task"]["waiting_on"], json!(["UBQ-1"]));
+    }
+
+    #[test]
+    fn task_becomes_ready_once_its_prerequisite_is_in_review() {
+        let (access, _hub, _host) = access();
+        let facts = facts();
+
+        let a = manage_call("create_task", &json!({"title": "a"}), &facts, &access).unwrap();
+        let a_id = task_id(&a);
+        let b = manage_call(
+            "create_task",
+            &json!({"title": "b", "prerequisites": [a_id]}),
+            &facts,
+            &access,
+        )
+        .unwrap();
+        let b_id = task_id(&b);
+
+        manage_call(
+            "update_task",
+            &json!({"task_id": a_id, "status": "in review"}),
+            &facts,
+            &access,
+        )
+        .unwrap();
+
+        let refreshed =
+            manage_call("get_task", &json!({"task_id": b_id}), &facts, &access).unwrap();
+        assert_eq!(refreshed["task"]["ready"], json!(true));
+        assert_eq!(refreshed["task"]["waiting_on"], json!([]));
+    }
+
+    #[test]
+    fn update_task_replaces_the_whole_prerequisite_list() {
+        let (access, _hub, _host) = access();
+        let facts = facts();
+
+        let a = manage_call("create_task", &json!({"title": "a"}), &facts, &access).unwrap();
+        let a_id = task_id(&a);
+        let b = manage_call("create_task", &json!({"title": "b"}), &facts, &access).unwrap();
+        let b_id = task_id(&b);
+        let b_key = task_key(&b);
+        let c = manage_call(
+            "create_task",
+            &json!({"title": "c", "prerequisites": [a_id]}),
+            &facts,
+            &access,
+        )
+        .unwrap();
+        let c_id = task_id(&c);
+
+        let updated = manage_call(
+            "update_task",
+            &json!({"task_id": c_id, "prerequisites": [b_id]}),
+            &facts,
+            &access,
+        )
+        .unwrap();
+        assert_eq!(updated["task"]["prerequisites"], json!([b_key]));
+    }
+
+    #[test]
+    fn a_self_prerequisite_is_refused_and_the_refusal_is_not_swallowed() {
+        let (access, _hub, _host) = access();
+        let facts = facts();
+
+        let a = manage_call("create_task", &json!({"title": "a"}), &facts, &access).unwrap();
+        let a_id = task_id(&a);
+
+        // Mixed with another field that would otherwise succeed and produce a `TaskChanged`,
+        // masking the refusal behind `mutate`'s "some message came back" check.
+        let result = manage_call(
+            "update_task",
+            &json!({"task_id": a_id, "title": "renamed", "prerequisites": [a_id]}),
+            &facts,
+            &access,
+        );
+        let error = result.expect_err("a self-prerequisite must be refused");
+        assert!(
+            error.contains("own prerequisite"),
+            "unexpected refusal text: {error}"
+        );
+    }
+
+    #[test]
+    fn search_tasks_ready_only_filters_out_waiting_tasks() {
+        let (access, _hub, _host) = access();
+        let facts = facts();
+
+        let a = manage_call("create_task", &json!({"title": "a"}), &facts, &access).unwrap();
+        let a_id = task_id(&a);
+        manage_call(
+            "create_task",
+            &json!({"title": "b", "prerequisites": [a_id]}),
+            &facts,
+            &access,
+        )
+        .unwrap();
+
+        let ready = manage_call(
+            "search_tasks",
+            &json!({"ready_only": true}),
+            &facts,
+            &access,
+        )
+        .unwrap();
+        let titles: Vec<&str> = ready["tasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|task| task["title"].as_str().unwrap())
+            .collect();
+        assert_eq!(titles, vec!["a"]);
+    }
+
+    #[test]
+    fn use_task_server_also_reports_readiness() {
+        let (access, _hub, _host) = access();
+        let facts = facts();
+
+        let a = manage_call("create_task", &json!({"title": "a"}), &facts, &access).unwrap();
+        let a_id = task_id(&a);
+        let a_key = task_key(&a);
+        let b = manage_call(
+            "create_task",
+            &json!({"title": "b", "prerequisites": [a_id]}),
+            &facts,
+            &access,
+        )
+        .unwrap();
+        let b_id = task_id(&b);
+
+        let via_use_task =
+            use_call("get_task", &json!({"task_id": b_id}), &facts, &access).unwrap();
+        assert_eq!(via_use_task["task"]["ready"], json!(false));
+        assert_eq!(via_use_task["task"]["waiting_on"], json!([a_key]));
+
+        let searched = use_call(
+            "search_tasks",
+            &json!({"ready_only": true}),
+            &facts,
+            &access,
+        )
+        .unwrap();
+        assert_eq!(searched["total"], json!(1));
+    }
+
+    /// Sanity check on [`project`] itself: the fixture id parses to the project [`facts`] names,
+    /// which everything above relies on silently.
+    #[test]
+    fn fixture_project_id_matches_facts() {
+        assert_eq!(project().to_string(), facts().project.id);
     }
 }

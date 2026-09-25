@@ -31,6 +31,7 @@ pub mod kb;
 pub mod kit;
 pub mod logs;
 pub mod mark;
+pub mod mission;
 pub mod navigator;
 pub mod new_agent;
 pub mod new_mission;

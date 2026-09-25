@@ -497,7 +497,15 @@ pub fn heading_sections(blocks: &[PlanBlock], annotations: &[Annotation]) -> Vec
     }
 
     let mut out: Vec<HeadingEntry> = Vec::new();
-    for block in blocks {
+    for (index, block) in blocks.iter().enumerate() {
+        if is_frontmatter_fields(blocks, index) {
+            // Not a real heading (T-153) — falls through to the "before the first heading" arm
+            // below, same as any other block a navigator has nothing yet to say about.
+            if let Some(last) = out.last_mut() {
+                count_into(last, block.id, annotations);
+            }
+            continue;
+        }
         match heading_level(&block.kind) {
             Some(level) => {
                 let label = block.text.trim_start_matches('#').trim().to_string();
@@ -593,6 +601,11 @@ pub(crate) const LINE_LENGTH_CHARS: f32 = 90.0;
 pub fn minimap_rows(blocks: &[PlanBlock]) -> Vec<MinimapRow> {
     let mut out = Vec::new();
     for (block_index, block) in blocks.iter().enumerate() {
+        if is_frontmatter_fields(blocks, block_index) {
+            // Mis-parsed frontmatter (T-153) — no shape in the proposal's table, same as the
+            // thematic break and the definition beside it.
+            continue;
+        }
         if block.kind.starts_with("heading:") {
             out.push(MinimapRow {
                 block_index,
@@ -637,6 +650,50 @@ pub fn minimap_rows(blocks: &[PlanBlock]) -> Vec<MinimapRow> {
 pub(crate) fn is_image_reference(text: &str) -> bool {
     let t = text.trim();
     t.starts_with("![") && t.ends_with(')') && t.matches("![").count() == 1
+}
+
+/// Whether the block at `index` is really a document's YAML frontmatter, mistaken by the host for
+/// a heading (T-153).
+///
+/// `crates/ubiq-proto/src/blocks.rs::kind_of` has no `frontmatter` arm reachable at
+/// `ParseOptions::gfm()` — the options both the host's own splitter and the annotation surface's
+/// preview are pinned to — so a document opening with `---` parses as ordinary Markdown instead:
+/// the opening fence becomes a thematic break, and the fields up to the closing fence become a
+/// Setext heading (`crates/ubiq-proto/src/blocks.rs`'s own pinned test,
+/// `frontmatter_is_not_a_construct_at_gfm_options`, records exactly this). The real preview never
+/// shows it, because `ui::viewer::markdown` splits frontmatter out of the source *before* any
+/// Markdown parse runs over it; the annotation surface has no equivalent step, since it draws
+/// blocks the host already split.
+///
+/// Frontmatter, real or mis-parsed, only ever opens a document, so the check is positional rather
+/// than a text-shape guess: the misparse always leaves the fence at block `0` and the fields at
+/// block `1`, nowhere else. A "heading" of more than one line, every line an unquoted `key: value`
+/// pair, is what a mis-parsed frontmatter fence leaves behind, but that shape alone is not enough —
+/// a real, mid-document Setext heading can read the same way (`Rate: fast\nCost: cheap`). Requiring
+/// `index == 1` *and* a thematic break immediately before it at index `0` is exact, not heuristic:
+/// it is the one place in a document this misparse can occur, because it is the one place a
+/// document's own opening fence can be.
+pub fn is_frontmatter_fields(blocks: &[PlanBlock], index: usize) -> bool {
+    index == 1
+        && blocks.first().is_some_and(|block| block.kind == "break")
+        && blocks.get(index).is_some_and(|block| {
+            block.kind.starts_with("heading:") && looks_like_frontmatter_fields(&block.text)
+        })
+}
+
+fn looks_like_frontmatter_fields(text: &str) -> bool {
+    let is_field_line = |line: &str| {
+        let line = line.trim();
+        line.is_empty()
+            || line.split_once(':').is_some_and(|(key, _)| {
+                !key.is_empty()
+                    && key
+                        .trim()
+                        .chars()
+                        .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+            })
+    };
+    text.lines().count() > 1 && text.lines().all(is_field_line)
 }
 
 /// A paragraph's or a heading-less prose block's shape, as **one** mark rather than one per source
@@ -977,6 +1034,15 @@ mod tests {
         }
     }
 
+    /// The shape a document's opening `---` fence takes once parsed (T-153): a thematic break.
+    fn thematic_break() -> PlanBlock {
+        PlanBlock {
+            id: BlockId::generate(),
+            kind: "break".to_string(),
+            text: "---".to_string(),
+        }
+    }
+
     fn annotation(block_id: BlockId, open: bool) -> Annotation {
         let mut annotation = Annotation::new(
             block_id,
@@ -1148,6 +1214,81 @@ mod tests {
         let intro = block("No title yet.");
         let entries = heading_sections(&[intro.clone()], &[annotation(intro.id, true)]);
         assert!(entries.is_empty());
+    }
+
+    /// T-153: a document opening with `---` mis-parses at `ParseOptions::gfm()` into a thematic
+    /// break and a Setext heading whose text is the frontmatter's fields — see
+    /// `crates/ubiq-proto/src/blocks.rs::frontmatter_is_not_a_construct_at_gfm_options`, which pins
+    /// the same shape on the host side. `is_frontmatter_fields` is what tells the two apart, and it
+    /// is positional: the fields only count as frontmatter at block `1`, right after the break at
+    /// block `0`.
+    #[test]
+    fn frontmatter_fields_are_told_apart_from_a_real_heading() {
+        let real = heading(2, "Scope");
+        assert!(!is_frontmatter_fields(&[real], 0));
+
+        let fields = heading(
+            2,
+            "verified: 2026-09-24\ncode_anchors: [a, b]\nreview_cycle: monthly",
+        );
+        let blocks = vec![thematic_break(), fields];
+        assert!(is_frontmatter_fields(&blocks, 1));
+
+        // A one-line heading is never mistaken, however it reads.
+        let one_line = heading(2, "title: x");
+        let blocks = vec![thematic_break(), one_line];
+        assert!(!is_frontmatter_fields(&blocks, 1));
+
+        // Only a heading kind qualifies — an ordinary paragraph shaped the same way is just a
+        // paragraph.
+        let prose = block("verified: 2026-09-24\ncode_anchors: [a, b]");
+        let blocks = vec![thematic_break(), prose];
+        assert!(!is_frontmatter_fields(&blocks, 1));
+
+        // The right shape, at index 1, but nothing before it is the fence — not frontmatter's
+        // position, so not frontmatter.
+        let scope = heading(2, "Scope");
+        let fields = heading(2, "verified: 2026-09-24\ncode_anchors: [a, b]");
+        let blocks = vec![scope, fields];
+        assert!(!is_frontmatter_fields(&blocks, 1));
+    }
+
+    /// T-153 follow-up: the text-shape check alone false-positived on a real, mid-document Setext
+    /// heading shaped like `key: value` lines — "Rate: fast\nCost: cheap" reads exactly like
+    /// frontmatter fields, but frontmatter can only ever open a document, so a heading anywhere
+    /// else that happens to read the same way is never mistaken for it.
+    #[test]
+    fn a_mid_document_setext_heading_shaped_like_fields_is_not_frontmatter() {
+        let title = heading(1, "# Title");
+        let intro = block("Intro paragraph.");
+        let rate = heading(2, "Rate: fast\nCost: cheap");
+        let blocks = vec![title, intro, rate];
+        assert!(!is_frontmatter_fields(&blocks, 2));
+    }
+
+    #[test]
+    fn frontmatter_fields_are_not_listed_as_a_heading() {
+        let opening = thematic_break();
+        let fields = heading(2, "verified: 2026-09-24\nreview_cycle: monthly");
+        let scope = heading(2, "## Scope");
+        let blocks = vec![opening, fields, scope];
+        let entries = heading_sections(&blocks, &[]);
+        assert_eq!(
+            entries.len(),
+            1,
+            "the frontmatter fields are not a heading entry"
+        );
+        assert_eq!(entries[0].label, "Scope");
+    }
+
+    #[test]
+    fn frontmatter_fields_draw_no_minimap_shape() {
+        let opening = thematic_break();
+        let fields = heading(2, "verified: 2026-09-24\nreview_cycle: monthly");
+        let scope = heading(2, "## Scope");
+        let rows = minimap_rows(&[opening, fields, scope]);
+        assert_eq!(rows.len(), 1, "only the real heading gets a shape");
+        assert_eq!(rows[0].kind, MinimapBlockKind::Heading);
     }
 
     #[test]

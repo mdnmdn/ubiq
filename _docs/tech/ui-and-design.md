@@ -692,7 +692,12 @@ instead of text, so a searchable picker can carry group headings — themselves 
 rows — in the one `items` list a caller builds and a pick indexes into, the way the agents screen's
 column `+` groups the bench from what is on screen elsewhere. `.tooltip(text)` is what a
 picker drawn with no label says on hover — the chat header's chevron is one, and with no words on
-the trigger the hover is the only place the question it asks can go.
+the trigger the hover is the only place the question it asks can go. `.dots(colours)` gives a
+single-select `Picker` the same per-row status colour `MultiPicker` always drew, `None` at an index
+leaving that row bare for a choice like "All tasks" that stands for no one colour; `.dim(indices)`
+mutes a row without disabling it — pickable, drawn faint, for a choice that still answers but is not
+where the reader's attention belongs, such as a completed mission in the board toolbar's mission
+filter.
 
 **A picker has three shapes, and the third is for a form.** `PickerStyle::Plain` is the bare
 trigger, `Chip` the small filled one a composer's config controls wear, and `Field` the shape

@@ -44,7 +44,7 @@ document; file it instead.
   occasion it makes sense, do not burn the main context on it.
    - Only main agents could spawn subagents
    - Unless the task is trivial, the main agent should act as a pm/coordinator an spawn subagents to performs the tasks. 
-   - create subagents with smaller model according to the task (eg sonnet, haiku), use big model for more reasoning tasks
+   - create subagents with smaller model according to the task (eg opus low, haiku), use big model for more reasoning tasks
    - max 3 subagents running
 - Follow the project conventions and existing patterns if possible
 - Be coincise and efficient

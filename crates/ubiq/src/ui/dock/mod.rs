@@ -41,7 +41,7 @@ use gpui_component::dock::{
     PanelEvent, PanelId, PanelInfo, PanelState, TabGroup, panel_handle,
 };
 
-use ubiq_proto::ids::PaneId;
+use ubiq_proto::ids::{PaneId, TaskId};
 
 use crate::app::AppState;
 use crate::state::RailMode;
@@ -51,8 +51,8 @@ use crate::state::git::{CHANGES_WIDTH, SIDEBAR_WIDTH};
 use crate::state::settings::TabClose;
 use crate::theme;
 use crate::ui::{
-    agents, board, chat, editor, empty, explorer, git, help, kb, logs, orchestration, outline,
-    rail, search, sink, stats, teams, terminal,
+    agents, board, chat, editor, empty, explorer, git, help, kb, logs, mission, orchestration,
+    outline, rail, search, sink, stats, teams, terminal,
 };
 
 /// The version a saved layout is written under. It travels with the preferences schema, because
@@ -209,6 +209,39 @@ impl WorkbenchPanel {
                 label: "Help".into(),
                 ..TabInfo::default()
             },
+            // A mission's tab names the mission the way a file's names its file: the project's
+            // own word for one (M18) and the anchor task's key, which is what the reader knows it
+            // by. A window no longer holding the task falls back to the term alone.
+            PanelKind::Mission(task_id) => {
+                let key = app
+                    .work(cx)
+                    .and_then(|work| work.task(*task_id))
+                    .and_then(|task| task.key.clone());
+                let term = app.mission_term(cx);
+                TabInfo {
+                    label: match key {
+                        Some(key) => SharedString::from(format!("{term} {key}")),
+                        None => SharedString::from(term),
+                    },
+                    ..TabInfo::default()
+                }
+            }
+            // The document tab says the same thing the side panel's does, because it is the same
+            // mission — the shape is which region it is in, not a different name.
+            PanelKind::MissionView(task_id) => {
+                let key = app
+                    .work(cx)
+                    .and_then(|work| work.task(*task_id))
+                    .and_then(|task| task.key.clone());
+                let term = app.mission_term(cx);
+                TabInfo {
+                    label: match key {
+                        Some(key) => SharedString::from(format!("{term} {key}")),
+                        None => SharedString::from(term),
+                    },
+                    ..TabInfo::default()
+                }
+            }
             PanelKind::Explorer => TabInfo {
                 label: "Explorer".into(),
                 ..TabInfo::default()
@@ -614,6 +647,9 @@ impl BasePanel for WorkbenchPanel {
         if let Some(id) = self.kind.chat_id() {
             state.info = PanelInfo::panel(chat_payload(id));
         }
+        if let Some(task_id) = self.kind.mission_id() {
+            state.info = PanelInfo::panel(mission_payload(task_id));
+        }
         state
     }
 }
@@ -690,6 +726,8 @@ fn body(
         PanelKind::Kb(key) => drop_target(kb::render_doc(app, key, cx), cx),
         PanelKind::Task => board::panel(app, window, cx),
         PanelKind::AgentsExplorer => agents::sidebar::render(app, cx).into_any_element(),
+        PanelKind::Mission(task_id) => mission::render(app, *task_id, window, cx),
+        PanelKind::MissionView(task_id) => mission::full::tab(app, *task_id, window, cx),
         PanelKind::Help => help::render(app, window, cx),
     }
 }
@@ -1293,6 +1331,21 @@ fn leaf(state: &PanelState, layouts: &mut Vec<(String, ViewLayout)>) -> Option<P
         };
         return chat_from_payload(payload);
     }
+    if state.panel_name == PanelKind::MISSION {
+        let PanelInfo::Panel(payload) = &state.info else {
+            // A mission panel from a build that wrote no payload names no mission.
+            return None;
+        };
+        return mission_from_payload(payload);
+    }
+    if state.panel_name == PanelKind::MISSION_VIEW {
+        let PanelInfo::Panel(payload) = &state.info else {
+            return None;
+        };
+        // The same payload, rebuilt into the other shape — which one it is is the name's answer.
+        return mission_from_payload(payload)
+            .and_then(|kind| kind.mission_id().map(PanelKind::MissionView));
+    }
     let is_file = state.panel_name == PanelKind::File(String::new()).name();
     let is_doc = state.panel_name == PanelKind::Kb(String::new()).name();
     if !is_file && !is_doc {
@@ -1348,6 +1401,20 @@ pub fn chat_payload(id: ChatId) -> serde_json::Value {
 pub fn chat_from_payload(payload: &serde_json::Value) -> Option<PanelKind> {
     let id = payload.get("chat")?.as_str()?.parse::<ChatId>().ok()?;
     Some(PanelKind::Chat(id))
+}
+
+/// What a mission panel writes: the anchor task it is about. **A mission has no id of its own**
+/// (M1), so this is a `TaskId` and the panel rebuilds from it — a leaf naming a task the project
+/// no longer holds draws the panel's own "no mission here" page rather than being dropped, since
+/// unlike a pane the record may still arrive.
+pub fn mission_payload(task_id: TaskId) -> serde_json::Value {
+    serde_json::json!({ "mission": task_id.to_string() })
+}
+
+/// The same payload read back, or nothing for a payload that names no mission.
+pub fn mission_from_payload(payload: &serde_json::Value) -> Option<PanelKind> {
+    let task_id = payload.get("mission")?.as_str()?.parse::<TaskId>().ok()?;
+    Some(PanelKind::Mission(task_id))
 }
 
 /// The same payload read back. A payload with no key names no tab and rebuilds to nothing; one

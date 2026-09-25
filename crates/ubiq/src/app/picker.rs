@@ -163,6 +163,10 @@ impl AppState {
             PickerOwner::TaskAttachment { task } => {
                 self.add_task_attachments(task, picked, cx);
             }
+            // The same answer, one step earlier: there is no task yet, so it lands on the draft.
+            PickerOwner::NewMissionAttachment => {
+                self.add_new_mission_attachments(picked, cx);
+            }
             PickerOwner::KbFolder => {
                 if let Some(path) = picked.into_iter().next() {
                     self.accept_kb_source_folder(path, window, cx);
@@ -287,6 +291,67 @@ impl AppState {
             }
             clipboard::PastedAttachment::Image { bytes, format } => {
                 self.paste_image_into_task(task, bytes, format, cx)
+            }
+        }
+        cx.notify();
+    }
+
+    /// Raise the same picker for the mission being written, which has no task to hang the answer
+    /// on yet — so the answer lands on the draft, and `settle_new_mission` writes it onto the
+    /// anchor as a `SetTaskField` once there is one.
+    pub fn raise_new_mission_attachment_picker(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let mut forest = self
+            .explorer(cx)
+            .map(|explorer| crate::state::file_picker::forest_from_explorer(&explorer.root))
+            .unwrap_or_default();
+        forest.extend(
+            self.kb(cx)
+                .and_then(|kb| crate::state::file_picker::forest_from_kb(&kb.sources)),
+        );
+        if forest.is_empty() {
+            return;
+        }
+        let request = crate::state::file_picker::PickerRequest::new(
+            PickerOwner::NewMissionAttachment,
+            "Attach files or knowledge-base documents to this mission",
+        )
+        .kind(PickKind::Files);
+        self.open_file_picker(request, forest, PickerView::Tree, window, cx);
+    }
+
+    /// The new-mission dialog's paste, [`Self::paste_into_task`]'s path exactly: a copied **file**
+    /// attaches by its path, a copied **picture** has none and is written into `.ubiq/pasted/`
+    /// first, joining the chip row only when that write is answered.
+    ///
+    /// Pasted **text** never reaches here — it is typed into whichever field holds the keyboard by
+    /// the component library's own paste, which is what the requirements editor wants.
+    pub fn paste_into_new_mission(&mut self, cx: &mut Context<Self>) {
+        let Some(found) = clipboard::clipboard_attachment(cx) else {
+            return;
+        };
+        match found {
+            clipboard::PastedAttachment::Path(path) => {
+                let named = match self.project_relative(&path, cx) {
+                    Some((holder, rel)) if Some(holder) == self.project(cx) => rel,
+                    _ => path.to_string_lossy().into_owned(),
+                };
+                self.add_new_mission_attachments(vec![named], cx);
+            }
+            clipboard::PastedAttachment::Image { bytes, format } => {
+                // The draft's picture waits for the write the way a task's does, and for the same
+                // reason: what is on the chip row here becomes a stored attachment on the anchor.
+                if let Some(project) = self.project(cx) {
+                    let (rel_path, _) = self.write_pasted_image(project, bytes, format);
+                    self.pasted_writes.push(PastedWrite {
+                        project,
+                        rel_path,
+                        into: PastedInto::NewMission,
+                    });
+                }
             }
         }
         cx.notify();
@@ -558,8 +623,14 @@ impl AppState {
         let Some(reason) = failure else {
             // A task's picture waits for this answer rather than anticipating it, so the write
             // landing is what puts it on the record. A composer's chip was already up.
-            if let PastedInto::Task(task) = write.into {
-                self.add_task_attachments(task, vec![rel_path.to_string()], cx);
+            match write.into {
+                PastedInto::Task(task) => {
+                    self.add_task_attachments(task, vec![rel_path.to_string()], cx);
+                }
+                PastedInto::NewMission => {
+                    self.add_new_mission_attachments(vec![rel_path.to_string()], cx);
+                }
+                PastedInto::Composer { .. } => {}
             }
             return true;
         };
@@ -741,7 +812,8 @@ impl AppState {
             PickerOwner::HostProject
             | PickerOwner::KbFolder
             | PickerOwner::ToolFolder
-            | PickerOwner::TaskAttachment { .. } => {}
+            | PickerOwner::TaskAttachment { .. }
+            | PickerOwner::NewMissionAttachment => {}
         }
         self.close_host_browse();
         cx.notify();

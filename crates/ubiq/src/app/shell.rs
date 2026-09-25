@@ -1,7 +1,7 @@
 use super::*;
 
 use crate::state::Layer;
-use ubiq_proto::work::WorkAgent;
+use ubiq_proto::work::{TaskRecord, WorkAgent};
 
 impl AppState {
     /// Reconcile what the window holds with what the registry says it holds.
@@ -63,6 +63,10 @@ impl AppState {
             // answers. Once per newly held project: the reply is the whole of it, and it is the
             // frame the agents screen lays its columns out on.
             self.bus.send(Message::ListWork { project_id: id });
+            // And the missions over that work, on the same footing: one ask per newly held
+            // project, answered with the whole set. It also creates the records for missions that
+            // predate them, which is what makes a promoted task's panel have something to draw.
+            self.bus.send(Message::ListMissions { project_id: id });
             // The overview is cheap and lands first; the working-tree walk follows on the same
             // worker, behind it, so the branch name is not stuck waiting for badges.
             self.bus.send(Message::ProjectGit { project_id: id });
@@ -576,6 +580,19 @@ impl AppState {
         self.open_project(cx).map(|open| &open.board)
     }
 
+    /// Every task in the projects Teams is showing, **unnarrowed** — what `TaskRecord::waiting_on`
+    /// needs to answer correctly, since [`Self::teams_work`] drops any task not held by a live
+    /// agent, and a prerequisite outside that narrowing must still count against readiness.
+    /// Cloned rather than borrowed: the span can cross more than one project, and there is no
+    /// single slice to hand back across them.
+    pub fn teams_all_tasks(&self, cx: &App) -> Vec<TaskRecord> {
+        self.teams_projects(cx)
+            .iter()
+            .filter_map(|id| self.projects.get(id))
+            .flat_map(|open| open.work.tasks.iter().cloned())
+            .collect()
+    }
+
     pub fn work_mut(&mut self, cx: &App) -> Option<&mut WorkProjection> {
         let id = self.project(cx)?;
         self.projects.get_mut(&id).map(|open| &mut open.work)
@@ -950,6 +967,9 @@ impl AppState {
             (Layer::RemoteManager, w.remote_manager.open),
             (Layer::RemoteConnect, w.remote_connect.is_some()),
             (Layer::Notifications, self.notifications.open),
+            // Only the modal shape takes a rung, for the plan's reason one line down: a mission
+            // full view open as a document tab is not an overlay.
+            (Layer::Mission, w.mission.is_some()),
             // Only the dialog takes a rung: a document open inside a markdown tab's annotation
             // layout is not an overlay, and Escape over it belongs to whatever is.
             (
@@ -1102,6 +1122,10 @@ impl AppState {
             // dialog: a document open inside a markdown tab is not an overlay and Escape there
             // belongs to whatever is.
             self.close_plan(cx);
+        } else if self.workbench.mission.is_some() {
+            // Below the plan in paint order: the full view's *Plan & docs* tab raises the plan
+            // surface over it, so Escape takes the plan first and leaves the mission open.
+            self.close_mission_full(cx);
         } else if self.workbench.ask.is_some() {
             // Escape puts an agent's question away and sends nothing — what was filled in stays on
             // the ask's own record, and the transcript entry reopens it. Dismissing is not
@@ -1191,9 +1215,13 @@ impl AppState {
         self.workbench.new_pane_menu = None;
         self.workbench.overflow_menu = None;
         self.workbench.new_project_menu = None;
+        self.workbench.mission_menu = None;
+        self.workbench.mission_spawn_menu = None;
+        self.workbench.mission_kind_menu = None;
         self.workbench.run_tool_menu = None;
         self.workbench.conversation_menu = None;
         self.workbench.attachment_preview = None;
+        self.workbench.teams_create_menu = None;
         self.sink.settings.menu = None;
         self.drop_explorer_menu(cx);
         self.drop_kb_menu(cx);

@@ -17,9 +17,15 @@ impl AppState {
     /// front of the reader. A session has no workspace behind it and opens nothing.
     pub fn select_in_teams(&mut self, selection: TeamsSelection, cx: &mut Context<Self>) {
         let thread = match &selection {
-            TeamsSelection::Session(_) => None,
+            TeamsSelection::Session(_) | TeamsSelection::Mission(_) => None,
             TeamsSelection::Agent(id) => Some((*id, None)),
             TeamsSelection::Subagent { agent, subagent } => Some((*agent, Some(subagent.clone()))),
+        };
+        // A mission is not a workspace, so it opens no conversation — what its fence handle puts
+        // in the right dock is the mission's own panel (M15).
+        let mission = match &selection {
+            TeamsSelection::Mission(task) => Some(*task),
+            _ => None,
         };
         if let Some(graph) = self.teams_mut(cx) {
             graph.selection = Some(selection);
@@ -27,6 +33,9 @@ impl AppState {
         if let Some((agent, subagent)) = thread {
             self.view_conversation_agent(agent, subagent, cx);
             self.open_teams_agent_panel(agent, cx);
+        }
+        if let Some(task) = mission {
+            self.open_mission_panel(task, cx);
         }
         cx.notify();
     }
@@ -98,6 +107,14 @@ impl AppState {
     pub fn toggle_teams_session(&mut self, session: SessionId, cx: &mut Context<Self>) {
         if let Some(graph) = self.teams_mut(cx) {
             graph.toggle_session(session);
+        }
+        cx.notify();
+    }
+
+    /// Tick one mission's filter on or off. Like the session row's, it leaves the selection alone.
+    pub fn toggle_teams_mission(&mut self, mission: TaskId, cx: &mut Context<Self>) {
+        if let Some(graph) = self.teams_mut(cx) {
+            graph.toggle_mission(mission);
         }
         cx.notify();
     }
@@ -321,6 +338,53 @@ impl AppState {
         cx.notify();
     }
 
+    /// Every mission the canvas has a fence for, against everybody on it (M11).
+    ///
+    /// Membership is both halves of the rule, unioned: the agents holding the mission's anchor
+    /// task or one of its children, which the projection answers, **and** the live roster
+    /// entries, which only the record carries — `Work::assign_agent` clears a `WorkAgent::parent`
+    /// on every reassignment, so the spawn link cannot be recomputed after the fact.
+    ///
+    /// Read across every project the span is about, so a fence on `All Teams` is drawn for a
+    /// mission the project on screen has never heard of. A mission whose anchor task the
+    /// projection does not carry has no fence: there is nothing on the canvas for it to enclose
+    /// and no container to merge into.
+    fn teams_missions(&self, cx: &App) -> HashMap<TaskId, Vec<AgentId>> {
+        let mut missions: HashMap<TaskId, Vec<AgentId>> = HashMap::new();
+        for open in self
+            .teams_projects(cx)
+            .iter()
+            .filter_map(|id| self.projects.get(id))
+        {
+            for record in open.missions.values() {
+                let anchor = record.task_id;
+                if open.work.task(anchor).is_none() {
+                    continue;
+                }
+                let children: Vec<TaskId> =
+                    open.work.children_of(anchor).map(|task| task.id).collect();
+                let mut members: Vec<AgentId> = open
+                    .work
+                    .agents
+                    .iter()
+                    .filter(|agent| {
+                        agent
+                            .task
+                            .is_some_and(|held| held == anchor || children.contains(&held))
+                    })
+                    .map(|agent| agent.id)
+                    .collect();
+                for entry in &record.roster {
+                    if entry.left_at.is_none() && !members.contains(&entry.agent) {
+                        members.push(entry.agent);
+                    }
+                }
+                missions.insert(anchor, members);
+            }
+        }
+        missions
+    }
+
     /// Lay the window span's own view out over the merged projection, after a wire arm has laid
     /// the arriving project's view out over its own.
     ///
@@ -396,6 +460,16 @@ impl AppState {
         if self.teams_owner != owner {
             self.teams_owner = owner;
         }
+        // Which missions the canvas fences, and who is on each. Read here for the rings' reason:
+        // the roster is the project's, the geometry is `state::teams`'s, and that module does not
+        // know what a project or a `MissionRecord` is.
+        let missions = self.teams_missions(cx);
+        if let Some(graph) = self.teams_mut(cx)
+            && graph.missions != missions
+        {
+            graph.missions = missions;
+        }
+
         if let Some(graph) = self.teams_mut(cx) {
             let counts: std::collections::HashMap<AgentId, Vec<String>> = named
                 .into_iter()

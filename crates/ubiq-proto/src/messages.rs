@@ -26,11 +26,14 @@ use crate::git::{
 use crate::help::HelpCatalog;
 use crate::ids::{
     AiProviderId, AnnotationId, AskId, BlockId, CloneId, ConnectId, ConnectionId, KbSourceId,
-    NotificationId, OauthAppId, PaneId, ProjectId, RepoQueryId, SearchId, SessionId, SshProfileId,
-    StepId, SuggestId, TaskId, ToolId,
+    NotificationId, OauthAppId, PaneId, ProjectId, RepoQueryId, SearchId, SessionId, SpawnId,
+    SshProfileId, StepId, SuggestId, TaskId, ToolId,
 };
 use crate::kb::{KbSource, KbSourceState, KbSourceStatus};
 use crate::mcp::McpInfo;
+use crate::mission::{
+    JournalEntry, MissionField, MissionRecord, PendingSpawn, Phase, SpawnOutcome,
+};
 use crate::notifications::{
     Level, MuteFor, MuteScope, Notification, NotificationRequest, Notifications,
 };
@@ -1792,6 +1795,203 @@ pub enum Message {
         error: String,
     },
 
+    // ── Mission family: UI → host ───────────────────────────────────
+    // **Every variant here names `(project_id, task_id)` directly**, unlike the plan family beside
+    // it, which keys off a [`DocumentHandle`]. A mission is not a document: it has no body, no
+    // sidecar and no placement to resolve, and the pair *is* its identity — a mission **is** its
+    // anchor task ([`crate::mission`], M1), so there is no second id space to carry.
+    //
+    // The host refuses every variant here for a task that is not there or whose
+    // [`crate::work::Level`] is `None`, with [`Message::MissionError`] — the plan family's posture,
+    // for the plan family's reason.
+    //
+    // **Mutations broadcast, answers do not.** There is no per-project address on the bus
+    // (`bus::To` is one client or everyone), so [`Message::MissionChanged`] and
+    // [`Message::MissionDeleted`] go to every window and each filters by project itself — `D120`'s
+    // existing cost, followed rather than fixed. A [`Message::MissionList`] and a
+    // [`Message::MissionError`] go only to whoever asked.
+    /// Every mission in one project. Answered with [`Message::MissionList`].
+    ///
+    /// **This creates records.** A `Level::Mission` task with no record yet gets one, with its
+    /// phase inferred from the anchor (M3): there is no migration pass, and being listed is one of
+    /// the three things that brings a mission's record into being.
+    ListMissions {
+        project_id: ProjectId,
+    },
+    /// Bring one mission's record into being, for a task that carries a level.
+    ///
+    /// Not an error when it already exists — the caller asked for there to be one, and there is.
+    /// Promoting a task to `Level::Mission` does this by itself, so this is for the dialog, which
+    /// wants the record in the same act as the card.
+    CreateMission {
+        project_id: ProjectId,
+        task_id: TaskId,
+    },
+    /// Set one of a mission's settings — [`Message::SetTaskField`]'s shape, one variant carrying a
+    /// field enum. **The phase is not one of them**: moving a mission is a request and a
+    /// confirmation, not a field write.
+    SetMissionField {
+        project_id: ProjectId,
+        task_id: TaskId,
+        field: MissionField,
+    },
+    /// An agent asks for a phase move (M5). The host decides what happens to the ask: the moves
+    /// nothing is at stake in are applied on the spot — Requirements → Refining when `auto_refine`
+    /// is on, and Requirements/Refining → In progress when `require_plan` is off — and every other
+    /// one becomes the mission's pending request, drawn in the panel's *Needs you* and answered
+    /// with [`Self::SetPhase`].
+    ///
+    /// **Who asked is not on the wire**: it is the mission's own coordinator, read off the record,
+    /// so no caller can claim to be an agent it is not. `summary` is the requester's sentence —
+    /// M5 asks for one on the completion request and allows it empty elsewhere.
+    RequestPhase {
+        project_id: ProjectId,
+        task_id: TaskId,
+        phase: Phase,
+        summary: String,
+    },
+    /// The user moves a mission's phase — a confirmation, a decline, or a step back (M5).
+    ///
+    /// Three things in one message, told apart by the phase named: the pending request's phase
+    /// **confirms** it, the phase the mission is already in **declines** it (the pending request
+    /// is dropped and the coordinator told), and anything else is the user moving the mission
+    /// wherever they want it, which is always allowed except through the plan gate.
+    ///
+    /// **The plan gate is the one refusal.** With `require_plan` on, crossing into In progress
+    /// from an earlier phase refuses while the plan is empty or has open annotation threads
+    /// (`MissionError`); the step back out of any phase never does.
+    SetPhase {
+        project_id: ProjectId,
+        task_id: TaskId,
+        phase: Phase,
+    },
+    /// One page of a mission's journal, newest first. Answered with [`Message::Journal`].
+    ///
+    /// **`before` is a cursor, not a filter**: absent asks for the newest page, and a page's
+    /// oldest [`JournalEntry::seq`] is what the next call passes to step further back. That is the
+    /// paging the panel's *Latest* (one page of three) and the full view's *Activity* tab (page
+    /// after page) both read, and the sequence is the line's own index in an append-only file, so
+    /// a cursor never skips or repeats a line.
+    LoadJournal {
+        project_id: ProjectId,
+        task_id: TaskId,
+        before: Option<u64>,
+        /// How many lines at most. `None` is the host's own page size.
+        limit: Option<usize>,
+    },
+    /// What the window did with a [`Message::MissionSpawnRequest`] (M13).
+    ///
+    /// **The window decides and the host records.** The spawn policy — `ask`, `auto up to N`,
+    /// `never` — is applied where the launch is, because the launch is the window's: the host
+    /// carries the request, takes the outcome down in the roster and the journal, and tells the
+    /// requester. So a decline here is a real answer, not a failure.
+    ///
+    /// A `request_id` the record no longer holds is discarded — the same rule
+    /// [`crate::ids::AskId`] lives by, and what makes a second window answering an already
+    /// answered row harmless.
+    ///
+    /// **Send this after the launch, not instead of it.** On
+    /// [`SpawnOutcome::Launched`] the agent id must be one the window has already minted and sent
+    /// a [`Message::StartConversation`] for, with `spawned_by` naming the requester.
+    AnswerSpawn {
+        project_id: ProjectId,
+        task_id: TaskId,
+        request_id: SpawnId,
+        outcome: SpawnOutcome,
+    },
+    /// Something happened to `task_id` that a mission's scheduler may care about (M23).
+    ///
+    /// **The host's wake to itself, not the interface's message.** The scheduler runs on the
+    /// coordinator's own loop, with no thread and no timer, so the events it decides on have to
+    /// reach that loop — and the ones that come from an MCP tool (`use-task::change_state` is the
+    /// one that matters: it is how a worker finishes) land on the listener's thread instead. That
+    /// thread says this into the host's own inbox and the run loop does the deciding, exactly as
+    /// `ubiq-ask` says [`Message::AskUser`] and the missions say [`Message::PromptAgent`]
+    /// (`D138`).
+    ///
+    /// It names the **task**, not the mission: the sender does not have to know whether the task
+    /// is in one. The coordinator resolves the mission, and a task in none is dropped.
+    ///
+    /// A window may send it and nothing goes wrong, but nothing in the interface does: there is
+    /// no state here to draw.
+    MissionSchedule {
+        project_id: ProjectId,
+        task_id: TaskId,
+    },
+
+    // ── Mission family: host → UI ───────────────────────────────────
+    /// An agent in the mission has asked for another agent, and the window that has this project
+    /// open is the half that can answer (M13).
+    ///
+    /// **The host relays; it never launches.** [`Message::StartConversation`] is UI-only and the
+    /// window mints the [`AgentId`], so what crosses here is a *kind* — one of
+    /// [`MissionRecord::agent_kinds`] by name — and never a composition. The window resolves the
+    /// kind, applies [`MissionRecord::spawn_policy`], launches, and answers with
+    /// [`Message::AnswerSpawn`].
+    ///
+    /// Broadcast, on [`Message::MissionChanged`]'s footing and for its reason: the bus has no
+    /// per-project address, so every window hears it and the one with the project open acts. The
+    /// same request is also on the record as a [`PendingSpawn`] — this
+    /// message is the *event*, the record is the state a *Needs you* row is drawn from, exactly as
+    /// [`MissionRecord::pending_phase`] already works.
+    MissionSpawnRequest {
+        project_id: ProjectId,
+        task_id: TaskId,
+        /// The request as the record holds it, whole rather than field by field, so a window that
+        /// missed the [`Message::MissionChanged`] beside it still has everything to draw the row.
+        request: Box<PendingSpawn>,
+    },
+    /// One page of a mission's journal, **newest first**, sent only to whoever asked.
+    ///
+    /// `more` is whether anything older than this page exists, so a view knows whether to offer
+    /// another step back without asking for a page it may not need.
+    Journal {
+        project_id: ProjectId,
+        task_id: TaskId,
+        entries: Vec<JournalEntry>,
+        more: bool,
+    },
+    /// One line has just been written to a mission's journal.
+    ///
+    /// Broadcast on [`Message::MissionChanged`]'s own footing and for its reason — every window
+    /// showing that mission wants it, and the bus has no per-project address. A window that has
+    /// the newest page open appends it; one that has paged back ignores it.
+    ///
+    /// **This is the "an agent making progress of its own" variant** `_docs/tech/transport-contract.md`
+    /// says the contract lacks, scoped to missions (M12).
+    JournalAppended {
+        project_id: ProjectId,
+        task_id: TaskId,
+        entry: JournalEntry,
+    },
+    /// One project's missions, whole — the answer to [`Message::ListMissions`], sent only to
+    /// whoever asked.
+    MissionList {
+        project_id: ProjectId,
+        missions: Vec<MissionRecord>,
+    },
+    /// A mission as it now is, whole rather than as a diff — [`Message::TaskChanged`]'s
+    /// discipline. Broadcast, and boxed for [`Message::AgentChanged`]'s reason: the record is the
+    /// widest payload in this family and an unboxed one would widen every message on the bus.
+    MissionChanged {
+        project_id: ProjectId,
+        mission: Box<MissionRecord>,
+    },
+    /// A mission's record is gone — the task was deleted, or demoted with nothing in it.
+    /// Broadcast, on [`Message::PlanDeleted`]'s reasoning.
+    MissionDeleted {
+        project_id: ProjectId,
+        task_id: TaskId,
+    },
+    /// Something went wrong for one mission, or for a project's missions as a whole when the id is
+    /// absent — [`Message::WorkError`]'s own shape, for the reason it gives. A refused demotion is
+    /// one of these.
+    MissionError {
+        project_id: ProjectId,
+        task_id: Option<TaskId>,
+        error: String,
+    },
+
     // ── Conversation family: UI → host ──────────────────────────────
     /// Start a live agent: compose the harness, drive it over structured I/O, and stream what it
     /// says back as [`Message::ConversationUpdate`].
@@ -1835,6 +2035,17 @@ pub enum Message {
         /// its own rather than a diff against [`ProfileInfo::mcps`].
         #[serde(default)]
         mcps: Vec<String>,
+        /// The agent that asked for this one, for a launch answering a
+        /// [`Message::MissionSpawnRequest`]. It becomes [`crate::work::WorkAgent::parent`], which
+        /// is the **only** thing that ever sets it in a real run — the Teams spawn connector draws
+        /// off this.
+        ///
+        /// It is a fact about who asked, not about who the agent works for:
+        /// `Work::assign_agent` clears `parent` on every reassignment, which is exactly why a
+        /// mission's roster membership is written onto the record at the spawn (M11) rather than
+        /// recomputed from this later.
+        #[serde(default)]
+        spawned_by: Option<AgentId>,
     },
     /// A turn. Nothing is appended by the sender: the line is drawn when it comes back as a
     /// [`ConvUpdate::UserChunk`], which is what the harness actually received.
@@ -2558,6 +2769,23 @@ impl Message {
             | Message::PlanExported { doc, .. }
             | Message::PlanChanged { doc, .. }
             | Message::PlanConflict { doc, .. } => Some(doc.project_id()),
+            // The mission family names the project beside the task rather than inside a handle,
+            // so it reads its own field — one grouped arm, the work family's shape.
+            Message::ListMissions { project_id }
+            | Message::CreateMission { project_id, .. }
+            | Message::SetMissionField { project_id, .. }
+            | Message::RequestPhase { project_id, .. }
+            | Message::SetPhase { project_id, .. }
+            | Message::LoadJournal { project_id, .. }
+            | Message::AnswerSpawn { project_id, .. }
+            | Message::MissionSchedule { project_id, .. }
+            | Message::MissionSpawnRequest { project_id, .. }
+            | Message::Journal { project_id, .. }
+            | Message::JournalAppended { project_id, .. }
+            | Message::MissionList { project_id, .. }
+            | Message::MissionChanged { project_id, .. }
+            | Message::MissionDeleted { project_id, .. }
+            | Message::MissionError { project_id, .. } => Some(*project_id),
             // The project is inside the subject rather than beside it, so this arm stands alone.
             Message::Suggest {
                 subject:
@@ -2595,6 +2823,11 @@ pub enum TaskField {
     /// The whole reference list, replaced — see [`crate::work::TaskRecord::references`]. Untyped
     /// and symmetric, the same posture as [`Self::Labels`].
     References(Vec<TaskId>),
+    /// The whole prerequisite list, replaced — see [`crate::work::TaskRecord::prerequisites`].
+    /// Typed and directed, unlike [`Self::References`]. The host may refuse this with
+    /// [`Message::WorkError`]: a prerequisite in another project, the task itself, or one that
+    /// would close a cycle.
+    Prerequisites(Vec<TaskId>),
     /// The whole attachment list, replaced — see [`crate::work::TaskRecord::attachments`]. The
     /// same posture as [`Self::References`] and [`Self::Labels`], for the same reason: a short
     /// list edited as a set, where a delta would cost a second message and an ordering rule.

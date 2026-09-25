@@ -39,6 +39,7 @@ use crate::state::git::{
     ChangeSection, GitAction, GitMenuKind, GitPending, GitView, RefSection, Side as GitSide,
     can_stage, can_unstage, commit_rows, ref_rows, submodule_rows,
 };
+use crate::state::mission::MissionView;
 use crate::state::nav::{
     Anchored, Bookmark, Destination, Fate, History, Locus, View, range_for, resolve_anchor,
     toggle_mark,
@@ -67,9 +68,10 @@ use crate::state::work::WorkProjection;
 use crate::state::{
     ActiveSearch, AttachmentPreview, ChatId, ChatTab, EditorPaneState, ExplorerAction, ExplorerKey,
     ExplorerPressed, ExplorerState, ExplorerView, FileBody, FileDialog, FileLanguage, Follow,
-    KbDocKey, KbPressed, KbState, LogState, MenuId, NewAgentMenu, NewAgentSurface, NewPaneRow,
-    NewProjectRow, OpenFile, OverflowRow, PanelKind, ProjectSettings, ProjectSettingsMode,
-    RailMode, Region, SearchState, Toggle, WindowRegistry, WorkbenchState, kb_parent_path, prefs,
+    KbDocKey, KbPressed, KbState, LogState, MenuId, NewAgentMenu, NewAgentStage, NewAgentSurface,
+    NewPaneRow, NewProjectRow, OpenFile, OverflowRow, PanelKind, ProjectSettings,
+    ProjectSettingsMode, RailMode, Region, SearchState, TeamsCreateMenu, TeamsCreateStage, Toggle,
+    WindowRegistry, WorkbenchState, kb_parent_path, prefs,
 };
 use crate::theme::{self, Mode, ThemeId};
 use crate::ui;
@@ -102,6 +104,7 @@ use ubiq_proto::kb::{KbAccess, KbSource, KbStore};
 use ubiq_proto::messages::{
     AgentPicks, CliShortcutAction, Message, ProfileInfo, Secret, WorkspaceInfo,
 };
+use ubiq_proto::mission::MissionRecord;
 use ubiq_proto::notifications::{
     Family, HISTORY_CAP, Level, MuteFor, MuteScope, NotificationRequest, UbiqLink,
 };
@@ -338,6 +341,19 @@ pub struct OpenProject {
     /// The board's view of the same work: what is filtered, which task is open, which columns and
     /// cards are shut.
     pub board: BoardState,
+    /// This project's missions, keyed by the anchor task they *are* — there is no `MissionId`
+    /// (`ubiq_proto::mission`, M1). A projection like `work`: replaced wholesale by `MissionList`
+    /// and one record at a time by `MissionChanged`, so a record arriving twice changes nothing.
+    /// Empty rather than absent until the `ListMissions` is answered.
+    pub missions: HashMap<TaskId, MissionRecord>,
+    /// How those missions are being looked at — the tab, the WBS selection, the state filter.
+    /// Per project, for the reason the board's and the graph's views are.
+    pub mission_view: MissionView,
+    /// Each mission's journal as this window has read it back (M12), keyed by the anchor task.
+    ///
+    /// Beside `mission_view` rather than on it: the view is cloned every frame by the full view,
+    /// and a growing page of history is not something to copy to draw a tab strip.
+    pub mission_journals: HashMap<TaskId, crate::state::mission::MissionJournal>,
     /// The furniture this project was last left in, kept current so a background project is never
     /// written down wearing the active one's.
     prefs: prefs::ViewPrefs,
@@ -394,6 +410,9 @@ impl OpenProject {
             graph: GraphView::default(),
             teams: TeamsView::default(),
             board: BoardState::default(),
+            missions: HashMap::new(),
+            mission_view: MissionView::default(),
+            mission_journals: HashMap::new(),
             prefs,
             restored: false,
             persistent_settled: false,
@@ -538,6 +557,9 @@ enum PastedInto {
     Composer { agent: AgentId, attachment: u64 },
     /// The task whose stored attachment list the path joins, once the write is answered.
     Task(TaskId),
+    /// The new-mission dialog's draft, which has no task to name yet — [`Self::Task`]'s bet, one
+    /// step earlier.
+    NewMission,
 }
 
 pub struct AppState {
@@ -858,6 +880,16 @@ pub struct AppState {
     /// moment it is made, so there is nothing half-typed to hold. The one exception is the name of
     /// a label that does not exist yet, which is typed before it is given a colour.
     pub task_title_input: Entity<InputState>,
+    /// The mission *Feedback* composers — the side panel's and the full view's *Activity* tab's
+    /// (M12).
+    ///
+    /// **Two entities, because both surfaces can be on screen at once.** One state drawn in two
+    /// places is one caret in two places; they are otherwise identical and both send through
+    /// `AppState::send_mission_feedback`, at the mission `WorkbenchState::feedback_mission` names.
+    /// Nothing mirrors what is typed: the value is read off the field when it is sent, the way
+    /// the profile-naming prompt's is.
+    pub mission_feedback_input: Entity<InputState>,
+    pub mission_feedback_tab_input: Entity<InputState>,
     pub task_description_input: Entity<TextareaState>,
     pub task_key_input: Entity<InputState>,
     pub task_link_input: Entity<InputState>,
@@ -869,6 +901,9 @@ pub struct AppState {
     /// The reference picker's own search field — see `BoardState::form::reference_query` for
     /// what it mirrors and `AppState::toggle_reference_picker` for where it is cleared.
     pub task_reference_query: Entity<InputState>,
+    /// The prerequisite picker's own search field, `task_reference_query`'s sibling — see
+    /// `BoardState::form::prerequisite_query` and `AppState::toggle_prerequisite_picker`.
+    pub task_prerequisite_query: Entity<InputState>,
     /// The annotation panel's one field: a fresh thread on a block, or a reply to one, whichever
     /// `DocumentEditor::composer` says it is answering. One at a time, `new_comment_input`'s own
     /// arrangement.
@@ -1021,6 +1056,13 @@ pub struct AppState {
     /// into them mirrors into `workbench.new_mission`'s own form.
     pub new_mission_title_input: Entity<InputState>,
     pub new_mission_description_input: Entity<TextareaState>,
+    /// The markdown a mission may be started *from* (§5's Plan row). Its own field rather than the
+    /// description's, because the two are different documents: one is the requirements, the other
+    /// is the plan's first revision.
+    pub new_mission_plan_input: Entity<TextareaState>,
+    /// The linked-task picker's filter field. The task panel's references picker has one of these
+    /// too; the dialog's is separate because both can be up at once.
+    pub new_mission_task_query: Entity<InputState>,
     /// The opening prompt, shared by the New agent modal and the profile form — only one of the
     /// two is ever up, and a second field would be a second thing to keep in step.
     pub new_agent_prompt: Entity<TextareaState>,
@@ -1126,6 +1168,9 @@ pub struct AppState {
     /// The kitchen sink's teamsim canvas. Its own, because it is a bench and not the Teams screen:
     /// scrolling one must not move the other.
     pub teamsim_scroll: ScrollHandle,
+    /// The mission full view's WBS canvas, which is a board like the other two and scrolls like
+    /// one.
+    pub mission_scroll: ScrollHandle,
     /// Where the keyboard rests when it is on the tree rather than in the filter above it. The two
     /// are separate focuses on purpose: the field owns every key a field owns — Backspace first of
     /// all — and the tree's own keys, removal included, are only live once the tree holds focus.
@@ -1143,6 +1188,8 @@ pub struct AppState {
     /// handle because the picker is reopened fresh each time the `+` is toggled, and a shared
     /// handle would carry a stale offset in from whatever else last used it.
     pub task_reference_scroll: ScrollHandle,
+    /// The prerequisite picker's own result list, `task_reference_scroll`'s sibling.
+    pub task_prerequisite_scroll: ScrollHandle,
     /// The plan surface's section list, **virtualized** — a thread's "Show" button and the heading
     /// navigator both bring a section into view by scrolling this to its index among the
     /// document's blocks.
@@ -1239,6 +1286,8 @@ pub use hosts::{
 mod image_edit;
 mod kb;
 mod mark;
+mod mission;
+pub use mission::OpenMissionRow;
 mod nav;
 mod new_agent;
 mod new_mission;

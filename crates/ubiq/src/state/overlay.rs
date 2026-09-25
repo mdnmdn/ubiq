@@ -73,6 +73,10 @@ pub enum Layer {
     Ask,
     /// The "All projects" modal.
     AllProjects,
+    /// One mission's full view, framed as a modal — raised from the side panel's `⤢` outside IDE
+    /// mode (§6.2). Below the plan, because the full view's *Plan & docs* tab is one of the
+    /// places that raises the plan surface over it.
+    Mission,
     /// A task's plan, read as rendered markdown — raised from the task panel.
     Plan,
     /// The file question — new, rename, save-as and the rest, and the plan modal's own Export

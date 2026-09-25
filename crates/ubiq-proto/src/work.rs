@@ -501,6 +501,18 @@ pub struct TaskRecord {
     /// dangling id on read, the same as [`Self::parent`].
     #[serde(default, rename = "reference", skip_serializing_if = "Vec::is_empty")]
     pub references: Vec<TaskId>,
+    /// Other tasks this one waits on — typed and directed, unlike [`Self::references`]: a
+    /// prerequisite is not `InReview` or `Done` yet makes this task **not ready** (M20's derived
+    /// readiness, see [`Self::waiting_on`]). The host refuses a write naming a task in another
+    /// project, the task itself, or one that would close a cycle
+    /// (`crates/ubiq-host/src/work/mod.rs`). The reverse list — what a task **blocks** — is
+    /// derived, never stored. A dangling id is dropped on read, the same as [`Self::references`].
+    #[serde(
+        default,
+        rename = "prerequisite",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub prerequisites: Vec<TaskId>,
     /// The files and knowledge-base documents hung on this task, in the order they were added.
     ///
     /// Stored, unlike a conversation's attachments, which never cross the bus at all — see
@@ -564,6 +576,7 @@ impl TaskRecord {
             level: None,
             parent: None,
             references: Vec::new(),
+            prerequisites: Vec::new(),
             attachments: Vec::new(),
             complexity: None,
             assigned_to: None,
@@ -595,6 +608,33 @@ impl TaskRecord {
 
     pub fn step_mut(&mut self, id: StepId) -> Option<&mut Step> {
         self.steps.iter_mut().find(|s| s.id == id)
+    }
+
+    /// This task's prerequisites that are not yet `InReview` or `Done` — M20's derived readiness.
+    /// Empty means the task is **ready**; [`Self::ready`] is that check spelled out. Nothing here
+    /// is stored and nothing crosses the bus: both `crates/ubiq-host` (the scheduler, MCP) and
+    /// `crates/ubiq` (the board, the task panel) call this one implementation rather than each
+    /// computing their own.
+    ///
+    /// This is **not** [`Status::Blocked`] — that stays what a person or an agent says; a card can
+    /// be both. `tasks` is the project's whole loaded list; a prerequisite naming nothing in it
+    /// (already dropped by `sanitize_relations` on read, but checked here too) does not count
+    /// against readiness.
+    pub fn waiting_on(&self, tasks: &[TaskRecord]) -> Vec<TaskId> {
+        self.prerequisites
+            .iter()
+            .filter(|id| {
+                !tasks
+                    .iter()
+                    .any(|t| t.id == **id && matches!(t.status, Status::InReview | Status::Done))
+            })
+            .copied()
+            .collect()
+    }
+
+    /// Whether every prerequisite is `InReview` or `Done` — see [`Self::waiting_on`].
+    pub fn ready(&self, tasks: &[TaskRecord]) -> bool {
+        self.waiting_on(tasks).is_empty()
     }
 }
 

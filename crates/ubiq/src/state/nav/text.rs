@@ -90,6 +90,7 @@ impl fmt::Display for Destination {
                     TeamsSelection::Session(id) => ("s", id.to_string()),
                     TeamsSelection::Agent(id) => ("a", id.to_string()),
                     TeamsSelection::Subagent { agent, .. } => ("a", agent.to_string()),
+                    TeamsSelection::Mission(task) => ("m", task.to_string()),
                 };
                 let tab = match tab {
                     TeamsInspectorTab::Chat => "chat",
@@ -243,6 +244,13 @@ fn parse_view(slug: &str, item: Option<&str>) -> Result<View, NotALink> {
                         return Err(NotALink);
                     }
                     TeamsSelection::Session(id.parse::<SessionId>().map_err(|_| NotALink)?)
+                }
+                Some(("m", id)) => {
+                    if subagent.is_some() {
+                        // A mission has no delegate, for the session's reason.
+                        return Err(NotALink);
+                    }
+                    TeamsSelection::Mission(id.parse::<TaskId>().map_err(|_| NotALink)?)
                 }
                 Some(("a", id)) => {
                     let agent = id.parse::<AgentId>().map_err(|_| NotALink)?;

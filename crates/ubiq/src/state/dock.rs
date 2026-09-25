@@ -18,7 +18,7 @@ use std::fmt;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use ubiq_proto::ids::PaneId;
+use ubiq_proto::ids::{PaneId, TaskId};
 
 use crate::state::RailMode;
 
@@ -171,6 +171,19 @@ pub enum PanelKind {
     /// The agents screen's list: every session, every conversation in it, and what each is doing.
     /// Agents mode's side panel — the columns are the centre, and this is what fills them.
     AgentsExplorer,
+    /// One mission's side panel — the fast overview of §6.1, named by the anchor task the
+    /// mission *is* (there is no `MissionId`, `ubiq_proto::mission` M1). Several may be open at
+    /// once, and like a chat tab it is `Free`: a mission is read beside whatever the reader is
+    /// doing, in any region and in any rail mode.
+    Mission(TaskId),
+    /// One mission's **full view**, as a document in the centre region — §6.2's second shape,
+    /// named by the same anchor task the side panel is. A document rather than a free panel for
+    /// the reason the proposal gives: it stays while the user works, can be split beside a file,
+    /// and is restored with the arrangement.
+    ///
+    /// The same [`TaskId`] may be open as both shapes at once; they read one
+    /// `state::mission::MissionView`, so the two are the same view twice rather than two views.
+    MissionView(TaskId),
     /// Ubiq's own documentation. **Not mode-owned**: the reader opens it to understand the screen
     /// they are looking at, so it has to survive the rail-mode change that takes them there.
     Help,
@@ -186,6 +199,15 @@ impl PanelKind {
     /// saved leaf is recognised as a chat tab before there is an id to build one with.
     pub const CHAT: &'static str = "ubiq.chat";
 
+    /// The name every mission panel answers, for the reason [`Self::CHAT`] is a constant: its
+    /// anchor task travels in the payload, so a saved leaf is recognised before there is a
+    /// [`TaskId`] to build one with.
+    pub const MISSION: &'static str = "ubiq.mission";
+
+    /// The name every mission **full view** document answers, for [`Self::MISSION`]'s reason: its
+    /// anchor task travels in the same payload.
+    pub const MISSION_VIEW: &'static str = "ubiq.mission.view";
+
     /// Where this kind may sit. One function, consulted in one place.
     pub fn class(&self) -> PanelClass {
         match self {
@@ -194,6 +216,7 @@ impl PanelKind {
             | PanelKind::Search
             | PanelKind::Outline
             | PanelKind::Chat(_)
+            | PanelKind::Mission(_)
             | PanelKind::GitRefs
             | PanelKind::GitChanges
             | PanelKind::GitHistory
@@ -203,7 +226,10 @@ impl PanelKind {
             | PanelKind::KbExplorer
             | PanelKind::Task
             | PanelKind::AgentsExplorer => PanelClass::Edge,
-            PanelKind::Centre | PanelKind::File(_) | PanelKind::Kb(_) => PanelClass::Centre,
+            PanelKind::Centre
+            | PanelKind::File(_)
+            | PanelKind::Kb(_)
+            | PanelKind::MissionView(_) => PanelClass::Centre,
         }
     }
 
@@ -216,8 +242,13 @@ impl PanelKind {
             | PanelKind::Outline
             | PanelKind::KbExplorer
             | PanelKind::AgentsExplorer => Region::Left,
-            PanelKind::Chat(_) | PanelKind::Task | PanelKind::Help => Region::Right,
-            PanelKind::Centre | PanelKind::File(_) | PanelKind::Kb(_) => Region::Centre,
+            PanelKind::Chat(_) | PanelKind::Task | PanelKind::Mission(_) | PanelKind::Help => {
+                Region::Right
+            }
+            PanelKind::Centre
+            | PanelKind::File(_)
+            | PanelKind::Kb(_)
+            | PanelKind::MissionView(_) => Region::Centre,
             // Git panels default to left/right edges for IDE-like layout
             PanelKind::GitRefs => Region::Left,
             PanelKind::GitChanges => Region::Right,
@@ -261,6 +292,8 @@ impl PanelKind {
             PanelKind::Logs => "ubiq.logs",
             PanelKind::Explorer => "ubiq.explorer",
             PanelKind::Chat(_) => Self::CHAT,
+            PanelKind::Mission(_) => Self::MISSION,
+            PanelKind::MissionView(_) => Self::MISSION_VIEW,
             PanelKind::Centre => "ubiq.centre",
             PanelKind::File(_) => "ubiq.file",
             PanelKind::Search => "ubiq.search",
@@ -280,11 +313,13 @@ impl PanelKind {
     /// The kind a saved layout's panel name means, or nothing for a name this build cannot rebuild
     /// from a name alone.
     ///
-    /// Three kinds have no answer. A terminal is dropped on purpose — **layout persists and
+    /// Five kinds have no answer. A terminal is dropped on purpose — **layout persists and
     /// harnesses do not**, so a saved terminal panel goes and the tree normalises around the gap.
     /// A file is not dropped but is *not rebuilt from its name either*: it is rebuilt from the
     /// payload beside it, which is where its tab key travels. A chat tab is the same as the file:
     /// its id travels in the payload, because the name below is the same for every one of them.
+    /// A mission panel and a mission full view are the chat tab's case again: the anchor task
+    /// travels in the payload beside them.
     pub fn from_name(name: &str) -> Option<Self> {
         match name {
             "ubiq.logs" => Some(PanelKind::Logs),
@@ -330,6 +365,17 @@ impl PanelKind {
     pub fn kb_key(&self) -> Option<&str> {
         match self {
             PanelKind::Kb(key) => Some(key.as_str()),
+            _ => None,
+        }
+    }
+
+    /// The mission this panel is about, if it is one — the anchor task's id, for either shape.
+    ///
+    /// Both shapes answer because both write the same payload into a saved layout; which of the
+    /// two a saved leaf rebuilds as is [`Self::name`]'s answer, not this one's.
+    pub fn mission_id(&self) -> Option<TaskId> {
+        match self {
+            PanelKind::Mission(id) | PanelKind::MissionView(id) => Some(*id),
             _ => None,
         }
     }
@@ -411,6 +457,14 @@ impl PanelKind {
             // No clause at all: help is about the application, so it is drawn wherever the reader
             // opened it — including in a window with no project, which is one of the places a
             // reader most needs it.
+            // No clause either: a mission is read in every mode, the way a chat tab is, and it
+            // belongs to a project — a window pointed elsewhere has nothing to draw it from, and
+            // `ui::mission::panel` says so rather than the panel disappearing.
+            PanelKind::Mission(_) => at.has_project,
+            // The full view is a document rather than furniture, so it is drawn wherever it was
+            // opened, in any mode — the same "no clause at all" the side panel has, one region
+            // along. It wants a project for the panel's reason: the record is the project's.
+            PanelKind::MissionView(_) => at.has_project,
             PanelKind::Help => true,
         }
     }
@@ -461,6 +515,8 @@ impl PanelKind {
                 | PanelKind::Search
                 | PanelKind::Outline
                 | PanelKind::Chat(_)
+                | PanelKind::Mission(_)
+                | PanelKind::MissionView(_)
                 | PanelKind::GitRefs
                 | PanelKind::GitChanges
                 | PanelKind::GitHistory

@@ -44,6 +44,15 @@ fn doc_of(project: ProjectId, task: TaskId) -> DocumentHandle {
     }
 }
 
+/// A mission document (M8), the same way.
+fn mission_doc_of(project: ProjectId, task: TaskId, name: &str) -> DocumentHandle {
+    DocumentHandle::MissionDoc {
+        project_id: project,
+        task_id: task,
+        name: name.to_string(),
+    }
+}
+
 struct Fixture {
     state: Entity<AppState>,
     window: WindowHandle<Root>,
@@ -169,6 +178,7 @@ fn a_task(id: TaskId, level: Option<Level>) -> TaskRecord {
         level,
         parent: None,
         references: Vec::new(),
+        prerequisites: Vec::new(),
         attachments: Vec::new(),
         complexity: None,
         key: None,
@@ -239,6 +249,49 @@ fn open_plan_asks_and_loads(cx: &mut TestAppContext) {
     fixture.state.read_with(cx, |state, _| {
         let plan = state.workbench.plan.as_ref().expect("still open");
         assert!(matches!(plan.body, DocumentBody::Loaded(ref body) if body == "# The plan"));
+    });
+}
+
+/// Opening a mission document asks the host for its body and its annotations exactly the way
+/// opening a plan does — `open_mission_doc`'s whole job is naming a different `DocumentHandle`,
+/// on the wire the plan already rides (M8).
+#[gpui::test]
+fn open_mission_doc_asks_and_loads(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let task = fixture.seed_task(Some(Level::Mission), cx);
+    fixture.said(); // drain the `WorkList` fixture noise
+
+    fixture.with(cx, |state, _, cx| state.open_mission_doc(task, "notes", cx));
+
+    let said = fixture.said();
+    assert_eq!(said.len(), 2);
+    let handle = mission_doc_of(fixture.project, task, "notes");
+    assert!(
+        said.iter()
+            .any(|message| matches!(message, Message::LoadPlan { doc } if *doc == handle))
+    );
+    assert!(
+        said.iter().any(
+            |message| matches!(message, Message::ListPlanAnnotations { doc } if *doc == handle)
+        )
+    );
+    fixture.state.read_with(cx, |state, _| {
+        let doc = state.workbench.plan.as_ref().expect("the modal is open");
+        assert_eq!(doc.doc, handle);
+        assert!(doc.is_modal(), "opened on the plan dialog's own footing");
+    });
+
+    fixture.deliver(
+        Message::Plan {
+            doc: handle.clone(),
+            body: "# Notes".to_string(),
+            revision: 1,
+        },
+        cx,
+    );
+    fixture.state.read_with(cx, |state, _| {
+        let doc = state.workbench.plan.as_ref().expect("still open");
+        assert!(matches!(doc.body, DocumentBody::Loaded(ref body) if body == "# Notes"));
     });
 }
 

@@ -587,11 +587,20 @@ impl TabGroupRenderer for Skin {
         // has nowhere to live yet: the chat home region with no chat in it, Tasks' right region
         // beside the task being the case that matters, the same way the pane `+` stays on an
         // emptied pane region ([`NewPane::region`]).
+        //
+        // A group holding a mission panel counts too (§6.3): the same `+` now offers *New
+        // mission* and *Missions* below the chat rows, so a region a mission panel has settled in
+        // needs the control exactly as a chat region does, whether or not a chat is beside it.
         let hosts_chats = group.panels().iter().any(|panel| {
             panel
                 .view()
                 .downcast::<WorkbenchPanel>()
-                .is_ok_and(|panel| matches!(panel.read(cx).kind(), PanelKind::Chat(_)))
+                .is_ok_and(|panel| {
+                    matches!(
+                        panel.read(cx).kind(),
+                        PanelKind::Chat(_) | PanelKind::Mission(_)
+                    )
+                })
         });
         let new_chat = self
             .new_chat

@@ -261,10 +261,16 @@ pub enum MenuId {
     /// its own id because `TaskLabels` names the task panel's own `+`, a different question on a
     /// different surface.
     BoardLabels,
+    /// The board toolbar's mission filter (M27): which mission to narrow the board to, or every
+    /// task. A `kit::Picker` beside `BoardLabels` — single choice, not a set, because a task
+    /// belongs to at most one mission.
+    BoardMission,
     /// The task panel's parent breadcrumb: which eligible task to belong to, or none.
     TaskParent,
     /// The task panel's reference `+`: which other task to link as a reference.
     TaskReferences,
+    /// The task panel's prerequisite `+`: which other task to wait on.
+    TaskPrerequisites,
     /// One agents-screen column's `+`: which benched agent to group into it. It carries the
     /// column, because a row of columns each has one and only one may be open.
     AgentBench(usize),
@@ -294,6 +300,17 @@ pub enum MenuId {
     SinkTeamsimAlgo,
     /// A dropdown on the settings page. Which one is `SinkState::settings.menu`.
     SinkSettings,
+    /// A mission side panel's `⋯`: complete, abandon, pause all, open on board, open on Teams,
+    /// execution mode (§6.1). Which mission it was opened on is `WorkbenchState::mission_menu`.
+    Mission,
+    /// A mission side panel's *Spawn ▾* (§6.1): the coordinator, one row per agent kind, *any
+    /// agent*, and *Attach running agent…*. Which mission and which stage is
+    /// `WorkbenchState::mission_spawn_menu`.
+    MissionSpawn,
+    /// A kind picker: what a pending spawn will be launched as before it is allowed, or what one
+    /// row of the agent-kinds table resolves to. Its target is
+    /// `WorkbenchState::mission_kind_menu`.
+    MissionKind,
     /// The explorer's right-click menu. Which row (or the empty panel) is on `ExplorerState::menu`.
     Explorer,
     /// The KB explorer's right-click menu. Which row is on `KbState::menu`. Its own id rather than
@@ -325,12 +342,14 @@ pub enum MenuId {
     /// which surface asked and which of its two stages is drawn is
     /// `WorkbenchState::new_agent_menu`.
     NewAgent,
-    /// The Teams toolbar's `+ Add agent`: which of the projects this window holds the agent
-    /// starts in. Its own id rather than `NewAgent` reused, because it is a different question —
-    /// that menu asks *what* to start, this one asks *where* — and it is the step before the form
-    /// rather than a stage of it. Drawn only when the window holds more than one project: a
-    /// choice of one is not a choice, and there the button raises the form outright.
-    TeamsAddAgent,
+    /// The Teams toolbar's split button — the chevron beside its `+` (M15, §9). Its first stage
+    /// is the fixed choice *New agent* / *New mission*; either row's second stage is which of the
+    /// projects this window holds it is for, drawn only when the canvas spans more than one —
+    /// a choice of one is not a choice, and there the `+` (or the row) raises the form or dialog
+    /// outright. Its own id rather than `NewAgent` reused, because it is a different question —
+    /// that menu asks *what* to start once the kind is already agent, this one asks the kind
+    /// first. Where it opened and which stage is drawn is `WorkbenchState::teams_create_menu`.
+    TeamsCreate,
     /// The Teams toolbar's states filter: which buckets the canvas draws. A `kit::MultiPicker`
     /// rather than the pill row it replaces — the buckets are the one filter on that row where
     /// several values are on at once, and four pills were four controls saying what one summary
@@ -704,6 +723,15 @@ pub struct WorkbenchState {
     /// the only document there is; the type does not, because the surface is not. See
     /// `crate::state::document`.
     pub plan: Option<crate::state::document::DocumentEditor>,
+    /// The mission full view, while it is up **as a modal** — the anchor task it is open on
+    /// (`_docs/inbox/mission-proposal.md` §6.2). One at a time, like `plan`: `⤢` on a second
+    /// mission's side panel replaces it.
+    ///
+    /// Only the modal shape is here. The other shape is a document tab
+    /// ([`crate::state::dock::PanelKind::MissionView`]) and is the dock's, not an overlay — the
+    /// same split `plan` makes between its dialog and a markdown tab's annotation layout. What
+    /// both shapes read is the project's own `MissionView`, so moving between them loses nothing.
+    pub mission: Option<TaskId>,
     /// The New agent modal, while it is up. Beside `clone_project` because it is the same kind of
     /// thing: a question raised over the window, answered once, and carrying its own pickers'
     /// open state because a modal is redrawn from state on every frame.
@@ -727,6 +755,14 @@ pub struct WorkbenchState {
     /// One entry per conversation, taken on first use and never re-added: it is a preamble, not a
     /// standing prefix.
     pub agent_preambles: std::collections::HashMap<AgentId, String>,
+    /// The task a conversation is to be assigned to the moment it exists, by the agent it will be
+    /// (M13's spawn, and the mission panel's own *Spawn ▾*).
+    ///
+    /// Parked rather than sent beside the `StartConversation`, on [`Self::agent_preambles`]'
+    /// footing: `Message::AssignAgent` reaches for a `WorkAgent` and does nothing when there is
+    /// none, and the record is made by the host as the conversation starts — so the assignment
+    /// goes out from the `ConversationStarted` arm, where there is certainly something to assign.
+    pub agent_assignments: std::collections::HashMap<AgentId, (ProjectId, TaskId)>,
     /// The profile a conversation was started from, by the agent it produced — until the harness
     /// (or the user) names the conversation for itself.
     ///
@@ -796,11 +832,29 @@ pub struct WorkbenchState {
     /// Where the titlebar's new-project chevron was clicked, which is what anchors the menu over
     /// the window. `Some` exactly while `open_menu` is `MenuId::NewProject`.
     pub new_project_menu: Option<(f32, f32)>,
+    /// Which mission's `⋯` is down and where it was clicked. `Some` exactly while `open_menu` is
+    /// `MenuId::Mission` — the anchor task travels with the position because several mission
+    /// panels may be open at once and the rows are about one of them.
+    pub mission_menu: Option<(TaskId, (f32, f32))>,
+    /// The mission *Spawn ▾*, while it is down (§6.1). `Some` exactly while `open_menu` is
+    /// `MenuId::MissionSpawn`; the stage is which question it is on — what to spawn, or which
+    /// running agent to adopt.
+    pub mission_spawn_menu: Option<crate::state::mission::MissionSpawnMenu>,
+    /// A kind-picking menu, while it is down: a pending spawn row's kind, an agent-kinds row's
+    /// profile, or the table's `+`. `Some` exactly while `open_menu` is `MenuId::MissionKind`.
+    pub mission_kind_menu: Option<(TaskId, crate::state::mission::KindTarget, (f32, f32))>,
+    /// Which mission the feedback composers are addressed at — set when a mission surface is put
+    /// in front of the reader, because a field's own Enter handler has no way to ask which mission
+    /// the panel around it is drawing.
+    pub feedback_mission: Option<TaskId>,
     /// Where the titlebar's run chevron was clicked, which is what anchors the menu over the
     /// window. `Some` exactly while `open_menu` is `MenuId::RunTool`.
     pub run_tool_menu: Option<(f32, f32)>,
     /// The `+` menu, while it is down. `Some` exactly while `open_menu` is `MenuId::NewAgent`.
     pub new_agent_menu: Option<NewAgentMenu>,
+    /// The Teams toolbar's split button (M15, §9), while its chevron menu is down. `Some`
+    /// exactly while `open_menu` is `MenuId::TeamsCreate`.
+    pub teams_create_menu: Option<TeamsCreateMenu>,
     /// Where a conversation's three-dots menu was clicked. `Some` exactly while `open_menu` is
     /// `MenuId::ConversationLifecycle(_)` — the agent it belongs to is carried on that `MenuId`
     /// itself rather than duplicated here.
@@ -859,18 +913,54 @@ pub enum NewAgentSurface {
     Sink,
 }
 
-/// The `+` menu while it is down: where it opened, who asked, and which stage is drawn.
+/// Which stage of the `+` menu is drawn.
 ///
-/// Two stages rather than one flat list, because the two rows ask different kinds of question —
-/// *New agent* raises a form, *Attach existing agent* opens a list that can run to every
-/// conversation in the project, and a list that long under a row that is not it reads as the menu
-/// having only one real answer.
+/// Three stages rather than one flat list, because each of *Attach existing agent* and
+/// *Missions* opens a list that can run long — the first to every conversation in the project,
+/// the second to every mission — and a list that long under a row that is not it reads as the
+/// menu having only one real answer.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum NewAgentStage {
+    /// The fixed rows: *New agent*, *Attach existing agent*, and — on
+    /// [`NewAgentSurface::Chat`] only (§6.3) — *New mission* and *Missions*.
+    #[default]
+    Menu,
+    /// *Attach existing agent*'s own list, [`crate::app::AppState::attach_rows`].
+    Attach,
+    /// *Missions*'s own list — every mission not `Completed` or `Abandoned`, most recently active
+    /// first (§6.3). `NewAgentSurface::Chat` only; the agents screen and the sink never reach it.
+    Missions,
+}
+
+/// The `+` menu while it is down: where it opened, who asked, and which stage is drawn.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct NewAgentMenu {
     pub at: (f32, f32),
     pub surface: NewAgentSurface,
-    /// Whether the second stage — the list of conversations — is what is drawn.
-    pub attach: bool,
+    /// Which stage is drawn.
+    pub stage: NewAgentStage,
+}
+
+/// Which stage the Teams toolbar's split button chevron (M15, §9) is on: the fixed choice
+/// between the two things it makes, or the project question either one asks when the canvas
+/// spans more than one project.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum TeamsCreateStage {
+    /// The fixed rows: *New agent*, *New mission*.
+    #[default]
+    Kind,
+    /// *New agent*'s own project question — [`crate::app::AppState::window_projects`].
+    AgentProject,
+    /// *New mission*'s own project question, the same list.
+    MissionProject,
+}
+
+/// The Teams toolbar's split button chevron menu, while it is down: where it opened, and which
+/// stage is drawn.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct TeamsCreateMenu {
+    pub at: (f32, f32),
+    pub stage: TeamsCreateStage,
 }
 
 impl Default for WorkbenchState {
@@ -899,10 +989,12 @@ impl Default for WorkbenchState {
             ask: None,
             all_projects: None,
             plan: None,
+            mission: None,
             new_agent: None,
             new_mission: None,
             kb_source: None,
             agent_preambles: Default::default(),
+            agent_assignments: Default::default(),
             agent_started_profile: Default::default(),
             remote_connect: None,
             remote_manager: RemoteManagerState::default(),
@@ -918,8 +1010,13 @@ impl Default for WorkbenchState {
             new_pane_menu: None,
             overflow_menu: None,
             new_project_menu: None,
+            mission_menu: None,
+            mission_spawn_menu: None,
+            mission_kind_menu: None,
+            feedback_mission: None,
             run_tool_menu: None,
             new_agent_menu: None,
+            teams_create_menu: None,
             conversation_menu: None,
             attachment_preview: None,
             confirm_end_conversation: None,

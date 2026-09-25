@@ -82,6 +82,7 @@ fn task(id: TaskId, session: SessionId, title: &str, owners: &[Option<AgentId>])
         level: None,
         parent: None,
         references: Vec::new(),
+        prerequisites: Vec::new(),
         attachments: Vec::new(),
         complexity: None,
         key: None,

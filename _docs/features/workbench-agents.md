@@ -5,9 +5,9 @@ kind: feature
 status: draft
 summary: The rail's Agents mode — a row of parallel columns, each a transcript and a composer over one live conversation, tabs that group agents into a column, the bench of agents no column is showing, the sidebar that lists every conversation the window holds, the three-dots menu over a live agent, and the New agent form all three surfaces raise.
 read_when: you are changing the agents screen — its columns, its tabs, what a tab drag means, the bench, the sidebar, a column's composer or footer, or the New agent form
-updated: 2026-09-24
-verified: 2026-09-24
-code_anchors: [crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/app/new_agent.rs, crates/ubiq/src/ui/new_agent.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/state/status.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/tests/agents.rs]
+updated: 2026-09-25
+verified: 2026-09-25
+code_anchors: [crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/app/new_agent.rs, crates/ubiq/src/ui/new_agent.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/state/status.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/tests/agents.rs, crates/ubiq/src/app/mission.rs]
 depends_on: [feat-workbench, tech-ui, feat-chat]
 review_cycle: monthly
 ---
@@ -75,6 +75,16 @@ behind every attach list in the window, and it disables the conversations the *o
 that surface are showing — never dropping them, because a row that vanishes reads as a
 conversation that ended rather than one already open. The two surfaces may show the same
 conversation at once, and the host is never told.
+
+**On the chat surface, the same `+` gains a third part: *New mission* and a searchable *Missions*
+list (§6.3).** A separator, then *New mission* (`AppState::open_new_mission`, the toolbar's own
+dialog) and *Missions*, disabled when the project has none open — every mission not `Completed` or
+`Abandoned`, most recently active first, searched by key and title (`AppState::open_missions`).
+Neither row is offered on the agents screen's own control or the kitchen sink's bench, since neither
+starts or opens a mission. Picking a row reveals that mission's side panel
+(`AppState::open_mission_panel`, [the tasks board's own mission panel](./workbench-tasks.md)), the
+same `PanelEdit::Reveal` device *Attach existing agent* uses to bring a panel the dock already holds
+forward rather than opening it twice.
 
 **The New agent form asks every question a start answers** — `D92` is why it is one form and why a
 profile is the same form saved. It is a modal, `state::new_agent::NewAgentForm`,
@@ -437,6 +447,21 @@ agent in a column comes to the front of it, and a benched one opens a column of 
 the focused column when the row is already full. The row folds its session, and the header's one
 control folds every session or opens every one.
 
+**A Missions section sits above the sessions (M14).** One row per mission not `Completed` or
+`Abandoned`, most recently active first — closed ones sort last and draw only once the header's
+own *show closed* toggle is on, which itself is offered only where there is a closed mission to
+show. A row carries the same hexagon every other mission surface draws, a phase chip, the key and
+title, a *needs you* dot while anything is pending, and the roster's size; the chevron alone
+expands it to the roster, and the rest of the row opens the mission panel — a session row's own
+split between folding and opening, applied a second time. The header carries `New agent` beside
+`New mission`, so the first mission in an empty project is made from here without a trip to the
+board. **An agent inside a mission keeps its session group and carries a chip there instead of
+being moved out** — the same conversation is never listed as two different things — the chip
+naming the mission (its key, or its title) in the phase's own colour, read once from every
+mission's active roster rather than searched per row. The roster a mission's own row expands to is
+narrowed through `AgentsView::live_agents` on this screen's usual rule, so a mission member with no
+live conversation here is silent rather than drawn wrong.
+
 ## Contract
 
 **A live conversation is a family of its own, and every message in it names an agent.** Going out:
@@ -585,6 +610,15 @@ out of a task now that the board's panel no longer offers the graph.
 — and `column.rs` is one column, from its tab strip to its composer. `sidebar.rs` is the list, and it
 is no longer inside that frame: it is `PanelKind::AgentsExplorer`, the window's own left-region
 panel, drawn in Agents mode with a project and arranged, resized and put away like every other one.
+
+`sidebar.rs`'s `missions_section` (M14) reads `OpenProject::missions` straight, no view of its own
+beyond `AgentsView::mission_expanded`/`is_mission_expanded` (which rows are unfolded) and
+`show_closed_missions`, both toggled from the header; `mission_row` and `mission_roster` draw one
+row and its expansion, and `roster_of` narrows a `MissionRecord::roster` to the agents this window
+holds live, `left_at` excluded, the same shape `AgentsView::live_agents` gives every other reader.
+`mission_chips` is the one function behind a session member's chip: a `HashMap<AgentId, (String,
+Rgba)>` built once per render from every open mission's roster, read by `agent_row` rather than
+searched per agent.
 
 ## Failure
 

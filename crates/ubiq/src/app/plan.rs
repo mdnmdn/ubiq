@@ -22,7 +22,7 @@ use crate::state::document::{
     SectionEdit, annotation_range, block_ranges, change_ranges, heading_sections,
     parse_section_blocks, splice_section, thread_marks,
 };
-use crate::state::plan::{file_document, plan_document};
+use crate::state::plan::{file_document, mission_doc_document, plan_document};
 use crate::state::workbench::FileDialog;
 use ubiq_proto::ids::{AnnotationId, BlockId, TaskId};
 use ubiq_proto::plan::{PlanChangeStats, PlanChangedRegion, PlanRevision, SaveOrigin};
@@ -111,6 +111,20 @@ impl AppState {
             return;
         };
         self.open_document(plan_document(project_id, task_id), Presentation::Modal, cx);
+    }
+
+    /// Open one of a mission's own documents (M8), on the plan dialog's own footing — the *Plan &
+    /// docs* tab's "Open" beside a document row is this function's one caller, the way the plan's
+    /// own "Open" is [`Self::open_plan`]'s.
+    pub fn open_mission_doc(&mut self, task_id: TaskId, name: &str, cx: &mut Context<Self>) {
+        let Some(project_id) = self.project(cx) else {
+            return;
+        };
+        self.open_document(
+            mission_doc_document(project_id, task_id, name),
+            Presentation::Modal,
+            cx,
+        );
     }
 
     /// Open a project markdown file as an annotated document, for a tab put into

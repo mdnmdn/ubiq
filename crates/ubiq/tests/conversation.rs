@@ -25,7 +25,7 @@ use ubiq::state::agents::{COMPOSER_ROWS_MAX, COMPOSER_ROWS_MIN};
 use ubiq::state::conversation::{
     ActivityPanel, Conversation, Pending, Run, TranscriptScroll, short_model_label,
 };
-use ubiq::state::{NewAgentSurface, WindowRegistry};
+use ubiq::state::{NewAgentStage, NewAgentSurface, WindowRegistry};
 use ubiq::ui::conversation::{self, ConversationView};
 use ubiq_proto::acp::{
     AcpCapabilitiesRecord, AcpCapabilityGroupRecord, AcpCapabilityRecord, AcpImplementationRecord,
@@ -523,7 +523,7 @@ fn the_plus_menu_offers_the_form_and_the_attach_list(cx: &mut TestAppContext) {
         fixture
             .state
             .read_with(cx, |state, _| state.workbench.new_agent_menu)
-            .is_some_and(|menu| menu.attach),
+            .is_some_and(|menu| menu.stage == NewAgentStage::Attach),
         "the second row opens the attach stage of the same menu"
     );
     assert!(

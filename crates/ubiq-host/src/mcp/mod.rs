@@ -25,6 +25,10 @@
 //! - `tools`: what the built-in tools actually do
 //! - `tasks`: the `manage-ubiq-tasks` server, talking to [`crate::work::Work`] through a shared
 //!   handle
+//! - `mission`: the `ubiq-mission` / `use-mission` pair, reaching a mission's record, journal and
+//!   documents through [`crate::mission::Missions`] on the same shape — the `manage` / `use` split
+//!   the task servers already have, and the mission is resolved from who is calling rather than
+//!   from an argument
 //! - `plan`: the `ubiq-plan` server, reading and writing a task's plan through
 //!   [`crate::plan::Plans`] on the same shape — its own server rather than more tools on
 //!   `manage-ubiq-tasks`, so that one keeps a name that still describes it
@@ -46,6 +50,7 @@ mod ask;
 pub mod catalogue;
 mod help;
 mod kb;
+mod mission;
 mod plan;
 pub mod registry;
 pub mod server;
@@ -69,6 +74,16 @@ pub use server::{Serving, start};
 pub struct WorkAccess {
     pub work: work::Handle,
     pub everyone: Mailbox,
+    /// How a board change reaches the host's own run loop.
+    ///
+    /// **The mission scheduler is why this is here.** It runs on the coordinator's thread with no
+    /// timer, and `use-task::change_state` — a worker saying it has finished — happens on this
+    /// listener's thread instead. The tool says
+    /// [`ubiq_proto::messages::Message::MissionSchedule`] into the host's own inbox and the run
+    /// loop does the deciding, exactly as `ubiq-ask` says
+    /// [`ubiq_proto::messages::Message::AskUser`] (`D138`). It names the task, not the mission:
+    /// nothing here has to know whether the task is in one.
+    pub wake: ubiq_proto::bus::Voice,
 }
 
 /// How the `ubiq-plan` tools reach a task's plan, and how they tell every window what changed.
@@ -82,6 +97,20 @@ pub struct WorkAccess {
 /// `_docs/wip/planning-system.md` — `PlanReach` holds the plan store, not the work handle.
 pub struct PlanReach {
     pub plans: crate::plan::Handle,
+    pub everyone: Mailbox,
+}
+
+/// How the mission tools reach the mission the caller is in, and how they tell every window what
+/// they changed.
+///
+/// **Just the missions**, on [`PlanReach`]'s own footing and for its reason: the anchor-task check
+/// every mission operation needs lives inside [`crate::mission::Missions`], which holds its own
+/// [`work::Handle`] for exactly that. The three tools that reach past the mission —
+/// `create_mission_task`, `list_agents` and `message_agent` for the board, `write_document` and
+/// `read_document` for the plan store — are handed the [`WorkAccess`] and [`PlanReach`] the
+/// listener already carries rather than a second copy of either kept here.
+pub struct MissionReach {
+    pub missions: crate::mission::Handle,
     pub everyone: Mailbox,
 }
 

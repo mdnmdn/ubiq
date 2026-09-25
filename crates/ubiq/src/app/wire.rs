@@ -1585,6 +1585,105 @@ impl AppState {
                 cx.notify();
             }
 
+            // ── Mission family ─────────────────────────────────────────
+            // One project's missions, whole — the answer to the `ListMissions` sent when the
+            // project was taken. Replaced rather than merged: the reply is the whole of it, and a
+            // record the host no longer holds must not survive in the map.
+            Message::MissionList {
+                project_id,
+                missions,
+            } => {
+                let open = self.projects.get_mut(&project_id)?;
+                open.missions = missions
+                    .into_iter()
+                    .map(|mission| (mission.task_id, mission))
+                    .collect();
+                cx.notify();
+            }
+
+            // A broadcast: every window gets it and filters by project itself, `To::Everyone`'s
+            // existing cost (`D120`). A window not holding the project drops it here. Keyed on the
+            // anchor task, so the same record twice is the same map.
+            Message::MissionChanged {
+                project_id,
+                mission,
+            } => {
+                let open = self.projects.get_mut(&project_id)?;
+                open.missions.insert(mission.task_id, *mission);
+                cx.notify();
+            }
+
+            // An agent in the mission has asked for another agent (M13). **The host relays; the
+            // window launches** — so this is where the mission's spawn policy is applied, and the
+            // whole of the decision is `AppState::mission_spawn_requested`. Broadcast, like
+            // `MissionChanged`, so a window not holding the project drops it here.
+            Message::MissionSpawnRequest {
+                project_id,
+                task_id,
+                request,
+            } => {
+                if !self.projects.contains_key(&project_id) {
+                    return None;
+                }
+                self.mission_spawn_requested(project_id, task_id, *request, cx);
+            }
+
+            // One page of a mission's journal, newest first, sent only to whoever asked.
+            Message::Journal {
+                project_id,
+                task_id,
+                entries,
+                more,
+            } => {
+                let open = self.projects.get_mut(&project_id)?;
+                open.mission_journals
+                    .entry(task_id)
+                    .or_default()
+                    .page(entries, more);
+                cx.notify();
+            }
+
+            // One line, just written. Broadcast: a window holding the newest page appends it, and
+            // one that has never asked for a page has no list to append to and ignores it.
+            Message::JournalAppended {
+                project_id,
+                task_id,
+                entry,
+            } => {
+                let open = self.projects.get_mut(&project_id)?;
+                if let Some(journal) = open.mission_journals.get_mut(&task_id) {
+                    journal.appended(entry);
+                }
+                cx.notify();
+            }
+
+            Message::MissionDeleted {
+                project_id,
+                task_id,
+            } => {
+                let open = self.projects.get_mut(&project_id)?;
+                open.missions.remove(&task_id);
+                open.mission_journals.remove(&task_id);
+                // A view pointed at a task that is no longer a mission points at nothing.
+                if open.mission_view.selected == Some(task_id) {
+                    open.mission_view.selected = None;
+                }
+                cx.notify();
+            }
+
+            // Sent only to whoever asked. The mission surfaces have no banner of their own yet —
+            // wave 2 draws the panel and nothing that writes — so this is logged and shown on the
+            // one line the work family already reports refusals through.
+            Message::MissionError {
+                project_id,
+                task_id,
+                error,
+            } => {
+                tracing::error!("mission {project_id} {task_id:?}: {error}");
+                self.workbench.work_error = Some(error);
+                cx.notify();
+            }
+
             // ── Plan family ────────────────────────────────────────────
             // Answers to `LoadPlan`/`SavePlan`, sent only to whoever asked — the plan modal is
             // the one place in the tree that holds one, so the reply either lands there or is
@@ -1865,6 +1964,16 @@ impl AppState {
                             open.agents.reveal(id);
                         }
                     }
+                }
+                // A launch composed for a mission owes one assignment, parked until there is a
+                // `WorkAgent` to assign — see `WorkbenchState::agent_assignments`. Spent here,
+                // once: an agent reassigned later is the user's own move.
+                if let Some((project, task)) = self.workbench.agent_assignments.remove(&id) {
+                    self.bus.send(Message::AssignAgent {
+                        project_id: project,
+                        agent_id: id,
+                        task_id: Some(task),
+                    });
                 }
                 self.settle_window_layout(false, cx);
                 self.refill_columns = true;

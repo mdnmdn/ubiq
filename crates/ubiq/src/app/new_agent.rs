@@ -525,6 +525,9 @@ impl AppState {
             thinking: Some(form.thinking.clone().unwrap_or_default()),
             mode: Some(form.mode.clone().unwrap_or_default()),
             mcps: form.mcps.clone(),
+            // The user started this one, so nobody asked for it. `spawned_by` is only ever set
+            // where a window answers a `MissionSpawnRequest`.
+            spawned_by: None,
         });
         // **No turn goes out here.** The ceiling and the opening prompt are held, and the
         // composer's send path folds them into the first thing the user actually says — a
@@ -739,34 +742,106 @@ impl AppState {
         input.update(cx, |state, cx| state.set_value(text, window, cx));
     }
 
-    /// The Teams toolbar's `+ Add agent`, pressed.
+    /// The Teams toolbar's split button `+` (M15, §9), pressed: New agent.
     ///
     /// Two shapes, because the question only exists when there is more than one answer: a canvas
-    /// spanning several projects is asked which one first, and anything else — the project span,
-    /// or a window holding one project — goes straight to the form. A picker offering a single
-    /// row is a step that reads as a decision and is not one.
-    pub fn open_teams_add_agent(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// spanning several projects is asked which one first, through the split button's own menu at
+    /// its [`TeamsCreateStage::AgentProject`] stage — `at` is where the `+` was clicked, so the
+    /// list hangs off it exactly as the chevron's does. Anything else — the project span, or a
+    /// window holding one project — goes straight to the form.
+    pub fn open_teams_add_agent(
+        &mut self,
+        at: (f32, f32),
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.teams_project_choice(cx) {
-            self.open_menu(MenuId::TeamsAddAgent, cx);
+            self.open_teams_create_stage(at, TeamsCreateStage::AgentProject, cx);
             return;
         }
         self.start_teams_agent(None, window, cx);
     }
 
-    /// One row of that menu, clicked — an index into [`Self::window_projects`], read again here
-    /// exactly as it was drawn, the rule every position-matched menu in this window follows.
-    pub fn pick_teams_add_agent(
+    /// The split button's chevron (M15, §9), pressed: the fixed choice between the two things it
+    /// makes — *New agent* and *New mission*.
+    pub fn open_teams_create_menu(&mut self, at: (f32, f32), cx: &mut Context<Self>) {
+        self.open_teams_create_stage(at, TeamsCreateStage::Kind, cx);
+    }
+
+    /// Raise the split button's menu at a given stage, replacing whatever menu was open — the
+    /// same manual close-then-set `open_new_agent_menu` uses, because `open_menu` does not know
+    /// about the extra state a multi-stage menu carries.
+    fn open_teams_create_stage(
+        &mut self,
+        at: (f32, f32),
+        stage: TeamsCreateStage,
+        cx: &mut Context<Self>,
+    ) {
+        if self.workbench.open_menu.is_some() {
+            self.close_menu(cx);
+        }
+        self.workbench.open_menu = Some(MenuId::TeamsCreate);
+        self.workbench.teams_create_menu = Some(TeamsCreateMenu { at, stage });
+        cx.notify();
+    }
+
+    /// One row of the split button's menu, clicked — matched by position and by
+    /// [`TeamsCreateMenu::stage`], the same rule every position-matched menu in this window
+    /// follows.
+    pub fn pick_teams_create_menu(
         &mut self,
         index: usize,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let picked = self.window_projects(cx).get(index).copied();
-        self.close_menu(cx);
-        let Some(project) = picked else {
+        let Some(menu) = self.workbench.teams_create_menu else {
             return;
         };
-        self.start_teams_agent(Some(project), window, cx);
+        match menu.stage {
+            // *New agent* / *New mission* (§9's last bullet, M15). Each asks the same project
+            // question the other does, at the project stage below, when the canvas spans more
+            // than one.
+            TeamsCreateStage::Kind => match index {
+                0 => {
+                    self.close_menu(cx);
+                    self.open_teams_add_agent(menu.at, window, cx);
+                }
+                1 => {
+                    if self.teams_project_choice(cx) {
+                        self.workbench.teams_create_menu = Some(TeamsCreateMenu {
+                            at: menu.at,
+                            stage: TeamsCreateStage::MissionProject,
+                        });
+                        cx.notify();
+                    } else {
+                        self.close_menu(cx);
+                        self.open_new_mission(window, cx);
+                    }
+                }
+                _ => {}
+            },
+            TeamsCreateStage::AgentProject => {
+                let picked = self.window_projects(cx).get(index).copied();
+                self.close_menu(cx);
+                let Some(project) = picked else {
+                    return;
+                };
+                self.start_teams_agent(Some(project), window, cx);
+            }
+            // *New mission* raises the dialog for the project picked — which means pointing the
+            // window at it first (`AppState::activate_project`): the dialog and the board flow
+            // behind it both read "the project on screen" rather than naming one of their own, the
+            // same way every other project-scoped dialog in this window does.
+            TeamsCreateStage::MissionProject => {
+                let picked = self.window_projects(cx).get(index).copied();
+                self.close_menu(cx);
+                let Some(project) = picked else {
+                    return;
+                };
+                self.activate_project(project, cx);
+                self.open_new_mission(window, cx);
+            }
+        }
     }
 
     /// Aim a start at the Teams canvas, in the project named — or in the active one, for a window

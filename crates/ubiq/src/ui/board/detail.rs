@@ -17,7 +17,7 @@ use gpui::{
 };
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
-use ubiq_proto::work::{CommentAuthor, StepState, TaskRecord};
+use ubiq_proto::work::{CommentAuthor, Level, StepState, TaskRecord};
 
 use crate::app::AppState;
 use crate::state::board::Field;
@@ -289,6 +289,10 @@ fn body(
                     "Level",
                     form::level_pill(task, &app.mission_term(cx), cx),
                 ))
+                // The task panel keeps working for a mission's anchor task and gains exactly one
+                // row: the way into the mission's own surface (`mission-proposal.md` §6.1). Drawn
+                // only on a task that *is* a mission, because on any other it opens nothing.
+                .children(open_mission(app, task, cx))
                 .child(fact("Parent", form::parent(app, task, cx)))
                 .child(fact("Kind", form::kind_pills(task, cx)))
                 .child(fact("Complexity", form::complexity_pills(task, cx)))
@@ -298,6 +302,11 @@ fn body(
                 ))
                 .child(fact("Labels", form::labels(app, task, cx)))
                 .child(fact("References", form::references(app, task, window, cx)))
+                .child(fact(
+                    "Prerequisites",
+                    form::prerequisites(app, task, window, cx),
+                ))
+                .child(fact("Blocks", form::blocks(app, task, cx)))
                 .child(fact("Attachments", form::attachments(app, task, cx)))
                 .child(fact("Colour", form::colour(task, cx)))
                 .child(fact("Now", now)),
@@ -422,6 +431,51 @@ fn body(
 }
 
 /// One labelled fact, in the two columns the panel reads in.
+/// The one row a mission's anchor task gains: *Open mission*, which reveals that mission's side
+/// panel in its home region. Named with the project's own word for one (M18).
+fn open_mission(
+    app: &AppState,
+    task: &TaskRecord,
+    cx: &mut Context<AppState>,
+) -> Option<AnyElement> {
+    if task.level != Some(Level::Mission) {
+        return None;
+    }
+    let term = app.mission_term(cx);
+    let id = task.id;
+    Some(
+        fact(
+            &term.clone(),
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(
+                    ghost_button(
+                        "board-open-mission",
+                        Some(IconName::PanelRight),
+                        format!("Open {}", term.to_lowercase()),
+                        cx.listener(move |this, _, _, cx| this.open_mission_panel(id, cx)),
+                    )
+                    .into_any_element(),
+                )
+                // The board toolbar's mission filter (M27), reached straight off the mission's
+                // own card rather than found again in the picker.
+                .child(
+                    ghost_button(
+                        "board-show-only-mission",
+                        None,
+                        "Show only this mission",
+                        cx.listener(move |this, _, _, cx| this.pick_board_mission(Some(id), cx)),
+                    )
+                    .into_any_element(),
+                )
+                .into_any_element(),
+        )
+        .into_any_element(),
+    )
+}
+
 fn fact(label: &str, value: AnyElement) -> impl IntoElement {
     div()
         .flex()

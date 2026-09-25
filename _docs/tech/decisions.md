@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-09-24
-verified: 2026-09-24
+updated: 2026-09-25
+verified: 2026-09-25
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -3695,6 +3695,171 @@ break in a crate that had almost none. Both halves carried it before this, so th
 compile time and `ubiq-host` dropped its own direct copy of the dependency; but the rule is a
 door, and a second `just`-checked boundary (nothing here draws, nothing here touches disk) is what
 keeps it narrow.
+
+### D164 — Task readiness is derived from prerequisites, never stored and distinct from `Blocked`
+
+A prerequisite (`TaskRecord.prerequisites`) is typed and directed, unlike `references`, so it is the
+one relation on a task that says something can be computed from it: is the task ready, and if not,
+what is it waiting on. The alternative was a stored flag or status kept in step with the
+prerequisite list by the host on every write. It was rejected because a stored copy is a second
+fact that can disagree with the list it is supposed to summarise — a race between two writes, a
+hand-edited `tasks.toml`, or a bug in the write path would all leave a `ready` flag that lies. A
+value computed fresh from the project's own loaded list, on both sides of the bus, cannot drift from
+what it describes.
+
+**Readiness is not `Status::Blocked`.** `Blocked` stays what a person or an agent says about a card;
+readiness is what the prerequisite graph says. Folding the two together would make a card's
+prerequisites and its status fight over the same word, and lose the case — common in practice — of
+a card blocked on something no prerequisite names, or one whose prerequisites are all done and is
+still marked blocked for an unrelated reason.
+
+**Cost:** every reader that wants to know whether a task is ready recomputes it over the whole task
+list rather than reading one field — `TaskRecord::ready`/`::waiting_on` are `O(prerequisites)` each,
+and a caller in a hot path (the board's own filter, the MCP `ready_only` search) pays that on every
+task, every time, rather than once on write.
+
+### D165 — A mission is its anchor task, keyed by that task's own `TaskId`, with no second id space
+
+A mission needed an identity, a phase, a roster and its own settings, and the obvious shape was a
+new record type with its own id, referencing the task it grew from. That was rejected: a
+`MissionId` distinct from the anchor's `TaskId` would mean every existing message, MCP tool and
+board affordance that knows how to find, filter and mutate a task would need a second,
+parallel path for a mission, and a mission could in principle exist pointing at a task that had been
+deleted, or a task could point at two missions. Keying the mission record by the anchor's own
+`TaskId` — the same pattern the plan sidecar uses — makes a mission a sidecar on a task
+rather than a second entity next to it: a mission cannot outlive its card, `ListMissions` can answer
+a complete list for a board that predates missions by inferring a record's phase from the anchor the
+first time anything touches it, and the wire family (`ListMissions`, `CreateMission`,
+`SetMissionField`, …) names `(project_id, task_id)` directly rather than a handle needing its own
+resolution.
+
+**Cost:** a mission has no identity independent of its task — renaming or ever wanting to detach a
+mission's history from a specific task record is not a case the model supports without inventing the
+second id space this decision avoided.
+
+### D166 — The mission full view is one view state, drawn in two frames, not two views kept in sync
+
+The full view opens as a `Layer::Mission` modal outside IDE mode and as a `PanelKind::MissionView`
+document tab inside it, and both have to agree on which tab is on screen, the WBS zoom and
+selection, and the work-state filter — a reader who switches shape mid-task should never lose their
+place. The alternative was two view states, one per shape, with the switch (*Open as tab*, or `⤢` in
+either mode) copying whichever fields made sense across. That was rejected: a copy is a second fact
+that can disagree with the one it was taken from the moment either shape changes after the switch,
+and enumerating which fields to carry across is exactly the kind of list that quietly stops being
+kept in sync as tabs are added — `WBS` and `Settings` among them, still ahead. Instead
+`state::mission::MissionView` is the one state, held on the project the way `BoardState` is, and
+`ui::mission::full::modal`/`tab` are two frame functions over one shared `body()` that reads it —
+the plan surface's own split between its dialog and a markdown tab's annotation layout, applied a
+second time.
+
+**Cost:** the two frames must stay behaviourally interchangeable — a tab added to `full::TABS` or a
+control added to `body()` reaches both shapes for free, but a change that only one frame's chrome
+needs (the modal's title bar, the tab's header row) has to be checked against the other not
+regressing when it is not. And the shape is not the reader's choice at the point they open it: `⤢`
+answers with the tab in IDE mode and the modal everywhere else, decided by `Workbench::is_ide()`
+rather than offered as a question.
+
+### D167 — A phase request is attributed by the host, off the mission's own coordinator, never by a requester the wire carries
+
+`RequestPhase` names no requester: `Missions::request_phase` reads `MissionRecord::coordinator` and
+stamps `Actor::Agent(id)`, or `Actor::Host` when no coordinator is attached yet. The alternative —
+an `Actor` field on the message, the way `PendingPhase::by` and `PhaseEntry::by` both carry one —
+was rejected: an MCP tool call runs as whichever agent the URL segment identifies
+(`crate::mcp::registry::AgentFacts`), but nothing stops a caller from typing a different id into a
+field, and a phase history is a record of who asked, not of who claimed to. Reading the identity off
+the mission's own state instead of the request makes the claim impossible to forge rather than
+merely implausible.
+
+**Cost:** an agent cannot ask on another's behalf, even a legitimate one — `ubiq-mission`'s
+`request_phase` always speaks as the coordinator it is, and a worker with something to say routes it
+through `message_agent` or `report_progress` instead of a phase request of its own.
+
+### D168 — `SetPhase` is one message carrying three acts, told apart by the phase it names
+
+A step on the stepper, the `⋯` menu's Complete and Abandon, and both answers in *Needs you* all send
+`SetPhase { phase }`, and `Missions::set_phase` reads which of three things happened from the
+relationship between that phase and the record: the pending request's own phase is a confirmation,
+the phase the mission holds when the message arrives is a decline, and anything else is the user
+moving the mission
+wherever they choose. The alternative was three messages — `ConfirmPhase`, `DeclinePhase` and a
+plain `SetPhase` for the free move — which was rejected: a window would have to track whether a
+pending request exists and pick the right one, duplicating a decision the host has to make anyway
+to validate the move at all, and the plan gate would need to guard two message arms instead of one.
+One message keeps the window's send path to a single `AppState::set_mission_phase` and puts the
+whole rule in one place.
+
+**Cost:** the host cannot tell "the user confirmed" from "the user happened to move it to the same
+phase that was pending" — they are the same message and the same act, which is also why the rule is
+sound: a mission with nothing pending has no phase a free move could collide with a confirmation.
+
+### D169 — The mission journal is a real append-only log, and its documents are named on the record rather than through a listing message
+
+Two choices made together, both against inventing a moving part S3 does not need. `journal.jsonl` is
+written with `OpenOptions::append(true)` and one line per write
+(`crates/ubiq-host/src/store/mission.rs::append_journal`), never through
+`crate::atomic::write_atomic`, the rewrite-and-rename helper every other store file in Ubiq uses: a
+journal is exactly the file that helper is wrong for, because a crash between the rewrite and the
+rename would lose every line the file held, not just the one being added, which is the opposite of
+what an append-only log is for. `MissionRecord::documents` is the second half: the host reads
+`docs/`'s file names on every `MissionChanged` it sends rather than answering a `ListMissionDocuments`
+a window would have to ask for separately — the directory is the one truth `write_document`
+writes to, so reading it costs nothing a new message would only duplicate.
+
+**Cost:** `append_journal` pays an `O_APPEND` open on every single line rather than batching, and a
+mission with many documents pays a directory read on every broadcast rather than an incremental
+diff — both accepted because a mission's journal and document count are small numbers, not a log
+volume this design was built to scale past.
+
+### D170 — The host relays a spawn request; the window applies the policy and mints the agent
+
+`spawn_agent` on `ubiq-mission` posts `Message::MissionSpawnRequest` and returns at once — the host
+never launches anything itself. The alternative was letting the host read `SpawnPolicy` and start
+the harness directly, the way a phase move's gate lives on the host: rejected, because the
+one-minter rule for an `AgentId` (`StartConversation`'s own precedent) would otherwise be broken
+twice over — the host would need to mint an id no window chose, and it would need the window's own
+profile resolution (which harnesses exist, which account is signed in, which project-scoped
+profile shadows a global one, `D158`) duplicated on a side that has none of it. Keeping the decision
+in the window also means the policy lives beside the composition it launches with — the New agent
+form's own `compose_mission_launch` — so `ask`, `auto` and `never` are three branches over one
+function rather than a second implementation the host would have to keep in step with.
+
+**Cost:** the project has to be open in a window for its agents to spawn at all, true of every other
+launch too; and because the bus has no per-project address (`D120`), a request broadcasts to every
+window holding the project, so two windows can each apply the policy and both launch for one
+request (`G348`) — the same address gap `D120`'s own cost, paid a second time.
+
+### D171 — The mission scheduler is a pure function on the coordinator's own loop, not a thread of its own
+
+`mission::scheduler::plan()` takes the record, the tasks, the agents and a clock and returns a list
+of decisions; nothing about it touches the store, the bus or a clock of its own. The alternative — a
+timer thread ticking auto-mode missions on an interval — was rejected: a scheduler that runs on a
+mission's own events (a task changed, `AnswerSpawn`, the mode flipped) never overlaps the
+coordinator's own writes to the same records, where a second thread would need its own locking
+discipline against every store `Missions` touches, and a fixed tick either wastes a wake
+on a mission with nothing to do or adds the latency a busy one cannot afford. Reusing the loop means
+`plan` is testable as a table of inputs and an expected `Vec<Decision>`, with no bus, no store and no
+clock to fake.
+
+**Cost:** the scheduler only runs when something wakes it, so a task released by a purely
+time-based rule (there is none today) would need its own event rather than a tick it could rely on;
+the idle-grace check inherits this — a stalled agent is only noticed at the *next* wake, which may
+be later than five minutes after the grace actually expired if nothing else about the mission
+changes meanwhile.
+
+### D172 — A coordinator handoff briefs by pointer, never by copy
+
+The incoming coordinator is told to call `read_brief`, `read_plan`, `list_documents` and
+`mission_overview` rather than being handed their contents in the handoff message itself. The
+alternative — pasting the brief, the plan body and the latest journal lines into the one sentence
+that announces the handover — was rejected: a pasted copy is a second fact that starts disagreeing
+with its source the moment either is edited afterwards, and a handoff is exactly the moment nothing
+about the mission is guaranteed to hold still. Every one of the four is a tool call on
+`ubiq-mission` regardless, so pointing at them costs the new coordinator one extra turn and
+guarantees it reads what is actually current.
+
+**Cost:** the incoming coordinator's first turn is spent reading rather than acting, where a pasted
+briefing would have let it start immediately — accepted because a mission large enough to need a
+handoff is exactly the one where starting from a stale copy costs more.
 
 ## Related docs
 

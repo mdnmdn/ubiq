@@ -1,5 +1,5 @@
-//! The list down the side of the agents screen: every session, every agent in it, and what each
-//! one is doing.
+//! The list down the side of the agents screen: every mission, every session, every agent in it,
+//! and what each one is doing.
 //!
 //! It lists **every conversation this window holds**, not what is on screen. That is the point of
 //! it: a column is one conversation and there are only ever a few of them, so the list is the one
@@ -7,30 +7,50 @@
 //! marked, rather than gone. What it does not list is an agent this window cannot talk to, which
 //! is what `AgentsView::live_agents` answers for every reader on this screen.
 //!
+//! **The Missions section sits above the sessions (M14)**, one row per mission not `Completed` or
+//! `Abandoned`, and folds to a roster rather than to nothing — a mission is what the user came for,
+//! a session is what carries it. **The session groups below stay exactly as they are.** An agent
+//! inside a mission carries a small chip there rather than being lifted out: one conversation is
+//! never listed as two different things, and that rule is the whole point of the section above it.
+//!
 //! One click reveals: an agent already in a column comes to the front of it, and a benched one
-//! opens a column of its own. A session's row folds it away.
+//! opens a column of its own. A session's row folds it away; a mission's own chevron folds it to
+//! its roster, and clicking the rest of its row opens the mission panel instead.
+
+use std::collections::HashMap;
 
 use gpui::{
-    AnyElement, Context, InteractiveElement, IntoElement, ParentElement,
+    AnyElement, Context, InteractiveElement, IntoElement, ParentElement, Rgba,
     StatefulInteractiveElement, Styled, div, px,
 };
 use gpui_component::scroll::Scrollbar;
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
-use ubiq_proto::work::{Bucket, WorkAgent, WorkSession};
+use ubiq_proto::mission::{MissionRecord, Phase};
+use ubiq_proto::work::{AgentId, WorkAgent, WorkSession};
 
 use crate::app::AppState;
+use crate::state::agents::AgentsView;
 use crate::state::work::WorkProjection;
 use crate::theme;
 use crate::ui::eid;
 use crate::ui::kit::{
-    badge, elided, elided_with, mono, panel, panel_header, section_label, status_dot,
+    badge, elided, elided_with, icon_button, mono, panel, panel_header, section_label, state_chip,
+    status_dot,
 };
+use crate::ui::mission::panel::{mission_hex, phase_colour};
 use crate::ui::work::activity_colour;
 
 pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
-    let mut groups: Vec<AnyElement> = Vec::new();
+    let mut rows: Vec<AnyElement> = Vec::new();
     if let (Some(work), Some(agents)) = (app.work(cx), app.agents(cx)) {
+        rows.extend(missions_section(app, work, agents, cx));
+
+        // Which mission each agent belongs to, by its own active roster — built once here rather
+        // than searched per row, since every agent row asks. A chip rather than a second listing:
+        // the agent stays right where its session already puts it.
+        let chips = mission_chips(app, work, cx);
+
         for session in &work.sessions {
             let members: Vec<&WorkAgent> = agents
                 .live_agents(work)
@@ -56,13 +76,18 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
                 .child(session_row(session, members.len(), shut, cx));
 
             if !shut {
-                group = group.child(note_row(work, session)).children(
-                    members
-                        .into_iter()
-                        .map(|agent| agent_row(agent, !agents.on_screen(agent.id), cx)),
-                );
+                group = group
+                    .child(note_row(work, session))
+                    .children(members.into_iter().map(|agent| {
+                        agent_row(
+                            agent,
+                            !agents.on_screen(agent.id),
+                            chips.get(&agent.id).cloned(),
+                            cx,
+                        )
+                    }));
             }
-            groups.push(group.into_any_element());
+            rows.push(group.into_any_element());
         }
     }
 
@@ -84,7 +109,7 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
                         .flex_col()
                         .overflow_y_scroll()
                         .track_scroll(&app.agents_scroll)
-                        .children(if groups.is_empty() {
+                        .children(if rows.is_empty() {
                             vec![
                                 div()
                                     .p_3()
@@ -92,7 +117,7 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
                                     .into_any_element(),
                             ]
                         } else {
-                            groups
+                            rows
                         }),
                 )
                 .child(
@@ -104,10 +129,9 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         )
 }
 
-/// The one control in the header: fold every session, or open every one.
-///
-/// It reads as a switch rather than two buttons because the answer is one bit — with any session
-/// open it folds them all, and with all of them folded it opens them.
+/// The one control in the header: fold every session, or open every one. The Missions section
+/// folds separately, row by row — it is a short list read at a glance, not a wall of sessions this
+/// switch exists to tame.
 fn collapse_all(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     let sessions: Vec<_> = app
         .work(cx)
@@ -143,6 +167,285 @@ fn collapse_all(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         }))
         .into_any_element()
 }
+
+// ── the Missions section (M14) ────────────────────────────────────────
+
+/// Every mission not `Completed` or `Abandoned`, most recently active first — closed ones sorted
+/// last and drawn only once [`AgentsView::show_closed_missions`] is on, the same "most recently
+/// active work" judgement [`AppState::open_missions`] and the board's own mission filter already
+/// make.
+fn missions_section(
+    app: &AppState,
+    work: &WorkProjection,
+    agents: &AgentsView,
+    cx: &mut Context<AppState>,
+) -> Vec<AnyElement> {
+    let Some(open) = app.open_project(cx) else {
+        return Vec::new();
+    };
+    let has_closed = open
+        .missions
+        .values()
+        .any(|record| matches!(record.phase, Phase::Completed | Phase::Abandoned));
+    let show_closed = agents.show_closed_missions;
+    let mut missions: Vec<(&ubiq_proto::work::TaskRecord, &MissionRecord)> = open
+        .missions
+        .values()
+        .filter(|record| {
+            show_closed || !matches!(record.phase, Phase::Completed | Phase::Abandoned)
+        })
+        .filter_map(|record| work.task(record.task_id).map(|task| (task, record)))
+        .collect();
+    // The header — and `New mission` on it — is drawn whenever a project is open, whether or not
+    // it has a mission yet: that button is how the first one gets made.
+    missions.sort_by(|(a_task, a_rec), (b_task, b_rec)| {
+        let rank = |phase: Phase| matches!(phase, Phase::Completed | Phase::Abandoned) as u8;
+        rank(a_rec.phase)
+            .cmp(&rank(b_rec.phase))
+            .then_with(|| b_task.updated_at.cmp(&a_task.updated_at))
+    });
+
+    let mut rows: Vec<AnyElement> = vec![missions_header(has_closed, show_closed, cx)];
+    for (task, record) in missions {
+        rows.push(mission_row(app, work, agents, task, record, cx));
+        if agents.is_mission_expanded(task.id) {
+            rows.extend(mission_roster(work, agents, record, cx));
+        }
+    }
+    rows
+}
+
+/// The section's own header: the label, `New agent` beside `New mission` (M14's own last line),
+/// and the *show closed* toggle — drawn only when there is something behind it to show.
+fn missions_header(has_closed: bool, show_closed: bool, cx: &mut Context<AppState>) -> AnyElement {
+    div()
+        .h(px(26.))
+        .pl_3()
+        .pr_2()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap_1p5()
+        .child(section_label("Missions"))
+        .child(div().flex_1().min_w(px(0.)))
+        .children(has_closed.then(|| {
+            div()
+                .id("agents-missions-show-closed")
+                .h(px(20.))
+                .px_1p5()
+                .flex()
+                .flex_none()
+                .items_center()
+                .cursor_pointer()
+                .hover(|this| this.bg(theme::hover()))
+                .child(
+                    mono(
+                        if show_closed {
+                            "hide closed"
+                        } else {
+                            "show closed"
+                        },
+                        theme::text_faint(),
+                    )
+                    .text_size(theme::font(theme::Family::Conversation, theme::Role::Meta)),
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.toggle_show_closed_missions(cx)))
+                .into_any_element()
+        }))
+        .child(
+            icon_button(
+                "agents-missions-new-agent",
+                IconName::Bot,
+                false,
+                cx.listener(|this, _, window, cx| this.open_new_agent_direct(window, cx)),
+            )
+            .size(px(22.))
+            .tooltip(|window, cx| {
+                gpui_component::tooltip::Tooltip::new("New agent").build(window, cx)
+            }),
+        )
+        .child(
+            icon_button(
+                "agents-missions-new",
+                IconName::Plus,
+                false,
+                cx.listener(|this, _, window, cx| this.open_new_mission(window, cx)),
+            )
+            .size(px(22.))
+            .tooltip(|window, cx| {
+                gpui_component::tooltip::Tooltip::new("New mission").build(window, cx)
+            }),
+        )
+        .into_any_element()
+}
+
+/// One mission's row: the hexagon [`mission_hex`] draws everywhere else, a phase chip, the key and
+/// title, the roster's size and a *needs you* dot from `pending_phase`. The chevron alone expands
+/// to the roster; the rest of the row opens the mission panel, exactly as a session's members open
+/// a column.
+fn mission_row(
+    app: &AppState,
+    work: &WorkProjection,
+    agents: &AgentsView,
+    task: &ubiq_proto::work::TaskRecord,
+    mission: &MissionRecord,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let task_id = task.id;
+    let expanded = agents.is_mission_expanded(task_id);
+    let roster_size = roster_of(work, agents, mission).len();
+    let needs_you = mission.pending_phase.is_some();
+    let term = app.mission_term(cx);
+
+    div()
+        .id(eid("agents-mission-row", task_id))
+        .h(px(28.))
+        .pl_1()
+        .pr_3()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap_1p5()
+        .hover(|this| this.bg(theme::hover()))
+        .child(
+            div()
+                .id(eid("agents-mission-fold", task_id))
+                .size(px(16.))
+                .flex()
+                .flex_none()
+                .items_center()
+                .justify_center()
+                .cursor_pointer()
+                .child(
+                    Icon::new(if expanded {
+                        IconName::ChevronDown
+                    } else {
+                        IconName::ChevronRight
+                    })
+                    .with_size(Size::XSmall)
+                    .text_color(theme::text_muted()),
+                )
+                .on_click(cx.listener(move |this, _, _, cx| this.toggle_mission_row(task_id, cx))),
+        )
+        .child(mission_hex(
+            work,
+            task_id,
+            mission,
+            eid("agents-mission-hex", task_id),
+            13.,
+        ))
+        .child(state_chip(
+            mission.phase.label(),
+            phase_colour(mission.phase),
+            0.85,
+        ))
+        .child(
+            div()
+                .id(eid("agents-mission-open", task_id))
+                .flex()
+                .flex_1()
+                .min_w(px(0.))
+                .items_center()
+                .gap_1p5()
+                .cursor_pointer()
+                .children(task.key.clone().map(|key| mono(key, theme::text_muted())))
+                .child(elided(
+                    eid("agents-mission-title", task_id),
+                    task.title.clone(),
+                    theme::text(),
+                    theme::font(theme::Family::Conversation, theme::Role::Body),
+                ))
+                .on_click(cx.listener(move |this, _, _, cx| this.open_mission_panel(task_id, cx))),
+        )
+        .children(needs_you.then(|| {
+            status_dot(
+                crate::ui::work::doing_colour(crate::state::status::Doing::NeedsYou),
+                theme::pane_bg(),
+            )
+        }))
+        .child(
+            mono(format!("{roster_size}"), theme::text_faint())
+                .text_size(theme::font(theme::Family::Conversation, theme::Role::Meta)),
+        )
+        .tooltip(move |window, cx| {
+            gpui_component::tooltip::Tooltip::new(term.clone()).build(window, cx)
+        })
+        .into_any_element()
+}
+
+/// The mission's roster, drawn while its row is expanded — the same click [`agent_row`]'s own
+/// session members answer with, opening a column.
+fn mission_roster(
+    work: &WorkProjection,
+    agents: &AgentsView,
+    mission: &MissionRecord,
+    cx: &mut Context<AppState>,
+) -> Vec<AnyElement> {
+    let roster = roster_of(work, agents, mission);
+    if roster.is_empty() {
+        return vec![
+            div()
+                .pl_5()
+                .pr_3()
+                .pb_1()
+                .flex()
+                .flex_none()
+                .child(mono("no agents yet", theme::text_faint()))
+                .into_any_element(),
+        ];
+    }
+    roster
+        .into_iter()
+        .map(|agent| agent_row(agent, !agents.on_screen(agent.id), None, cx))
+        .collect()
+}
+
+/// A mission's active roster, resolved to the agents this window can actually talk to — the same
+/// narrowing every reader on this screen goes through, `AgentsView::live_agents`.
+fn roster_of<'a>(
+    work: &'a WorkProjection,
+    agents: &AgentsView,
+    mission: &MissionRecord,
+) -> Vec<&'a WorkAgent> {
+    mission
+        .roster
+        .iter()
+        .filter(|entry| entry.left_at.is_none())
+        .filter_map(|entry| work.agent(entry.agent))
+        .filter(|agent| agents.is_live(agent.id))
+        .collect()
+}
+
+/// Which mission each live agent belongs to — its label (key, or title) and the phase colour the
+/// rest of this window's mission rows already wear — read once from every mission's active roster
+/// rather than searched per agent row.
+fn mission_chips(
+    app: &AppState,
+    work: &WorkProjection,
+    cx: &Context<AppState>,
+) -> HashMap<AgentId, (String, Rgba)> {
+    let Some(open) = app.open_project(cx) else {
+        return HashMap::new();
+    };
+    open.missions
+        .values()
+        .flat_map(|record| {
+            let colour = phase_colour(record.phase);
+            let label = work
+                .task(record.task_id)
+                .map(|task| task.key.clone().unwrap_or_else(|| task.title.clone()))
+                .unwrap_or_default();
+            record
+                .roster
+                .iter()
+                .filter(|entry| entry.left_at.is_none())
+                .map(move |entry| (entry.agent, (label.clone(), colour)))
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+// ── sessions (unchanged in shape) ──────────────────────────────────────
 
 /// A session's header: whether it is folded, its name, whether it has a worktree of its own, and
 /// how many agents are in it. The whole row folds the group.
@@ -227,8 +530,16 @@ fn note_row(work: &WorkProjection, session: &WorkSession) -> AnyElement {
         .into_any_element()
 }
 
-/// One agent: what it is doing, and whether it is on the bench.
-fn agent_row(agent: &WorkAgent, benched: bool, cx: &mut Context<AppState>) -> AnyElement {
+/// One agent: what it is doing, whether it is on the bench, and — inside a mission (M14) — a small
+/// chip naming it. The chip is the whole answer to "one conversation is never listed as two
+/// different things": the agent stays right here, under its session, and the mission is a fact
+/// about it rather than a second place it lives.
+fn agent_row(
+    agent: &WorkAgent,
+    benched: bool,
+    mission: Option<(String, Rgba)>,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
     let id = agent.id;
     let colour = activity_colour(agent.activity);
 
@@ -257,6 +568,7 @@ fn agent_row(agent: &WorkAgent, benched: bool, cx: &mut Context<AppState>) -> An
             },
             theme::font(theme::Family::Conversation, theme::Role::Body),
         ))
+        .children(mission.map(|(label, colour)| badge(&label, colour).into_any_element()))
         // The one mark on the row that is about this window rather than about the agent: it is not
         // on screen, and clicking the row is what puts it back.
         .children(benched.then(|| badge("bench", theme::text_faint())))
@@ -273,17 +585,7 @@ fn agent_row(agent: &WorkAgent, benched: bool, cx: &mut Context<AppState>) -> An
 /// same rule `WorkProjection::pulse` follows for a task's card, which is why a failing agent stays
 /// visible with its group shut.
 fn worst_of(members: &[&WorkAgent]) -> gpui::Rgba {
-    let mut worst = Bucket::Ended;
-    for bucket in members.iter().map(|agent| agent.activity.bucket()) {
-        match bucket {
-            Bucket::Error => {
-                worst = Bucket::Error;
-                break;
-            }
-            Bucket::Waiting => worst = Bucket::Waiting,
-            Bucket::Running if worst != Bucket::Waiting => worst = Bucket::Running,
-            _ => {}
-        }
-    }
-    crate::ui::work::bucket_colour(worst)
+    crate::ui::work::bucket_colour(crate::ui::work::worst_bucket(
+        members.iter().map(|agent| agent.activity.bucket()),
+    ))
 }

@@ -262,6 +262,14 @@ impl FilePlanStore {
         Self { root }
     }
 
+    /// The config root itself — what a mission document resolves its own path against (M8):
+    /// `crate::store::mission::MissionStore` computes the same root's `missions/<TaskId>/docs/`
+    /// subtree, and a mission document is neither a plan nor a file document, so it has no other
+    /// path of its own to read this from.
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
     /// Under the project's own directory, the way [`super::file::FileTaskStore::path`] is — so
     /// Forget and the orphan collector already cover it, and a plan never outlives the project it
     /// belongs to.

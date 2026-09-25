@@ -58,6 +58,14 @@ pub struct Picker {
     /// index in `items`, the same rule `ContextItem::separator()` follows, so a caller building a
     /// list of decorations and real rows together need not renumber either.
     separators: Vec<usize>,
+    /// Rows drawn muted, by index into `items` — a completed or abandoned mission on the board
+    /// toolbar's mission filter, still pickable, unlike `disabled`.
+    dim: Vec<usize>,
+    /// A status colour per row, parallel to `items`. `None` at an index is a row with no dot of
+    /// its own — [`MultiPicker::dots`]'s single-select counterpart, `Option`-valued because a
+    /// single-choice list often mixes rows that carry one (a mission's phase) with rows that do
+    /// not (an "All ..." row).
+    dots: Vec<Option<Rgba>>,
     selected: Option<usize>,
     open: bool,
     anchor: Anchor,
@@ -83,6 +91,8 @@ impl Picker {
             items: Vec::new(),
             disabled: Vec::new(),
             separators: Vec::new(),
+            dim: Vec::new(),
+            dots: Vec::new(),
             selected: None,
             open: false,
             anchor: Anchor::TopLeft,
@@ -127,6 +137,19 @@ impl Picker {
     /// never read for it.
     pub fn separators(mut self, indices: impl IntoIterator<Item = usize>) -> Self {
         self.separators = indices.into_iter().collect();
+        self
+    }
+
+    /// Mark rows drawn muted, by index into `items` — a mission past its work, still pickable,
+    /// unlike [`Self::disabled`].
+    pub fn dim(mut self, indices: impl IntoIterator<Item = usize>) -> Self {
+        self.dim = indices.into_iter().collect();
+        self
+    }
+
+    /// A status colour per row, in `items` order. `None` at an index draws that row with no dot.
+    pub fn dots(mut self, dots: impl IntoIterator<Item = Option<Rgba>>) -> Self {
+        self.dots = dots.into_iter().collect();
         self
     }
 
@@ -200,6 +223,8 @@ impl RenderOnce for Picker {
             items,
             disabled,
             separators,
+            dim,
+            dots,
             selected,
             open,
             anchor,
@@ -243,7 +268,8 @@ impl RenderOnce for Picker {
                     selected: selected == Some(ix),
                     disabled: selected != Some(ix) && disabled.contains(&ix),
                     separator: separators.contains(&ix),
-                    dot: None,
+                    dim: dim.contains(&ix),
+                    dot: dots.get(ix).copied().flatten(),
                 })
                 .collect();
             trigger = trigger.child(menu_panel(
@@ -333,6 +359,9 @@ struct PanelRow {
     selected: bool,
     disabled: bool,
     separator: bool,
+    /// Drawn muted, but still clickable — unlike `disabled`, which also refuses the click. A
+    /// finished mission on the board toolbar's mission filter.
+    dim: bool,
     /// A filled dot before the label, for a list whose values carry a status colour of their own
     /// — the states filter, where the colour is half of what the row says. The same 7px dot
     /// [`crate::ui::kit::toggle_pill`] wears, so a filter moved off a pill row into a menu reads
@@ -379,6 +408,7 @@ fn menu_panel(
                 }
                 let is_selected = item.selected;
                 let is_disabled = item.disabled;
+                let is_dim = item.dim;
                 let pick = on_pick.clone();
                 let mut row = div()
                     .id(("menu-row", ix))
@@ -388,7 +418,7 @@ fn menu_panel(
                     .items_center()
                     .gap_2()
                     .text_size(theme::font(Family::Chrome, Role::Body))
-                    .text_color(if is_disabled {
+                    .text_color(if is_disabled || (is_dim && !is_selected) {
                         theme::text_faint()
                     } else if is_selected {
                         theme::text()
@@ -762,6 +792,7 @@ impl RenderOnce for MultiPicker {
                     selected: selected.contains(&ix),
                     disabled: false,
                     separator: false,
+                    dim: false,
                     dot: dots.get(ix).copied(),
                 })
                 .collect();

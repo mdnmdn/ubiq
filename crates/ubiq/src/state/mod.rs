@@ -28,6 +28,7 @@ pub mod image_edit;
 pub mod kb;
 pub mod layout;
 pub mod logs;
+pub mod mission;
 pub mod nav;
 pub mod navigator;
 pub mod new_agent;
@@ -52,6 +53,7 @@ pub mod teamsim;
 pub mod ui_id;
 pub mod viewport;
 pub mod vim;
+pub mod wbs;
 pub mod web_panel;
 pub mod when;
 pub mod windows;
@@ -85,6 +87,7 @@ pub use kb::{
 };
 pub use layout::Layout;
 pub use logs::LogState;
+pub use mission::{MissionTab, MissionView};
 pub use nav::{Destination, Locus, View};
 pub use new_agent::{NewAgentForm, OpenList, Purpose, Target};
 pub use orchestration::{Carry, Grain, GraphView, Held, InspectorTab, Selection};
@@ -102,9 +105,10 @@ pub use teams::{TeamsCarry, TeamsGrain, TeamsHeld, TeamsInspectorTab, TeamsSelec
 pub use teamsim::{Scenario, Sim, TeamsimCarry, TeamsimDemo, TeamsimHeld};
 pub use ui_id::{MarkRect, MarkRegistry, UiId, UiMark};
 pub use windows::{ProjectGroups, WindowRegistry, WindowSlot};
-pub use work::WorkProjection;
+pub use work::{WorkProjection, WorkState};
 pub use workbench::{
     AllProjectsState, AttachmentPreview, FileDialog, HarnessChoice, HelpTargeting, MenuId,
-    NewAgentMenu, NewAgentSurface, NewPaneRow, NewProjectRow, OverflowRow, ProjectSettings,
-    ProjectSettingsMode, RailMode, RowAction, SizePrompt, ThemeEditor, ThemePrompt, WorkbenchState,
+    NewAgentMenu, NewAgentStage, NewAgentSurface, NewPaneRow, NewProjectRow, OverflowRow,
+    ProjectSettings, ProjectSettingsMode, RailMode, RowAction, SizePrompt, TeamsCreateMenu,
+    TeamsCreateStage, ThemeEditor, ThemePrompt, WorkbenchState,
 };

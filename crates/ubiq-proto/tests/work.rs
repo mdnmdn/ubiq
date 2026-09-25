@@ -54,6 +54,7 @@ fn a_task_with_everything_on_it_survives_the_wire_unchanged() {
         level: Some(Level::Mission),
         parent: Some(TaskId::generate()),
         references: vec![TaskId::generate(), TaskId::generate()],
+        prerequisites: vec![TaskId::generate(), TaskId::generate()],
         attachments: vec![
             Attachment::new("docs/spec.md"),
             Attachment {
@@ -144,6 +145,10 @@ fn what_a_task_does_not_have_is_absent_from_the_encoding_rather_than_null() {
     assert!(
         !json.contains("reference"),
         "no references is no array, not an empty one: {json}"
+    );
+    assert!(
+        !json.contains("prerequisite"),
+        "no prerequisites is no array, not an empty one: {json}"
     );
     // The keys that are always there, so the absences above are absences and not a typo.
     for key in ["id", "status", "priority", "title", "created_at"] {

@@ -41,7 +41,7 @@ use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::kit::{
     Picker, PickerStyle, choice_pill, field, filter_bar, ghost_button, icon_button, modal_sized,
-    mono, panel, popover, primary_button, removable_tag, section_label, toggle_pill,
+    mono, panel, popover, primary_button, removable_tag, section_label, tag, toggle_pill,
 };
 // The kit's text-entry box, under a name that does not collide with the `Field` a control is
 // editing — both are called `field` in this file's vocabulary, and only one can keep the word.
@@ -872,6 +872,213 @@ fn reference_row(
                 .text_size(theme::font(Family::Chrome, Role::Body)),
         )
         .on_click(on_click)
+        .into_any_element()
+}
+
+/// The other tasks this one waits on — a typed, directed list, `references`' sibling. The `+`
+/// opens a searchable picker (`prerequisite_picker`) of what
+/// [`crate::state::work::WorkProjection::eligible_prerequisites`] offers: every other task that
+/// would not make the task itself or a cycle.
+pub fn prerequisites(
+    app: &AppState,
+    task: &TaskRecord,
+    window: &Window,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let Some(work) = app.work(cx) else {
+        return div().into_any_element();
+    };
+    let open = app.workbench.open_menu == Some(MenuId::TaskPrerequisites);
+
+    let chips: Vec<AnyElement> = task
+        .prerequisites
+        .iter()
+        .filter_map(|id| work.task(*id))
+        .map(|other| {
+            let navigate = other.id;
+            let drop = other.id;
+            removable_tag(
+                eid("board-prerequisite", other.id),
+                eid("board-prerequisite-drop", other.id),
+                other.title.clone(),
+                format!("Open {}", other.title),
+                theme::surface(),
+                theme::text_muted(),
+                theme::text_muted(),
+                false,
+                cx.listener(move |this, _, _, cx| this.select_task(navigate, cx)),
+                cx.listener(move |this, _, _, cx| this.remove_task_prerequisite(drop, cx)),
+            )
+            .into_any_element()
+        })
+        .collect();
+
+    let mut trigger = icon_button(
+        "board-prerequisite-add",
+        IconName::Plus,
+        open,
+        cx.listener(|this, _, window, cx| this.toggle_prerequisite_picker(window, cx)),
+    );
+    if open {
+        trigger = trigger.child(prerequisite_picker(app, task, window, cx));
+    }
+
+    div()
+        .flex()
+        .flex_col()
+        .gap_1p5()
+        .child(
+            div()
+                .flex()
+                .flex_wrap()
+                .items_center()
+                .gap_1p5()
+                .children(chips)
+                .children(task.prerequisites.is_empty().then(|| {
+                    mono("no prerequisites", theme::text_faint())
+                        .text_size(theme::font(Family::Chrome, Role::Body))
+                }))
+                .child(trigger),
+        )
+        .into_any_element()
+}
+
+/// What the prerequisite `+` opens, `reference_picker`'s sibling — the same gated, vertical,
+/// popover-anchored search, over [`crate::state::work::WorkProjection::eligible_prerequisites`]
+/// instead of `eligible_references`.
+fn prerequisite_picker(
+    app: &AppState,
+    task: &TaskRecord,
+    window: &Window,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let Some(work) = app.work(cx) else {
+        return div().into_any_element();
+    };
+    let needle = app
+        .board(cx)
+        .map(|board| board.form.prerequisite_query.trim().to_lowercase())
+        .unwrap_or_default();
+    let focused = app
+        .task_prerequisite_query
+        .read(cx)
+        .focus_handle(cx)
+        .is_focused(window);
+    let view = cx.entity();
+
+    let body = if needle.is_empty() {
+        mono("type to search", theme::text_faint())
+            .text_size(theme::font(Family::Chrome, Role::Body))
+            .into_any_element()
+    } else {
+        let matches: Vec<_> = work
+            .eligible_prerequisites(task)
+            .into_iter()
+            .filter(|other| BoardState::text_matches(other, work, &needle))
+            .take(REFERENCE_ROWS_MAX)
+            .collect();
+        if matches.is_empty() {
+            mono("nothing matches", theme::text_faint())
+                .text_size(theme::font(Family::Chrome, Role::Body))
+                .into_any_element()
+        } else {
+            let rows: Vec<AnyElement> = matches
+                .into_iter()
+                .map(|other| {
+                    let id = other.id;
+                    reference_row(
+                        other,
+                        cx.listener(move |this, _, _, cx| {
+                            this.add_task_prerequisite(id, cx);
+                            this.close_menu(cx);
+                        }),
+                    )
+                })
+                .collect();
+            let viewport = window.viewport_size();
+            let max_h =
+                px(REFERENCE_ROW_HEIGHT * REFERENCE_ROWS_MAX as f32).min(viewport.height * 0.5);
+            div()
+                .relative()
+                .flex()
+                .flex_col()
+                .max_h(max_h)
+                .child(
+                    div()
+                        .id("board-prerequisite-results")
+                        .flex()
+                        .flex_col()
+                        .max_h(max_h)
+                        .overflow_y_scroll()
+                        .track_scroll(&app.task_prerequisite_scroll)
+                        .children(rows),
+                )
+                .child(
+                    div()
+                        .absolute()
+                        .inset_0()
+                        .child(Scrollbar::vertical(&app.task_prerequisite_scroll)),
+                )
+                .into_any_element()
+        }
+    };
+
+    popover(
+        ElementId::Name("board-prerequisite-picker".into()),
+        px(240.),
+        Some("board-prerequisite-picker"),
+        Some(Rc::new(crate::ui::handler(&view, |this, _, cx| {
+            this.close_menu(cx)
+        }))),
+        vec![
+            filter_bar(
+                Input::new(&app.task_prerequisite_query).appearance(false),
+                div(),
+                focused,
+            )
+            .into_any_element(),
+            body,
+        ],
+    )
+}
+
+/// The tasks that name this one as a prerequisite — the reverse of `prerequisites`, **derived,
+/// never stored**: a scan of the project's own task list rather than a field on this one, per
+/// M19. Read-only, so its chips carry no `+` and no dismiss, `tag` rather than `removable_tag`.
+pub fn blocks(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> AnyElement {
+    let Some(work) = app.work(cx) else {
+        return div().into_any_element();
+    };
+    let chips: Vec<AnyElement> = work
+        .tasks
+        .iter()
+        .filter(|other| other.prerequisites.contains(&task.id))
+        .map(|other| {
+            let navigate = other.id;
+            tag(
+                eid("board-blocks", other.id),
+                other.title.clone(),
+                format!("Open {}", other.title),
+                theme::surface(),
+                theme::text_muted(),
+                theme::text_muted(),
+                false,
+                cx.listener(move |this, _, _, cx| this.select_task(navigate, cx)),
+            )
+            .into_any_element()
+        })
+        .collect();
+
+    div()
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .gap_1p5()
+        .children(chips.is_empty().then(|| {
+            mono("blocks nothing", theme::text_faint())
+                .text_size(theme::font(Family::Chrome, Role::Body))
+        }))
+        .children(chips)
         .into_any_element()
 }
 

@@ -30,6 +30,8 @@
 //! - `notifications`: what a subsystem raises for the bell, and how it is silenced
 //! - `work`: a task as it is written down, and the sessions and agents doing it
 //! - `plan`: a plan's annotations — the block one anchors to, its thread, and its state
+//! - `mission`: a mission's own record — its phase, its roster and how it is run, keyed by the
+//!   anchor task's id
 //! - `conversation`: what a live agent says, in the Agent Client Protocol's vocabulary
 //! - `bus`: the switchboard between the one host and the windows attached to it
 //! - `log`: the process-wide sink every subsystem writes its diagnostics to
@@ -54,6 +56,7 @@ pub mod kb;
 pub mod log;
 pub mod mcp;
 pub mod messages;
+pub mod mission;
 pub mod notifications;
 pub mod plan;
 pub mod projects;

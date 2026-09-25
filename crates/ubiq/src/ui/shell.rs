@@ -359,6 +359,13 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .as_ref()
                 .map(|_| crate::ui::all_projects::render(app, window, cx)),
         )
+        // One mission's full view, framed as a modal — raised from the side panel's `⤢` outside
+        // IDE mode. Painted under the plan, which its *Plan & docs* tab raises over it.
+        .children(
+            app.workbench
+                .mission
+                .map(|task_id| crate::ui::mission::full::modal(app, task_id, window, cx)),
+        )
         // A task's plan, read as rendered markdown — raised from the task panel, over whatever
         // else is up, on the same terms the modals above it are.
         .children(
@@ -595,6 +602,7 @@ fn overlaid(app: &AppState) -> bool {
         || workbench.remote_manager.open
         || workbench.remote_connect.is_some()
         || workbench.new_agent_menu.is_some()
+        || workbench.teams_create_menu.is_some()
         || workbench.open_menu.is_some()
         // A child webview is stacked over the window by the platform, so it would sit on top of
         // the targeting overlay and take the mouse moves it lives on.

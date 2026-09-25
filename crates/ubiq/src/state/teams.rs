@@ -34,8 +34,8 @@ use super::conversation::SubagentTab;
 use super::work::WorkProjection;
 
 pub use super::layout::{
-    Algo, CARD_WIDTH, GROUP_LABEL, GROUP_PAD, Layout, RING_PAD, Rings, SUB_BOX, SUB_GAP,
-    SUB_HEIGHT, SUB_WIDTH, TEAMS_CARD_HEIGHT, fence, sub_slot,
+    Algo, CARD_WIDTH, GROUP_LABEL, GROUP_PAD, Layout, MISSION_BAND, MISSION_HANDLE, MISSION_MIN,
+    RING_PAD, Rings, SUB_BOX, SUB_GAP, SUB_HEIGHT, SUB_WIDTH, TEAMS_CARD_HEIGHT, fence, sub_slot,
 };
 
 /// The work this mode draws: the host's projection, narrowed to the agents this window actually
@@ -155,7 +155,14 @@ pub use super::status::{Doing, Lifecycle, Status, agent_status, delegate_status}
 pub enum TeamsSelection {
     Session(SessionId),
     Agent(AgentId),
-    Subagent { agent: AgentId, subagent: String },
+    Subagent {
+        agent: AgentId,
+        subagent: String,
+    },
+    /// A mission, by the anchor task it is (M1). Selected by its fence handle, and the one
+    /// selection that opens no conversation — a mission is not a workspace, so what the handle
+    /// puts in the right dock is the mission panel.
+    Mission(TaskId),
 }
 
 /// Which half of `[Teams]`'s inspector is showing. `Teams` has no inspector of its own — a
@@ -207,6 +214,10 @@ impl TeamsGrain {
 pub enum TeamsHeld {
     Agent(AgentId),
     Task(TaskId),
+    /// A mission's fence, by its anchor task. Held by its handle alone — the ground inside a
+    /// mission fence stays free, because that ground is what a card is dropped onto to join the
+    /// mission (M15).
+    Mission(TaskId),
     /// One of a card's delegates. Named the way [`TeamsSelection::Subagent`] is — by the id of the
     /// `Task` call that spawned it — which is what makes this `Clone` rather than `Copy`.
     Subagent {
@@ -263,6 +274,10 @@ pub struct TeamsView {
     /// how long it has been quiet. `Failed` is left on screen: an error is what a reader came to
     /// find.
     pub hide_done: bool,
+    /// Which missions the graph is drawing, or every one of them when empty — the third filter
+    /// beside the sessions and the buckets, and the same shape both of them are. A mission is
+    /// named by its anchor task (M1).
+    pub mission_filter: Vec<TaskId>,
     pub zoom: f32,
     pub selection: Option<TeamsSelection>,
     pub tab: TeamsInspectorTab,
@@ -279,6 +294,18 @@ pub struct TeamsView {
     /// `settle_teams`.
     pub rings: HashMap<AgentId, Vec<String>>,
 
+    /// Which missions the canvas fences, and who is in each — the anchor task the mission *is*,
+    /// against every agent on it.
+    ///
+    /// **Copied here for [`Self::rings`]'s reason.** Membership is "assigned to the mission's task
+    /// or one of its children, *or* spawned by an agent that is in the mission" (M11), and the
+    /// second half is stored on `MissionRecord::roster` rather than derivable — `WorkAgent::parent`
+    /// is cleared by every reassignment. The record lives on the project, which this module
+    /// deliberately knows nothing about, so the window answers the question once a frame in
+    /// `settle_teams` and every geometry reader below works from the answer. An entry with an
+    /// empty vector is a mission with nobody on it, which still draws its handle (M15).
+    pub missions: HashMap<TaskId, Vec<AgentId>>,
+
     pub carry: Option<TeamsCarry>,
     pub sand: Vec<TeamsGrain>,
 }
@@ -294,6 +321,7 @@ impl Default for TeamsView {
             sessions: Vec::new(),
             buckets: Bucket::all().to_vec(),
             hide_done: false,
+            mission_filter: Vec::new(),
             zoom: 0.8,
             // Nothing is selected until there is something to select; the window points the
             // selection at the first agent the moment the work arrives.
@@ -301,6 +329,7 @@ impl Default for TeamsView {
             tab: TeamsInspectorTab::Chat,
             tasks_open: false,
             rings: HashMap::new(),
+            missions: HashMap::new(),
             carry: None,
             sand: Vec::new(),
         }
@@ -480,6 +509,10 @@ impl TeamsView {
         work.agents
             .iter()
             .filter(|agent| self.visible(agent))
+            // A card inside a mission fence is already fenced, whether or not a container reaches
+            // it: a spawn-only member sits in its mission's fence with no task of its own, and a
+            // loose fence round it would be the second outline `T-105` forbids.
+            .filter(|agent| self.mission_of(agent.id).is_none())
             .filter(|agent| match agent.task {
                 None => true,
                 Some(task) => !work.tasks.iter().any(|record| record.id == task),
@@ -527,6 +560,130 @@ impl TeamsView {
         )
     }
 
+    // ── missions ────────────────────────────────────────────────────
+
+    /// Which mission the handle last clicked belongs to, where one is what is selected.
+    pub fn mission_in_focus(&self) -> Option<TaskId> {
+        match &self.selection {
+            Some(TeamsSelection::Mission(id)) => Some(*id),
+            _ => None,
+        }
+    }
+
+    /// Everybody on one mission, as the window last wrote it down. Empty for a mission nobody is
+    /// on, and for a task that is not a mission at all.
+    pub fn mission_members(&self, mission: TaskId) -> &[AgentId] {
+        self.missions
+            .get(&mission)
+            .map(Vec::as_slice)
+            .unwrap_or_default()
+    }
+
+    /// Which mission an agent is on, where it is on one.
+    pub fn mission_of(&self, agent: AgentId) -> Option<TaskId> {
+        self.missions
+            .iter()
+            .find(|(_, members)| members.contains(&agent))
+            .map(|(mission, _)| *mission)
+    }
+
+    /// The task containers a mission fence is the union of: its anchor's own, and its children's
+    /// (M15). The anchor is first, which is what makes its container **merge into** the fence
+    /// rather than draw inside it — the canvas skips the box for a task in this list's head.
+    pub fn mission_tasks(&self, work: &WorkProjection, mission: TaskId) -> Vec<TaskId> {
+        std::iter::once(mission)
+            .chain(work.children_of(mission).map(|task| task.id))
+            .collect()
+    }
+
+    /// The fence round a mission: `(x, y, w, h)` at 100% zoom.
+    ///
+    /// **Derived every frame, never stored** (M15, `D41`). It is the union of the containers
+    /// [`Self::mission_tasks`] names and of the cards on the mission by spawn alone — an agent
+    /// with no task of its own sits inside the fence beside its spawner — padded by [`GROUP_PAD`]
+    /// and given [`MISSION_BAND`] at the top for the handle and the coordinator.
+    ///
+    /// A mission with nothing visible on it answers [`MISSION_MIN`] at its anchor's own layout
+    /// origin, so its handle is still there to be grabbed and to be dropped onto.
+    pub fn mission_bounds(&self, work: &WorkProjection, mission: TaskId) -> (f32, f32, f32, f32) {
+        self.mission_bounds_excluding(work, mission, None)
+    }
+
+    fn mission_bounds_excluding(
+        &self,
+        work: &WorkProjection,
+        mission: TaskId,
+        skip: Option<AgentId>,
+    ) -> (f32, f32, f32, f32) {
+        let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+        let mut any = false;
+        let mut grow = |(ax0, ay0, ax1, ay1): (f32, f32, f32, f32)| {
+            any = true;
+            x0 = x0.min(ax0);
+            y0 = y0.min(ay0);
+            x1 = x1.max(ax1);
+            y1 = y1.max(ay1);
+        };
+
+        for task in self.mission_tasks(work, mission) {
+            if let Some((x, y, w, h)) = self.bounds_excluding(work, task, skip) {
+                grow((x, y, x + w, y + h));
+            }
+        }
+        // The spawn-only members: on the mission by M11's second half, holding no task of their
+        // own, and so reached by no container above.
+        for id in self.mission_members(mission) {
+            if Some(*id) == skip {
+                continue;
+            }
+            let Some(agent) = work.agent(*id) else {
+                continue;
+            };
+            if agent.task.is_some() || !self.visible(agent) {
+                continue;
+            }
+            grow(self.card_bounds(*id, self.layout.at(agent)));
+        }
+
+        if !any {
+            let (x, y) = self.layout.task_origin(mission);
+            return (
+                x - GROUP_PAD,
+                y - GROUP_PAD - MISSION_BAND,
+                MISSION_MIN.0,
+                MISSION_MIN.1,
+            );
+        }
+        (
+            x0 - GROUP_PAD,
+            y0 - GROUP_PAD - MISSION_BAND,
+            (x1 - x0) + GROUP_PAD * 2.0,
+            (y1 - y0) + GROUP_PAD * 2.0 + MISSION_BAND,
+        )
+    }
+
+    /// Which mission fence the carried card's centre is inside, where no container claimed it
+    /// first — which is what makes dropping a card on a mission's open ground attach it to the
+    /// mission itself (M15). The tightest fence wins, so a reading is the same every frame.
+    fn mission_at(
+        &self,
+        work: &WorkProjection,
+        carried: AgentId,
+        at: (f32, f32),
+    ) -> Option<TaskId> {
+        let centre = (at.0 + CARD_WIDTH / 2.0, at.1 + TEAMS_CARD_HEIGHT / 2.0);
+        self.missions
+            .keys()
+            .filter(|mission| work.task(**mission).is_some())
+            .filter_map(|mission| {
+                let (x, y, w, h) = self.mission_bounds_excluding(work, *mission, Some(carried));
+                (centre.0 >= x && centre.0 <= x + w && centre.1 >= y && centre.1 <= y + h)
+                    .then_some((*mission, w * h))
+            })
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(mission, _)| mission)
+    }
+
     /// Which session the screen is *about*: the one selected, or the one the selected agent runs
     /// in, falling back to the first so the drawer always has something to report. What the canvas
     /// *draws* is `session`, which is a separate question.
@@ -560,10 +717,23 @@ impl TeamsView {
             .collect()
     }
 
-    /// Whether a card is drawn at all, given the two filters. `sessions` empty is every session.
+    /// Whether a card is drawn at all, given the three filters. An empty list is no filter, for
+    /// each of them: `sessions` empty is every session, `mission_filter` empty is every mission
+    /// *and* everything on none.
     pub fn visible(&self, agent: &WorkAgent) -> bool {
         self.showing(agent.activity.bucket())
             && (self.sessions.is_empty() || self.sessions.contains(&agent.session))
+            && self.in_missions(agent.id)
+    }
+
+    /// Whether the mission filter lets this card through. Off — the empty list — is everything;
+    /// on, it is the cards on one of the missions named, and a card on no mission at all is not
+    /// one of them.
+    fn in_missions(&self, agent: AgentId) -> bool {
+        self.mission_filter.is_empty()
+            || self
+                .mission_of(agent)
+                .is_some_and(|mission| self.mission_filter.contains(&mission))
     }
 
     /// The tasks the strip lists: every task in the session, or the ones the selected agent has a
@@ -621,16 +791,30 @@ impl TeamsView {
     }
 
     /// Put every filter back, which is the toolbar's one control for "show everything".
+    /// Turn one mission's tick on or off, on [`Self::toggle_session`]'s rule exactly: any of them
+    /// may be the last, and none ticked is not filtering.
+    pub fn toggle_mission(&mut self, mission: TaskId) {
+        if let Some(ix) = self.mission_filter.iter().position(|held| *held == mission) {
+            self.mission_filter.remove(ix);
+        } else {
+            self.mission_filter.push(mission);
+        }
+    }
+
     pub fn clear_filters(&mut self) {
         self.sessions.clear();
         self.buckets = Bucket::all().to_vec();
         self.hide_done = false;
+        self.mission_filter.clear();
     }
 
     /// Whether anything is being hidden, so the control that clears the filters can say whether it
     /// has anything to do.
     pub fn filtered(&self) -> bool {
-        !self.sessions.is_empty() || self.buckets.len() < Bucket::all().len() || self.hide_done
+        !self.sessions.is_empty()
+            || self.buckets.len() < Bucket::all().len()
+            || self.hide_done
+            || !self.mission_filter.is_empty()
     }
 
     pub fn zoom_by(&mut self, delta: f32) {
@@ -695,8 +879,13 @@ impl TeamsView {
                 self.place(work, id, at);
                 // Which container the pointer is over decides what a drop means, and is what the
                 // canvas lights up while the card is in the air.
+                // A container first, the mission fence round it second: a card let go over a
+                // child's box joins that child, and one let go on the mission's own open ground
+                // joins the mission itself (M15) — which is its anchor task, so both answers are
+                // the same `AssignAgent`.
                 let over = self
                     .task_at(work, id, at)
+                    .or_else(|| self.mission_at(work, id, at))
                     .filter(|task| eligible.is_none_or(|open| open.contains(task)));
                 if let Some(carry) = self.carry.as_mut() {
                     carry.over = over;
@@ -710,6 +899,29 @@ impl TeamsView {
                     let origin = self.layout.task_origin(id);
                     self.layout
                         .place_task(id, (origin.0 + at.0 - x, origin.1 + at.1 - y));
+                }
+            }
+            // A mission's handle moves the whole fence, which is every container it is the union
+            // of and every card on it by spawn alone. Containers come along by their origin, the
+            // way a task container's own drag already moves them; a member with no task has an
+            // absolute position instead, so it is moved by the same difference.
+            TeamsHeld::Mission(id) => {
+                let (x, y, _, _) = self.mission_bounds(work, id);
+                let (dx, dy) = (at.0 - x, at.1 - y);
+                for task in self.mission_tasks(work, id) {
+                    let origin = self.layout.task_origin(task);
+                    self.layout.place_task(task, (origin.0 + dx, origin.1 + dy));
+                }
+                let loose: Vec<AgentId> = self
+                    .mission_members(id)
+                    .iter()
+                    .filter(|id| work.agent(**id).is_some_and(|agent| agent.task.is_none()))
+                    .copied()
+                    .collect();
+                for agent in loose {
+                    let offset = self.layout.offset(agent);
+                    self.layout
+                        .place_agent(agent, (offset.0 + dx, offset.1 + dy));
                 }
             }
             // A delegate moves inside its parent's frame and nowhere else: it is not a card the
@@ -971,6 +1183,169 @@ mod tests {
 
         view.clear_filters();
         assert!(!view.hide_done);
+        assert!(!view.filtered());
+    }
+
+    // ── the mission fence ───────────────────────────────────────────
+
+    fn a_task(parent: Option<TaskId>) -> TaskRecord {
+        let mut task = TaskRecord::new("work".to_string(), None, chrono::Utc::now());
+        task.parent = parent;
+        task
+    }
+
+    /// A mission, its anchor and one child, with one card on each — the shape M15's sketch draws.
+    fn a_mission() -> (TeamsView, WorkProjection, TaskId) {
+        let session = SessionId::generate();
+        let anchor = a_task(None);
+        let child = a_task(Some(anchor.id));
+        let mut lead = an_agent(session, None);
+        lead.task = Some(anchor.id);
+        let mut worker = an_agent(session, None);
+        worker.task = Some(child.id);
+
+        let work = WorkProjection {
+            sessions: Vec::new(),
+            agents: vec![lead.clone(), worker.clone()],
+            tasks: vec![anchor.clone(), child.clone()],
+            loaded: true,
+        };
+        let mut view = TeamsView::default();
+        view.missions.insert(anchor.id, vec![lead.id, worker.id]);
+        view.relayout(&work);
+        (view, work, anchor.id)
+    }
+
+    /// **The fence is the union of the containers, not a rectangle anybody wrote down.** It holds
+    /// the mission's own container and its children's, and it still holds them after one of them is
+    /// dragged away — which is the whole of the derived rule.
+    #[test]
+    fn a_mission_fence_is_the_union_of_its_containers() {
+        let (mut view, work, mission) = a_mission();
+        let child = work.tasks.iter().find(|t| t.parent.is_some()).unwrap().id;
+
+        let holds = |view: &TeamsView, task: TaskId| {
+            let (fx, fy, fw, fh) = view.mission_bounds(&work, mission);
+            let (x, y, w, h) = view.bounds_of(&work, task).expect("a drawn container");
+            x >= fx && y >= fy && x + w <= fx + fw && y + h <= fy + fh
+        };
+
+        assert!(holds(&view, mission), "the anchor's container is inside");
+        assert!(holds(&view, child), "the child's container is inside");
+
+        // Scattered far apart is still one fence: it is the bounding box of wherever the members
+        // ended up, so it grows to reach them rather than leaving one outside.
+        let snug = view.mission_bounds(&work, mission);
+        view.layout.place_task(child, (4_000.0, 3_000.0));
+        let wide = view.mission_bounds(&work, mission);
+        assert!(
+            wide.2 > snug.2 && wide.3 > snug.3,
+            "the fence grew round the moved container: {wide:?} from {snug:?}"
+        );
+        assert!(holds(&view, child), "and still holds it");
+    }
+
+    /// **A mission with no agent still draws its handle** (M15), so it can be moved and dropped
+    /// onto — an empty union would otherwise be no fence at all.
+    #[test]
+    fn a_mission_with_nobody_on_it_keeps_a_minimum_fence() {
+        let anchor = a_task(None);
+        let work = WorkProjection {
+            sessions: Vec::new(),
+            agents: Vec::new(),
+            tasks: vec![anchor.clone()],
+            loaded: true,
+        };
+        let mut view = TeamsView::default();
+        view.missions.insert(anchor.id, Vec::new());
+
+        let (_, _, w, h) = view.mission_bounds(&work, anchor.id);
+        assert_eq!((w, h), MISSION_MIN);
+    }
+
+    /// The handle translates everything inside: every container comes along by its origin, which is
+    /// the same move a task container's own ground drag already makes.
+    #[test]
+    fn dragging_the_handle_moves_every_card_inside() {
+        let (mut view, work, mission) = a_mission();
+        let before: Vec<(f32, f32)> = work.agents.iter().map(|a| view.at(a)).collect();
+        let (x, y, _, _) = view.mission_bounds(&work, mission);
+
+        view.start_carry(TeamsHeld::Mission(mission), (0.0, 0.0));
+        view.carry_to(&work, (x + 300.0, y + 200.0), None, Instant::now(), None);
+
+        for (agent, was) in work.agents.iter().zip(before) {
+            let now = view.at(agent);
+            assert!(
+                (now.0 - was.0 - 300.0).abs() < 0.5 && (now.1 - was.1 - 200.0).abs() < 0.5,
+                "every card moved by the one translation: {now:?} from {was:?}"
+            );
+        }
+    }
+
+    /// A card let go on the mission's open ground — inside the fence, in no child's container —
+    /// joins the mission itself, which is its anchor task (M15). Out on open ground is still a
+    /// no-op.
+    #[test]
+    fn a_card_dropped_in_the_fence_attaches_to_the_mission() {
+        let (mut view, work, mission) = a_mission();
+        let loose = work
+            .agents
+            .iter()
+            .find(|a| a.task != Some(mission))
+            .unwrap()
+            .id;
+        let (x, y, w, _) = view.mission_bounds(&work, mission);
+
+        // The band along the top of the fence is inside it and inside no container.
+        view.start_carry(TeamsHeld::Agent(loose), (0.0, 0.0));
+        view.carry_to(
+            &work,
+            (
+                x + w / 2.0 - CARD_WIDTH / 2.0,
+                y - TEAMS_CARD_HEIGHT / 2.0 + MISSION_BAND / 2.0,
+            ),
+            None,
+            Instant::now(),
+            None,
+        );
+        assert_eq!(
+            view.carry.as_ref().and_then(|carry| carry.over),
+            Some(mission),
+            "the drop names the anchor task, which is what attaching to the mission is"
+        );
+
+        view.carry_to(&work, (9_000.0, 9_000.0), None, Instant::now(), None);
+        assert_eq!(
+            view.carry.as_ref().and_then(|carry| carry.over),
+            None,
+            "open ground stays a no-op"
+        );
+    }
+
+    /// The Missions filter narrows the canvas the way the session row does: the cards on the
+    /// missions named and nothing else, and "show everything" puts it back.
+    #[test]
+    fn the_missions_filter_narrows_the_canvas() {
+        let (mut view, work, mission) = a_mission();
+        let session = SessionId::generate();
+        let outsider = an_agent(session, None);
+
+        assert!(view.visible(&outsider), "no filter is everything");
+
+        view.toggle_mission(mission);
+        assert!(view.filtered());
+        assert!(
+            work.agents.iter().all(|agent| view.visible(agent)),
+            "the mission's own cards stay"
+        );
+        assert!(
+            !view.visible(&outsider),
+            "a card on no mission is narrowed away"
+        );
+
+        view.clear_filters();
+        assert!(view.visible(&outsider));
         assert!(!view.filtered());
     }
 }

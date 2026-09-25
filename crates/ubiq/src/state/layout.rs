@@ -50,6 +50,21 @@ pub const TEAMS_CARD_HEIGHT: f32 = CARD_HEIGHT - 16.0;
 pub const GROUP_PAD: f32 = 22.0;
 pub const GROUP_LABEL: f32 = 26.0;
 
+/// The mission fence's band: the strip along the top of the fence that the handle and the
+/// coordinator are drawn in (`mission-proposal.md` M15, the coordinator band at the mission
+/// scale). It sits above everything the fence encloses, which is why the fence's top edge is this
+/// much further up than a task container's [`GROUP_LABEL`].
+pub const MISSION_BAND: f32 = 34.0;
+
+/// The handle block itself — the mission term, the key, the short title, the phase and the
+/// hexagon, in one grabbable slab at the band's left.
+pub const MISSION_HANDLE: (f32, f32) = (252.0, 26.0);
+
+/// What a mission fence measures with nothing inside it. **A mission with no agent still draws its
+/// handle** (M15), so it can be moved and can be dropped onto — a fence derived from an empty
+/// union would be no fence at all.
+pub const MISSION_MIN: (f32, f32) = (CARD_WIDTH + GROUP_PAD * 2.0, MISSION_BAND + GROUP_PAD * 2.0);
+
 /// What the automatic arrangement leaves between cards, between containers, and round the lot.
 pub const CARD_GAP_X: f32 = 32.0;
 pub const CARD_GAP_Y: f32 = 44.0;
@@ -1528,6 +1543,7 @@ mod tests {
             level: None,
             parent: None,
             references: Vec::new(),
+            prerequisites: Vec::new(),
             attachments: Vec::new(),
             complexity: None,
             key: None,

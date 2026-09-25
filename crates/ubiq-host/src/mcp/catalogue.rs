@@ -36,6 +36,14 @@ pub const USE_TASK: &str = "use-task";
 /// with plan tools added — see `_docs/wip/planning-system.md` decision 7.
 pub const UBIQ_PLAN: &str = "ubiq-plan";
 
+/// The slug of the server a mission's **coordinator** runs the mission from (M16).
+pub const UBIQ_MISSION: &str = "ubiq-mission";
+
+/// The slug of the thinner server a mission's **workers** read it through — the same `manage` /
+/// `use` split [`MANAGE_UBIQ_TASKS`] and [`USE_TASK`] already have, and for its reason: a worker
+/// reads the mission and reports its own progress, it does not run it.
+pub const USE_MISSION: &str = "use-mission";
+
 /// The slug of the server that reads and writes this project's knowledge base.
 pub const UBIQ_KB: &str = "ubiq-kb";
 
@@ -102,6 +110,83 @@ const DELETE_TODO: ToolSpec = ToolSpec {
         },
         "required": ["task_id", "todo_id"]
     }"#,
+};
+
+/// The mission tools both servers answer: everything an agent in a mission **reads**, plus the
+/// one line it writes about its own work. Shared for the todo tools' own reason — two tables
+/// describing one tool is two descriptions that drift.
+///
+/// **None of them takes a mission argument.** Which mission the caller is in comes from its
+/// `AgentFacts::mission`, resolved from the URL identity (M11, `D102`); an agent in no mission is
+/// answered with a sentence saying so, not an error.
+const MISSION_OVERVIEW: ToolSpec = ToolSpec {
+    name: "mission_overview",
+    description: "Everything about the mission you are in, at a glance: its phase, the brief, who is on it, how its tasks stand, which documents exist, what is waiting on the user, and the last few journal lines. Call this first.",
+    schema: r#"{"type": "object", "properties": {}}"#,
+};
+const READ_BRIEF: ToolSpec = ToolSpec {
+    name: "read_brief",
+    description: "The mission's brief: the anchor task's title, key and description, its attachments, and the titles and keys of the tasks it references. What the mission is for, in the words it was written with.",
+    schema: r#"{"type": "object", "properties": {}}"#,
+};
+const LIST_DOCUMENTS: ToolSpec = ToolSpec {
+    name: "list_documents",
+    description: "The names of the mission's documents. The plan is not one of them — read that with ubiq-plan's read_plan.",
+    schema: r#"{"type": "object", "properties": {}}"#,
+};
+const READ_DOCUMENT: ToolSpec = ToolSpec {
+    name: "read_document",
+    description: "One mission document, whole, with the revision it stands at. A document that does not exist reads as an empty body rather than an error.",
+    schema: r#"{
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "A name from list_documents, without the .md."}
+        },
+        "required": ["name"]
+    }"#,
+};
+const REPORT_PROGRESS: ToolSpec = ToolSpec {
+    name: "report_progress",
+    description: "Write one line into the mission's journal saying what you have just done or found. The person watching reads these; write them as you go rather than in a batch at the end.",
+    schema: r#"{
+        "type": "object",
+        "properties": {
+            "text": {"type": "string", "description": "One sentence, in the past tense."},
+            "task_id": {"type": "string", "description": "The task it is about, if it is about one."}
+        },
+        "required": ["text"]
+    }"#,
+};
+/// What one task in a mission's breakdown says — shared by `create_mission_task` and each entry of
+/// `create_mission_tasks`, so the singular and the batch can never drift apart.
+const MISSION_TASK_SCHEMA: &str = r#"{
+    "type": "object",
+    "properties": {
+        "title": {"type": "string", "description": "What the task is, in a line."},
+        "description": {"type": "string", "description": "What doing it involves."},
+        "todos": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "The steps, in order. Each becomes a todo on the task."
+        },
+        "labels": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "What kind of work it is, in the board's own label vocabulary. In auto mode this is what decides which agent gets the task."
+        },
+        "kind": {"type": "string", "description": "The agent kind this task suits, from list_agent_kinds. The scheduler spawns this kind for it."},
+        "prerequisites": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "What this task waits on: a task id, or the key of a task that already exists. It is not ready until every one of them is in review or done."
+        }
+    },
+    "required": ["title"]
+}"#;
+const LIST_AGENTS: ToolSpec = ToolSpec {
+    name: "list_agents",
+    description: "Who is on the mission: each member's id, role, the task it is serving and what it is doing.",
+    schema: r#"{"type": "object", "properties": {}}"#,
 };
 
 /// Every server this build can inject, in the order a panel lists them.
@@ -213,6 +298,10 @@ pub const SERVERS: &[ServerSpec] = &[
                             "type": "integer",
                             "minimum": 1,
                             "description": "How many tasks to return. Defaults to 10, capped at 100."
+                        },
+                        "ready_only": {
+                            "type": "boolean",
+                            "description": "Only tasks whose prerequisites are all in review or done, or that have none. Omit or false for all."
                         }
                     }
                 }"#,
@@ -284,6 +373,11 @@ pub const SERVERS: &[ServerSpec] = &[
                                 ]
                             },
                             "description": "Files and knowledge-base documents to hang on the card, as references not content. Each is a project-relative path (docs/spec.md) or a knowledge-base address (kb:{source}:{path}), optionally with a label."
+                        },
+                        "prerequisites": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Task ids this one waits on. It is not ready until every one of them is in review or done. A self, cross-project or cyclic prerequisite is refused."
                         }
                     },
                     "required": ["title"]
@@ -336,6 +430,11 @@ pub const SERVERS: &[ServerSpec] = &[
                                 ]
                             },
                             "description": "The full attachment set, replaced — send every one the card should have. Each is a project-relative path (docs/spec.md) or a knowledge-base address (kb:{source}:{path}), optionally with a label. Omit or null to leave them alone; [] clears them."
+                        },
+                        "prerequisites": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "The full prerequisite set, replaced — send every task id this one should wait on. Omit or null to leave them alone; [] clears them. A self, cross-project or cyclic prerequisite is refused."
                         }
                     },
                     "required": ["task_id"]
@@ -416,6 +515,10 @@ pub const SERVERS: &[ServerSpec] = &[
                             "type": "integer",
                             "minimum": 1,
                             "description": "How many tasks to return. Defaults to 10, capped at 100."
+                        },
+                        "ready_only": {
+                            "type": "boolean",
+                            "description": "Only tasks whose prerequisites are all in review or done, or that have none. Omit or false for all."
                         }
                     }
                 }"#,
@@ -788,6 +891,130 @@ pub const SERVERS: &[ServerSpec] = &[
                 "required": ["questions"]
             }"#,
         }],
+    },
+    ServerSpec {
+        name: UBIQ_MISSION,
+        title: "Run the mission",
+        description: "The mission you are coordinating: its phase, brief, roster, tasks, documents and journal. Use it to read where the mission stands, write its documents, create its tasks, keep the person watching informed, and ask for the phase to move when a stage is done. The mission is resolved from who you are — no call here takes a mission id.",
+        tools: &[
+            MISSION_OVERVIEW,
+            READ_BRIEF,
+            LIST_DOCUMENTS,
+            READ_DOCUMENT,
+            ToolSpec {
+                name: "write_document",
+                description: "Create or replace one of the mission's documents. Pass expected_revision with the revision read_document gave you, and the write is refused if anything changed underneath — read it again, redo your edit, and write with the revision the refusal names. Omit it only for a document nobody has written yet.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "A bare name, no path and no .md — e.g. 'architecture'."},
+                        "body": {"type": "string", "description": "The whole document, as Markdown. This replaces what is there."},
+                        "expected_revision": {"type": "integer", "minimum": 0, "description": "The revision you read. Omit for a document that does not exist yet."}
+                    },
+                    "required": ["name", "body"]
+                }"#,
+            },
+            ToolSpec {
+                name: "create_mission_task",
+                description: "Create one task inside the mission, as a child of its anchor. Give it todos if the work splits into steps. Returns the task's id and the key a person says out loud. Writing a whole breakdown? Use create_mission_tasks instead — one call, and a task can wait on another in the same call.",
+                schema: MISSION_TASK_SCHEMA,
+            },
+            ToolSpec {
+                name: "create_mission_tasks",
+                description: "Write the mission's whole work breakdown in one call. Each task may wait on tasks created earlier in the same call: give an entry a short 'ref' and name that ref in a later entry's 'prerequisites'. Label every task for affinity (area, component, skill) — in auto mode the scheduler hands a task to the agent whose past tasks share its labels, so the labels are what decides who works on what. Keep each task small enough for one agent. Tasks are created in the order given; the answer names what was created and anything that failed, so a second call can fill the gaps.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "tasks": {
+                            "type": "array",
+                            "description": "The breakdown, in order. An entry may name an earlier entry's ref as a prerequisite.",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "title": {"type": "string", "description": "What the task is, in a line."},
+                                    "description": {"type": "string", "description": "What doing it involves."},
+                                    "ref": {"type": "string", "description": "A short name for this entry, used only inside this call so later entries can wait on it. It is not written down anywhere."},
+                                    "todos": {"type": "array", "items": {"type": "string"}, "description": "The steps, in order. Each becomes a todo on the task."},
+                                    "labels": {"type": "array", "items": {"type": "string"}, "description": "What kind of work it is, in the board's own label vocabulary. This is what affinity is computed from."},
+                                    "kind": {"type": "string", "description": "The agent kind this task suits, from list_agent_kinds. The scheduler spawns this kind for it."},
+                                    "prerequisites": {"type": "array", "items": {"type": "string"}, "description": "What this task waits on: a task id, the key of a task that already exists, or the ref of an entry earlier in this same call. It is not ready until every one of them is in review or done."}
+                                },
+                                "required": ["title"]
+                            }
+                        }
+                    },
+                    "required": ["tasks"]
+                }"#,
+            },
+            REPORT_PROGRESS,
+            ToolSpec {
+                name: "request_phase",
+                description: "Ask for the mission to move to another phase, with a summary of why. Some moves happen at once and some wait for the user to confirm; the answer says which happened. Do not ask twice — a second request replaces the first.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "phase": {
+                            "type": "string",
+                            "enum": ["requirements", "refining", "in progress", "completed", "abandoned"],
+                            "description": "The phase to move to."
+                        },
+                        "summary": {"type": "string", "description": "Why, in a sentence or two. The user reads this before answering."}
+                    },
+                    "required": ["phase"]
+                }"#,
+            },
+            ToolSpec {
+                name: "list_agent_kinds",
+                description: "The kinds of agent this mission can spawn, each with a description of what it is for. Read this before spawn_agent and ask for one by name. An empty list means nobody has set the mission's agent kinds up yet — say what you need and why, and a person will.",
+                schema: r#"{"type": "object", "properties": {}}"#,
+            },
+            ToolSpec {
+                name: "spawn_agent",
+                description: "Ask the mission for another agent, of one of the kinds list_agent_kinds names. This returns a request id straight away and does NOT wait: the person watching decides whether it is launched, and may change the kind first. You will be told the outcome, including which kind was actually used, as a later message — carry on with something else until then. Do not ask twice for the same work.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "kind": {"type": "string", "description": "A kind from list_agent_kinds, by name. Omit for the mission's default kind. Use 'custom' only with a profile."},
+                        "profile": {"type": "string", "description": "A saved profile, for kind 'custom' only. Never a harness, an account or anything secret."},
+                        "task_id": {"type": "string", "description": "The task this agent is for, if there is one."},
+                        "prompt": {"type": "string", "description": "What to tell it when it starts — the whole of what it needs to begin."},
+                        "reason": {"type": "string", "description": "Why you need it, in a sentence. The person reads this before answering."}
+                    },
+                    "required": ["prompt", "reason"]
+                }"#,
+            },
+            LIST_AGENTS,
+            ToolSpec {
+                name: "message_agent",
+                description: "Put a line in another mission member's thread. It reads it as its next prompt, or when it finishes what it is doing. Only agents on the mission's roster can be messaged.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "agent_id": {"type": "string", "description": "An agent id from list_agents."},
+                        "text": {"type": "string", "description": "What to say to it."}
+                    },
+                    "required": ["agent_id", "text"]
+                }"#,
+            },
+            ToolSpec {
+                name: "read_feedback",
+                description: "What the user has said to the mission since you last asked. Empty when there is nothing new. Read it between pieces of work — it is how the person watching steers you.",
+                schema: r#"{"type": "object", "properties": {}}"#,
+            },
+        ],
+    },
+    ServerSpec {
+        name: USE_MISSION,
+        title: "Use the mission",
+        description: "The mission you are working in: what it is for, where it has got to, who else is on it, and what has been written down. Read it before you start, and report your progress as you go. You do not run the mission — its coordinator does.",
+        tools: &[
+            MISSION_OVERVIEW,
+            READ_BRIEF,
+            LIST_DOCUMENTS,
+            READ_DOCUMENT,
+            REPORT_PROGRESS,
+            LIST_AGENTS,
+        ],
     },
 ];
 

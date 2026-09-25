@@ -12,6 +12,7 @@ use gpui_component::{Icon, IconName, Sizable as _, Size};
 use ubiq_proto::work::{Activity, Bucket};
 
 use crate::state::status::{Doing, Lifecycle, Status};
+use crate::state::work::WorkState;
 use crate::theme;
 use crate::ui::kit::UbiqIcon;
 
@@ -29,6 +30,26 @@ pub fn bucket_colour(bucket: Bucket) -> Rgba {
         Bucket::Ended => theme::text_faint(),
         Bucket::Error => theme::danger(),
     }
+}
+
+/// The worst thing happening in a group of executions: an error over a wait over movement over
+/// nothing.
+///
+/// **One rule, two readers.** A folded session's left bar (`ui/agents/sidebar.rs`) and a mission's
+/// hexagon (M6) both say "what would you want to be told first about everything in here", and a
+/// rule read in two places is a rule that drifts — so it is answered here, once, beside the colour
+/// it resolves to. An empty group answers [`Bucket::Ended`]: there is nothing happening in it.
+pub fn worst_bucket(buckets: impl IntoIterator<Item = Bucket>) -> Bucket {
+    let mut worst = Bucket::Ended;
+    for bucket in buckets {
+        match bucket {
+            Bucket::Error => return Bucket::Error,
+            Bucket::Waiting => worst = Bucket::Waiting,
+            Bucket::Running if worst != Bucket::Waiting => worst = Bucket::Running,
+            _ => {}
+        }
+    }
+    worst
 }
 
 /// The glyph a role wears. Four names carry a shape of their own — drawn rather than borrowed, so
@@ -81,6 +102,37 @@ pub fn status_colour(status: Status) -> Rgba {
     match status.doing {
         Doing::Unknown => lifecycle_colour(status.lifecycle),
         doing => doing_colour(doing),
+    }
+}
+
+/// What a [`WorkState`] reads as: the strong token a dot, a segment or a left edge takes, and the
+/// soft one behind it (M26).
+///
+/// Two states have one colour rather than two — *in review* is `accent_muted` and *abandoned* is
+/// `text_muted`, both already the muted end of their own pair — so the soft half repeats them.
+/// Nothing here is new: every token below already has a value in both palettes.
+pub fn work_state_colour(state: WorkState) -> Rgba {
+    match state {
+        WorkState::Blocked => theme::danger(),
+        WorkState::Waiting => theme::warning(),
+        WorkState::Ready => theme::info(),
+        WorkState::InProgress => theme::accent(),
+        WorkState::InReview => theme::accent_muted(),
+        WorkState::Done => theme::success(),
+        WorkState::Abandoned => theme::text_muted(),
+    }
+}
+
+/// The soft half of the pair above — the fill under a chip, a tint on a row.
+pub fn work_state_soft(state: WorkState) -> Rgba {
+    match state {
+        WorkState::Blocked => theme::danger_soft(),
+        WorkState::Waiting => theme::warning_soft(),
+        WorkState::Ready => theme::info_soft(),
+        WorkState::InProgress => theme::accent_soft(),
+        WorkState::InReview => theme::accent_muted(),
+        WorkState::Done => theme::success_soft(),
+        WorkState::Abandoned => theme::text_muted(),
     }
 }
 

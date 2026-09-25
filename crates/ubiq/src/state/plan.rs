@@ -16,6 +16,11 @@
 //! same orphaning rule host-side; what differs is only where the body and its sidecar sit, and the
 //! host answers that from the handle. A plan's annotations also reach the agents through
 //! `ubiq-plan`; a file's simply sit there, until a later card gives them a reader.
+//!
+//! **The third kind is a mission document beyond the plan** (M8) — [`mission_doc_document`]. Same
+//! family again, same reason: the host resolves one more path, under the mission's own `docs/`
+//! subtree, and everything above it — annotations, provenance, the conflict rule, this surface —
+//! comes along unchanged.
 
 use ubiq_proto::ids::{ProjectId, TaskId};
 
@@ -37,5 +42,20 @@ pub fn file_document(project_id: ProjectId, rel_path: impl Into<String>) -> Docu
     DocumentHandle::File {
         project_id,
         rel_path: rel_path.into(),
+    }
+}
+
+/// A mission document beyond the plan, as a document handle (M8). `name` is a bare document name
+/// — flat, never a path — and the host refuses one for a task that does not exist or is not a
+/// mission.
+pub fn mission_doc_document(
+    project_id: ProjectId,
+    task_id: TaskId,
+    name: impl Into<String>,
+) -> DocumentHandle {
+    DocumentHandle::MissionDoc {
+        project_id,
+        task_id,
+        name: name.into(),
     }
 }

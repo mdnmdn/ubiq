@@ -79,6 +79,15 @@ impl AppState {
 
         let task_title_input = cx.new(|cx| InputState::new(window, cx).placeholder("Task title"));
 
+        // The two mission feedback composers. Their placeholder is generic: the project's own word
+        // for a mission is a per-project fact and the field belongs to the window.
+        let mission_feedback_input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("Feedback to the coordinator\u{2026}")
+        });
+        let mission_feedback_tab_input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("Feedback to the coordinator\u{2026}")
+        });
+
         // The one field in the window that must not submit on Enter: a newline is a paragraph
         // break in Markdown, so Save is a button rather than a key.
         let task_description_input = cx.new(|cx| {
@@ -113,6 +122,10 @@ impl AppState {
             cx.new(|cx| InputState::new(window, cx).placeholder("Add a comment\u{2026}"));
 
         let task_reference_query = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("Search title, notes, todos\u{2026}")
+        });
+
+        let task_prerequisite_query = cx.new(|cx| {
             InputState::new(window, cx).placeholder("Search title, notes, todos\u{2026}")
         });
 
@@ -360,6 +373,14 @@ impl AppState {
                 .placeholder("Describe the mission in Markdown\u{2026}")
                 .auto_grow(3, 14)
         });
+        // The plan a mission may be started from, and the linked-task picker's filter.
+        let new_mission_plan_input = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .placeholder("Paste a plan in Markdown\u{2026}")
+                .auto_grow(3, 12)
+        });
+        let new_mission_task_query =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Search tasks\u{2026}"));
         // The opening prompt, for the New agent modal and the profile form alike. Seeded when
         // either opens: empty for a bare harness, the profile's own words when one is picked.
         let new_agent_prompt = cx.new(|cx| {
@@ -834,6 +855,23 @@ impl AppState {
             },
         ));
 
+        // Enter sends the mission's feedback, at whichever mission was last put in front of the
+        // reader. Nothing mirrors what is typed — the field is read at the send.
+        for (input, panel) in [
+            (&mission_feedback_input, true),
+            (&mission_feedback_tab_input, false),
+        ] {
+            subscriptions.push(cx.subscribe_in(
+                input,
+                window,
+                move |this, _, event: &InputEvent, window, cx| {
+                    if let InputEvent::PressEnter { shift: false, .. } = event {
+                        this.submit_mission_feedback(panel, window, cx);
+                    }
+                },
+            ));
+        }
+
         // The key and the link mirror and commit on the same contract as the title — Enter or the
         // ✓ beside them, never a blur.
         subscriptions.push(cx.subscribe_in(
@@ -1133,6 +1171,34 @@ impl AppState {
             },
         ));
 
+        // The plan seed and the linked-task filter, on the same contract as the two above.
+        subscriptions.push(cx.subscribe_in(
+            &new_mission_plan_input,
+            window,
+            |this, input, event: &InputEvent, _window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    let text = input.read(cx).value().to_string();
+                    if let Some(form) = this.workbench.new_mission.as_mut() {
+                        form.plan_seed = text;
+                    }
+                    cx.notify();
+                }
+            },
+        ));
+        subscriptions.push(cx.subscribe_in(
+            &new_mission_task_query,
+            window,
+            |this, input, event: &InputEvent, _window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    let text = input.read(cx).value().to_string();
+                    if let Some(form) = this.workbench.new_mission.as_mut() {
+                        form.task_query = text;
+                    }
+                    cx.notify();
+                }
+            },
+        ));
+
         subscriptions.push(cx.subscribe_in(
             &step_title_input,
             window,
@@ -1186,6 +1252,20 @@ impl AppState {
                     let text = input.read(cx).value().to_string();
                     if let Some(board) = this.board_mut(cx) {
                         board.form.reference_query = text;
+                    }
+                    cx.notify();
+                }
+            },
+        ));
+
+        subscriptions.push(cx.subscribe_in(
+            &task_prerequisite_query,
+            window,
+            |this, input, event: &InputEvent, _window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    let text = input.read(cx).value().to_string();
+                    if let Some(board) = this.board_mut(cx) {
+                        board.form.prerequisite_query = text;
                     }
                     cx.notify();
                 }
@@ -1435,6 +1515,8 @@ impl AppState {
             new_agent_prompt.read(cx).focus_handle(cx),
             new_mission_title_input.read(cx).focus_handle(cx),
             new_mission_description_input.read(cx).focus_handle(cx),
+            new_mission_plan_input.read(cx).focus_handle(cx),
+            new_mission_task_query.read(cx).focus_handle(cx),
             account_rename_input.read(cx).focus_handle(cx),
             connect_instance_input.read(cx).focus_handle(cx),
             connect_client_id_input.read(cx).focus_handle(cx),
@@ -1621,6 +1703,8 @@ impl AppState {
             picker_filter,
             task_filter,
             task_title_input,
+            mission_feedback_input,
+            mission_feedback_tab_input,
             task_description_input,
             task_key_input,
             task_link_input,
@@ -1630,6 +1714,7 @@ impl AppState {
             new_step_input,
             new_comment_input,
             task_reference_query,
+            task_prerequisite_query,
             annotation_composer_input,
             plan_editor,
             plan_marks: None,
@@ -1678,6 +1763,8 @@ impl AppState {
             new_agent_prompt,
             new_mission_title_input,
             new_mission_description_input,
+            new_mission_plan_input,
+            new_mission_task_query,
             account_rename_input,
             clone_filter_input,
             clone_url_input,
@@ -1721,6 +1808,7 @@ impl AppState {
             graph_scroll: ScrollHandle::new(),
             teams_scroll: ScrollHandle::new(),
             teamsim_scroll: ScrollHandle::new(),
+            mission_scroll: ScrollHandle::new(),
             nav: History::default(),
             nav_settling: false,
             bookmark_marks: HashMap::new(),
@@ -1728,6 +1816,7 @@ impl AppState {
             workbench_focus: cx.focus_handle(),
             agents_scroll: ScrollHandle::new(),
             task_reference_scroll: ScrollHandle::new(),
+            task_prerequisite_scroll: ScrollHandle::new(),
             plan_preview_list: gpui::ListState::new(
                 0,
                 gpui::ListAlignment::Top,

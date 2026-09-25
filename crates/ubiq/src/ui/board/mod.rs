@@ -40,6 +40,7 @@ use gpui_component::input::Input;
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use ubiq_proto::ids::TaskId;
+use ubiq_proto::mission::{MissionRecord, Phase};
 use ubiq_proto::work::{Level, Status, TaskRecord};
 
 use crate::app::AppState;
@@ -50,8 +51,8 @@ use crate::theme::{Family, Role};
 use crate::ui::eid;
 use crate::ui::empty;
 use crate::ui::kit::{
-    MultiPicker, UbiqIcon, card, field, ghost_button, icon_button, meter, mono, pill,
-    primary_button, section_label,
+    MultiPicker, Picker, PickerStyle, UbiqIcon, card, field, ghost_button, icon_button, meter,
+    mono, pill, primary_button, section_label, tag, toggle_pill,
 };
 use crate::ui::work::{activity_colour, bucket_colour};
 use crate::ui::{handler, indexed};
@@ -176,6 +177,81 @@ pub fn panel(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> Any
     }
 }
 
+/// One row of the board toolbar's mission filter (M27).
+struct MissionRow {
+    id: TaskId,
+    /// The mission term, its key and its title, and its phase — the row's own text, searched by
+    /// key and title (see [`board_mission_rows`]).
+    label: SharedString,
+    /// The key and title alone, without the term or the phase — what the closed trigger names.
+    name: SharedString,
+    dot: Rgba,
+    /// Completed or abandoned: sorted last, drawn muted, still pickable.
+    dim: bool,
+}
+
+/// The board toolbar's mission filter rows: the project's missions, searched by key and title,
+/// completed and abandoned sorted last. Read again by the picker's own `on_pick`, exactly as it
+/// was drawn — the rule every position-matched menu in this window follows.
+fn board_mission_rows(
+    app: &AppState,
+    work: &work::WorkProjection,
+    query: &str,
+    cx: &App,
+) -> Vec<MissionRow> {
+    let term = app.mission_term(cx);
+    let empty = std::collections::HashMap::new();
+    let missions: &std::collections::HashMap<TaskId, MissionRecord> = app
+        .open_project(cx)
+        .map(|open| &open.missions)
+        .unwrap_or(&empty);
+    let mut rows: Vec<(&TaskRecord, &MissionRecord)> = missions
+        .values()
+        .filter_map(|record| work.task(record.task_id).map(|task| (task, record)))
+        .filter(|(task, _)| {
+            query.is_empty()
+                || task.title.to_lowercase().contains(query)
+                || task
+                    .key
+                    .as_deref()
+                    .is_some_and(|key| key.to_lowercase().contains(query))
+        })
+        .collect();
+    rows.sort_by(|(a_task, a_rec), (b_task, b_rec)| {
+        let rank = |phase: Phase| matches!(phase, Phase::Completed | Phase::Abandoned) as u8;
+        rank(a_rec.phase)
+            .cmp(&rank(b_rec.phase))
+            .then_with(|| a_task.title.cmp(&b_task.title))
+    });
+    rows.into_iter()
+        .map(|(task, record)| {
+            let name = match &task.key {
+                Some(key) => SharedString::from(format!("{key} — {}", task.title)),
+                None => SharedString::from(task.title.clone()),
+            };
+            let label = SharedString::from(format!("{term} {name} · {}", record.phase.label()));
+            MissionRow {
+                id: task.id,
+                dim: matches!(record.phase, Phase::Completed | Phase::Abandoned),
+                dot: mission_phase_colour(record.phase),
+                name,
+                label,
+            }
+        })
+        .collect()
+}
+
+/// What a mission's phase reads as — the path colour while it is being walked, success once it
+/// is finished, and the muted token for one nobody is taking further.
+fn mission_phase_colour(phase: Phase) -> Rgba {
+    match phase {
+        Phase::Requirements | Phase::Refining => theme::info(),
+        Phase::InProgress => theme::accent(),
+        Phase::Completed => theme::success(),
+        Phase::Abandoned => theme::text_muted(),
+    }
+}
+
 /// The strip over the columns: what is being looked for, and the way to add one.
 ///
 /// Every filter on it clears. A label row with nothing lit is not filtering — so a board emptied
@@ -223,6 +299,79 @@ fn toolbar(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl 
             }
         }));
 
+    // The mission filter (M27): single choice, unlike the tags picker beside it — a task belongs
+    // to at most one mission, so ticking two would mean OR while the labels picker means AND, and
+    // a `kit::MultiPicker` here would read two ways in one toolbar.
+    let mission_query = if app.workbench.open_menu == Some(MenuId::BoardMission) {
+        app.picker_search.read(cx).value().trim().to_lowercase()
+    } else {
+        String::new()
+    };
+    let mission_rows = board_mission_rows(app, work, &mission_query, cx);
+    let mission_items: Vec<SharedString> = std::iter::once(SharedString::from("All tasks"))
+        .chain(mission_rows.iter().map(|row| row.label.clone()))
+        .collect();
+    let mission_dots: Vec<Option<Rgba>> = std::iter::once(None)
+        .chain(mission_rows.iter().map(|row| Some(row.dot)))
+        .collect();
+    let mission_dim: Vec<usize> = mission_rows
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| row.dim)
+        .map(|(ix, _)| ix + 1)
+        .collect();
+    let mission_selected = match board.mission {
+        None => Some(0),
+        Some(id) => mission_rows
+            .iter()
+            .position(|row| row.id == id)
+            .map(|ix| ix + 1),
+    };
+    let mission_trigger = match board.mission {
+        None => SharedString::from("all missions"),
+        Some(id) => mission_rows
+            .iter()
+            .find(|row| row.id == id)
+            .map(|row| row.name.clone())
+            .unwrap_or_else(|| SharedString::from("all missions")),
+    };
+    let mission_search_focused = app
+        .picker_search
+        .read(cx)
+        .focus_handle(cx)
+        .is_focused(window);
+    let mut mission_picker = Picker::new("board-mission", mission_trigger)
+        .style(PickerStyle::Chip)
+        .items(mission_items)
+        .dots(mission_dots)
+        .dim(mission_dim)
+        .open(app.workbench.open_menu == Some(MenuId::BoardMission))
+        .search(&app.picker_search, mission_search_focused)
+        .on_toggle(handler(&view, |this, window, cx| {
+            this.open_board_mission_menu(window, cx)
+        }))
+        .on_dismiss(handler(&view, |this, _, cx| this.close_menu(cx)))
+        // The list is read again here, exactly as it was drawn — the rule every
+        // position-matched menu in this window follows.
+        .on_pick(indexed(&view, |this, index, _, cx| {
+            if index == 0 {
+                this.pick_board_mission(None, cx);
+                return;
+            }
+            let query = this.picker_search.read(cx).value().trim().to_lowercase();
+            let id = this.work(cx).and_then(|work| {
+                board_mission_rows(this, work, &query, cx)
+                    .get(index - 1)
+                    .map(|row| row.id)
+            });
+            if let Some(id) = id {
+                this.pick_board_mission(Some(id), cx);
+            }
+        }));
+    if let Some(ix) = mission_selected {
+        mission_picker = mission_picker.selected(ix);
+    }
+
     div()
         .min_h(px(theme::titlebar_height()))
         .px_3()
@@ -241,8 +390,17 @@ fn toolbar(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl 
                 .min_w(px(0.))
                 .flex()
                 .items_center()
-                .child(tags),
+                .gap_2()
+                .child(tags)
+                .child(mission_picker),
         )
+        .child(toggle_pill(
+            "board-ready-only",
+            "Ready only",
+            theme::warning(),
+            board.ready_only,
+            cx.listener(|this, _, _, cx| this.toggle_board_ready_only(cx)),
+        ))
         .children(board.filtering().then(|| {
             ghost_button(
                 "board-show-all",
@@ -638,6 +796,31 @@ fn chip(label: impl Into<SharedString>, colour: Rgba) -> impl IntoElement {
         .child(mono(label, colour).text_size(theme::font(Family::Chrome, Role::Micro)))
 }
 
+/// A not-ready card's mark — M20's derived readiness, `TaskRecord::waiting_on`, not
+/// `Status::Blocked`: a card can be both, and this carries no opinion about the other. Muted
+/// (`warning`/`warning_soft`) and gains no pulse of its own — the left edge still owns the
+/// card's one colour statement. `kit::tag`, whose click the card's own click already covers: the
+/// tooltip names what it waits on, and opening the task shows the same keys in full on its
+/// Prerequisites fact.
+fn waits_on_chip(id: TaskId, waiting: &[TaskId], work: &work::WorkProjection) -> AnyElement {
+    let keys: Vec<String> = waiting
+        .iter()
+        .filter_map(|wid| work.task(*wid))
+        .map(|task| task.key.clone().unwrap_or_else(|| task.title.clone()))
+        .collect();
+    tag(
+        eid("board-task-waits-on", id),
+        format!("waits on {}", waiting.len()),
+        format!("waits on {}", keys.join(", ")),
+        theme::warning_soft(),
+        theme::warning(),
+        theme::warning(),
+        false,
+        |_, _, cx| cx.stop_propagation(),
+    )
+    .into_any_element()
+}
+
 /// One card. Its left edge carries the worst thing happening in the task, because that is what is
 /// read from across a column; everything finer than that is the panel's job.
 ///
@@ -663,6 +846,9 @@ fn task_card(
     let selected = board.selected == Some(id) && board.show_detail;
     let folded = board.is_folded(id);
     let carried = board.carry.is_some_and(|carry| carry.task == id);
+    // Not-ready, M20's derived readiness — not `Status::Blocked`, which is what a person says
+    // rather than what the prerequisite graph says. A card can carry both marks at once.
+    let waiting = task.waiting_on(&work.tasks);
     // A drop the host has not answered yet. The card goes muted rather than moving, because the
     // column it is in is the host's answer and this one has not arrived.
     let moving = board.is_moving(id);
@@ -695,6 +881,9 @@ fn task_card(
                     let count = work.child_count(id);
                     (count > 0).then(|| chip(format!("{count}"), theme::text_muted()))
                 })
+                // Not ready, ahead of the labels: what a person reads first is what nobody can
+                // start on yet.
+                .children((!waiting.is_empty()).then(|| waits_on_chip(id, &waiting, &work)))
                 // What the task is called elsewhere, what kind of work it is and what it is
                 // labelled: three facts a card draws only where somebody has filled them in. A
                 // card with none of them is a title and its marks, which is what most of them are.
@@ -768,7 +957,11 @@ fn task_card(
         .child(
             div()
                 .text_size(theme::font(Family::Chrome, Role::Body))
-                .text_color(theme::text())
+                .text_color(if waiting.is_empty() {
+                    theme::text()
+                } else {
+                    theme::text_muted()
+                })
                 .child(title),
         )
         .children(shape_line(app, task, view, window, cx));

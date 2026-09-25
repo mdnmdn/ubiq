@@ -32,7 +32,7 @@ use ubiq_proto::bus::Voice;
 
 use super::catalogue::{self, ServerSpec};
 use super::registry::{AgentFacts, Registry};
-use super::{AskReach, HelpReach, KbReach, PlanReach, WorkAccess};
+use super::{AskReach, HelpReach, KbReach, MissionReach, PlanReach, WorkAccess};
 
 /// How often the serving thread wakes to check whether it should stop. Bounds shutdown latency
 /// without needing to unblock the listener.
@@ -95,6 +95,7 @@ pub fn start(
     voice: Voice,
     work: Option<WorkAccess>,
     plan: Option<PlanReach>,
+    mission: Option<MissionReach>,
     kb: Option<KbReach>,
     help: Option<HelpReach>,
     ask: Option<AskReach>,
@@ -118,6 +119,7 @@ pub fn start(
                 voice,
                 work,
                 plan,
+                mission,
                 kb,
                 help,
                 ask,
@@ -147,6 +149,7 @@ fn serve(
     voice: Voice,
     work: Option<WorkAccess>,
     plan: Option<PlanReach>,
+    mission: Option<MissionReach>,
     kb: Option<KbReach>,
     help: Option<HelpReach>,
     ask: Option<AskReach>,
@@ -160,6 +163,7 @@ fn serve(
                 &voice,
                 work.as_ref(),
                 plan.as_ref(),
+                mission.as_ref(),
                 kb.as_ref(),
                 help.as_ref(),
                 ask.as_ref(),
@@ -179,6 +183,7 @@ fn handle(
     voice: &Voice,
     work: Option<&WorkAccess>,
     plan: Option<&PlanReach>,
+    mission: Option<&MissionReach>,
     kb: Option<&KbReach>,
     help: Option<&HelpReach>,
     ask: Option<&AskReach>,
@@ -240,7 +245,7 @@ fn handle(
             .name("ubiq-ask-call".to_string())
             .spawn(move || {
                 let result = dispatch(
-                    "tools/call", params, spec, &facts, &voice, None, None, None, None,
+                    "tools/call", params, spec, &facts, &voice, None, None, None, None, None,
                     Some(&reach),
                 );
                 let response = match result {
@@ -259,7 +264,7 @@ fn handle(
     }
 
     let response = match dispatch(
-        method, params, spec, &facts, voice, work, plan, kb, help, ask,
+        method, params, spec, &facts, voice, work, plan, mission, kb, help, ask,
     ) {
         Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
         Err((code, message)) => {
@@ -300,6 +305,7 @@ fn dispatch(
     voice: &Voice,
     work: Option<&WorkAccess>,
     plan: Option<&PlanReach>,
+    mission: Option<&MissionReach>,
     kb: Option<&KbReach>,
     help: Option<&HelpReach>,
     ask: Option<&AskReach>,
@@ -318,7 +324,7 @@ fn dispatch(
                 .cloned()
                 .unwrap_or_else(|| json!({}));
             match super::tools::call(
-                spec.name, name, &arguments, facts, voice, work, plan, kb, help, ask,
+                spec.name, name, &arguments, facts, voice, work, plan, mission, kb, help, ask,
             ) {
                 Ok(value) => {
                     let text = serde_json::to_string(&value).unwrap_or_default();
@@ -375,6 +381,7 @@ mod tests {
 
     fn facts() -> AgentFacts {
         AgentFacts {
+            mission: None,
             key: KEY.to_string(),
             name: "claude 1".to_string(),
             harness: "Claude Code".to_string(),
@@ -401,7 +408,7 @@ mod tests {
         let (hub, host) = bus::hub();
         let registry = Registry::new();
         registry.register(facts());
-        let serving = start(registry, host.voice(), None, None, None, None, None)
+        let serving = start(registry, host.voice(), None, None, None, None, None, None)
             .expect("the listener binds");
         (serving, hub, host)
     }
@@ -416,9 +423,19 @@ mod tests {
         let access = crate::mcp::WorkAccess {
             work,
             everyone: host.mailbox(ubiq_proto::bus::To::Everyone),
+            wake: host.voice(),
         };
-        let serving = start(registry, host.voice(), Some(access), None, None, None, None)
-            .expect("the listener binds");
+        let serving = start(
+            registry,
+            host.voice(),
+            Some(access),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .expect("the listener binds");
         (serving, hub, host)
     }
 
@@ -465,8 +482,17 @@ mod tests {
             plans: plans.clone(),
             everyone: host.mailbox(ubiq_proto::bus::To::Everyone),
         };
-        let serving = start(registry, host.voice(), None, Some(reach), None, None, None)
-            .expect("the listener binds");
+        let serving = start(
+            registry,
+            host.voice(),
+            None,
+            Some(reach),
+            None,
+            None,
+            None,
+            None,
+        )
+        .expect("the listener binds");
         (serving, hub, host, task, plans, dir)
     }
 
@@ -1270,8 +1296,17 @@ mod tests {
             kb: kb.clone(),
             everyone: host.mailbox(ubiq_proto::bus::To::Everyone),
         };
-        let serving = start(registry, host.voice(), None, None, Some(reach), None, None)
-            .expect("the listener binds");
+        let serving = start(
+            registry,
+            host.voice(),
+            None,
+            None,
+            None,
+            Some(reach),
+            None,
+            None,
+        )
+        .expect("the listener binds");
         (
             serving,
             hub,
@@ -1549,6 +1584,7 @@ mod tests {
         let serving = start(
             registry,
             host.voice(),
+            None,
             None,
             None,
             None,

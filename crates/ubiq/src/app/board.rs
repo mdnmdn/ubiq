@@ -267,7 +267,16 @@ impl AppState {
 
     /// What level the task sits at — a mission, or an ordinary task. An ordinary field, not fixed
     /// at creation: this promotes an existing task to a mission and demotes it back the same way.
+    ///
+    /// A demotion off `Level::Mission` clears the board's own mission filter if it was narrowed
+    /// to this task — the filter's whole reason to exist goes with the level.
     pub fn set_task_level(&mut self, level: Option<Level>, cx: &mut Context<Self>) {
+        if level != Some(Level::Mission) {
+            let task_id = self.open_task_form(cx).map(|(_, id, _)| id);
+            if let (Some(task_id), Some(board)) = (task_id, self.board_mut(cx)) {
+                board.clear_mission_if(task_id);
+            }
+        }
         self.set_task_field(TaskField::Level(level), cx);
     }
 
@@ -416,6 +425,65 @@ impl AppState {
             return;
         }
         self.set_task_field(TaskField::References(kept), cx);
+    }
+
+    /// Open the prerequisite picker fresh, `toggle_reference_picker`'s sibling.
+    pub fn toggle_prerequisite_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.workbench.open_menu == Some(MenuId::TaskPrerequisites) {
+            self.close_menu(cx);
+            return;
+        }
+        self.open_menu(MenuId::TaskPrerequisites, cx);
+        if let Some(board) = self.board_mut(cx) {
+            board.form.prerequisite_query.clear();
+        }
+        let input = self.task_prerequisite_query.clone();
+        input.update(cx, |state, cx| state.set_value("", window, cx));
+        self.task_prerequisite_scroll
+            .set_offset(gpui::Point::default());
+    }
+
+    /// Add a prerequisite to the open task, `add_task_reference`'s sibling.
+    pub fn add_task_prerequisite(&mut self, task_id: TaskId, cx: &mut Context<Self>) {
+        let Some((_, current, _)) = self.open_task_form(cx) else {
+            return;
+        };
+        let Some(mut prerequisites) = self
+            .work(cx)
+            .and_then(|work| work.task(current))
+            .map(|task| task.prerequisites.clone())
+        else {
+            return;
+        };
+        if task_id == current || prerequisites.contains(&task_id) {
+            return;
+        }
+        prerequisites.push(task_id);
+        self.close_menu(cx);
+        self.set_task_field(TaskField::Prerequisites(prerequisites), cx);
+    }
+
+    /// Take one task off the open task's prerequisite list, `remove_task_reference`'s sibling.
+    pub fn remove_task_prerequisite(&mut self, task_id: TaskId, cx: &mut Context<Self>) {
+        let Some((_, current, _)) = self.open_task_form(cx) else {
+            return;
+        };
+        let Some(prerequisites) = self
+            .work(cx)
+            .and_then(|work| work.task(current))
+            .map(|task| task.prerequisites.clone())
+        else {
+            return;
+        };
+        let before = prerequisites.len();
+        let kept: Vec<TaskId> = prerequisites
+            .into_iter()
+            .filter(|id| *id != task_id)
+            .collect();
+        if kept.len() == before {
+            return;
+        }
+        self.set_task_field(TaskField::Prerequisites(kept), cx);
     }
 
     /// Hang files or knowledge-base documents on a task, keeping the ones already there.
@@ -662,6 +730,7 @@ impl AppState {
         });
         if let Some(board) = self.board_mut(cx) {
             board.confirm_delete = false;
+            board.clear_mission_if(task_id);
         }
         cx.notify();
     }
@@ -762,9 +831,14 @@ impl AppState {
         cx.notify();
     }
 
+    /// Shut the task detail — the board's own panel, and the copy of it the mission's WBS draws
+    /// beside its graph. Both are one selection, so the close that reaches either clears it.
     pub fn close_task_detail(&mut self, cx: &mut Context<Self>) {
         if let Some(board) = self.board_mut(cx) {
             board.show_detail = false;
+        }
+        if let Some(open) = self.open_project_mut(cx) {
+            open.mission_view.selected = None;
         }
         cx.notify();
     }
@@ -783,6 +857,37 @@ impl AppState {
     pub fn toggle_board_label(&mut self, name: &str, cx: &mut Context<Self>) {
         if let Some(board) = self.board_mut(cx) {
             board.toggle_label(name);
+        }
+        cx.notify();
+    }
+
+    /// The toolbar's `Ready only` tick — M20's derived readiness, narrowed at
+    /// `BoardState::matches`.
+    pub fn toggle_board_ready_only(&mut self, cx: &mut Context<Self>) {
+        if let Some(board) = self.board_mut(cx) {
+            board.toggle_ready_only();
+        }
+        cx.notify();
+    }
+
+    /// Open the board toolbar's mission filter (M27), clearing and focusing the shared search
+    /// field the way every searchable picker in the window does on open.
+    pub fn open_board_mission_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_menu(MenuId::BoardMission, cx);
+        let search = self.picker_search.clone();
+        search.update(cx, |state, cx| {
+            state.set_value("", window, cx);
+            state.focus(window, cx);
+        });
+        cx.notify();
+    }
+
+    /// The board's mission filter (M27): narrow to one mission's anchor card and its children,
+    /// or back to every task. Single choice, not a set — reached from the toolbar's picker and
+    /// from a mission card's own *Show only this mission* row.
+    pub fn pick_board_mission(&mut self, mission: Option<TaskId>, cx: &mut Context<Self>) {
+        if let Some(board) = self.board_mut(cx) {
+            board.set_mission(mission);
         }
         cx.notify();
     }

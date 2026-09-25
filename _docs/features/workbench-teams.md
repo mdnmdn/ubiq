@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: The rail's two graph modes — `Teams`, scoped by a window span and drawing its cards' conversations in the dock, and `[Teams]`, the established screen kept beside it with its own inspector and composer — the twelve arrangements the canvas computes for itself, the hexagonal status mark, the filters, the drag model and the tasks drawer under both.
 read_when: you are changing the Teams or `[Teams]` screen — its graph, how it arranges itself, a card or a delegate row, the span, the filters, the inspector or the tasks drawer
-updated: 2026-09-24
-verified: 2026-09-24
+updated: 2026-09-25
+verified: 2026-09-25
 code_anchors: [crates/ubiq/src/app/teams.rs, crates/ubiq/src/app/teams_span.rs, crates/ubiq/src/state/teams.rs, crates/ubiq/src/ui/teams/mod.rs, crates/ubiq/src/ui/teams/graph.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/src/ui/teams/tasks.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/tests/teams.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/shapes.rs, crates/ubiq/src/app/graph.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/sink/teamsim.rs, crates/ubiq/src/state/teamsim.rs, crates/ubiq/tests/orchestration.rs]
 depends_on: [feat-workbench, tech-ui]
 review_cycle: monthly
@@ -68,13 +68,54 @@ and changes hands with nobody. The alternative — a container that accepts a fo
 the host an `AssignAgent` naming one project, that project's agent and another project's task, which
 the host refuses after the canvas has already drawn the move.
 
-**The far end of the toolbar starts an agent.** `+ Add agent` is the one control on that row that
-makes something rather than narrowing what is drawn, which is why it sits past the flexible gap with
-the view controls rather than among the pills. Its shape is the question it asks: a window holding
-several projects is asked which one the agent is for, by a menu whose rows wear the same project
-face the cards do, and a window holding one goes straight to the form. Either way the form raised is
-the standard New agent dialog, unchanged. It is the only way into that form that names a project —
-every other way in starts the agent in the window's active project and has no project field at all.
+**A mission draws as one fence, and the fence is derived** (`inbox/mission-proposal.md` M15, `D41`).
+A mission is its anchor task, so the fence round it is the union of that task's own container and
+its children's, plus the cards of anybody on the mission by spawn alone — measured every frame from
+where those containers have ended up, exactly as a task container is measured from its cards, and
+written down nowhere. Nesting, outermost first: the project fence under the window span, then the
+mission fence, then a task container, then a card's delegate ring. **The anchor's own container
+merges into the fence rather than drawing inside it** — the fence is measured off that box, so a
+second outline a pad away from it says nothing the outer one did not (`T-105`). The outline is the
+mission's phase colour, and `accent` while it is lit as a drop target. It is drawn under both spans:
+a mission is a mission on `Teams` and on `All Teams` alike.
+
+**The handle is the only new object on the canvas.** A small slab at the fence's top-left, in a band
+reserved above everything the fence encloses, carrying the project's own word for a mission (M18),
+the anchor's key, its short title, its phase and the same hexagon the mission panel's header draws —
+from the same function, so a mission never reads two ways in one window. Dragging it translates
+every card inside, by moving each enclosed container's origin the way a task container's own ground
+drag already does; clicking it selects the mission and opens its panel in the right dock;
+right-clicking it raises the mission panel's own `⋯`, drawn by `ui/mission/menu.rs` rather than by a
+second menu. The coordinator is named in the same band beside it, where the record has one and its
+card is on the canvas. **A mission with nobody on it still draws its handle** over a minimum fence,
+so it can be moved and can be dropped onto.
+
+**Dropping a card inside a mission fence attaches it to the mission.** A container the pointer is
+over wins first, so a card let go over a child's box joins that child; a card let go on the
+mission's own open ground names the anchor task instead, which is the same `AssignAgent` and is what
+attaching to a mission is. Dropping out on open ground stays the no-op it always was. The ground
+inside a mission fence therefore takes no drag of its own — the handle is the only thing that moves
+it — which is what leaves that ground free to be dropped onto.
+
+**A task container waiting on prerequisites wears the waiting colour.** `TaskRecord::ready` is the
+one readiness implementation both halves of the app call (M20), and a container whose task is not
+ready takes `warning` through `ui::work::work_state_colour` — the same token the mission panel's
+progress bar and the WBS give that state (M26) — so a stalled branch reads from the canvas rather
+than only from a mission surface. A lit or carried container still keeps `accent`: that is the
+answer the canvas is giving for the moment.
+
+**The far end of the toolbar makes something, and it is a split button.** `+ Add agent` is gone;
+in its place is a `+` and a chevron, the titlebar's own new-terminal pattern reused rather than
+built again (M15, §9). The `+` does what `+ Add agent` always did — New agent, asking which
+project when the canvas spans more than one, by a menu whose rows wear the same project face the
+cards do, and going straight to the form when the window holds one. The chevron opens a second
+menu of exactly two rows, **New agent** and **New mission**, each asking the same project question
+in its own second stage before raising its form — New agent the standard dialog, unchanged; New
+mission the same dialog the board and the sidebar's own `+` raise. It sits past the flexible gap
+with the view controls rather than among the pills, because an action is not a filter. It is one
+of two ways into the New agent form that names a project — the sidebar's Missions header offers
+New agent too — every other way in starts the agent in the window's active project and has no
+project field at all.
 
 **Teams draws its own card a shade shorter than `[Teams]`'s, because a row that is often empty is
 not worth reserving space for on every card.** `state::layout::TEAMS_CARD_HEIGHT` is `CARD_HEIGHT -
@@ -307,6 +348,19 @@ means an empty project, never a filter the user cannot find their way back out o
 at the end of
 the strip puts every filter back at once, drawn only while there is something to put back.
 
+**A fourth narrows the canvas to one or more missions, and has no control yet.**
+`TeamsView::mission_filter` is a set of anchor task ids on the sessions filter's rule exactly —
+empty is no filter, any tick may be the last, and `clear_filters` puts it back with the others. A
+card on none of the missions ticked is not drawn, and neither is a card on no mission at all. The
+`kit::MultiPicker` that turns it on is `G345`.
+
+**The tasks drawer groups its list by mission, and everything else about it is unchanged.** A task
+whose `parent` names a mission is lifted out of the flat list into a cluster under that mission's
+own header — key, title and phase chip, clicking it opens the mission panel — and a task in no
+mission draws exactly where it always did. Membership is read the same way the fence's is, off
+`TaskRecord::parent`, so the drawer and the canvas can never disagree about which cards are a
+mission's.
+
 **The third is `Hide done`, and it is about delegates rather than cards.** A tick box after the
 states control, on `Teams` alone — a toggle rather than a set, which is why it stayed a tick box
 when the states became one control. The states hide whole cards; a card's ring goes on growing under it
@@ -422,6 +476,23 @@ project, concatenated into a single `WorkProjection` and returned beside a
 `HashMap<AgentId, ProjectId>` owner map saying which project each merged agent came from. Nothing
 collides, because `AgentId`, `SessionId` and `TaskId` are ULIDs minted per record, so the merge
 renames nothing and `state/layout.rs` knows nothing of the span.
+
+The mission readers live beside them. `TeamsView::missions` is a `HashMap<TaskId, Vec<AgentId>>` —
+the anchor task a mission is, against everybody on it — refreshed every frame by
+`AppState::settle_teams` from `AppState::teams_missions`, on the same rule `rings` follows: the
+roster is `MissionRecord`'s and a `MissionRecord` is the project's, which this module deliberately
+knows nothing about, and M11's spawn half cannot be recomputed after the fact because
+`Work::assign_agent` clears a `WorkAgent::parent` on every reassignment. `mission_tasks()` is the
+anchor plus `WorkProjection::children_of`; `mission_bounds()` is the union of their
+`bounds_excluding()` boxes and of the spawn-only members' `card_bounds()`, padded by `GROUP_PAD`
+with `MISSION_BAND` added at the top, falling back to `MISSION_MIN` at the anchor's own
+`task_origin` for a mission with nothing on it; `mission_at()` is the second half of what a drop
+lands in, tried after `task_at()` and answering the tightest fence the carried card's centre is
+inside. `TeamsHeld::Mission` and `TeamsSelection::Mission` are both named by the anchor task, and
+`carry_to`'s `Mission` arm moves every enclosed container's origin and every task-less member's
+absolute position by the one difference. `AppState::mission_anywhere` is what the canvas reads a
+record through, rather than `mission()`: under the window span a fence may be a mission the active
+project has never heard of.
 
 `state/layout.rs` holds every position, relative: a task's origin and an agent's offset inside it,
 absolute only for an agent with no task. `at()` resolves the two. `Layout::auto()` is the whole

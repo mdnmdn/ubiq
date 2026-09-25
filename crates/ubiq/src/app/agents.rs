@@ -157,6 +157,23 @@ impl AppState {
         cx.notify();
     }
 
+    /// The Missions section's own fold: one row expanded to its roster (M14).
+    pub fn toggle_mission_row(&mut self, task_id: TaskId, cx: &mut Context<Self>) {
+        if let Some(agents) = self.agents_mut(cx) {
+            agents.toggle_mission_row(task_id);
+        }
+        cx.notify();
+    }
+
+    /// The Missions section's own toggle: whether `Completed` and `Abandoned` missions are drawn
+    /// too.
+    pub fn toggle_show_closed_missions(&mut self, cx: &mut Context<Self>) {
+        if let Some(agents) = self.agents_mut(cx) {
+            agents.toggle_show_closed_missions();
+        }
+        cx.notify();
+    }
+
     /// A tab has been picked up. Nothing moves yet: what the drop lands on is what decides whether
     /// it groups or splits.
     pub fn start_tab_drag(&mut self, agent: AgentId, cx: &mut Context<Self>) {
@@ -1341,7 +1358,7 @@ impl AppState {
         self.workbench.new_agent_menu = Some(NewAgentMenu {
             at,
             surface,
-            attach: false,
+            stage: NewAgentStage::Menu,
         });
         self.bus.send(Message::ListAgentTypes);
         self.bus.send(Message::ListAccounts);
@@ -1381,7 +1398,9 @@ impl AppState {
     /// stage is the one on screen.
     pub fn attach_rows(&self, surface: NewAgentSurface, cx: &App) -> AttachChoices {
         let query = match self.workbench.new_agent_menu {
-            Some(menu) if menu.attach => self.picker_search.read(cx).value().to_string(),
+            Some(menu) if menu.stage == NewAgentStage::Attach => {
+                self.picker_search.read(cx).value().to_string()
+            }
             _ => String::new(),
         };
         let agents = self
@@ -1429,36 +1448,73 @@ impl AppState {
         let Some(menu) = self.workbench.new_agent_menu else {
             return;
         };
-        if !menu.attach {
-            match index {
-                // *New agent*: the form answers everything, and where the conversation lands is
-                // written down now so the answer can find its way there when it arrives.
-                0 => {
-                    self.workbench.open_menu = None;
-                    self.workbench.new_agent_menu = None;
-                    self.aim_start(menu.surface, cx);
-                    self.open_new_agent(window, cx);
+        match menu.stage {
+            NewAgentStage::Menu => {
+                match index {
+                    // *New agent*: the form answers everything, and where the conversation lands
+                    // is written down now so the answer can find its way there when it arrives.
+                    0 => {
+                        self.workbench.open_menu = None;
+                        self.workbench.new_agent_menu = None;
+                        self.aim_start(menu.surface, cx);
+                        self.open_new_agent(window, cx);
+                    }
+                    // *Attach existing agent*: the same menu, second stage. Nothing else may be
+                    // open at once, so the menu stays where it is rather than reopening somewhere
+                    // new.
+                    //
+                    // The stage is a searchable picker, so the filter it shares with every other
+                    // one is cleared and focused on the way in — the rule `open_picker_menu`
+                    // says once.
+                    1 => {
+                        self.workbench.new_agent_menu = Some(NewAgentMenu {
+                            stage: NewAgentStage::Attach,
+                            ..menu
+                        });
+                        let search = self.picker_search.clone();
+                        search.update(cx, |state, cx| {
+                            state.set_value("", window, cx);
+                            state.focus(window, cx);
+                        });
+                        cx.notify();
+                    }
+                    // Row 2 is the separator ahead of the mission rows (§6.3), on
+                    // `NewAgentSurface::Chat` only — `new_agent_menu` draws neither for any other
+                    // surface, so no other surface's click can land here.
+                    3 if menu.surface == NewAgentSurface::Chat => {
+                        self.workbench.open_menu = None;
+                        self.workbench.new_agent_menu = None;
+                        self.open_new_mission(window, cx);
+                    }
+                    4 if menu.surface == NewAgentSurface::Chat => {
+                        self.workbench.new_agent_menu = Some(NewAgentMenu {
+                            stage: NewAgentStage::Missions,
+                            ..menu
+                        });
+                        let search = self.picker_search.clone();
+                        search.update(cx, |state, cx| {
+                            state.set_value("", window, cx);
+                            state.focus(window, cx);
+                        });
+                        cx.notify();
+                    }
+                    _ => {}
                 }
-                // *Attach existing agent*: the same menu, second stage. Nothing else may be open
-                // at once, so the menu stays where it is rather than reopening somewhere new.
-                //
-                // The stage is a searchable picker, so the filter it shares with every other one
-                // is cleared and focused on the way in — the rule `open_picker_menu` says once.
-                1 => {
-                    self.workbench.new_agent_menu = Some(NewAgentMenu {
-                        attach: true,
-                        ..menu
-                    });
-                    let search = self.picker_search.clone();
-                    search.update(cx, |state, cx| {
-                        state.set_value("", window, cx);
-                        state.focus(window, cx);
-                    });
-                    cx.notify();
-                }
-                _ => {}
+                return;
             }
-            return;
+            NewAgentStage::Missions => {
+                let query = self.picker_search.read(cx).value().trim().to_lowercase();
+                let picked = self.open_missions(&query, cx).get(index).map(|r| r.id);
+                self.workbench.open_menu = None;
+                self.workbench.new_agent_menu = None;
+                let Some(task_id) = picked else {
+                    cx.notify();
+                    return;
+                };
+                self.open_mission_panel(task_id, cx);
+                return;
+            }
+            NewAgentStage::Attach => {}
         }
 
         let rows = self.attach_rows(menu.surface, cx);

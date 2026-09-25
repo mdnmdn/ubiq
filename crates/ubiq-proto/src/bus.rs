@@ -33,6 +33,18 @@ use crate::messages::Message;
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
 pub struct ClientId(u64);
 
+impl ClientId {
+    /// Whether this is the host talking to itself through a [`Voice`] rather than a window.
+    ///
+    /// The coordinator needs it for the one case where a voice message is *about* something a
+    /// window owns: a mission line prompting a live conversation. The voice owns no conversation,
+    /// so the ownership check has to know to look the owner up instead of refusing — see
+    /// `Message::PromptAgent`'s arm.
+    pub fn is_host_voice(self) -> bool {
+        self == HOST_VOICE
+    }
+}
+
 impl std::fmt::Display for ClientId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "client {}", self.0)

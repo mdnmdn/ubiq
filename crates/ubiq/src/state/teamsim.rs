@@ -598,6 +598,7 @@ impl Sim {
                 level: None,
                 parent: None,
                 references: Vec::new(),
+                prerequisites: Vec::new(),
                 attachments: Vec::new(),
                 complexity: None,
                 key: None,

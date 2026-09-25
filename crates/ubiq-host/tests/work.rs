@@ -1527,3 +1527,190 @@ fn a_colour_on_a_task_survives_the_round_trip() {
     let cleared = changed(&work.set_field(project, task.id, TaskField::Colour(None)));
     assert_eq!(cleared.colour, None);
 }
+
+// ── prerequisites (M19) and derived readiness (M20) ──────────────────
+
+/// `TaskField::Prerequisites` replaces the whole list, deduplicated — `References`' posture for a
+/// repeat — and a set that already matches costs no write. Self-reference is not silently dropped
+/// here the way `References` drops it: M19 makes it a refusal, covered by its own test.
+#[test]
+fn setting_prerequisites_replaces_the_list_and_cleans_it() {
+    let (_store, mut work, project) = unseeded();
+    let task = created(&work.create(project, "the work".to_string(), None));
+    let a = created(&work.create(project, "a".to_string(), None));
+    let b = created(&work.create(project, "b".to_string(), None));
+
+    let after = changed(&work.set_field(
+        project,
+        task.id,
+        TaskField::Prerequisites(vec![a.id, b.id, a.id]),
+    ));
+    assert_eq!(
+        after.prerequisites,
+        vec![a.id, b.id],
+        "duplicate collapsed to the first"
+    );
+
+    let again = work.set_field(project, task.id, TaskField::Prerequisites(vec![a.id, b.id]));
+    assert!(
+        !again
+            .iter()
+            .any(|reply| matches!(reply.message(), Message::TaskChanged { .. })),
+        "a list that already matches is not a change"
+    );
+}
+
+/// A task cannot name itself as its own prerequisite.
+#[test]
+fn a_task_cannot_be_its_own_prerequisite() {
+    let (_store, mut work, project) = unseeded();
+    let task = created(&work.create(project, "self-referential".to_string(), None));
+
+    let replies = work.set_field(project, task.id, TaskField::Prerequisites(vec![task.id]));
+    let refused = refusals(&replies);
+    assert_eq!(refused.len(), 1, "got {replies:?}");
+    assert_eq!(refused[0].0, Some(task.id));
+    assert!(task.prerequisites.is_empty());
+}
+
+/// A prerequisite naming a task in another project is refused — the two projects' lists are held
+/// separately, so it reads exactly as "no such task" does for a dangling id.
+#[test]
+fn a_prerequisite_in_another_project_is_refused() {
+    let (_store, mut work, project) = unseeded();
+    let other = ProjectId::generate();
+    let task = created(&work.create(project, "here".to_string(), None));
+    let elsewhere = created(&work.create(other, "there".to_string(), None));
+
+    let replies = work.set_field(
+        project,
+        task.id,
+        TaskField::Prerequisites(vec![elsewhere.id]),
+    );
+    let refused = refusals(&replies);
+    assert_eq!(refused.len(), 1, "got {replies:?}");
+    assert_eq!(refused[0].0, Some(task.id));
+
+    let after = board(&mut work, project);
+    assert!(
+        after
+            .iter()
+            .find(|t| t.id == task.id)
+            .unwrap()
+            .prerequisites
+            .is_empty()
+    );
+}
+
+/// Prerequisites are a DAG: a write that would close a cycle is refused rather than written down.
+#[test]
+fn a_prerequisite_cycle_is_refused() {
+    let (_store, mut work, project) = unseeded();
+    let a = created(&work.create(project, "a".to_string(), None));
+    let b = created(&work.create(project, "b".to_string(), None));
+    let c = created(&work.create(project, "c".to_string(), None));
+
+    // a waits on b, b waits on c.
+    changed(&work.set_field(project, a.id, TaskField::Prerequisites(vec![b.id])));
+    changed(&work.set_field(project, b.id, TaskField::Prerequisites(vec![c.id])));
+
+    // c waiting on a would close the loop a -> b -> c -> a.
+    let replies = work.set_field(project, c.id, TaskField::Prerequisites(vec![a.id]));
+    let refused = refusals(&replies);
+    assert_eq!(refused.len(), 1, "got {replies:?}");
+    assert_eq!(refused[0].0, Some(c.id));
+
+    // A task naming itself two hops down the same chain is refused the same way.
+    let direct = work.set_field(project, c.id, TaskField::Prerequisites(vec![c.id]));
+    assert_eq!(refusals(&direct).len(), 1);
+
+    let after = board(&mut work, project);
+    assert!(
+        after
+            .iter()
+            .find(|t| t.id == c.id)
+            .unwrap()
+            .prerequisites
+            .is_empty()
+    );
+}
+
+/// A `tasks.toml` written before `prerequisites` existed still loads, and the field reads as
+/// empty — the same discipline `a_task_file_written_before_a_field_existed_still_loads` asserts
+/// for `complexity` and `assigned_to`.
+#[test]
+fn a_task_file_written_before_prerequisites_existed_still_loads() {
+    let dir = TempDir::new().unwrap();
+    let store = file_store(&dir);
+    let project = ProjectId::generate();
+    let path = store.path(project);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let body = format!(
+        "version = {TASKS_VERSION}\n\n[[task]]\n\
+         id = \"01J0000000000000000000000A\"\n\
+         status = \"Ready\"\n\
+         priority = \"High\"\n\
+         title = \"named before prerequisites existed\"\n\
+         created_at = \"2026-08-14T09:12:44Z\"\n\
+         updated_at = \"2026-08-14T09:12:44Z\"\n"
+    );
+    fs::write(&path, body).unwrap();
+
+    let tasks = store.load(project).unwrap().expect("the file is there");
+    assert_eq!(tasks.len(), 1);
+    assert!(tasks[0].prerequisites.is_empty());
+}
+
+/// M20: a task is ready when every prerequisite is `InReview` or `Done`; otherwise `waiting_on`
+/// names the ones that are not, and `InReview` counts as satisfied exactly as `Done` does.
+#[test]
+fn readiness_is_derived_from_prerequisite_status() {
+    let (_store, mut work, project) = unseeded();
+    let a = created(&work.create(project, "a".to_string(), None));
+    let b = created(&work.create(project, "b".to_string(), None));
+    let task = created(&work.create(project, "the work".to_string(), None));
+    changed(&work.set_field(project, task.id, TaskField::Prerequisites(vec![a.id, b.id])));
+
+    let all = board(&mut work, project);
+    let this = all.iter().find(|t| t.id == task.id).unwrap();
+    assert!(!this.ready(&all), "backlog prerequisites are not ready");
+    assert_eq!(this.waiting_on(&all), vec![a.id, b.id]);
+
+    // Moving `a` to `InReview` satisfies it, same as `Done` would.
+    work.move_task(project, a.id, Status::InReview, None);
+    let all = board(&mut work, project);
+    let this = all.iter().find(|t| t.id == task.id).unwrap();
+    assert_eq!(
+        this.waiting_on(&all),
+        vec![b.id],
+        "an in-review prerequisite counts as satisfied"
+    );
+    assert!(!this.ready(&all), "b is still outstanding");
+
+    // Moving `b` to `Done` clears the last one.
+    work.move_task(project, b.id, Status::Done, None);
+    let all = board(&mut work, project);
+    let this = all.iter().find(|t| t.id == task.id).unwrap();
+    assert!(this.waiting_on(&all).is_empty());
+    assert!(this.ready(&all));
+}
+
+/// Deleting a task drops it from every prerequisite list that named it — not at delete time (no
+/// in-memory scrub exists for `references` either), but the next time the project's file is read,
+/// because `sanitize_relations` retains only prerequisites that still name a task, the same
+/// posture it already takes for `references` and `parent`.
+#[test]
+fn deleting_a_task_scrubs_it_from_prerequisite_lists() {
+    let (_store, mut work, project) = unseeded();
+    let a = created(&work.create(project, "a".to_string(), None));
+    let task = created(&work.create(project, "the work".to_string(), None));
+    changed(&work.set_field(project, task.id, TaskField::Prerequisites(vec![a.id])));
+
+    work.delete(project, a.id);
+    // The delete already persisted the stale list; re-reading it is where sanitize_relations runs.
+    work.sync_from_disk();
+
+    let all = board(&mut work, project);
+    let this = all.iter().find(|t| t.id == task.id).unwrap();
+    assert!(this.prerequisites.is_empty());
+}

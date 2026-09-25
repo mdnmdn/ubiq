@@ -78,6 +78,8 @@ project's own folder — `D30`.
         ├── view.toml        that project's view blob, opaque to the host
         ├── kb.toml          that project's knowledge-base roots, the user's data
         ├── kb/<root ulid>/  a cloned knowledge-base repository, re-fetchable
+        ├── plans/           one markdown plan per task that carries a level, and its sidecar
+        ├── missions/<task ulid>/ one mission: mission.toml, docs/, journal.jsonl
         └── ui/              the interface's workarea — the host makes it and never looks in
 ```
 

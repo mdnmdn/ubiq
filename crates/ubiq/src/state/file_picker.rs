@@ -125,6 +125,10 @@ pub enum PickerOwner {
     TaskAttachment {
         task: TaskId,
     },
+    /// The new-mission dialog's attachment row. [`Self::TaskAttachment`] one step earlier: there
+    /// is no task to name yet, so the answer lands on the draft and is written onto the anchor
+    /// with the rest of the brief once the host has minted its id.
+    NewMissionAttachment,
 }
 
 /// Everything a caller says when it raises a picker.

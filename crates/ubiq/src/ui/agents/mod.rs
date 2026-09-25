@@ -41,8 +41,8 @@ use gpui::{
 };
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
-use crate::app::AppState;
-use crate::state::NewAgentSurface;
+use crate::app::{AppState, OpenMissionRow};
+use crate::state::{NewAgentStage, NewAgentSurface};
 use crate::theme;
 use crate::ui::empty;
 use crate::ui::kit::{self, ghost_button, mono};
@@ -209,7 +209,7 @@ pub fn new_agent_menu(app: &AppState, window: &Window, cx: &mut Context<AppState
         return div().into_any_element();
     };
 
-    if menu.attach {
+    if menu.stage == NewAgentStage::Attach {
         let rows = app.attach_rows(menu.surface, cx);
         let search_focused = app
             .picker_search
@@ -239,9 +239,39 @@ pub fn new_agent_menu(app: &AppState, window: &Window, cx: &mut Context<AppState
             .into_any_element();
     }
 
+    // *Missions*'s own stage (§6.3): every mission not Completed or Abandoned, most recently
+    // active first — [`AppState::open_missions`], the same searchable [`kit::Picker`] mechanism
+    // *Attach existing agent* already uses. `NewAgentSurface::Chat` only reaches here —
+    // `new_agent_menu`'s first stage offers no *Missions* row on any other surface.
+    if menu.stage == NewAgentStage::Missions {
+        let query = app.picker_search.read(cx).value().trim().to_lowercase();
+        let rows = app.open_missions(&query, cx);
+        let search_focused = app
+            .picker_search
+            .read(cx)
+            .focus_handle(cx)
+            .is_focused(window);
+        let picker = kit::Picker::new("agents-missions-menu", "")
+            .items(rows.iter().map(mission_row_text))
+            .open(true)
+            .search(&app.picker_search, search_focused)
+            .on_pick(indexed(&view, |this, index, window, cx| {
+                this.pick_new_agent_menu(index, window, cx);
+            }))
+            .on_dismiss(handler(&view, |this, _, cx| {
+                this.dismiss_new_agent_menu(cx)
+            }));
+        return div()
+            .absolute()
+            .left(px(menu.at.0))
+            .top(px(menu.at.1))
+            .child(picker)
+            .into_any_element();
+    }
+
     let nothing_to_attach = app.attach_rows(menu.surface, cx).items.is_empty();
     let attach = kit::ContextItem::new("Attach existing agent");
-    let items: Vec<kit::ContextItem> = vec![
+    let mut items: Vec<kit::ContextItem> = vec![
         kit::ContextItem::new("New agent"),
         if nothing_to_attach {
             attach.disabled()
@@ -249,6 +279,19 @@ pub fn new_agent_menu(app: &AppState, window: &Window, cx: &mut Context<AppState
             attach
         },
     ];
+    // The third part (§6.3): on a side dock's own `+` only — the agents screen's columns and the
+    // sink's bench never start or open a mission.
+    if menu.surface == NewAgentSurface::Chat {
+        let missions_empty = app.open_missions("", cx).is_empty();
+        let missions = kit::ContextItem::new("Missions \u{25B8}");
+        items.push(kit::ContextItem::separator());
+        items.push(kit::ContextItem::new("New mission"));
+        items.push(if missions_empty {
+            missions.disabled()
+        } else {
+            missions
+        });
+    }
 
     kit::context_menu(
         "agents-new-menu",
@@ -260,6 +303,18 @@ pub fn new_agent_menu(app: &AppState, window: &Window, cx: &mut Context<AppState
         handler(&view, |this, _, cx| this.dismiss_new_agent_menu(cx)),
     )
     .into_any_element()
+}
+
+/// One row of the `+` menu's *Missions* stage: its key (if it has one), its title, and its phase
+/// — the same three facts the board toolbar's mission filter reads a row by. No hexagon glyph and
+/// no *needs you* dot yet: the icon registry has neither drawn (`ubiq-icons`'s own loop), and
+/// nothing raises the dot until S2/S3 (§6.3) — a row that invented either would be furniture with
+/// nothing behind it.
+fn mission_row_text(row: &OpenMissionRow) -> String {
+    match &row.key {
+        Some(key) => format!("{key} — {} · {}", row.title, row.phase.label()),
+        None => format!("{} · {}", row.title, row.phase.label()),
+    }
 }
 
 /// The row of columns, and the strip past the last one that a dragged tab is split off into.

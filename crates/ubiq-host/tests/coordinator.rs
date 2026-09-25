@@ -1590,6 +1590,7 @@ fn start_conversation(
         thinking: None,
         mode: None,
         mcps: Vec::new(),
+        spawned_by: None,
     });
     agent_id
 }
@@ -1716,6 +1717,51 @@ fn a_conversation_is_registered_and_its_models_discovered_before_any_harness_lau
         agents.iter().any(|a| a.id == agent_id),
         "the pending agent is not in the project's list"
     );
+}
+
+/// `spawned_by` is the **only** thing that ever sets `WorkAgent::parent` in a real run: a window
+/// launching an agent to answer a `MissionSpawnRequest` names the agent that asked for it (M13).
+/// Without it the Teams spawn connector draws off nothing but the mock fixture.
+#[test]
+fn spawned_by_sets_the_new_agents_parent() {
+    let (_hub, ui) = coordinator();
+    let (project_id, _path) = a_project(&ui);
+
+    let asker = start_conversation(&ui, project_id, "claude-code", None);
+    expect_conversation_started(&ui, asker);
+    expect_model_config_options(&ui, asker);
+
+    let spawned = AgentId::generate();
+    ui.send(Message::StartConversation {
+        agent_id: spawned,
+        project_id,
+        session_id: SessionId::generate(),
+        rel_path: None,
+        agent_type: "claude-code".to_string(),
+        account: None,
+        profile: None,
+        model: None,
+        thinking: None,
+        mode: None,
+        mcps: Vec::new(),
+        spawned_by: Some(asker),
+    });
+    expect_conversation_started(&ui, spawned);
+    expect_model_config_options(&ui, spawned);
+
+    ui.send(Message::ListWork { project_id });
+    let (_, agents, _) = expect_work_list(&ui, project_id);
+    let child = agents
+        .iter()
+        .find(|agent| agent.id == spawned)
+        .expect("the spawned agent is listed");
+    assert_eq!(child.parent, Some(asker));
+    // And a start with nobody above it still has none — the field is a spawn link, not a default.
+    let parent = agents
+        .iter()
+        .find(|agent| agent.id == asker)
+        .expect("the requester is listed");
+    assert_eq!(parent.parent, None);
 }
 
 /// A conversation is named after its harness's command, not typed — `claude-code` launches

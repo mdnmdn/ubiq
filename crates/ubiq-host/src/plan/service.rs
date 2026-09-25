@@ -17,9 +17,10 @@ use ubiq_proto::plan::{
     Annotation, AnnotationState, DocumentHandle, PlanBlock, PlanChangeStats, PlanChangedRegion,
     PlanRevision, SaveOrigin,
 };
-use ubiq_proto::work::CommentAuthor;
+use ubiq_proto::work::{CommentAuthor, Level};
 
 use crate::reply::Reply;
+use crate::store::mission::MissionStore;
 use crate::store::plan::{FilePlanStore, Placement, PlanSidecar, sidecar_beside};
 use crate::work;
 
@@ -94,6 +95,12 @@ pub enum Target {
         /// Absolute, canonical, and already contained inside the project.
         body: PathBuf,
     },
+    /// A mission document beyond the plan (M8) — `name` is a bare document name, never a path.
+    MissionDoc {
+        project: ProjectId,
+        task: TaskId,
+        name: String,
+    },
 }
 
 impl Target {
@@ -129,12 +136,37 @@ impl Target {
                     body,
                 })
             }
+            DocumentHandle::MissionDoc {
+                project_id,
+                task_id,
+                name,
+            } => {
+                // Flat, and never a path: `docs/` holds no nesting (M8), so a name naming one is
+                // refused here rather than resolving somewhere the mission's directory does not
+                // reach.
+                if name.trim().is_empty()
+                    || name.contains(['/', '\\'])
+                    || name == "."
+                    || name == ".."
+                {
+                    return Err(
+                        "a mission document's name may not contain a path separator".to_string()
+                    );
+                }
+                Ok(Target::MissionDoc {
+                    project: *project_id,
+                    task: *task_id,
+                    name: name.clone(),
+                })
+            }
         }
     }
 
     pub fn project(&self) -> ProjectId {
         match self {
-            Target::Plan { project, .. } | Target::File { project, .. } => *project,
+            Target::Plan { project, .. }
+            | Target::File { project, .. }
+            | Target::MissionDoc { project, .. } => *project,
         }
     }
 
@@ -152,15 +184,35 @@ impl Target {
                 project_id: *project,
                 rel_path: rel_path.clone(),
             },
+            Target::MissionDoc {
+                project,
+                task,
+                name,
+            } => DocumentHandle::MissionDoc {
+                project_id: *project,
+                task_id: *task,
+                name: name.clone(),
+            },
         }
     }
 
     fn placement(&self) -> Placement {
         match self {
-            Target::Plan { .. } => Placement::ConfigRoot,
+            // Under the config root, exactly as a plan is — Ubiq owns the directories above it.
+            Target::Plan { .. } | Target::MissionDoc { .. } => Placement::ConfigRoot,
             Target::File { .. } => Placement::InsideProject,
         }
     }
+}
+
+/// Where a mission document's body sits, from the config root alone — the same `docs/` subtree
+/// [`crate::store::mission::MissionStore::docs_dir`] computes, reached without holding a full
+/// `MissionStore`: `Plans` already holds the config root through its own [`FilePlanStore`], and a
+/// mission document is not otherwise this module's to store.
+fn mission_doc_path(root: &Path, project: ProjectId, task: TaskId, name: &str) -> PathBuf {
+    MissionStore::new(root.to_path_buf())
+        .docs_dir(project, task)
+        .join(format!("{name}.md"))
 }
 
 /// One project's plans.
@@ -200,40 +252,55 @@ impl Plans {
 
     /// Why this document may not be read or written, if there is a reason.
     ///
-    /// A plan's reason is the task's: no such task, or a task whose `level` is `None`. A file
+    /// A plan's reason is the task's: no such task, or a task whose `level` is `None`. A mission
+    /// document's is narrower — no such task, or a task that is not **a mission**, since carrying
+    /// some level is not enough for a document that lives under `missions/<TaskId>/docs/`. A file
     /// document has none left — being markdown and inside the project was settled when the
     /// [`Target`] was resolved, and a file that is not there yet reads as an empty body the same
     /// way an unplanned mission does.
     fn refusal(&mut self, target: &Target) -> Option<String> {
-        let Target::Plan { project, task } = target else {
-            return None;
+        let (project, task, needs_mission) = match target {
+            Target::Plan { project, task } => (*project, *task, false),
+            Target::MissionDoc { project, task, .. } => (*project, *task, true),
+            Target::File { .. } => return None,
         };
-        let (_, tasks) = self.work.lock().tasks(*project);
-        let Some(record) = tasks.iter().find(|t| t.id == *task) else {
+        let (_, tasks) = self.work.lock().tasks(project);
+        let Some(record) = tasks.iter().find(|t| t.id == task) else {
             return Some("no such task".to_string());
         };
-        if record.level.is_none() {
+        if needs_mission {
+            if record.level != Some(Level::Mission) {
+                return Some("only a mission can carry a mission document".to_string());
+            }
+        } else if record.level.is_none() {
             return Some("only a task with a level can carry a plan".to_string());
         }
         None
     }
 
     /// Where the body sits — the store's own path for a plan, the resolved file for a document in
-    /// the project's tree.
+    /// the project's tree, the mission's own `docs/` subtree for a mission document.
     fn body_path(&self, target: &Target) -> PathBuf {
         match target {
             Target::Plan { project, task } => self.store.path(*project, *task),
             Target::File { body, .. } => body.clone(),
+            Target::MissionDoc {
+                project,
+                task,
+                name,
+            } => mission_doc_path(self.store.root(), *project, *task, name),
         }
     }
 
     /// Where the sidecar sits: `<TaskId>.annotations.json` for a plan, `<file>.md.annotation.json`
-    /// for a document in the project's tree. **Two spellings, deliberately** — the plan's is the
-    /// one already on disk in every config root, and renaming it would be a migration for no gain.
+    /// beside the body for a document in the project's tree or a mission document alike — the
+    /// mission document has no path of its own the way a plan's `<TaskId>.annotations.json` does,
+    /// so it takes the file document's own naming instead of inventing a third spelling.
     fn sidecar_path(&self, target: &Target) -> PathBuf {
         match target {
             Target::Plan { project, task } => self.store.annotations_path(*project, *task),
             Target::File { body, .. } => sidecar_beside(body),
+            Target::MissionDoc { .. } => sidecar_beside(&self.body_path(target)),
         }
     }
 
@@ -409,7 +476,8 @@ impl Plans {
         // save echoed, or a stale handle. Clamping answers "nothing since then", which is true,
         // rather than reporting every line because the comparison went negative.
         let since = since.unwrap_or_default().min(sidecar.revision);
-        let regions = super::provenance::regions(&sidecar.provenance, since, &body, &sidecar.blocks);
+        let regions =
+            super::provenance::regions(&sidecar.provenance, since, &body, &sidecar.blocks);
         let stats = super::provenance::stats(&sidecar.history, since, sidecar.revision, &regions);
         Ok(ChangeReport {
             regions,
@@ -464,7 +532,8 @@ impl Plans {
 
         let revision = sidecar.revision + 1;
         let diff = super::lines::diff(previous, body);
-        sidecar.provenance = super::provenance::advance(&sidecar.provenance, &diff, revision, by.origin);
+        sidecar.provenance =
+            super::provenance::advance(&sidecar.provenance, &diff, revision, by.origin);
         sidecar.history.push(super::provenance::RevisionEntry {
             revision,
             origin: by.origin,
@@ -1741,6 +1810,159 @@ mod tests {
             replies
                 .iter()
                 .any(|reply| matches!(reply.message(), Message::PlanError { .. }))
+        );
+    }
+
+    // ── mission documents (M8) ────────────────────────────────────────
+
+    fn mission_doc(project: ProjectId, task: TaskId, name: &str) -> Target {
+        Target::MissionDoc {
+            project,
+            task,
+            name: name.to_string(),
+        }
+    }
+
+    /// A mission document round-trips through save and load exactly as a plan does — the whole
+    /// point of M8 being one more path the same family resolves, and nothing else.
+    #[test]
+    fn a_mission_document_round_trips_through_save_and_load() {
+        let (mut plans, work, project, _dir) = plans_with_work();
+        let task = make_mission(&work, project);
+        let target = mission_doc(project, task, "notes");
+
+        let replies = plans.save(
+            &target,
+            "# Notes\n\nFirst thought.".to_string(),
+            &Saver::human(),
+            None,
+        );
+        assert_eq!(revision_of(&replies), 1);
+        assert!(
+            replies
+                .iter()
+                .any(|reply| matches!(reply, Reply::Everyone(Message::PlanChanged { .. })))
+        );
+
+        let replies = plans.load(&target);
+        let Some(Message::Plan { body, doc, .. }) = replies
+            .iter()
+            .map(Reply::message)
+            .find(|m| matches!(m, Message::Plan { .. }))
+        else {
+            panic!("expected a Plan reply, got {replies:?}");
+        };
+        assert_eq!(body, "# Notes\n\nFirst thought.");
+        assert_eq!(*doc, target.handle());
+
+        // Written under the mission's own `docs/` subtree, not beside the plan.
+        assert!(
+            _dir.path()
+                .join("projects")
+                .join(project.to_string())
+                .join("missions")
+                .join(task.to_string())
+                .join("docs")
+                .join("notes.md")
+                .exists()
+        );
+    }
+
+    /// A stale save on a mission document is refused exactly the way a plan's is — the same
+    /// `expected`-revision arbitration, because it is the same code.
+    #[test]
+    fn a_mission_document_arbitrates_a_race_the_way_a_plan_does() {
+        let (mut plans, work, project, _dir) = plans_with_work();
+        let task = make_mission(&work, project);
+        let target = mission_doc(project, task, "notes");
+
+        let seeded = revision_of(&plans.save(&target, "mine".to_string(), &Saver::human(), None));
+        let beaten = plans.save(&target, "also mine".to_string(), &Saver::human(), Some(0));
+        assert_eq!(
+            conflict_of(&beaten).map(|(revision, _)| revision),
+            Some(seeded)
+        );
+    }
+
+    /// Annotations and provenance work on a mission document exactly as they do on a plan's,
+    /// because they are the same code reading the same sidecar shape.
+    #[test]
+    fn a_mission_documents_annotations_and_provenance_are_the_plans_own() {
+        let (mut plans, work, project, _dir) = plans_with_work();
+        let task = make_mission(&work, project);
+        let target = mission_doc(project, task, "notes");
+
+        plans.save(
+            &target,
+            "# Notes\n\nFirst thought.\n\nSecond thought.".to_string(),
+            &Saver::agent("agent-1"),
+            None,
+        );
+        let (blocks, _) = plans.annotation_list(&target).expect("the index reads");
+        let second = blocks[2].id;
+
+        let replies = plans.annotate(
+            &target,
+            second,
+            Some("Second".to_string()),
+            CommentAuthor::User,
+            "is this still true?".to_string(),
+        );
+        assert!(replies.iter().any(|reply| matches!(
+            reply,
+            Reply::Everyone(Message::PlanAnnotationsChanged { .. })
+        )));
+
+        let (_, annotations) = plans.annotation_list(&target).unwrap();
+        assert_eq!(annotations.len(), 1);
+        assert_eq!(annotations[0].quote.as_deref(), Some("Second"));
+        assert!(!annotations[0].orphaned);
+
+        // A human's edit is stamped, the way it is on a plan.
+        plans.save(
+            &target,
+            "# Notes, revised.\n\nFirst thought.\n\nSecond thought.".to_string(),
+            &Saver::human(),
+            None,
+        );
+        let report = plans
+            .change_report(&target, Some(1))
+            .expect("the changes read");
+        assert!(!report.regions.is_empty());
+        assert_eq!(report.regions[0].origin, SaveOrigin::Human);
+    }
+
+    /// A task that carries no level at all is refused a mission document — no mission, no
+    /// document.
+    #[test]
+    fn a_task_with_no_level_is_refused_a_mission_document() {
+        let (mut plans, work, project, _dir) = plans_with_work();
+        let task = make_ordinary_task(&work, project);
+        let target = mission_doc(project, task, "notes");
+
+        let replies = plans.save(&target, "body".to_string(), &Saver::human(), None);
+        let error = replies
+            .iter()
+            .map(Reply::message)
+            .find_map(|m| match m {
+                Message::PlanError { error, .. } => Some(error.clone()),
+                _ => None,
+            })
+            .expect("a task with no level is refused");
+        assert!(error.contains("mission"), "unexpected refusal: {error}");
+    }
+
+    /// A task that does not exist at all is refused the same way.
+    #[test]
+    fn a_missing_task_is_refused_a_mission_document() {
+        let (mut plans, _work, project, _dir) = plans_with_work();
+        let target = mission_doc(project, TaskId::generate(), "notes");
+
+        let replies = plans.load(&target);
+        assert!(
+            replies
+                .iter()
+                .any(|reply| matches!(reply.message(), Message::PlanError { error, .. } if error == "no such task"))
         );
     }
 }

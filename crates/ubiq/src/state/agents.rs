@@ -26,7 +26,7 @@
 //! Nothing here draws and nothing here names a colour — an activity says what it *is*, and
 //! `ui::work` decides which token that reads in.
 
-use ubiq_proto::ids::SessionId;
+use ubiq_proto::ids::{SessionId, TaskId};
 use ubiq_proto::work::{AgentId, Bucket, WorkAgent};
 
 use super::work::WorkProjection;
@@ -148,6 +148,15 @@ pub struct AgentsView {
     /// The sessions the sidebar has shut. Absent is open, so a session that arrives after the
     /// screen was last looked at arrives expanded rather than hidden.
     pub collapsed: Vec<SessionId>,
+    /// The Missions section's rows (by the anchor task they are) expanded to their roster (M14).
+    /// Absent is folded — the opposite default from a session, because the section sits above
+    /// every one of them and a sidebar that opened every mission's roster on arrival would push
+    /// the sessions the sidebar has always led with out of the first screenful.
+    pub mission_expanded: Vec<TaskId>,
+    /// Whether the Missions section also draws `Completed` and `Abandoned` missions, which it
+    /// hides by default — the same "most recently active work" judgement `open_missions` and the
+    /// board's mission filter already make.
+    pub show_closed_missions: bool,
     /// What is typed in each composer, by slot, mirroring the window's textarea so rendering never
     /// has to read the entity. Always [`COMPOSER_SLOTS`] long; a slot nothing holds is empty.
     pub drafts: Vec<String>,
@@ -180,6 +189,8 @@ impl Default for AgentsView {
             columns: Vec::new(),
             focus: 0,
             collapsed: Vec::new(),
+            mission_expanded: Vec::new(),
+            show_closed_missions: false,
             drafts: vec![String::new(); COMPOSER_SLOTS],
             dragging: None,
             live: Vec::new(),
@@ -307,6 +318,10 @@ impl AgentsView {
 
     pub fn is_collapsed(&self, session: SessionId) -> bool {
         self.collapsed.contains(&session)
+    }
+
+    pub fn is_mission_expanded(&self, task_id: TaskId) -> bool {
+        self.mission_expanded.contains(&task_id)
     }
 
     /// Whether another column can be opened. The screen says so rather than refusing a click with
@@ -512,6 +527,18 @@ impl AgentsView {
         } else {
             self.collapsed.push(session);
         }
+    }
+
+    pub fn toggle_mission_row(&mut self, task_id: TaskId) {
+        if let Some(ix) = self.mission_expanded.iter().position(|id| *id == task_id) {
+            self.mission_expanded.remove(ix);
+        } else {
+            self.mission_expanded.push(task_id);
+        }
+    }
+
+    pub fn toggle_show_closed_missions(&mut self) {
+        self.show_closed_missions = !self.show_closed_missions;
     }
 
     pub fn set_draft(&mut self, slot: usize, text: String) {

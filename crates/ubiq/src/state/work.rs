@@ -262,6 +262,40 @@ impl WorkProjection {
             .collect()
     }
 
+    /// The tasks `task` could add to its prerequisite list: every other task it does not already
+    /// name, excluding `task` itself and any task that would close a cycle in the project's
+    /// prerequisite DAG. Mirrors `crates/ubiq-host/src/work/mod.rs`'s `prerequisite_cycle` walk,
+    /// so the picker never offers a choice the host would refuse.
+    pub fn eligible_prerequisites<'a>(&'a self, task: &TaskRecord) -> Vec<&'a TaskRecord> {
+        self.tasks
+            .iter()
+            .filter(|t| {
+                t.id != task.id
+                    && !task.prerequisites.contains(&t.id)
+                    && !Self::prerequisite_cycle(&self.tasks, task.id, t.id)
+            })
+            .collect()
+    }
+
+    /// Whether `task` is reachable by walking prerequisite edges outward from `start` — see
+    /// [`Self::eligible_prerequisites`].
+    fn prerequisite_cycle(tasks: &[TaskRecord], task: TaskId, start: TaskId) -> bool {
+        let mut stack = vec![start];
+        let mut seen = std::collections::HashSet::new();
+        while let Some(id) = stack.pop() {
+            if id == task {
+                return true;
+            }
+            if !seen.insert(id) {
+                continue;
+            }
+            if let Some(record) = tasks.iter().find(|t| t.id == id) {
+                stack.extend(record.prerequisites.iter().copied());
+            }
+        }
+        false
+    }
+
     /// Every label anybody has used in this project, most-used first and then by name.
     ///
     /// There is no registry: a label is the name and the colour together, written on whichever
@@ -292,6 +326,98 @@ impl WorkProjection {
             .iter()
             .filter(|a| a.activity.bucket() == bucket)
             .count()
+    }
+
+    /// What one task's [`WorkState`] is, read against the whole projection — the prerequisites
+    /// come from the other tasks, and "nobody on it" from the agents.
+    pub fn work_state(&self, task: &TaskRecord) -> WorkState {
+        let ready = task.ready(&self.tasks);
+        let held = self.members(task.id).next().is_some();
+        WorkState::of(task.status, ready, held)
+    }
+
+    /// The counts one mission's progress bar is drawn from: every child of `parent`, by work
+    /// state, in [`WorkState::all`]'s order. States nothing is in are kept at zero so the bar and
+    /// the legend under it read the same way whatever the mission is doing.
+    pub fn work_state_counts(&self, parent: TaskId) -> Vec<(WorkState, usize)> {
+        let mut counts: Vec<(WorkState, usize)> =
+            WorkState::all().into_iter().map(|s| (s, 0)).collect();
+        for child in self.children_of(parent) {
+            let state = self.work_state(child);
+            if let Some((_, n)) = counts.iter_mut().find(|(s, _)| *s == state) {
+                *n += 1;
+            }
+        }
+        counts
+    }
+}
+
+/// What a task is *actually* doing, as one value — the mission surfaces' own reading of a task
+/// (`_docs/inbox/mission-proposal.md`, M26).
+///
+/// Derived rather than stored, and derived here rather than on each surface: the side panel's
+/// progress bar, the full view's WBS and Tasks tab and the Teams fence all colour a task by this,
+/// and a second copy of the rule is a second answer. [`crate::ui::work`] holds the token each one
+/// takes; nothing in this module names a colour.
+///
+/// **Readiness is not a status.** M20 makes "every prerequisite is `InReview` or `Done`" a
+/// question asked of the other tasks — [`TaskRecord::ready`] — so a task can be `Ready` and still
+/// be waiting, which is the distinction this enum exists to draw.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WorkState {
+    Blocked,
+    /// Not ready by M20: something it waits on is neither in review nor done.
+    Waiting,
+    Ready,
+    InProgress,
+    InReview,
+    Done,
+    Abandoned,
+}
+
+impl WorkState {
+    /// M26's table, first match wins. `ready` is [`TaskRecord::ready`] and `held` is whether any
+    /// agent is on the task.
+    ///
+    /// The last arm is the one the table leaves implicit: a `Ready` or `Backlog` task that *is*
+    /// ready and has somebody on it is not idle, so it reads as in progress — the same thing its
+    /// agent's presence already says.
+    pub fn of(status: Status, ready: bool, held: bool) -> Self {
+        match status {
+            Status::Blocked => WorkState::Blocked,
+            Status::Backlog | Status::Ready | Status::InProgress if !ready => WorkState::Waiting,
+            Status::Ready | Status::Backlog if !held => WorkState::Ready,
+            Status::InProgress | Status::Ready | Status::Backlog => WorkState::InProgress,
+            Status::InReview => WorkState::InReview,
+            Status::Done => WorkState::Done,
+            Status::Abandoned => WorkState::Abandoned,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            WorkState::Blocked => "blocked",
+            WorkState::Waiting => "waiting",
+            WorkState::Ready => "ready",
+            WorkState::InProgress => "run",
+            WorkState::InReview => "review",
+            WorkState::Done => "done",
+            WorkState::Abandoned => "abandoned",
+        }
+    }
+
+    /// The order every mission surface lists the states in: done first, then what is still moving,
+    /// then what is stuck — the reading order of the panel's own counts line.
+    pub fn all() -> [WorkState; 7] {
+        [
+            WorkState::Done,
+            WorkState::InReview,
+            WorkState::InProgress,
+            WorkState::Waiting,
+            WorkState::Blocked,
+            WorkState::Ready,
+            WorkState::Abandoned,
+        ]
     }
 }
 
