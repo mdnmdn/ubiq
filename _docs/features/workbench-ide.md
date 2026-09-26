@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: The rail's IDE mode — the project's file explorer and its right-click menu, the editor tabs each open file is a panel of, the viewer that draws one by kind, Markdown reading width and its minimap, diagrams and Excalidraw scenes, the image editor over any picture, and how a file is saved.
 read_when: you are changing the explorer tree, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, capturing the window, editing a picture, or saving a file
-updated: 2026-09-25
-verified: 2026-09-25
+updated: 2026-09-26
+verified: 2026-09-26
 code_anchors: [crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/app/explorer.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/src/state/explorer/menu.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/ui/mark.rs, crates/ubiq/src/app/mark.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/md_options.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/ui/viewer/web.rs, crates/ubiq/src/ui/kit/md_navigator.rs, crates/ubiq/src/ui/kit/minimap.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/feedback.rs, crates/ubiq/src/state/feedback.rs, crates/ubiq/src/ui/feedback.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/tests/image_gestures.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/tests/viewer_kind.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/ui/web_view.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/state/web_panel.rs]
 depends_on: [feat-workbench, tech-ui]
 review_cycle: monthly
@@ -335,10 +335,12 @@ at (T-124); Mermaid offers Source, Preview and Split; Excalidraw and draw.io off
 because their source is JSON or XML nobody edits by hand and Editor is where each format's own
 component does that instead. Split
 shows the file's own buffer, not a copy of it, so switching costs nothing and loses no undo history.
-Which position is on screen belongs to the file rather than to the strip, and it is written into the
-saved arrangement and into what the project remembers, so a document reopens in the layout it was
-left in — a layout an older arrangement named that the file's viewer no longer offers is refused
-rather than restored. A new markdown file opens in Preview or Source as the Editor setting says,
+Which position is on screen belongs to the file rather than to the strip. **The default position
+persists and a per-document one does not** (`D190`): the position a document *opens* in is the
+Editor setting, which the host writes down, and moving this document to another position is an
+override the tab holds in memory for as long as it is open. Closing the tab drops it, and so does a
+restart; a rail-mode switch and a project switch keep it, because the open file itself survives
+both. A new markdown file opens in Preview or Source as the Editor setting says,
 **unless the file is already annotated, in which case it opens in Preview whatever the setting
 says** (T-124): a sidecar beside the file is what says so, read off the explorer's own tree
 (`AppState::markdown_open()`), because asking the host would index the document and write that

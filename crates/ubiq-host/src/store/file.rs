@@ -32,6 +32,29 @@ struct CatalogueFile {
     projects: Vec<ProjectRecord>,
 }
 
+/// Every TOML key a `[[project]]` row can hold today — `ProjectRecord`'s own field names, after
+/// `#[serde(rename)]`. [`merge_unknown_fields`]'s `known_fields` for the catalogue: kept in step
+/// with `ProjectRecord` by hand, the same obligation `mission.rs`'s own probe carries.
+const PROJECT_RECORD_FIELDS: &[&str] = &[
+    "id",
+    "name",
+    "path",
+    "colour",
+    "custom_colour",
+    "temporary",
+    "created_at",
+    "last_opened_at",
+    "search_excludes",
+    "index",
+    "mission_term",
+    "managed_repos",
+    "tools",
+    "lanes",
+    "runs_on",
+    "initials",
+    "storage",
+];
+
 /// The `version` at the top of a file, before anything else about it is believed.
 ///
 /// A version above ours is not corruption. The caller leaves the file exactly as it is: overwriting
@@ -60,6 +83,52 @@ fn schema_of(raw: &str) -> Option<u32> {
         .map(|probe| probe.schema)
 }
 
+/// `D179`: a parsed store round-trips a field it does not itself know, rather than dropping it —
+/// the mechanism [`crate::store::mission`] already uses for one record per file, generalised here
+/// to a list of them, keyed by `id`.
+///
+/// `known_fields` is every TOML key this build's record type can itself emit (its field names,
+/// after `#[serde(rename)]`). A key in the old row that is **not** one of them is somebody else's —
+/// a newer Ubiq's, or a Studio sidecar's — and is copied onto the matching fresh row untouched. A
+/// key that **is** one of ours is never copied forward even if the fresh row omits it, because an
+/// omitted `Option` field is a value this save cleared, not one it forgot; copying it forward would
+/// resurrect it (`mission.rs`'s own reasoning).
+fn merge_unknown_fields(
+    mut fresh: Vec<toml::Value>,
+    existing_raw: &str,
+    array_key: &str,
+    known_fields: &[&str],
+) -> Vec<toml::Value> {
+    let Some(toml::Value::Array(existing_rows)) = existing_raw
+        .parse::<toml::Table>()
+        .ok()
+        .and_then(|table| table.get(array_key).cloned())
+    else {
+        return fresh;
+    };
+
+    for row in &mut fresh {
+        let toml::Value::Table(table) = row else {
+            continue;
+        };
+        let Some(id) = table.get("id").cloned() else {
+            continue;
+        };
+        let old = existing_rows.iter().find_map(|value| match value {
+            toml::Value::Table(old) if old.get("id") == Some(&id) => Some(old),
+            _ => None,
+        });
+        let Some(old) = old else { continue };
+        for (key, value) in old {
+            if known_fields.contains(&key.as_str()) {
+                continue;
+            }
+            table.entry(key.clone()).or_insert_with(|| value.clone());
+        }
+    }
+    fresh
+}
+
 /// The catalogue, as one TOML file.
 pub struct FileProjectStore {
     path: PathBuf,
@@ -85,14 +154,37 @@ impl FileProjectStore {
 
     /// Rewrite the file from what is in memory.
     fn flush(&self) -> Result<(), StoreError> {
-        let records = self.records.read().unwrap_or_else(|e| e.into_inner());
-        let file = CatalogueFile {
-            version: CATALOGUE_VERSION,
-            projects: records.clone(),
-        };
-        drop(records);
+        let records = self
+            .records
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
 
-        let body = toml::to_string_pretty(&file).map_err(|error| StoreError::Parse {
+        let mut rows = Vec::with_capacity(records.len());
+        for record in &records {
+            let value = toml::Value::try_from(record).map_err(|error| StoreError::Parse {
+                path: self.path.clone(),
+                preserved_as: None,
+                message: error.to_string(),
+            })?;
+            rows.push(value);
+        }
+        // Every project's own keys survive the read/modify/write cycle; anything else on its row —
+        // a Studio key, or a field a newer Ubiq wrote — comes along for the ride (`D179`).
+        if let Ok(existing_raw) = std::fs::read_to_string(&self.path) {
+            rows = merge_unknown_fields(rows, &existing_raw, "project", PROJECT_RECORD_FIELDS);
+        }
+
+        let mut table = toml::Table::new();
+        table.insert(
+            "version".to_string(),
+            toml::Value::Integer(i64::from(CATALOGUE_VERSION)),
+        );
+        if !rows.is_empty() {
+            table.insert("project".to_string(), toml::Value::Array(rows));
+        }
+
+        let body = toml::to_string_pretty(&table).map_err(|error| StoreError::Parse {
             path: self.path.clone(),
             preserved_as: None,
             message: error.to_string(),
@@ -198,6 +290,35 @@ struct TasksFile {
     tasks: Vec<TaskRecord>,
 }
 
+/// Every TOML key a `[[task]]` row can hold today — `TaskRecord`'s own field names, after
+/// `#[serde(rename)]`. [`merge_unknown_fields`]'s `known_fields` for tasks; see
+/// [`PROJECT_RECORD_FIELDS`] for the same obligation on the catalogue side.
+const TASK_RECORD_FIELDS: &[&str] = &[
+    "id",
+    "session",
+    "status",
+    "priority",
+    "shape",
+    "kind",
+    "level",
+    "parent",
+    "reference",
+    "prerequisite",
+    "attachment",
+    "complexity",
+    "assigned_to",
+    "key",
+    "link",
+    "label",
+    "colour",
+    "title",
+    "description",
+    "step",
+    "comment",
+    "created_at",
+    "updated_at",
+];
+
 /// A project's tasks, one file per project under the config root.
 ///
 /// Deliberately unlike [`FileProjectStore`]: no in-memory copy of the list and no `durable` flag.
@@ -223,13 +344,13 @@ impl FileTaskStore {
     /// and the orphan collector already cover a Ubiq-managed project's copy and a project-managed
     /// one lands where the project itself can carry it.
     pub fn path(&self, project: ProjectId) -> PathBuf {
-        self.dirs.dir(project).join("tasks.toml")
+        self.dirs.data(project).tasks()
     }
 
-    /// Where a project's archived tasks live — beside `tasks.toml` rather than inside it, so
-    /// Forget and the orphan collector cover this the same way they already cover the live file.
+    /// Where a project's archived tasks live — beside the live file under the same `tasks/`, so
+    /// Forget and the orphan collector cover this the same way they already cover that file.
     fn archive_dir(&self, project: ProjectId) -> PathBuf {
-        self.dirs.dir(project).join("tasks-archive")
+        self.dirs.data(project).tasks_archive()
     }
 
     /// Every archive page already on disk, oldest first, named by the page number that decides the
@@ -292,11 +413,32 @@ impl TaskStore for FileTaskStore {
 
     fn save(&self, project: ProjectId, tasks: &[TaskRecord]) -> Result<(), StoreError> {
         let path = self.path(project);
-        let file = TasksFile {
-            version: TASKS_VERSION,
-            tasks: tasks.to_vec(),
-        };
-        let body = toml::to_string_pretty(&file).map_err(|error| StoreError::Parse {
+
+        let mut rows = Vec::with_capacity(tasks.len());
+        for task in tasks {
+            let value = toml::Value::try_from(task).map_err(|error| StoreError::Parse {
+                path: path.clone(),
+                preserved_as: None,
+                message: error.to_string(),
+            })?;
+            rows.push(value);
+        }
+        // Every task's own keys survive the read/modify/write cycle; anything else on its row —
+        // a Studio key, or a field a newer Ubiq wrote — comes along for the ride (`D179`).
+        if let Ok(existing_raw) = std::fs::read_to_string(&path) {
+            rows = merge_unknown_fields(rows, &existing_raw, "task", TASK_RECORD_FIELDS);
+        }
+
+        let mut table = toml::Table::new();
+        table.insert(
+            "version".to_string(),
+            toml::Value::Integer(i64::from(TASKS_VERSION)),
+        );
+        if !rows.is_empty() {
+            table.insert("task".to_string(), toml::Value::Array(rows));
+        }
+
+        let body = toml::to_string_pretty(&table).map_err(|error| StoreError::Parse {
             path: path.clone(),
             preserved_as: None,
             message: error.to_string(),
@@ -402,11 +544,9 @@ impl FilePreferenceStore {
     pub fn path(&self, scope: &Scope) -> PathBuf {
         match scope {
             Scope::Interface => self.root.join("preferences.toml"),
-            Scope::Project(id) => self
-                .root
-                .join("projects")
-                .join(id.to_string())
-                .join("view.toml"),
+            Scope::Project(id) => {
+                super::project_dir::ProjectData::under_config(&self.root, *id).view()
+            }
         }
     }
 }

@@ -57,6 +57,7 @@ pub mod size;
 pub mod stats;
 pub mod status_bar;
 pub mod tab_menu;
+pub mod tasksrc;
 pub mod teams;
 pub mod terminal;
 pub mod themes;

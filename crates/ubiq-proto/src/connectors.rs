@@ -32,11 +32,17 @@ pub const OAUTH_REDIRECT_PORT: u16 = 47821;
 /// binds [`OAUTH_REDIRECT_PORT`] and sends this; the interface only ever displays it.
 pub const OAUTH_REDIRECT: &str = "http://127.0.0.1:47821/callback";
 
-/// The six services Ubiq can hold an identity at.
+/// The services Ubiq can hold an identity at.
 ///
-/// Closed, and a seventh is a change to this enum and to the host's table beside it. Forgejo is a
+/// Closed, and an eighth is a change to this enum and to the host's table beside it. Forgejo is a
 /// Gitea fork with the same API surface and the same `/api/v1` base, so it connects as
 /// [`ProviderId::Gitea`] against its own instance rather than earning a row.
+///
+/// **Six of these are identities a user picks from the connections screen; [`ProviderId::Trello`]
+/// is not.** It is authenticated through the task-source layer's own setup surface, because it is
+/// a board a project's tasks are bound to rather than an account cloning and browsing read. The
+/// closed list the connections screen offers is a rule about what a *user* can add, and this enum
+/// is the base's own table (`R3`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderId {
@@ -46,6 +52,7 @@ pub enum ProviderId {
     AzureDevops,
     Atlassian,
     Google,
+    Trello,
 }
 
 /// Which flow produced a connection, and which one a picker is offering.
@@ -80,7 +87,12 @@ pub enum InstanceNeed {
 }
 
 impl ProviderId {
-    /// Every provider, in the order a picker offers them.
+    /// The providers the connections screen offers, in the order it offers them.
+    ///
+    /// Six, and [`ProviderId::Trello`] is deliberately not among them: a Trello identity is
+    /// obtained where a board is bound, so offering it here would be a second, unreachable way to
+    /// hold one. Use [`ProviderId::every`] for a question about the enum rather than about the
+    /// picker.
     pub fn all() -> &'static [ProviderId] {
         &[
             ProviderId::Github,
@@ -92,6 +104,25 @@ impl ProviderId {
         ]
     }
 
+    /// Every variant, pickable or not — what a table keyed by provider has to cover.
+    pub fn every() -> &'static [ProviderId] {
+        &[
+            ProviderId::Github,
+            ProviderId::Gitlab,
+            ProviderId::Gitea,
+            ProviderId::AzureDevops,
+            ProviderId::Atlassian,
+            ProviderId::Google,
+            ProviderId::Trello,
+        ]
+    }
+
+    /// Whether the connections screen offers this provider. False for a provider whose identity is
+    /// obtained somewhere else entirely.
+    pub fn pickable(self) -> bool {
+        ProviderId::all().contains(&self)
+    }
+
     /// The provider's own name for itself.
     pub fn label(self) -> &'static str {
         match self {
@@ -101,6 +132,7 @@ impl ProviderId {
             ProviderId::AzureDevops => "Azure DevOps",
             ProviderId::Atlassian => "Atlassian",
             ProviderId::Google => "Google Workspace",
+            ProviderId::Trello => "Trello",
         }
     }
 
@@ -114,6 +146,7 @@ impl ProviderId {
             ProviderId::AzureDevops => "AZ",
             ProviderId::Atlassian => "AT",
             ProviderId::Google => "GO",
+            ProviderId::Trello => "TR",
         }
     }
 
@@ -122,7 +155,8 @@ impl ProviderId {
         match self {
             // Gitea and Forgejo ship no hosted service, so an instance is the whole address.
             ProviderId::Gitea => InstanceNeed::Required,
-            ProviderId::Google => InstanceNeed::Never,
+            // Trello ships one cloud and nothing to self-host.
+            ProviderId::Google | ProviderId::Trello => InstanceNeed::Never,
             _ => InstanceNeed::Optional,
         }
     }
@@ -143,8 +177,12 @@ impl ProviderId {
             (ProviderId::Atlassian, false) => &[Token, Oauth],
             (ProviderId::Atlassian, true) => &[Token],
             (ProviderId::Google, false) => &[Oauth],
-            // Gitea has no cloud, and Google no self-hosted install.
-            (ProviderId::Gitea, false) | (ProviderId::Google, true) => &[],
+            // Trello's token comes off a `trello.com/1/authorize` page the user copies from —
+            // a paste, not a callback — so the token flow is the only one, and the material it
+            // captures is a *pair*: the API key and the token, in one field (`D183`).
+            (ProviderId::Trello, false) => &[Token],
+            // Gitea has no cloud, and neither Google nor Trello a self-hosted install.
+            (ProviderId::Gitea, false) | (ProviderId::Google | ProviderId::Trello, true) => &[],
         }
     }
 
@@ -163,6 +201,7 @@ impl ProviderId {
             ProviderId::AzureDevops => Some("https://dev.azure.com"),
             ProviderId::Atlassian => Some("https://atlassian.net"),
             ProviderId::Google => Some("https://console.cloud.google.com"),
+            ProviderId::Trello => Some("https://trello.com"),
         }
     }
 
@@ -514,6 +553,21 @@ mod tests {
                 InstanceNeed::Optional => assert!(!cloud.is_empty() && !hosted.is_empty()),
             }
         }
+    }
+
+    /// The seventh provider is the base's own, not the user's: it authenticates a bound board,
+    /// so the connections screen never offers it and the enum still has to cover it everywhere.
+    #[test]
+    fn trello_is_a_provider_the_picker_does_not_offer() {
+        assert!(!ProviderId::Trello.pickable());
+        assert!(!ProviderId::all().contains(&ProviderId::Trello));
+        assert!(ProviderId::every().contains(&ProviderId::Trello));
+        assert_eq!(ProviderId::every().len(), ProviderId::all().len() + 1);
+        // A pasted pair, against one cloud, and no browser flow to open.
+        assert_eq!(ProviderId::Trello.flows(false), &[AuthKind::Token]);
+        assert!(ProviderId::Trello.flows(true).is_empty());
+        assert_eq!(ProviderId::Trello.instance_need(), InstanceNeed::Never);
+        assert_eq!(ProviderId::Trello.glyph().len(), 2);
     }
 
     #[test]

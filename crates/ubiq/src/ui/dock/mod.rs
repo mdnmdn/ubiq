@@ -51,8 +51,8 @@ use crate::state::git::{CHANGES_WIDTH, SIDEBAR_WIDTH};
 use crate::state::settings::TabClose;
 use crate::theme;
 use crate::ui::{
-    agents, board, chat, editor, empty, explorer, git, help, kb, logs, mission, orchestration,
-    outline, rail, search, sink, stats, teams, terminal,
+    agents, board, chat, editor, empty, explorer, git, help, kb, logs, mission, outline, rail,
+    search, terminal,
 };
 
 /// The version a saved layout is written under. It travels with the preferences schema, because
@@ -428,10 +428,10 @@ fn did_save_or_dirty(file: &crate::state::OpenFile) -> bool {
 /// selects between.
 fn centre_title(mode: RailMode) -> &'static str {
     match mode {
-        RailMode::Ide => "Editor",
+        RailMode::IDE => "Editor",
         // The centre is one document, not the mode, so the tab says what it holds.
-        RailMode::Kb => "Document",
-        RailMode::Sink => "Kitchen sink",
+        RailMode::KB => "Document",
+        RailMode::SINK => "Kitchen sink",
         other => other.label(),
     }
 }
@@ -632,14 +632,15 @@ impl BasePanel for WorkbenchPanel {
     /// What a saved layout carries for this panel: **what it is looking at, never what it drew.**
     ///
     /// Two panels write more than their name, because their name is the same for every one of
-    /// them. A file writes its tab key and the layout its viewer was left in; a terminal writes
-    /// its pane's id, which is what lets the arrangement put a pane back where the user left it
-    /// when the window still holds it. Never a parsed scene, a computed diff or a rendered
-    /// diagram: those are functions of bytes the host will send again.
+    /// them. A file writes its tab key — and only that, never the view mode it was left in
+    /// (T-202, see [`file_payload`]); a terminal writes its pane's id, which is what lets the
+    /// arrangement put a pane back where the user left it when the window still holds it. Never a
+    /// parsed scene, a computed diff or a rendered diagram: those are functions of bytes the host
+    /// will send again.
     fn dump(&self, _: &App) -> PanelState {
         let mut state = PanelState::new(self.kind.name());
         if let Some(key) = self.kind.tab_key().or_else(|| self.kind.kb_key()) {
-            state.info = PanelInfo::panel(file_payload(key, self.layout));
+            state.info = PanelInfo::panel(file_payload(key));
         }
         if let Some(pane_id) = self.kind.pane() {
             state.info = PanelInfo::panel(pane_payload(pane_id));
@@ -757,30 +758,24 @@ fn centre(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> An
     let wb = &app.workbench;
     let has_project = app.project(cx).is_some();
 
-    match wb.rail_mode {
-        RailMode::Ide if has_project => editor::render(app, cx),
-        RailMode::Git if has_project => editor::render(app, cx),
-        RailMode::Agents if has_project => agents::render(app, window, cx).into_any_element(),
-        RailMode::TeamsOld if has_project => {
-            orchestration::render(app, window, cx).into_any_element()
-        }
-        // One screen, two rail entries: the entry is what decides the span, and the canvas asks
-        // for it through `AppState::teams_span`. `TeamsAll` is in the APP group but still wants a
-        // project — a canvas about every open project has nothing to draw when there are none.
-        RailMode::Teams | RailMode::TeamsAll if has_project => {
-            teams::render(app, window, cx).into_any_element()
-        }
-        RailMode::Tasks if has_project => board::render(app, window, cx).into_any_element(),
-        RailMode::Kb if has_project => kb::centre(app, window, cx),
-        // The two modes that are about the application rather than a project answer whether or
-        // not one is open: the sink draws its own fixtures, and Control reports on the host, which
-        // is running whether or not this window has a folder open.
-        RailMode::Sink => sink::render(app, window, cx),
-        RailMode::Control => stats::render(app, cx),
-        // Every other mode is a project's, as the rail says by putting them under `PROJECT`. With
-        // none open there is no work to draw, so they say what the editor says.
-        _ if !has_project => empty::no_project(cx),
-        mode => not_built(mode),
+    let mode = wb.rail_mode;
+    let Some(spec) = mode.spec() else {
+        // Nothing is registered under the mode the window is standing in — a second edition
+        // removed it while a blob still named it. The empty page says so rather than a blank.
+        return not_built(mode);
+    };
+
+    // The three questions the old match asked, in the order it asked them. A mode that is about
+    // the application rather than about a project answers whether or not one is open: the sink
+    // draws its own fixtures, and Control reports on the host, which is running either way. Every
+    // other mode is a project's, as the rail says by putting it under `PROJECT`, and with none
+    // open there is no work to draw — so it says what the editor says.
+    if spec.needs_project && !has_project {
+        return empty::no_project(cx);
+    }
+    match spec.centre {
+        Some(centre) => centre(app, window, cx),
+        None => not_built(mode),
     }
 }
 
@@ -811,18 +806,21 @@ pub fn default_layout(
     cx: &mut App,
     rail_mode: RailMode,
 ) {
-    match rail_mode {
-        RailMode::Git => default_git_layout(dock, panel, window, cx),
-        RailMode::Kb => default_kb_layout(dock, panel, window, cx),
-        _ => default_ide_layout(dock, panel, window, cx),
-    }
+    // The mode's own, or the IDE's (`D184`). This used to be a `_ =>` arm, which is exactly the
+    // shape that gives a contributed mode a plausible-looking wrong default rather than an error:
+    // `None` on the spec now *says* "the IDE's" instead of falling into it.
+    let layout = rail_mode
+        .spec()
+        .and_then(|spec| spec.default_layout)
+        .unwrap_or(default_ide_layout);
+    layout(dock, panel, window, cx);
 }
 
 /// Default layout for IDE mode: explorer on the left, centre in the middle, the right region
 /// empty and shut until a persistent agent or the user asks for a chat.
-fn default_ide_layout(
+pub(crate) fn default_ide_layout(
     dock: &Entity<DockArea>,
-    panel: &mut impl FnMut(PanelKind, &mut App) -> Option<Entity<WorkbenchPanel>>,
+    panel: &mut dyn FnMut(PanelKind, &mut App) -> Option<Entity<WorkbenchPanel>>,
     window: &mut Window,
     cx: &mut App,
 ) {
@@ -879,9 +877,9 @@ fn default_ide_layout(
 
 /// Default layout for Git mode: refs on the left, changes on the right, the commit list in the
 /// centre. The pane region stays empty and closed.
-fn default_git_layout(
+pub(crate) fn default_git_layout(
     dock: &Entity<DockArea>,
-    panel: &mut impl FnMut(PanelKind, &mut App) -> Option<Entity<WorkbenchPanel>>,
+    panel: &mut dyn FnMut(PanelKind, &mut App) -> Option<Entity<WorkbenchPanel>>,
     window: &mut Window,
     cx: &mut App,
 ) {
@@ -933,9 +931,9 @@ fn default_git_layout(
 /// One side rather than Git's two: the knowledge base has an explorer and a reading area, and
 /// nothing a third region would hold. The right and the bottom are installed all the same, so the
 /// sizes are there when a panel is dragged into one, and both start shut.
-fn default_kb_layout(
+pub(crate) fn default_kb_layout(
     dock: &Entity<DockArea>,
-    panel: &mut impl FnMut(PanelKind, &mut App) -> Option<Entity<WorkbenchPanel>>,
+    panel: &mut dyn FnMut(PanelKind, &mut App) -> Option<Entity<WorkbenchPanel>>,
     window: &mut Window,
     cx: &mut App,
 ) {
@@ -1198,7 +1196,6 @@ pub fn restore(
     dock: &Entity<DockArea>,
     saved: &serde_json::Value,
     panel: &mut impl FnMut(PanelKind, &mut App) -> Option<Entity<WorkbenchPanel>>,
-    layouts: &mut Vec<(String, ViewLayout)>,
     window: &mut Window,
     cx: &mut App,
 ) -> bool {
@@ -1215,7 +1212,7 @@ pub fn restore(
         return false;
     }
 
-    let centre = rebuild(&state.center, panel, layouts, cx);
+    let centre = rebuild(&state.center, panel, cx);
     let mut regions: Vec<(Region, DockLayout, Pixels, bool)> = Vec::new();
     for (saved, region) in [
         (&state.left_dock, Region::Left),
@@ -1227,7 +1224,7 @@ pub fn restore(
         // it out kept whatever the mode before it had in that region on screen, under the incoming
         // mode's rail — and an empty region is a legal arrangement here: the pane region starts
         // that way, and its strip is where a pane is opened from.
-        let layout = rebuild(saved.panel(), panel, layouts, cx).unwrap_or_else(DockLayout::tabs);
+        let layout = rebuild(saved.panel(), panel, cx).unwrap_or_else(DockLayout::tabs);
         regions.push((region, layout, saved.size(), saved.open()));
     }
 
@@ -1263,7 +1260,6 @@ pub fn restore(
 fn rebuild(
     state: &PanelState,
     panel: &mut impl FnMut(PanelKind, &mut App) -> Option<Entity<WorkbenchPanel>>,
-    layouts: &mut Vec<(String, ViewLayout)>,
     cx: &mut App,
 ) -> Option<DockLayout> {
     match &state.info {
@@ -1274,7 +1270,7 @@ fn rebuild(
             };
             let mut any = false;
             for (ix, child) in state.children.iter().enumerate() {
-                let Some(child) = rebuild(child, panel, layouts, cx) else {
+                let Some(child) = rebuild(child, panel, cx) else {
                     continue;
                 };
                 any = true;
@@ -1287,7 +1283,7 @@ fn rebuild(
             let mut count = 0;
             for child in &state.children {
                 // A leaf this build cannot rebuild — a terminal, always — is dropped.
-                let Some(kind) = leaf(child, layouts) else {
+                let Some(kind) = leaf(child) else {
                     continue;
                 };
                 // A panel the window will not supply — a terminal whose pane has gone — is dropped
@@ -1303,20 +1299,20 @@ fn rebuild(
         // A bare leaf where a container belongs, and a tiles canvas Ubiq never builds. Both are
         // read as a group of one so a hand-edited file cannot lose a panel.
         PanelInfo::Panel(_) | PanelInfo::Tiles { .. } => {
-            let kind = leaf(state, layouts)?;
+            let kind = leaf(state)?;
             let built = panel(kind, cx)?;
             Some(DockLayout::tabs().panel_view(WorkbenchPanel::handle(&built), cx))
         }
     }
 }
 
-/// One saved leaf as the kind it names, collecting what its payload carried on the way.
+/// One saved leaf as the kind it names.
 ///
 /// Every panel but a file is its name and nothing else. A file's name is the same for all of them,
-/// so it is the payload beside it that says which tab it is — and the layout it was left in, which
-/// is handed back for the caller to put on the file rather than applied here: this function knows
-/// nothing about open files.
-fn leaf(state: &PanelState, layouts: &mut Vec<(String, ViewLayout)>) -> Option<PanelKind> {
+/// so it is the payload beside it that says which tab it is — and *only* which tab: the view mode
+/// the tab was left in is not in the payload and never rides a saved arrangement, because a
+/// per-document view mode is memory-only (T-202). See [`file_payload`].
+fn leaf(state: &PanelState) -> Option<PanelKind> {
     if state.panel_name == PanelKind::TERMINAL {
         let PanelInfo::Panel(payload) = &state.info else {
             // A terminal panel from a build that wrote no payload names no pane.
@@ -1356,24 +1352,28 @@ fn leaf(state: &PanelState, layouts: &mut Vec<(String, ViewLayout)>) -> Option<P
         // it as.
         return None;
     };
-    let (kind, layout) = file_from_payload(payload)?;
+    let kind = file_from_payload(payload)?;
     // A knowledge-base document writes the same payload under its own panel name, so what the
     // key rebuilds into is the name's answer rather than the payload's.
-    let kind = match is_doc {
-        true => PanelKind::Kb(kind.tab_key()?.to_string()),
-        false => kind,
-    };
-    if let Some(key) = kind.tab_key().or_else(|| kind.kb_key()) {
-        layouts.push((key.to_string(), layout));
+    match is_doc {
+        true => Some(PanelKind::Kb(kind.tab_key()?.to_string())),
+        false => Some(kind),
     }
-    Some(kind)
 }
 
 /// What a file panel writes into the dock's saved layout: **what it is looking at, not what it
-/// drew.** The tab key, because the panel's name is the same for every file, and the layout the
-/// viewer was left in, because that is the one thing a viewer keeps.
-pub fn file_payload(key: &str, layout: ViewLayout) -> serde_json::Value {
-    serde_json::json!({ "key": key, "layout": layout })
+/// drew.** The tab key, and nothing else — the panel's name is the same for every file, so the key
+/// is what tells them apart.
+///
+/// **The view mode is deliberately not here** (T-202). A saved arrangement is on disk, and the
+/// ruling is that the *default* view mode persists — that is `UiSettings::markdown_open`, a
+/// setting — while a per-document override is remembered in memory only, on
+/// [`crate::state::editor::OpenFile::layout`], for as long as the tab is open. Writing the mode
+/// here is what made the override outlive a restart; a rail-mode or project switch keeps it
+/// anyway, because the `OpenFile` itself survives both and `AppState::settle_visibility` pushes
+/// its mode back onto the panel.
+pub fn file_payload(key: &str) -> serde_json::Value {
+    serde_json::json!({ "key": key })
 }
 
 /// What a terminal panel writes into the dock's saved layout: the pane it draws.
@@ -1417,14 +1417,11 @@ pub fn mission_from_payload(payload: &serde_json::Value) -> Option<PanelKind> {
     Some(PanelKind::Mission(task_id))
 }
 
-/// The same payload read back. A payload with no key names no tab and rebuilds to nothing; one
-/// with no layout — or a layout this build does not know — opens in the viewer's default, because
-/// which layout a document was left in is not worth losing the document over.
-pub fn file_from_payload(payload: &serde_json::Value) -> Option<(PanelKind, ViewLayout)> {
+/// The same payload read back. A payload with no key names no tab and rebuilds to nothing.
+///
+/// A `layout` field from a build before T-202 is ignored rather than honoured: the tab opens in
+/// whatever the default says, which is the whole point of the ruling.
+pub fn file_from_payload(payload: &serde_json::Value) -> Option<PanelKind> {
     let key = payload.get("key")?.as_str()?.to_string();
-    let layout = payload
-        .get("layout")
-        .and_then(|value| serde_json::from_value::<ViewLayout>(value.clone()).ok())
-        .unwrap_or_default();
-    Some((PanelKind::File(key), layout))
+    Some(PanelKind::File(key))
 }

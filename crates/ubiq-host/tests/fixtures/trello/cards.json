@@ -1,0 +1,87 @@
+[
+  {
+    "id": "9d4e5f60700800090a00f401",
+    "idShort": 41,
+    "name": "Pane resize corrupts the alternate screen",
+    "desc": "Steps:\n\n1. Split a pane\n2. Drag the divider\n\nThe harness keeps the **old** size.",
+    "closed": false,
+    "idBoard": "5f2a7b1c9d0e4a0012345601",
+    "idList": "6a1b2c3d4e5f60007000a101",
+    "idMembers": ["8c3d4e5f607008000900e301"],
+    "idLabels": ["7b2c3d4e5f60700080001201"],
+    "labels": [
+      {
+        "id": "7b2c3d4e5f60700080001201",
+        "idBoard": "5f2a7b1c9d0e4a0012345601",
+        "name": "bug",
+        "color": "red"
+      }
+    ],
+    "dateLastActivity": "2026-09-18T09:14:02.517Z",
+    "url": "https://trello.com/c/Ab12Cd34/41-pane-resize-corrupts-the-alternate-screen",
+    "shortUrl": "https://trello.com/c/Ab12Cd34",
+    "badges": { "comments": 2, "checkItems": 3, "checkItemsChecked": 1 }
+  },
+  {
+    "id": "9d4e5f60700800090a00f402",
+    "idShort": 42,
+    "name": "Import dialog",
+    "desc": "",
+    "closed": false,
+    "idBoard": "5f2a7b1c9d0e4a0012345601",
+    "idList": "6a1b2c3d4e5f60007000a102",
+    "idMembers": ["8c3d4e5f607008000900e302", "8c3d4e5f607008000900e399"],
+    "idLabels": ["7b2c3d4e5f60700080001202"],
+    "labels": [
+      {
+        "id": "7b2c3d4e5f60700080001202",
+        "idBoard": "5f2a7b1c9d0e4a0012345601",
+        "name": "feature",
+        "color": "green"
+      }
+    ],
+    "dateLastActivity": "2026-09-20T17:44:59.001Z",
+    "url": "https://trello.com/c/Ef56Gh78/42-import-dialog",
+    "shortUrl": "https://trello.com/c/Ef56Gh78",
+    "badges": { "comments": 0, "checkItems": 0, "checkItemsChecked": 0 }
+  },
+  {
+    "id": "9d4e5f60700800090a00f403",
+    "idShort": 43,
+    "name": "Ship the beta",
+    "desc": "",
+    "closed": false,
+    "idBoard": "5f2a7b1c9d0e4a0012345601",
+    "idList": "6a1b2c3d4e5f60007000a103",
+    "idMembers": [],
+    "idLabels": [],
+    "labels": [],
+    "dateLastActivity": "2026-08-30T11:00:00.000Z",
+    "url": "https://trello.com/c/Ij90Kl12/43-ship-the-beta",
+    "shortUrl": "https://trello.com/c/Ij90Kl12",
+    "badges": { "comments": 0, "checkItems": 0, "checkItemsChecked": 0 }
+  },
+  {
+    "id": "9d4e5f60700800090a00f404",
+    "idShort": 44,
+    "name": "An archived card nobody should see",
+    "desc": "",
+    "closed": true,
+    "idBoard": "5f2a7b1c9d0e4a0012345601",
+    "idList": "6a1b2c3d4e5f60007000a101",
+    "idMembers": [],
+    "idLabels": ["7b2c3d4e5f60700080001201"],
+    "labels": [
+      {
+        "id": "7b2c3d4e5f60700080001201",
+        "idBoard": "5f2a7b1c9d0e4a0012345601",
+        "name": "bug",
+        "color": "red"
+      }
+    ],
+    "dateLastActivity": "2026-07-01T08:00:00.000Z",
+    "url": "https://trello.com/c/Mn34Op56/44-an-archived-card-nobody-should-see",
+    "shortUrl": "https://trello.com/c/Mn34Op56",
+    "badges": { "comments": 0, "checkItems": 0, "checkItemsChecked": 0 }
+  }
+]

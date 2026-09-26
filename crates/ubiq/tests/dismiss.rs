@@ -56,7 +56,7 @@ fn escape_peels_one_layer_at_a_time(cx: &mut gpui::TestAppContext) {
             },
             colour: ColourField::default(),
             drone: DroneField::default(),
-            nav: ProjectNav::General,
+            nav: ProjectNav::default(),
             definitions_use_global: true,
         });
         state.workbench.settings.open = true;
@@ -290,7 +290,7 @@ fn the_composers_picker_draws_with_the_rail_off_the_sink(cx: &mut gpui::TestAppC
     state.read_with(cx, |state, _| {
         assert_ne!(
             state.workbench.rail_mode,
-            RailMode::Sink,
+            RailMode::SINK,
             "the sink's page would paint its own picker"
         );
     });
@@ -463,7 +463,7 @@ fn an_outside_click_in_a_higher_layer_leaves_the_layer_under_it_up(cx: &mut gpui
             },
             colour: ColourField::default(),
             drone: DroneField::default(),
-            nav: ProjectNav::General,
+            nav: ProjectNav::default(),
             definitions_use_global: true,
         });
         state.workbench.kb_source = Some(KbSourceForm::default());

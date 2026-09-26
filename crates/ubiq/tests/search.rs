@@ -288,7 +288,7 @@ fn the_header_field_starts_a_search_and_switches_to_the_ide(cx: &mut TestAppCont
         .window
         .update(cx, |_, window, cx| {
             fixture.state.update(cx, |state, cx| {
-                state.set_rail_mode(ubiq::state::RailMode::Control, cx);
+                state.set_rail_mode(ubiq::state::RailMode::CONTROL, cx);
                 let input = state.command_input.clone();
                 input.update(cx, |field, cx| field.set_value("needle", window, cx));
             });
@@ -317,7 +317,7 @@ fn the_header_field_starts_a_search_and_switches_to_the_ide(cx: &mut TestAppCont
         fixture
             .state
             .read_with(cx, |state, _| state.workbench.rail_mode),
-        ubiq::state::RailMode::Ide,
+        ubiq::state::RailMode::IDE,
         "the ide comes up so the search panel has somewhere to be drawn"
     );
     assert_eq!(
@@ -375,7 +375,7 @@ impl Fixture {
 fn restore_arrangement(fixture: &Fixture, blob: serde_json::Value, cx: &mut TestAppContext) {
     let mut modes = std::collections::HashMap::new();
     modes.insert(
-        ubiq::state::RailMode::Ide,
+        ubiq::state::RailMode::IDE,
         ubiq::state::prefs::ModeLayout {
             show_left: true,
             show_bottom: true,
@@ -553,7 +553,7 @@ fn search_comes_back_with_the_ide_mode(cx: &mut TestAppContext) {
         .expect("the window is open");
     cx.run_until_parked();
 
-    for mode in [ubiq::state::RailMode::Agents, ubiq::state::RailMode::Ide] {
+    for mode in [ubiq::state::RailMode::AGENTS, ubiq::state::RailMode::IDE] {
         fixture
             .state
             .update(cx, |state, cx| state.set_rail_mode(mode, cx));

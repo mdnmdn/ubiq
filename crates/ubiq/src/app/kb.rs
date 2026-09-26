@@ -29,6 +29,24 @@ impl AppState {
         });
     }
 
+    /// [`Self::ask_kb_sources`], as the KB mode's `on_enter` (`D184`).
+    ///
+    /// The first visit to the mode is when a blank explorer needs an answer, not every redraw of
+    /// it — so the ask is the mode's own arrival hook rather than a `if mode == KB` beside the
+    /// switch, which is a shape a contributed mode could never join.
+    pub(crate) fn ask_kb_sources_on_arrival(&mut self, cx: &mut Context<Self>) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        if self
+            .projects
+            .get(&project)
+            .is_some_and(|open| !open.kb.loaded)
+        {
+            self.ask_kb_sources(project);
+        }
+    }
+
     /// One open document of the project on screen, by its tab key. What a KB panel draws and what
     /// its tab reports are both this — [`AppState::file`] for the documents half.
     pub fn kb_doc(&self, key: &str, cx: &App) -> Option<&OpenFile> {
@@ -524,7 +542,7 @@ impl AppState {
         let Some(settings) = self.workbench.project_settings.as_mut() else {
             return;
         };
-        settings.nav = ProjectNav::Kb;
+        settings.nav = ProjectNav(ext_ids::PROJECT_KB);
         cx.notify();
     }
 

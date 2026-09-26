@@ -832,7 +832,7 @@ impl AppState {
             // A folder not in the catalogue yet has no origin to seed from, and the Remote nav is
             // not enabled over it either.
             drone: DroneField::default(),
-            nav: ProjectNav::General,
+            nav: ProjectNav::default(),
             // A folder with no record has no definitions of its own either.
             definitions_use_global: true,
         });
@@ -870,7 +870,7 @@ impl AppState {
                 ..ColourField::default()
             },
             drone: DroneField::from_origin(snapshot.record.runs_on.as_ref()),
-            nav: ProjectNav::General,
+            nav: ProjectNav::default(),
             // Read off the definitions rather than stored: a project that has written none of its
             // own is a project on the globals.
             definitions_use_global: !self
@@ -1139,7 +1139,7 @@ impl AppState {
                         saved.show_bottom,
                         saved.show_right,
                     ));
-                    if view.rail_mode == RailMode::Git && saved.layout.is_none() {
+                    if view.rail_mode == RailMode::GIT && saved.layout.is_none() {
                         self.queue_git_furniture();
                     }
                     // The project's own config just moved the mode the window reads its context

@@ -26,18 +26,6 @@ use crate::reply::Reply;
 use crate::store::project_dir;
 use crate::store::{PreferenceStore, ProjectStore, StoreError};
 
-/// The directory inside a project's own that belongs to the interface.
-///
-/// The host reserves the name and creates it, and never reads or writes inside it — see
-/// [`ubiq_proto::projects::ProjectSnapshot::workarea`].
-pub const WORKAREA: &str = "ui";
-
-/// The directory inside a project's own that belongs to the host's index.
-///
-/// The mirror of [`WORKAREA`]: the interface is never told this exists, and everything in it is
-/// derived data that is deleted rather than repaired.
-pub const INDEX_DIR: &str = "index";
-
 /// The number of distinct project swatches before they repeat.
 ///
 /// Mirrors `crates/ubiq/src/theme.rs`'s `Palette::project`'s `swatches: [Rgba; 16]` — a fixed-size
@@ -48,9 +36,10 @@ const PROJECT_COLOUR_COUNT: usize = 16;
 
 /// Where the shared workarea is, under the config root.
 ///
-/// The mirror of [`WORKAREA`] one level up: same name, same contract, no project. The host
+/// The mirror of [`Projects::workarea`] one level up: same contract, no project. The host
 /// reserves it and never reads inside — see [`ubiq_proto::messages::Message::HostInfo`]'s
-/// `shared_workarea`.
+/// `shared_workarea`. It hangs off the config root rather than off a project, so it is not under
+/// any project's `local/` and keeps its own name.
 pub const SHARED_WORKAREA: &str = "ui";
 
 /// The interface's own directory, belonging to no project.
@@ -172,6 +161,12 @@ impl Projects {
             Ok(records) => {
                 this.records = records;
                 this.loaded = true;
+                // Before anything composes a path: every store reads the grouped shape, and a
+                // tree written flat holds the same data under the names that came before
+                // (`G356`). Idempotent, so the second launch is a handful of `stat`s per project.
+                for record in &this.records {
+                    project_dir::migrate_project(&this.root, record);
+                }
                 this.reconcile_in_project_metadata();
                 // Only ever after a load that worked. Collecting against the empty catalogue a
                 // *corrupt* file produces would delete every project's view state.
@@ -258,13 +253,11 @@ impl Projects {
 
     /// Where this project's interface keeps its own files.
     ///
-    /// One directory per project, beside the `tasks.toml` and `view.toml` that project already
-    /// owns, so Forget and the orphan collector cover it without knowing it is there.
+    /// One directory per project, under the `local/` half of that project's data directory with
+    /// the view blob and the index, so Forget and the orphan collector cover it without knowing it
+    /// is there and a project-managed project never commits it.
     pub fn workarea(&self, id: ProjectId) -> PathBuf {
-        self.root
-            .join("projects")
-            .join(id.to_string())
-            .join(WORKAREA)
+        project_dir::ProjectData::under_config(&self.root, id).workarea()
     }
 
     /// Where this project's index lives.
@@ -276,10 +269,7 @@ impl Projects {
     ///
     /// Nothing here is ever written into the user's project folder.
     pub fn index_dir(&self, id: ProjectId) -> PathBuf {
-        self.root
-            .join("projects")
-            .join(id.to_string())
-            .join(INDEX_DIR)
+        project_dir::ProjectData::under_config(&self.root, id).index()
     }
 
     /// Reserve it, and answer the path the interface is told.
@@ -593,7 +583,7 @@ impl Projects {
             replies.push(reply);
         }
 
-        let dir = self.root.join("projects").join(id.to_string());
+        let dir = project_dir::under_config(&self.root, id);
         if dir.exists()
             && let Err(error) = std::fs::remove_dir_all(&dir)
         {
@@ -720,6 +710,85 @@ impl Projects {
         let mut replies = vec![Reply::Everyone(
             ubiq_proto::messages::Message::ProjectChanged { project: snapshot },
         )];
+        replies.extend(self.keep(record));
+        replies
+    }
+
+    /// Move a project's data between the two storage modes (`T-204`, `D173`).
+    ///
+    /// The mode is chosen at creation and changed only here, because this is a migration rather
+    /// than a setting: [`crate::store::project_dir::change_mode`] copies the shared half across
+    /// two unrelated trees, rewrites the pointer as its commit point, and removes the source. The
+    /// catalogue record's mode is changed **after** that returns, so a failure leaves the record
+    /// naming the tree the data is still in.
+    ///
+    /// **Refused while a pane is running in the project.** A harness in a pane is an agent
+    /// writing tasks through the MCP listener, and a store resolving the old directory mid-copy
+    /// would write into the tree being taken away. `open_panes` is the count the picker already
+    /// draws, kept by [`Self::pane_opened`] and [`Self::pane_closed`]; the coordinator refuses on
+    /// its own behalf for a conversation, which has no pane and so no entry here.
+    ///
+    /// Nothing under `local/` moves: it is what this machine derived — the view blob, the
+    /// workarea, the index, the caches — and it is rebuilt at the destination by being asked for
+    /// again. Today every one of those resolves under the config root whichever mode the project
+    /// is in, so the move costs the user nothing at all.
+    pub fn set_storage(&mut self, id: ProjectId, storage: StorageMode) -> Vec<Reply> {
+        let Some(record) = self.find(id) else {
+            return vec![Reply::Asker(storage_error(id, storage, "no such project"))];
+        };
+        if record.storage == storage {
+            // Already there, and a move that moves nothing touches no disk.
+            let dir = project_dir::ProjectData::new(match storage {
+                StorageMode::ProjectManaged => project_dir::in_project_dir(&record.path),
+                StorageMode::UbiqManaged => project_dir::under_config(&self.root, id),
+            });
+            return vec![Reply::Asker(
+                ubiq_proto::messages::Message::ProjectStorageMoved {
+                    project_id: id,
+                    storage,
+                    dir: wire_string(dir.dir()),
+                },
+            )];
+        }
+        // A temporary project is never written down, so it has no mode to change — and promoting
+        // it is what the settings dialog's name field is for.
+        if record.temporary {
+            return vec![Reply::Asker(storage_error(
+                id,
+                storage,
+                "a temporary project keeps no data of its own",
+            ))];
+        }
+        if self.open_panes.get(&id).copied().unwrap_or(0) > 0 {
+            return vec![Reply::Asker(storage_error(
+                id,
+                storage,
+                "close what is running in this project first",
+            ))];
+        }
+
+        let mut record = record.clone();
+        let dir = match project_dir::change_mode(&self.root, &record, storage) {
+            Ok(dir) => dir,
+            Err(error) => {
+                return vec![Reply::Asker(storage_error(
+                    id,
+                    storage,
+                    format!("the project's data is where it was: {error}"),
+                ))];
+            }
+        };
+
+        record.storage = storage;
+        let snapshot = self.snapshot(&record);
+        let mut replies = vec![
+            Reply::Everyone(ubiq_proto::messages::Message::ProjectChanged { project: snapshot }),
+            Reply::Asker(ubiq_proto::messages::Message::ProjectStorageMoved {
+                project_id: id,
+                storage,
+                dir: wire_string(&dir),
+            }),
+        ];
         replies.extend(self.keep(record));
         replies
     }
@@ -954,6 +1023,20 @@ fn message_error(
 ) -> ubiq_proto::messages::Message {
     ubiq_proto::messages::Message::ProjectError {
         project_id,
+        error: error.into(),
+    }
+}
+
+/// A refused or failed storage move. Its own message rather than a `ProjectError` so the panel
+/// that asked can put its row back — see `Message::ProjectStorageError`.
+fn storage_error(
+    project_id: ProjectId,
+    storage: StorageMode,
+    error: impl Into<String>,
+) -> ubiq_proto::messages::Message {
+    ubiq_proto::messages::Message::ProjectStorageError {
+        project_id,
+        storage,
         error: error.into(),
     }
 }

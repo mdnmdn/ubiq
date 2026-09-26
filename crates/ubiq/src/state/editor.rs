@@ -219,8 +219,9 @@ impl ViewerKind {
         }
     }
 
-    /// Whether `layout` is one this viewer offers. A layout restored from a saved arrangement
-    /// written by a build with a different set has to be checked rather than trusted.
+    /// Whether `layout` is one this viewer offers. Asked rather than assumed because a tab can
+    /// change viewer under its layout (`AppState::set_viewer_kind`) and because the
+    /// `markdown_open` default is a setting the user picked for markdown, handed to every tab.
     pub fn offers(self, layout: ViewLayout) -> bool {
         self.layouts().contains(&layout)
     }
@@ -247,10 +248,18 @@ impl ViewerKind {
     }
 }
 
-/// Which of a viewer's layouts is on screen. The one piece of per-tab state a viewer keeps, and
-/// what it writes into the dock's saved layout so a document reopens as it was left.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "lowercase")]
+/// Which of a viewer's layouts is on screen. The one piece of per-tab state a viewer keeps.
+///
+/// **The default view mode persists; a per-document one does not** (T-202). The mode a newly
+/// opened document starts in is a setting — `UiSettings::markdown_open`, which the host writes
+/// down — and changing it is what a user does to change "how documents open". Moving *this*
+/// document into another mode is an override the tab holds in memory, on
+/// [`OpenFile::layout`], and it is gone when the tab closes or the app restarts.
+///
+/// That is why this type is **not `Serialize`/`Deserialize`**: there is nowhere it should be
+/// written. A tab that reopened in the mode it was left in outlived the tab that chose it, which
+/// is the contradiction T-202 settled. Compare [`MdReading`], memory-only on the same footing.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum ViewLayout {
     /// The bytes, in the editor.
     Source,
@@ -264,8 +273,8 @@ pub enum ViewLayout {
     /// **This is a layout and not an action**, which is the opposite of what phase 5 decided —
     /// and for the reason that decision named: it was a separate axis only because the container
     /// was a browser window beside this one, so there was nothing for the panel to draw
-    /// differently. With the container embedded in the panel there plainly is, and a document
-    /// reopening in the layout it was left in is exactly what the dock already stores.
+    /// differently. With the container embedded in the panel there plainly is, so which of the
+    /// two the panel draws is a position on this axis and nothing more.
     Edit,
     /// The annotated-document surface: the document read section by section, with its thread rail
     /// beside it. Markdown's fourth position and nothing else's — the surface reads a
@@ -505,6 +514,14 @@ pub struct OpenFile {
     pub viewer: ViewerKind,
     /// Which of the viewer's layouts is on screen. Meaningless for a viewer with no preview, and
     /// harmless there.
+    ///
+    /// **In memory only, and per document** (T-202). It starts at the persisted default — the
+    /// `markdown_open` setting, via [`OpenFile::opening`] — and the header's toggle overrides it
+    /// for this tab alone. Nothing writes the override down: closing the tab, or restarting,
+    /// drops it and the document comes back in the default, on the same footing as
+    /// [`OpenFile::md_reading`] and `frontmatter_open`. It survives a rail-mode switch and a
+    /// project switch because the `OpenFile` does; the dock's saved arrangement carries the tab
+    /// key and not this (`crate::ui::dock::file_payload`).
     pub layout: ViewLayout,
     pub body: FileBody,
     pub save: SaveState,

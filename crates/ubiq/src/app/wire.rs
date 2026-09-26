@@ -520,6 +520,9 @@ impl AppState {
         let Some(message) = self.receive_repo(host, message, cx) else {
             return;
         };
+        let Some(message) = self.receive_tasksrc(message, cx) else {
+            return;
+        };
         let Some(message) = self.receive_host_browse(host, message, cx) else {
             return;
         };
@@ -2357,7 +2360,7 @@ impl AppState {
                 // moment the capabilities question can be put at all — and the Harnesses page
                 // draws a block per harness that wants the answer. Asked once per harness.
                 if self.workbench.settings.open
-                    && self.workbench.settings.nav == SettingsSection::Harnesses
+                    && self.workbench.settings.nav == SettingsSection(ext_ids::HARNESSES)
                 {
                     self.ask_acp_capabilities_all(false);
                 }
@@ -2519,7 +2522,7 @@ impl AppState {
                 // open handler, which had no list to walk yet. Cached answers only — a fresh
                 // read is what the refresh control is for.
                 if self.workbench.settings.open
-                    && self.workbench.settings.nav == SettingsSection::Harnesses
+                    && self.workbench.settings.nav == SettingsSection(ext_ids::HARNESSES)
                 {
                     self.ask_quotas();
                 }

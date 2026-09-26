@@ -54,6 +54,9 @@
 //!   workarea, on `web_assets`'s bundle-then-serve shape with no network in it
 //! - `kb`: a project's knowledge base — its configured sources, a git one's fetch, and the state
 //!   of each now (git fetch behind `git`, same as `repos`)
+//! - `tasksrc`: binding a project's board to a board somewhere else — the provider trait, the
+//!   binding and its link table, the `tasksrc.toml` sidecar, and Trello as the first provider
+//!   (the provider itself behind `listener`, since it makes HTTP requests)
 //! - `index`: the full-text index that speeds up content search (behind `index`)
 //! - `notifications`: telling the desktop about a notification (behind `desktop`)
 //! - `remote`, `links`: the rest of what `listener` gates
@@ -122,6 +125,7 @@ pub mod search;
 pub mod settings;
 pub mod shells;
 pub mod store;
+pub mod tasksrc;
 pub mod watch;
 #[cfg(feature = "listener")]
 pub mod web_assets;

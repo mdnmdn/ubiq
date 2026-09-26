@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: Editor-like chat tabs — many, movable to any dockable region, each a view onto a host-owned conversation or onto none, drawn by the composer, transcript and tool blocks the whole window shares.
 read_when: you are changing a chat tab, the control that starts or attaches a conversation, or which conversation a tab shows
-updated: 2026-09-25
-verified: 2026-09-25
+updated: 2026-09-26
+verified: 2026-09-26
 code_anchors: [crates/ubiq/src/ui/chat/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/conversation/info.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/ask.rs, crates/ubiq/src/app/ask.rs, crates/ubiq/src/ui/ask.rs, crates/ubiq-proto/src/ask.rs]
 depends_on: [feat-workbench]
 review_cycle: monthly
@@ -500,14 +500,14 @@ harness would then read without a word.
 **A pasted picture is written into the project first**, under `.ubiq/pasted/`, through
 `WriteProjectFile`. It is on no disk and an attachment is an `@path` mention, so there is nothing to
 attach until it has a path. **That is a file written into the user's project**, deliberately:
-`.ubiq/` is already Ubiq's own folder inside a project, beside `.ubiq/kb`. The name is the
+`.ubiq/` is already Ubiq's own folder inside a project, beside `.ubiq/local/kb`. The name is the
 millisecond it was pasted, so a later session never repoints an older turn's tag at a newer
 picture. What comes out is an ordinary attachment — the same tag, dedupe, size warning and `@path`
 on send.
 
 **The folder ignores itself.** The first picture written into a project writes
 `.ubiq/pasted/.gitignore` holding `*` beside it, through the same `WriteProjectFile`. A stored
-knowledge base under `.ubiq/kb` is something the user asked for by adding a source; a pasted
+knowledge base under `.ubiq/local/kb` is something the user asked for by adding a source; a pasted
 screenshot is the side effect of a keystroke, and a folder of untracked binaries nobody chose has
 no business in `git status`. The user's own `.gitignore` is never touched — that is a tracked file
 nobody asked to change, and a rule appended to it would then have to be merged, deduplicated and

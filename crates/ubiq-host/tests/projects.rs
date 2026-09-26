@@ -92,6 +92,35 @@ fn a_catalogue_survives_the_round_trip() {
 }
 
 #[test]
+fn an_unknown_key_on_a_project_row_survives_a_load_modify_save_cycle() {
+    // `D179`: a key this Ubiq does not itself write — a Studio field, or one from a build ahead of
+    // this one — must not be dropped just because this build re-serialises the row around it.
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("projects.toml");
+    let id = ProjectId::generate();
+    let body = format!(
+        "version = 1\n\n[[project]]\nid = \"{id}\"\nname = \"ubiq\"\npath = \"/dev/ubiq\"\ncolour = 0\ncreated_at = \"2026-08-14T09:12:44Z\"\nstudio_ado_project = \"contoso\"\n"
+    );
+    fs::write(&path, &body).unwrap();
+
+    let store = store(&dir);
+    let mut loaded = store.load().unwrap();
+    assert_eq!(loaded.len(), 1);
+    loaded[0].name = "renamed".to_string();
+    store.upsert(&loaded[0]).unwrap();
+
+    let raw = fs::read_to_string(&path).unwrap();
+    let table: toml::Table = raw.parse().unwrap();
+    let project = table["project"].as_array().unwrap()[0].as_table().unwrap();
+    assert_eq!(project["name"].as_str(), Some("renamed"));
+    assert_eq!(
+        project["studio_ado_project"].as_str(),
+        Some("contoso"),
+        "an unknown key must survive the rewrite: {raw}"
+    );
+}
+
+#[test]
 fn an_absent_catalogue_is_an_empty_one_rather_than_a_failure() {
     let dir = TempDir::new().unwrap();
     assert!(store(&dir).load().unwrap().is_empty());
@@ -450,7 +479,8 @@ fn a_folder_that_comes_back_probes_ok_again() {
 fn project_dir(root: &Path, name: &str) -> std::path::PathBuf {
     let dir = root.join("projects").join(name);
     fs::create_dir_all(&dir).unwrap();
-    fs::write(dir.join("view.toml"), "version = 1").unwrap();
+    fs::create_dir_all(dir.join("local")).unwrap();
+    fs::write(dir.join("local").join("view.toml"), "version = 1").unwrap();
     dir
 }
 
@@ -516,7 +546,9 @@ fn a_project_managed_project_keeps_its_data_in_its_own_folder() {
         .expect("the project was added");
     assert_eq!(added.record.storage, StorageMode::ProjectManaged);
 
-    let in_project = folder.path().join(".ubiq");
+    // Canonical, because `add` canonicalises what it is given and the pointer it writes names the
+    // resolved path — on macOS a temporary directory is reached through a symlink.
+    let in_project = folder.path().canonicalize().unwrap().join(".ubiq");
     assert!(in_project.join(".gitignore").is_file());
     assert_eq!(
         project_dir::read_metadata(&in_project)
@@ -529,7 +561,7 @@ fn a_project_managed_project_keeps_its_data_in_its_own_folder() {
     let tasks = FileTaskStore::new(config.path().to_path_buf());
     assert_eq!(
         tasks.path(added.record.id),
-        in_project.join("tasks.toml"),
+        in_project.join("tasks").join("tasks.toml"),
         "a project-managed project's tasks belong to the project"
     );
 }
@@ -656,4 +688,216 @@ fn a_ubiq_managed_project_ignores_an_in_project_name() {
         projects.record(id).expect("the record").name,
         "what the catalogue says"
     );
+}
+
+// ── moving between the two storage modes (T-204) ────────────────────
+
+/// A catalogue holding one added project, its id, and the two temporary directories that have to
+/// outlive it — the config root and the project's own folder.
+fn added(storage: StorageMode) -> (Projects, ProjectId, TempDir, TempDir) {
+    let config = TempDir::new().unwrap();
+    let folder = TempDir::new().unwrap();
+    let (mut projects, _) = Projects::open(
+        config.path().to_path_buf(),
+        Box::new(MemoryProjectStore::with(Vec::new())),
+        Box::new(MemoryPreferenceStore::new()),
+    );
+    let id = projects
+        .add(
+            &folder.path().to_string_lossy(),
+            Some("movable".to_string()),
+            None,
+            None,
+            false,
+            storage,
+        )
+        .into_iter()
+        .find_map(|reply| match reply.into_message() {
+            Message::ProjectAdded { project } => Some(project.record.id),
+            _ => None,
+        })
+        .expect("the project was added");
+    (projects, id, config, folder)
+}
+
+fn storage_reply(replies: Vec<ubiq_host::reply::Reply>) -> Message {
+    replies
+        .into_iter()
+        .map(ubiq_host::reply::Reply::into_message)
+        .find(|message| {
+            matches!(
+                message,
+                Message::ProjectStorageMoved { .. } | Message::ProjectStorageError { .. }
+            )
+        })
+        .expect("a storage reply")
+}
+
+/// Write something in every part of a data directory the move has an opinion about.
+fn seed(data: &project_dir::ProjectData) {
+    fs::create_dir_all(data.tasks().parent().unwrap()).unwrap();
+    fs::write(data.tasks(), "version = 1 # the user's tasks").unwrap();
+    fs::create_dir_all(data.tasks_archive()).unwrap();
+    fs::write(data.tasks_archive().join("0001.toml"), "an old page").unwrap();
+    fs::create_dir_all(data.local()).unwrap();
+    fs::write(data.view(), "where the splitter sat").unwrap();
+}
+
+/// The shared half follows the project into its own folder; the derived half stays where this
+/// machine put it, and so does everything a store still resolves under the config root (`G355`).
+#[test]
+fn moving_into_the_project_takes_the_shared_half_and_leaves_the_derived_one() {
+    let (mut projects, id, config, folder) = added(StorageMode::UbiqManaged);
+    let under_config = project_dir::ProjectData::under_config(config.path(), id);
+    seed(&under_config);
+    // A store that still composes its own path under the config root (`G355`).
+    fs::create_dir_all(under_config.plans()).unwrap();
+    fs::write(under_config.plans().join("T-1.md"), "a plan").unwrap();
+
+    let reply = storage_reply(projects.set_storage(id, StorageMode::ProjectManaged));
+    let in_project =
+        project_dir::ProjectData::new(folder.path().canonicalize().unwrap().join(".ubiq"));
+    assert!(
+        matches!(&reply, Message::ProjectStorageMoved { storage, dir, .. }
+            if *storage == StorageMode::ProjectManaged && dir == &in_project.dir().to_string_lossy()),
+        "{reply:?}"
+    );
+    assert_eq!(
+        projects.record(id).expect("the record").storage,
+        StorageMode::ProjectManaged
+    );
+
+    assert_eq!(
+        fs::read_to_string(in_project.tasks()).expect("the tasks followed"),
+        "version = 1 # the user's tasks"
+    );
+    assert_eq!(
+        fs::read_to_string(in_project.tasks_archive().join("0001.toml")).expect("the archive"),
+        "an old page"
+    );
+    assert!(
+        !under_config.tasks().exists(),
+        "the source is removed, not left as a second copy to drift"
+    );
+    assert!(
+        !in_project.local().exists(),
+        "the derived half is re-derived at the destination, never copied"
+    );
+    assert_eq!(
+        fs::read_to_string(under_config.view()).expect("the view blob"),
+        "where the splitter sat",
+        "view state is under the config root in either mode, so the move keeps it"
+    );
+    assert!(
+        under_config.plans().join("T-1.md").is_file(),
+        "a store that still composes its own path keeps its data where it reads it (G355)"
+    );
+
+    // The pointer is the commit, and it is the whole of how a store finds the data.
+    let tasks = FileTaskStore::new(config.path().to_path_buf());
+    assert_eq!(tasks.path(id), in_project.tasks());
+}
+
+/// And back out again: the project's own folder is left with nothing of Ubiq's in it, and a store
+/// that resolved the `.ubiq/` before the move stops answering with it.
+#[test]
+fn moving_back_out_empties_the_projects_own_folder_and_re_resolves() {
+    let (mut projects, id, config, folder) = added(StorageMode::ProjectManaged);
+    let in_project =
+        project_dir::ProjectData::new(folder.path().canonicalize().unwrap().join(".ubiq"));
+    seed(&in_project);
+
+    // A store that has already answered once, so the move has a memo to invalidate.
+    let tasks = FileTaskStore::new(config.path().to_path_buf());
+    assert_eq!(tasks.path(id), in_project.tasks());
+
+    let reply = storage_reply(projects.set_storage(id, StorageMode::UbiqManaged));
+    let under_config = project_dir::ProjectData::under_config(config.path(), id);
+    assert!(
+        matches!(&reply, Message::ProjectStorageMoved { storage, .. }
+            if *storage == StorageMode::UbiqManaged),
+        "{reply:?}"
+    );
+    assert_eq!(
+        fs::read_to_string(under_config.tasks()).expect("the tasks came back"),
+        "version = 1 # the user's tasks"
+    );
+    assert!(
+        !in_project.dir().exists(),
+        "nothing of Ubiq's is left inside the user's folder — not the ignore file, and not the \
+         derived half, which cost nothing to lose"
+    );
+    assert_eq!(
+        tasks.path(id),
+        under_config.tasks(),
+        "the memo lasts as long as the pointer it came from"
+    );
+}
+
+/// Something running in the project is a refusal, not a race: the record, the pointer and both
+/// trees are exactly as they were.
+#[test]
+fn a_project_with_a_pane_running_refuses_the_move() {
+    let (mut projects, id, config, folder) = added(StorageMode::UbiqManaged);
+    seed(&project_dir::ProjectData::under_config(config.path(), id));
+    projects.pane_opened(id);
+
+    let reply = storage_reply(projects.set_storage(id, StorageMode::ProjectManaged));
+    assert!(
+        matches!(&reply, Message::ProjectStorageError { storage, .. }
+            if *storage == StorageMode::ProjectManaged),
+        "{reply:?}"
+    );
+    assert_eq!(
+        projects.record(id).expect("the record").storage,
+        StorageMode::UbiqManaged
+    );
+    assert!(
+        !folder.path().canonicalize().unwrap().join(".ubiq").exists(),
+        "a refused move writes nothing at the destination"
+    );
+
+    // And once it closes, the same ask goes through.
+    projects.pane_closed(id);
+    assert!(matches!(
+        storage_reply(projects.set_storage(id, StorageMode::ProjectManaged)),
+        Message::ProjectStorageMoved { .. }
+    ));
+}
+
+/// A `.ubiq/` that already holds somebody's tasks — a teammate's, cloned with the repository — is
+/// never merged into or written over.
+#[test]
+fn a_destination_that_already_holds_data_is_refused() {
+    let (mut projects, id, config, folder) = added(StorageMode::UbiqManaged);
+    seed(&project_dir::ProjectData::under_config(config.path(), id));
+    let theirs = project_dir::ProjectData::new(folder.path().canonicalize().unwrap().join(".ubiq"));
+    fs::create_dir_all(theirs.tasks().parent().unwrap()).unwrap();
+    fs::write(theirs.tasks(), "theirs").unwrap();
+
+    let reply = storage_reply(projects.set_storage(id, StorageMode::ProjectManaged));
+    assert!(
+        matches!(&reply, Message::ProjectStorageError { .. }),
+        "{reply:?}"
+    );
+    assert_eq!(
+        fs::read_to_string(theirs.tasks()).expect("their tasks"),
+        "theirs",
+        "and what was there is untouched"
+    );
+    assert_eq!(
+        projects.record(id).expect("the record").storage,
+        StorageMode::UbiqManaged
+    );
+}
+
+/// The mode it is already in is a success that touches nothing.
+#[test]
+fn asking_for_the_mode_a_project_is_already_in_moves_nothing() {
+    let (mut projects, id, _config, folder) = added(StorageMode::UbiqManaged);
+    assert!(matches!(
+        storage_reply(projects.set_storage(id, StorageMode::UbiqManaged)),
+        Message::ProjectStorageMoved { .. }
+    ));
+    assert!(!folder.path().canonicalize().unwrap().join(".ubiq").exists());
 }

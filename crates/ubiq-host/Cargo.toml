@@ -209,6 +209,24 @@ required-features = ["listener"]
 name = "connectors"
 required-features = ["listener"]
 
+# The Trello client lives behind `listener` because it makes HTTP requests, so its tests are a
+# target of that feature. They drive the parsers against recorded fixtures and touch no network.
+[[test]]
+name = "tasksrc_trello"
+required-features = ["listener"]
+
+# The inbound pass needs both halves: `harness` for the board it writes and `listener` for the
+# Trello client it drives the filter through. So its test is a target of the pair, and a lean build
+# that has one of them compiles neither the module nor this.
+[[test]]
+name = "tasksrc_sync"
+required-features = ["harness", "listener"]
+
+[[test]]
+# The outbound half, on `tasksrc_sync`'s own terms and for its own reason.
+name = "tasksrc_outbound"
+required-features = ["harness", "listener"]
+
 [dev-dependencies]
 tempfile = "3"
 # The pin verifier's own test drives it through `ServerCertVerifier`, which means naming rustls'

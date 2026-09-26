@@ -51,10 +51,8 @@ impl MissionStore {
 
     /// The mission's own directory — the record, the documents and the journal together.
     pub fn dir(&self, project: ProjectId, task: TaskId) -> PathBuf {
-        self.root
-            .join("projects")
-            .join(project.to_string())
-            .join("missions")
+        super::project_dir::ProjectData::under_config(&self.root, project)
+            .missions()
             .join(task.to_string())
     }
 
@@ -310,11 +308,7 @@ impl MissionStore {
     /// no missions has no such directory, which is the ordinary case. A single record that will
     /// not parse **is** reported, because that is one the user would miss.
     pub fn list(&self, project: ProjectId) -> Result<Vec<MissionRecord>, StoreError> {
-        let dir = self
-            .root
-            .join("projects")
-            .join(project.to_string())
-            .join("missions");
+        let dir = super::project_dir::ProjectData::under_config(&self.root, project).missions();
         let entries = match std::fs::read_dir(&dir) {
             Ok(entries) => entries,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),

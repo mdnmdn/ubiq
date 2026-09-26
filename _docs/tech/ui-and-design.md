@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: The GPUI rendering model, the complete theme token set and the rule that no colour escapes it, how a palette is switched, the shape every surface, modal and dialog is drawn in, the page every primitive is looked at on, and the design assets screens are built against.
 read_when: you are building or restyling a screen, adding a colour or a size, switching or extending a palette, raising a modal or the file picker, looking at a primitive on the style reference, or looking for the wireframe a layout came from
-updated: 2026-09-25
-verified: 2026-09-25
+updated: 2026-09-26
+verified: 2026-09-26
 code_anchors: [crates/ubiq/src/theme.rs, assets/icons/icons.yaml, _tools/icons.py, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/md_options.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/mark.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/colour.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/md_navigator.rs, crates/ubiq/src/ui/kit/minimap.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/blocks.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/state/overlay.rs, crates/ubiq/src/ui/kit/ribbon.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/src/ui/kit/popover.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/tests/dismiss.rs, crates/ubiq/src/ui/remote_hosts.rs]
 depends_on: [tech-architecture]
 review_cycle: quarterly
@@ -301,7 +301,7 @@ restyling the shell should be one file to visit.
 | `PERMISSION_DETAIL_MAX_H` | A permission ask's own detail — a `switch_mode` prompt's plan, a pre-approval diff — capped and scrolled in its own region rather than left to grow the card without limit (T-175) |
 | `MODAL_WIDTH`, `MODAL_MAX_HEIGHT` | A modal: one width, because a modal is one question, and the fraction of the window's height its body scrolls inside |
 | `LOGIN_MODAL_WIDTH`, `LOGIN_MODAL_HEIGHT` | The one modal that is not one question: a running harness login, sized through `kit::modal_sized`'s fill mode so a full-screen TUI (`opencode`, `grok`) gets a real terminal instead of the ~50×16 a one-question modal would give it |
-| `SETTINGS_WIDTH`, `SETTINGS_HEIGHT` | Application settings: a fixed-size page overlay with a nav, not a one-question modal and not a resizable dialog |
+| `SETTINGS_WIDTH`, `SETTINGS_HEIGHT`, `SETTINGS_NAV_WIDTH` | A settings page overlay: a fixed-size panel with a nav, not a one-question modal and not a resizable dialog. Both containers — application settings and the project dialog — take all three, because one component draws the nav-and-body split for both |
 | `A2UI_IMAGE_ICON`, `A2UI_IMAGE_AVATAR`, `A2UI_IMAGE_SMALL`, `A2UI_IMAGE_MEDIUM`, `A2UI_IMAGE_LARGE`, `A2UI_IMAGE_HEADER_H` | The six sizes an A2UI `Image` variant maps onto. The catalog names the variant and this file decides how big it is, because a payload Ubiq did not write must not be able to state a size |
 | `A2UI_SVG_MAX` | The box an agent-authored picture is fitted into, aspect preserved — the ceiling on how much of a surface one drawing may take |
 | `MdWidth`, `MdDensity`, `MD_AVG_CHAR_WIDTH_EM`, `MD_CODE_LINE_HEIGHT`, `MD_INLINE_CODE_SIZE_EM` and the `md_*` functions | The Markdown preview's typography — `_docs/inbox/markdown-improvement-proposal.md` §3–§7, read by `ui/viewer/markdown.rs`. Unlike the rest of the table these are ratios over the body font size (`em`/`rem`), not `ui_scale`-scaled pixels, so a font-size change scales the preview without a second accessor |
@@ -535,12 +535,24 @@ different asks. The four sizes live beside the state, in `state/file_picker.rs`,
 what a resize is clamped against rather than what a screen is laid out on.
 
 **A page overlay is that same dialog, with a nav, and it does not resize.** Application settings
-and project settings are this shape: `SETTINGS_WIDTH` by `SETTINGS_HEIGHT` (project settings is
-the same width), clamped to the viewport, body scrolling inside, switching nav sections must not
-change the panel's size. They keep the modal's scrim, coloured left edge, outside-click dismiss and
-`deferred` priority, and they are painted from the shell over the window rather than from
-`kit::modal`. The furniture — `heading`, `setting_row`, `hint_row`, `label_hint`, `nav_item` — lives in `ui/kit/settings.rs`
-so the kitchen sink draws the same rows.
+and project settings are this shape: `SETTINGS_WIDTH` by `SETTINGS_HEIGHT` for both, clamped to
+the viewport, switching nav sections must not change the panel's size. They keep the modal's
+scrim, coloured left edge, outside-click dismiss and `deferred` priority, and they are painted
+from the shell over the window rather than from `kit::modal`. The furniture — `heading`,
+`setting_row`, `hint_row`, `label_hint`, `nav_item` — lives in `ui/kit/settings.rs` so the kitchen
+sink draws the same rows.
+
+**The nav and the body are one component, `kit::settings_split`, and both of them scroll.** A
+container passes its id prefix, its nav rows and its body; the component gives each half an id and
+`overflow_y_scroll`, so neither a nav longer than the panel nor a section longer than it can grow
+the dialog (`T-244`). The height a `flex_1` body resolves against has to be definite for that to
+work: a panel with only a `max_h` is a panel whose body hugs its content and overflows past the
+window instead of scrolling inside it, which is what the project dialog did.
+
+**A `setting_row` wraps rather than crushes its label.** The label column has a floor, and a
+control wider than what is left — a field-style picker, a row of four pills naming an indexing
+level — drops onto its own line beneath it. Without the floor the label column squeezed to one
+character a line while the control kept its full width.
 
 **A list that hangs off a control is not a modal, and does not get the modal's device.** The ⌘K
 navigator — `ui/navigator.rs` — is drawn the way the kit's dropdown in `ui/kit/menu.rs` is: an

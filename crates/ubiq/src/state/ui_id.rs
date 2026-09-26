@@ -236,7 +236,7 @@ pub const RAIL_MODES: UiId = UiId::new("rail.modes");
 pub const RAIL_PROJECTS: UiId = UiId::new("rail.projects");
 
 /// One name per [`RailMode`]. Written out rather than derived from the variant, because a
-/// `UiId` is a published name: renaming `RailMode::TeamsOld` must not silently move the place a
+/// `UiId` is a published name: renaming `RailMode::TEAMS_OLD` must not silently move the place a
 /// help page and a user's personalisation both point at. The match in [`rail_mode`] is
 /// exhaustive, so a *new* mode is a compile error here until it is named.
 pub const RAIL_MODE_CONTROL: UiId = UiId::new("rail.mode.control");
@@ -249,6 +249,9 @@ pub const RAIL_MODE_TEAMS_OLD: UiId = UiId::new("rail.mode.teams-old");
 pub const RAIL_MODE_KB: UiId = UiId::new("rail.mode.kb");
 pub const RAIL_MODE_TASKS: UiId = UiId::new("rail.mode.tasks");
 pub const RAIL_MODE_SINK: UiId = UiId::new("rail.mode.sink");
+/// The kitchen sink's own demo mode (`X11`, M4) — a contribution, not a base variant, so it is
+/// named the same way a second edition's own mode would be.
+pub const RAIL_MODE_EXT_DEMO: UiId = UiId::new("rail.mode.ext-demo");
 
 /// The top row.
 pub const TITLEBAR: UiId = UiId::new("titlebar");
@@ -298,6 +301,7 @@ pub const CATALOGUE: &[UiId] = &[
     RAIL_MODE_KB,
     RAIL_MODE_TASKS,
     RAIL_MODE_SINK,
+    RAIL_MODE_EXT_DEMO,
     TITLEBAR,
     TITLEBAR_PROJECT,
     TITLEBAR_NEW_PROJECT,
@@ -462,6 +466,14 @@ const DESCRIPTIONS: &[(UiId, TargetInfo)] = &[
             label: "Kitchen sink",
             blurb: "The developer's reference screen: every control, colour and primitive the \
                     interface is built from.",
+        },
+    ),
+    (
+        RAIL_MODE_EXT_DEMO,
+        TargetInfo {
+            label: "Extensions demo",
+            blurb: "A rail mode contributed the same way a second edition's own would be — on \
+                    only while its settings switch is.",
         },
     ),
     (
@@ -635,19 +647,14 @@ pub fn describe(id: &UiId) -> Option<TargetInfo> {
 }
 
 /// The name of a rail mode's button.
+///
+/// The spec's own (`D184`), so a contributed mode brings a name of its own rather than being a
+/// place on the screen that nothing can point at. A mode nothing is registered under answers with
+/// the group above it, which is the nearest thing that is still a real place.
 pub fn rail_mode(mode: RailMode) -> UiId {
-    match mode {
-        RailMode::Control => RAIL_MODE_CONTROL,
-        RailMode::Ide => RAIL_MODE_IDE,
-        RailMode::Git => RAIL_MODE_GIT,
-        RailMode::Agents => RAIL_MODE_AGENTS,
-        RailMode::Teams => RAIL_MODE_TEAMS,
-        RailMode::TeamsAll => RAIL_MODE_TEAMS_ALL,
-        RailMode::TeamsOld => RAIL_MODE_TEAMS_OLD,
-        RailMode::Kb => RAIL_MODE_KB,
-        RailMode::Tasks => RAIL_MODE_TASKS,
-        RailMode::Sink => RAIL_MODE_SINK,
-    }
+    mode.spec()
+        .map(|spec| spec.ui_id.clone())
+        .unwrap_or(RAIL_MODES)
 }
 
 /// Every catalogue entry obeys the grammar, is unique, and names a root the catalogue also holds.

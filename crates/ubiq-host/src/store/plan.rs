@@ -274,10 +274,8 @@ impl FilePlanStore {
     /// Forget and the orphan collector already cover it, and a plan never outlives the project it
     /// belongs to.
     pub fn path(&self, project: ProjectId, task: TaskId) -> PathBuf {
-        self.root
-            .join("projects")
-            .join(project.to_string())
-            .join("plans")
+        super::project_dir::ProjectData::under_config(&self.root, project)
+            .plans()
             .join(format!("{task}.md"))
     }
 

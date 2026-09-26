@@ -142,6 +142,32 @@ const GOOGLE: Provider = Provider {
     client_id: option_env!("UBIQ_OAUTH_GOOGLE_CLIENT_ID"),
 };
 
+/// Trello: one cloud, no browser flow, and a secret that is a **pair**.
+///
+/// `secret_prompt` says what to paste and in what shape, because there is one field and two
+/// strings to put in it — the API key from `trello.com/power-ups/admin` and the token the
+/// `trello.com/1/authorize` page prints, joined by a colon (`D183`). Nothing splits it here: the
+/// task-source layer's Trello client does that at read time, which is the only place both halves
+/// are needed at once.
+///
+/// The authorize and token endpoints are empty: Trello's is a page the user copies from rather
+/// than a redirect, so there is no callback to register and `flows` offers only the paste.
+const TRELLO: Provider = Provider {
+    cloud_api: "https://api.trello.com",
+    cloud_web: "https://trello.com",
+    api_base: "",
+    scopes: "read,write",
+    whoami: "/1/members/me",
+    account_keys: &["username", "fullName"],
+    secret_prompt: "API key and token, as key:token",
+    authorize: "",
+    token: "",
+    device: "",
+    // No registered application: the user's own API key *is* the registration, which is what the
+    // paste flow asks for.
+    client_id: None,
+};
+
 /// The row for a provider.
 pub fn of(provider: ProviderId) -> &'static Provider {
     match provider {
@@ -151,6 +177,7 @@ pub fn of(provider: ProviderId) -> &'static Provider {
         ProviderId::AzureDevops => &AZURE_DEVOPS,
         ProviderId::Atlassian => &ATLASSIAN,
         ProviderId::Google => &GOOGLE,
+        ProviderId::Trello => &TRELLO,
     }
 }
 

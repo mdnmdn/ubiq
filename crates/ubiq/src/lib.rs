@@ -5,8 +5,10 @@
 // - ui: UI components and layout
 // - state: State management and event handling
 // - theme: Color tokens and theme definitions
+// - ext: the extension spine — SlotId and the generic Registry<T> (D177, D178)
 
 pub mod app;
+pub mod ext;
 pub mod state;
 pub mod theme;
 pub mod ui;

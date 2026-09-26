@@ -295,7 +295,7 @@ fn body(
             "kb-source-store",
             "Store",
             "Cache is a temporary folder, refetched when the system sweeps it. Ubiq's project \
-             folder is inside Ubiq's own, and is the default. Inside the project is a `.ubiq/kb` \
+             folder is inside Ubiq's own, and is the default. Inside the project is a `.ubiq/local/kb` \
              folder in the project itself.",
             "Ubiq's project folder",
             store_rows,

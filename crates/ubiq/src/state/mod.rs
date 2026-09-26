@@ -48,6 +48,7 @@ pub mod shapes;
 pub mod sink;
 pub mod stats;
 pub mod status;
+pub mod tasksrc;
 pub mod teams;
 pub mod teamsim;
 pub mod ui_id;

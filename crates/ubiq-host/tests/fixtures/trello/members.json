@@ -1,0 +1,20 @@
+[
+  {
+    "id": "8c3d4e5f607008000900e301",
+    "fullName": "Ada Lovelace",
+    "username": "ada",
+    "initials": "AL"
+  },
+  {
+    "id": "8c3d4e5f607008000900e302",
+    "fullName": "Grace Hopper",
+    "username": "grace",
+    "initials": "GH"
+  },
+  {
+    "id": "8c3d4e5f607008000900e303",
+    "fullName": "",
+    "username": "anonymous",
+    "initials": "AN"
+  }
+]

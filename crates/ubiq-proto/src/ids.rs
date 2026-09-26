@@ -285,6 +285,29 @@ ulid_id! {
 }
 
 ulid_id! {
+    /// One binding of a project's board to a board somewhere else — a provider, a connection, a
+    /// container and the maps over it.
+    ///
+    /// Minted **host-side**, when a binding is first written, on [`ConnectionId`]'s discipline: a
+    /// binding exists only once it is on disk, and a setup form the user abandoned leaves no id
+    /// behind. One per project today (`R4`), and named anyway — the link table is keyed by this
+    /// from the first row, so a second board is a setup-surface change rather than a file
+    /// migration.
+    BindingId
+}
+
+ulid_id! {
+    /// One question the task-source setup surface asked the host — a container listing, a lane and
+    /// facet fetch, a filter Test, an item listing.
+    ///
+    /// Minted by the **interface**, [`RepoQueryId`]'s discipline exactly and for its reason: a
+    /// Test answered after the user has typed past the query that asked it must be discarded by
+    /// id, not drawn. A filter is edited by typing, so the stale-answer case is the ordinary one
+    /// rather than the exception.
+    TaskSrcQueryId
+}
+
+ulid_id! {
     /// One question an agent asked the user, from the tool call that parked on it to the answer,
     /// the refusal or the timeout that ends it. Minted **host-side**, by the MCP listener that
     /// took the call — the half that holds the parked call is the half that names it — and it is

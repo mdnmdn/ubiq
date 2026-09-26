@@ -414,7 +414,7 @@ impl PanelKind {
                 at.has_project
                     && !matches!(
                         at.rail_mode,
-                        Some(RailMode::Agents | RailMode::Control | RailMode::Sink)
+                        Some(RailMode::AGENTS | RailMode::CONTROL | RailMode::SINK)
                     )
             }
             PanelKind::Terminal(_) => at.pane_on_screen,
@@ -423,7 +423,7 @@ impl PanelKind {
             // steps aside while a project is on screen. Without a project the git panels have
             // nothing to show, and this is the empty page that says so.
             PanelKind::Centre => {
-                if matches!(at.rail_mode, Some(RailMode::Git)) && at.has_project {
+                if matches!(at.rail_mode, Some(RailMode::GIT)) && at.has_project {
                     false
                 } else {
                     !at.is_ide || !at.any_file_open
@@ -433,7 +433,7 @@ impl PanelKind {
             // The same rule one mode along: a document is drawn while its tab is open, and only on
             // the screen the documents are the centre of.
             PanelKind::Kb(_) => {
-                at.has_project && matches!(at.rail_mode, Some(RailMode::Kb)) && at.file_open
+                at.has_project && matches!(at.rail_mode, Some(RailMode::KB)) && at.file_open
             }
             PanelKind::Search => at.is_ide && at.has_project,
             // No project clause: a file dropped in from outside every project still has an
@@ -443,16 +443,16 @@ impl PanelKind {
             PanelKind::GitRefs
             | PanelKind::GitChanges
             | PanelKind::GitHistory
-            | PanelKind::GitDiff => at.has_project && matches!(at.rail_mode, Some(RailMode::Git)),
+            | PanelKind::GitDiff => at.has_project && matches!(at.rail_mode, Some(RailMode::GIT)),
             // The same rule one mode along: the knowledge base's explorer is KB's own furniture,
             // and a project is what it lists.
-            PanelKind::KbExplorer => at.has_project && matches!(at.rail_mode, Some(RailMode::Kb)),
+            PanelKind::KbExplorer => at.has_project && matches!(at.rail_mode, Some(RailMode::KB)),
             // And again for the two screens that gained a side panel of their own: the board's
             // task and the agents list are their mode's furniture, and a project is what either
             // is about.
-            PanelKind::Task => at.has_project && matches!(at.rail_mode, Some(RailMode::Tasks)),
+            PanelKind::Task => at.has_project && matches!(at.rail_mode, Some(RailMode::TASKS)),
             PanelKind::AgentsExplorer => {
-                at.has_project && matches!(at.rail_mode, Some(RailMode::Agents))
+                at.has_project && matches!(at.rail_mode, Some(RailMode::AGENTS))
             }
             // No clause at all: help is about the application, so it is drawn wherever the reader
             // opened it — including in a window with no project, which is one of the places a

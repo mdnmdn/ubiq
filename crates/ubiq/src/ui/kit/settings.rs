@@ -37,18 +37,79 @@ pub fn heading(title: &str, note: &str) -> AnyElement {
         .into_any_element()
 }
 
+/// The label column's floor. A question whose control is wide — a field-style picker, or four
+/// pills naming an indexing level — used to squeeze this column to one character a line rather
+/// than give way; below this width the control wraps onto its own line instead.
+const LABEL_MIN_WIDTH: f32 = 220.0;
+
 pub fn setting_row(label: &str, note: &str, control: AnyElement) -> AnyElement {
     div()
         .w(relative(1.))
         .py_3()
         .flex()
+        .flex_wrap()
         .items_center()
         .justify_between()
-        .gap_6()
+        .gap_x_6()
+        .gap_y_2()
         .border_b_1()
         .border_color(theme::border())
-        .child(label_block(label, note))
+        .child(
+            div()
+                .flex()
+                .flex_1()
+                .min_w(px(LABEL_MIN_WIDTH))
+                .child(label_block(label, note)),
+        )
         .child(control)
+        .into_any_element()
+}
+
+/// The nav-and-body split **both** settings containers draw: a scrolling nav beside a scrolling
+/// page (`D180` — the container owns layout and scroll, a section owns content).
+///
+/// One component rather than two near-identical ones, which is what had let the two drift into
+/// different widths and different padding. Both halves scroll, so neither a nav longer than the
+/// panel nor a section longer than it can grow the dialog — the bug `T-244` is about.
+///
+/// `prefix` is the container's own id prefix (`app-settings`, `project-settings`,
+/// `sink-project`); the two scrollers take `{prefix}-nav` and `{prefix}-body`, because
+/// `overflow_y_scroll` does nothing without an id.
+pub fn settings_split(prefix: &str, items: Vec<AnyElement>, body: AnyElement) -> AnyElement {
+    div()
+        .flex()
+        .flex_1()
+        .min_h(px(0.))
+        .min_w(px(0.))
+        .child(
+            div()
+                .id(ElementId::Name(format!("{prefix}-nav").into()))
+                .w(px(theme::settings_nav_width()))
+                .flex()
+                .flex_none()
+                .flex_col()
+                .gap_1()
+                .px_2()
+                .py_3()
+                .overflow_y_scroll()
+                .bg(theme::pane_bg())
+                .border_r_1()
+                .border_color(theme::border())
+                .children(items),
+        )
+        .child(
+            div()
+                .id(ElementId::Name(format!("{prefix}-body").into()))
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_w(px(0.))
+                .min_h(px(0.))
+                .overflow_y_scroll()
+                .px_5()
+                .py_4()
+                .child(body),
+        )
         .into_any_element()
 }
 

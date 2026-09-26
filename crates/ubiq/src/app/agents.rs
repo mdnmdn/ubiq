@@ -770,42 +770,47 @@ impl AppState {
     /// a conversation that has not launched yet simply has fewer answers to give.
     pub fn open_conversation_info(&mut self, agent_id: AgentId, cx: &mut Context<Self>) {
         self.conversation_info = Some(agent_id);
-        self.conversation_info_capabilities = false;
         cx.notify();
     }
 
     pub fn dismiss_conversation_info(&mut self, cx: &mut Context<Self>) {
         self.conversation_info = None;
-        self.conversation_info_capabilities = false;
         cx.notify();
     }
 
-    /// Show or hide the Info panel's ACP capabilities section.
+    /// Raise the capabilities dialog over whatever asked for it (`T-207`).
     ///
-    /// The one thing in that panel that asks the host anything, and expanding it is what puts the
-    /// question: the record is a harness fact the host already holds, so the ask is a map lookup
-    /// there. Asked on every expansion rather than once for the life of the window, for the reason
-    /// [`crate::state::settings::SettingsState::acp_asked`] is cleared on a visit — a conversation
-    /// started since the last look is exactly what turns "none has yet" into a record.
+    /// The one control in either of its two callers that asks the host anything, and opening it is
+    /// what puts the question: the record is a harness fact the host already holds, so the ask is
+    /// a map lookup there. Asked on every opening rather than once for the life of the window, for
+    /// the reason [`crate::state::settings::SettingsState::acp_asked`] is cleared on a visit — a
+    /// conversation started since the last look is exactly what turns "none has yet" into a
+    /// record.
     ///
-    /// `harness` is the display label the work record carries —
-    /// [`crate::state::workbench::WorkbenchState::agent_type_by_label`] is what turns it back into
-    /// the harness the question is about.
-    pub fn toggle_conversation_info_capabilities(
-        &mut self,
-        harness: String,
-        cx: &mut Context<Self>,
-    ) {
-        self.conversation_info_capabilities = !self.conversation_info_capabilities;
-        if self.conversation_info_capabilities
-            && let Some(id) = self
-                .workbench
-                .agent_type_by_label(&harness)
-                .map(|info| info.id.clone())
-        {
-            self.workbench.settings.acp_asked.remove(&id);
-            self.ask_acp_capabilities(id);
-        }
+    /// `agent_type` is the library's harness id, which is what the record is keyed by.
+    pub fn open_capabilities(&mut self, agent_type: String, cx: &mut Context<Self>) {
+        self.workbench.settings.acp_asked.remove(&agent_type);
+        self.ask_acp_capabilities(agent_type.clone());
+        self.workbench.capabilities = Some(agent_type);
+        cx.notify();
+    }
+
+    /// The same, from a surface that holds the harness's *display label* rather than its id —
+    /// a conversation's info modal, which reads the label off the work record.
+    /// [`crate::state::workbench::WorkbenchState::agent_type_by_label`] is what turns it back.
+    pub fn open_capabilities_by_label(&mut self, harness: &str, cx: &mut Context<Self>) {
+        let Some(id) = self
+            .workbench
+            .agent_type_by_label(harness)
+            .map(|info| info.id.clone())
+        else {
+            return;
+        };
+        self.open_capabilities(id, cx);
+    }
+
+    pub fn close_capabilities(&mut self, cx: &mut Context<Self>) {
+        self.workbench.capabilities = None;
         cx.notify();
     }
 
@@ -1375,7 +1380,7 @@ impl AppState {
     /// land in the right dock beside the task it was asked from, the same as `assign_task_to_agent`
     /// already lands one), an agents-screen column everywhere else.
     pub fn open_new_agent_direct(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let surface = if matches!(self.workbench.rail_mode, RailMode::Ide | RailMode::Tasks) {
+        let surface = if matches!(self.workbench.rail_mode, RailMode::IDE | RailMode::TASKS) {
             NewAgentSurface::Chat
         } else {
             NewAgentSurface::Agents

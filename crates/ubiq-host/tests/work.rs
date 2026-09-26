@@ -96,6 +96,7 @@ fn a_projects_tasks_live_under_its_own_directory_which_the_first_save_creates() 
         dir.path()
             .join("projects")
             .join(project.to_string())
+            .join("tasks")
             .join("tasks.toml")
     );
 
@@ -124,7 +125,8 @@ fn the_archive_pages_at_a_hundred_tasks_and_tops_up_a_short_page_before_starting
         .path()
         .join("projects")
         .join(project.to_string())
-        .join("tasks-archive")
+        .join("tasks")
+        .join("archive")
         .join("0001.toml");
     assert_eq!(
         toml::from_str::<TasksFileProbe>(&fs::read_to_string(&page_1).unwrap())
@@ -305,6 +307,37 @@ fn setting_attachments_replaces_the_set_and_cleans_it() {
             .iter()
             .any(|reply| matches!(reply.message(), Message::TaskChanged { .. })),
         "a set that already matches is not a change"
+    );
+}
+
+#[test]
+fn an_unknown_key_on_a_task_row_survives_a_load_modify_save_cycle() {
+    // `D179`: a key this Ubiq does not itself write — a Studio field, or one from a build ahead of
+    // this one — must not be dropped just because this build re-serialises the row around it.
+    let dir = TempDir::new().unwrap();
+    let store = file_store(&dir);
+    let project = ProjectId::generate();
+    let path = store.path(project);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let id = TaskId::generate();
+    let body = format!(
+        "version = {TASKS_VERSION}\n\n[[task]]\nid = \"{id}\"\nstatus = \"Backlog\"\npriority = \"Normal\"\ntitle = \"first\"\ncreated_at = \"2026-08-14T09:12:44Z\"\nupdated_at = \"2026-08-14T09:12:44Z\"\nstudio_ado_id = \"4711\"\n"
+    );
+    fs::write(&path, &body).unwrap();
+
+    let mut loaded = store.load(project).unwrap().expect("a written file loads");
+    assert_eq!(loaded.len(), 1);
+    loaded[0].title = "renamed".to_string();
+    store.save(project, &loaded).unwrap();
+
+    let raw = fs::read_to_string(&path).unwrap();
+    let table: toml::Table = raw.parse().unwrap();
+    let task = table["task"].as_array().unwrap()[0].as_table().unwrap();
+    assert_eq!(task["title"].as_str(), Some("renamed"));
+    assert_eq!(
+        task["studio_ado_id"].as_str(),
+        Some("4711"),
+        "an unknown key must survive the rewrite: {raw}"
     );
 }
 

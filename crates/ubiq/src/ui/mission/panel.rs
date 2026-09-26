@@ -1088,8 +1088,10 @@ pub(super) fn journal_colour(kind: &str) -> gpui::Rgba {
 /// this is, because the side panel and the *Activity* tab can be on screen at once and one
 /// `InputState` drawn twice is one caret in two places.
 ///
-/// A mission with no coordinator draws the field faint and says so: there is nobody to tell, and
-/// a Send that quietly did nothing would be the interface pretending.
+/// **Send is always there (T-212).** A mission with no coordinator gets one spawned by the send
+/// itself, and one whose harness is unloaded is relaunched with the line — so there is never a
+/// mission with nobody to tell. The field stays faint until there is a coordinator on the record,
+/// which is what says the next line also starts something.
 pub(super) fn feedback(
     app: &AppState,
     task_id: TaskId,
@@ -1138,22 +1140,15 @@ pub(super) fn feedback(
                     .text_size(theme::font(Family::Chrome, Role::Meta)),
             ),
         )
-        .child(match has_coordinator {
-            true => ghost_button(
-                eid(id, task_id),
-                None,
-                "Send",
-                cx.listener(move |this, _, window, cx| {
-                    this.submit_mission_feedback(panel, window, cx)
-                }),
-            )
-            .into_any_element(),
-            false => mono(
-                format!("no {} coordinator to tell", term.to_lowercase()),
-                theme::text_faint(),
-            )
-            .into_any_element(),
-        })
+        .child(ghost_button(
+            eid(id, task_id),
+            None,
+            match has_coordinator {
+                true => "Send".to_string(),
+                false => format!("Send \u{2014} starts a {} coordinator", term.to_lowercase()),
+            },
+            cx.listener(move |this, _, window, cx| this.submit_mission_feedback(panel, window, cx)),
+        ))
 }
 
 /// What a phase reads as. The path's own colour while it is being walked, the success token when

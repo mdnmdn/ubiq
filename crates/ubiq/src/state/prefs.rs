@@ -29,7 +29,7 @@ use crate::theme::{AccentId, ThemeId};
 /// different screen — the one case a default cannot rescue, because nothing is missing: the value
 /// changed meaning. An older blob would open the wrong mode with the wrong arrangement under it.
 ///
-/// It moved to `4` when `RailMode::Orchestration` was renamed to `RailMode::TeamsOld` to make room
+/// It moved to `4` when `RailMode::Orchestration` was renamed to `RailMode::TEAMS_OLD` to make room
 /// for the new `Teams` mode beside it. Same screen, same arrangement, but the serialised tag
 /// changed — `rail_mode: "Orchestration"` names nothing this build reads, so a blob written
 /// before this change is discarded rather than opening on defaults with the wrong mode recorded.
@@ -39,7 +39,15 @@ use crate::theme::{AccentId, ThemeId};
 /// project's. Existing fields changing meaning is exactly the case a default cannot rescue — and
 /// it is also the first schema step **upgraded rather than discarded**, because throwing this blob
 /// away would silently reset every user's appearance. See [`upgrade_four_to_five`].
-pub const SCHEMA: u32 = 5;
+///
+/// It moved to `6` when `RailMode` stopped being a closed enum and became a `SlotId` newtype
+/// (`D184`). The ten variant names a blob was keyed by — `"Ide"`, `"TeamsAll"` — are now ids —
+/// `"ubiq.rail.ide"`, `"ubiq.rail.teams-all"`. **Nothing is discarded for it**: the decoder maps
+/// the ten old names in [`crate::ext::rail::decode_id`], so a schema-5 blob is read whole and
+/// written back out under the new spelling. The number moves anyway, because what a key *means*
+/// changed — a build at schema 5 reading `"ubiq.rail.ide"` would find no variant and throw the
+/// whole blob away, and the schema is how it is told not to try.
+pub const SCHEMA: u32 = 6;
 
 /// One rail mode's arrangement of one project's window: which edge regions were on screen, and the
 /// dock blob that restores it.
@@ -71,12 +79,13 @@ impl ModeLayout {
     /// settle reads, whether or not it also carries a `layout`: a stored [`ModeLayout`] whose blob
     /// is `None` is still the user's answer and this is not consulted for it (`G328`).
     pub fn default_for(mode: RailMode) -> Self {
-        let (show_left, show_right) = match mode {
-            RailMode::Git => (true, true),
-            RailMode::Ide | RailMode::Kb | RailMode::Agents => (true, false),
-            RailMode::Tasks => (false, true),
-            _ => (false, false),
-        };
+        // The mode's own (`D184`). This used to be a `_ => (false, false)` arm, and it is one of
+        // the five silent sites: a contributed mode fell into it and opened with both edges shut,
+        // which looks like an answer rather than like nothing having been asked.
+        let (show_left, show_right) = mode
+            .spec()
+            .map(|spec| (spec.opens_left, spec.opens_right))
+            .unwrap_or((false, false));
         Self {
             show_left,
             show_bottom: false,
@@ -359,6 +368,15 @@ pub struct ViewPrefs {
     /// cannot be turned off, so the rail is never empty.
     #[serde(default)]
     pub hidden_modes: Vec<RailMode>,
+    /// The rail modes this project has **asked for** — the allow-list half of `D184`'s
+    /// [`Availability`](crate::ext::rail::Availability). A mode registered as `OptIn` is not on
+    /// the rail until its id is in here, which is the opposite rule to `hidden_modes` and is why
+    /// it is a second list rather than a sign on the first.
+    ///
+    /// Empty for every project the base alone has ever opened: none of the base's own ten is
+    /// `OptIn`. `#[serde(default)]` like every field added after the first release.
+    #[serde(default)]
+    pub opted_in_modes: Vec<RailMode>,
     /// The places written down in this project. Each destination is stored as its `ubiq://` text,
     /// and one that no longer parses is dropped rather than costing the blob — see
     /// [`crate::state::nav::kept_bookmarks`].
@@ -399,7 +417,7 @@ impl Default for ViewPrefs {
     fn default() -> Self {
         Self {
             schema: SCHEMA,
-            rail_mode: RailMode::Ide,
+            rail_mode: RailMode::IDE,
             modes: std::collections::HashMap::new(),
             open_files: Vec::new(),
             scratch: Vec::new(),
@@ -412,6 +430,7 @@ impl Default for ViewPrefs {
             content_font_size: None,
             editor_wrap: None,
             hidden_modes: Vec::new(),
+            opted_in_modes: Vec::new(),
             bookmarks: Vec::new(),
             recents: Vec::new(),
             board_shut: Vec::new(),
@@ -447,7 +466,16 @@ pub fn decode_upgraded<T: DeserializeOwned>(blob: &str) -> Option<(T, bool)> {
         Some(schema) if schema as u32 == SCHEMA => false,
         Some(4) => {
             upgrade_four_to_five(&mut value);
+            bump_to_six(&mut value);
             true
+        }
+        // `5 → 6` moves no value the user set: the ten rail-mode keys are read under either
+        // spelling by `ext::rail::decode_id`, so the step is the number and nothing else. The
+        // caller is told `false` for exactly that reason — `upgraded` means "a migration left
+        // something owed", and this one leaves nothing.
+        Some(5) => {
+            bump_to_six(&mut value);
+            false
         }
         Some(schema) => {
             tracing::debug!("discarding view state written for schema {schema}");
@@ -507,6 +535,18 @@ fn upgrade_four_to_five(value: &mut serde_json::Value) {
         let base = (crate::theme::TEXT_BASE * crate::theme::Family::Conversation.ratio()) as f64
             * text_ratio;
         map.insert("conversation_trim".into(), (size / base).into());
+    }
+}
+
+/// The `5 → 6` step: the number, and nothing else.
+///
+/// Its own function rather than an inline `insert` so that the reason is written down beside it.
+/// The rail-mode keys are *not* rewritten here on purpose — [`crate::ext::rail::decode_id`] reads
+/// either spelling, and a rewrite would have to know every id a second edition might have written,
+/// which is the one thing this build cannot know (`D184`).
+fn bump_to_six(value: &mut serde_json::Value) {
+    if let Some(map) = value.as_object_mut() {
+        map.insert("schema".into(), SCHEMA.into());
     }
 }
 

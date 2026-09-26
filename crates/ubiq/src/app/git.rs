@@ -447,7 +447,7 @@ impl AppState {
         if text.is_empty() {
             return;
         }
-        self.set_rail_mode(RailMode::Ide, cx);
+        self.set_rail_mode(RailMode::IDE, cx);
         let query = self.search.query.clone();
         query.update(cx, |state, cx| state.set_value(&text, window, cx));
         self.reveal_search(window, cx);

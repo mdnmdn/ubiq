@@ -15,6 +15,7 @@ use chrono::Utc;
 use gpui::{AppContext as _, Entity, TestAppContext, WindowHandle};
 use gpui_component::Root;
 use ubiq::app::{AppState, BusHub};
+use ubiq::ext::ids;
 use ubiq::state::file_picker::{KB_FOLDER_NAME, PickerView};
 use ubiq::state::sink::ProjectNav;
 use ubiq::state::{
@@ -718,7 +719,7 @@ fn the_settings_dialogs_kb_section_opens_on_an_existing_project(cx: &mut TestApp
     let fixture = Fixture::open(cx);
     fixture.with(cx, |state, _, cx| state.open_edit_project(cx));
     fixture.with(cx, |state, _, cx| {
-        state.set_sink_project_nav(ProjectNav::Kb, cx)
+        state.set_sink_project_nav(ProjectNav(ids::PROJECT_KB), cx)
     });
     fixture.with(cx, |state, _, _| {
         assert_eq!(
@@ -727,7 +728,7 @@ fn the_settings_dialogs_kb_section_opens_on_an_existing_project(cx: &mut TestApp
                 .project_settings
                 .as_ref()
                 .map(|settings| settings.nav),
-            Some(ProjectNav::Kb),
+            Some(ProjectNav(ids::PROJECT_KB)),
             "the KB row is one an edit dialog answers to"
         );
     });

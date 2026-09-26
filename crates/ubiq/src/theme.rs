@@ -274,6 +274,9 @@ pub fn login_modal_height() -> f32 {
 /// switching sections does not resize the panel. Same width as project settings.
 pub const SETTINGS_WIDTH: f32 = 820.0;
 pub const SETTINGS_HEIGHT: f32 = 560.0;
+/// The nav down the left of both settings containers. One width, because one component draws
+/// both — see [`crate::ui::kit::settings_split`].
+pub const SETTINGS_NAV_WIDTH: f32 = 210.0;
 
 pub fn settings_width() -> f32 {
     scaled(SETTINGS_WIDTH)
@@ -281,6 +284,10 @@ pub fn settings_width() -> f32 {
 
 pub fn settings_height() -> f32 {
     scaled(SETTINGS_HEIGHT)
+}
+
+pub fn settings_nav_width() -> f32 {
+    scaled(SETTINGS_NAV_WIDTH)
 }
 
 /// The theme editor: a modal, not a settings row. It carries a token list, a colour picker and a

@@ -1,0 +1,42 @@
+[
+  {
+    "id": "6a1b2c3d4e5f60007000a103",
+    "name": "Done",
+    "closed": false,
+    "idBoard": "5f2a7b1c9d0e4a0012345601",
+    "pos": 196608,
+    "subscribed": false
+  },
+  {
+    "id": "6a1b2c3d4e5f60007000a101",
+    "name": "To Do",
+    "closed": false,
+    "idBoard": "5f2a7b1c9d0e4a0012345601",
+    "pos": 65536,
+    "subscribed": false
+  },
+  {
+    "id": "6a1b2c3d4e5f60007000a102",
+    "name": "Doing",
+    "closed": false,
+    "idBoard": "5f2a7b1c9d0e4a0012345601",
+    "pos": 131072,
+    "subscribed": false
+  },
+  {
+    "id": "6a1b2c3d4e5f60007000a104",
+    "name": "Icebox",
+    "closed": false,
+    "idBoard": "5f2a7b1c9d0e4a0012345601",
+    "pos": 262144,
+    "subscribed": false
+  },
+  {
+    "id": "6a1b2c3d4e5f60007000a105",
+    "name": "Archived ideas",
+    "closed": true,
+    "idBoard": "5f2a7b1c9d0e4a0012345601",
+    "pos": 327680,
+    "subscribed": false
+  }
+]

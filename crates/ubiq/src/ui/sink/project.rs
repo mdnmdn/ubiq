@@ -23,6 +23,10 @@ use ubiq_proto::settings::DronePreset;
 use ubiq_proto::work::Status;
 
 use crate::app::AppState;
+use crate::ext::settings::{
+    self as ext_settings, SectionCtx, SectionGate, SettingsContainer, SettingsSectionSpec, register,
+};
+use crate::ext::{Registry, SlotId, ids};
 use crate::state::git::head_label;
 use crate::state::settings::ToolEditScope;
 use crate::state::sink::{
@@ -37,14 +41,17 @@ use crate::ui::board::status_colour;
 use crate::ui::hsv;
 use crate::ui::kit::{
     UbiqIcon, check_box, choice_pill, elided, ghost_button, heading, icon_button, mono, nav_item,
-    primary_button, section_label, setting_row, toggle_pill,
+    primary_button, section_label, setting_row, settings_split, toggle_pill,
 };
 use crate::ui::rail::mode_icon;
 use crate::ui::sink::style::{framed_active, input_on, textarea_on};
 
 /// Which copy of the dialog is being drawn. The sink is a fixture; Live is create or edit.
+///
+/// Public because it is half of [`SectionCtx`]: a section is drawn against one of the two copies,
+/// and a contributed section has to be able to tell which.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Form {
+pub enum Form {
     Sink,
     Live,
 }
@@ -206,7 +213,11 @@ fn dialog(
 
     div()
         .id(ElementId::Name(format!("{prefix}-dialog").into()))
-        .w(px(820.))
+        .w(px(theme::settings_width()))
+        // A definite height, the application overlay's own: `flex_1` inside a box that only has a
+        // `max_h` never resolves against anything, so the body grew the dialog past the window
+        // instead of scrolling inside it (`T-244`).
+        .h(px(theme::settings_height()))
         .max_h(relative(1.))
         .flex()
         .flex_col()
@@ -215,14 +226,11 @@ fn dialog(
         .border_color(colour)
         .shadow_lg()
         .child(header(app, form, colour, cx))
-        .child(
-            div()
-                .flex()
-                .flex_1()
-                .min_h(px(0.))
-                .child(nav(app, form, cx))
-                .child(body(app, window, cx, form)),
-        )
+        .child(settings_split(
+            prefix,
+            nav(app, form, cx),
+            body(app, window, cx, form),
+        ))
         .child(footer(app, form, cx))
 }
 
@@ -310,7 +318,9 @@ fn header(
         .into_any_element()
 }
 
-fn nav(app: &AppState, form: Form, cx: &mut Context<AppState>) -> AnyElement {
+/// The dialog's nav rows. The column and its scroll are [`settings_split`]'s, shared with the
+/// application overlay.
+fn nav(app: &AppState, form: Form, cx: &mut Context<AppState>) -> Vec<AnyElement> {
     let current = match form {
         Form::Sink => app.sink.project.nav,
         Form::Live => app
@@ -318,7 +328,7 @@ fn nav(app: &AppState, form: Form, cx: &mut Context<AppState>) -> AnyElement {
             .project_settings
             .as_ref()
             .map(|settings| settings.nav)
-            .unwrap_or(ProjectNav::General),
+            .unwrap_or_default(),
     };
     let prefix = form.prefix();
     // The live dialog is create-or-edit, not a page: it opens on General, and only an existing
@@ -332,72 +342,187 @@ fn nav(app: &AppState, form: Form, cx: &mut Context<AppState>) -> AnyElement {
                 .map(|settings| &settings.mode),
             Some(ProjectSettingsMode::Edit { .. })
         );
-    let items: Vec<AnyElement> = ProjectNav::all()
+    let ctx = SectionCtx {
+        app,
+        form,
+        project: project_of(app),
+    };
+    ext_settings::project_sections()
         .iter()
-        .copied()
-        .map(|item| {
+        // A fixture-only section is not a row the live dialog greys out — it is a row the live
+        // dialog does not have (`T-231`). `SectionGate::SinkOnly` already says "never offered by
+        // the live dialog"; drawing it there anyway was two rows the user could only ever look at.
+        .filter(|spec| form == Form::Sink || spec.gate != SectionGate::SinkOnly)
+        .map(|spec| {
+            let item = ProjectNav(spec.id);
             // Tasks, Remote and the knowledge base are on Tools' footing exactly: all four attach
-            // to a record, and a folder with no record yet has nothing to pin.
-            let enabled = form == Form::Sink
-                || item == ProjectNav::General
-                || (matches!(
-                    item,
-                    ProjectNav::Tools
-                        | ProjectNav::AgentDefinitions
-                        | ProjectNav::Tasks
-                        | ProjectNav::Remote
-                        | ProjectNav::Kb
-                ) && live_record);
-            // The one count that is a live fact rather than fixture copy: it is how many sources
-            // the section below lists.
-            let count = match (item, form) {
-                (ProjectNav::Kb, Form::Live) => app.kb(cx).map(|kb| kb.sources.len()),
-                _ => item.count().map(|n| n as usize),
-            };
+            // to a record, and a folder with no record yet has nothing to pin. The section says
+            // so itself, so this and `AppState::set_sink_project_nav` ask one question.
+            let enabled = spec.gate.enabled(form, live_record);
+            let count = spec.count.and_then(|count| count(&ctx, cx));
             nav_item(
-                ElementId::Name(format!("{prefix}-nav-{}", item.label()).into()),
-                project_icon(item),
-                item.label(),
+                ElementId::Name(format!("{prefix}-nav-{}", spec.label).into()),
+                (spec.icon)(),
+                spec.label,
                 count,
                 item == current,
                 enabled,
                 cx.listener(move |this, _, _, cx| this.set_sink_project_nav(item, cx)),
             )
         })
-        .collect();
-
-    div()
-        .id(ElementId::Name(format!("{prefix}-nav").into()))
-        .w(px(200.))
-        .flex()
-        .flex_none()
-        .flex_col()
-        .gap_1()
-        .px_2()
-        .py_3()
-        .border_r_1()
-        .border_color(theme::border())
-        .children(items)
-        .into_any_element()
+        .collect()
 }
 
-fn project_icon(item: ProjectNav) -> Icon {
-    match item {
-        ProjectNav::General => Icon::new(IconName::Settings),
-        ProjectNav::Tools => Icon::new(IconName::Play),
-        // The rail's own Agents mark, the same one the app-wide section wears.
-        ProjectNav::AgentDefinitions => Icon::new(UbiqIcon::ModeAgents),
-        // The rail's own Tasks mark, so the row that configures the board and the rail that opens
-        // it read as the same thing — `Kb` below takes its icon for the same reason.
-        ProjectNav::Tasks => Icon::new(UbiqIcon::ModeTasks),
-        // Borrowed, not drawn. `Network` is already Integrations', and the question this panel
-        // asks is *which machine*, which is the globe's.
-        ProjectNav::Remote => Icon::new(IconName::Globe),
-        // The rail's own KB mark, so the row that configures the screen and the rail that opens
-        // it read as the same thing.
-        ProjectNav::Kb => Icon::new(UbiqIcon::ModeKb),
-        ProjectNav::Documentation => Icon::new(IconName::BookOpen),
-        ProjectNav::Integrations => Icon::new(IconName::Network),
+/// The dialog's own eight sections, registered into the settings container (`D180`).
+///
+/// The base's side of `X4`, the same as `ui::settings::sections` is for the overlay: one spec
+/// type, two container instances, and the base is the first contributor to both.
+pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
+    // The group is written once, here at the call, and stamped onto the spec — see the twin
+    // comment in `ui::settings::sections`.
+    let mut add = |group: SlotId, mut spec: SettingsSectionSpec| {
+        spec.group = group;
+        register(reg, spec);
+    };
+
+    add(
+        ids::SETTINGS_PROJECT_CORE,
+        section(
+            ids::PROJECT_GENERAL,
+            "General",
+            || Icon::new(IconName::Settings),
+            |ctx, window, cx| general(ctx.app, window, cx, ctx.form),
+        ),
+    );
+    add(
+        ids::SETTINGS_PROJECT_CORE,
+        SettingsSectionSpec {
+            gate: SectionGate::WithRecord,
+            ..section(
+                ids::PROJECT_TOOLS,
+                "Tools",
+                || Icon::new(IconName::Play),
+                |ctx, _, cx| project_tools(ctx.app, cx, ctx.form),
+            )
+        },
+    );
+    add(
+        ids::SETTINGS_PROJECT_CORE,
+        SettingsSectionSpec {
+            gate: SectionGate::WithRecord,
+            ..section(
+                ids::PROJECT_AGENT_DEFINITIONS,
+                "Agent definitions",
+                // The rail's own Agents mark, the same one the app-wide section wears.
+                || Icon::new(UbiqIcon::ModeAgents),
+                |ctx, window, cx| agent_definitions(ctx.app, ctx.form, window, cx),
+            )
+        },
+    );
+    add(
+        ids::SETTINGS_PROJECT_CORE,
+        SettingsSectionSpec {
+            gate: SectionGate::WithRecord,
+            ..section(
+                ids::PROJECT_TASKS,
+                "Tasks",
+                // The rail's own Tasks mark, so the row that configures the board and the rail
+                // that opens it read as the same thing — `Kb` below takes its icon for the same
+                // reason.
+                || Icon::new(UbiqIcon::ModeTasks),
+                |ctx, window, cx| tasks(ctx.app, window, cx, ctx.form),
+            )
+        },
+    );
+    add(
+        ids::SETTINGS_PROJECT_CORE,
+        SettingsSectionSpec {
+            gate: SectionGate::WithRecord,
+            ..section(
+                ids::PROJECT_REMOTE,
+                "Remote",
+                // Borrowed, not drawn. `Network` is already Integrations', and the question this
+                // panel asks is *which machine*, which is the globe's.
+                || Icon::new(IconName::Globe),
+                |ctx, _, cx| remote(ctx.app, cx, ctx.form),
+            )
+        },
+    );
+
+    add(
+        ids::SETTINGS_PROJECT_CONTENT,
+        SettingsSectionSpec {
+            gate: SectionGate::WithRecord,
+            // The one count that is a live fact rather than fixture copy: it is how many sources
+            // the section below lists. The fixture's root count stands in for the sink's page.
+            count: Some(|ctx, cx| match ctx.form {
+                Form::Live => ctx.app.kb(cx).map(|kb| kb.sources.len()),
+                Form::Sink => Some(2),
+            }),
+            ..section(
+                ids::PROJECT_KB,
+                "Knowledge base",
+                // The rail's own KB mark, so the row that configures the screen and the rail that
+                // opens it read as the same thing.
+                || Icon::new(UbiqIcon::ModeKb),
+                |ctx, window, cx| kb(ctx.app, ctx.form, window, cx),
+            )
+        },
+    );
+    add(
+        ids::SETTINGS_PROJECT_CONTENT,
+        SettingsSectionSpec {
+            gate: SectionGate::SinkOnly,
+            count: Some(|_, _| Some(4)),
+            ..section(
+                ids::PROJECT_DOCUMENTATION,
+                "Documentation",
+                || Icon::new(IconName::BookOpen),
+                |_, _, _| documentation(),
+            )
+        },
+    );
+    add(
+        ids::SETTINGS_PROJECT_CONTENT,
+        SettingsSectionSpec {
+            gate: SectionGate::SinkOnly,
+            count: Some(|_, _| Some(1)),
+            ..section(
+                ids::PROJECT_INTEGRATIONS,
+                "Integrations",
+                || Icon::new(IconName::Network),
+                |_, _, _| integrations(),
+            )
+        },
+    );
+}
+
+/// One dialog section, with the fields most of them do not vary already filled in. `group` is a
+/// placeholder that `sections`' own `add` stamps over.
+fn section(
+    id: SlotId,
+    label: &'static str,
+    icon: fn() -> Icon,
+    render: fn(&SectionCtx<'_>, &Window, &mut Context<AppState>) -> AnyElement,
+) -> SettingsSectionSpec {
+    SettingsSectionSpec {
+        id,
+        container: SettingsContainer::Project,
+        group: ids::SETTINGS_PROJECT_CORE,
+        label,
+        icon,
+        gate: SectionGate::Always,
+        count: None,
+        on_show: None,
+        render,
+    }
+}
+
+/// The project the live dialog is editing, when it is editing one.
+fn project_of(app: &AppState) -> Option<ProjectId> {
+    match app.workbench.project_settings.as_ref().map(|s| &s.mode) {
+        Some(ProjectSettingsMode::Edit { project }) => Some(*project),
+        _ => None,
     }
 }
 
@@ -409,32 +534,19 @@ fn body(app: &AppState, window: &Window, cx: &mut Context<AppState>, form: Form)
             .project_settings
             .as_ref()
             .map(|settings| settings.nav)
-            .unwrap_or(ProjectNav::General),
+            .unwrap_or_default(),
     };
-    let content = match nav {
-        ProjectNav::General => general(app, window, cx, form),
-        ProjectNav::Tools => project_tools(app, cx, form),
-        ProjectNav::AgentDefinitions => agent_definitions(app, form, window, cx),
-        ProjectNav::Tasks => tasks(app, window, cx, form),
-        ProjectNav::Remote => remote(app, cx, form),
-        ProjectNav::Kb => kb(app, form, window, cx),
-        ProjectNav::Documentation => documentation(),
-        ProjectNav::Integrations => integrations(),
+    let ctx = SectionCtx {
+        app,
+        form,
+        project: project_of(app),
     };
-    let prefix = form.prefix();
-
-    div()
-        .id(ElementId::Name(format!("{prefix}-body").into()))
-        .flex()
-        .flex_col()
-        .flex_1()
-        .min_w(px(0.))
-        .min_h(px(0.))
-        .overflow_y_scroll()
-        .px_5()
-        .py_4()
-        .child(content)
-        .into_any_element()
+    match nav.spec() {
+        Some(spec) => (spec.render)(&ctx, window, cx),
+        // Nothing is registered under the nav's id — a second edition removed the section the
+        // dialog was left on. Draws nothing rather than falling back to another page.
+        None => div().into_any_element(),
+    }
 }
 
 /// The git repositories inside this project: the project's own root, always managed and never a
@@ -721,9 +833,11 @@ fn index_row(app: &AppState, project: ProjectId, cx: &mut Context<AppState>) -> 
             "What Ubiq remembers about this project, overriding the application setting. Off walks \
              every file on every query — worth it for a project on a slow disk, or one you would \
              rather Ubiq kept nothing about.",
+            // Not `flex_none`: four pills, one of them "Default (full text + symbols)", are wider
+            // than the column a `setting_row` leaves for a control, and a block that refuses to
+            // shrink is what crushed the label beside it instead of wrapping (`T-244`).
             div()
                 .flex()
-                .flex_none()
                 .items_center()
                 .gap_1()
                 .flex_wrap()

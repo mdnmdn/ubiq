@@ -7,6 +7,7 @@
 //! Terminal bytes are opaque on both sides: neither half parses them, and a chunk is whatever one
 //! read returned.
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::ask::{AskClosed, AskOutcome, AskQuestion};
@@ -27,7 +28,7 @@ use crate::help::HelpCatalog;
 use crate::ids::{
     AiProviderId, AnnotationId, AskId, BlockId, CloneId, ConnectId, ConnectionId, KbSourceId,
     NotificationId, OauthAppId, PaneId, ProjectId, RepoQueryId, SearchId, SessionId, SpawnId,
-    SshProfileId, StepId, SuggestId, TaskId, ToolId,
+    SshProfileId, StepId, SuggestId, TaskId, TaskSrcQueryId, ToolId,
 };
 use crate::kb::{KbSource, KbSourceState, KbSourceStatus};
 use crate::mcp::McpInfo;
@@ -49,6 +50,10 @@ use crate::repos::{CloneError, CloneRequest, CloneStage, RemoteRepo, RepoSource}
 use crate::search::{self, Batch, Query, Source};
 use crate::settings::SettingsLayer;
 use crate::stats::HostStats;
+use crate::tasksrc::{
+    Binding, DriftSide, Facets, ProviderInfo, RemoteContainer, RemoteItem, RemoteItemId,
+    RemoteLane, SyncScope, SyncState, TaskLink,
+};
 use crate::tools::{ListedTool, ToolDef};
 use crate::work::{
     AgentId, Complexity, Kind, Label, Priority, Shape, Status, TaskRecord, WorkAgent, WorkSession,
@@ -757,6 +762,169 @@ pub enum Message {
         error: CloneError,
     },
 
+    // ── Task-source family: UI → host ───────────────────────────────
+    //
+    // A family of its own rather than a corner of `work` or of `connector`, because this names a
+    // connection *and* a project *and* a piece of remote work, and neither of those two does.
+    // It follows the repository family's shape: the asker mints a query id, every reply carries it
+    // back, and a reply naming an id the interface no longer holds is discarded rather than drawn.
+    //
+    // **No variant carries a pane id**, so `pane_id_of` is untouched.
+    /// What providers this build has, with each one's capabilities and its **declared
+    /// configuration schema** (`R6`). The schema is what the interface's one renderer draws, and
+    /// this is the only way it reaches the interface at all — a second edition's provider compiles
+    /// into the host half. Answered with [`Message::TaskProviders`].
+    ListTaskProviders {
+        query_id: TaskSrcQueryId,
+    },
+    /// The boards, projects or repositories this connection can reach, for the picker that binds
+    /// one. Answered with [`Message::RemoteContainers`] or [`Message::TaskSourceError`].
+    ListRemoteContainers {
+        query_id: TaskSrcQueryId,
+        provider: String,
+        connection: ConnectionId,
+    },
+    /// The bound container's lanes **and** every facet its declared `Choice`/`MultiChoice` fields
+    /// draw from, in one ask, because the provider answers both off one container description.
+    /// Answered with [`Message::RemoteLanes`] or [`Message::TaskSourceError`].
+    ListRemoteLanes {
+        query_id: TaskSrcQueryId,
+        binding: Box<Binding>,
+    },
+    /// **Run the filter and say how many came back** (`R7`). Read-only, and emphatically not a
+    /// syntax check: where a provider has a query language its own server validates it and returns
+    /// a usable error, and a second grammar in this tree would be a language nobody owns. Answered
+    /// with [`Message::TaskSourceTest`] or [`Message::TaskSourceError`].
+    TestTaskSource {
+        query_id: TaskSrcQueryId,
+        binding: Box<Binding>,
+    },
+    /// What this project is bound to, if anything. Answered with [`Message::TaskSource`].
+    GetTaskSource {
+        project_id: ProjectId,
+    },
+    /// Write the binding this project is configured with. `None` unbinds — which removes the
+    /// binding and the link rows and **no task**: nothing the layer does ever deletes anything
+    /// (`R9`). Answered with [`Message::TaskSource`] or [`Message::TaskSourceError`].
+    SetTaskSource {
+        project_id: ProjectId,
+        binding: Option<Box<Binding>>,
+    },
+    /// Everything the filter currently offers, for the import dialog to pick from. Answered with
+    /// [`Message::RemoteItems`] or [`Message::TaskSourceError`].
+    ListRemoteItems {
+        query_id: TaskSrcQueryId,
+        /// Which project's link table the answer's `linked` set is read against. Carried even
+        /// though the binding names no project: **only a project has link rows**, and without it
+        /// the dialog cannot say which offered items are already tasks — which is the one thing
+        /// that stops it making a second copy of a task that exists (`D188`).
+        project_id: ProjectId,
+        binding: Box<Binding>,
+    },
+    /// Create a task for each of these items and link it. **Import is explicit** (`R12`): the
+    /// filter governs what is offered, not what is created. Answered with `TaskCreated` ×n to
+    /// every window, the ordinary work-family path, because an imported task is an ordinary task
+    /// from the moment it lands.
+    ImportRemoteItems {
+        project_id: ProjectId,
+        items: Vec<RemoteItemId>,
+    },
+    /// Run a pass now rather than at the next interval. `scope` is the whole board or one task —
+    /// one message for the board's force button and a card's, because they differ in nothing else.
+    SyncTaskSource {
+        project_id: ProjectId,
+        scope: SyncScope,
+    },
+    /// Settle one drifted task by hand, whatever the binding's authority switch says (`D188`).
+    ///
+    /// `Push` writes the task's values to the remote item; `Pull` writes the item's values to the
+    /// task. **Only the fields already on the link row's `drift` list move** — this is a resolution
+    /// of a divergence somebody is looking at, not a blanket overwrite of one side by the other,
+    /// and a field the provider cannot accept is refused by name rather than silently skipped.
+    ///
+    /// Answered with `TaskChanged` and [`Message::TaskLinkChanged`]. A failure comes back on
+    /// [`Message::TaskSourceState`] rather than on [`Message::TaskSourceError`], because this
+    /// names a **project** and not a query: `TaskSourceError` is keyed by a `TaskSrcQueryId` the
+    /// interface would have to have minted, and it discards a reply naming an id it does not hold.
+    /// Every project-scoped ask in this family — this, `SyncTaskSource`, `ImportRemoteItems` —
+    /// reports the same way.
+    ResolveTaskDrift {
+        project_id: ProjectId,
+        task_id: TaskId,
+        side: DriftSide,
+    },
+    /// Drop one task's link row. The task keeps its content and its history (`R9`).
+    UnlinkTask {
+        project_id: ProjectId,
+        task_id: TaskId,
+    },
+
+    // ── Task-source family: host → UI ───────────────────────────────
+    /// The answer to [`Message::ListTaskProviders`].
+    TaskProviders {
+        query_id: TaskSrcQueryId,
+        providers: Vec<ProviderInfo>,
+    },
+    /// The answer to [`Message::ListRemoteContainers`].
+    RemoteContainers {
+        query_id: TaskSrcQueryId,
+        containers: Vec<RemoteContainer>,
+    },
+    /// The answer to [`Message::ListRemoteLanes`]: the lane map's candidates, and every facet the
+    /// declared fields draw from.
+    RemoteLanes {
+        query_id: TaskSrcQueryId,
+        lanes: Vec<RemoteLane>,
+        facets: Facets,
+    },
+    /// The answer to [`Message::TestTaskSource`]: **a count the filter actually returned**, and
+    /// the first handful of what it returned, so the number can be recognised rather than trusted.
+    TaskSourceTest {
+        query_id: TaskSrcQueryId,
+        count: usize,
+        sample: Vec<RemoteItem>,
+    },
+    /// The answer to [`Message::GetTaskSource`] and to [`Message::SetTaskSource`], and what a
+    /// window that has just opened a project is told.
+    TaskSource {
+        project_id: ProjectId,
+        binding: Option<Box<Binding>>,
+        state: SyncState,
+    },
+    /// The answer to [`Message::ListRemoteItems`]. An item already linked is marked so the dialog
+    /// can say so rather than offering a second copy of a task that exists.
+    RemoteItems {
+        query_id: TaskSrcQueryId,
+        items: Vec<RemoteItem>,
+        /// The subset of `items` that already has a link row on this project.
+        linked: Vec<RemoteItemId>,
+    },
+    /// Unsolicited: what the binding is doing, for the board's status item.
+    TaskSourceState {
+        project_id: ProjectId,
+        state: SyncState,
+        last_sync: Option<DateTime<Utc>>,
+        /// The tasks that differ from their remote item, for the drift overview. **What each one
+        /// differs *in* is on its own link row** (`TaskLink::drift`), which the interface already
+        /// holds: this is the count the status item draws, not a second copy of the detail.
+        drifted: Vec<TaskId>,
+        /// A sentence, when the last pass failed. `None` while it is fine.
+        error: Option<String>,
+    },
+    /// Unsolicited: one task's link row changed, or went away. `None` is a task that is no longer
+    /// linked — it keeps everything else it had.
+    TaskLinkChanged {
+        project_id: ProjectId,
+        task_id: TaskId,
+        link: Option<Box<TaskLink>>,
+    },
+    /// A task-source ask failed. A sentence rather than a kind, on `WorkError`'s reasoning: what
+    /// the interface does with it is print it.
+    TaskSourceError {
+        query_id: TaskSrcQueryId,
+        error: String,
+    },
+
     // ── Project family: UI → host ───────────────────────────────────
     /// Every project in the catalogue, probed. Answered with [`Message::ProjectList`].
     ListProjects,
@@ -838,6 +1006,23 @@ pub enum Message {
         project_id: ProjectId,
         initials: String,
     },
+    /// Move this project's own data between the two storage modes (`D173`) — out of
+    /// `<config root>/projects/<ulid>/` into the project's own `.ubiq/`, or back.
+    ///
+    /// Its own message rather than a field on [`Message::UpdateProject`], which `D31` keeps
+    /// display-only, infallible and filesystem-free: this copies a tree across two unrelated
+    /// roots and can fail for every reason a filesystem can.
+    ///
+    /// Answered with [`Message::ProjectStorageMoved`] to the window that asked, and with a
+    /// [`Message::ProjectChanged`] to every window carrying the record's new mode; refused with
+    /// [`Message::ProjectStorageError`]. A mode the project is already in is a success that
+    /// touches no disk. **Refused while anything is running in the project** — a pane or a live
+    /// conversation — because a store resolving the old location mid-move would write into the
+    /// tree being taken away.
+    SetProjectStorage {
+        project_id: ProjectId,
+        storage: StorageMode,
+    },
     /// Re-point a record at a folder that moved, keeping its id, colour and history. Unlike
     /// [`Message::UpdateProject`] this changes truth, so it can answer [`Message::ProjectError`].
     LocateProject {
@@ -900,6 +1085,25 @@ pub enum Message {
     },
     ProjectForgotten {
         project_id: ProjectId,
+    },
+    /// A [`Message::SetProjectStorage`] finished: the project's data is now in `dir`, which is
+    /// the data directory the mode names. To the window that asked — every other window learns
+    /// the new mode from the [`Message::ProjectChanged`] that goes out beside this.
+    ProjectStorageMoved {
+        project_id: ProjectId,
+        storage: StorageMode,
+        /// Where the data actually is now, for the window that asked to show.
+        dir: String,
+    },
+    /// A [`Message::SetProjectStorage`] was refused or failed, and the project is **still in the
+    /// mode it was in** — the pointer file is the commit point and nothing before it is visible.
+    /// Its own variant rather than [`Message::ProjectError`] so the panel that asked can put its
+    /// row back to `storage` rather than draw a banner and guess.
+    ProjectStorageError {
+        project_id: ProjectId,
+        /// The mode that was asked for and not reached.
+        storage: StorageMode,
+        error: String,
     },
     /// Something went wrong for one project, or for the catalogue as a whole when the id is absent.
     ProjectError {
@@ -2712,6 +2916,9 @@ impl Message {
             | Message::UpdateProject { project_id, .. }
             | Message::SetProjectInitials { project_id, .. }
             | Message::LocateProject { project_id, .. }
+            | Message::SetProjectStorage { project_id, .. }
+            | Message::ProjectStorageMoved { project_id, .. }
+            | Message::ProjectStorageError { project_id, .. }
             | Message::OpenedProject { project_id, .. }
             | Message::AdoptProject { project_id, .. }
             | Message::RefreshProject { project_id, .. }

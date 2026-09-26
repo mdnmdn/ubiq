@@ -22,6 +22,8 @@ use ubiq_proto::quota::{QuotaGauge, QuotaReading, QuotaSnapshot};
 use ubiq_proto::settings::{HostSettings, SshAuth, SshProfile};
 
 use crate::app::ssh_connect::{DroneState, HostCheck};
+use crate::ext::settings::SettingsSectionSpec;
+use crate::ext::{SlotId, ids};
 use crate::state::editor::ViewLayout;
 use crate::state::layout::Algo;
 
@@ -33,72 +35,32 @@ pub const MAX_LOGIN_LINKS: usize = 8;
 /// The shape this build writes and understands. Bump it and older blobs are discarded.
 pub const SCHEMA: u32 = 1;
 
-/// The left nav of the application settings overlay, in the order it is drawn.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub enum SettingsSection {
-    #[default]
-    Appearance,
-    /// The two size axes, the presets that name a point on them, and the per-family trims.
-    /// Its own section rather than more rows under Appearance: the axes are half the page on
-    /// their own, and the preset list has nowhere else to live (`D151`).
-    Size,
-    FileExplorer,
-    Editor,
-    Search,
-    Harnesses,
-    /// The saved setups a run starts from. Its own section rather than more rows under Harnesses:
-    /// a harness is a tool this machine has, a definition is a recipe written against one, and the
-    /// two lists grow at different rates.
-    AgentDefinitions,
-    Isolation,
-    Assist,
-    Connectors,
-    Hosts,
-    Ssh,
-    Drones,
-    Tools,
-    CommandLine,
+/// Which section of the application settings overlay the nav is on.
+///
+/// A `Copy` newtype over a [`SlotId`] rather than a closed enum (`D180`): the label, the icon, the
+/// body and the on-arrival refresh that used to be matched here are fields on
+/// [`SettingsSectionSpec`], the overlay's nav is
+/// [`ext::settings::app_sections()`](crate::ext::settings::app_sections), and a second edition's
+/// section is one more registration rather than a variant nothing outside the base can add.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct SettingsSection(pub SlotId);
+
+impl Default for SettingsSection {
+    /// Appearance, which is the first row the nav draws.
+    fn default() -> Self {
+        SettingsSection(ids::APPEARANCE)
+    }
 }
 
 impl SettingsSection {
-    pub fn all() -> &'static [SettingsSection] {
-        &[
-            SettingsSection::Appearance,
-            SettingsSection::Size,
-            SettingsSection::FileExplorer,
-            SettingsSection::Editor,
-            SettingsSection::Search,
-            SettingsSection::Harnesses,
-            SettingsSection::AgentDefinitions,
-            SettingsSection::Isolation,
-            SettingsSection::Assist,
-            SettingsSection::Connectors,
-            SettingsSection::Hosts,
-            SettingsSection::Ssh,
-            SettingsSection::Drones,
-            SettingsSection::Tools,
-            SettingsSection::CommandLine,
-        ]
+    pub fn label(self) -> &'static str {
+        crate::ext::settings::label(self.0)
     }
 
-    pub fn label(self) -> &'static str {
-        match self {
-            SettingsSection::Appearance => "Appearance",
-            SettingsSection::Size => "Size",
-            SettingsSection::FileExplorer => "File explorer",
-            SettingsSection::Editor => "Editor",
-            SettingsSection::Search => "Search",
-            SettingsSection::Harnesses => "Harnesses",
-            SettingsSection::AgentDefinitions => "Agent definitions",
-            SettingsSection::Isolation => "Isolation",
-            SettingsSection::Assist => "Assistance",
-            SettingsSection::Connectors => "Connectors",
-            SettingsSection::Hosts => "Hosts",
-            SettingsSection::Drones => "Drones",
-            SettingsSection::Ssh => "SSH profiles",
-            SettingsSection::Tools => "Tools",
-            SettingsSection::CommandLine => "Command line",
-        }
+    /// This section's spec, if it is registered. `None` for a section a second edition removed
+    /// while the nav stood on it.
+    pub fn spec(self) -> Option<&'static SettingsSectionSpec> {
+        crate::ext::settings::spec(self.0)
     }
 }
 
@@ -1010,7 +972,7 @@ impl Default for SettingsState {
     fn default() -> Self {
         Self {
             open: false,
-            nav: SettingsSection::Appearance,
+            nav: SettingsSection::default(),
             ui: UiSettings::default(),
             host: HostSettings::default(),
             accounts: Vec::new(),

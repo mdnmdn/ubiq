@@ -77,5 +77,7 @@ pub use overlay::{confirm_modal, modal, modal_note, modal_sized, prompt_modal};
 pub use panel::{Tab, panel, panel_header, tab_strip};
 pub use popover::popover;
 pub use ribbon::{RIBBON_SIZE, Ribbon, RibbonCorner, ribbon};
-pub use settings::{column, heading, hint_row, label_block, label_hint, nav_item, setting_row};
+pub use settings::{
+    column, heading, hint_row, label_block, label_hint, nav_item, setting_row, settings_split,
+};
 pub use slider::{Slider, slider_state};

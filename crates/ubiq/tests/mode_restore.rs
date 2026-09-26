@@ -298,7 +298,7 @@ fn collect_names(value: &serde_json::Value, into: &mut Vec<String>) {
 #[gpui::test]
 fn returning_from_any_non_ide_mode_restores_the_side_panels(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
-    assert_eq!(fixture.mode(cx), RailMode::Ide);
+    assert_eq!(fixture.mode(cx), RailMode::IDE);
     assert_eq!(
         fixture.regions_open(cx),
         (true, false, false),
@@ -317,7 +317,7 @@ fn returning_from_any_non_ide_mode_restores_the_side_panels(cx: &mut TestAppCont
         "the console's reveal is what opens the bottom"
     );
 
-    for mode in [RailMode::Tasks, RailMode::Control] {
+    for mode in [RailMode::TASKS, RailMode::CONTROL] {
         // Leave IDE: the side panels go, but nothing is removed from the arrangement.
         let before = fixture.dump(cx);
         let regions_before = fixture.regions_open(cx);
@@ -344,8 +344,8 @@ fn returning_from_any_non_ide_mode_restores_the_side_panels(cx: &mut TestAppCont
         );
 
         // Back to IDE: the arrangement is restored whole, side panels and the three regions.
-        fixture.switch_to(RailMode::Ide, cx);
-        assert_eq!(fixture.mode(cx), RailMode::Ide);
+        fixture.switch_to(RailMode::IDE, cx);
+        assert_eq!(fixture.mode(cx), RailMode::IDE);
         let after = fixture.dump(cx);
         assert_eq!(
             names(&after),
@@ -378,7 +378,7 @@ fn search_and_the_log_do_not_follow_a_mode_switch(cx: &mut TestAppContext) {
     assert!(fixture.holds("ubiq.search", cx));
     assert!(fixture.holds("ubiq.logs", cx));
 
-    fixture.switch_to(RailMode::Tasks, cx);
+    fixture.switch_to(RailMode::TASKS, cx);
     let in_tasks = fixture.panels(cx);
     assert!(
         !in_tasks.contains(&"ubiq.search".to_string()),
@@ -390,7 +390,7 @@ fn search_and_the_log_do_not_follow_a_mode_switch(cx: &mut TestAppContext) {
     );
 
     // And the blob the IDE was left in is what brings them both back.
-    fixture.switch_to(RailMode::Ide, cx);
+    fixture.switch_to(RailMode::IDE, cx);
     let home = fixture.panels(cx);
     assert!(
         home.contains(&"ubiq.search".to_string()),
@@ -423,7 +423,7 @@ fn help_follows_a_mode_switch_only_when_it_is_asked_to(cx: &mut TestAppContext) 
         "revealing help is what opens the right region"
     );
 
-    fixture.switch_to(RailMode::Kb, cx);
+    fixture.switch_to(RailMode::KB, cx);
     assert!(
         !fixture.holds("ubiq.help", cx),
         "with follow off, help is the mode's and stays behind: {:?}",
@@ -435,7 +435,7 @@ fn help_follows_a_mode_switch_only_when_it_is_asked_to(cx: &mut TestAppContext) 
     );
 
     // Follow on, and the same switch carries it — on screen, which is the whole of the contract.
-    fixture.switch_to(RailMode::Ide, cx);
+    fixture.switch_to(RailMode::IDE, cx);
     fixture.reveal_help(cx);
     fixture
         .state
@@ -444,7 +444,7 @@ fn help_follows_a_mode_switch_only_when_it_is_asked_to(cx: &mut TestAppContext) 
     assert!(fixture.holds("ubiq.help", cx));
     assert!(fixture.regions_open(cx).2);
 
-    fixture.switch_to(RailMode::Kb, cx);
+    fixture.switch_to(RailMode::KB, cx);
     assert!(
         fixture.holds("ubiq.help", cx),
         "following the reader is what follow mode means: {:?}",
@@ -479,7 +479,7 @@ fn a_projectless_window_keeps_its_furniture_across_a_mode_switch(cx: &mut TestAp
     let (_, bottom, right) = fixture.regions_open(cx);
     assert!(bottom && right, "both were revealed onto their own edges");
 
-    for mode in [RailMode::Control, RailMode::Sink, RailMode::Ide] {
+    for mode in [RailMode::CONTROL, RailMode::SINK, RailMode::IDE] {
         fixture.switch_to(mode, cx);
         assert!(
             fixture.holds("ubiq.logs", cx),
@@ -513,8 +513,8 @@ fn a_mode_switch_places_no_chat_tab(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
     // Git has to have a blob of its own, or the switch keeps the tree rather than restoring one
     // and there is no leftover loop to get wrong.
-    fixture.switch_to(RailMode::Git, cx);
-    fixture.switch_to(RailMode::Ide, cx);
+    fixture.switch_to(RailMode::GIT, cx);
+    fixture.switch_to(RailMode::IDE, cx);
 
     // The user's own click on the right switch is what opens a chat tab there.
     fixture.toggle_region(Region::Right, cx);
@@ -524,7 +524,7 @@ fn a_mode_switch_places_no_chat_tab(cx: &mut TestAppContext) {
         fixture.panels(cx)
     );
 
-    fixture.switch_to(RailMode::Git, cx);
+    fixture.switch_to(RailMode::GIT, cx);
     let in_git = fixture.panels(cx);
     assert!(
         !in_git.contains(&"ubiq.chat".to_string()),
@@ -535,7 +535,7 @@ fn a_mode_switch_places_no_chat_tab(cx: &mut TestAppContext) {
         "Git's own right-hand panel is what is there instead: {in_git:?}"
     );
 
-    fixture.switch_to(RailMode::Ide, cx);
+    fixture.switch_to(RailMode::IDE, cx);
     assert!(
         fixture.holds("ubiq.chat", cx),
         "and the IDE's blob is what brings it back where the user left it: {:?}",
@@ -594,8 +594,8 @@ fn a_region_closed_in_a_mode_is_still_closed_on_the_way_back(cx: &mut TestAppCon
         "the switch puts the explorer's region away"
     );
 
-    fixture.switch_to(RailMode::Tasks, cx);
-    fixture.switch_to(RailMode::Ide, cx);
+    fixture.switch_to(RailMode::TASKS, cx);
+    fixture.switch_to(RailMode::IDE, cx);
     assert_eq!(
         fixture.regions_open(cx),
         (false, false, false),
@@ -612,7 +612,7 @@ fn a_region_closed_in_a_mode_is_still_closed_on_the_way_back(cx: &mut TestAppCon
 #[gpui::test]
 fn an_open_and_empty_side_region_is_closed_rather_than_filled(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
-    fixture.switch_to(RailMode::Control, cx);
+    fixture.switch_to(RailMode::CONTROL, cx);
     assert_eq!(fixture.regions_open(cx), (false, false, false));
 
     fixture.toggle_region(Region::Left, cx);
@@ -621,8 +621,8 @@ fn an_open_and_empty_side_region_is_closed_rather_than_filled(cx: &mut TestAppCo
         "the user's own click opens the edge, whatever is or is not in it"
     );
 
-    fixture.switch_to(RailMode::Ide, cx);
-    fixture.switch_to(RailMode::Control, cx);
+    fixture.switch_to(RailMode::IDE, cx);
+    fixture.switch_to(RailMode::CONTROL, cx);
     assert!(
         !fixture.regions_open(cx).0,
         "coming back, the empty edge is put away rather than topped up with furniture"
@@ -666,8 +666,8 @@ fn git_opens_with_its_side_panels(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
     assert_eq!(fixture.regions_open(cx), (true, false, false));
 
-    fixture.switch_to(RailMode::Git, cx);
-    assert_eq!(fixture.mode(cx), RailMode::Git);
+    fixture.switch_to(RailMode::GIT, cx);
+    assert_eq!(fixture.mode(cx), RailMode::GIT);
     assert_eq!(
         fixture.regions_open(cx),
         (true, false, true),
@@ -687,7 +687,7 @@ fn git_opens_with_its_side_panels(cx: &mut TestAppContext) {
         "the commit list is the centre: {in_git:?}"
     );
 
-    fixture.switch_to(RailMode::Ide, cx);
+    fixture.switch_to(RailMode::IDE, cx);
     assert_eq!(
         fixture.regions_open(cx),
         (true, false, false),
@@ -703,10 +703,10 @@ fn git_opens_with_its_side_panels(cx: &mut TestAppContext) {
 #[gpui::test]
 fn a_project_stored_in_git_starts_with_its_side_panels(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
-    assert_eq!(fixture.mode(cx), RailMode::Ide);
+    assert_eq!(fixture.mode(cx), RailMode::IDE);
 
     let view = prefs::ViewPrefs {
-        rail_mode: RailMode::Git,
+        rail_mode: RailMode::GIT,
         ..prefs::ViewPrefs::default()
     };
     fixture.deliver(
@@ -717,7 +717,7 @@ fn a_project_stored_in_git_starts_with_its_side_panels(cx: &mut TestAppContext) 
         cx,
     );
 
-    assert_eq!(fixture.mode(cx), RailMode::Git);
+    assert_eq!(fixture.mode(cx), RailMode::GIT);
     assert_eq!(
         fixture.regions_open(cx),
         (true, false, true),
@@ -740,13 +740,13 @@ fn hiding_modes_never_empties_the_rail(cx: &mut TestAppContext) {
     let state = fixture.state.clone();
 
     state.update(cx, |state, cx| {
-        assert!(state.mode_enabled(RailMode::Git, cx));
-        state.toggle_mode(RailMode::Git, cx);
-        assert!(!state.mode_enabled(RailMode::Git, cx));
+        assert!(state.mode_enabled(RailMode::GIT, cx));
+        state.toggle_mode(RailMode::GIT, cx);
+        assert!(!state.mode_enabled(RailMode::GIT, cx));
 
         // The window is in IDE: hiding it has to leave the window somewhere else.
-        state.toggle_mode(RailMode::Ide, cx);
-        assert!(!state.mode_enabled(RailMode::Ide, cx));
+        state.toggle_mode(RailMode::IDE, cx);
+        assert!(!state.mode_enabled(RailMode::IDE, cx));
         assert!(state.mode_enabled(state.workbench.rail_mode, cx));
 
         // Everything but the last one goes; the last one stays whatever is asked.
@@ -766,17 +766,20 @@ fn hiding_modes_never_empties_the_rail(cx: &mut TestAppContext) {
 /// T-196: a document open in the IDE — which file is active and what layout its viewer is in — is
 /// exactly the kind of state a mode switch must not disturb.
 ///
-/// This is not new machinery: `OpenFile` lives on the project (`OpenProject::editor`), not on the
-/// mode, so it is never rebuilt by a rail-mode switch — only the dock's *tree* is, and that tree is
-/// what `ModeLayout::layout` already remembers per mode (`file_payload` writes the tab's key and its
-/// `ViewLayout` into the same blob `returning_from_any_non_ide_mode_restores_the_side_panels`
-/// exercises for regions). This fixture is the round trip for the document half of that same
-/// mechanism: open two files, put one in `Preview`, leave IDE for another mode entirely and come
-/// back, and both which file was in front and which layout it was left in must still be true.
+/// This is not new machinery, and since T-202 it is not the blob's doing either: `OpenFile` lives
+/// on the project (`OpenProject::editor`), not on the mode, so it is never rebuilt by a rail-mode
+/// switch — only the dock's *tree* is, and `file_payload` writes the tab's key and nothing else.
+/// The view mode survives because the `OpenFile` holding it survives, in memory, and
+/// `settle_visibility` pushes it back onto whichever panel the rebuilt tree put the tab in. This
+/// fixture is the round trip for the document half: open two files, put one in `Source`, leave IDE
+/// for another mode entirely and come back, and both which file was in front and which layout it
+/// was left in must still be true.
+///
+/// The restart case is the opposite and deliberately so — see `ViewLayout`'s own doc comment.
 #[gpui::test]
 fn a_document_and_its_view_mode_survive_a_trip_away_from_ide(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
-    assert_eq!(fixture.mode(cx), RailMode::Ide);
+    assert_eq!(fixture.mode(cx), RailMode::IDE);
 
     fixture.open_file("README.md", cx);
     fixture.open_file("notes.md", cx);
@@ -795,10 +798,10 @@ fn a_document_and_its_view_mode_survive_a_trip_away_from_ide(cx: &mut TestAppCon
     assert_eq!(fixture.file_layout(&active, cx), Some(ViewLayout::Source));
 
     // Leave the IDE for a mode with nothing to do with files, and come back.
-    fixture.switch_to(RailMode::Agents, cx);
-    assert_ne!(fixture.mode(cx), RailMode::Ide);
-    fixture.switch_to(RailMode::Ide, cx);
-    assert_eq!(fixture.mode(cx), RailMode::Ide);
+    fixture.switch_to(RailMode::AGENTS, cx);
+    assert_ne!(fixture.mode(cx), RailMode::IDE);
+    fixture.switch_to(RailMode::IDE, cx);
+    assert_eq!(fixture.mode(cx), RailMode::IDE);
 
     assert_eq!(
         fixture.active_file(cx).as_deref(),

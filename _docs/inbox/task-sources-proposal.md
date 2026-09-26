@@ -5,15 +5,33 @@ kind: proposal
 status: proposal
 summary: A provider-agnostic layer that binds a project's tasks board to a board somewhere else — a neutral remote item, a provider trait behind it, a per-project link table, a poll that writes through the shared work handle as an MCP tool does, and one wire family for setup, import and sync — with Trello as the first provider and the whole thing in the base, because a trait with one implementation is a guess. Conflict is a per-binding authority switch rather than a merge, a sync indicator reports drift on the board and on each card, and a force button pushes or pulls one card or all of them. Every fork is a numbered decision with a recommendation and a cost.
 read_when: you are designing how Ubiq talks to an external issue tracker, adding a second task provider, or deciding what a remote-backed task means on the board
-updated: 2026-09-23
+updated: 2026-09-26
+code_anchors: [crates/ubiq-proto/src/tasksrc.rs, crates/ubiq-host/src/tasksrc/mod.rs, crates/ubiq-host/src/tasksrc/store.rs, crates/ubiq-host/src/tasksrc/sync.rs, crates/ubiq-host/src/tasksrc/outbound.rs, crates/ubiq-host/src/tasksrc/service.rs, crates/ubiq-host/src/tasksrc/trello.rs, crates/ubiq/src/state/tasksrc.rs, crates/ubiq/src/app/tasksrc.rs, crates/ubiq/src/ui/tasksrc.rs, crates/ubiq/tests/tasksrc.rs]
 depends_on: [feat-workbench, feat-connectors, tech-transport, tech-architecture, tech-decisions, inbox-editions, wip-kb]
 ---
 
 # Proposal — remote task sources, and Trello as the first one
 
-**A proposal, not a settled design. Nothing here is built.** Every piece carries a cost, every fork is
-a numbered decision **R1–R16** with a recommendation, and §9 stages the work so the expensive halves
-come last. A decision that lands takes a `Dnn` row from **D161** upward — `D160` is the highest today.
+**Every piece carries a cost, every fork is a numbered decision R1–R16 with a recommendation, and
+§9 stages the work so the expensive halves come last.** Slices 1–6 have landed.
+
+**Slices 1–3 landed on 2026-09-26** — the neutral model, the provider trait and registry, the
+binding and link table, the `tasksrc.toml` sidecar, the Trello client on recorded fixtures, and
+Trello as the base's seventh connector provider (`D181`, `D182`, `D183`).
+
+**Slice 4's inbound half landed the same day, as `D185`** — §3.5's worker, with `R9`'s two rules
+living there rather than in any provider, each pinned by a test that runs the Trello filter over the
+fixtures and asserts its *effect* (`crates/ubiq-host/tests/tasksrc_sync.rs`).
+
+**Slice 5's interface half landed the same day, as `D187`.** §3.6's wire family exists and
+`crates/ubiq/src/ui/tasksrc.rs` draws it: **one renderer over `ConfigField`, naming no provider and
+matching no capability** — `ProviderCaps` greys through a table of `fn(&ProviderCaps) -> bool` rows
+— plus the settings section, the import dialog, the card badge including the `Parked` one M6 filed
+and nothing drew, the command and the status item. Test runs the filter and counts.
+
+**Slice 6 landed the same day, as `D188`** — the outbound write, §4's conflict table over two
+per-field hash maps, drift on the link row with its overview under the authority switch, and the
+host's arms for the whole of §3.6 (`G364`, closed). The layer is complete but for slice 7.
 
 Two things are being proposed at once, and the order between them is the point:
 
@@ -59,9 +77,9 @@ template: a named thread, a sleep, a snapshot behind a mutex, a coordinator that
 
 **The HTTP is already here.** The connector family's `http` module gives `get_json` and `post_form`
 over a blocking `ureq` agent with the certificate-pin verifier wired in, its `providers` module joins
-an instance's base URL, and `Store::token(provider, ConnectionId)` resolves a token out of the OS
-secret store. The repository family's `identity` already does the connection-id →
-`(provider, instance, token, pin)` resolution — **for one consumer, privately**. R3 is about that.
+an instance's base URL, `Store::token(provider, ConnectionId)` resolves a token out of the OS secret
+store, and the repository family's `identity` does the connection-id → `(provider, instance, token,
+pin)` resolution — **for one consumer, privately**. R3 is about that.
 
 Two claims that get repeated and are **not true**:
 
@@ -124,15 +142,16 @@ an ADO state and a GitHub column all be "the lane" without the layer knowing whi
 
 ### 3.2 Capabilities, not conditionals
 
-Providers differ in what they *can* do, not only in how. Trello has checklists; a work-item tracker
-generally does not. Trello has no conditional write; a revisioned tracker does. A tracker may have a
-query language; Trello has none.
+Providers differ in what they *can* do, not only in how: Trello has checklists and a work-item
+tracker generally does not; Trello has no conditional write and a revisioned tracker does; a tracker
+may have a query language and Trello has none.
 
 `ProviderCaps` is a flag set the provider answers with — `write_lane`, `write_title`, `write_body`,
 `write_labels`, `write_assignee`, `comments_read`, `comments_write`, `checklist_read`,
 `checklist_write`, `conditional_write`, `server_query`, `hierarchy` — and **the interface greys out
-what the bound provider cannot do rather than failing when it is asked**. This is the mechanism that
-keeps provider specifics out of the core, and it is the reason §7's second-provider exercise is cheap.
+what the bound provider cannot do rather than failing when it is asked**, through a table of
+`fn(&ProviderCaps) -> bool` rows rather than a branch per flag (`D187`). That is the mechanism
+keeping provider specifics out of the core, and why §7's second-provider exercise is cheap.
 
 ### 3.3 The trait
 
@@ -147,7 +166,7 @@ pub trait TaskProvider: Send + Sync {
 
     fn containers(&self, who: &Identity) -> Result<Vec<RemoteContainer>>;   // boards
     fn lanes(&self, b: &Binding) -> Result<Vec<RemoteLane>>;                // lists
-    fn facets(&self, b: &Binding) -> Result<Facets>;                        // labels, members, types
+    fn facets(&self, b: &Binding) -> Result<Facets>;                        // one call: labels, members, lists
 
     fn query(&self, b: &Binding) -> Result<Vec<RemoteItem>>;                // everything under the filter
     fn fetch(&self, b: &Binding, ids: &[RemoteItemId]) -> Result<Vec<RemoteItem>>;
@@ -192,17 +211,20 @@ clone and writes through `Work` exactly as an MCP tool does (`D120`), so every w
 imported task is an ordinary task from the moment it lands. **The lock is taken for one method and
 never across a network call** — that rule is the whole mitigation for `D120`'s stated cost.
 
+**Built, as `tasksrc/sync.rs` (`D185`).** The thread is `ubiq-tasksrc`, it holds no catalogue, and
+it pulls **only the fields the remote changed**, by the link row's per-field hash — which is what
+lets a local edit survive a pass, and the ground §4 is on.
+
 ### 3.6 The wire
 
 A new family, because the transport contract's own picking rule sends it there: this names a
 connection *and* a project *and* a piece of remote work, and the `work` family is project-local
 tasks while the `connector` family is identity with no binding. It follows the `repository` family's
-shape — the asker mints a query id, every reply carries it back, a reply naming an id the UI no
-longer holds is discarded.
+shape — the asker mints a query id, a reply naming an id the UI no longer holds is discarded.
 
 | UI → host | Answers with |
 |---|---|
-| `ListTaskProviders` | `TaskProviders { providers: Vec<ProviderInfo> }` — id, label, caps, config schema |
+| `ListTaskProviders` | `TaskProviders { providers: Vec<ProviderInfo> }` — id, label, caps, config schema, connector family (`D189`) |
 | `ListRemoteContainers { query, connection }` | `RemoteContainers` |
 | `ListRemoteLanes { query, binding }` | `RemoteLanes`, `Facets` |
 | `TestTaskSource { query, binding }` | `TaskSourceTest { count, sample: Vec<RemoteItem> }` — the preview, R7 |
@@ -210,7 +232,7 @@ longer holds is discarded.
 | `ListRemoteItems { query, binding }` | `RemoteItems` — the import dialog's list, linked ones marked |
 | `ImportRemoteItems { project_id, items }` | `TaskCreated` ×n to everyone |
 | `SyncTaskSource { project_id, scope }` | `TaskSourceState`, then `TaskChanged` ×n |
-| `ResolveTaskDrift { project_id, task_id, side }` | `TaskChanged` or `TaskSourceError` |
+| `ResolveTaskDrift { project_id, task_id, side }` | `TaskChanged`, `TaskLinkChanged` |
 | `UnlinkTask { project_id, task_id }` | `TaskChanged` |
 
 | Host → UI, unsolicited | What it says |
@@ -222,14 +244,20 @@ longer holds is discarded.
 `scope` is `All` or `Task(TaskId)` — the same message serves the board's force button and a card's.
 No variant carries a pane id, so `pane_id_of` is untouched.
 
+**Built** — the interface half as `D187`, the host's arms and `ResolveTaskDrift` as `D188`.
+[`tech/transport-contract.md`](../tech/transport-contract.md) owns the facts from here.
+`ListRemoteItems` grew a `project_id`: only a project has link rows.
+
 ## 4. Conflict — a switch, not a merge
+
+**Built, as `D188`**, which owns the settled table and the five rules that qualify it.
 
 **The rule is one switch per binding: _Ubiq wins_ or _the remote wins_.** It is consulted **only when
 both sides changed**, which is the case the switch exists for; in every other case there is nothing
 to decide.
 
-Each field of each linked task is in one of four states, derived by comparing the task, the freshly
-fetched remote item, and the link row's stored per-field hash:
+Each field of each linked task is in one of four states, derived by comparing the task, the fresh
+remote item and the link row's stored per-field hash:
 
 | Local changed | Remote changed | What happens |
 |---|---|---|
@@ -254,77 +282,70 @@ The user may override the switch per task — a card whose local edit must not b
 
 ### The indicator, and the force buttons
 
-**On the board**: one status item — the provider glyph, the last sync time, a spinner while a pass
-runs, a count of drifted tasks, and the failure when there is one. Clicking it opens **the drift
-overview**: one row per task that differs, each row naming the field, the local value, the remote
-value and which way the switch would settle it, with **Push all** / **Pull all** and a per-row
-choice. That overview is the answer to "what changed" and it is what makes a force button safe to
-press.
+**On the board**: one status item — the state, the last sync time, a count of drifted tasks, the
+failure when there is one, and a click that runs a pass (built, `D187`). Clicking it will open **the
+drift overview**: one row per task that differs, naming the field, the two values and which way the
+switch would settle it, with **Push all** / **Pull all** and a per-row choice. That overview is the
+answer to "what changed" and it is what makes a force button safe to press.
 
-**On a card, and in the detail panel**: the provider chip already drawn by `link_chip` grows a sync
-dot — linked, drifted, conflicted, unlinked — and a **Sync now** that runs one item's pass. On a
-drifted card the same push/pull pair appears with that one card's differences shown.
+**On a card**: a badge beside the provider chip — parked, drifted, conflicted, unlinked, and nothing
+at all when the card is merely in step (`D187`) — with the fields that differ on its hover and a
+**Sync now** that runs one item's pass through `fetch` (`D188`).
 
 ## 5. Trello, concretely
 
 Trello is chosen as the first provider because it is free, personal, ubiquitous, and **weak in
-exactly the places a good abstraction must survive**: it has no query language, no work-item type, no
-priority and no conditional write. A layer that fits Trello fits a richer tracker by relaxing, which
-is the direction that works.
+exactly the places a good abstraction must survive**: no query language, no work-item type, no
+priority, no conditional write. A layer that fits Trello fits a richer tracker by relaxing.
 
 | Ubiq | Trello | Notes |
 |---|---|---|
-| `status` (7 lanes) | a list on the board | Many-to-one map; an unmapped list parks the task (R9) |
+| `status` (7 lanes) | a list on the board | Many-to-one map; an unmapped list parks the task (R9). A fresh binding is seeded `To Do → Backlog`, `Doing → InProgress`, `Done → Done` by list *name* — a board nobody has bound has no ids to match against — and the stored map is id-keyed from then on. The other four Ubiq lanes start unbound |
 | `key` | `#{idShort}` | |
 | `link` | `shortUrl` | `issue_provider` does not recognise `trello.com` today — it falls through to the generic chip. One arm and one glyph closes that |
 | `title` / `description` | `name` / `desc` | Trello's `desc` is markdown; the host parses neither |
 | `labels` | card labels | Trello labels are board-scoped and coloured; `Label.colour` is a swatch index, so the colour is mapped, never carried |
 | `kind` | a label, by convention | Trello has no type field. The kind map is label → `Kind`, and the default is empty |
 | `priority` | nothing | No native field. Unmapped unless the user maps labels to it |
-| `assigned_to` | first member's full name | Free text on both sides |
+| `assigned_to` | first member's full name | Read only: `write_assignee` is **off**, because a member is an account and free text is not one (`D188`) |
 | `steps` | **the card's first checklist** | R10 |
 | `comments` | `commentCard` actions | Author is stamped by the host, never carried from Trello (`D121`) |
 | `level`/`parent` | nothing | Trello has no hierarchy. `hierarchy` cap is off |
 
 What the API gives, and what each fact costs:
 
-- **Auth is an API key plus a token**, both strings, sent as `Authorization: OAuth
-  oauth_consumer_key="…", oauth_token="…"`. The token comes from a `trello.com/1/authorize` page the
-  user lands on and copies from — a paste flow, not a callback. R3 places it.
+- **Auth is an API key plus a token**, sent as `Authorization: OAuth oauth_consumer_key="…",
+  oauth_token="…"`, pasted from a `trello.com/1/authorize` page rather than a callback. R3 places it.
 - **No query language.** `GET /1/boards/{id}/cards` returns the board's open cards; **filtering by
-  label, member and list is done client-side**. That is fine for a board and wrong for a tracker with
-  100 000 items, which is why `ProviderCaps::server_query` exists and why R7's preview is a count of
-  what the filter actually returns rather than a syntax check.
-- **No ETag and no `If-Match` on a card.** `dateLastActivity` is the only version token, it moves on
-  any action, and comparing it is a check in *our* client, not a precondition on theirs. R8.
-- **Rate limits are 300 requests per 10 seconds per key and 100 per token.** A full pass over a board
-  is one card list plus, for the cards being reconciled, a checklist and an actions call each — so
-  the budget is spent per *linked* card, not per board card. `GET /1/batch?urls=` takes ten at a time
-  and is the lever when it matters.
-- **Webhooks need a publicly reachable callback URL**, which a desktop application does not have. So
-  the layer polls, and polls for every provider — a fact worth stating once here rather than
-  discovering per provider.
+  label, member and list is client-side**. Fine for a board, wrong for a tracker with 100 000 items
+  — which is why `ProviderCaps::server_query` exists and why R7's preview is a real count.
+- **No ETag and no `If-Match`.** `dateLastActivity` is the only version token, it moves on any
+  action, and comparing it is a check in *our* client, not a precondition on theirs. R8.
+- **Rate limits are 300 requests per 10 seconds per key and 100 per token.** A pass is one card
+  list plus, per reconciled card, a checklist and an actions call — so the budget is spent per
+  *linked* card. `GET /1/batch?urls=` takes ten at a time and is the lever when it matters.
+- **Webhooks need a publicly reachable callback URL**, which a desktop application does not have, so
+  the layer polls for every provider — worth stating once rather than rediscovering per provider.
 
 ## 6. The interface
 
-All of it is base code in existing containers; none of it needs a container that does not exist.
+All of it is base code in existing containers. **Built as `D187`** in `crates/ubiq/src/ui/tasksrc.rs`,
+bar the detail-panel section and the drift overview, which wait on the drift work they show.
 
 | Surface | Where | What |
 |---|---|---|
-| Settings section | application settings, per project | Provider, connection, board, lane map, kind/priority maps, filter, direction, authority switch, interval, **Test** |
-| Import dialog | the board's own overlay | Runs the filter, lists what comes back, marks what is already linked, imports the picks |
-| Card chip | `board/mod.rs::link_chip` and `issue_provider` | The provider glyph plus the sync dot |
+| Settings section | the project dialog, contributed through `D180`'s container | Provider, connection, board, lane map, kind/priority maps, the rendered filter, direction, authority switch, interval, **Test** |
+| Import dialog | an overlay over the board or the page | Runs the filter, lists what comes back, marks what is already linked, imports the picks |
+| Card badge | `board/mod.rs::shape_line` | Parked, drifted, conflicted or unlinked, and nothing when in step |
 | Detail panel section | `board/detail.rs` | The link, its state, its differences, **Sync now**, **Push**, **Pull**, **Unlink** |
 | Status item | the board's header | Last sync, spinner, drift count, failure; opens the drift overview |
 | Command | the command line | *Import tasks…*, *Sync tasks now* |
 
-The detail panel is a panel beside the columns rather than a modal, so the per-card half needs no
-overlay at all. The import dialog is the one genuinely new surface.
+The detail panel is beside the columns rather than a modal, so the per-card half needs no overlay.
 
 ## 7. What a second provider costs
 
-The trait is only worth its weight if fitting a second provider is small. Measured against the three
-obvious candidates, what each would force:
+The trait is only worth its weight if fitting a second provider is small. What each would force:
 
 | Provider | What it needs that Trello does not | Does the layer already hold it? |
 |---|---|---|
@@ -332,12 +353,12 @@ obvious candidates, what each would force:
 | GitHub / GitLab issues | Milestones and a project column that are two different lane candidates; issue state closed/open orthogonal to the column | `lanes()` chooses which dimension is the lane; the second one maps onto labels |
 | Anything with attachments | Files | Not held. `Attachment` is a reference to a project-relative path or a `kb:` target, and a remote file is neither. Out of scope, and named so |
 
-**The one thing the layer would need for a provider that ships outside this repository is a registry
-entry point** — `Boot` handing the host a `Vec<Box<dyn TaskProvider>>` before the coordinator starts.
-That is a single seam with a base-side user (Trello) from the first commit, which is exactly what
-`inbox/editions-proposal.md` §13's fourth rule demands of a seam. It is also a far better test of
-§9's exit criterion than a one-off feature could be: **a registry with two implementations proves
-the shape; one never can.**
+**The registry entry point a provider shipping outside this repository needs is built** (`D189`):
+`Boot.contributions.task_providers` is the `tasksrc::Registry` itself, seeded with Trello, handed to
+`coordinator::start` before the first window. A single seam with a base-side user from its first
+commit — `inbox/editions-proposal.md` §13's fourth rule — and a far better test of §9's exit
+criterion than a one-off feature: **two implementations prove the shape; one never can**, and with
+Studio's Azure DevOps and ClickUp registered through it there are three.
 
 ## 8. Decisions
 
@@ -383,9 +404,10 @@ a provider has stable lane ids avoids it, and Trello's list ids are stable.
 provider draws.** `&'static [ConfigField]` — `Text`, `Secret`, `Choice(from a `facets()` call)`,
 `MultiChoice`, `Bool` — with an optional **Test**. A query language is a `Text` field with a test; an
 iteration picker is a `Choice`. *Recommended,* because it is the single decision that keeps every
-provider's UI out of the interface crate. **Cost:** a provider whose configuration does not fit the
-schema cannot ship until the schema grows — an honest, bounded cost, and one that shows up as a
-missing field type rather than as a leak.
+provider's UI out of the interface crate. **Cost:** a provider whose configuration does not fit
+cannot ship until the schema grows — bounded, and visible as a missing field type rather than a
+leak. **Held so far** (`D187`): nine field declarations across Trello and ADO, including ADO's area
+tree flattened to a flat `Choice`, and no renderer branch on a provider's name.
 
 **R7 — The filter preview runs the filter; no client-side query parser, ever.** *Recommended:* a
 **Test** button that runs the query read-only and reports the count and the first handful of titles.
@@ -409,22 +431,19 @@ unlinks rather than deletes. **Cost:** a board whose filter drifts accumulates u
 overview needs a bulk act on them.
 
 **R10 — The task's steps map to the card's first checklist.** *Recommended.* Ubiq has one ordered
-checklist and Trello has many; the first one is the only unambiguous choice, and a second checklist
-on the card is left alone rather than merged or deleted. Steps are matched by text, not by position,
+checklist and Trello has many; the first is the only unambiguous choice, and a second on the card is
+left alone rather than merged or deleted. Steps are matched by text, not by position,
 because `StepId` and Trello's check-item id are two different things and the link row holds the pair.
-**Cost:** two steps with the same text on one task cannot be told apart, and the pass leaves both
-alone rather than guessing.
+**Cost:** two steps with the same text cannot be told apart, and the pass leaves both alone.
 
 **R11 — `key` and `link` are written from the remote and are not the sync identity.** *Strongly
-recommended.* They are the user's fields, free text, and clearable. The identity is the link table.
-**Cost:** two records of the same fact, which can disagree — and disagreeing is correct, because a
-user who clears `link` has not unlinked the task.
+recommended.* They are the user's fields, free text and clearable; the identity is the link table.
+**Cost:** two records of one fact, which can disagree — correctly: clearing `link` is not unlinking.
 
 **R12 — Import is explicit; sync is what happens afterwards.** *Recommended:* nothing appears on the
 board that a person did not pick, and the filter governs what is *offered*, not what is *created*.
-The alternative — a filter that materialises every match — is available as a per-binding *Auto
-import* switch, default off. **Cost:** a user who wants the whole board on the board turns a switch
-on, one time.
+The alternative — a filter that materialises every match — is a per-binding *Auto import* switch,
+default off. **Cost:** a user who wants the whole board on it turns a switch on, one time.
 
 **R13 — Outbound writes are off until the user turns them on.** *Recommended:* the direction control
 is `Pull only` / `Two-way`, defaulting to `Pull only`. A first connection that silently starts
@@ -437,24 +456,23 @@ interval to show, which the force button is for.
 
 **R15 — The MCP surface grows two tools on the existing task server, not a new server.**
 *Recommended:* `sync_task` and `import_tasks` on `manage-ubiq-tasks`, so a hosted agent can pull a
-card before it starts work. The catalogue is a static table (`G7`, `G229`), and this is inside it.
-**Cost:** none worth naming; defer it past slice 5 regardless.
+card before it starts work. The catalogue is a static table (`G7`, `G229`) and this is inside it.
+**Cost:** none worth naming; still deferred.
 
 **R16 — Build the layer and Trello together; fit the second provider afterwards.** *Recommended*, for
 the reason in the preamble. **Cost:** Trello's weakness shapes the first cut of the trait, so the
-second provider will move something. That is what slice 7 is for, and moving it once against a real
-second implementation is cheaper than guessing it right the first time.
+second provider will move something — slice 7's job, and cheaper than guessing it right first.
 
 ## 9. Staging
 
 | # | Slice | Worth having on its own? |
 |---|---|---|
-| 1 | The neutral model, the trait, the registry, the link table, the sidecar — with a fake provider and no network | No, but it is the one slice that decides everything |
-| 2 | The Trello client: containers, lanes, facets, query, fetch — headless, tested against recorded responses | No |
-| 3 | The connector provider row and the key/token flow (R3) | No |
-| 4 | Inbound sync end to end, driven by a test rather than a button | **Yes — this is the first slice that is worth having** |
-| 5 | Settings section, import dialog, card chip, command | Yes |
-| 6 | Outbound write, the authority switch, drift detection, the indicator, the overview, the force buttons | Yes |
+| 1 | **Landed.** The neutral model, the trait, the registry, the link table, the sidecar — with a fake provider and no network | No, but it is the one slice that decides everything |
+| 2 | **Landed.** The Trello client: containers, lanes, facets, query, fetch — headless, tested against recorded responses | No |
+| 3 | **Landed.** The connector provider row and the key/token flow (R3) | No |
+| 4 | **The worker landed.** Inbound sync end to end, driven by a test rather than a button. The wire family beside it has not | **Yes — this is the first slice that is worth having** |
+| 5 | **The interface half landed** (`D187`): the `ConfigField` renderer, the settings section, the import dialog, the card badge, the command and the status item. The host's arms for the family are slice 6's | Yes |
+| 6 | **Landed** (`D188`). Outbound write, the authority switch, drift detection, the overview, the force buttons, and the host's arms for §3.6 | Yes |
 | 7 | Comments and the checklist (R10); then a second provider against the frozen trait | Yes, and slice 7 is what proves slice 1 |
 
 A client that can only be tested against a live board will not be tested — slice 2's recorded
@@ -475,9 +493,8 @@ responses are not optional, and the same fixture set is what a second provider's
 
 ## Next steps
 
-- Verify the Trello endpoints, the auth header and the rate limits against a live board before slice
-  2 is costed again
-- Decide whether `Facets` is one call or three, once `lanes()` and the label list are both written
-- Decide the default lane map for a Trello board that uses the names everybody uses — To Do,
-  Doing, Done — and what an empty map does on first bind
-- Place the drift overview: a modal, a dock panel, or a section of the detail panel
+- Verify the Trello endpoints, the auth header and the rate limits against a live board. The client
+  and its fixtures are written against the documented shapes and nothing has met a real board
+- Slice 7: comments and the checklist (`R10`), then a second provider against the frozen trait.
+  These are the two fields the conflict table deliberately leaves out, because a provider may fill
+  them on one endpoint and not another (`T-237`)

@@ -5,9 +5,9 @@ kind: feature
 status: draft
 summary: The window's shell — the activity rail and the nine modes it selects between, the dock of movable panels the user arranges around the centre, the titlebar and its navigator, the projects a window holds and the empty state one with none shows, the picker that adds, clones and opens them, project and application settings, the file picker any screen raises, and the status bar that reports on all of it. Each mode's own screen has a document of its own.
 read_when: you are changing the window layout, the rail, the dock, where a panel may sit or when it is drawn, the titlebar, the navigator, the project picker, cloning a project, project or application settings, remote hosts, the file picker, vim mode, or the status bar
-updated: 2026-09-25
-verified: 2026-09-25
-code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/tests/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/src/ui/new_project_menu.rs, crates/ubiq/tests/new_project.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/project_face.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs]
+updated: 2026-09-26
+verified: 2026-09-26
+code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/tests/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/src/ui/new_project_menu.rs, crates/ubiq/tests/new_project.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ext/rail.rs, crates/ubiq/tests/rail_container.rs, crates/ubiq/src/ui/project_face.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ext/settings.rs, crates/ubiq/src/ui/sink/ext_demo.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/tests/settings_container.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
 ---
@@ -48,6 +48,20 @@ room for is a digit that does nothing. **`ctrl-1`..`ctrl-9` jump to the Nth mode
 group** — `IDE`, `Git`, `Agents`, `Teams`, `[Teams]`, `KB`, `Tasks`, counting only the ones the
 project has not hidden — never the `APP` group above it. Either chord is a no-op past the last
 badge or the last enabled mode.
+
+**The rail is a container, and a mode is a registration in it** (`D184`). Its icon, its label, its
+note, its `UiId`, the screen it draws, the arrangement it opens on and the panels it calls
+furniture are all fields on one `RailModeSpec`, and the two groups below are the container's
+declared order rather than a split written into the enum. A mode is offered `Always` — on the rail
+unless the project hid it, which all ten of the base's own are — or by `OptIn`, where the project
+has to ask for it first, or by a `When` predicate the contribution owns. The predicate is answered
+from interface state, so a contributed mode costs no message. The kitchen sink's own demo mode
+(`ubiq.rail.ext-demo`, M4, `X11`) is the eleventh registration and the first that is not `Always` —
+`When`, gated by a switch its own demo settings section draws — proving invariant 9's rule that a
+container with no contributor is silently dead. Finding that first `When` in the wild also found a
+real bug: `AppState::toggle_mode`'s "the last visible mode survives" guard counted *every*
+registered mode as potentially on screen, which only the base's own `Always` ten made true by
+accident; it counts how many are actually enabled instead (`D186`).
 
 **Every mode is built.** What the rail selects between is the centre. Git fills it with the
 repository, Agents with the parallel columns, Teams and `[Teams]` each with a graph, Tasks with the
@@ -277,8 +291,9 @@ offers two answers: Ubiq's config folder, which is the default and writes nothin
 project, and "In the project (.ubiq/)", which writes the tasks, the project metadata and the
 configuration to a `.ubiq/` folder the project commits — with a `.gitignore` that leaves this
 machine's caches and view state out. The edit panel draws the same row for an existing project and
-does not take a click: it says where the data is, and moving it between the two trees is not
-something the panel does. `D173` and [`../tech/project-structure.md`](../tech/project-structure.md)
+does not take a click: it says where the data is. The host can move an existing project either way
+— `SetProjectStorage`, T-204 — and nothing in the interface asks it to yet, which is `G354`. `D173`
+and [`../tech/project-structure.md`](../tech/project-structure.md)
 are the shape of the folder.
 
 **Cloning is the picker's second way in.** A "Clone a project…" row sits beside Add and opens a
@@ -326,8 +341,21 @@ which of them no record names.
 The path stays as it is: "Project path" is a read-only field rather than a plain label, so a long
 path can be scrolled and selected instead of overflowing, and the home directory is abbreviated to
 `~` for display (`ui/sink/project.rs::home_abbreviated`; nothing stored or sent is ever the
-abbreviated form). Documentation and Integrations are drawn and disabled. Save writes the name and
-colour through `UpdateProject`.
+abbreviated form). Documentation and Integrations are not drawn at all here: they are
+`SectionGate::SinkOnly`, which is fixture copy, and a row the live dialog can only ever grey out is
+a row the live dialog does not have (`T-231`). Save writes the name and colour through
+`UpdateProject`.
+
+**Task sync is the dialog's ninth row**, between Remote and the knowledge base, and it is the
+container's second genuine contribution rather than a converted enum variant (`D187`, after M4's
+demo): it registers from `ui/tasksrc.rs` through `ext::settings::register` with nothing in
+`ext/settings.rs` or `ui/sink/project.rs` touched to add it. What it draws is **one renderer over a
+schema the bound provider declared** — a text box, a tick, a single-choice picker or a row of
+toggles per field, with a **Test** that runs the filter and reports what came back — plus the lane,
+kind and priority maps, the direction, the authority switch and the interval, which are the same
+fields for every provider. **Nothing in it names a tracker**, and what a provider cannot do is
+greyed with the reason beside it rather than removed, so two providers' pages are the same shape.
+[`workbench-tasks.md`](./workbench-tasks.md) has what the board does with the result.
 
 **Agent definitions is the project's own nav item, and it opens on `Use the global agents`.**
 Ticked is the answer a project gives until it has written a setup of its own: the globals are what
@@ -825,9 +853,18 @@ when the destination returned one. The balloon is drawn always, project or none,
 something about Ubiq itself rather than about a project.
 
 **Application settings is a page overlay, not a one-question modal.** It is `SETTINGS_WIDTH` by
-`SETTINGS_HEIGHT`, clamped to the viewport, with a left nav and a scrolling body; switching
+`SETTINGS_HEIGHT`, clamped to the viewport, with a left nav and a body that both scroll —
+`kit::settings_split`, the one component the project dialog draws too; switching
 sections does not resize the panel. Toggles persist as they are flipped — there is no Save. Opening
-it dismisses project settings, and the reverse. Fourteen sections ship: **Appearance** (the palette
+it dismisses project settings, and the reverse.
+
+**The nav is a container, and a section is a registration in it** (`D180`). Its label, its icon, its
+body and whatever it asks the host for on arrival are fields on one `SettingsSectionSpec`, shared
+with the project settings dialog's own nav; the container owns the panel, the nav and the body's
+scroll, and a section owns only what is inside it. The order is by declared group — interface,
+agents, connectivity, system — and never by an integer a section carries.
+
+Sixteen sections ship: **Appearance** (the palette
 family as one pill per family — labelled by the member whose ground is in use, so picking one keeps
 the ground; the ground itself, the same flip the titlebar offers, within the family; the accent as a
 row of swatches, the palette's own first and then the six the build ships, each named on its
@@ -866,9 +903,12 @@ would otherwise invent mechanically, what that backend reports about itself, whe
 names itself from its opening exchange, and the API providers
 configured here — each with its key typed once, its models picked from what the provider lists, and
 a test that streams a real answer back), **Tools** (the runnable tools
-every project inherits, edited at machine scope), and
+every project inherits, edited at machine scope),
 **Command line** (the `ubiq`
-command on the shell's `PATH`). The kitchen sink still draws the larger
+command on the shell's `PATH`), and **Extensions demo** — the kitchen sink's own contribution
+(`X11`, `D186`), registered through `ext::settings::register` with nothing in this list's own
+module touched to add it, and the switch that gates the rail's own demo mode below. The kitchen
+sink still draws the larger
 fixture nav; that page is how the furniture is looked at, not how the application is configured.
 
 **The theme editor is a modal over that page, not more rows in it.** Appearance is a fixed panel
@@ -1216,7 +1256,13 @@ arranging. A mode with no record of its own opens on its defaults — the centre
 open, except Git, whose refs and changes open with the mode (`D119`) — and **so does a project that
 has never been arranged in the mode it is entered in**: entering a mode forces its regions to those
 defaults rather than leaving whatever was on screen, so a project reached from another one never
-inherits that one's edges and has them written down as its own. A blob it cannot parse is discarded and the window opens on defaults. Which
+inherits that one's edges and has them written down as its own. A blob it cannot parse is discarded and the window opens on defaults.
+
+**A mode is keyed in that blob by its id**, `ubiq.rail.ide`, since `RailMode` became a container
+(`D184`). The ten names it used to be written under are read by the decoder, so nothing was
+discarded at the `5 → 6` schema step — and **an id this build has no registration for is kept, not
+dropped**: a mode a second edition contributes keeps its saved arrangement across a base launch,
+which is the whole reason the serialization step exists. Which
 mode the window is in is written down when the mode is chosen rather than when the arrangement next
 changes, so two modes that arrange nothing between them still reopen in the right one.
 
@@ -1408,9 +1454,14 @@ To add a panel: a `PanelKind` variant with its class, its home, its permanent na
 `is_drawn()`, an arm in `ui::dock::body`, and the area module under `ui/`. One that a saved
 arrangement cannot rebuild from its name alone — as a file cannot, every file panel answering
 `ubiq.file` — also writes a payload in `dump()` and is read back out of it in `rebuild()`. To add a
-rail mode: a variant on `RailMode`, its group, label, note and icon, and the arm in `ui::dock`'s
-`centre()` that says what the centre panel draws — and, for a mode under `APP`, an arm that answers
-before `centre()`'s no-project case rather than after it.
+rail mode: **one registration**, not a variant (`D184`). `RailMode` is a `SlotId` newtype over the
+rail container, and a mode is a `RailModeSpec` handed to `ext::rail::register` — its group, label,
+note, slug, icon and `UiId`, its `Availability`, whether it needs a project, which side regions a
+first visit opens, and `fn` pointers for the centre screen, the default layout, the destination,
+the furniture and the on-arrival ask. What used to be "an arm in `ui::dock`'s `centre()`, and for a
+mode under `APP` an arm that answers before the no-project case" is now two fields, `centre` and
+`needs_project`. The base's own ten are registered in `ui::rail::modes`; a second edition's are
+registered on `Boot.contributions.rail_modes`, which arrives seeded with the base's.
 
 ## What a window owns
 

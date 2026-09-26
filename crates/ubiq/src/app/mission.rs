@@ -320,7 +320,7 @@ impl AppState {
             // The board, with the anchor selected. **Not M27's mission filter** — that is the
             // board's own, and it is built beside this wave rather than in it.
             MissionMenuRow::OpenOnBoard => {
-                self.set_rail_mode(crate::state::RailMode::Tasks, cx);
+                self.set_rail_mode(crate::state::RailMode::TASKS, cx);
                 self.select_task(task_id, cx);
             }
             // Both are phase moves, and a phase move by the user is a `SetPhase` — see
@@ -530,6 +530,13 @@ impl AppState {
     /// refuses a prompt mid-turn and a harness that has answered `accepts_input == false` takes no
     /// second turn at all; in both cases the line is still journaled, and the coordinator reads it
     /// with `read_feedback` when it next asks. The sentence says that rather than nothing.
+    ///
+    /// **Nothing running is not nobody to tell (T-212).** A mission with no coordinator gets one:
+    /// the same launch *Spawn ▾ → Coordinator* composes, with the line folded into its briefing.
+    /// A coordinator that is recorded but has no live harness is prompted anyway — the host's
+    /// `PromptAgent` arm relaunches an unloaded conversation and forwards the turn, which is the
+    /// same relaunch *Resume* asks for. Either way the journal still gets the line first, so
+    /// `read_feedback` reads it back whatever the harness does with the turn.
     pub fn send_mission_feedback(
         &mut self,
         task_id: TaskId,
@@ -543,15 +550,29 @@ impl AppState {
         let Some(project_id) = self.project_of_mission(task_id) else {
             return false;
         };
-        let Some(coordinator) = self
+        let held_coordinator = self
             .projects
             .get(&project_id)
             .and_then(|open| open.missions.get(&task_id))
-            .and_then(|record| record.coordinator)
-        else {
-            self.workbench.work_error = Some("this mission has no coordinator to tell".to_string());
-            cx.notify();
-            return false;
+            .and_then(|record| record.coordinator);
+        let coordinator = match held_coordinator {
+            Some(coordinator) => coordinator,
+            // No coordinator: spawn one, crowned, with the line in its briefing. The journal
+            // entry below still goes out — `SendToAgent` is what the host reads as feedback, and
+            // it is addressed at the agent the `SetMissionField` just ahead of it crowns.
+            None => match self.spawn_mission_coordinator_with(task_id, Some(&text), cx) {
+                Some(coordinator) => {
+                    self.bus.send(Message::SendToAgent {
+                        project_id,
+                        agent_id: coordinator,
+                        text,
+                    });
+                    cx.notify();
+                    return true;
+                }
+                // `spawn_mission_coordinator_with` has already said why.
+                None => return false,
+            },
         };
 
         self.bus.send(Message::SendToAgent {
@@ -586,9 +607,10 @@ impl AppState {
                         .to_string(),
                 );
             }
-            // Nothing loaded in this window: the journal is the whole of the delivery, and
-            // `read_feedback` is how the coordinator gets it.
-            None => {}
+            // Nothing loaded in this window: prompt it anyway. The host drives a conversation it
+            // holds live for another window, and relaunches an unloaded one through
+            // `launch_pending` — the same relaunch a roster row's *Resume* asks for.
+            None => self.send_prompt(coordinator, text),
         }
         cx.notify();
         true
@@ -1052,10 +1074,27 @@ impl AppState {
     /// The kind called `coordinator` where the table has one, and otherwise the first definition
     /// ticked *mission assistant* — the same list the new-mission dialog offers, so the two ways
     /// to put a coordinator on a mission resolve against one answer.
-    pub fn spawn_mission_coordinator(&mut self, task_id: TaskId, cx: &mut Context<Self>) {
-        let Some(project_id) = self.project_of_mission(task_id) else {
-            return;
-        };
+    pub fn spawn_mission_coordinator(
+        &mut self,
+        task_id: TaskId,
+        cx: &mut Context<Self>,
+    ) -> Option<AgentId> {
+        self.spawn_mission_coordinator_with(task_id, None, cx)
+    }
+
+    /// The same launch, with a line of the user's own folded into the briefing — what the
+    /// feedback composer needs when the mission has no coordinator yet. The note goes in the
+    /// opening prompt rather than only in the journal because a coordinator that has just been
+    /// crowned has no reason to call `read_feedback` before it starts.
+    ///
+    /// Returns the agent it crowned, or `None` with [`WorkbenchState::work_error`] set.
+    pub(super) fn spawn_mission_coordinator_with(
+        &mut self,
+        task_id: TaskId,
+        note: Option<&str>,
+        cx: &mut Context<Self>,
+    ) -> Option<AgentId> {
+        let project_id = self.project_of_mission(task_id)?;
         let named = self
             .projects
             .get(&project_id)
@@ -1075,7 +1114,7 @@ impl AppState {
                                 .to_string(),
                         );
                         cx.notify();
-                        return;
+                        return None;
                     }
                 }
             }
@@ -1091,13 +1130,17 @@ impl AppState {
             .get(&project_id)
             .and_then(|open| open.missions.get(&task_id))
             .is_some_and(|record| record.require_plan);
-        let briefing = crate::state::new_mission::mission_briefing(
+        let mut briefing = crate::state::new_mission::mission_briefing(
             &title,
             &description,
             task_id,
             require_plan,
             false,
         );
+        if let Some(note) = note {
+            briefing.push_str("\n\nThe user has already said this about the mission:\n\n");
+            briefing.push_str(note);
+        }
 
         let launch = MissionLaunch {
             kind: named.unwrap_or_else(|| "coordinator".to_string()),
@@ -1108,10 +1151,14 @@ impl AppState {
             ..MissionLaunch::default()
         };
         match self.compose_mission_launch(project_id, launch, cx) {
-            Ok(agent) => self.make_mission_coordinator(task_id, agent, cx),
+            Ok(agent) => {
+                self.make_mission_coordinator(task_id, agent, cx);
+                Some(agent)
+            }
             Err(reason) => {
                 self.workbench.work_error = Some(reason);
                 cx.notify();
+                None
             }
         }
     }

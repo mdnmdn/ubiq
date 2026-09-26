@@ -10,57 +10,10 @@ impl AppState {
     /// project behind it.
     pub fn current_destination(&self, cx: &App) -> Option<Destination> {
         let mut project = self.project(cx)?;
-        let view = match self.workbench.rail_mode {
-            RailMode::Control => View::Control,
-            RailMode::Kb => View::Kb,
-            RailMode::Git => View::Git,
-            RailMode::Ide => View::Ide {
-                key: self.editor(cx)?.active_file()?.key(),
-            },
-            RailMode::TeamsOld => {
-                let graph = self.graph(cx)?;
-                View::Graph {
-                    selection: graph.selection?,
-                    tab: graph.tab,
-                }
-            }
-            RailMode::Agents => {
-                let agents = self.agents(cx)?;
-                View::Agents {
-                    agent: agents.columns.get(agents.focus)?.active_agent()?,
-                }
-            }
-            RailMode::Tasks => View::Tasks {
-                task: self.board(cx)?.selected?,
-            },
-            RailMode::Teams | RailMode::TeamsAll => {
-                let teams = self.teams(cx)?;
-                let selection = teams.selection.clone()?;
-                let tab = teams.tab;
-                // A teams link names the project of what it points at, which under the window
-                // span is not the project on screen: the same agent, read on a canvas showing one
-                // project and on one showing six, is the same agent, and a link built here has to
-                // be followable by a window in the project span. A session selection names no
-                // agent, so it asks the sibling that resolves a session — the active project is
-                // the wrong answer for a session the canvas drew from another project, and a link
-                // naming it points at work that project has never held.
-                let owner = match &selection {
-                    TeamsSelection::Session(session) => self.project_of_session(*session, cx),
-                    TeamsSelection::Agent(agent) => self.project_of_agent(*agent, cx),
-                    TeamsSelection::Subagent { agent, .. } => self.project_of_agent(*agent, cx),
-                    // A mission's record names the project it was minted in, which is the one
-                    // answer a fence on a window-span canvas can be read back through.
-                    TeamsSelection::Mission(task) => {
-                        self.mission_anywhere(*task).map(|record| record.project_id)
-                    }
-                };
-                if let Some(owner) = owner {
-                    project = owner;
-                }
-                View::Teams { selection, tab }
-            }
-            RailMode::Sink => return None,
-        };
+        // The mode's own, rather than a match written here (`D184`): a mode with no `destination`
+        // is not a place — the sink is the base's one — and neither is one pointed at nothing.
+        // A teams destination also moves `project`, which is why it is handed a `&mut`.
+        let view = (self.workbench.rail_mode.spec()?.destination?)(self, &mut project, cx)?;
         let locus = self.where_locus(&view, cx);
         Some(Destination {
             project,
@@ -321,19 +274,19 @@ impl AppState {
 /// rather than screens: they are revealed where they already sit, whatever mode is up.
 pub fn rail_of(view: &View, from: RailMode) -> Option<RailMode> {
     Some(match view {
-        View::Control => RailMode::Control,
-        View::Kb => RailMode::Kb,
-        View::Git => RailMode::Git,
-        View::Ide { .. } | View::Explorer { .. } => RailMode::Ide,
-        View::Graph { .. } => RailMode::TeamsOld,
+        View::Control => RailMode::CONTROL,
+        View::Kb => RailMode::KB,
+        View::Git => RailMode::GIT,
+        View::Ide { .. } | View::Explorer { .. } => RailMode::IDE,
+        View::Graph { .. } => RailMode::TEAMS_OLD,
         // A teams link names the project of what it points at, but the span is not part of the
         // address: the same card is the same card on a canvas showing one project and on one
         // showing six. So a window already on `TeamsAll` stays there rather than being yanked to
         // the project span by every link it follows.
-        View::Teams { .. } if from == RailMode::TeamsAll => RailMode::TeamsAll,
-        View::Teams { .. } => RailMode::Teams,
-        View::Agents { .. } => RailMode::Agents,
-        View::Tasks { .. } => RailMode::Tasks,
+        View::Teams { .. } if from == RailMode::TEAMS_ALL => RailMode::TEAMS_ALL,
+        View::Teams { .. } => RailMode::TEAMS,
+        View::Agents { .. } => RailMode::AGENTS,
+        View::Tasks { .. } => RailMode::TASKS,
         View::Terminal { .. } | View::Logs | View::Chat { .. } | View::Help { .. } => return None,
     })
 }

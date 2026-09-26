@@ -6,7 +6,7 @@ status: draft
 summary: An inspector-style help mode — point at any part of the window and read what it is — and the element identity scheme underneath it, which exists to serve personalisation and extensions as much as help. Phases 1 and 2 are built — the `UiId` grammar, a static catalogue of names with a label and a sentence each, a `.ui_id()` element extension feeding a per-frame bounds registry, the deepest-hit lookup, and the targeting mode itself — ⇧F1, a full-window layer, a highlight and a balloon, closed by Escape or its own Done. Phase 3a — marking the rail and the titlebar, every name the catalogue currently holds — is built too, proven by headless render tests against the real elements. The help pages behind the sentences (phase 3b) are still designed here and not written.
 read_when: you are marking up a screen area with a `UiId`, working on the in-place help overlay, or keying anything durable to a place on the screen
 updated: 2026-09-20
-verified: 2026-09-20
+verified: 2026-09-26
 code_anchors: [crates/ubiq/src/state/ui_id.rs, crates/ubiq/src/ui/ident.rs, crates/ubiq/src/ui/help_target.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/tests/ui_id.rs]
 depends_on: [wip-help, feat-workbench, tech-ui, inbox-ui-id]
 ---

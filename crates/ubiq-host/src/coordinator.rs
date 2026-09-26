@@ -124,17 +124,24 @@ fn gather(
 /// catalogue it will own is process-wide, and two of them would disagree about what exists.
 ///
 /// It ends when the hub and every client have gone.
+/// `providers` is the task-source registry this build ships, **handed in rather than built here**
+/// (`D189`): it arrives seeded with the base's own providers and with whatever a second edition
+/// registered before the first window, which is the whole of how a Studio provider reaches
+/// `ListRemoteContainers`. The base binary hands in `Registry::with_defaults()`, unchanged.
 pub fn start(
     host: HostEnd,
     root: ConfigRoot,
     projects: Projects,
     work: Work,
     settings: Settings,
+    providers: crate::tasksrc::Registry,
     pending: Vec<Reply>,
 ) {
     thread::Builder::new()
         .name("ubiq-coordinator".to_string())
-        .spawn(move || Coordinator::new(host, root, projects, work, settings, pending).run())
+        .spawn(move || {
+            Coordinator::new(host, root, projects, work, settings, providers, pending).run()
+        })
         .expect("the coordinator thread");
 }
 
@@ -167,6 +174,15 @@ struct Coordinator {
     /// clone and nothing else — every call it makes is on a thread of its own, for the same reason
     /// a connector flow is.
     repos: Repos,
+    /// The task-source sync worker: one thread, walking whatever projects it was last told about,
+    /// pulling each bound board on that binding's own interval. Holds a clone of [`Self::work`],
+    /// which is the whole of how it writes (`D120`). Dropping this handle ends the thread.
+    tasksrc: crate::tasksrc::sync::Sync,
+    /// The §3.6 wire family's host half (`D188`): providers, containers, lanes, the Test, the
+    /// import dialog's listing, the force buttons, drift resolution and the binding file. Holds a
+    /// clone of [`Self::work`] and the same sidecar gate the worker above does, and answers
+    /// nothing that touches a network on this thread.
+    tasksrc_service: crate::tasksrc::service::TaskSrc,
     /// The vendor bundles a web panel needs, on disk in the shared workarea. Holds a row per fetch
     /// in flight and nothing else — the download is a thread of its own, for the same reason a
     /// clone is.
@@ -762,6 +778,7 @@ impl Coordinator {
         mut projects: Projects,
         work: Work,
         settings: Settings,
+        providers: crate::tasksrc::Registry,
         pending: Vec<Reply>,
     ) -> Self {
         // Shared with the MCP listener so an agent can read and write the same board a window
@@ -867,6 +884,43 @@ impl Coordinator {
         let settings = Arc::new(settings);
         let connectors = Connectors::new(settings.clone(), &root.path);
         let repos = Repos::new(settings.clone(), connectors.store());
+        // The task-source sync worker: the **third** holder of the work handle, after this thread
+        // and the MCP listener, and for the same reason (`D120`). It polls each bound project's
+        // board on that binding's own interval and writes what it pulls through `Work`, so a
+        // pulled task is an ordinary task and every window redraws without this thread answering a
+        // question. It holds no catalogue — `sync_tasks_due` hands it the project list.
+        // Whatever this edition registered, seeded with the base's own (`D189`). Nothing is added
+        // here: a provider this thread built itself could not be substituted or removed, and the
+        // seam would have a base-side user and no contributor — which is the shape the extension
+        // pattern exists to refuse.
+        let tasksrc_registry = Arc::new(providers);
+        // Two instances over one root rather than one shared: `ProjectDirs` holds a memo of the
+        // pointer files it has read, not state, so a second one costs a second lookup at worst and
+        // spares the family an `Arc` it would otherwise need for nothing.
+        let tasksrc_dirs = crate::store::project_dir::ProjectDirs::new(root.path.clone());
+        // One gate over every `tasksrc.toml`, shared by the poll and by the wire family's own
+        // threads. Two passes over one project's sidecar — the five-minute tick and a force button
+        // pressed during it — are otherwise last-writer-wins over the link table.
+        let tasksrc_gate = Arc::new(std::sync::Mutex::new(()));
+        let tasksrc = crate::tasksrc::sync::start(crate::tasksrc::sync::Job {
+            work: work.clone(),
+            everyone: host.mailbox(To::Everyone),
+            dirs: tasksrc_dirs,
+            registry: tasksrc_registry.clone(),
+            settings: settings.clone(),
+            connections: connectors.store(),
+            gate: tasksrc_gate.clone(),
+        });
+        // The same registry and the same gate, answering the §3.6 family M7 drew a page against
+        // (`D188`, `G364`). Every arm that touches a network runs on a thread of its own.
+        let tasksrc_service = crate::tasksrc::service::TaskSrc::new(
+            tasksrc_registry,
+            settings.clone(),
+            connectors.store(),
+            crate::store::project_dir::ProjectDirs::new(root.path.clone()),
+            work.clone(),
+            tasksrc_gate,
+        );
         // `shared_workarea_path` was reserved above, before `mcp::start`, because `help` had to
         // exist by then; kept under this name for every use from here on, the way `web_assets`
         // has always been told it.
@@ -955,6 +1009,8 @@ impl Coordinator {
             settings,
             connectors,
             repos,
+            tasksrc,
+            tasksrc_service,
             web_assets,
             help,
             shared_workarea,
@@ -1549,6 +1605,32 @@ impl Coordinator {
                 let replies = self.projects.set_initials(project_id, &initials);
                 self.answer(client, replies);
             }
+            Message::SetProjectStorage {
+                project_id,
+                storage,
+            } => {
+                // A conversation has no pane, so `Projects` cannot see it: its own refusal
+                // counts panes, and this one counts the agents in the chat panel. Together they
+                // are the whole of "something is running in this project" — the two routing
+                // tables the coordinator already keeps to decide where a message goes.
+                if self
+                    .conversation_owners
+                    .values()
+                    .any(|(_, owner)| *owner == project_id)
+                {
+                    self.host.send(
+                        To::Client(client),
+                        Message::ProjectStorageError {
+                            project_id,
+                            storage,
+                            error: "end the agents running in this project first".to_string(),
+                        },
+                    );
+                    return;
+                }
+                let replies = self.projects.set_storage(project_id, storage);
+                self.answer(client, replies);
+            }
             Message::LocateProject { project_id, path } => {
                 let replies = self.projects.locate(project_id, &path);
                 self.git_forget(client, project_id);
@@ -1823,6 +1905,79 @@ impl Coordinator {
                 self.repos.clone(client, request, asker);
             }
             Message::CancelClone { clone_id } => self.repos.cancel(clone_id),
+
+            // ── Task-source family: binding a board somewhere else ──
+            // `D188`, and the half `G364` recorded as missing: M7 drew every surface and this
+            // thread answered none of them. The split is the repository family's — what a file
+            // answers is answered here, and everything that touches a network is a thread of its
+            // own. A listing goes back to its asker with the query id it was minted under; a pass
+            // changes the project's tasks, so it goes to everyone.
+            Message::ListTaskProviders { query_id } => {
+                let (asker, _) = self.sinks(client);
+                self.tasksrc_service.providers(query_id, &asker);
+            }
+            Message::ListRemoteContainers {
+                query_id,
+                provider,
+                connection,
+            } => {
+                let (asker, _) = self.sinks(client);
+                self.tasksrc_service
+                    .containers(query_id, provider, connection, asker);
+            }
+            Message::ListRemoteLanes { query_id, binding } => {
+                let (asker, _) = self.sinks(client);
+                self.tasksrc_service.lanes(query_id, *binding, asker);
+            }
+            Message::TestTaskSource { query_id, binding } => {
+                let (asker, _) = self.sinks(client);
+                self.tasksrc_service.test(query_id, *binding, asker);
+            }
+            Message::GetTaskSource { project_id } => {
+                let (asker, _) = self.sinks(client);
+                self.tasksrc_service.get(project_id, &asker);
+            }
+            Message::SetTaskSource {
+                project_id,
+                binding,
+            } => {
+                let (asker, everyone) = self.sinks(client);
+                self.tasksrc_service
+                    .set(project_id, binding.map(|held| *held), asker, everyone);
+            }
+            Message::ListRemoteItems {
+                query_id,
+                project_id,
+                binding,
+            } => {
+                let (asker, _) = self.sinks(client);
+                self.tasksrc_service
+                    .items(query_id, project_id, *binding, asker);
+            }
+            Message::ImportRemoteItems { project_id, items } => {
+                let (_, everyone) = self.sinks(client);
+                self.tasksrc_service.import(project_id, items, everyone);
+            }
+            Message::SyncTaskSource { project_id, scope } => {
+                let (_, everyone) = self.sinks(client);
+                self.tasksrc_service.sync(project_id, scope, everyone);
+            }
+            Message::ResolveTaskDrift {
+                project_id,
+                task_id,
+                side,
+            } => {
+                let (_, everyone) = self.sinks(client);
+                self.tasksrc_service
+                    .resolve(project_id, task_id, side, everyone);
+            }
+            Message::UnlinkTask {
+                project_id,
+                task_id,
+            } => {
+                let (_, everyone) = self.sinks(client);
+                self.tasksrc_service.unlink(project_id, task_id, &everyone);
+            }
 
             // The vendor bundle a web panel needs. Everything after this — the progress, the
             // answer, the failure — comes from a thread of its own, except the one case that
@@ -4206,6 +4361,10 @@ impl Coordinator {
         for reply in self.work.lock().sync_from_disk() {
             self.host.send(To::Everyone, reply.into_message());
         }
+        // The sync worker has no catalogue of its own — `Projects` never leaves this thread — so
+        // the project list is handed over on the tick that already exists for the task files.
+        self.tasksrc
+            .watch(self.projects.records().iter().map(|held| held.id).collect());
     }
 
     /// Every [`LOGIN_SYNC_EVERY`], hand each account's newest credential back to the account and
@@ -6536,7 +6695,15 @@ mod tests {
         std::mem::forget(root_dir);
         let work = Work::open(Box::new(MemoryTaskStore::new()));
         let settings = Settings::open(Box::new(MemorySettingsStore::new()));
-        let coordinator = Coordinator::new(host, root, projects, work, settings, pending);
+        let coordinator = Coordinator::new(
+            host,
+            root,
+            projects,
+            work,
+            settings,
+            crate::tasksrc::Registry::with_defaults(),
+            pending,
+        );
         let client = hub.connect();
         (coordinator, client)
     }

@@ -7,7 +7,6 @@
 
 use ubiq::state::RailMode;
 use ubiq::state::dock::{ChatId, PanelKind, Region, Visibility};
-use ubiq::state::editor::ViewLayout;
 use ubiq::ui::dock::{
     chat_from_payload, chat_payload, file_from_payload, file_payload, pane_from_payload,
     pane_payload,
@@ -191,13 +190,13 @@ fn the_names_a_saved_layout_is_keyed_by_are_fixed() {
 fn a_chat_homes_right_in_every_mode() {
     let chat = PanelKind::Chat(ChatId::generate());
     for mode in [
-        RailMode::Ide,
-        RailMode::Tasks,
-        RailMode::Git,
-        RailMode::Kb,
-        RailMode::Teams,
-        RailMode::TeamsAll,
-        RailMode::TeamsOld,
+        RailMode::IDE,
+        RailMode::TASKS,
+        RailMode::GIT,
+        RailMode::KB,
+        RailMode::TEAMS,
+        RailMode::TEAMS_ALL,
+        RailMode::TEAMS_OLD,
     ] {
         assert_eq!(chat.home_in(mode), Region::Right, "{mode:?}");
         assert_eq!(PanelKind::chat_home(mode), Region::Right, "{mode:?}");
@@ -206,7 +205,7 @@ fn a_chat_homes_right_in_every_mode() {
         if kind.chat_id().is_some() {
             continue;
         }
-        for mode in [RailMode::Ide, RailMode::Teams, RailMode::Tasks] {
+        for mode in [RailMode::IDE, RailMode::TEAMS, RailMode::TASKS] {
             assert_eq!(kind.home_in(mode), kind.home(), "{kind:?} in {mode:?}");
         }
     }
@@ -218,25 +217,25 @@ fn a_chat_homes_right_in_every_mode() {
 fn the_board_s_task_and_the_agents_list_belong_to_their_modes() {
     let tasks = Visibility {
         has_project: true,
-        rail_mode: Some(RailMode::Tasks),
+        rail_mode: Some(RailMode::TASKS),
         ..nothing()
     };
     let agents = Visibility {
-        rail_mode: Some(RailMode::Agents),
+        rail_mode: Some(RailMode::AGENTS),
         ..tasks
     };
 
     assert!(PanelKind::Task.is_drawn(tasks));
     assert!(!PanelKind::Task.is_drawn(agents));
     assert!(!PanelKind::Task.is_drawn(Visibility {
-        rail_mode: Some(RailMode::Tasks),
+        rail_mode: Some(RailMode::TASKS),
         ..nothing()
     }));
 
     assert!(PanelKind::AgentsExplorer.is_drawn(agents));
     assert!(!PanelKind::AgentsExplorer.is_drawn(tasks));
     assert!(!PanelKind::AgentsExplorer.is_drawn(Visibility {
-        rail_mode: Some(RailMode::Agents),
+        rail_mode: Some(RailMode::AGENTS),
         ..nothing()
     }));
 
@@ -244,7 +243,7 @@ fn the_board_s_task_and_the_agents_list_belong_to_their_modes() {
     let chat = PanelKind::Chat(ChatId::generate());
     assert!(chat.is_drawn(tasks));
     assert!(chat.is_drawn(Visibility {
-        rail_mode: Some(RailMode::Teams),
+        rail_mode: Some(RailMode::TEAMS),
         ..tasks
     }));
     assert!(!chat.is_drawn(agents));
@@ -387,10 +386,10 @@ fn what_is_drawn_follows_the_mode_and_the_project() {
         ..nothing()
     }));
     for mode in [
-        RailMode::Git,
-        RailMode::Kb,
-        RailMode::Tasks,
-        RailMode::Teams,
+        RailMode::GIT,
+        RailMode::KB,
+        RailMode::TASKS,
+        RailMode::TEAMS,
     ] {
         assert!(
             chat.is_drawn(Visibility {
@@ -401,7 +400,7 @@ fn what_is_drawn_follows_the_mode_and_the_project() {
             "a chat is furniture in {mode:?}"
         );
     }
-    for mode in [RailMode::Agents, RailMode::Control, RailMode::Sink] {
+    for mode in [RailMode::AGENTS, RailMode::CONTROL, RailMode::SINK] {
         assert!(
             !chat.is_drawn(Visibility {
                 has_project: true,
@@ -414,10 +413,10 @@ fn what_is_drawn_follows_the_mode_and_the_project() {
     }
     // A conversation about nothing is a fiction, in every mode that would otherwise draw one.
     for mode in [
-        RailMode::Git,
-        RailMode::Kb,
-        RailMode::Tasks,
-        RailMode::Teams,
+        RailMode::GIT,
+        RailMode::KB,
+        RailMode::TASKS,
+        RailMode::TEAMS,
     ] {
         assert!(
             !chat.is_drawn(Visibility {
@@ -450,7 +449,7 @@ fn what_is_drawn_follows_the_mode_and_the_project() {
 
     let git = Visibility {
         has_project: true,
-        rail_mode: Some(RailMode::Git),
+        rail_mode: Some(RailMode::GIT),
         ..nothing()
     };
     for kind in [
@@ -471,19 +470,19 @@ fn what_is_drawn_follows_the_mode_and_the_project() {
     }
     assert!(!PanelKind::Centre.is_drawn(git));
     assert!(PanelKind::Centre.is_drawn(Visibility {
-        rail_mode: Some(RailMode::Git),
+        rail_mode: Some(RailMode::GIT),
         ..nothing()
     }));
 
     // The knowledge base's explorer wants its own mode and a project, and nothing else draws it.
     let kb = Visibility {
         has_project: true,
-        rail_mode: Some(RailMode::Kb),
+        rail_mode: Some(RailMode::KB),
         ..nothing()
     };
     assert!(PanelKind::KbExplorer.is_drawn(kb));
     assert!(!PanelKind::KbExplorer.is_drawn(Visibility {
-        rail_mode: Some(RailMode::Kb),
+        rail_mode: Some(RailMode::KB),
         ..nothing()
     }));
     assert!(!PanelKind::KbExplorer.is_drawn(git));
@@ -571,58 +570,52 @@ fn a_file_panel_is_drawn_only_while_its_tab_is_open() {
     assert!(!PanelKind::Centre.is_drawn(other_tabs_open));
 }
 
-/// **A viewer's payload is what it is looking at, not what it drew.** The tab key and the layout
-/// mode, and nothing else: a parsed scene, a computed diff and a rendered diagram are all functions
-/// of bytes the host will send again, and none of them belongs in a saved arrangement.
+/// **A viewer's payload is what it is looking at, not what it drew.** The tab key and nothing
+/// else: a parsed scene, a computed diff and a rendered diagram are all functions of bytes the
+/// host will send again, and none of them belongs in a saved arrangement.
+///
+/// **The view mode is not in it either, since T-202.** The default view mode persists — that is
+/// the `markdown_open` setting — and a per-document override is remembered in memory only, on
+/// `OpenFile::layout`, for as long as the tab is open. A saved arrangement is on disk, so a mode
+/// written here would be an override outliving the tab that chose it.
 ///
 /// The shape is pinned here as well as the round trip, because it is on disk in every user's
 /// preferences: changing a field name is losing every arrangement written before the change, the
 /// same cost a panel's name carries.
 #[test]
-fn a_file_panel_s_payload_is_the_tab_and_the_layout() {
-    let payload = file_payload("diff:head:crates/ubiq/src/app.rs", ViewLayout::Split);
+fn a_file_panel_s_payload_is_the_tab_and_nothing_else() {
+    let payload = file_payload("diff:head:crates/ubiq/src/app.rs");
     assert_eq!(
         payload,
-        serde_json::json!({
-            "key": "diff:head:crates/ubiq/src/app.rs",
-            "layout": "split",
-        })
+        serde_json::json!({ "key": "diff:head:crates/ubiq/src/app.rs" })
     );
 
-    let (kind, layout) = file_from_payload(&payload).expect("rebuilds");
+    let kind = file_from_payload(&payload).expect("rebuilds");
     assert_eq!(
         kind,
         PanelKind::File("diff:head:crates/ubiq/src/app.rs".to_string())
     );
-    assert_eq!(layout, ViewLayout::Split);
 }
 
-/// Every layout survives the trip, so a document reopens as it was left rather than in whichever
-/// mode happens to be the default.
-#[test]
-fn every_layout_survives_the_payload() {
-    for layout in ViewLayout::all() {
-        let payload = file_payload("README.md", layout);
-        let (kind, back) = file_from_payload(&payload).expect("rebuilds");
-        assert_eq!(kind, PanelKind::File("README.md".to_string()));
-        assert_eq!(back, layout, "{layout:?}");
-    }
-}
-
-/// A payload from a build that wrote something else. A missing layout is the viewer's default,
-/// because which mode a document was left in is not worth losing the document over; a missing key
-/// names no tab at all, so there is nothing to rebuild.
+/// A payload from a build that wrote something else. A key is the whole payload, so a payload
+/// with one rebuilds and a payload without one names no tab at all.
+///
+/// A `layout` left over from a build before T-202 is read straight past rather than honoured —
+/// that is the upgrade path, and it is what makes an old arrangement open its documents in the
+/// default instead of in whichever mode they were abandoned in.
 #[test]
 fn a_payload_this_build_cannot_read_whole_is_not_half_read() {
-    let (kind, layout) =
-        file_from_payload(&serde_json::json!({ "key": "justfile" })).expect("rebuilds");
-    assert_eq!(kind, PanelKind::File("justfile".to_string()));
-    assert_eq!(layout, ViewLayout::default());
+    assert_eq!(
+        file_from_payload(&serde_json::json!({ "key": "justfile" })).expect("rebuilds"),
+        PanelKind::File("justfile".to_string())
+    );
 
-    let (_, layout) =
-        file_from_payload(&serde_json::json!({ "key": "justfile", "layout": "kaleidoscope" }))
-            .expect("rebuilds");
-    assert_eq!(layout, ViewLayout::default());
+    assert_eq!(
+        file_from_payload(&serde_json::json!({ "key": "justfile", "layout": "source" }))
+            .expect("rebuilds"),
+        PanelKind::File("justfile".to_string()),
+        "a pre-T-202 layout field is ignored, not a reason to drop the tab"
+    );
 
     assert_eq!(file_from_payload(&serde_json::json!({})), None);
     assert_eq!(

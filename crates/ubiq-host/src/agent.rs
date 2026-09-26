@@ -542,9 +542,9 @@ impl Agents {
     /// record, and `Projects::forget` removing `<root>/projects/<id>` takes these with it
     /// without knowing they are there — the same way it already takes the plans and the index.
     fn project_definition_store(&self, project: ProjectId) -> FsProfileStore {
-        FsProfileStore::new(definitions_dir(
-            &self.root.join("projects").join(project.to_string()),
-        ))
+        FsProfileStore::new(
+            crate::store::project_dir::ProjectData::under_config(&self.root, project).definitions(),
+        )
     }
 
     /// Every global definition Ubiq knows: a saved setup, flattened to the four references the
@@ -611,9 +611,9 @@ impl Agents {
     ) -> Option<String> {
         let global = FsProfileStore::new(definitions_dir(root));
         let scoped = project.map(|project| {
-            FsProfileStore::new(definitions_dir(
-                &root.join("projects").join(project.to_string()),
-            ))
+            FsProfileStore::new(
+                crate::store::project_dir::ProjectData::under_config(root, project).definitions(),
+            )
         });
         ScopedProfileStore::new(&global, scoped.as_ref().map(|it| it as &dyn ProfileStore))
             .profile(id)

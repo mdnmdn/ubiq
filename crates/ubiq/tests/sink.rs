@@ -32,12 +32,12 @@ fn the_sink_is_an_app_destination_and_never_a_project_one() {
         .iter()
         .find(|(label, _)| *label == "APP")
         .expect("the APP group");
-    assert!(app.1.contains(&RailMode::Sink), "the sink left APP");
+    assert!(app.1.contains(&RailMode::SINK), "the sink left APP");
 
     for (label, modes) in groups {
-        if *label != "APP" {
+        if label != "APP" {
             assert!(
-                !modes.contains(&RailMode::Sink),
+                !modes.contains(&RailMode::SINK),
                 "the sink is also under {label}"
             );
         }
@@ -324,7 +324,7 @@ fn every_page_draws_in_a_window_with_no_project(cx: &mut gpui::TestAppContext) {
         .take()
         .expect("the window built its state");
 
-    state.update(cx, |state, cx| state.set_rail_mode(RailMode::Sink, cx));
+    state.update(cx, |state, cx| state.set_rail_mode(RailMode::SINK, cx));
     cx.run_until_parked();
 
     for section in SinkSection::all() {
@@ -387,8 +387,9 @@ fn every_page_draws_in_a_window_with_no_project(cx: &mut gpui::TestAppContext) {
         state.set_sink_section(SinkSection::Project, cx)
     });
     cx.run_until_parked();
-    for nav in ProjectNav::all() {
-        state.update(cx, |state, cx| state.set_sink_project_nav(*nav, cx));
+    for spec in ubiq::ext::settings::project_sections() {
+        let nav = ProjectNav(spec.id);
+        state.update(cx, |state, cx| state.set_sink_project_nav(nav, cx));
         cx.run_until_parked();
     }
     handle
@@ -530,7 +531,7 @@ fn every_page_draws_in_a_window_with_no_project(cx: &mut gpui::TestAppContext) {
 
     // The window is still there, and it is still on the page it was left on.
     state.read_with(cx, |state, _| {
-        assert_eq!(state.workbench.rail_mode, RailMode::Sink);
+        assert_eq!(state.workbench.rail_mode, RailMode::SINK);
         assert_eq!(state.sink.section, SinkSection::Files);
         assert_eq!(state.sink.picked, 3);
         assert_eq!(state.sink.level, 40);
@@ -585,7 +586,7 @@ fn running_the_script_page_leaves_an_outcome_behind(cx: &mut gpui::TestAppContex
         .expect("the window built its state");
 
     state.update(cx, |state, cx| {
-        state.set_rail_mode(RailMode::Sink, cx);
+        state.set_rail_mode(RailMode::SINK, cx);
         state.set_sink_section(SinkSection::Script, cx);
     });
     cx.run_until_parked();

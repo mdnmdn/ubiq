@@ -15,8 +15,8 @@ impl AppState {
     ///
     /// The one place in the interface that polls. Everything else is push, because everything else
     /// changes when something happens; memory and uptime change when nothing does.
-    pub(super) fn poll_stats(&mut self, cx: &mut Context<Self>) {
-        if self.stats.polling || self.workbench.rail_mode != RailMode::Control {
+    pub(crate) fn poll_stats(&mut self, cx: &mut Context<Self>) {
+        if self.stats.polling || self.workbench.rail_mode != RailMode::CONTROL {
             return;
         }
         self.stats.polling = true;
@@ -25,7 +25,7 @@ impl AppState {
                 // Three ways out, and all of them are here rather than in the body: the window has
                 // gone, the screen has gone, or the mode changed while the timer was running.
                 let asked = this.update(cx, |this, _| {
-                    if this.workbench.rail_mode != RailMode::Control {
+                    if this.workbench.rail_mode != RailMode::CONTROL {
                         this.stats.polling = false;
                         return false;
                     }

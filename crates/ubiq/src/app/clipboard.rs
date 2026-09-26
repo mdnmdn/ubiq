@@ -99,10 +99,10 @@ pub fn clipboard_attachment(cx: &App) -> Option<PastedAttachment> {
 /// **Attaching a picture writes a file into the user's project**, and that is a product decision
 /// rather than an implementation detail: an attachment is an `@path` mention (`G171`), so a
 /// picture that is nowhere cannot be attached at all. `.ubiq/` is already Ubiq's own folder inside
-/// a project — the knowledge base writes there under `.ubiq/kb` — so a second scratch folder
+/// a project — the knowledge base writes there under `.ubiq/local/kb` — so a second scratch folder
 /// beside it is the shape that already exists rather than a new one invented here.
 ///
-/// **It is not the same choice `.ubiq/kb` is, though.** A project-stored knowledge base is
+/// **It is not the same choice `.ubiq/local/kb` is, though.** A project-stored knowledge base is
 /// something the user asked for by adding a source; a pasted screenshot is a side effect of a
 /// keystroke, and a folder of untracked binaries nobody chose has no business turning up in
 /// `git status`. So the folder ignores itself — see [`PASTED_IGNORE`].

@@ -222,7 +222,7 @@ impl AppState {
         if !self.workbench.rail_mode.has_pane_region() {
             // The window moving itself, not the user moving it: the furniture sweep stays out of
             // it, or starting a pane from Control would take the console with it (`D156`).
-            self.enter_rail_mode(RailMode::Ide, false, cx);
+            self.enter_rail_mode(RailMode::IDE, false, cx);
         }
         self.pending_pane_region = true;
         cx.notify();
@@ -320,7 +320,7 @@ impl AppState {
     /// A mode never arranged keeps the tree the last mode had, so the refs and the changes have
     /// to be asked for or the opened left and right regions would show nothing of this screen.
     /// `settle_panels` skips a kind the tree already holds.
-    pub(super) fn queue_git_furniture(&mut self) {
+    pub(crate) fn queue_git_furniture(&mut self) {
         for kind in [
             PanelKind::GitRefs,
             PanelKind::GitChanges,
@@ -336,7 +336,7 @@ impl AppState {
     /// Queue the KB screen's own panel into its home region — the left-edge explorer, on
     /// [`Self::queue_git_furniture`]'s reasoning: a mode never arranged keeps the tree the last
     /// mode had, and the explorer is not named by a blob until one exists.
-    pub(super) fn queue_kb_furniture(&mut self) {
+    pub(crate) fn queue_kb_furniture(&mut self) {
         self.pending_panels
             .push(PanelEdit::Open(PanelKind::KbExplorer));
     }
@@ -351,12 +351,15 @@ impl AppState {
     /// leaving the left region empty. Asking is all it is: `settle_panels` skips a kind the tree
     /// already holds, so an explorer the user has dragged to another region stays where it was put.
     pub(super) fn queue_mode_furniture(&mut self, mode: RailMode) {
-        let kind = match mode {
-            RailMode::Ide => PanelKind::Explorer,
-            RailMode::Tasks => PanelKind::Task,
-            RailMode::Agents => PanelKind::AgentsExplorer,
-            _ => return,
-        };
+        // The mode's own (`D184`). This used to be a `_ => return` arm, and a contributed mode
+        // fell into it: no furniture, no error, an edge opened onto nothing.
+        if let Some(furniture) = mode.spec().and_then(|spec| spec.furniture) {
+            furniture(self);
+        }
+    }
+
+    /// Queue one panel into its home region — what a mode's `furniture` is written in terms of.
+    pub(crate) fn queue_furniture(&mut self, kind: PanelKind) {
         self.pending_panels.push(PanelEdit::Open(kind));
     }
 
@@ -629,7 +632,6 @@ impl AppState {
             .collect();
         let app = self.this.clone();
         let mut kept = HashMap::new();
-        let mut layouts: Vec<(String, ViewLayout)> = Vec::new();
         {
             let mut build = |kind: PanelKind, cx: &mut App| {
                 // **A terminal or a chat panel is never built here unless it is already known.**
@@ -656,7 +658,7 @@ impl AppState {
                         .clone(),
                 )
             };
-            if !dock::restore(&dock, &saved, &mut build, &mut layouts, window, cx) {
+            if !dock::restore(&dock, &saved, &mut build, window, cx) {
                 dock::default_layout(&dock, &mut build, window, cx, self.workbench.rail_mode);
             }
         }
@@ -721,16 +723,13 @@ impl AppState {
                 }
             }
         });
-        // A file panel's payload carries the layout its viewer was left in, which belongs on the
-        // file rather than on the panel: the panel only repeats it, the way it repeats visibility.
+        // **Nothing here puts a view mode back on a file** (T-202). The mode lives on the
+        // `OpenFile`, in memory, and the `OpenFile` outlives every rebuild this function does — a
+        // rail-mode switch and a project switch both keep it — so `Self::settle_visibility` is
+        // already the only thing that moves a mode, and it moves it from the file to the panel,
+        // never the other way. A restart is the one case where the file is fresh, and a fresh
+        // file opens in the default: `AppState::markdown_open`.
         if let Some(project) = self.project(cx) {
-            if let Some(open) = self.projects.get_mut(&project) {
-                for (key, layout) in layouts {
-                    if let Some(file) = open.editor.open.iter_mut().find(|file| file.key() == key) {
-                        file.set_layout(layout);
-                    }
-                }
-            }
             // A chat leaf this rebuild dropped for naming an id the window did not already hold
             // (or a fallback default's own throwaway scaffold, when the restore failed outright)
             // is cleaned up the same way `Self::enter_project` gets the first one in: by squaring
@@ -871,19 +870,15 @@ impl AppState {
 ///
 /// Teams and Tasks have no left-hand furniture, and Teams' right is the inspector its own screen
 /// draws inline rather than a dockable panel, so neither names a kind here.
+/// The explorer is IDE furniture that is never closed (`PanelKind::closable`), so an IDE left
+/// opened onto nothing is one the user dragged it out of. Where it went is preserved: an explorer
+/// still in the tree is left where it was put and the switch is taken back instead —
+/// [`AppState::toggle_region`] holds that half of the rule, because a panel that cannot be put
+/// here is the caller's problem, not this table's.
 fn mode_side_furniture(mode: RailMode, region: Region) -> Option<PanelKind> {
-    match (mode, region) {
-        // The explorer is IDE furniture that is never closed (`PanelKind::closable`), so an IDE
-        // left opened onto nothing is one the user dragged it out of. Where it went is preserved:
-        // an explorer still in the tree is left where it was put and the switch is taken back
-        // instead — [`AppState::toggle_region`] holds that half of the rule, because a panel that
-        // cannot be put here is the caller's problem, not this table's.
-        (RailMode::Ide, Region::Left) => Some(PanelKind::Explorer),
-        (RailMode::Git, Region::Left) => Some(PanelKind::GitRefs),
-        (RailMode::Git, Region::Right) => Some(PanelKind::GitChanges),
-        (RailMode::Kb, Region::Left) => Some(PanelKind::KbExplorer),
-        (RailMode::Tasks, Region::Right) => Some(PanelKind::Task),
-        (RailMode::Agents, Region::Left) => Some(PanelKind::AgentsExplorer),
-        _ => None,
-    }
+    // The mode's own (`D184`). This used to be a `_ => None` arm over a `(RailMode, Region)`
+    // tuple — the second of the two silent defaults a contributed mode fell into.
+    mode.spec()
+        .and_then(|spec| spec.side_furniture)
+        .and_then(|table| table(region))
 }

@@ -20,6 +20,9 @@ use ubiq_proto::messages::{AccountInfo, AgentDefinition, AgentTypeInfo, ShellInf
 use ubiq_proto::tools::ListedTool;
 use ubiq_proto::work::AgentId;
 
+use crate::ext::SlotId;
+use crate::ext::ids;
+use crate::ext::rail::RailModeSpec;
 use crate::state::PanelKind;
 use crate::state::clone::CloneState;
 use crate::state::remote::RemoteConnectState;
@@ -46,26 +49,42 @@ use crate::theme::ThemeId;
 /// project's agents and sits in the PROJECT group with the other views onto one project;
 /// `TeamsAll` draws every open project's agents on one canvas, which is a fact about the window
 /// rather than about any project, so it sits in the APP group beside `Control` and `Sink`.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, serde::Serialize, serde::Deserialize)]
-pub enum RailMode {
-    Control,
-    Ide,
-    Git,
-    Agents,
-    Teams,
-    TeamsAll,
-    TeamsOld,
-    Kb,
-    Tasks,
-    /// The kitchen sink: the application's own test bench. The one mode with no project behind it
-    /// at all — see [`super::sink`].
-    Sink,
-}
+/// A `Copy` newtype over a [`SlotId`] rather than a closed enum (`D184`): the icon, the `UiId`,
+/// the destination, the centre screen, the default layout, the default regions and both tables of
+/// furniture that used to be matched here are fields on
+/// [`RailModeSpec`](crate::ext::rail::RailModeSpec), the rail's own order is
+/// [`ext::rail::modes()`](crate::ext::rail::modes), and a second edition's mode is one more
+/// registration rather than a variant nothing outside the base can add.
+///
+/// **It is serialized**, as a key in `ViewPrefs::modes` and an entry in `hidden_modes`, so the id
+/// is what reaches disk and `ext::rail::decode_id` is what reads one back — including one this
+/// build has no registration for, which is kept rather than dropped.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct RailMode(pub SlotId);
 
 impl RailMode {
+    pub const CONTROL: RailMode = RailMode(ids::RAIL_CONTROL);
+    pub const IDE: RailMode = RailMode(ids::RAIL_IDE);
+    pub const GIT: RailMode = RailMode(ids::RAIL_GIT);
+    pub const AGENTS: RailMode = RailMode(ids::RAIL_AGENTS);
+    pub const TEAMS: RailMode = RailMode(ids::RAIL_TEAMS);
+    pub const TEAMS_ALL: RailMode = RailMode(ids::RAIL_TEAMS_ALL);
+    pub const TEAMS_OLD: RailMode = RailMode(ids::RAIL_TEAMS_OLD);
+    pub const KB: RailMode = RailMode(ids::RAIL_KB);
+    pub const TASKS: RailMode = RailMode(ids::RAIL_TASKS);
+    /// The kitchen sink: the application's own test bench. The one mode with no project behind it
+    /// at all — see [`super::sink`].
+    pub const SINK: RailMode = RailMode(ids::RAIL_SINK);
+
+    /// This mode's spec, if it is registered. `None` for a mode a second edition removed while a
+    /// blob still named it.
+    pub fn spec(self) -> Option<&'static RailModeSpec> {
+        crate::ext::rail::spec(self.0)
+    }
+
     /// Whether this mode is the IDE. The explorer, the open files and the chat belong to it.
     pub fn is_ide(self) -> bool {
-        self == RailMode::Ide
+        self == RailMode::IDE
     }
 
     /// Whether a pane started here has an edge region to land in that the user is looking at.
@@ -76,92 +95,94 @@ impl RailMode {
     /// neither is about a project's folder, and a pane started from one has nowhere to be seen.
     /// So starting a runner from either moves the window to the IDE first; see
     /// `AppState::reveal_pane_region`.
+    ///
+    /// A mode nothing is registered under answers `false`: it is not on the rail, so there is no
+    /// screen to have an edge region on.
     pub fn has_pane_region(self) -> bool {
-        !matches!(self, RailMode::Control | RailMode::Sink)
+        self.spec().is_some_and(|spec| spec.has_pane_region)
     }
 
-    /// The mode's own name, lowercased — what `rail.<slug>` binds a help page to.
+    /// The mode's own short name — what `rail.<slug>` binds a help page to.
     ///
-    /// Taken from the variant rather than written out beside it, so a renamed mode renames its
-    /// context key instead of quietly unbinding the page that claimed the old one. The packer
-    /// reads the same variants out of this file.
-    pub fn slug(self) -> String {
-        format!("{self:?}").to_lowercase()
+    /// The spec's, so a renamed mode renames its context key instead of quietly unbinding the
+    /// page that claimed the old one. A mode nothing is registered under falls back to the leaf
+    /// of its id, which is what an unregistered mode is honestly called.
+    pub fn slug(self) -> &'static str {
+        self.spec()
+            .map(|spec| spec.slug)
+            .unwrap_or_else(|| self.0.0.rsplit('.').next().unwrap_or(self.0.0))
     }
 
     pub fn label(self) -> &'static str {
-        match self {
-            RailMode::Control => "Control",
-            RailMode::Ide => "IDE",
-            RailMode::Git => "Git",
-            RailMode::Agents => "Agents",
-            RailMode::Teams => "Teams",
-            RailMode::TeamsAll => "All Teams",
-            RailMode::TeamsOld => "[Teams]",
-            RailMode::Kb => "KB",
-            RailMode::Tasks => "Tasks",
-            RailMode::Sink => "Sink",
-        }
+        crate::ext::rail::label(self.0)
     }
 
     /// The one-line note the empty page shows for a mode that is not built yet. `Control` keeps
     /// one because the rail's tooltip prints it too, and it now says what the screen actually
     /// draws rather than what it was going to.
     pub fn note(self) -> &'static str {
-        match self {
-            RailMode::Control => "What this Ubiq is doing, and what its agents have spent.",
-            RailMode::Ide => "",
-            RailMode::Git => "What version control knows about this project.",
-            RailMode::Agents => "The agents running in this project, one column each.",
-            RailMode::Teams => "How the agents are arranged, and which task each serves.",
-            RailMode::TeamsAll => "Every open project's agents, arranged on one canvas.",
-            RailMode::TeamsOld => "How the agents are arranged, and which task each serves.",
-            RailMode::Kb => "Notes and documents the agents can read.",
-            RailMode::Tasks => "Work queued for the agents in this session.",
-            RailMode::Sink => "The application's own test bench.",
-        }
+        self.spec().map(|spec| spec.note).unwrap_or("")
     }
 
-    /// Every mode, in the order the rail draws them.
+    /// Every mode, in the order the rail draws them — registry iteration, resolved once (`X12`).
     pub fn every() -> impl Iterator<Item = RailMode> {
-        Self::groups()
+        crate::ext::rail::modes()
             .iter()
-            .flat_map(|(_, modes)| modes.iter().copied())
+            .map(|spec| RailMode(spec.id))
     }
 
-    /// The modes that belong to a project, in the order the rail draws them — the "PROJECT"
-    /// group, as opposed to `Control`, `TeamsAll` and `Sink`, which are the "APP" group and are
+    /// The modes that belong to a project, in the order the rail draws them — the `rail/project`
+    /// group, as opposed to Control, All Teams and Sink, which are the `rail/app` group and are
     /// not about one. This is what a digit shortcut for "the current project's mode" counts:
-    /// `ctrl-1` is
-    /// the first of these that is enabled, not `Control`.
+    /// `ctrl-1` is the first of these that is enabled, not Control.
     pub fn project_modes() -> impl Iterator<Item = RailMode> {
-        Self::groups()
-            .iter()
-            .find(|(label, _)| *label == "PROJECT")
-            .into_iter()
-            .flat_map(|(_, modes)| modes.iter().copied())
+        crate::ext::rail::modes_in(ids::RAIL_PROJECT)
     }
 
-    /// The rail groups, in the order they are drawn.
-    pub fn groups() -> &'static [(&'static str, &'static [RailMode])] {
-        &[
-            (
-                "APP",
-                &[RailMode::Control, RailMode::TeamsAll, RailMode::Sink],
-            ),
-            (
-                "PROJECT",
-                &[
-                    RailMode::Ide,
-                    RailMode::Git,
-                    RailMode::Agents,
-                    RailMode::Teams,
-                    RailMode::TeamsOld,
-                    RailMode::Kb,
-                    RailMode::Tasks,
-                ],
-            ),
-        ]
+    /// The id this mode is written down as — its `SlotId`, verbatim.
+    pub fn as_str(self) -> &'static str {
+        self.0.0
+    }
+
+    /// The rail groups, in the order they are drawn, each with its heading and its modes.
+    ///
+    /// The APP/PROJECT split and the order inside each are no longer written here: the split is
+    /// which group a registration declares, and the order is
+    /// [`ext::rail::GROUPS`](crate::ext::rail::GROUPS) then registration order (`D177`).
+    pub fn groups() -> Vec<(&'static str, Vec<RailMode>)> {
+        crate::ext::rail::GROUPS
+            .iter()
+            .map(|(id, label)| (*label, crate::ext::rail::modes_in(*id).collect()))
+            .collect()
+    }
+}
+
+/// Written down as its id, which is what a saved layout is keyed by (`D184`).
+impl serde::Serialize for RailMode {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(self.0.0)
+    }
+}
+
+/// Read back through [`crate::ext::rail::decode_id`], which maps the ten old variant names and
+/// **keeps** anything else rather than dropping it.
+///
+/// Dropping an id nothing is registered under is the failure this impl exists to prevent: it is a
+/// person's saved arrangement for a mode a second edition contributes, and a base launch that
+/// swept it would lose it for good.
+impl<'de> serde::Deserialize<'de> for RailMode {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        struct Visitor;
+        impl serde::de::Visitor<'_> for Visitor {
+            type Value = RailMode;
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("a rail mode id")
+            }
+            fn visit_str<E: serde::de::Error>(self, text: &str) -> Result<RailMode, E> {
+                Ok(RailMode(crate::ext::rail::decode_id(text)))
+            }
+        }
+        d.deserialize_str(Visitor)
     }
 }
 
@@ -335,6 +356,11 @@ pub enum MenuId {
     /// The new-pane control's chevron menu: which shell a pane runs, and the console. Where it
     /// opened is `WorkbenchState::new_pane_menu`.
     NewPane,
+    /// One of the task-sync settings section's dropdowns, or the import dialog's. **Which** one is
+    /// `TaskSrcState::menu`, on `AgentBench`'s precedent — the section draws a dropdown per
+    /// declared `Choice` field and per lane, so the set is the provider's rather than this enum's,
+    /// and a variant per control would be a closed list over an open one.
+    TaskSrc,
     /// The titlebar's run chevron, beside the play triangle: every runnable tool this project
     /// offers. Where it opened is `WorkbenchState::run_tool_menu`.
     RunTool,
@@ -729,6 +755,12 @@ pub struct WorkbenchState {
     /// The zoom modal, while it is up (T-185) — raised from the corner button on a scaled-down
     /// image or diagram in a markdown preview. One at a time, on the window's own rule.
     pub image_zoom: Option<crate::state::zoom::ImageZoom>,
+    /// The harness whose ACP capabilities are being read, while that dialog is up (`T-207`).
+    ///
+    /// The library's harness id, not a display label: the record is keyed by it, and the two
+    /// places that raise the dialog — the harnesses settings section and a conversation's info
+    /// modal — reach it from different ends. One at a time, on the window's own rule.
+    pub capabilities: Option<String>,
     /// The annotated document on screen — today always a task's plan, raised from the task panel
     /// for a task carrying a [`ubiq_proto::work::Level`]. One at a time, like `feedback`:
     /// opening another replaces whichever was open. The field keeps its name because the plan is
@@ -980,7 +1012,7 @@ impl Default for WorkbenchState {
         Self {
             config_root: None,
             config_root_is_default: true,
-            rail_mode: RailMode::Ide,
+            rail_mode: RailMode::IDE,
             theme_id: ThemeId::DARK,
             interface_rest: Default::default(),
             last_start: None,
@@ -1001,6 +1033,7 @@ impl Default for WorkbenchState {
             ask: None,
             all_projects: None,
             image_zoom: None,
+            capabilities: None,
             plan: None,
             mission: None,
             new_agent: None,

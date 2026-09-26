@@ -1046,8 +1046,12 @@ fn shape_line(
         .and_then(|work| task.session.and_then(|id| work.session(id)))
         .map(|session| session.name.clone());
     let link = task.link.clone();
+    // What the sync layer did to this card, when it is worth saying. `Parked` above all: a task
+    // whose remote lane is not in the binding's lane map sits where it landed, and without this
+    // badge the only visible fact is that it did not move (`R9`).
+    let sync = crate::ui::tasksrc::sync_badge(app, task.id);
 
-    if task.shape.is_none() && session.is_none() && link.is_none() {
+    if task.shape.is_none() && session.is_none() && link.is_none() && sync.is_none() {
         return None;
     }
 
@@ -1080,6 +1084,7 @@ fn shape_line(
                     )
             }))
             .children(link.map(|url| link_chip(task.id, url, view, window)))
+            .children(sync)
             .into_any_element(),
     )
 }

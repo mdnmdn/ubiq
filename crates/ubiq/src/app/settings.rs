@@ -382,37 +382,48 @@ impl AppState {
 
     pub fn set_settings_nav(&mut self, nav: SettingsSection, cx: &mut Context<Self>) {
         self.workbench.settings.nav = nav;
-        if nav == SettingsSection::Connectors {
-            // Asked on arrival for the same reason the shortcut is: a flow that finished in
-            // another window has to show up, and the answer is a list the host already holds.
-            self.bus.send(Message::ListConnections);
-        }
-        if nav == SettingsSection::Harnesses {
-            // Arriving at the page is what makes the readouts worth having, and the cached
-            // answer costs the host a map lookup.
-            self.ask_quotas();
-            self.ask_acp_capabilities_all(true);
-        }
-        if nav == SettingsSection::Assist {
-            // Asked on arrival rather than at startup, for the reason the connections are: a
-            // provider added in another window has to show up here, and the host is the only half
-            // that knows which of them has a key.
-            self.bus.send(Message::GetAiProviders);
-        }
-        if nav == SettingsSection::CommandLine {
-            // Asked on arrival for the same reason the accounts are: the shortcut can be moved,
-            // deleted or left behind by another build while the window is open, and the answer
-            // costs a directory listing.
-            self.ask_cli_shortcut(CliShortcutAction::Query);
-        }
-        if nav == SettingsSection::Tools {
-            // The machine-wide rows ride the Host layer, so a tool added in another window
-            // shows up here — the same freshness the connectors list asks for.
-            self.bus.send(Message::GetSettings {
-                layer: SettingsLayer::Host,
-            });
+        // What used to be a chain of `if nav == …` is the section's own `on_show` (`D180`): a
+        // contributed section gets the same on-arrival refresh the base's own do, and the base
+        // stops being the only half that can have one.
+        if let Some(on_show) = nav.spec().and_then(|spec| spec.on_show) {
+            on_show(self, cx);
         }
         cx.notify();
+    }
+
+    /// Arriving at the page is what makes the readouts worth having, and the cached answer costs
+    /// the host a map lookup.
+    pub(crate) fn on_show_harnesses(&mut self, _cx: &mut Context<Self>) {
+        self.ask_quotas();
+        self.ask_acp_capabilities_all(true);
+    }
+
+    /// Asked on arrival rather than at startup, for the reason the connections are: a provider
+    /// added in another window has to show up here, and the host is the only half that knows
+    /// which of them has a key.
+    pub(crate) fn on_show_assist(&mut self, _cx: &mut Context<Self>) {
+        self.bus.send(Message::GetAiProviders);
+    }
+
+    /// Asked on arrival for the same reason the shortcut is: a flow that finished in another
+    /// window has to show up, and the answer is a list the host already holds.
+    pub(crate) fn on_show_connectors(&mut self, _cx: &mut Context<Self>) {
+        self.bus.send(Message::ListConnections);
+    }
+
+    /// The machine-wide rows ride the Host layer, so a tool added in another window shows up
+    /// here — the same freshness the connectors list asks for.
+    pub(crate) fn on_show_tools(&mut self, _cx: &mut Context<Self>) {
+        self.bus.send(Message::GetSettings {
+            layer: SettingsLayer::Host,
+        });
+    }
+
+    /// Asked on arrival for the same reason the accounts are: the shortcut can be moved, deleted
+    /// or left behind by another build while the window is open, and the answer costs a directory
+    /// listing.
+    pub(crate) fn on_show_command_line(&mut self, _cx: &mut Context<Self>) {
+        self.ask_cli_shortcut(CliShortcutAction::Query);
     }
 
     /// Ask after, write or delete the `ubiq` command. All three answer the same way, so one

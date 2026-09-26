@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-09-25
-verified: 2026-09-25
+updated: 2026-09-26
+verified: 2026-09-26
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -3872,31 +3872,40 @@ handoff is exactly the one where starting from a stale copy costs more.
 hangs off the config root under `projects/<project ulid>/`, and nothing at all is written inside
 the project's folder. **Project-managed** puts the same data in a `.ubiq/` folder inside the
 project's own directory, so a team commits its tasks, its plans and its project settings and every
-clone of the repository arrives with them. The mode is chosen in the creation panel and nowhere
-else, because the two trees are different places and changing the answer is a migration rather
-than a setting.
+clone of the repository arrives with them. The mode is chosen in the creation panel, and changed
+afterwards only by `SetProjectStorage` — never by `UpdateProject` — because the two trees are
+different places and changing the answer is a migration rather than a setting.
 
 Three pieces make it work without any other part of the host learning about it. A **pointer** file,
 `<config root>/projects/<ulid>/storage.toml`, names where the data went — that directory still
 exists for a project-managed project, so Forget and the orphan collector need no change, and a
 store resolves through `store::project_dir::ProjectDirs` rather than reading a catalogue it has no
 business reading. A **`.gitignore`** inside `.ubiq/`, written once and never rewritten, keeps the
-per-machine half out of the user's commits — view state, the interface's workarea, the index, the
-caches, a cloned knowledge base, run and session state. And **`project.toml`** carries the
+per-machine half out of the user's commits — and since `G356` that is one entry, `local/`, because
+the layout itself is the split: the shared half at the top of a data directory, everything one
+machine derives under `local/`, in both trees. And **`project.toml`** carries the
 project's name and metadata in the folder itself: the catalogue keeps the name too, as the fast
 lookup every window draws without opening a folder that may be unmounted, and where the two
 disagree the folder wins and the catalogue is corrected at load.
 
-The alternative was a per-project setting that moved the data on change. Rejected for the first
-cut: the move has to be atomic across two trees, has to decide what happens to the half the ignore
-file says is per-machine, and has to answer for a project open in two windows. Naming the mode at
-creation gets the capability without any of that.
+A per-project setting that moved the data on change was rejected for the first cut, because the
+move has to be atomic across two trees, has to decide what happens to the half the ignore file
+says is per-machine, and has to answer for a project open in two windows. Naming the mode at
+creation got the capability without any of that; `T-204` then answered all three rather than
+collapsing the move into `UpdateProject`. **Atomicity is the pointer**, which is the only file a
+store reads: copy, then rewrite `storage.toml`, then remove the source, so the worst a crash does
+is leave a stale copy that is garbage rather than data. **The per-machine half does not move** —
+`local/` is what one machine derived and the destination derives it again, and copying an index
+into a directory a team shares would be wrong even if it were free. **A project with a pane or a
+live conversation running in it is refused**, from the two tables the host keeps to route by.
+[`project-structure.md`](./project-structure.md) owns the steps and what follows the project.
 
 **Cost:** two places a project's data can be, which every future per-project store has to ask
 about rather than compose a path for. A project-managed project that is forgotten leaves its
 `.ubiq/` behind, by design — it is in the user's own tree — and adding the folder back gives it a
-new id. And the mode cannot be changed afterwards, which is a real limitation and a filed gap
-rather than a design position.
+new id. And the move carries only what resolves through `ProjectDirs`: until `G355`, the plans,
+missions, knowledge-base roots and agent definitions stay under the config root, which is where
+their stores still read them.
 
 ### D174 — A saved setup is an **agent definition**, and the type is `AgentDefinition`, never `Agent`
 
@@ -3958,6 +3967,624 @@ than a tool result, so a model cannot resume a half-finished sequence from it; i
 re-derive, which is why the tool description makes ending the turn a hard requirement. And a dialog
 registered early in a turn is not seen until that turn ends, so a model that ignores the description
 produces a question that arrives late rather than one that arrives wrong.
+
+### D176 — Mission feedback that finds no coordinator spawns one, rather than refusing
+
+`AppState::send_mission_feedback` used to refuse a mission with no coordinator on the record: the
+composer read as faint, the button read "no coordinator to tell", and the line went nowhere. That
+made the one surface built for talking to a mission the one surface that could go silent on the
+reader who most needed it to work — a mission whose coordinator has not been named yet, or has left,
+is not a mission with nothing to say to; it is a mission whose next act is naming one.
+
+The send composes the same launch `AppState::spawn_mission_coordinator_with` builds for
+*Spawn ▾ → Coordinator*, with the user's line folded onto the end of the briefing under
+`The user has already said this about the mission:`, crowns the result with
+`SetMissionField(Coordinator)`, and journals the line at it with `SendToAgent` — one act rather than
+two, so the newly crowned agent reads the line before its own first turn rather than discovering it
+only through `read_feedback`. A coordinator recorded but not loaded in this window is prompted
+through `AppState::send_prompt` instead of dropped, the same relaunch a roster row's own *Resume*
+asks for, closing the one other case that went silent (`None => {}`). The button is drawn for every
+mission and reads which of the two it will do; the field's border stays muted until a coordinator is
+on the record, which is the only remaining sign that the next line also starts one.
+
+**Cost:** a click meant only to leave a note can start an agent — reaching *no* kind named
+`coordinator` and no definition ticked *mission assistant* is still the one case the send refuses,
+since there is nothing to launch a coordinator as. There is no confirmation before the spawn, on the
+reading that a coordinator is exactly what a mission with something to hear needs next, and a user
+who wants to look first uses *Spawn ▾* and picks explicitly instead of typing into the composer.
+
+### D177 — An extension container is a compile-time registry, populated once before the first window
+
+`crates/ubiq/src/ext` gives the base one mechanism for letting a second edition add to a closed
+surface without an ABI, dynamic loading, or a plugin runtime: a `Registry<T>` — id-keyed,
+group-ordered, resolved once to a cached draw order and never walked in a draw path — plus a spec
+struct per container. A container declares its own group order; two items in one group order by
+registration, which is boot order. The registry supports exactly four operations on a contribution
+— insert, relabel, reorder, remove — and never a rebind: a second `insert` under an id already
+registered panics, so replacing behaviour in an existing item's place means removing it and
+inserting a new one under a different id, and the registry is always literally true about what a
+given id does. A declared removal that never resolves against a registered id panics on
+`resolve` — the deliberate trade that stands in for the compile error a base rename produces when
+the id is a `const`, for a second edition that references the id by string and cannot get one.
+
+**Cost:** every future container this mechanism hosts carries a permanent id, group and lint
+obligation. `crates/ubiq/src/ext` builds the mechanism with zero containers on top of it by design — a
+container with no contributor is a published API with no evidence it has the right shape, so each
+one lands only when something needs it, converting the base's own use of the closed surface it
+replaces in the same commit.
+
+### D178 — Extension ids are `SlotId(&'static str)`, namespaced, and linted to one module
+
+An id in `crates/ubiq/src/ext` is `SlotId(&'static str)` — `Copy`, `Eq`, `Hash` — hierarchical and
+owner-prefixed by convention: a container's id is a base-owned path (`settings/app`, `rail`), an
+item's id carries whoever registered it (`ubiq.settings.editor`, a second edition's own prefix for
+its own items). Every id the base declares is a `const` in `crates/ubiq/src/ext/ids.rs`, the one
+module `just slots-check` allows to construct one from a string literal — the same treatment
+`just icons-check` already gives the icon registry. A second edition has no equivalent module: it
+registers by string literal and gets `D177`'s boot assertion in place of the compile error a base
+rename produces here.
+
+**Cost:** `ext/ids.rs` gains one entry per id the base ever declares in a container, and it never
+shrinks on its own — an id a later refactor stops using is dead weight until someone notices, the
+same tax `D10`'s theme tokens and the icon registry already carry.
+
+### D179 — A parsed store round-trips a field it does not itself know, and refuses a file above its own version
+
+`FileProjectStore::flush` and `FileTaskStore::save` (`crates/ubiq-host/src/store/file.rs`) no
+longer rewrite `projects.toml` and `tasks.toml` straight from the typed `ProjectRecord` /
+`TaskRecord` list in memory. Each save reads whatever the file holds before the write, and for every
+row it is about to write — matched to the old file's row by `id` — copies forward any TOML key that
+is not one of the record's own field names. A key neither store's typed struct knows about — a
+Studio field kept on the same row, or one a newer Ubiq wrote — survives an ordinary
+load/modify/save cycle instead of silently vanishing, which is what a bare `serde` round trip
+through a struct with no catch-all field had always done. `store/mission.rs`'s single-record merge is
+the precedent, generalised here from one record per file to a list of them keyed by `id`;
+`merge_unknown_fields`'s `known_fields` list is that generalisation's one manual-sync obligation, the
+same one `mission.rs`'s own probe carries for its record. Both stores refused to open a file whose
+`version` sits above `TASKS_VERSION` / `CATALOGUE_VERSION` before this (`StoreError::UnknownVersion`,
+left exactly as it was rather than overwritten) — this decision's addition is the unknown-field bag,
+not the version refusal, which predates it.
+
+**Cost:** the two stores no longer serialize their file straight from a `#[derive(Serialize)]`
+struct; `known_fields` is a second, hand-kept list of each record's field names that drifts from the
+struct exactly as easily as `mission.rs`'s probe does, and a forgotten update there resurrects a
+cleared `Option` field from the old file rather than losing a key — the same trade `mission.rs`
+makes.
+
+### D180 — The settings nav is one container with two instances, and both closed enums are gone
+
+`SettingsSection` (15 rows, the application overlay) and `ProjectNav` (8 rows, the project settings
+dialog) were closed enums, each matched exhaustively for a label, a nav icon and a body, and
+`ProjectNav` matched twice more for the count beside a row and for whether the live dialog answers
+to it at all. Both are `Copy` newtypes over a `SlotId`, and every one of those matches is a
+field on one `SettingsSectionSpec` (`crates/ubiq/src/ext/settings.rs`) — `D177`'s first container,
+and its first two instances. The scope is a field on the spec, `container: App | Project`, rather
+than two types: the two navs are the same shape written twice, and one spec is what stops them
+drifting apart again. The base's own 15 + 8 are the base's own registrations, made in the same
+commit (`D177`'s migration rule), so the container has a base-side user from its first line.
+
+Four things the conversion buys that the enums could not. **A contributed section gets the
+on-arrival refresh** — what used to be a chain of `if nav == SettingsSection::Connectors { … }` in
+`set_settings_nav` is the section's own `on_show`. **The project dialog's enablement rule is asked
+once** — `SectionGate::{Always, WithRecord, SinkOnly}` is the one answer both the drawn nav and
+`set_sink_project_nav` read, where before each wrote the same five-variant `matches!` out
+separately. **The order is resolved once**, at `install`, into a leaked `&'static` list, and never
+walked in a draw path. And **a second edition can relabel, reorder and remove the base's own
+sections**, not merely append to them, because `Contributions::settings_sections` arrives seeded
+with them.
+
+**The container owns layout and scroll; a section owns content.** Both bodies
+`overflow_y_scroll()`, so a spec's `render` returns a plain column and gets scrolling for free. A
+section's own inner list that can grow long is `flex_none` with a `max_h` and a scroller of its
+own — a box inside a scroller never resolves a height to measure, so a second unbounded list hugs
+its content and grows the page instead of scrolling itself.
+
+**Cost:** the nav position is no longer an enum the compiler can prove exhaustive, so a section the
+nav stands on can go missing at runtime (a second edition removed it) and both bodies draw nothing
+rather than falling back to another page. `SettingsSectionSpec` is also the union of both
+instances' needs — the overlay never prints a count and the dialog never asks anything on arrival,
+so each instance carries fields the other uses, which is the price of not having two types. Neither
+enum was serialized, so there is no migration; the serialized case is `RailMode`'s, and its recipe
+is written there.
+
+### D181 — A provider's configuration is a declared `ConfigField` schema, and the schema travels outward only
+
+`inbox/task-sources-proposal.md`'s R6 named `ConfigField` and left its shape open — it was the one
+piece of the task-source layer with no definition anywhere. It is settled here, in
+`crates/ubiq-proto/src/tasksrc.rs`: `key`, `label`, `kind`, `required`, `testable`, every field a
+`&'static str` or a `bool`, and so `Copy`. `ConfigFieldKind` is `Text`, `Secret`, `Bool`,
+`Choice(&'static str)` and `MultiChoice(&'static str)`, where the string is a **facet name** rather
+than the candidates themselves: the candidates depend on which container is bound and are fetched by
+`TaskProvider::facets()`, while a schema is a compiled-in fact about the provider. `testable` is
+per field rather than per provider, because the question a Test answers is about one value — a query
+string earns a round trip, a board picked out of a list does not, since picking proves the id
+exists.
+
+The pair is `Serialize` and **not** `Deserialize`. A `&'static str` has no `Deserialize` any
+ordinary deserialiser satisfies, and the schema only ever travels outward: the host compiles it in
+and the interface renders it. What comes back is the *binding*, whose values are owned `String`s in
+a `Filter` keyed by `ConfigField::key` — a `Vec<String>` per key, so a `MultiChoice` needs no second
+shape and the whole thing round-trips through TOML with no custom serialisation.
+
+**Cost:** a provider whose configuration does not fit cannot ship until `ConfigFieldKind` grows,
+which is the honest, bounded form of this trade — it shows up as a missing field type rather than as
+a provider drawing its own view inside the interface crate. And the schema being outward-only means
+the day a second edition wants to *send* a schema in, `ProviderInfo` needs an owned mirror; nothing
+reads one today, so that cost is deferred rather than paid twice.
+
+### D182 — The task-source layer is a `tasksrc` module in each half, a blocking provider trait, and a per-project sidecar
+
+The first three slices of `inbox/task-sources-proposal.md` land as two modules. `ubiq-proto`'s
+`tasksrc` holds the neutral vocabulary — `RemoteItem`, `RemoteLane`, `RemoteContainer`,
+`RemoteCheckItem`, `RemoteComment`, `RemoteDraft`, `RemotePatch`, `Revision`, the four
+`String`-backed provider-scoped ids, `ProviderCaps` and `Facets`. The ids are strings rather than
+ULIDs, which is the one place this family departs from `ids.rs`: the id is minted by a tracker Ubiq
+does not run, and its shape is that tracker's business. `ubiq-host`'s `tasksrc` holds
+`TaskProvider`, `Binding`, the link table and `Registry`, with the provider itself in a submodule.
+
+**The trait is blocking**, for `ureq`'s own reason: every call sits on a thread of its own and an
+async runtime would be a second scheduler for nobody. Every method takes the resolved `Identity`
+beside the `Binding` — the proposal's signatures take only the binding, but a binding names a
+`ConnectionId` and holds no material, so passing the identity is what keeps a token out of the file
+the binding is written to. `Registry` is a plain `Vec<Box<dyn TaskProvider>>` filled at boot, not
+`crates/ubiq/src/ext`'s `Registry<T>` (`D177`) — that one is the interface's extension machinery and
+the host has no dependency on it.
+
+Storage is `tasksrc.toml` under the project's data directory, found through `ProjectDirs` exactly as
+`tasks.toml` and `kb.toml` are, and named in `project_dir::GITIGNORE` as a file that travels with
+the project. It is `kb.toml`'s versioned convention — `version` at the top, one atomic write,
+missing read as empty — **plus `D179`'s unknown-field retention**, which is the whole reason the
+layer is filed in a sidecar rather than beside a `TaskRecord`: a sidecar that dropped what it did
+not know would have answered nothing. Bindings merge by `id` and link rows by `task`, since a link
+row is the pair and has no identity apart from it. Both the binding list and the link table are
+**binding-keyed from the first row** even though the setup surface allows one per project, so a
+second board is a setup-surface change and not a file migration.
+
+**Cost:** `BINDING_FIELDS` and `LINK_FIELDS` are `D179`'s hand-kept lists again, with its exact
+drift risk. A second `Identity` type sits beside `repos::list::Identity` — deliberately, since
+that one is behind the `git` feature and a build that syncs a board need not compile version
+control, but it is two structs saying one thing and `G363` is the lift that would end it. And the
+trait is shaped by one implementation until a second arrives: Trello's weakness is what the first
+cut is measured against, and the proposal's own R16 accepts that the second provider will move
+something.
+
+### D183 — Trello is the base's seventh connector provider, pickable from nowhere, with a colon-joined paired secret
+
+`ProviderId` grows `Trello`. `features/connectors.md` says the provider list is closed at six and a
+user cannot add a seventh — a rule about *users*, which this does not break: `ProviderId::all()`
+still answers the six the connections screen offers, `ProviderId::every()` is the new answer to
+"what must a table cover", and `pickable()` is the one-line question in between. A Trello identity is
+obtained where a board is bound, so offering it in the connections picker would be a second,
+unreachable way to hold one.
+
+Trello's secret is a **pair** — an API key and a token, sent as `Authorization: OAuth
+oauth_consumer_key="…", oauth_token="…"` rather than as a bearer — and no other provider's is.
+`Secret` is a newtype over one `String`, not an enum, so a `Secret::Pair` variant would have meant
+reshaping `Secret`, `SubmitConnectSecret`, `ConnectStage::NeedSecret` and the paste flow's single
+field: four edits to a settled, working family for one provider. **The pair is stored joined by a
+colon in the existing single secret slot instead**, and split in `tasksrc/trello.rs` at read time —
+the one place both halves are needed at once. The `secret_prompt` on the `TRELLO` row says so, which
+is what that field is for: providers do not agree on a name for the thing and the user is looking
+for the words their provider used. A colon is unambiguous because neither half contains one — a
+Trello API key is 32 hex characters and a token 64 — and half a credential is refused rather than
+sent. Trello offers `AuthKind::Token` only: its token comes off a `trello.com/1/authorize` page the
+user copies from, a paste and not a callback, so there is no redirect to register and no client id
+to ship.
+
+**Cost:** the user pastes two strings into one field, joined by a character they have to be told
+about, where a second `Secret` variant would have given them two labelled boxes. The split is a
+parse at read time rather than a type, so a malformed pair fails at the first request instead of at
+the paste — the connect flow's own whoami is what catches it, one round trip later. And `Trello` is
+a `ProviderId` every exhaustive match over the enum must answer for while meaning nothing to most
+of them.
+
+### D184 — The rail is a container, a mode is `Availability` plus a spec, and a saved layout for a mode this build never heard of is kept
+
+`RailMode` was a closed enum of ten, matched in **nine** places: the rail's icon table, the `UiId`
+lookup, both directions of the deep-link mapping, the centre screen, the default layout,
+`ModeLayout::default_for`, and two tables of panel furniture. It is a `Copy` newtype over a
+`SlotId`, and every one of those matches is a field on one `RailModeSpec`
+(`crates/ubiq/src/ext/rail.rs`). `RailMode::groups()` no longer writes the APP/PROJECT split or the
+order down at all: the split is which group a registration declares, the order is
+`ext::rail::GROUPS` then registration order, and the base's own ten are the base's own
+registrations in the same commit (`ui::rail::modes`).
+
+**Five of the nine sites were fallback-guarded**, and that is the point rather than a detail. A
+`mode => not_built(mode)`, a `_ => default_ide_layout(…)`, a `_ => (false, false)`, a
+`_ => return` and a `_ => None` over a `(RailMode, Region)` tuple each gave a mode that was not in
+the table a plausible-looking wrong default — no furniture, both edges shut, the IDE's tree — where
+the four exhaustive ones would have been compile errors. Each is a field that *says* what it
+means: `centre: None` is a stated gap, `default_layout: None` says "the IDE's",
+`side_furniture: None` says "none".
+
+**A mode is `Always`, `OptIn` or `When(pred)`** (`Availability`), which is the thing the settings
+container has no equivalent of. `Always` is a deny-list — on the rail unless the project hid it —
+and is what all ten of the base's own are. `OptIn` is an allow-list, `ViewPrefs::opted_in_modes`,
+so a project that has never asked for the mode does not draw it. `When` asks the contribution, and
+**is answered from interface state alone**: a predicate that needs something only the host knows
+has to have had it sent first, through the message set like everything else. Nothing in the rail
+container itself crosses the UI/host boundary, so it costs no wire change.
+
+**`RailMode` is serialized, and that is the expensive half.** It is a key in
+`ViewPrefs::modes: HashMap<RailMode, ModeLayout>` and an entry in `hidden_modes`, so the id reaches
+disk. Four parts, and they are the reusable recipe for any other serialized enum that becomes a
+container — `PanelKind` next:
+
+1. **Encode as the id**, `"ubiq.rail.ide"`, not the variant's `Debug` name.
+2. **Alias the old names in the decoder.** `ext::rail::decode_id` maps the ten, so a schema-5 blob
+   is read whole rather than discarded.
+3. **Keep an id nothing is registered under.** It is interned and written back out untouched. This
+   is the whole reason the step is not optional: dropping it is silent and permanent, and what is
+   lost is a person's saved arrangement for a mode a second edition contributes, gone the first
+   time the other edition is not running.
+4. **Bump the owning schema**, `ViewPrefs` 5 → 6. Nothing is thrown away for it — the decoder reads
+   either spelling — but a build at schema 5 reading an id would find no variant and discard the
+   whole blob, and the number is how it is told not to try.
+
+**Cost:** the mode the window stands in is no longer an enum the compiler can prove exhaustive, so
+a window can stand in a mode nothing answers for (a second edition removed it) and the centre draws
+the not-built page. `RailModeSpec` is fourteen fields, several of which most modes leave at `None`.
+And `SlotId::intern` leaks, deliberately and boundedly: an id read from a blob has to become
+`'static` to stay `Copy`, and the set of ids a config root has ever written down is small and
+fixed.
+
+### D185 — An inbound pass pulls only the fields the remote changed, parks an unmapped lane, and unlinks an item that left the filter
+
+The task-source layer's first pass over a bound board
+(`crates/ubiq-host/src/tasksrc/sync.rs`). One named thread, `ubiq-tasksrc`, holding the **third**
+clone of `Handle(Arc<Mutex<Work>>)` after the coordinator and the MCP listener — `D120`'s write
+path, unchanged, because an imported task has to be an ordinary task from the moment it lands. The
+provider is asked with no lock held; every write afterwards is one `Work` method under the lock,
+released before the message is posted.
+
+Four things are decided here, and all four are rules of the **layer**. A provider cannot opt out of
+any of them, which is what keeps a second provider from having to re-answer them:
+
+1. **Only a field the remote changed is written.** The link row's per-field hash from the last read
+   is compared against a fresh one, so a title the remote did not touch survives whatever the
+   person did to it locally. Without this, `Pull` would overwrite every local edit on every pass,
+   and the conflict rules of the outbound slice would have nothing to stand on.
+2. **An unmapped lane parks the task.** A remote lane the binding's map does not name leaves the
+   task in whichever column it sits in and files the row as `LinkState::Parked` — the badge. The
+   settled Trello map binds `To Do`, `Doing` and `Done` and leaves the other four Ubiq lanes and
+   every other list unbound *on purpose*; a guess would move somebody's card silently, which is a
+   worse failure than a task that visibly did not move. The lane's hash is deliberately **not**
+   filed for a parked item, so binding that lane later moves the task on the next pass rather than
+   waiting for the remote to touch the card.
+3. **An item that leaves the filter loses its link and nothing else** (`R9`). The task, its
+   content, its comments and its steps stay exactly as they were and the row becomes
+   `LinkState::Unlinked`. **Nothing in the pass deletes anything** — there is no call to
+   `Work::delete` in the module. "No longer in the fetch" is not "gone", and the two are
+   indistinguishable from outside: an item deleted at the remote and one the user narrowed away
+   arrive as the same absence.
+4. **The pass reads `query`, never `fetch`.** The filter is what decides which items are the
+   binding's. `fetch` — the linked set, whatever the filter says — is what a deliberate
+   single-item sync uses, and that is a later slice's.
+
+The interval is per binding with the floor applied **on read** (`R14`,
+`Binding::poll_seconds`): five minutes by default, one minute at the floor, and the value the user
+asked for is never rewritten, so a later build with a lower floor does not find it lost. A pass
+never overlaps itself because there is one thread walking the bound projects in turn — no flag, so
+no flag to get wrong.
+
+The module sits behind **`harness` *and* `listener`**, because it needs `work` to write a task and
+`connectors` to resolve the identity a provider is called as. The model, the trait, the binding and
+the sidecar above it stay unconditional, so a lean embedder can still hold a binding it has nothing
+to sync with — which is the honest shape rather than a gate on the whole layer.
+
+**Cost:** the worker holds no catalogue, because `Projects` never leaves the coordinator's thread —
+so the project list is handed over on the same tick that re-reads the task files, and a project
+added is picked up within that tick rather than instantly. The per-field hash is a
+`DefaultHasher` digest, which answers equal-or-not and nothing else; two values that collide would
+read as unchanged and the field would not pull until the next real change. And a labels pull
+replaces the whole set, because a label list is edited as a set on both sides — a local label on a
+task whose remote labels changed does not survive that pass.
+
+### D186 — The kitchen sink contributes the settings and rail containers' first real, non-base items, and one rail bug only they could find
+
+M2 and M3 gave the settings and rail containers a base-side user from their first commit (`D177`'s
+invariant 1), but every item on either was a conversion of something that used to be a closed
+enum's variant — moved, never added (`D180`, `D184`). `inbox-studio-extension`'s own anti-rot device
+(`X11`) is what M4 answers: **the kitchen sink registers one demo settings section and one demo
+rail mode, through `ext::settings::register` and `ext::rail::register`, with neither container's
+own module touched to add them** — `crates/ubiq/src/ui/sink/ext_demo.rs`, called from each
+container's `base_registry()` beside the base's own conversions.
+
+**Why the sink is the host rather than either container's own module.** The demo needs no project
+and no host call — exactly the sink's own rule, the one screen built to have nothing behind
+it — so its code sits beside the sink's rather than inventing a third location. A single switch,
+`SinkState::ext_demo_on`, is drawn by the demo settings section (Settings › System › Extensions
+demo) and read by the demo rail mode's `Availability::When` predicate: turning the switch off drops
+the mode out of the rail entirely, in place, which is what "a broken container shows as broken"
+looks like for a `When` contribution in the sink — the same switch also makes a broken *predicate*
+visible, since a `When` that always answered `true` or `false` regardless of the switch would be
+caught by inspection immediately.
+
+**The demo mode is `Availability::When`, the first of the base's eleven that is not `Always`, and
+that alone found a real bug rather than only exercising one.** `AppState::toggle_mode`'s "the last
+visible mode cannot be hidden" guard compared `hidden_modes.len() + 1` against
+`RailMode::every().count()` — the *registered* total. That was a correct ceiling only by accident:
+every one of the base's original ten is `Always`, so "registered" and "could be showing" were the
+same number. The moment an eleventh mode is registered but not `Always` — off by default, as the
+demo is — the two numbers diverge, and the guard undercounted how many modes were actually hidden
+before the rail went empty: it let every `Always` mode be hidden in a project where the `When`
+contribution simply never fired, leaving nothing on screen at all
+(`crates/ubiq/tests/mode_restore.rs`'s `hiding_modes_never_empties_the_rail` caught it directly).
+Fixed by computing the ceiling from `mode_enabled` — how many modes are enabled for the project on
+screen — rather than from the registry's size, computed before the project is borrowed mutably
+rather than after.
+**This is the answer to the plan's own open question**, restated: none of the base's ten had ever
+exercised `Availability`'s conditional arms, so the claim that the rail costs no wire change was
+*unfalsified rather than proved* (`D184`). It still holds — the predicate needed no host state, per
+`SectionCtx`/`RailModeSpec`'s "widest context, not extracted arguments" rule — but the container's
+own bookkeeping around `Availability` had a latent bug that only a non-`Always` registration could
+surface, exactly as invariant 9 predicts for a container nothing has really used yet.
+
+**What "broken" looks like on either container, verified by running the existing pinned tests
+rather than by eye.** `crates/ubiq/tests/settings_container.rs` and `rail_container.rs` pin the
+base's rows byte-for-byte; extending both lists to include the demo entries and rerunning them is
+what "the section is really registered, in the right group, in the right order" means here — a
+misconfigured group panics at resolve time (`Registry::resolve`'s loud assertions), a duplicate id
+panics at boot, and a `When` predicate that stopped reading the switch would show as a rail icon
+that never reacts to the settings toggle, which is what a person clicking both would see directly.
+
+**Cost:** `crates/ubiq/src/ext/rail.rs`'s own legacy-table unit test and several pinned assertions in
+`crates/ubiq/tests/rail_container.rs` and `settings_container.rs` had to change from "true of every
+registered item" to "true of the base's original ten/fifteen" — a container's first real
+contribution is also the first time a test that quietly assumed the resolved list still means "the
+base's own" stops being true, and future contributions will find more of these rather than fewer.
+
+### D187 — A provider's configuration is drawn by one renderer that names no provider and matches no capability, and the schema had to learn to come back
+
+The task-source layer's `R6` says a provider declares `&'static [ConfigField]` and the base renders
+it. M7 is where that stopped being a claim: `crates/ubiq/src/ui/tasksrc.rs` draws the settings
+section, the import dialog, the card badge and the board's status item, and **nothing in it names
+Trello, Azure DevOps or ClickUp**. The only `match` in the renderer is over `ConfigFieldKind`'s five
+shapes, which is the closed set the contract crate owns — a provider needing a sixth cannot ship
+until that variant exists, which is the visible, bounded cost `R6` promised instead of a leak.
+
+**Capabilities grey controls out through a table, not a branch.** The plan's gate was exact: one
+rendered section covers every provider *without a capability match in the drawing code*. So
+`state::tasksrc::ABILITIES` and `CAVEATS` are `&'static` tables whose rows each carry an
+`fn(&ProviderCaps) -> bool`; the draw path iterates and asks `(row.needs)(&caps)` and never names a
+flag. Adding a capability is a row, not an arm — `X16`'s "each match becomes one spec field", applied
+to a flag set rather than to an enum. Two consequences fall out for free: the write side is offered
+when *any* ability row is lit rather than by eleven booleans `or`ed together, and `R8`'s obligation
+to say next to the authority switch that Trello's emulated conditional write does not close the
+window is a `CAVEATS` row rather than a sentence somebody has to remember to write.
+
+**A control a provider cannot drive is greyed, never removed.** Two providers' pages are the same
+shape and the difference between them is a legible sentence; a page that dropped rows would make
+"why can this board do that and mine cannot" unanswerable from the screen.
+
+**Test runs the filter.** `R7`, literally: `TestTaskSource` fetches under the binding's own filter
+and answers with a count and the first few titles. It validates no syntax — Trello has none, and a
+tracker with a query language has a server that owns the grammar. The count is strictly more
+truthful than a parse, because a query that parses and matches nothing is visibly wrong here rather
+than silently wrong on the next pass.
+
+**Two things had to move for any of it to work, and both were the contract crate's fault rather
+than the interface's.**
+
+1. **`ConfigField`, `ConfigFieldKind` and `ProviderInfo` were `Serialize`-only**, on the reading
+   that a schema only ever travels outward. That reading was wrong and M7 is where it broke: a
+   second edition's provider compiles into the **host** half, the renderer lives in the
+   **interface** half, and `Message` derives `Deserialize` for the whole enum — so a schema that
+   cannot be read back cannot reach the one place it has to reach. Rather than grow an owned twin
+   of `ConfigField` that only the interface names — two types for one fact, which is what `R6`
+   exists to avoid — `tasksrc::intern` turns a deserialised `String` into a `&'static str`, once
+   per distinct string. The field stays `Copy`, a provider's `config_schema()` stays a plain
+   `const`, and neither `trello.rs` nor Studio's `ado_provider.rs` changed a line. **Cost:** a
+   deliberate, bounded leak — a schema is four or five fields per provider and the pool
+   deduplicates, so the same `"wiql"` read a hundred times is one allocation.
+2. **`Binding`, `Filter`, `Direction`, `Authority`, `LinkState` and `TaskLink` moved from
+   `ubiq-host` into `ubiq_proto::tasksrc`.** The settings surface edits a binding and
+   `SetTaskSource` carries it back, so a binding is vocabulary both halves name. The host
+   re-exports them, every existing path still reads, and the file a binding is written to is still
+   `tasksrc/store.rs`'s alone.
+
+**The wire family is the proposal's §3.6, built.** Ten asks and nine answers, on the repository
+family's discipline: the interface mints a `TaskSrcQueryId`, every reply carries it back, and a
+reply naming an id the interface no longer holds is discarded rather than drawn. A filter is edited
+by typing, so the stale-answer case is the ordinary one here rather than the exception. No variant
+carries a pane id, so `pane_id_of` is untouched.
+
+**The parked badge is drawn.** `D185` files `LinkState::Parked` on the link row when an item's
+remote lane is not in the binding's lane map, and nothing drew it; the card says `Parked` in the
+warning tone with the reason on its hover. `Linked` draws nothing — the ordinary case is not news,
+and a dot on every synced card is a dot nobody reads.
+
+**Cost, and what is deliberately not here.** The host side of the new family is unhandled: M7 is the
+interface, and the coordinator's arms are M8's. The section therefore draws correctly against a host
+that answers, and sits inert against one that does not — which is the right failure for a milestone
+that is half of a seam, and the wrong one to hide behind a spinner. `TaskSourceState::drifted` is
+carried and drawn from the first commit so the status item does not grow a second shape when M8
+fills it. A `Secret` field is drawn unmasked, this kit having no masked input — the connector
+family's own token step takes that same bargain and says so; what makes a secret different here
+is not the drawing but that its value goes to the secret store on save and is never read back, so
+the box is empty rather than showing dots for a value the interface does not hold.
+
+### D188 — The conflict table is two hash maps and a switch, a capability a provider lacks is stated rather than dropped, and the wire family finally has a host half
+
+M8 completes the task-source layer: the outbound write, the authority switch, drift and its
+surfaces, and the arms `crates/ubiq-host` owed the page `D187` drew. Until this, the settings
+section sent every message in §3.6 and nothing answered — `G364`, closed by this.
+
+**The conflict table, in full.** Each field of each linked task is compared on *both* sides, and the
+cell decides:
+
+| Local changed | Remote changed | What happens |
+|---|---|---|
+| no | no | nothing |
+| no | yes | **pull** — the remote value is written to the task |
+| yes | no | **push** — the local value is written to the remote |
+| yes | yes | the binding's `Authority` decides, the loser's value is kept in a comment on the task, and the row is filed `LinkState::Drifted` |
+
+Five rules qualify it, and every one is a rule of the **layer** — a provider cannot opt out of any:
+
+1. **A `Pull`-only binding never pushes, and never flags.** `R13` keeps outbound off until somebody
+   turns it on, so every `push` cell becomes *leave the local value alone and tell the remote
+   nothing*, and files no drift row. A local edit there is the user's to keep and nothing will ever
+   be done about it; flagging it would leave every edited card on every pull-only board permanently
+   drifted, which is the dot nobody reads. It is still a local *change*, so if the remote later
+   moves the same field the table reaches its fourth row and the switch decides.
+2. **A field the provider cannot write is not attempted, and not dropped either.** The patch is
+   built through a capability table — the same flags `D187`'s `ABILITIES` greys a control on — and
+   a refused field becomes a `FieldDrift` with `settles: None`: a standing divergence no switch
+   setting closes. Greying a control and silently discarding a value are not the same thing, and
+   only the first is honest.
+3. **Four fields are pull-only by construction.** `key` and `url` are minted by the remote (`R11`),
+   and `kind` and `priority` are *derived* through the binding's maps from a label or a type hint —
+   pushing one would mean running a many-to-one map backwards, and it has no inverse.
+4. **Before any write, fetch.** A full pass has just run `query()` and a single-item sync has just
+   run `fetch()`, so the revision handed over as the precondition is the one the decision was made
+   against. Where the provider honours no precondition it re-reads and compares instead (`R8`),
+   which narrows the window to one round trip and does not close it — and `CAVEATS` says exactly
+   that beside the switch — which is the claim `D187`'s caveat makes, and which this matches.
+5. **A refused write is a `Conflict` and is never retried by overwriting.** Nothing is written on
+   either side, the task keeps every byte it had, and the local hashes are deliberately *not*
+   re-taken — so the next pass still sees the edit as pending and tries again against a fresh read
+   with the precondition honoured again. Retrying the *push* is not retrying the *overwrite*.
+
+**Two hash maps, not one.** `TaskLink` gains `local` beside `hash`: the same per-field digests taken
+over the task at the same moment. The obvious shape — hash the task in the remote's vocabulary and
+compare against the one map `D185` files — does not work, and the lane is why. The lane map
+is many-to-one, so two lists that both mean `Done` are one task state and two remote values, and a
+task sitting still would read as changed on every pass. Normalising either side onto the other would
+also make every mapping decision a hashing decision. So each side is hashed in its own words and
+compared only against its own previous value. **Cost:** a link row is two maps wide, and a row
+written before this reads as *the local side has not changed* — which pulls, exactly as `D185` did,
+and is the safe answer.
+
+**Drift rides the link row.** `TaskLink::drift` is a list of `FieldDrift` — the field, **both values
+as text**, which way the switch settles it, and one sentence saying why. No `DriftOverview` message
+and no second query id: a link row is broadcast on every change and persisted with the binding, so
+the overview is read off state every window holds. A row that said only "the title differs" would
+send somebody to the browser to find out what it differs *to*, which is the question the overview
+exists to answer.
+
+**Where the overview is drawn.** The proposal left this open — "a modal, a dock panel, or a section
+of the detail panel". It is a section of the settings page, **immediately under the authority
+switch**: the switch is what decides these rows, so the rows belong where a person can read its
+effect and change it in one glance. A modal would separate the rule from its consequences, and the
+detail panel can only ever show one card's. `ResolveTaskDrift { project_id, task_id, side }` is the
+per-row and bulk button both, and it **overrides the switch on purpose** — the switch is what
+happens when nobody is looking, and this is somebody looking at two values and choosing. Only the
+fields on the row move: a resolution answers a divergence somebody was shown, and a field
+nobody was shown is not a field anybody chose. A forced push is made even on a pull-only binding,
+because `R13` exists to stop a *silent* first write and a button pressed beside the two values is
+the opposite of silent.
+
+**`T-237` forced a flag, in the honest direction.** The card asks whether `ProviderCaps` — a
+per-provider flag over what is often a per-call fact — is a poor thing to gate a write on. The
+answer outbound produces is *not for the write flags, and yes for the read ones*, and the split is
+clean: a write flag describes the one method that could make the write, so it has a definite answer;
+the per-call ambiguity lives entirely in `checklist_read`/`comments_read`, where an empty list is
+not a claim. So the conflict table covers **only the nine fields every call that returns a
+`RemoteItem` fills** — checklist and comments are slice 7's, and are named here as deliberately out.
+It did find one flag that lied: **Trello declared `write_assignee: true` while its `update`
+deliberately never sends one** (a task's `assigned_to` is free text; a Trello member is an account,
+and writing one from the other invents a membership). That is `T-237`'s shape exactly, and the flag
+is off — so the interface greys the row with its reason and a local assignee change is filed as drift
+that settles nowhere, rather than being silently dropped by the one method that could have sent it.
+
+**The host's arms.** `tasksrc/service.rs`, on the repository family's division and for its reason:
+what a file answers is answered on the coordinator's thread (`ListTaskProviders`, `GetTaskSource`,
+`SetTaskSource`, `UnlinkTask`), and everything that touches a network is a thread of its own
+(`ListRemoteContainers`, `ListRemoteLanes`, `TestTaskSource`, `ListRemoteItems`,
+`ImportRemoteItems`, `SyncTaskSource`, `ResolveTaskDrift`). A query-shaped ask answers its asker
+with the id it was minted under; a project-shaped one changes the project's tasks and answers
+everybody — which is also why a project-shaped failure comes back on `TaskSourceState` rather than
+on `TaskSourceError`, whose query id nobody minted. **One gate over every `tasksrc.toml`**, shared
+with the polling worker: the five-minute tick and a force button pressed during it are two passes
+over one link table, and without it the second overwrites the first.
+
+**Two wire changes, and both were forced.** `ResolveTaskDrift` is the one §3.6 always listed and
+`D187` deferred. `ListRemoteItems` grew a `project_id`: only a project has link rows, and without it
+the import dialog cannot mark which offered items are tasks — the one thing that stops it offering
+a second copy of a task that exists.
+
+**Cost, and what is deliberately not here.** Comments and the checklist do not travel in either
+direction (slice 7). The loser's value is kept as a comment stamped `CommentAuthor::Agent`, which is
+the nearest honest author the closed set has — a third variant for the sync is the right shape and
+is `G367`. A labels pull still replaces the whole set; the per-field table narrows it to passes in
+which the *remote* moved the labels and cannot end it, because a set has no per-element history
+(`G366`). And `D185`'s digest is still equality-only, so a collision reads as unchanged — fine at
+this scale, and true of two maps rather than one.
+
+### D189 — Task providers are a seeded registry on `Contributions`, and a provider declares the connector family whose connections can authenticate it
+
+The last functional gap in the task-source layer, and it was two gaps that look like one. A
+contributed `TaskProvider` had nowhere to be registered — `coordinator.rs` built
+`tasksrc::Registry::with_defaults()` itself, so the only providers a build could ever hold were the
+base's — and a binding had no way to name a real identity: `pick_task_provider` minted a
+`ConnectionId::generate()` for the host to resolve, and there was no setter for a draft's connection
+and no way to re-ask for containers. Either alone stops `ListRemoteContainers` resolving, which is
+why nothing downstream of them had ever run end to end.
+
+**The registry moves onto `Contributions` and the coordinator is handed it.** `task_providers` is a
+`ubiq_host::tasksrc::Registry`, not a `ubiq::ext::Registry<Spec>`. That is `X15`'s two kinds taken
+literally: a UI container is ordered, drawn and conditional, and a host service is none of those —
+it is resolved by id and never listed in order — so giving a provider a group, a label, an icon and
+a predicate to make the two look alike would be the framework mistake. What it does share are the
+**rules**: it arrives **seeded** with the base's own Trello, `register` is the only way in and
+substitutes by id, and `remove` drops a seeded entry, so a second edition can substitute or remove a
+base provider rather than only append to them. `coordinator::start` grows a parameter and builds
+nothing; the base binary hands in `Registry::with_defaults()`, unchanged. It is the only field on
+`Contributions` that is not behind `feature = "ui"`, because a headless build still syncs.
+
+**A provider declares its connector family, and the base's own section grew a connection picker.**
+`ProviderInfo` gains `connector: Option<ProviderId>` and `TaskProvider::connector()` answers it;
+the picker offers exactly the held connections whose provider matches, `AppState::pick_task_connection`
+writes it and re-asks for containers in one call, and `reask_task_containers` is public for a
+contributed section that owns its own chain. This is **not** a per-provider branch in the renderer:
+the family is a field the provider *declared*, on the same footing as its schema (`D181`) and its
+capabilities, and the drawing code names no tracker.
+
+**`None` is a claim, not a shrug.** It means *this build holds no connector family that can
+authenticate this provider*, and the section says exactly that instead of offering a list in which
+every entry is wrong. ClickUp is the live example: Studio's provider is complete and tested, and
+`ProviderId` — a closed enum in the contract crate — has no variant for it, so it is registered,
+listed, and honestly unconnectable until one exists. Registering it anyway is the point: a provider
+left out of the list is indistinguishable from one nobody wrote, and the gap would be invisible
+rather than legible. Converting `ProviderId` itself onto a container is the recipe's next
+candidate and is a card of its own (`T-236`).
+
+**Cost.** `coordinator::start` has one more parameter and three test call sites moved with it.
+`ProviderInfo` is one field wider on the wire, `#[serde(default)]` so an older sender still decodes.
+And a binding whose connection is not held is still savable — the section says so in a sentence
+rather than blocking the save, because a binding written on another machine is an ordinary thing to
+open and a refused save would be the wrong answer to it.
+
+### D190 — The default view mode persists; a per-document one is memory-only
+
+A viewer's position — Source, Preview, Split, Editor, Annotation — sits on two footings, and only
+one of them is written down.
+
+**The default is a setting.** Which position a document *opens* in is `UiSettings::markdown_open`,
+changed on the Editor settings page and written down by the host with every other setting. That is
+what a user changes to say how documents should look.
+
+**The override is the tab's, and it dies with the tab.** Moving *this* document to another position
+is the viewer header's toggle, and it lands on `OpenFile::layout` — in memory, per document, on the
+same footing as `MdReading` and `frontmatter_open`. Closing the tab drops it; so does a restart. It
+survives a rail-mode switch and a project switch, because `OpenFile` lives on the project rather
+than on the mode and `AppState::settle_visibility` pushes it back onto whichever panel the rebuilt
+tree put the tab in — the surviving `OpenFile` is the mechanism, not the saved arrangement.
+
+So `ViewLayout` carries no `Serialize`/`Deserialize` and `ui::dock::file_payload` writes the tab key
+alone. A `layout` field in an arrangement written by an earlier build is read straight past rather
+than honoured, which is the whole upgrade path: those documents open in the default.
+
+`D109` gave `Edit` a position on this axis and said the axis persisted. The axis stands; what it
+persists is this row's answer.
+
+**Cost.** A document put into Split for one reading session opens in the default the next morning,
+and somebody who wanted Split every time has to say so once, in settings, where it is a stated
+preference rather than a side effect of the last thing they clicked. `ViewerKind::offers` keeps its
+coercion for `set_viewer_kind` rather than for a restore. And the per-document override has no
+second home: there is no per-file position in `ViewPrefs` either, deliberately, because a second
+persisted position would be the same contradiction under another name.
 
 ## Related docs
 

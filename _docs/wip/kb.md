@@ -25,7 +25,7 @@ A source ([`KbSource`]) is a name, an id, a [`KbOrigin`], a filter of space-sepa
 against a file's name at any depth, and a [`KbAccess`]. `KbOrigin` has three arms: `Folder { path }`,
 read where it lies; `Git { url, branch?, store }`, fetched onto a directory of its own, where
 [`KbStore`] says whether that directory is the machine's temporary area (`Cache`), the project's own
-area of the config root (`Internal`, the default, `D30`'s guarantee) or a `.ubiq/kb` folder inside
+area of the config root (`Internal`, the default, `D30`'s guarantee) or a `.ubiq/local/kb` folder inside
 the project itself (`Project`, the one arm that writes there on purpose); and `Internal`, a wiki
 Ubiq keeps for the project itself, always writable and with nothing to fetch. The whole list for a
 project rides one message rather than one row per edit — `SetKbSources` — because it is a short
@@ -273,7 +273,7 @@ folder. A git source's clone already respects this — `Kb::base_path` puts it u
 `<config root>/projects/<ulid>/kb/`, never inside the project — and that placement is why `D30`'s own
 prose names the knowledge base as one of the things it covers.
 
-`KbStore::Project` breaks that rule on purpose: a `.ubiq/kb/<source id>` checkout **inside** the
+`KbStore::Project` breaks that rule on purpose: a `.ubiq/local/kb/<source id>` checkout **inside** the
 project, for a team that wants the checkout shared with everyone who has the project, or committed
 alongside it, rather than living only in one person's config root. This is a real, user-chosen
 exception rather than an oversight, and it needs its own decision row before it is built — what a

@@ -242,7 +242,7 @@ impl AppState {
         if self.workbench.feedback.is_some() {
             return crate::ui::feedback::help_page();
         }
-        if self.workbench.rail_mode == crate::state::RailMode::Sink {
+        if self.workbench.rail_mode == crate::state::RailMode::SINK {
             return crate::ui::sink::help_page();
         }
         None

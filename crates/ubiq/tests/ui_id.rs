@@ -137,16 +137,16 @@ fn the_catalogue_is_well_formed() {
 #[test]
 fn every_rail_mode_has_a_catalogued_name() {
     for mode in [
-        RailMode::Control,
-        RailMode::Ide,
-        RailMode::Git,
-        RailMode::Agents,
-        RailMode::Teams,
-        RailMode::TeamsAll,
-        RailMode::TeamsOld,
-        RailMode::Kb,
-        RailMode::Tasks,
-        RailMode::Sink,
+        RailMode::CONTROL,
+        RailMode::IDE,
+        RailMode::GIT,
+        RailMode::AGENTS,
+        RailMode::TEAMS,
+        RailMode::TEAMS_ALL,
+        RailMode::TEAMS_OLD,
+        RailMode::KB,
+        RailMode::TASKS,
+        RailMode::SINK,
     ] {
         let id = ui_id::rail_mode(mode);
         assert!(ui_id::is_known(&id), "{id} is not in the catalogue");
@@ -759,16 +759,16 @@ fn the_rail_and_titlebar_mark_every_name_phase_3a_claims(cx: &mut gpui::TestAppC
         ui_id::RAIL_MARK,
         ui_id::RAIL_MODES,
         ui_id::RAIL_PROJECTS,
-        ui_id::rail_mode(RailMode::Control),
-        ui_id::rail_mode(RailMode::Ide),
-        ui_id::rail_mode(RailMode::Git),
-        ui_id::rail_mode(RailMode::Agents),
-        ui_id::rail_mode(RailMode::Teams),
-        ui_id::rail_mode(RailMode::TeamsAll),
-        ui_id::rail_mode(RailMode::TeamsOld),
-        ui_id::rail_mode(RailMode::Kb),
-        ui_id::rail_mode(RailMode::Tasks),
-        ui_id::rail_mode(RailMode::Sink),
+        ui_id::rail_mode(RailMode::CONTROL),
+        ui_id::rail_mode(RailMode::IDE),
+        ui_id::rail_mode(RailMode::GIT),
+        ui_id::rail_mode(RailMode::AGENTS),
+        ui_id::rail_mode(RailMode::TEAMS),
+        ui_id::rail_mode(RailMode::TEAMS_ALL),
+        ui_id::rail_mode(RailMode::TEAMS_OLD),
+        ui_id::rail_mode(RailMode::KB),
+        ui_id::rail_mode(RailMode::TASKS),
+        ui_id::rail_mode(RailMode::SINK),
         ui_id::TITLEBAR,
         ui_id::TITLEBAR_PROJECT,
         ui_id::TITLEBAR_NEW_PROJECT,
@@ -813,7 +813,7 @@ fn the_rail_and_titlebar_mark_every_name_phase_3a_claims(cx: &mut gpui::TestAppC
     let rail = recorded_rect(&marks, &ui_id::RAIL);
     let modes = recorded_rect(&marks, &ui_id::RAIL_MODES);
     let projects = recorded_rect(&marks, &ui_id::RAIL_PROJECTS);
-    let control = recorded_rect(&marks, &ui_id::rail_mode(RailMode::Control));
+    let control = recorded_rect(&marks, &ui_id::rail_mode(RailMode::CONTROL));
     assert!(
         rect_contains(rail, modes),
         "rail.modes should sit inside the rail: {rail:?} / {modes:?}"
@@ -834,7 +834,7 @@ fn the_rail_and_titlebar_mark_every_name_phase_3a_claims(cx: &mut gpui::TestAppC
 #[gpui::test]
 fn a_point_inside_a_rail_mode_resolves_to_the_mode_not_the_rail(cx: &mut gpui::TestAppContext) {
     let marks = render_real_shell(cx);
-    let control = recorded_rect(&marks, &ui_id::rail_mode(RailMode::Control));
+    let control = recorded_rect(&marks, &ui_id::rail_mode(RailMode::CONTROL));
     let (x, y) = (
         control.x + control.width / 2.,
         control.y + control.height / 2.,
@@ -843,7 +843,7 @@ fn a_point_inside_a_rail_mode_resolves_to_the_mode_not_the_rail(cx: &mut gpui::T
     let hit = deepest_hit(&marks, x, y).expect("the rail mode is under the cursor");
     assert_eq!(
         hit.id,
-        ui_id::rail_mode(RailMode::Control),
+        ui_id::rail_mode(RailMode::CONTROL),
         "the deepest name won, not `rail` or `rail.modes`"
     );
 }

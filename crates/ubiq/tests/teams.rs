@@ -469,7 +469,7 @@ fn the_span_decides_whose_cards_the_canvas_draws(cx: &mut TestAppContext) {
     );
 
     fixture.state.update(cx, |state, _| {
-        state.workbench.rail_mode = RailMode::TeamsAll
+        state.workbench.rail_mode = RailMode::TEAMS_ALL
     });
 
     let both = drawn(&fixture, cx);
@@ -495,7 +495,7 @@ fn project_of_agent_answers_each_card_s_own_project_under_the_window_span(cx: &m
     fixture.started(an_agent(here, "here"), cx);
     fixture.started_in(second, an_agent(there, "there"), cx);
     fixture.state.update(cx, |state, _| {
-        state.workbench.rail_mode = RailMode::TeamsAll
+        state.workbench.rail_mode = RailMode::TEAMS_ALL
     });
 
     fixture.state.read_with(cx, |state, cx| {
@@ -523,7 +523,7 @@ fn picking_a_foreign_card_attaches_the_active_project_s_chat_tab(cx: &mut TestAp
     let there = AgentId::generate();
     fixture.started_in(second, an_agent(there, "there"), cx);
     fixture.state.update(cx, |state, _| {
-        state.workbench.rail_mode = RailMode::TeamsAll
+        state.workbench.rail_mode = RailMode::TEAMS_ALL
     });
 
     fixture.state.update(cx, |state, cx| {
@@ -582,7 +582,7 @@ fn the_window_span_fences_each_card_and_container_in_its_project_s_colour(cx: &m
     fixture.started_in(second, an_agent(loose_there, "loose there"), cx);
 
     fixture.state.update(cx, |state, _| {
-        state.workbench.rail_mode = RailMode::TeamsAll
+        state.workbench.rail_mode = RailMode::TEAMS_ALL
     });
 
     fixture.state.read_with(cx, |state, cx| {
@@ -670,7 +670,7 @@ fn a_teams_link_names_the_selected_card_s_own_project(cx: &mut TestAppContext) {
     fixture.started_in(second, an_agent(there, "there"), cx);
 
     fixture.state.update(cx, |state, cx| {
-        state.workbench.rail_mode = RailMode::TeamsAll;
+        state.workbench.rail_mode = RailMode::TEAMS_ALL;
         state.select_in_teams(TeamsSelection::Agent(there), cx);
     });
 
@@ -714,7 +714,7 @@ fn each_span_keeps_its_own_arrangement(cx: &mut TestAppContext) {
     });
 
     fixture.state.update(cx, |state, cx| {
-        state.workbench.rail_mode = RailMode::TeamsAll;
+        state.workbench.rail_mode = RailMode::TEAMS_ALL;
         let teams = state.teams_mut(cx).expect("the window span's view");
         assert_eq!(
             teams.algo,
@@ -726,7 +726,7 @@ fn each_span_keeps_its_own_arrangement(cx: &mut TestAppContext) {
     });
 
     fixture.state.update(cx, |state, cx| {
-        state.workbench.rail_mode = RailMode::Teams;
+        state.workbench.rail_mode = RailMode::TEAMS;
         let teams = state.teams(cx).expect("the project span's view, again");
         assert_eq!(teams.algo, Algo::Columns);
         assert_eq!(
@@ -736,7 +736,7 @@ fn each_span_keeps_its_own_arrangement(cx: &mut TestAppContext) {
     });
 
     fixture.state.update(cx, |state, cx| {
-        state.workbench.rail_mode = RailMode::TeamsAll;
+        state.workbench.rail_mode = RailMode::TEAMS_ALL;
         let teams = state.teams(cx).expect("the window span's view, again");
         assert_eq!(teams.algo, Algo::Radial);
         assert_eq!(teams.zoom, 2.0);
@@ -811,7 +811,7 @@ fn add_agent_starts_the_conversation_in_the_project_the_menu_named(cx: &mut Test
     let second = fixture.hold_a_second(cx);
     fixture.answer_agent_types(cx);
     fixture.state.update(cx, |state, _| {
-        state.workbench.rail_mode = RailMode::TeamsAll
+        state.workbench.rail_mode = RailMode::TEAMS_ALL
     });
     let _ = fixture.said();
 
@@ -858,7 +858,7 @@ fn cancelling_the_form_forgets_the_project_it_was_aimed_at(cx: &mut TestAppConte
     // The project question only exists under the window span (`teams_project_choice`) — the same
     // switch its sibling test above makes before calling `add_agent_in`.
     fixture.state.update(cx, |state, _| {
-        state.workbench.rail_mode = RailMode::TeamsAll
+        state.workbench.rail_mode = RailMode::TEAMS_ALL
     });
 
     fixture.add_agent_in(second, cx);
@@ -927,7 +927,7 @@ fn new_mission_from_the_chevron_opens_on_the_project_the_menu_named(cx: &mut Tes
     let fixture = Fixture::open(cx);
     let second = fixture.hold_a_second(cx);
     fixture.state.update(cx, |state, _| {
-        state.workbench.rail_mode = RailMode::TeamsAll
+        state.workbench.rail_mode = RailMode::TEAMS_ALL
     });
 
     let index = fixture
@@ -994,7 +994,7 @@ fn work_arriving_lays_the_window_span_s_own_view_out(cx: &mut TestAppContext) {
     fixture.started_in(second, an_agent(there, "there"), cx);
 
     fixture.state.update(cx, |state, _| {
-        state.workbench.rail_mode = RailMode::TeamsAll
+        state.workbench.rail_mode = RailMode::TEAMS_ALL
     });
 
     let (a, b) = fixture.state.read_with(cx, |state, cx| {
@@ -1040,7 +1040,7 @@ fn a_card_is_never_filed_into_another_project_s_task(cx: &mut TestAppContext) {
     fixture.started_in(second, on_theirs, cx);
 
     fixture.state.update(cx, |state, cx| {
-        state.workbench.rail_mode = RailMode::TeamsAll;
+        state.workbench.rail_mode = RailMode::TEAMS_ALL;
         // The two containers put far enough apart that neither drop can be read as the other.
         // Pinned rather than left to the packer: where the arrangement happens to put two frames
         // is not what this test is about, and a card dropped in the overlap would prove nothing.

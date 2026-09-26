@@ -741,13 +741,79 @@ fn feedback_goes_to_the_coordinator_as_send_to_agent(cx: &mut TestAppContext) {
     )));
 }
 
-/// A mission with nobody running it has nobody to tell, and says so rather than swallowing the
-/// line.
+/// A coordinator on the record with no harness loaded is prompted all the same — the host's
+/// `PromptAgent` arm relaunches it. Journaled *and* delivered, not journaled and dropped (T-212).
 #[gpui::test]
-fn feedback_with_no_coordinator_sends_nothing(cx: &mut TestAppContext) {
+fn feedback_prompts_an_unloaded_coordinator(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let task = TaskId::generate();
+    let coordinator = AgentId::generate();
+    let mut record = a_mission(fixture.project, task, Phase::InProgress);
+    record.coordinator = Some(coordinator);
+    fixture.mission(record, cx);
+
+    let sent = fixture.with(cx, |state, _, cx| {
+        state.send_mission_feedback(task, "anyone there?".to_string(), cx)
+    });
+    assert!(sent);
+    assert!(fixture.said().iter().any(|m| matches!(
+        m,
+        Message::PromptAgent { agent_id, text } if *agent_id == coordinator && text == "anyone there?"
+    )));
+}
+
+/// A mission with no coordinator gets one: the send spawns it, crowns it, and the line goes both
+/// into its briefing and into the journal (T-212).
+#[gpui::test]
+fn feedback_with_no_coordinator_spawns_one(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let task = TaskId::generate();
+    fixture.deliver(
+        Message::AgentDefinitions {
+            definitions: vec![a_definition("worker")],
+        },
+        cx,
+    );
+    fixture.mission(a_mission(fixture.project, task, Phase::InProgress), cx);
+    fixture.said();
+
+    let sent = fixture.with(cx, |state, _, cx| {
+        state.send_mission_feedback(task, "anyone there?".to_string(), cx)
+    });
+    assert!(sent);
+    let said = fixture.said();
+    let crowned = said.iter().find_map(|m| match m {
+        Message::SetMissionField {
+            task_id,
+            field: MissionField::Coordinator(Some(agent)),
+            ..
+        } if *task_id == task => Some(*agent),
+        _ => None,
+    });
+    let crowned = crowned.expect("the send crowned a coordinator");
+    assert!(said.iter().any(|m| matches!(
+        m,
+        Message::StartConversation { agent_id, .. } if *agent_id == crowned
+    )));
+    assert!(said.iter().any(|m| matches!(
+        m,
+        Message::PromptAgent { agent_id, text } if *agent_id == crowned && text.contains("anyone there?")
+    )));
+    assert!(said.iter().any(|m| matches!(
+        m,
+        Message::SendToAgent { agent_id, text, .. }
+            if *agent_id == crowned && text == "anyone there?"
+    )));
+}
+
+/// Nothing to run a coordinator *as* is still a refusal with a sentence — the one case where the
+/// line does not go anywhere, and the composer says why rather than swallowing it.
+#[gpui::test]
+fn feedback_with_nothing_to_spawn_says_so(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
     let task = TaskId::generate();
     fixture.mission(a_mission(fixture.project, task, Phase::InProgress), cx);
+    fixture.said();
 
     let sent = fixture.with(cx, |state, _, cx| {
         state.send_mission_feedback(task, "anyone there?".to_string(), cx)

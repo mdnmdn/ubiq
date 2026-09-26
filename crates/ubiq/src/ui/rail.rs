@@ -12,6 +12,12 @@ use gpui::{
 use gpui_component::{Icon, Sizable as _, Size};
 
 use crate::app::AppState;
+use crate::ext::Registry;
+use crate::ext::ids;
+use crate::ext::rail::{Availability, RailModeSpec};
+use crate::state::dock::{PanelKind, Region};
+use crate::state::nav::View;
+use crate::state::teams::TeamsSelection;
 use crate::state::ui_id;
 use crate::state::{RailMode, WindowRegistry};
 use crate::theme;
@@ -45,20 +51,338 @@ fn badge_height() -> f32 {
 const BADGE_MARGIN: f32 = 3.0;
 
 /// The rail's glyph for a mode — the `mode:` registry category, one row per mode.
+///
+/// The spec's, so a contributed mode brings its own. A mode nothing is registered under gets the
+/// IDE's glyph rather than no element at all: it is only ever reached by an empty page naming a
+/// mode a second edition removed.
 pub fn mode_icon(mode: RailMode) -> Icon {
-    match mode {
-        RailMode::Control => Icon::new(UbiqIcon::ModeControl),
-        RailMode::Ide => Icon::new(UbiqIcon::ModeIde),
-        RailMode::Git => Icon::new(UbiqIcon::ModeGit),
-        // Generic, so it may not borrow the asterisk — that is Claude's own mark.
-        RailMode::Agents => Icon::new(UbiqIcon::ModeAgents),
-        RailMode::Teams => Icon::new(UbiqIcon::ModeTeams),
-        RailMode::TeamsAll => Icon::new(UbiqIcon::ModeTeams),
-        RailMode::TeamsOld => Icon::new(UbiqIcon::ModeTeams),
-        RailMode::Kb => Icon::new(UbiqIcon::ModeKb),
-        RailMode::Tasks => Icon::new(UbiqIcon::ModeTasks),
-        RailMode::Sink => Icon::new(UbiqIcon::ModeSink),
+    match mode.spec() {
+        Some(spec) => (spec.icon)(),
+        None => Icon::new(UbiqIcon::ModeIde),
     }
+}
+
+/// The base's own ten modes, registered into the rail container (`D184`).
+///
+/// This is `X4` and invariant 1 in one function: the container has a base-side user from its first
+/// commit, and the base's own destinations are ordinary registrations rather than a closed enum a
+/// second edition cannot join. The order inside each group is this function's order.
+pub fn modes(reg: &mut Registry<RailModeSpec>) {
+    use crate::ext::rail::register;
+    use crate::state::ui_id as uid;
+
+    // ── The application's own: what the window is, not what one project is ──
+    register(
+        reg,
+        RailModeSpec {
+            id: ids::RAIL_CONTROL,
+            group: ids::RAIL_APP,
+            label: "Control",
+            note: "What this Ubiq is doing, and what its agents have spent.",
+            slug: "control",
+            icon: || Icon::new(UbiqIcon::ModeControl),
+            ui_id: uid::RAIL_MODE_CONTROL,
+            availability: Availability::Always,
+            // Control reports on the running host rather than on a project's folder, so a pane
+            // started here has nowhere to be seen.
+            has_pane_region: false,
+            needs_project: false,
+            opens_left: false,
+            opens_right: false,
+            centre: Some(|app, _window, cx| crate::ui::stats::render(app, cx)),
+            default_layout: None,
+            destination: Some(|_app, _project, _cx| Some(View::Control)),
+            furniture: None,
+            side_furniture: None,
+            // The one screen that has to ask for what it draws, and only while it is up.
+            on_enter: Some(|app, cx| app.poll_stats(cx)),
+        },
+    );
+    register(
+        reg,
+        RailModeSpec {
+            id: ids::RAIL_TEAMS_ALL,
+            group: ids::RAIL_APP,
+            label: "All Teams",
+            note: "Every open project's agents, arranged on one canvas.",
+            slug: "teamsall",
+            icon: || Icon::new(UbiqIcon::ModeTeams),
+            ui_id: uid::RAIL_MODE_TEAMS_ALL,
+            availability: Availability::Always,
+            has_pane_region: true,
+            // In the APP group but still wanting a project: a canvas about every open project has
+            // nothing to draw when there are none.
+            needs_project: true,
+            opens_left: false,
+            opens_right: false,
+            centre: Some(|app, window, cx| {
+                crate::ui::teams::render(app, window, cx).into_any_element()
+            }),
+            default_layout: None,
+            destination: Some(teams_destination),
+            furniture: None,
+            side_furniture: None,
+            on_enter: None,
+        },
+    );
+    register(
+        reg,
+        RailModeSpec {
+            id: ids::RAIL_SINK,
+            group: ids::RAIL_APP,
+            label: "Sink",
+            note: "The application's own test bench.",
+            slug: "sink",
+            icon: || Icon::new(UbiqIcon::ModeSink),
+            ui_id: uid::RAIL_MODE_SINK,
+            availability: Availability::Always,
+            has_pane_region: false,
+            needs_project: false,
+            opens_left: false,
+            opens_right: false,
+            centre: Some(|app, window, cx| crate::ui::sink::render(app, window, cx)),
+            default_layout: None,
+            // The test bench is not a place: there is no project behind it to address.
+            destination: None,
+            furniture: None,
+            side_furniture: None,
+            on_enter: None,
+        },
+    );
+
+    // ── The project's own, in rail order — `ctrl-1` is the first of these ──
+    register(
+        reg,
+        RailModeSpec {
+            id: ids::RAIL_IDE,
+            group: ids::RAIL_PROJECT,
+            label: "IDE",
+            note: "",
+            slug: "ide",
+            icon: || Icon::new(UbiqIcon::ModeIde),
+            ui_id: uid::RAIL_MODE_IDE,
+            availability: Availability::Always,
+            has_pane_region: true,
+            needs_project: true,
+            opens_left: true,
+            opens_right: false,
+            centre: Some(|app, _window, cx| crate::ui::editor::render(app, cx)),
+            default_layout: None,
+            destination: Some(|app, _project, cx| {
+                Some(View::Ide {
+                    key: app.editor(cx)?.active_file()?.key(),
+                })
+            }),
+            // The explorer is the one piece of furniture that is not optional: it is how the
+            // files are reached at all.
+            furniture: Some(|app| app.queue_furniture(PanelKind::Explorer)),
+            side_furniture: Some(|region| (region == Region::Left).then_some(PanelKind::Explorer)),
+            on_enter: None,
+        },
+    );
+    register(
+        reg,
+        RailModeSpec {
+            id: ids::RAIL_GIT,
+            group: ids::RAIL_PROJECT,
+            label: "Git",
+            note: "What version control knows about this project.",
+            slug: "git",
+            icon: || Icon::new(UbiqIcon::ModeGit),
+            ui_id: uid::RAIL_MODE_GIT,
+            availability: Availability::Always,
+            has_pane_region: true,
+            needs_project: true,
+            // Git's changes panel and commit box are half the screen (`D119`), so it claims both
+            // edges where every other screen claims one or none.
+            opens_left: true,
+            opens_right: true,
+            centre: Some(|app, _window, cx| crate::ui::editor::render(app, cx)),
+            default_layout: Some(crate::ui::dock::default_git_layout),
+            destination: Some(|_app, _project, _cx| Some(View::Git)),
+            furniture: Some(AppState::queue_git_furniture),
+            side_furniture: Some(|region| match region {
+                Region::Left => Some(PanelKind::GitRefs),
+                Region::Right => Some(PanelKind::GitChanges),
+                _ => None,
+            }),
+            on_enter: None,
+        },
+    );
+    register(
+        reg,
+        RailModeSpec {
+            id: ids::RAIL_AGENTS,
+            group: ids::RAIL_PROJECT,
+            label: "Agents",
+            note: "The agents running in this project, one column each.",
+            slug: "agents",
+            // Generic, so it may not borrow the asterisk — that is Claude's own mark.
+            icon: || Icon::new(UbiqIcon::ModeAgents),
+            ui_id: uid::RAIL_MODE_AGENTS,
+            availability: Availability::Always,
+            has_pane_region: true,
+            needs_project: true,
+            opens_left: true,
+            opens_right: false,
+            centre: Some(|app, window, cx| {
+                crate::ui::agents::render(app, window, cx).into_any_element()
+            }),
+            default_layout: None,
+            destination: Some(|app, _project, cx| {
+                let agents = app.agents(cx)?;
+                Some(View::Agents {
+                    agent: agents.columns.get(agents.focus)?.active_agent()?,
+                })
+            }),
+            furniture: Some(|app| app.queue_furniture(PanelKind::AgentsExplorer)),
+            side_furniture: Some(|region| {
+                (region == Region::Left).then_some(PanelKind::AgentsExplorer)
+            }),
+            on_enter: None,
+        },
+    );
+    register(
+        reg,
+        RailModeSpec {
+            id: ids::RAIL_TEAMS,
+            group: ids::RAIL_PROJECT,
+            label: "Teams",
+            note: "How the agents are arranged, and which task each serves.",
+            slug: "teams",
+            icon: || Icon::new(UbiqIcon::ModeTeams),
+            ui_id: uid::RAIL_MODE_TEAMS,
+            availability: Availability::Always,
+            has_pane_region: true,
+            needs_project: true,
+            opens_left: false,
+            // Teams' right is the inspector its own screen draws inline rather than a dockable
+            // panel, so it names no side furniture.
+            opens_right: false,
+            centre: Some(|app, window, cx| {
+                crate::ui::teams::render(app, window, cx).into_any_element()
+            }),
+            default_layout: None,
+            destination: Some(teams_destination),
+            furniture: None,
+            side_furniture: None,
+            on_enter: None,
+        },
+    );
+    register(
+        reg,
+        RailModeSpec {
+            id: ids::RAIL_TEAMS_OLD,
+            group: ids::RAIL_PROJECT,
+            label: "[Teams]",
+            note: "How the agents are arranged, and which task each serves.",
+            slug: "teamsold",
+            icon: || Icon::new(UbiqIcon::ModeTeams),
+            ui_id: uid::RAIL_MODE_TEAMS_OLD,
+            availability: Availability::Always,
+            has_pane_region: true,
+            needs_project: true,
+            opens_left: false,
+            opens_right: false,
+            centre: Some(|app, window, cx| {
+                crate::ui::orchestration::render(app, window, cx).into_any_element()
+            }),
+            default_layout: None,
+            destination: Some(|app, _project, cx| {
+                let graph = app.graph(cx)?;
+                Some(View::Graph {
+                    selection: graph.selection?,
+                    tab: graph.tab,
+                })
+            }),
+            furniture: None,
+            side_furniture: None,
+            on_enter: None,
+        },
+    );
+    register(
+        reg,
+        RailModeSpec {
+            id: ids::RAIL_KB,
+            group: ids::RAIL_PROJECT,
+            label: "KB",
+            note: "Notes and documents the agents can read.",
+            slug: "kb",
+            icon: || Icon::new(UbiqIcon::ModeKb),
+            ui_id: uid::RAIL_MODE_KB,
+            availability: Availability::Always,
+            has_pane_region: true,
+            needs_project: true,
+            opens_left: true,
+            opens_right: false,
+            centre: Some(|app, window, cx| crate::ui::kb::centre(app, window, cx)),
+            default_layout: Some(crate::ui::dock::default_kb_layout),
+            destination: Some(|_app, _project, _cx| Some(View::Kb)),
+            furniture: Some(AppState::queue_kb_furniture),
+            side_furniture: Some(|region| {
+                (region == Region::Left).then_some(PanelKind::KbExplorer)
+            }),
+            // The configuration behind a blank explorer is asked for on arrival rather than on
+            // every frame.
+            on_enter: Some(AppState::ask_kb_sources_on_arrival),
+        },
+    );
+    register(
+        reg,
+        RailModeSpec {
+            id: ids::RAIL_TASKS,
+            group: ids::RAIL_PROJECT,
+            label: "Tasks",
+            note: "Work queued for the agents in this session.",
+            slug: "tasks",
+            icon: || Icon::new(UbiqIcon::ModeTasks),
+            ui_id: uid::RAIL_MODE_TASKS,
+            availability: Availability::Always,
+            has_pane_region: true,
+            needs_project: true,
+            opens_left: false,
+            // The board claims the right for the task being read.
+            opens_right: true,
+            centre: Some(|app, window, cx| {
+                crate::ui::board::render(app, window, cx).into_any_element()
+            }),
+            default_layout: None,
+            destination: Some(|app, _project, cx| {
+                Some(View::Tasks {
+                    task: app.board(cx)?.selected?,
+                })
+            }),
+            furniture: Some(|app| app.queue_furniture(PanelKind::Task)),
+            side_furniture: Some(|region| (region == Region::Right).then_some(PanelKind::Task)),
+            on_enter: None,
+        },
+    );
+}
+
+/// Teams and All Teams are the same screen over two spans, so they are the same destination.
+///
+/// A teams link names the project of what it points at, which under the window span is not the
+/// project on screen: the same agent, read on a canvas showing one project and on one showing six,
+/// is the same agent, and a link built here has to be followable by a window in the project span.
+/// A session selection names no agent, so it asks the sibling that resolves a session.
+fn teams_destination(app: &AppState, project: &mut ProjectId, cx: &App) -> Option<View> {
+    let teams = app.teams(cx)?;
+    let selection = teams.selection.clone()?;
+    let tab = teams.tab;
+    let owner = match &selection {
+        TeamsSelection::Session(session) => app.project_of_session(*session, cx),
+        TeamsSelection::Agent(agent) => app.project_of_agent(*agent, cx),
+        TeamsSelection::Subagent { agent, .. } => app.project_of_agent(*agent, cx),
+        // A mission's record names the project it was minted in, which is the one answer a fence
+        // on a window-span canvas can be read back through.
+        TeamsSelection::Mission(task) => {
+            app.mission_anywhere(*task).map(|record| record.project_id)
+        }
+    };
+    if let Some(owner) = owner {
+        *project = owner;
+    }
+    Some(View::Teams { selection, tab })
 }
 
 /// The mark: the project's colour and the logo, sitting in the titlebar row above the rail so the
@@ -103,11 +427,11 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
     let mut groups = Vec::new();
     for (label, modes) in RailMode::groups() {
         let mut items = Vec::new();
-        for mode in *modes {
-            if !app.mode_enabled(*mode, cx) {
+        for mode in modes {
+            if !app.mode_enabled(mode, cx) {
                 continue;
             }
-            items.push(rail_item(*mode, *mode == active, cx));
+            items.push(rail_item(mode, mode == active, cx));
         }
         // A group whose every mode is hidden takes its heading with it.
         if items.is_empty() {
@@ -173,11 +497,11 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
 /// elements.
 fn project_badge_capacity(app: &AppState, window: &Window, cx: &App) -> usize {
     let spent: f32 = RailMode::groups()
-        .iter()
+        .into_iter()
         .map(|(_, modes)| {
             modes
-                .iter()
-                .filter(|mode| app.mode_enabled(**mode, cx))
+                .into_iter()
+                .filter(|mode| app.mode_enabled(*mode, cx))
                 .count()
         })
         .filter(|count| *count > 0)

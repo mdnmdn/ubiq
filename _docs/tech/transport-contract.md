@@ -3,11 +3,11 @@ id: tech-transport
 title: Transport contract
 kind: tech
 status: draft
-summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, quota, agent definition, command-line, host browse, connector, repository, assist, notification, web asset and carrier families, the framing rules, and the procedure for adding a variant.
+summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, quota, agent definition, command-line, host browse, connector, repository, task-source, assist, notification, web asset and carrier families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
-updated: 2026-09-25
-verified: 2026-09-25
-code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ask.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-host/src/armed.rs, crates/ubiq-host/src/mcp/ask.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/feedback.rs, crates/ubiq-host/src/feedback/mod.rs, crates/ubiq-host/src/feedback/api.rs, crates/ubiq-host/src/feedback/issues.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq-drone/src/search.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq-proto/src/mission.rs, crates/ubiq-host/src/mission/mod.rs, crates/ubiq-host/src/mission/scheduler.rs, crates/ubiq-host/src/store/mission.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/mcp/mission.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/registry.rs]
+updated: 2026-09-26
+verified: 2026-09-26
+code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ask.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-host/src/armed.rs, crates/ubiq-host/src/mcp/ask.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/feedback.rs, crates/ubiq-host/src/feedback/mod.rs, crates/ubiq-host/src/feedback/api.rs, crates/ubiq-host/src/feedback/issues.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/tasksrc.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq-drone/src/search.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq-proto/src/mission.rs, crates/ubiq-host/src/mission/mod.rs, crates/ubiq-host/src/mission/scheduler.rs, crates/ubiq-host/src/store/mission.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/mcp/mission.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/registry.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
 ---
@@ -130,6 +130,7 @@ recolour and a move on disk.
 | `UpdateProject` | UI → host | `project_id`, `name?`, `colour?`, `custom_colour?`, `search_excludes?`, `index?`, `mission_term?`, `tools?`, `managed_repos?`, `lanes?`, `runs_on?` | `ProjectChanged` |
 | `SetProjectInitials` | UI → host | `project_id`, `initials` | `ProjectChanged` |
 | `LocateProject` | UI → host | `project_id`, `path` | `ProjectChanged` or `ProjectError` |
+| `SetProjectStorage` | UI → host | `project_id`, `storage` | `ProjectStorageMoved` + `ProjectChanged`, or `ProjectStorageError` |
 | `OpenedProject` | UI → host | `project_id` | `ProjectChanged` |
 | `AdoptProject` | UI → host | `project_id` | — |
 | `RefreshProject` | UI → host | `project_id` | `ProjectChanged` |
@@ -143,6 +144,8 @@ recolour and a move on disk.
 | `ProjectAdded` | host → UI | `project` | — |
 | `ProjectChanged` | host → UI | `project` | — |
 | `ProjectForgotten` | host → UI | `project_id` | — |
+| `ProjectStorageMoved` | host → UI | `project_id`, `storage`, `dir` | — |
+| `ProjectStorageError` | host → UI | `project_id`, `storage`, `error` | — |
 | `ProjectError` | host → UI | `project_id?`, `error` | — |
 | `Preferences` | host → UI | `scope`, `value?` | — |
 | `Settings` | host → UI | `layer`, `value?` | — |
@@ -200,6 +203,23 @@ what it costs.
 **`LocateProject` is separate from `UpdateProject`** because the two differ in kind. A rename or a
 recolour is display only: it touches no filesystem and cannot fail. Locate changes truth — it
 canonicalises, re-probes the folder, and is refused when another record already owns it.
+
+**`SetProjectStorage` is separate from `UpdateProject` for the same reason, one step further.**
+Changing which tree a project's data lives in (`D173`) is a migration: it copies the shared half
+across two unrelated roots, rewrites the pointer file, and removes the source. So it is its own
+message, it answers `ProjectStorageMoved` to the window that asked — with the directory the data is
+now in — and it refuses with `ProjectStorageError`, which names the mode that was *not* reached so
+the panel can put its row back rather than draw a banner and guess. Every other window learns the
+new mode from the `ProjectChanged` that goes out beside the success. A mode the project is already
+in is a success that touches no disk.
+
+**The move is refused while anything is running in the project.** A pane or a live conversation
+means a store may resolve the old directory mid-copy and write into the tree being taken away. The
+host knows both from the tables it already keeps: `Projects::open_panes`, the count every picker
+draws, and the coordinator's `conversation_owners`. A window merely *showing* the project is not a
+refusal — the panel that asks is in one. What follows the project is only the shared half that
+resolves through `ProjectDirs`; `local/` never moves, because it is what one machine derived and
+the destination derives it again — [`project-structure.md`](./project-structure.md) owns the list.
 
 **No message browses a filesystem to find a project.** A project's folder is chosen in the platform's
 own dialog and reaches the host as the `path` of an `AddProject` or a `LocateProject` — which makes
@@ -708,7 +728,7 @@ carries its own root: the user chose it in a folder picker and the settings row 
 back. A `Git { url, branch?, store }` is fetched onto a directory keyed on the source's own id,
 where `KbStore` says: `Cache` under the machine's temporary area, `Internal` under the project's own
 area of the config root (the default, so nothing Ubiq fetched is written inside a project, `D30`),
-or `Project`, a `.ubiq/kb` folder inside the project itself, the one arm that writes there on
+or `Project`, a `.ubiq/local/kb` folder inside the project itself, the one arm that writes there on
 purpose. `Internal` is a wiki Ubiq keeps itself, under the project's own area of the config root,
 with nothing to fetch and always writable. Further kinds — an Azure DevOps wiki, a Confluence space
 — are further arms of `KbOrigin`, not a second family.
@@ -2403,6 +2423,104 @@ object. `CloneError` is `Network`, `Auth`, `NotFound`, `Exists`, `Unsupported` o
 rather than a kind of its own, because a listing fails for the same reasons and the interface writes
 the same sentence. `CancelClone` and a failure are the same outcome on disk: the partial destination is
 removed, so nothing half-cloned is ever registered.
+
+## The task-source family
+
+The family that binds a project's board to a board somewhere else — a Trello board, a work-item
+query, a column of issues. A family of its own rather than a corner of `work` or of `connector`,
+because the picking rule sends it there: it names a connection **and** a project **and** a piece of
+remote work, and the work family is project-local tasks while the connector family is identity with
+no binding. It sits after the repository family, whose shape it follows exactly.
+
+| Message | Direction | Payload | Responds with |
+|---|---|---|---|
+| `ListTaskProviders` | UI → host | `query_id` | `TaskProviders` |
+| `ListRemoteContainers` | UI → host | `query_id`, `provider`, `connection` | `RemoteContainers` or `TaskSourceError` |
+| `ListRemoteLanes` | UI → host | `query_id`, `binding` | `RemoteLanes` or `TaskSourceError` |
+| `TestTaskSource` | UI → host | `query_id`, `binding` | `TaskSourceTest` or `TaskSourceError` |
+| `GetTaskSource` | UI → host | `project_id` | `TaskSource` |
+| `SetTaskSource` | UI → host | `project_id`, `binding` | `TaskSource` or `TaskSourceError` |
+| `ListRemoteItems` | UI → host | `query_id`, `project_id`, `binding` | `RemoteItems` or `TaskSourceError` |
+| `ImportRemoteItems` | UI → host | `project_id`, `items` | `TaskCreated` ×n, to everyone |
+| `SyncTaskSource` | UI → host | `project_id`, `scope` | `TaskSourceState`, then `TaskChanged` ×n |
+| `ResolveTaskDrift` | UI → host | `project_id`, `task_id`, `side` | `TaskChanged`, `TaskLinkChanged` |
+| `UnlinkTask` | UI → host | `project_id`, `task_id` | `TaskLinkChanged` |
+| `TaskProviders` | host → UI | `query_id`, `providers` | — |
+| `RemoteContainers` | host → UI | `query_id`, `containers` | — |
+| `RemoteLanes` | host → UI | `query_id`, `lanes`, `facets` | — |
+| `TaskSourceTest` | host → UI | `query_id`, `count`, `sample` | — |
+| `TaskSource` | host → UI | `project_id`, `binding`, `state` | — |
+| `RemoteItems` | host → UI | `query_id`, `items`, `linked` | — |
+| `TaskSourceState` | host → UI | `project_id`, `state`, `last_sync`, `drifted`, `error` | — |
+| `TaskLinkChanged` | host → UI | `project_id`, `task_id`, `link` | — |
+| `TaskSourceError` | host → UI | `query_id`, `error` | — |
+
+**`TaskProviders` is the load-bearing one**, and it is why `ProviderInfo` and `ConfigField` had to
+learn to be deserialised (`D187`). A provider declares `&'static [ConfigField]` and the base's one
+renderer draws it — but a second edition's provider compiles into the **host** half while the
+renderer is in the **interface** half, so the schema crosses this family or it never reaches the
+screen at all. `tasksrc::intern` is what lets it come back `&'static` without a second, owned copy
+of the type.
+
+**`ProviderInfo` also carries `connector: Option<ProviderId>`** (`D189`) — which connector family's
+connections could authenticate this provider — for the same reason the schema travels: the identity
+picker is drawn in the interface half and the provider that knows the answer is compiled into the
+host half. `#[serde(default)]`, so a sender predating the field still decodes. **`None` is a claim**
+— this build holds no family that can authenticate it — and the section draws a sentence rather
+than a list in which every entry would be wrong.
+
+**A `TaskSrcQueryId` is the interface's**, `RepoQueryId`'s discipline exactly: the asker mints the
+id, every reply carries it, and a reply naming an id the interface no longer holds is discarded. A
+filter is *edited by typing*, so an answer arriving for a question already typed past is the
+ordinary case here rather than the exception — a Test's count beside a filter that has moved on is
+worse than no count.
+
+**`TestTaskSource` runs the filter; it validates no syntax** (`R7`). It fetches read-only under the
+binding's own filter and answers with a real count and the first handful of items. Trello has no
+query language to check, and a tracker that has one has a server that owns the grammar — a second
+grammar in this tree would be a language nobody owns, kept in step by hand. The count is strictly
+more truthful than a parse, because it proves the filter returns what was meant.
+
+**`Binding` crosses the wire, so it is the contract crate's** (`D187`). `SetTaskSource` carries one
+back from the settings surface, so `Binding`, `Filter`, `Direction`, `Authority`, `LinkState` and
+`TaskLink` live in `crates/ubiq-proto/src/tasksrc.rs` and `ubiq-host` re-exports them. **It holds no
+credential material**: it names a `ConnectionId`, and a `Secret` field's typed value is filed by the
+host in the connector family's secret store and never read back.
+
+**There is deliberately no import-success message.** `ImportRemoteItems` answers with the work
+family's own `TaskCreated` to every window, because an imported task is an ordinary task from the
+moment it lands — the same reasoning that gives the repository family no clone-success variant.
+
+**`scope` is `All` or `Task(TaskId)`**, so the board's force button and a card's are one message.
+**No variant carries a pane id**, so `pane_id_of` is untouched.
+
+**A project-shaped failure comes back on `TaskSourceState`, not on `TaskSourceError`** (`D188`).
+`TaskSourceError` is keyed by a `TaskSrcQueryId` and the interface discards a reply naming an id it
+does not hold — so an ask that carries no query id has nowhere to fail to. `ImportRemoteItems`,
+`SyncTaskSource` and `ResolveTaskDrift` all report through the binding's own state, with the
+sentence on `error`.
+
+**`ResolveTaskDrift` overrides the authority switch on purpose** (`D188`). The switch is what
+happens when nobody is looking; this is somebody reading the two values the drift row carries and
+choosing, so `side` wins whatever the binding says — and a forced `Push` is made even on a
+pull-only binding, because `R13` exists to stop a *silent* first write. Only the fields already on
+the link row's `drift` list move.
+
+**Drift travels on the link row, not in a message of its own.** `TaskLink::drift` is a list of
+`FieldDrift` — the field, both values as text, which way the switch settles it, and one sentence
+saying why — and `TaskLinkChanged` already carries the row on every change. `TaskSourceState`'s
+`drifted` is therefore a count's worth of ids and not a second copy of the detail. A `settles` of
+`None` is a divergence the provider will not take a write for: no switch setting closes it, and the
+surfaces say so rather than offering a button that does nothing.
+
+**`ListRemoteItems` carries a `project_id`** even though a binding names none: only a project has
+link rows, and without it the import dialog cannot mark what is already a task — which is the one
+thing that stops it offering a second copy of a task that exists (`D188`).
+
+**`TaskSourceState` and `TaskLinkChanged` are unsolicited**, and they answer different questions:
+the first is whether the *board* is in step, the second is what happened to *one card*. `LinkState`
+carries `Parked` — an item whose remote lane the binding's map does not name, left where it is
+rather than moved to a column nobody chose (`R9`) — which is the badge the card draws.
 
 ## The assist family
 

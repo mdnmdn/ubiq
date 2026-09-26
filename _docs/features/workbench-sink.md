@@ -5,9 +5,9 @@ kind: feature
 status: draft
 summary: The rail's Sink mode — the application's own test bench, twelve pages of fixtures with nothing behind them — a buffer, one page per special viewer, the style reference, the file picker in each shape a screen can ask for, the two settings layouts, a live conversation beside its bus traffic, the A2UI surface, the script scratchpad and the teamsim testbed.
 read_when: you are changing the kitchen sink's pages or fixtures, the A2UI renderer, the script scratchpad, the teamsim testbed, or looking for a surface to try a primitive on
-updated: 2026-09-25
-verified: 2026-09-25
-code_anchors: [crates/ubiq/src/state/sink.rs, crates/ubiq/src/app/sink.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/sink/script.rs, crates/ubiq/src/ui/sink/teamsim.rs, crates/ubiq/src/ui/sink/a2ui.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/src/state/script.rs, crates/ubiq/src/state/teamsim.rs, crates/ubiq/src/state/a2ui.rs, crates/ubiq/src/state/a2ui/value.rs, crates/ubiq/src/state/a2ui/eval.rs, crates/ubiq/src/state/a2ui/action.rs, crates/ubiq/src/state/a2ui/live.rs, crates/ubiq/src/state/a2ui/svg.rs, crates/ubiq/src/state/a2ui/path.rs, crates/ubiq/src/state/a2ui/ubiq-catalog.json, crates/ubiq/src/ui/a2ui.rs, crates/ubiq/src/ui/a2ui/registry.rs, crates/ubiq/src/ui/a2ui/svg.rs, crates/ubiq/src/ui/a2ui/path.rs, crates/ubiq/src/ui/kit/blocks.rs, crates/ubiq/src/ui/kit/menu.rs, _tools/teamsim/FORMAT.md, crates/ubiq/tests/a2ui.rs, crates/ubiq/tests/script.rs, crates/ubiq/tests/sink.rs]
+updated: 2026-09-26
+verified: 2026-09-26
+code_anchors: [crates/ubiq/src/state/sink.rs, crates/ubiq/src/app/sink.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/ext_demo.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/sink/script.rs, crates/ubiq/src/ui/sink/teamsim.rs, crates/ubiq/src/ui/sink/a2ui.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/src/state/script.rs, crates/ubiq/src/state/teamsim.rs, crates/ubiq/src/state/a2ui.rs, crates/ubiq/src/state/a2ui/value.rs, crates/ubiq/src/state/a2ui/eval.rs, crates/ubiq/src/state/a2ui/action.rs, crates/ubiq/src/state/a2ui/live.rs, crates/ubiq/src/state/a2ui/svg.rs, crates/ubiq/src/state/a2ui/path.rs, crates/ubiq/src/state/a2ui/ubiq-catalog.json, crates/ubiq/src/ui/a2ui.rs, crates/ubiq/src/ui/a2ui/registry.rs, crates/ubiq/src/ui/a2ui/svg.rs, crates/ubiq/src/ui/a2ui/path.rs, crates/ubiq/src/ui/kit/blocks.rs, crates/ubiq/src/ui/kit/menu.rs, _tools/teamsim/FORMAT.md, crates/ubiq/tests/a2ui.rs, crates/ubiq/tests/script.rs, crates/ubiq/tests/sink.rs]
 depends_on: [feat-workbench, tech-ui]
 review_cycle: monthly
 ---
@@ -229,7 +229,13 @@ kit rows — Appearance, Harnesses, Agent defaults, and the three quieter destin
 of the same controls the style reference already draws: `choice_pill` for a pinned theme or an
 interface size, `check_box` for a boolean, `stepper` and `meter` for a number, `card` for a permission
 mode, `Picker` for a dropdown, `slab` for a harness that opens. Project settings is that same
-furniture in the shape of a dialog: a coloured left edge, a nav, a form. On the sink, Cancel puts
+furniture in the shape of a dialog: a coloured left edge, a nav, a form. **The fixture and the live
+dialog are one container, drawn twice** (`D180`): the same eight registered sections, differing
+only in which of them each copy offers — the fixture answers to all eight, the live dialog to
+General always, to Tools, Agent definitions, Tasks, Remote and the knowledge base once the project
+has a record behind it, and never to Documentation or Integrations, which are fixture copy and are
+drawn on the fixture only — the live dialog leaves those two rows out of its nav rather than
+greying them (`T-231`). On the sink, Cancel puts
 the fixture back and Save writes nothing, because the sink has no project behind it. Its Agent
 definitions nav item is the one section the fixture can only half draw: the tick is real, and the
 list under it is a project's own definitions, which a page with no project has none of — it says
@@ -296,7 +302,8 @@ documents as `&'static str`, each under the name that picks its viewer,
 HSV the picker is holding — and `ScriptDemo`, which carries the dialect, the picked
 `SCRIPT_EXAMPLES` index, the `OxcOptions` the settings panel writes, the last `ScriptOutcome` and
 `SyntaxReport`, which of the two `ScriptPane`s is forward, and the `Live` a declared panel is drawn
-into. Nothing in it draws and nothing in it holds a
+into, and `ext_demo_on` — the one switch the extensions demo section and the extensions demo rail
+mode both read, on only in memory (`X11`, `D186`). Nothing in it draws and nothing in it holds a
 buffer, which is what lets `crates/ubiq/tests/sink.rs` hand every fixture to the parser or the
 renderer that will draw it with no frame — so a fixture that stopped parsing fails the build instead
 of drawing an error nobody looks at.
@@ -313,7 +320,12 @@ screen: `mod.rs` draws the page strip through `kit::tab_strip` and dispatches on
 `docs.rs` draws one fixture through `ui/viewer/` — every viewer reached rather than copied, which
 is the whole point of the page — `style.rs` is the reference, `files.rs` is the picker page,
 `settings.rs` is the application settings layout, `project.rs` is the project settings dialog and
-`script.rs` is the scratchpad. The interpreter sits behind one facade,
+`script.rs` is the scratchpad. `ext_demo.rs` is none of those: it registers the kitchen sink's own
+demo settings section and demo rail mode onto the settings and rail containers (`X11`, `D186`) —
+the first items on either that are a real contribution rather than a conversion of one of the
+base's own screens, registered through `ext::settings::register`/`ext::rail::register` exactly the
+way a second edition registers its own, with neither container's own module touched to add them.
+The interpreter sits behind one facade,
 `crates/ubiq/src/state/script.rs` — `available()`, `engine_name()`, and `eval(run: Run)` /
 `eval_timed(run, block_ms, total_ms)` returning a `ScriptOutcome`, where `Run` carries the prelude,
 the source, the `Dialect`, the `OxcOptions`, the `HostFacts` snapshot and the `ScriptEvent` being

@@ -12,6 +12,8 @@ coordinator's thread is the one every pane's keystrokes pass through.
 | Git worker | `Git::start()` | The process | A cold status on a large repository is seconds |
 | Search worker | `Search::start()` | The process | Long-running by nature; a search behind a slow one would stall every folder expand |
 | Index thread | `Index::start()` | The process | Hands out a read handle carrying no writer, so a search can never block indexing |
+| `ubiq-tasksrc` | `tasksrc::sync::start` in `Coordinator::new` | Until the `Sync` handle is dropped | Every tick is an HTTP round trip to a tracker; holds the **third** `work::Handle` and writes through `Work` as an MCP tool does (`D120`, `D185`). Pushes as well as pulls since `D188` |
+| One per task-source ask | `tasksrc::service::TaskSrc` | The ask | A listing, a Test, an import, a pass or a drift resolution is a round trip (`D188`). Shares one `Mutex` over every `tasksrc.toml` with `ubiq-tasksrc`, so the poll and a force button cannot overwrite each other's link table |
 | One reader per pane | `Pty::forward_output` | Until the stream ends or nobody is listening | **A stalled reader stalls the harness** |
 | One reaper per pane | `pty::reap` | Until the child exits | Sends `PaneExited` exactly once |
 | One debounce + one `notify` watch per open project per window | `watch::start` | Until the `Watcher` handle is dropped | Pushes to its client *and* to the index directly |
@@ -150,20 +152,24 @@ that decide where a new file goes:
   `harness-models.toml` is the one file in it today.
 - **`usage.db` fails that test**, so it sits at the top level beside `projects.toml`: nobody can ask
   a harness what it spent last Tuesday.
-- **`projects/<ulid>/` holds `tasks.toml`, `view.toml` and `ui/`.** A `projects/<ulid>/` with no
-  record is collected at the next successful load — `forget` drops the record first and the
-  directory second, so a crash between the two leaves garbage `gc` collects.
+- **`projects/<ulid>/` is two groups, not a list** (`G356`). Shared at the top — `tasks/`,
+  `kb.toml`, `plans/`, `missions/`, `wiki/`, `agent-definitions/` — and everything one machine
+  derives under `local/` — `view.toml`, `ui/`, `index/`, `kb/`. `store::project_dir::ProjectData`
+  is the only thing that composes any of it, and `project_dir::migrate` moves a directory written
+  in the flat shape that came before, idempotently, on open. A `projects/<ulid>/` with no record is
+  collected at the next successful load — `forget` drops the record first and the directory
+  second, so a crash between the two leaves garbage `gc` collects.
 - **Nothing Ubiq remembers goes inside a project's own folder** (`D30`).
 
 ## The workarea (architecture rule 6)
 
-Every `ProjectSnapshot` carries a `workarea` — `projects/<ulid>/ui/`. The host makes it, names it,
+Every `ProjectSnapshot` carries a `workarea` — `projects/<ulid>/local/ui/`. The host makes it, names it,
 and that is the end of the host's interest: nothing on this side lists it, reads it or writes to it.
 The interface uses the string it was handed and **never composes the path** from
 `HostInfo.config_root`, which is what makes a host on another machine a change of value rather than a
 change of code. What lives there is disposable; anything worth keeping goes over the bus as a
-preference blob. `INDEX_DIR` (`projects/<ulid>/index/`) is the mirror in the other direction — the
-host's own, and the interface is never told it exists.
+preference blob. `Projects::index_dir` (`projects/<ulid>/local/index/`) is the mirror in the other
+direction — the host's own, and the interface is never told it exists.
 
 ## The one thing that speaks without being asked
 

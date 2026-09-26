@@ -1,0 +1,23 @@
+[
+  {
+    "id": "7b2c3d4e5f60700080001201",
+    "idBoard": "5f2a7b1c9d0e4a0012345601",
+    "name": "bug",
+    "color": "red",
+    "uses": 4
+  },
+  {
+    "id": "7b2c3d4e5f60700080001202",
+    "idBoard": "5f2a7b1c9d0e4a0012345601",
+    "name": "feature",
+    "color": "green",
+    "uses": 9
+  },
+  {
+    "id": "7b2c3d4e5f60700080001203",
+    "idBoard": "5f2a7b1c9d0e4a0012345601",
+    "name": "",
+    "color": "purple",
+    "uses": 1
+  }
+]

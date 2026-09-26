@@ -1,0 +1,32 @@
+[
+  {
+    "id": "5f2a7b1c9d0e4a0012345601",
+    "name": "Ubiq",
+    "desc": "",
+    "closed": false,
+    "idOrganization": "5f2a7b1c9d0e4a00123456ff",
+    "url": "https://trello.com/b/aBcDeFgH/ubiq",
+    "shortUrl": "https://trello.com/b/aBcDeFgH",
+    "prefs": { "permissionLevel": "private" }
+  },
+  {
+    "id": "5f2a7b1c9d0e4a0012345602",
+    "name": "Household",
+    "desc": "",
+    "closed": false,
+    "idOrganization": null,
+    "url": "https://trello.com/b/iJkLmNoP/household",
+    "shortUrl": "https://trello.com/b/iJkLmNoP",
+    "prefs": { "permissionLevel": "private" }
+  },
+  {
+    "id": "5f2a7b1c9d0e4a0012345603",
+    "name": "Last year",
+    "desc": "",
+    "closed": true,
+    "idOrganization": null,
+    "url": "https://trello.com/b/qRsTuVwX/last-year",
+    "shortUrl": "https://trello.com/b/qRsTuVwX",
+    "prefs": { "permissionLevel": "private" }
+  }
+]

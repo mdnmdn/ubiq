@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: Named authenticated identities at GitHub, GitLab, Gitea, Azure DevOps, Atlassian and Google Workspace — cloud or self-hosted, several per provider — created by completing a flow, with the token in the OS keychain and an untrusted certificate resolved by pinning one confirmed fingerprint to the instance.
 read_when: you are changing how Ubiq authenticates against an external service, where those tokens live, or how a browser-based login reaches the application
-updated: 2026-09-10
-verified: 2026-09-17
+updated: 2026-09-26
+verified: 2026-09-26
 code_anchors: [crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-host/src/connectors/mod.rs, crates/ubiq-host/src/connectors/flow.rs, crates/ubiq-host/src/connectors/tls.rs, crates/ubiq-host/src/connectors/providers.rs, crates/ubiq-host/src/connectors/store.rs, crates/ubiq-host/src/connectors/app.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-host/src/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/app/settings.rs]
 depends_on: [tech-transport, tech-agent-manager, feat-workbench]
 review_cycle: quarterly
@@ -39,9 +39,20 @@ wire by a record that carries no material.
 provider: two GitHub connections differ only by id, and every consumer takes a connection id rather
 than a provider name. One is the degenerate case, not the design.
 
-**Six providers, in code.** GitHub, GitLab, Gitea, Azure DevOps, Atlassian and Google Workspace. A
-user cannot add a seventh. Forgejo connects as `gitea` against its own instance, because it is a
-fork with the same API surface and the same base path.
+**Six providers in the picker, seven in the enum.** GitHub, GitLab, Gitea, Azure DevOps, Atlassian
+and Google Workspace are what the connections screen offers, and a user cannot add to them. Forgejo
+connects as `gitea` against its own instance, because it is a fork with the same API surface and the
+same base path.
+
+**Trello is the seventh, and the picker never offers it.** A Trello identity authenticates a board a
+project's tasks are bound to, so it is obtained in the task-source setup surface rather than here —
+`ProviderId::all()` answers the six the picker draws, `ProviderId::every()` answers what a table
+keyed by provider must cover, and `pickable()` is the question between them. Two things about it are
+unlike every other row (`D183`): the flow is `Token` only, because Trello's token comes off an
+authorize page the user copies from rather than a callback; and the secret is a **pair**, an API key
+and a token, stored joined by a colon in the same single secret slot every other connection uses and
+split by the Trello client at read time. The `Authorization` header it renders is
+`OAuth oauth_consumer_key="…", oauth_token="…"` rather than a bearer.
 
 **Self-hosted is what the provider table is shaped around.** Three consequences the interface draws:
 

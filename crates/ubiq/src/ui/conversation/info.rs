@@ -62,14 +62,6 @@ pub fn render(
     if let Some(record) = record {
         body = body.child(session(record, cx));
     }
-    if app.conversation_info_capabilities {
-        // Read once for the frame and threaded down, the way the settings page threads its own
-        // `now_ms` into every block that words an age: a clock read inside a render is a reading
-        // that differs between two lines of the same panel.
-        let now_ms = chrono::Utc::now().timestamp_millis();
-        body = body.child(capabilities(app, &harness, now_ms));
-    }
-
     modal(
         "conversation-info",
         theme::accent(),
@@ -255,11 +247,11 @@ fn footer(
 /// The one control in this panel that asks the host anything: show what this conversation's
 /// harness said it can do.
 ///
-/// A toggle inside the same modal rather than a second overlay — it is another reading of the same
-/// conversation, and a modal raised over a modal to say one more thing about it is a layer the
-/// reader has to dismiss twice. Drawn live for an ACP harness and dead, with the reason under the
-/// pointer, for anything else: a harness with its own wire has no such answer, and a control that
-/// vanished would read as a feature that is missing.
+/// Raises [`crate::ui::acp_capabilities::dialog`] over this modal (`T-207`) rather than expanding
+/// a section inside it: the reading is long, and a panel that doubles in height when a button is
+/// pressed is a panel whose own answers scroll away. Drawn live for an ACP harness and dead, with
+/// the reason under the pointer, for anything else: a harness with its own wire has no such
+/// answer, and a control that vanished would read as a feature that is missing.
 fn capabilities_button(app: &AppState, harness: &str, cx: &mut Context<AppState>) -> AnyElement {
     let acp = app
         .workbench
@@ -291,35 +283,10 @@ fn capabilities_button(app: &AppState, harness: &str, cx: &mut Context<AppState>
     ghost_button(
         "info-capabilities",
         Some(IconName::Info),
-        if app.conversation_info_capabilities {
-            "Hide capabilities"
-        } else {
-            "Capabilities"
-        },
-        cx.listener(move |this, _, _, cx| {
-            this.toggle_conversation_info_capabilities(harness.clone(), cx)
-        }),
+        "Capabilities",
+        cx.listener(move |this, _, _, cx| this.open_capabilities_by_label(&harness, cx)),
     )
     .into_any_element()
-}
-
-/// The capabilities section, drawn inside the body while the foot's toggle is on.
-///
-/// The panel itself is shared with the harness settings — see
-/// [`crate::ui::acp_capabilities::panel`] — so the two surfaces word every answer, including both
-/// empty ones, exactly the same way.
-fn capabilities(app: &AppState, harness: &str, now_ms: i64) -> AnyElement {
-    let info = app.workbench.agent_type_by_label(harness);
-    let id = info.map(|info| info.id.as_str()).unwrap_or(harness);
-    let acp = info.is_some_and(|info| info.acp);
-    group("Capabilities")
-        .child(crate::ui::acp_capabilities::panel(
-            id,
-            app.workbench.settings.acp_capabilities(id),
-            acp,
-            now_ms,
-        ))
-        .into_any_element()
 }
 
 /// Which harness answers this conversation, as the display label both halves of the panel read.

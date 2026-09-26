@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use gpui_component::input::InputEvent;
 use ubiq::app::{AppState, BusHub};
+use ubiq::ext::ids;
 use ubiq::state::sink::{DroneField, ProjectNav};
 use ubiq::state::windows::WindowRegistry;
 use ubiq::state::workbench::{ProjectSettings, ProjectSettingsMode};
@@ -159,9 +160,13 @@ fn the_form_says_set_local_or_nothing_at_all() {
 fn the_remote_nav_needs_a_record_to_attach_to(cx: &mut gpui::TestAppContext) {
     use gpui::AppContext as _;
 
-    assert_eq!(ProjectNav::all().len(), 8);
-    assert_eq!(ProjectNav::Remote.label(), "Remote");
-    assert_eq!(ProjectNav::Kb.label(), "Knowledge base");
+    // Nine since `D187` added Task sync as a contribution: the base's own eight, plus one. The
+    // count is here because the arm's *position* is not what this test is about — which is exactly
+    // why it has to move every time something is contributed, and `settings_container.rs` is where
+    // the ordered list is pinned.
+    assert_eq!(ubiq::ext::settings::project_sections().len(), 9);
+    assert_eq!(ProjectNav(ids::PROJECT_REMOTE).label(), "Remote");
+    assert_eq!(ProjectNav(ids::PROJECT_KB).label(), "Knowledge base");
 
     let (hub, _host) = ubiq_proto::bus::hub();
     cx.update(|cx| {
@@ -187,8 +192,8 @@ fn the_remote_nav_needs_a_record_to_attach_to(cx: &mut gpui::TestAppContext) {
 
     state.update(cx, |state, cx| {
         // The sink page is a fixture: every arm is reachable there.
-        state.set_sink_project_nav(ProjectNav::Remote, cx);
-        assert_eq!(state.sink.project.nav, ProjectNav::Remote);
+        state.set_sink_project_nav(ProjectNav(ids::PROJECT_REMOTE), cx);
+        assert_eq!(state.sink.project.nav, ProjectNav(ids::PROJECT_REMOTE));
 
         // A folder not in the catalogue yet has no record to pin, so Remote is refused exactly
         // as Tools is.
@@ -198,13 +203,13 @@ fn the_remote_nav_needs_a_record_to_attach_to(cx: &mut gpui::TestAppContext) {
             },
             colour: Default::default(),
             drone: DroneField::default(),
-            nav: ProjectNav::General,
+            nav: ProjectNav::default(),
             definitions_use_global: true,
         });
-        state.set_sink_project_nav(ProjectNav::Remote, cx);
+        state.set_sink_project_nav(ProjectNav(ids::PROJECT_REMOTE), cx);
         assert_eq!(
             state.workbench.project_settings.as_ref().unwrap().nav,
-            ProjectNav::General
+            ProjectNav::default()
         );
 
         // Editing an existing project, it opens.
@@ -214,13 +219,13 @@ fn the_remote_nav_needs_a_record_to_attach_to(cx: &mut gpui::TestAppContext) {
             },
             colour: Default::default(),
             drone: DroneField::default(),
-            nav: ProjectNav::General,
+            nav: ProjectNav::default(),
             definitions_use_global: true,
         });
-        state.set_sink_project_nav(ProjectNav::Remote, cx);
+        state.set_sink_project_nav(ProjectNav(ids::PROJECT_REMOTE), cx);
         assert_eq!(
             state.workbench.project_settings.as_ref().unwrap().nav,
-            ProjectNav::Remote
+            ProjectNav(ids::PROJECT_REMOTE)
         );
     });
 }

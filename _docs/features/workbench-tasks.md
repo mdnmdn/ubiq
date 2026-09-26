@@ -5,9 +5,9 @@ kind: feature
 status: draft
 summary: The rail's Tasks mode — a column per status, a card per task, what a drag means, the labels and the filter that narrow it, missions and the children they spawn, the task panel that reports one task whole and edits it a field at a time, and the plan surface a mission raises over the window.
 read_when: you are changing the tasks board — its columns, its cards, what a drag means, the task panel, a task's attachments or labels, a mission, or the plan surface and its annotations
-updated: 2026-09-25
-verified: 2026-09-25
-code_anchors: [crates/ubiq/src/state/board.rs, crates/ubiq/src/app/board.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/plan/service.rs, crates/ubiq-host/src/plan/blocks.rs, crates/ubiq-proto/src/blocks.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq/src/app/plan.rs, crates/ubiq/src/app/editor.rs, crates/ubiq/src/state/plan.rs, crates/ubiq/src/state/document.rs, crates/ubiq/src/ui/plan.rs, crates/ubiq/src/ui/document.rs, crates/ubiq/tests/plan.rs, crates/ubiq/src/state/new_mission.rs, crates/ubiq/src/app/new_mission.rs, crates/ubiq/src/ui/new_mission.rs, crates/ubiq/tests/new_mission.rs, crates/ubiq/src/state/mission.rs, crates/ubiq/src/app/mission.rs, crates/ubiq/src/ui/mission/mod.rs, crates/ubiq/src/ui/mission/panel.rs, crates/ubiq/src/ui/mission/full.rs, crates/ubiq/src/ui/mission/wbs.rs, crates/ubiq/src/ui/mission/settings.rs, crates/ubiq/src/ui/mission/menu.rs, crates/ubiq/src/state/wbs.rs, crates/ubiq/tests/mission.rs, crates/ubiq/src/app/wire.rs, crates/ubiq-host/src/mission/mod.rs, crates/ubiq-host/src/mission/scheduler.rs, crates/ubiq-host/src/store/mission.rs, crates/ubiq-host/src/mcp/mission.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/registry.rs, crates/ubiq-host/src/coordinator.rs]
+updated: 2026-09-26
+verified: 2026-09-26
+code_anchors: [crates/ubiq/src/state/board.rs, crates/ubiq/src/app/board.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/state/tasksrc.rs, crates/ubiq/src/app/tasksrc.rs, crates/ubiq/src/ui/tasksrc.rs, crates/ubiq/tests/tasksrc.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/plan/service.rs, crates/ubiq-host/src/plan/blocks.rs, crates/ubiq-proto/src/blocks.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq/src/app/plan.rs, crates/ubiq/src/app/editor.rs, crates/ubiq/src/state/plan.rs, crates/ubiq/src/state/document.rs, crates/ubiq/src/ui/plan.rs, crates/ubiq/src/ui/document.rs, crates/ubiq/tests/plan.rs, crates/ubiq/src/state/new_mission.rs, crates/ubiq/src/app/new_mission.rs, crates/ubiq/src/ui/new_mission.rs, crates/ubiq/tests/new_mission.rs, crates/ubiq/src/state/mission.rs, crates/ubiq/src/app/mission.rs, crates/ubiq/src/ui/mission/mod.rs, crates/ubiq/src/ui/mission/panel.rs, crates/ubiq/src/ui/mission/full.rs, crates/ubiq/src/ui/mission/wbs.rs, crates/ubiq/src/ui/mission/settings.rs, crates/ubiq/src/ui/mission/menu.rs, crates/ubiq/src/state/wbs.rs, crates/ubiq/tests/mission.rs, crates/ubiq/src/app/wire.rs, crates/ubiq-host/src/mission/mod.rs, crates/ubiq-host/src/mission/scheduler.rs, crates/ubiq-host/src/store/mission.rs, crates/ubiq-host/src/mcp/mission.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/registry.rs, crates/ubiq-host/src/coordinator.rs]
 depends_on: [feat-workbench, tech-ui]
 review_cycle: monthly
 ---
@@ -52,7 +52,7 @@ decides which cards qualify (`Done` or `Abandoned`, and no `level` — a mission
 are not this act's to carry anywhere, so a finished mission stays on the board) and answers with the
 same `TaskDeleted` a delete would, once per card, which is why the panel needs no new rule to stop
 showing them. What leaves the board lands in the project's own paged archive under
-`tasks-archive/`, a hundred tasks to a page (`ubiq-host/src/store/file.rs`), never read back on this
+`tasks/archive/`, a hundred tasks to a page (`ubiq-host/src/store/file.rs`), never read back on this
 wire — there is no browse, search or restore yet (`G353`). A reference, a prerequisite or a parent
 naming a card that just left is dropped from whatever still holds it, reported as an ordinary
 `TaskChanged`, the same cleanup a load already gives a hand-edited file.
@@ -203,9 +203,21 @@ term, the key and title, a **live phase stepper**, and a segmented progress bar 
 children by work state) and a fixed feedback composer at the foot, four **sections** scroll as one
 region between them: *Needs you*, *Documents*, the roster of agents pointed at the mission or one
 of its children, and *Latest* (T-184). **Every count and every segment of the bar is a filter
-toggle**: clicking one opens the full view on its Tasks tab, filtered to that state. Two of the
-sections still draw their honest empty state rather than a sample — *Latest* (S3's journal) and the
-composer, which takes no input because there is nothing yet to queue it to.
+toggle**: clicking one opens the full view on its Tasks tab, filtered to that state. One of the
+sections still draws its honest empty state rather than a sample — *Latest* (S3's journal).
+
+**The feedback composer's Send is never refused for want of a coordinator (`D176`).** A mission that
+has one gets the line as a turn, in front of the harness where it is loaded and through the same
+relaunch *Resume* asks for where it is not; a mission with none gets one spawned
+in the same act — the composition *Spawn ▾ → Coordinator* below builds, with the user's own line
+folded onto the end of its briefing, so the newly crowned agent reads it before its own first turn.
+`AppState::send_mission_feedback` is the one function behind both paths, and `ui/mission/panel.rs`'s
+`feedback()` reads which of the two the button will do — `Send` for a mission with a coordinator on
+the record, `Send — starts a <mission> coordinator` for one without — while the field's own border
+stays muted until there is a coordinator, the one remaining sign that the next line also starts one.
+The send still refuses where there is nothing to spawn a coordinator as: no kind named `coordinator`
+on the mission's own table and no agent definition ticked *mission assistant*, read back as an
+ordinary `work_error` sentence.
 
 **Every section opens and shuts on its own, and a mission remembers its own shape** (T-184).
 `kit::disclosure` draws each section's bar — a chevron, the title, a count — and
@@ -726,6 +738,44 @@ ticked for it, since this form attaches no plan tool yet. The start is aimed at 
 (`NewAgentSurface::Chat`), so the agent lands in a `Chat` tab in the right dock next to the task
 that named it, the same region the `+` below reaches.
 
+**A board can be a mirror of a board somewhere else, and a card says what that made of it** — a
+Trello board, a work-item query, a column of issues. What the binding is and how it is configured
+belongs to [`../inbox/task-sources-proposal.md`](../inbox/task-sources-proposal.md), `D187` and
+`D188`; what lands *here* is four things, none of which is provider-shaped:
+
+- **A badge on the card**, beside the link chip, when the sync layer did something worth saying.
+  **`Parked`** is the one that matters and the reason the badge exists: an item whose remote lane
+  the binding's lane map does not name is left in the column it landed in rather than moved to one
+  nobody chose (`R9`), and without the badge the only visible fact is that the card did not move.
+  `Drifted`, `Conflict` and `Unlinked` wear the same shape, and a drifted card names the fields
+  that differ on its hover (`D188`). **A card merely in step draws nothing** — the ordinary case is
+  not news, and a dot on every synced card is a dot nobody reads.
+- **A status item in the board's strip**, drawn only when the project is bound: the state, the last
+  pass, how many tasks differ, the failure when there is one, and a click that runs a pass now. It
+  is drawn first in the strip because it qualifies every count after it — a stale board's numbers
+  are stale numbers.
+- **An import dialog**, over the board or over the settings page: everything the binding's filter
+  currently offers, with what is already linked marked and untickable. **Nothing becomes a task
+  that a person did not tick** (`R12`) — the filter governs what is *offered*, never what is
+  created — and `cmd-alt-i` raises it while `cmd-alt-r` runs a pass. Both do nothing at all on an
+  unbound project.
+- **A drift overview**, a section of the Task sync settings page directly under the authority
+  switch (`D188`): one row per field whose two sides disagree, carrying **both values**, which way
+  the switch settles it, and a **Push** / **Pull** pair per row over **Push all** / **Pull all**.
+  A row that settles nowhere is one the provider will not take a write for, and says so. It sits
+  under the switch rather than in a modal because the switch is what decides those rows, and a rule
+  drawn away from its consequences cannot be read against them.
+- **A connection picker**, immediately under the provider row and above the board (`D189`): the
+  held connections whose connector family the bound provider *declared*, so a binding names a real
+  identity instead of a placeholder the host was asked to resolve. Picking one drops the board, the
+  lanes, the maps and the filter and re-asks, because every id below a connection belongs to the
+  account that answered for it. The row is not provider-shaped either — the family is a field on
+  `ProviderInfo`, like the schema and the capabilities — and it says which of three things is true:
+  it offers a list; or the provider has a family and this build holds no connection in it yet, and
+  it points at Settings › Connections; or the provider declared no family at all, and it says that
+  nothing here can authenticate it. A binding naming a connection this build does not hold — one
+  written on another machine — draws a sentence and is still savable.
+
 ## Contract
 
 **The work crosses the bus as well, and every message names a project.** Going out: `ListWork`,
@@ -901,6 +951,19 @@ alongside the store and refuses `load`, `save` and `body` with `Message::PlanErr
 no `level`, the same posture `Work::parent_refusal` takes; `delete` skips that check on purpose,
 because `Work::delete` calls it to keep a removed task's plan from being orphaned on disk, and a
 task already gone cannot be asked what its `level` was. `crate::plan::Handle` mirrors
+
+`FileTaskStore::save` (`crates/ubiq-host/src/store/file.rs`) round-trips a key it does not itself
+know: on every save it reads whatever `tasks.toml` holds before the write and, for each `[[task]]`
+row it is about to rewrite, copies forward any key that is not one of `TaskRecord`'s own (`D179`) —
+a field a newer Ubiq wrote, or one a Studio sidecar keeps on the same row, survives a base
+load/modify/save cycle instead of being dropped as an unrecognised field. `FileProjectStore::flush`
+does the same for `[[project]]` rows in `projects.toml`, keyed by `id` the same way. Neither store
+carries the extra keys in memory between reads — like `store/mission.rs`'s own merge, which this
+generalises from one record per file to a list of them keyed by `id` — so a key survives only from
+the file last on disk, never from an in-memory copy this build never learned to read. Both stores
+refused a file whose `version` is above `TASKS_VERSION`/`CATALOGUE_VERSION` rather than opening it,
+from before this change (`StoreError::UnknownVersion`); `D179`'s addition is the unknown-field bag,
+not the version refusal.
 `crate::work::Handle`'s own shape — an `Arc<Mutex<Plans>>` clone held by the coordinator and by the
 MCP listener's `ubiq-plan` server. The coordinator's `plan_job()` (`crates/ubiq-host/src/coordinator.rs`)
 answers `LoadPlan`, `SavePlan` and `DeletePlan` on `work_job()`'s own footing; `export_plan()` reads
@@ -1094,6 +1157,15 @@ view rather than borrowed from a frame's `AppState`, which is why `task_card()`,
 `cx.listener` the way the rest of the screen does. The end-of-column drop zone's `flex_1` — which
 filled whatever space was left in the old, non-virtualized column — is inert inside a fixed-stack
 `gpui::list`, so `column_tail()` draws it as a fixed 40px strip instead.
+
+`shape_line()` also draws the sync badge, by asking `ui::tasksrc::sync_badge(app, task.id)` for one;
+`None` is both "no link row" and "linked and in step", and a card with neither a shape, a session, a
+link nor a badge still draws no line at all. The board's status item is
+`ui::tasksrc::status_item()`, drawn into `ui::status_bar`'s own tasks branch, and the import dialog
+is `ui::tasksrc::import_dialog()` on `Layer::TaskImport`. All three read
+`AppState::tasksrc`, which holds what the task-source family sent — the link rows keyed by task, the
+binding state and the last pass — and **the board never learns which tracker is behind any of it**.
+`D187` has the whole of that half.
 
 `AppState` carries it as `board`, the filter as `task_filter`, and the panel's fields as
 `task_title_input`, `task_description_input`, `step_title_input`, `new_step_input` and
@@ -1314,7 +1386,9 @@ first call of a fresh host run answers with everything since the mission began.
 - [`../tech/transport-contract.md`](../tech/transport-contract.md) — the work and plan families on the wire
 - [`../tech/decisions.md`](../tech/decisions.md) — `D157` through `D161`, the planning flow's own
   choices; `D164`, readiness derived rather than stored; `D165` through `D169`, the mission's own;
-  `D170` through `D172`, the spawn relay, the scheduler's own loop and a handoff briefed by pointer
+  `D170` through `D172`, the spawn relay, the scheduler's own loop and a handoff briefed by pointer;
+  `D176`, feedback that finds no coordinator spawning one; `D179`, the catalogue and task stores'
+  unknown-field bag
 - [`../backlog.md`](../backlog.md) — what this mode still lacks
 
 ## Next steps

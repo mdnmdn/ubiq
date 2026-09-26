@@ -86,13 +86,12 @@ and retires the run directory.
 
 | Item | Is |
 |---|---|
-| `WORKAREA = "ui"` | The directory inside a project's own that belongs to the *interface*. The host makes it, names it on `ProjectSnapshot.workarea`, and never looks inside |
-| `INDEX_DIR = "index"` | The mirror: the host's own, and the interface is never told it exists |
+| `SHARED_WORKAREA = "ui"` | The interface's own directory under the config root, belonging to no project |
 | `DEBOUNCE = 400ms` | A panel drag fires continuously; preferences coalesce per scope. Long enough that a drag is one write, short enough that quitting straight after keeps it |
 | `Projects::open` | Loads the catalogue; a corrupt file is preserved and reported through `pending` |
 | `list` / `list_projects` / `records` / `record` | The projection and the `Reply` carrying it |
 | `add` / `forget` / `update` / `locate` / `opened` / `refresh` | The project family. `forget` drops the record first and the directory second — `gc` collects a crash between the two |
-| `workarea(id)` / `index_dir(id)` | The two reserved directories under `projects/<ulid>/` |
+| `workarea(id)` / `index_dir(id)` | The two reserved directories, both under `projects/<ulid>/local/` — the interface's and the host's, via `store::project_dir::ProjectData` |
 | `point_ephemeral_at` / `sweep_ephemeral` | The one tree an ephemeral clone's folder may be deleted from (`D74`); swept once at startup |
 | `get_preferences` / `set_preferences` / `next_due` / `flush_due` / `flush` | The debounce, driven by the run loop |
 | `pane_opened` / `pane_closed` / `open_count` | The count only this half can know; `open_count` is a `stats()` reading |

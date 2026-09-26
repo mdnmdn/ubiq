@@ -9,10 +9,13 @@ impl AppState {
 
     /// Put one file's viewer into one of its layouts.
     ///
+    /// **This is a per-document override and it is never written down** (T-202): it lives on the
+    /// `OpenFile` and dies with the tab. What persists is the *default* a document opens in, which
+    /// is the `markdown_open` setting and is changed in settings, not here.
+    ///
     /// The panel repeats the fact rather than owning it — `settle_visibility` pushes it every
-    /// frame — but it is pushed here too, because the arrangement can be written down before the
-    /// next frame runs and a panel one frame behind would write down the layout the file was in
-    /// before the click.
+    /// frame — but it is pushed here too, so the click redraws in the new layout on this frame
+    /// rather than the next.
     pub fn set_view_layout(&mut self, key: &str, layout: ViewLayout, cx: &mut Context<Self>) {
         let Some(project) = self.project(cx) else {
             return;
@@ -39,7 +42,8 @@ impl AppState {
         if let Some(panel) = panel {
             panel.update(cx, |panel, _| panel.set_layout(settled));
         }
-        self.remember_view(cx);
+        // No `remember_view` here: since T-202 nothing about this is in the saved arrangement, so
+        // there is nothing for a toggle to write down.
         cx.notify();
     }
 

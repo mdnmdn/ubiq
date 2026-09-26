@@ -32,13 +32,11 @@ struct KbFile {
     sources: Vec<KbSource>,
 }
 
-/// `<config root>/projects/<project ulid>/kb.toml` — beside `tasks.toml` and `view.toml`, under
-/// the directory the orphan collector already sweeps.
+/// `<config root>/projects/<project ulid>/kb.toml` — the user's own list of roots, on the shared
+/// side of the project's data directory, under what the orphan collector already sweeps. The
+/// clones it names are derived and live under `local/` instead.
 pub fn path(config_root: &Path, project: ProjectId) -> PathBuf {
-    config_root
-        .join("projects")
-        .join(project.to_string())
-        .join("kb.toml")
+    crate::store::project_dir::ProjectData::under_config(config_root, project).kb_sources()
 }
 
 /// A project's sources. A missing file is a project whose knowledge base was never configured,

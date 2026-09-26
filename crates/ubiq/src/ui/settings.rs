@@ -24,6 +24,10 @@ use ubiq_proto::settings::{AgentHome, RemoteCarrier, SshAuth, SshProfile};
 
 use crate::app::ssh_connect::DroneState;
 use crate::app::{AppState, HostEntry, HostId, HostRef, host_menu_rows, host_row_label};
+use crate::ext::settings::{
+    SectionCtx, SectionGate, SettingsContainer, SettingsSectionSpec, register,
+};
+use crate::ext::{Registry, SlotId, ids};
 use crate::state::Layer;
 use crate::state::settings::{
     AccountDialog, AiProviderForm, AssistInfo, CliShortcut, ConnectApp, ConnectStep,
@@ -36,8 +40,9 @@ use crate::ui::kit::{
     UbiqIcon, badge, card, check_box, choice_pill, column, confirm_modal, elided, field,
     ghost_button, heading, icon_button, label_block, menu::Picker, meter, modal, modal_note,
     modal_sized, mono, nav_item, primary_button, prompt_modal, removable_tag, section_label,
-    setting_row, slab, state_chip, status_dot,
+    setting_row, settings_split, slab, state_chip, status_dot,
 };
+use crate::ui::sink::project::Form;
 use crate::ui::size;
 
 /// The help page this screen claims — rung 1 of the context ladder (`_docs/wip/help.md` §5).
@@ -99,15 +104,11 @@ fn dialog(
         .border_color(theme::accent())
         .shadow_lg()
         .child(header(cx))
-        .child(
-            div()
-                .flex()
-                .flex_1()
-                .min_h(px(0.))
-                .min_w(px(0.))
-                .child(nav(app, cx))
-                .child(body(app, cx)),
-        )
+        .child(settings_split(
+            "app-settings",
+            nav(app, cx),
+            body(app, window, cx),
+        ))
 }
 
 fn header(cx: &mut Context<AppState>) -> AnyElement {
@@ -135,16 +136,18 @@ fn header(cx: &mut Context<AppState>) -> AnyElement {
         .into_any_element()
 }
 
-fn nav(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+/// The overlay's nav rows. The column they are drawn in — and the scroll that keeps a nav longer
+/// than the panel reachable — is [`settings_split`]'s, shared with the project dialog.
+fn nav(app: &AppState, cx: &mut Context<AppState>) -> Vec<AnyElement> {
     let current = app.workbench.settings.nav;
-    let items: Vec<AnyElement> = SettingsSection::all()
+    crate::ext::settings::app_sections()
         .iter()
-        .copied()
-        .map(|item| {
+        .map(|spec| {
+            let item = SettingsSection(spec.id);
             nav_item(
-                ElementId::Name(format!("app-settings-nav-{}", item.label()).into()),
-                nav_icon(item),
-                item.label(),
+                ElementId::Name(format!("app-settings-nav-{}", spec.label).into()),
+                (spec.icon)(),
+                spec.label,
                 None,
                 item == current,
                 true,
@@ -157,80 +160,218 @@ fn nav(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                 }),
             )
         })
-        .collect();
-
-    div()
-        .id("app-settings-nav")
-        .w(px(220.))
-        .flex()
-        .flex_none()
-        .flex_col()
-        .gap_1()
-        .px_2()
-        .py_3()
-        .bg(theme::pane_bg())
-        .border_r_1()
-        .border_color(theme::border())
-        .children(items)
-        .into_any_element()
+        .collect()
 }
 
-fn nav_icon(item: SettingsSection) -> Icon {
-    match item {
-        SettingsSection::Appearance => IconName::Palette.into(),
-        SettingsSection::Size => UbiqIcon::SizeInterfaceLarge.into(),
-        SettingsSection::FileExplorer => IconName::Folder.into(),
-        SettingsSection::Editor => IconName::File.into(),
-        SettingsSection::Search => IconName::Search.into(),
-        // The asterisk is Claude's own mark — a generic "Harnesses" section wears the honest
-        // fallback instead.
-        SettingsSection::Harnesses => UbiqIcon::HarnessAny.into(),
-        // The rail's own Agents mark, so the section that writes a setup and the screen that runs
-        // one read as the same thing.
-        SettingsSection::AgentDefinitions => UbiqIcon::ModeAgents.into(),
-        SettingsSection::Isolation => UbiqIcon::Isolation.into(),
-        SettingsSection::Assist => IconName::Cpu.into(),
-        SettingsSection::Connectors => UbiqIcon::FamilyConnectors.into(),
-        SettingsSection::Hosts => UbiqIcon::HostRemote.into(),
-        SettingsSection::Ssh => IconName::Network.into(),
-        // A drone is unattended by design — the same mark the titlebar's own agent menu wears.
-        SettingsSection::Drones => IconName::Bot.into(),
-        SettingsSection::Tools => IconName::Play.into(),
-        SettingsSection::CommandLine => IconName::SquareTerminal.into(),
+/// The overlay's own fifteen sections, registered into the settings container (`D180`).
+///
+/// This is the base's side of `X4`: the container's first commit is also the commit that converts
+/// the base's own use of it, so there is never a container with no contributor. The order here is
+/// the order they are drawn in, within the groups they declare.
+pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
+    // The group is written once, here at the call, and stamped onto the spec: the registry orders
+    // by it and the spec carries it, and two copies that could disagree is not a shape worth
+    // having. `section` below leaves it as a placeholder for exactly this reason.
+    let mut add = |group: SlotId, mut spec: SettingsSectionSpec| {
+        spec.group = group;
+        register(reg, spec);
+    };
+
+    add(
+        ids::SETTINGS_APP_INTERFACE,
+        section(
+            ids::APPEARANCE,
+            "Appearance",
+            || IconName::Palette.into(),
+            |ctx, _, cx| appearance(ctx.app, cx),
+        ),
+    );
+    add(
+        ids::SETTINGS_APP_INTERFACE,
+        section(
+            ids::SIZE,
+            "Size",
+            || UbiqIcon::SizeInterfaceLarge.into(),
+            |ctx, _, cx| size_section(ctx.app, cx),
+        ),
+    );
+    add(
+        ids::SETTINGS_APP_INTERFACE,
+        section(
+            ids::FILE_EXPLORER,
+            "File explorer",
+            || IconName::Folder.into(),
+            |ctx, _, cx| file_explorer(ctx.app, cx),
+        ),
+    );
+    add(
+        ids::SETTINGS_APP_INTERFACE,
+        section(
+            ids::EDITOR,
+            "Editor",
+            || IconName::File.into(),
+            |ctx, _, cx| editor(ctx.app, cx),
+        ),
+    );
+    add(
+        ids::SETTINGS_APP_INTERFACE,
+        section(
+            ids::SEARCH,
+            "Search",
+            || IconName::Search.into(),
+            |ctx, _, cx| search(ctx.app, cx),
+        ),
+    );
+
+    add(
+        ids::SETTINGS_APP_AGENTS,
+        SettingsSectionSpec {
+            // The asterisk is Claude's own mark — a generic "Harnesses" section wears the honest
+            // fallback instead.
+            icon: || UbiqIcon::HarnessAny.into(),
+            on_show: Some(AppState::on_show_harnesses),
+            ..section(
+                ids::HARNESSES,
+                "Harnesses",
+                || UbiqIcon::HarnessAny.into(),
+                |ctx, _, cx| harnesses(ctx.app, cx),
+            )
+        },
+    );
+    add(
+        ids::SETTINGS_APP_AGENTS,
+        section(
+            ids::AGENT_DEFINITIONS,
+            "Agent definitions",
+            // The rail's own Agents mark, so the section that writes a setup and the screen that
+            // runs one read as the same thing.
+            || UbiqIcon::ModeAgents.into(),
+            |ctx, _, cx| agent_definitions(ctx.app, cx),
+        ),
+    );
+    add(
+        ids::SETTINGS_APP_AGENTS,
+        section(
+            ids::ISOLATION,
+            "Isolation",
+            || UbiqIcon::Isolation.into(),
+            |ctx, _, cx| isolation(ctx.app, cx),
+        ),
+    );
+    add(
+        ids::SETTINGS_APP_AGENTS,
+        SettingsSectionSpec {
+            on_show: Some(AppState::on_show_assist),
+            ..section(
+                ids::ASSIST,
+                "Assistance",
+                || IconName::Cpu.into(),
+                |ctx, _, cx| assist(ctx.app, cx),
+            )
+        },
+    );
+
+    add(
+        ids::SETTINGS_APP_CONNECTIVITY,
+        SettingsSectionSpec {
+            on_show: Some(AppState::on_show_connectors),
+            ..section(
+                ids::CONNECTORS,
+                "Connectors",
+                || UbiqIcon::FamilyConnectors.into(),
+                |ctx, _, cx| connectors(ctx.app, cx),
+            )
+        },
+    );
+    add(
+        ids::SETTINGS_APP_CONNECTIVITY,
+        section(
+            ids::HOSTS,
+            "Hosts",
+            || UbiqIcon::HostRemote.into(),
+            |ctx, _, cx| hosts_section(ctx.app, cx),
+        ),
+    );
+    add(
+        ids::SETTINGS_APP_CONNECTIVITY,
+        section(
+            ids::SSH,
+            "SSH profiles",
+            || IconName::Network.into(),
+            |ctx, _, cx| ssh_profiles(ctx.app, cx),
+        ),
+    );
+    add(
+        ids::SETTINGS_APP_CONNECTIVITY,
+        section(
+            ids::DRONES,
+            "Drones",
+            // A drone is unattended by design — the same mark the titlebar's own agent menu wears.
+            || IconName::Bot.into(),
+            |ctx, _, cx| drones_section(ctx.app, cx),
+        ),
+    );
+
+    add(
+        ids::SETTINGS_APP_SYSTEM,
+        SettingsSectionSpec {
+            on_show: Some(AppState::on_show_tools),
+            ..section(
+                ids::TOOLS,
+                "Tools",
+                || IconName::Play.into(),
+                |ctx, _, cx| crate::ui::tools::panel(ctx.app, cx, ToolEditScope::System),
+            )
+        },
+    );
+    add(
+        ids::SETTINGS_APP_SYSTEM,
+        SettingsSectionSpec {
+            on_show: Some(AppState::on_show_command_line),
+            ..section(
+                ids::COMMAND_LINE,
+                "Command line",
+                || IconName::SquareTerminal.into(),
+                |ctx, _, cx| command_line(ctx.app, cx),
+            )
+        },
+    );
+}
+
+/// One overlay section, with the fields the overlay never varies already filled in: it is always
+/// offered, it prints no count, and it asks nothing on arrival. `group` is a placeholder that
+/// `sections`' own `add` stamps over.
+fn section(
+    id: SlotId,
+    label: &'static str,
+    icon: fn() -> Icon,
+    render: fn(&SectionCtx<'_>, &Window, &mut Context<AppState>) -> AnyElement,
+) -> SettingsSectionSpec {
+    SettingsSectionSpec {
+        id,
+        container: SettingsContainer::App,
+        group: ids::SETTINGS_APP_INTERFACE,
+        label,
+        icon,
+        gate: SectionGate::Always,
+        count: None,
+        on_show: None,
+        render,
     }
 }
 
-fn body(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
-    let content = match app.workbench.settings.nav {
-        SettingsSection::Appearance => appearance(app, cx),
-        SettingsSection::Size => size_section(app, cx),
-        SettingsSection::FileExplorer => file_explorer(app, cx),
-        SettingsSection::Editor => editor(app, cx),
-        SettingsSection::Search => search(app, cx),
-        SettingsSection::Harnesses => harnesses(app, cx),
-        SettingsSection::AgentDefinitions => agent_definitions(app, cx),
-        SettingsSection::Isolation => isolation(app, cx),
-        SettingsSection::Assist => assist(app, cx),
-        SettingsSection::Connectors => connectors(app, cx),
-        SettingsSection::Hosts => hosts_section(app, cx),
-        SettingsSection::Ssh => ssh_profiles(app, cx),
-        SettingsSection::Drones => drones_section(app, cx),
-        SettingsSection::Tools => crate::ui::tools::panel(app, cx, ToolEditScope::System),
-        SettingsSection::CommandLine => command_line(app, cx),
+fn body(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
+    let ctx = SectionCtx {
+        app,
+        form: Form::Live,
+        project: None,
     };
-
-    div()
-        .id("app-settings-body")
-        .flex()
-        .flex_col()
-        .flex_1()
-        .min_w(px(0.))
-        .min_h(px(0.))
-        .overflow_y_scroll()
-        .px_6()
-        .py_5()
-        .child(content)
-        .into_any_element()
+    match app.workbench.settings.nav.spec() {
+        Some(spec) => (spec.render)(&ctx, window, cx),
+        // The nav stands on a section nothing is registered under — a second edition removed it
+        // while the overlay was open. Draws nothing rather than falling back to another page.
+        None => div().into_any_element(),
+    }
 }
 
 /// The trims one family is offered, as ratios over what it would otherwise draw at.
@@ -1817,19 +1958,26 @@ pub(crate) fn definition_row(
                 )
                 // What the definition is for, under the name — one line, elided rather than
                 // wrapped: this row is a summary, not the form.
-                .children(definition.description.as_deref().filter(|it| !it.is_empty()).map(
-                    |description| {
-                        elided(
-                            ElementId::Name(
-                                format!("app-settings-definition-{}-description", definition.id)
+                .children(
+                    definition
+                        .description
+                        .as_deref()
+                        .filter(|it| !it.is_empty())
+                        .map(|description| {
+                            elided(
+                                ElementId::Name(
+                                    format!(
+                                        "app-settings-definition-{}-description",
+                                        definition.id
+                                    )
                                     .into(),
-                            ),
-                            description.to_string(),
-                            theme::text_muted(),
-                            theme::font(Family::Chrome, Role::Meta),
-                        )
-                    },
-                )),
+                                ),
+                                description.to_string(),
+                                theme::text_muted(),
+                                theme::font(Family::Chrome, Role::Meta),
+                            )
+                        }),
+                ),
         )
         .child(
             div()
@@ -1972,7 +2120,6 @@ fn account_block(
                     .flex_col()
                     .child(harness_row(app, &id, agent_type, now_ms, cx))
                     .child(harness_quota(app, &id, agent_type, now_ms, cx))
-                    .child(harness_capabilities(app, agent_type, now_ms))
                     .into_any_element()
             })
             .collect()
@@ -2083,7 +2230,8 @@ fn harness_row(
                             this.open_sign_out(agent_type.clone(), account.clone(), cx)
                         }
                     }),
-                )),
+                ))
+                .children(capabilities_button(app, agent_type, cx)),
         )
         .into_any_element()
 }
@@ -2201,31 +2349,38 @@ fn harness_quota(
     block.child(foot).into_any_element()
 }
 
-/// What an ACP harness said it can do, under the login it was discovered through.
+/// What an ACP harness said it can do, behind an icon beside the login's other controls (`T-207`).
 ///
 /// Drawn only for a harness that speaks ACP — for any other there is nothing to say that the
-/// absence of the block does not already say, and an empty section per login would be four
-/// headings answering a question nobody asked. The panel itself is shared with the conversation
-/// info modal: see [`crate::ui::acp_capabilities::panel`].
-fn harness_capabilities(app: &AppState, agent_type: &str, now_ms: i64) -> AnyElement {
-    let acp = app
+/// absence of the button does not already say. The reading itself is its own dialog now: inline,
+/// it was a block per login that a reader had to scroll the accounts section past to reach the
+/// next one. See [`crate::ui::acp_capabilities::dialog`].
+fn capabilities_button(
+    app: &AppState,
+    agent_type: &str,
+    cx: &mut Context<AppState>,
+) -> Option<AnyElement> {
+    if !app
         .workbench
         .agent_type(agent_type)
-        .is_some_and(|info| info.acp);
-    if !acp {
-        return div().into_any_element();
+        .is_some_and(|info| info.acp)
+    {
+        return None;
     }
-
-    div()
-        .pl_2()
-        .pb_1()
-        .child(crate::ui::acp_capabilities::panel(
-            agent_type,
-            app.workbench.settings.acp_capabilities(agent_type),
-            true,
-            now_ms,
-        ))
-        .into_any_element()
+    let id = agent_type.to_string();
+    Some(
+        icon_button(
+            ElementId::Name(format!("app-settings-{agent_type}-capabilities").into()),
+            IconName::Info,
+            false,
+            cx.listener(move |this, _, _, cx| this.open_capabilities(id.clone(), cx)),
+        )
+        .tooltip(|window, cx| {
+            gpui_component::tooltip::Tooltip::new("What this harness said it can do")
+                .build(window, cx)
+        })
+        .into_any_element(),
+    )
 }
 
 /// One window the provider states: what it calls it, how full it is, the reading in words, and

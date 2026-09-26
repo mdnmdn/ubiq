@@ -7,18 +7,68 @@
 //! and one that has never been conversed with gains a record the moment an agent connects, with
 //! nothing for the reader to do in between.
 //!
-//! Drawn in the harness settings under the login it belongs to, and inside the conversation info
-//! modal behind its own toggle. One render for both: the panel is a reading of a harness fact, and
-//! two readings of one fact are two vocabularies for it.
+//! **Its own dialog, raised from two places** (`T-207`): a small icon button beside the other
+//! controls on a login in the harnesses settings section, and a button in a conversation's info
+//! modal. It used to be drawn inline in both, which made a long reading the thing a reader had to
+//! scroll a settings page past to reach the next login. One render for both callers: the panel is
+//! a reading of a harness fact, and two readings of one fact are two vocabularies for it.
 
-use gpui::{AnyElement, ElementId, IntoElement, ParentElement, SharedString, Styled, div, px};
+use gpui::{
+    AnyElement, Context, ElementId, IntoElement, ParentElement, SharedString, Styled, Window, div,
+    px,
+};
 
 use ubiq_proto::acp::AcpCapabilitiesRecord;
 
+use crate::app::AppState;
+use crate::state::Layer;
 use crate::state::settings::magnitude;
 use crate::theme;
 use crate::theme::{Family, Role};
-use crate::ui::kit::{elided, section_label};
+use crate::ui::kit::{elided, ghost_button, modal, section_label};
+
+/// The dialog itself: the panel for whichever harness [`crate::state::workbench::WorkbenchState`]
+/// says is being read, over whatever raised it.
+///
+/// A reading, so the footer holds one button and it closes. Nothing in the body sends anything.
+pub fn dialog(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> AnyElement {
+    let Some(agent_type) = app.workbench.capabilities.clone() else {
+        return div().into_any_element();
+    };
+    let info = app.workbench.agent_type(&agent_type);
+    let acp = info.is_some_and(|info| info.acp);
+    let title = info
+        .map(|info| info.label.clone())
+        .filter(|label| !label.is_empty())
+        .unwrap_or_else(|| agent_type.clone());
+    // One clock read for the frame, threaded into the panel: a reading inside a render is a
+    // reading that differs between two lines of the same surface.
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let view = cx.entity();
+
+    modal(
+        "harness-capabilities",
+        theme::accent(),
+        &format!("{title} \u{2014} capabilities"),
+        panel(
+            &agent_type,
+            app.workbench.settings.acp_capabilities(&agent_type),
+            acp,
+            now_ms,
+        ),
+        ghost_button(
+            "harness-capabilities-close",
+            None,
+            "Close",
+            cx.listener(|this, _, _, cx| this.close_capabilities(cx)),
+        )
+        .into_any_element(),
+        crate::ui::dismiss(&view, Layer::Capabilities, |this, _, cx| {
+            this.close_capabilities(cx)
+        }),
+        window,
+    )
+}
 
 /// The capabilities panel for one harness.
 ///

@@ -143,8 +143,14 @@ fmt:
 test:
     cargo test --workspace < /dev/null
 
-# check + clippy + test + the crate boundary + docs-lint + help-check
-verify: check clippy test host relay ui apple docs-lint help-check
+# The id registry: every SlotId string literal in the base lives in ext/ids.rs (D178)
+slots-check:
+    @! grep -rn 'SlotId::new("' crates/ubiq/src --include='*.rs' \
+        | grep -v '^crates/ubiq/src/ext/' \
+        || { echo "a SlotId literal outside crates/ubiq/src/ext/ — declare it as a const in ext::ids (D178)"; exit 1; }
+
+# check + clippy + test + the crate boundary + docs-lint + help-check + the id registry lint
+verify: check clippy test host relay ui apple docs-lint help-check slots-check
 
 # Can a confined agent build? Run unconfined for a baseline, then under
 # `am run <harness> --isolate -- bash _tools/toolchain-smoke.sh` and diff.

@@ -125,7 +125,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
     // back on the bench, how the agents on the field are spread across the four states, and which
     // harnesses are behind them. It counts the field rather than the project on purpose — the strip
     // reports on what is on screen, and the bench is exactly the difference.
-    if app.workbench.rail_mode == RailMode::Agents
+    if app.workbench.rail_mode == RailMode::AGENTS
         && let (Some(work), Some(agents)) = (app.work(cx), app.agents(cx))
     {
         let bench = agents.benched(work).len();
@@ -177,7 +177,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
     // what is on screen instead: how many sessions and agents there are, and how the agents are
     // spread across the four states. A count of zero is drawn as zero rather than dropped — "no
     // agent is failing" is a fact, and it is the one the user is checking for.
-    if app.workbench.rail_mode == RailMode::TeamsOld
+    if app.workbench.rail_mode == RailMode::TEAMS_OLD
         && let Some(work) = app.work(cx)
     {
         return strip
@@ -210,12 +210,17 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
     // many cards are in each column, how many sub-tasks are done across them, and how many of them
     // nobody can finish without the user. A count of zero is drawn as zero, for the reason the
     // two screens over the agents do.
-    if app.workbench.rail_mode == RailMode::Tasks
+    if app.workbench.rail_mode == RailMode::TASKS
         && let (Some(work), Some(board)) = (app.work(cx), app.board(cx))
     {
         let (done, total) = board.steps(work);
         let blocked = board.blocked(work);
+        // Whether the board is in step with the tracker it is bound to, when it is bound to one.
+        // Drawn first, because it qualifies every count after it: a stale board's numbers are
+        // stale numbers.
+        let sync = crate::ui::tasksrc::status_item(app, cx);
         return strip
+            .children(sync)
             .children(board.counts(work).into_iter().map(|(status, n)| {
                 mono(
                     format!("{n} {}", status.label()),

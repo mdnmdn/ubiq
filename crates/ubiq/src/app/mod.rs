@@ -20,6 +20,8 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::ext::ids as ext_ids;
+use crate::ext::rail::Availability;
 use crate::state::agents::{
     AgentsView, BenchRow, COLUMNS_MAX, COMPOSER_ROW_HEIGHT, COMPOSER_ROWS_MAX,
     COMPOSER_ROWS_MAX_DEFAULT, COMPOSER_ROWS_MIN, COMPOSER_SLOTS,
@@ -178,6 +180,12 @@ gpui::actions!(
         AskMoveDown,
         AskToggle,
         AskFieldNext,
+        // Task sync's two commands. `SyncTasksNow` runs a pass over the board this window is
+        // pointed at; `ImportRemoteTasks` raises the dialog that picks what becomes a task. Both
+        // are no-ops on an unbound project rather than errors — a command that is not applicable
+        // does nothing, it does not complain.
+        SyncTasksNow,
+        ImportRemoteTasks,
         // The Nth project the rail's badges show, `cmd-1`..`cmd-9` — see
         // `AppState::activate_project_slot`.
         ProjectSlot1,
@@ -707,7 +715,7 @@ pub struct AppState {
     ///
     /// Every way into the New agent form but one aims at `self.project(cx)`, and says so by having
     /// no project field at all. The Teams toolbar's `+ Add agent` is the exception: on the
-    /// `RailMode::TeamsAll` entry the canvas is about every project the window holds, so a start
+    /// `RailMode::TEAMS_ALL` entry the canvas is about every project the window holds, so a start
     /// raised
     /// from it has to name which. `None` is "the active one", which is what every other caller
     /// leaves it as.
@@ -858,10 +866,6 @@ pub struct AppState {
     /// a project switch that left one standing over a different project's agents would be showing
     /// a conversation nothing on screen holds.
     pub conversation_info: Option<AgentId>,
-    /// Whether that panel's ACP capabilities section is expanded. Beside the panel's own flag and
-    /// not inside it: the section is a second reading in the same modal rather than a second
-    /// overlay, and it collapses again with the panel it lives in.
-    pub conversation_info_capabilities: bool,
     /// The conversation whose dump was just asked for and whose file has not been named yet.
     ///
     /// The window asks for a capture with a `bool` and the host answers with a path, so the path a
@@ -1013,6 +1017,13 @@ pub struct AppState {
     /// The subscription that commits each of `kb_filter_inputs` on Enter or blur, held beside the
     /// field it answers for so the two go and come back together.
     kb_filter_subs: HashMap<KbSourceId, Subscription>,
+    /// What this window knows about the project's binding to a board somewhere else — the
+    /// provider list, the draft binding, the facets, the Test's answer and the per-task link
+    /// rows. See `crate::state::tasksrc`.
+    pub tasksrc: crate::state::tasksrc::TaskSrcState,
+    /// The commit-on-blur subscriptions for the task-sync section's text fields, on
+    /// `kb_filter_subs`' terms and for its reason.
+    tasksrc_subs: crate::app::tasksrc::TaskSrcSubs,
     /// One buffer per kitchen-sink fixture, by the document's key. The sink's documents are the
     /// window's own rather than a project's files — nothing reads them from disk and nothing writes
     /// them back — so their buffers sit here beside the window's other component-library state
@@ -1338,6 +1349,7 @@ mod sink;
 mod size;
 pub mod ssh_connect;
 mod stats;
+mod tasksrc;
 mod themes;
 pub use themes::theme_name_valid;
 mod vim;
@@ -1432,6 +1444,13 @@ pub fn install_key_bindings(cx: &mut App) {
         gpui::KeyBinding::new("cmd-s", SaveFile, Some("Workbench")),
         gpui::KeyBinding::new("cmd-n", NewFile, Some("Workbench")),
         gpui::KeyBinding::new("ctrl-n", NewFile, Some("Workbench")),
+        // Task sync: run a pass now, and raise the import dialog. `cmd-alt-r`/`cmd-alt-i` rather
+        // than anything shorter, because neither is a thing anybody does often enough to spend a
+        // two-key chord on.
+        gpui::KeyBinding::new("cmd-alt-r", SyncTasksNow, Some("Workbench")),
+        gpui::KeyBinding::new("ctrl-alt-r", SyncTasksNow, Some("Workbench")),
+        gpui::KeyBinding::new("cmd-alt-i", ImportRemoteTasks, Some("Workbench")),
+        gpui::KeyBinding::new("ctrl-alt-i", ImportRemoteTasks, Some("Workbench")),
         gpui::KeyBinding::new("cmd-shift-2", CaptureWindow, Some("Workbench")),
         gpui::KeyBinding::new("ctrl-shift-2", CaptureWindow, Some("Workbench")),
         // Paste means a tab when nothing deeper wants the key: a field's own paste wins the tie,

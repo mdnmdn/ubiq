@@ -84,8 +84,8 @@ pub fn live_work(work: &WorkProjection, live: &[AgentId]) -> WorkProjection {
 
 /// What the canvas is about: the project on screen, or every project the window holds.
 ///
-/// **Not stored anywhere.** The span is which rail entry the window is on — `RailMode::Teams` for
-/// the project, `RailMode::TeamsAll` for the window — and `AppState::teams_span` derives it. So
+/// **Not stored anywhere.** The span is which rail entry the window is on — `RailMode::TEAMS` for
+/// the project, `RailMode::TEAMS_ALL` for the window — and `AppState::teams_span` derives it. So
 /// there is no switch on the canvas to get out of step with the rail, and no second answer to
 /// reconcile; nothing outside this window has an opinion about it, and it is not sent anywhere.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]

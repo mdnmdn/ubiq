@@ -13,9 +13,9 @@ use ubiq_proto::work::AgentId;
 fn a_blob_survives_the_round_trip() {
     let view = ViewPrefs {
         schema: prefs::SCHEMA,
-        rail_mode: RailMode::Agents,
+        rail_mode: RailMode::AGENTS,
         modes: [(
-            RailMode::Agents,
+            RailMode::AGENTS,
             ModeLayout {
                 show_left: false,
                 show_bottom: true,
@@ -43,6 +43,7 @@ fn a_blob_survives_the_round_trip() {
         active_file: None,
         expanded: Vec::new(),
         hidden_modes: Vec::new(),
+        opted_in_modes: Vec::new(),
         selected: None,
         file_filter: "main".to_string(),
         content_font_size: Some(16.0),
@@ -130,22 +131,22 @@ fn a_blob_missing_the_fields_a_later_build_added_still_opens() {
     );
     let view: ViewPrefs = prefs::decode(&before).expect("decodes");
 
-    assert_eq!(view.rail_mode, RailMode::Ide);
+    assert_eq!(view.rail_mode, RailMode::IDE);
     // The flat show flags and the three sizes belong to a frame this build no longer has: they are
     // written into the per-mode record instead, so nothing here reads them and the window opens
     // each mode the way a fresh one does.
     assert!(view.modes.is_empty());
-    let arranged = ModeLayout::default_for(RailMode::Ide);
+    let arranged = ModeLayout::default_for(RailMode::IDE);
     // A mode never arranged opens on its own screen and nothing else: the pane region is furniture
     // nowhere, and a right region is nobody's default. The IDE's left is the explorer's — never
     // closable, and how the files are reached (P4) — so it opens with the mode. Git is the wider
     // exception: its refs and its changes *are* the screen, so both edges open with it.
     assert!(arranged.show_left && !arranged.show_right && !arranged.show_bottom);
-    let git = ModeLayout::default_for(RailMode::Git);
+    let git = ModeLayout::default_for(RailMode::GIT);
     assert!(git.show_left && git.show_right && !git.show_bottom);
     // The knowledge base makes the same claim over one side only: its explorer is how a document
     // is reached, and it has nothing for a right region to hold.
-    let kb = ModeLayout::default_for(RailMode::Kb);
+    let kb = ModeLayout::default_for(RailMode::KB);
     assert!(kb.show_left && !kb.show_right && !kb.show_bottom);
 
     assert!(view.open_files.is_empty());
@@ -295,7 +296,7 @@ fn a_blob_from_a_previous_schema_is_discarded_unless_it_has_an_upgrade_arm() {
 /// a round trip, or a window would come back on the wrong one.
 #[test]
 fn both_screens_over_the_work_survive_a_round_trip() {
-    for mode in [RailMode::Agents, RailMode::TeamsOld] {
+    for mode in [RailMode::AGENTS, RailMode::TEAMS_OLD] {
         let out = ViewPrefs {
             schema: prefs::SCHEMA,
             rail_mode: mode,
@@ -346,7 +347,7 @@ fn the_arrangement_may_be_absent() {
     let view: ViewPrefs = prefs::decode(&without).expect("decodes");
 
     assert!(view.modes.is_empty());
-    let fresh = ModeLayout::default_for(RailMode::Ide);
+    let fresh = ModeLayout::default_for(RailMode::IDE);
     assert!(fresh.show_left && !fresh.show_right && !fresh.show_bottom);
 }
 

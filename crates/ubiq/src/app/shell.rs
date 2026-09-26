@@ -307,12 +307,6 @@ impl AppState {
             saved.show_bottom,
             saved.show_right,
         ));
-        if view.rail_mode == RailMode::Git && saved.layout.is_none() {
-            self.queue_git_furniture();
-        }
-        if view.rail_mode == RailMode::Kb && saved.layout.is_none() {
-            self.queue_kb_furniture();
-        }
         if saved.layout.is_none() {
             self.queue_mode_furniture(view.rail_mode);
         }
@@ -739,9 +733,6 @@ impl AppState {
                 .get(&mode)
                 .cloned()
                 .unwrap_or_else(|| prefs::ModeLayout::default_for(mode));
-            // Read before the furniture and the ask below touch `self` mutably: `open` borrows
-            // `self.projects` and cannot outlive the first `&mut self` call.
-            let kb_loaded = open.kb.loaded;
             // A saved arrangement restores whole, regions included. A mode never arranged has no
             // blob, so its defaults are forced directly: regions open or shut on the frame, the
             // tree left as the other mode had it.
@@ -751,24 +742,11 @@ impl AppState {
                 saved.show_bottom,
                 saved.show_right,
             ));
-            // Git's refs and changes are not in the IDE tree. A first visit has no blob, so they
-            // have to be put in their home regions or the opened edges would be empty.
-            if mode == RailMode::Git && saved.layout.is_none() {
-                self.queue_git_furniture();
-            }
-            // The KB explorer is the same kind of furniture, and the configuration behind it is
-            // asked for here rather than on every frame: the first visit to the mode is when a
-            // blank explorer needs an answer, not every redraw of it.
+            // The mode's own furniture — Git's refs and changes, the KB explorer, the IDE's file
+            // tree. None of it is in the tree the last mode left, and a first visit has no blob,
+            // so it has to be put in its home regions or the opened edges would be empty.
             if saved.layout.is_none() {
                 self.queue_mode_furniture(mode);
-            }
-            if mode == RailMode::Kb {
-                if saved.layout.is_none() {
-                    self.queue_kb_furniture();
-                }
-                if !kb_loaded {
-                    self.ask_kb_sources(project);
-                }
             }
             // Which mode the window is in is settled now, and is written down now rather than
             // waiting for the arrangement to change: two modes that arrange nothing between them
@@ -779,10 +757,13 @@ impl AppState {
             }
             self.store_prefs(project);
         }
-        // Control is the one screen that has to ask for what it draws, and it only asks while it
-        // is up. Starting the loop here is what makes entering the mode the thing that starts it.
-        if mode == RailMode::Control {
-            self.poll_stats(cx);
+        // The mode's own arrival hook (`D184`). Control is the one screen that has to ask for
+        // what it draws, and it only asks while it is up; the knowledge base asks for the
+        // configuration behind a blank explorer. Starting either here is what makes entering the
+        // mode the thing that starts it — and it is a spec field rather than a chain of
+        // `if mode == …`, which is a shape a contributed mode could never join.
+        if let Some(on_enter) = mode.spec().and_then(|spec| spec.on_enter) {
+            on_enter(self, cx);
         }
         self.sync_help_follow(cx);
         cx.notify();
@@ -950,6 +931,7 @@ impl AppState {
             (Layer::SshRemove, s.ssh_remove.is_some()),
             (Layer::DroneStop, s.drone_stop.is_some()),
             (Layer::Clone, w.clone_project.is_some()),
+            (Layer::TaskImport, self.tasksrc.import.is_some()),
             (Layer::Feedback, w.feedback.is_some()),
             (Layer::Ask, w.ask.is_some()),
             (Layer::AllProjects, w.all_projects.is_some()),
@@ -977,6 +959,7 @@ impl AppState {
                 w.plan.as_ref().is_some_and(|doc| doc.is_modal()),
             ),
             (Layer::ImageZoom, w.image_zoom.is_some()),
+            (Layer::Capabilities, w.capabilities.is_some()),
             (Layer::Dropdown, dropdown),
             (Layer::HelpTarget, w.help_target.is_some()),
         ]
@@ -1112,6 +1095,11 @@ impl AppState {
             self.decline_paste_image(cx);
         } else if self.workbench.file_dialog.is_some() {
             self.close_file_dialog(cx);
+        } else if self.workbench.capabilities.is_some() {
+            // Above the zoom modal in paint order: it is raised over the settings page and over
+            // the conversation info modal alike, so Escape puts the reading away and leaves
+            // whichever of them asked for it open underneath.
+            self.close_capabilities(cx);
         } else if self.workbench.image_zoom.is_some() {
             // Above the plan in paint order — it can be raised from a diagram inside the plan
             // surface's own rendered markdown as much as from the standard viewer's tab.
@@ -1370,15 +1358,35 @@ impl AppState {
         cx.notify();
     }
 
-    /// Whether a rail mode is on screen for the active project. Unknown project: everything is,
-    /// since there is nothing to have hidden it.
+    /// Whether a rail mode is on screen for the active project.
+    ///
+    /// Three answers rather than one, because a contributed mode is often about a feature that is
+    /// only switched on for some projects (`D184`):
+    ///
+    /// - [`Availability::Always`] is a **deny**-list — on screen unless the project hid it. Every
+    ///   one of the base's own ten, so with no project everything is on: there is nothing to have
+    ///   hidden it.
+    /// - [`Availability::OptIn`] is an **allow**-list — off until the project asks for it, so a
+    ///   project that has never heard of the mode does not draw it, and neither does a window
+    ///   with no project.
+    /// - [`Availability::When`] asks the contribution, and the project may still hide it.
+    ///
+    /// A mode nothing is registered under is not on the rail at all.
     pub fn mode_enabled(&self, mode: RailMode, cx: &App) -> bool {
-        let Some(id) = self.project(cx) else {
-            return true;
+        let Some(spec) = mode.spec() else {
+            return false;
         };
-        self.projects
-            .get(&id)
-            .is_none_or(|open| !open.prefs.hidden_modes.contains(&mode))
+        let prefs = self
+            .project(cx)
+            .and_then(|id| self.projects.get(&id))
+            .map(|open| &open.prefs);
+        match spec.availability {
+            Availability::Always => prefs.is_none_or(|p| !p.hidden_modes.contains(&mode)),
+            Availability::OptIn => prefs.is_some_and(|p| p.opted_in_modes.contains(&mode)),
+            Availability::When(pred) => {
+                pred(self, cx) && prefs.is_none_or(|p| !p.hidden_modes.contains(&mode))
+            }
+        }
     }
 
     /// Show or hide one rail mode for the active project. The last visible mode cannot be hidden,
@@ -1387,18 +1395,50 @@ impl AppState {
         let Some(id) = self.project(cx) else {
             return;
         };
+        // An `OptIn` mode is an allow-list and every other kind is a deny-list, so the switch
+        // writes to whichever list its availability reads (`D184`). The two are separate fields
+        // rather than one signed list: a project that has opted into a mode and a project that
+        // has not hidden one are different facts, and a build that loses a registration must not
+        // read the first as the second.
+        let opt_in = matches!(
+            mode.spec().map(|spec| spec.availability),
+            Some(Availability::OptIn)
+        );
+        // The ceiling that keeps the rail from ever emptying, computed before `open` borrows the
+        // project mutably: how many modes are *enabled right now*, not how many are registered.
+        // `RailMode::every().count()` was the base's original ceiling, and it was correct only by
+        // accident — every one of the base's own ten is `Always`, so "registered" and "could be
+        // showing" were the same number. A container mixing in `OptIn` or `When` breaks that:
+        // a mode nothing has turned on is not spare room, and counting it as some let every
+        // `Always` mode be hidden right down to zero in a project where a `When` contribution
+        // simply never fired. Found by the kitchen sink's own demo mode (M4) — the first
+        // registration on the container that is not `Always`.
+        let enabled_now = (!opt_in).then(|| {
+            RailMode::every()
+                .filter(|m| self.mode_enabled(*m, cx))
+                .count()
+        });
         let Some(open) = self.projects.get_mut(&id) else {
             return;
         };
-        match open.prefs.hidden_modes.iter().position(|m| *m == mode) {
-            Some(at) => {
-                open.prefs.hidden_modes.remove(at);
-            }
-            None => {
-                if open.prefs.hidden_modes.len() + 1 >= RailMode::every().count() {
-                    return;
+        if opt_in {
+            match open.prefs.opted_in_modes.iter().position(|m| *m == mode) {
+                Some(at) => {
+                    open.prefs.opted_in_modes.remove(at);
                 }
-                open.prefs.hidden_modes.push(mode);
+                None => open.prefs.opted_in_modes.push(mode),
+            }
+        } else {
+            match open.prefs.hidden_modes.iter().position(|m| *m == mode) {
+                Some(at) => {
+                    open.prefs.hidden_modes.remove(at);
+                }
+                None => {
+                    if enabled_now.is_none_or(|n| n <= 1) {
+                        return;
+                    }
+                    open.prefs.hidden_modes.push(mode);
+                }
             }
         }
         if self.workbench.rail_mode == mode
@@ -1567,6 +1607,11 @@ impl Render for AppState {
         // source with no field yet would have nothing to type into. No `cx.notify()` —
         // `settle_nav`'s discipline, run from the same place.
         self.ensure_kb_inputs(window, cx);
+        // One text buffer per declared `Text`/`Secret` field of the bound provider's schema, on
+        // the line above's discipline exactly: a rendered field with no buffer yet has nothing to
+        // type into, and `InputState::new` needs the `&mut Window` a section's `render` does not
+        // get. No `cx.notify()`.
+        self.ensure_tasksrc_inputs(window, cx);
         self.settle_graph(cx);
         self.settle_teams(cx);
         self.settle_board(cx);

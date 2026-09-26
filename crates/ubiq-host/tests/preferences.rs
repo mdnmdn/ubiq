@@ -31,6 +31,7 @@ fn each_scope_has_its_own_file() {
         dir.path()
             .join("projects")
             .join(id.to_string())
+            .join("local")
             .join("view.toml")
     );
 }

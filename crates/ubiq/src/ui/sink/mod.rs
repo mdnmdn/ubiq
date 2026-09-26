@@ -17,6 +17,7 @@
 
 pub mod a2ui;
 pub mod docs;
+pub mod ext_demo;
 pub mod files;
 pub mod messages;
 pub mod project;

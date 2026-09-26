@@ -45,7 +45,15 @@ fn coordinator() -> (Hub, Client) {
     std::mem::forget(root);
     let work = Work::open(Box::new(MemoryTaskStore::new()));
     let settings = Settings::open(Box::new(MemorySettingsStore::new()));
-    coordinator::start(host, config, projects, work, settings, pending);
+    coordinator::start(
+        host,
+        config,
+        projects,
+        work,
+        settings,
+        ubiq_host::tasksrc::Registry::with_defaults(),
+        pending,
+    );
     let client = hub.connect();
     (hub, client)
 }
@@ -74,7 +82,15 @@ fn coordinator_on_disk() -> (Hub, Client, std::path::PathBuf) {
         path.clone(),
     )));
     let settings = Settings::open(Box::new(MemorySettingsStore::new()));
-    coordinator::start(host, config, projects, work, settings, pending);
+    coordinator::start(
+        host,
+        config,
+        projects,
+        work,
+        settings,
+        ubiq_host::tasksrc::Registry::with_defaults(),
+        pending,
+    );
     let client = hub.connect();
     (hub, client, path)
 }
@@ -923,7 +939,11 @@ fn a_project_arrives_with_a_workarea_the_host_reserves_and_leaves_alone() {
     let folder = tempfile::TempDir::new().unwrap();
     let project = add_project(&ui, folder.path());
 
-    let expected = root.join("projects").join(project.to_string()).join("ui");
+    let expected = root
+        .join("projects")
+        .join(project.to_string())
+        .join("local")
+        .join("ui");
     let snapshot = expect_project_list(&ui)
         .into_iter()
         .find(|p| p.id() == project)
@@ -946,6 +966,7 @@ fn a_project_arrives_with_a_workarea_the_host_reserves_and_leaves_alone() {
     let path = root
         .join("projects")
         .join(project.to_string())
+        .join("tasks")
         .join("tasks.toml");
     // A new project's board is empty, so this is the file the absent-file rule writes down
     // immediately rather than any seeded task.
@@ -993,7 +1014,10 @@ fn a_window_is_told_a_shared_workarea_the_host_reserves_and_leaves_alone() {
     let _ = expect_project_list(&ui);
     assert_ne!(
         expected,
-        root.join("projects").join(project.to_string()).join("ui"),
+        root.join("projects")
+            .join(project.to_string())
+            .join("local")
+            .join("ui"),
         "the shared workarea is not any project's workarea"
     );
     assert_eq!(
@@ -1024,7 +1048,15 @@ fn coordinator_with_catalogue() -> (Hub, Client, std::path::PathBuf) {
     std::mem::forget(root);
     let work = Work::open(Box::new(MemoryTaskStore::new()));
     let settings = Settings::open(Box::new(MemorySettingsStore::new()));
-    coordinator::start(host, config, projects, work, settings, pending);
+    coordinator::start(
+        host,
+        config,
+        projects,
+        work,
+        settings,
+        ubiq_host::tasksrc::Registry::with_defaults(),
+        pending,
+    );
     let client = hub.connect();
     (hub, client, path)
 }
@@ -1245,6 +1277,7 @@ fn a_first_listing_writes_the_project_tasks_where_the_layout_says() {
     let path = root
         .join("projects")
         .join(project.to_string())
+        .join("tasks")
         .join("tasks.toml");
     let body = wait_for_body(&path, "version = 1");
     assert!(

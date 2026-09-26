@@ -22,12 +22,12 @@ fn control_is_an_app_destination_and_never_a_project_one() {
         .iter()
         .find(|(label, _)| *label == "APP")
         .expect("the APP group");
-    assert!(app.1.contains(&RailMode::Control), "Control left APP");
+    assert!(app.1.contains(&RailMode::CONTROL), "Control left APP");
 
     for (label, modes) in groups {
-        if *label != "APP" {
+        if label != "APP" {
             assert!(
-                !modes.contains(&RailMode::Control),
+                !modes.contains(&RailMode::CONTROL),
                 "Control is also under {label}"
             );
         }

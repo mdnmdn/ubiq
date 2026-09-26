@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: The reusable components Ubiq builds out of its own primitives — the floating popover, the multi-select dropdown a filter or a form narrows with, the activity bar a conversation heads with, the file picker any screen raises to choose a path, the viewer that draws one open file whole, the diff renderer two screens reach a change through, and the capabilities and tools panels each asked for by two surfaces — the state that drives them, and the discipline that keeps a compound a component rather than a one-off screen's decoration.
 read_when: you are building a control that floats above another, letting a screen choose several values at once, adding a second activity reading to a conversation's bar, wiring a screen to choose a path on the interface's or a host's filesystem, adding a file kind the viewer draws, reaching a diff or a harness's capabilities from a second screen, or reshaping something the kit's primitives are insufficient for and a one-off would have duplicated
-updated: 2026-09-23
-verified: 2026-09-24
+updated: 2026-09-26
+verified: 2026-09-26
 code_anchors: [crates/ubiq/src/ui/kit/popover.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/ui/teams/graph.rs, crates/ubiq/src/app/teams.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/md_options.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/ui/kb/mod.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/ui/tools.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/state/editor.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
@@ -203,6 +203,13 @@ the Harnesses settings section (`crates/ubiq/src/ui/settings.rs`) asks it about 
 abstract. The facts are identical and the wording of a capability that is *absent* is the part worth
 sharing — a reader who sees "not offered" in one place and a missing row in the other learns a
 difference that is not there.
+
+**Its own dialog, raised from both** (`T-207`). The panel is not drawn inline in either surface:
+`dialog` in the same module wraps it in `kit::modal`, `Layer::Capabilities` is its rung, and the two
+callers each hold one control that raises it — a small icon beside the other controls on a login in
+the Harnesses section, and a `Capabilities` button in the info modal's foot. Inline, the reading was
+a block per login that the accounts section had to be scrolled past, and a section that doubled the
+info modal's height when a button was pressed. What the two surfaces share is still one render.
 
 ## The tools panel
 

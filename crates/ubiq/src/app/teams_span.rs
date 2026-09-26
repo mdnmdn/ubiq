@@ -15,7 +15,7 @@ impl AppState {
     /// Which span the canvas is drawing, which is only ever a question about the rail.
     pub fn teams_span(&self) -> TeamsSpan {
         match self.workbench.rail_mode {
-            RailMode::TeamsAll => TeamsSpan::Window,
+            RailMode::TEAMS_ALL => TeamsSpan::Window,
             _ => TeamsSpan::Project,
         }
     }

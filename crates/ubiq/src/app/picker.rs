@@ -577,7 +577,7 @@ impl AppState {
     /// Make the pasted folder ignore itself, the first time this window writes into one.
     ///
     /// **A pasted screenshot is not a file the user chose to keep**, unlike a project-stored
-    /// knowledge base under `.ubiq/kb`, so a folder of untracked binaries turning up in `git
+    /// knowledge base under `.ubiq/local/kb`, so a folder of untracked binaries turning up in `git
     /// status` is this gesture littering in the user's repository. The answer is one
     /// `.gitignore` holding `*` inside the folder itself — never a line appended to the user's
     /// own ignore file, which is a tracked file nobody asked to change and would then have to be

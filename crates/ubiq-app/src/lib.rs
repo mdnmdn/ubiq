@@ -160,6 +160,57 @@ impl Stores {
     }
 }
 
+/// Every seam a second edition can populate before the first window, carried as one value because
+/// `ubiq-app` is already the only crate naming both halves (`D177`).
+///
+/// A container — a `Registry<Spec>` for a UI extension point, a `Vec<Arc<dyn Trait>>` for a host
+/// service — is added here only once it has a base-side user, in the same commit that converts
+/// the base's own use of the closed surface it replaces onto it: a container with no contributor
+/// is a published API with no evidence it has the right shape.
+///
+/// **Each registry arrives seeded with the base's own items**, which is what lets a second edition
+/// relabel, reorder and remove them rather than only append to them (`D177`). What it does *not*
+/// carry is anything the base then depends on having been contributed: the base binary hands this
+/// value through untouched, so `Contributions::default()` is the path `just verify` exercises.
+pub struct Contributions {
+    /// The task-source providers this build can sync against (`D189`). Handed to the coordinator
+    /// before it starts, and **seeded with the base's own** — Trello, where the HTTP it needs is
+    /// compiled in.
+    ///
+    /// §4's "host service" kind, so it is a `tasksrc::Registry` rather than a
+    /// `ubiq::ext::Registry<Spec>`: a provider is resolved by id and never drawn, and it needs no
+    /// group, no label, no icon and no predicate. The container operations are the same ones —
+    /// `register` substitutes by id, `remove` drops a seeded entry — and `register` is the only
+    /// way in.
+    ///
+    /// Unconditional, unlike the two below: the host half is what a `--no-default-features` build
+    /// keeps, and a headless Studio syncing a board is exactly the shape that must still work.
+    pub task_providers: ubiq_host::tasksrc::Registry,
+    /// The settings container, both instances — the application overlay and the project dialog
+    /// (`D180`). Seeded with the base's own 15 + 8.
+    #[cfg(feature = "ui")]
+    pub settings_sections: ubiq::ext::Registry<ubiq::ext::settings::SettingsSectionSpec>,
+    /// The activity rail (`D184`). Seeded with the base's own ten modes.
+    ///
+    /// A contributed mode is `Always`, `OptIn` or `When(pred)` — see
+    /// `ubiq::ext::rail::Availability` — and the predicate is answered from interface state, so
+    /// nothing here costs a message.
+    #[cfg(feature = "ui")]
+    pub rail_modes: ubiq::ext::Registry<ubiq::ext::rail::RailModeSpec>,
+}
+
+impl Default for Contributions {
+    fn default() -> Self {
+        Contributions {
+            task_providers: ubiq_host::tasksrc::Registry::with_defaults(),
+            #[cfg(feature = "ui")]
+            settings_sections: ubiq::ext::settings::base_registry(),
+            #[cfg(feature = "ui")]
+            rail_modes: ubiq::ext::rail::base_registry(),
+        }
+    }
+}
+
 /// Everything one edition decides before the first window.
 ///
 /// The config root is resolved inside [`run`], from this process's own arguments, so the stores
@@ -167,12 +218,14 @@ impl Stores {
 /// with a key it fetched during the same boot.
 pub struct Boot {
     pub stores: Box<dyn FnOnce(&Path) -> Stores>,
+    pub contributions: Contributions,
 }
 
 impl Default for Boot {
     fn default() -> Self {
         Boot {
             stores: Box::new(Stores::files),
+            contributions: Contributions::default(),
         }
     }
 }
@@ -293,7 +346,19 @@ pub fn run(boot: Boot) {
     let settings = Settings::open(stores.settings);
 
     let (hub, host) = bus::hub();
-    coordinator::start(host, root, projects, work, settings, pending);
+    // The host half of the contributions, resolved here and immutable from this point on — the
+    // same discipline the two UI containers keep below, one step earlier because the coordinator
+    // starts before the first window (`D189`). Moved out of `boot` field by field: the interface
+    // half is installed further down, and nothing between the two may add a provider.
+    coordinator::start(
+        host,
+        root,
+        projects,
+        work,
+        settings,
+        boot.contributions.task_providers,
+        pending,
+    );
 
     // After the coordinator, so a client that attaches in the same breath has something to talk to,
     // and instead of the first window: a `--serve` run keeps the terminal it was started in.
@@ -356,8 +421,15 @@ pub fn run(boot: Boot) {
         }
     }
 
+    // Before the first window and after nothing else can fail: the contributed containers are
+    // resolved once, here, and are immutable from this point on (`D177`, `D180`). A served or
+    // headless run never reaches it, and never needs to — a container is drawn or it is nothing.
     #[cfg(feature = "ui")]
-    window(hub, paths, listener);
+    {
+        ubiq::ext::settings::install(boot.contributions.settings_sections);
+        ubiq::ext::rail::install(boot.contributions.rail_modes);
+        window(hub, paths, listener);
+    }
 }
 
 /// The interface half of the boot: the path intake, the component library and the palette, the key
@@ -868,6 +940,7 @@ mod tests {
                 tasks: Box::new(MemoryTaskStore::new()),
                 settings: Box::new(MemorySettingsStore::new()),
             }),
+            contributions: Contributions::default(),
         };
 
         // The base is the default, not one configuration of several.
@@ -1040,6 +1113,30 @@ mod tests {
                 PathBuf::from("/work/relative/dir"),
                 PathBuf::from("/already/absolute"),
             ]
+        );
+    }
+
+    /// `D189`: the host-side container arrives **seeded** with the base's own providers and an
+    /// edition may add to it or take from it — the same two operations the UI containers give a
+    /// contribution. The value this test pokes at is literally the one `coordinator::start` is
+    /// handed, so a Studio provider reaching `ListRemoteContainers` is exactly this holding.
+    #[test]
+    fn the_task_providers_arrive_seeded_and_an_edition_can_take_one_away() {
+        let seeded = Boot::default().contributions.task_providers.len();
+        assert_eq!(
+            seeded,
+            ubiq_host::tasksrc::Registry::with_defaults().len(),
+            "the base hands its own registry through untouched"
+        );
+
+        let mut boot = Boot::default();
+        // Adding needs a provider, which by construction lives in the edition rather than here;
+        // removal is the half this crate can prove, and it is the half that says "seeded" rather
+        // than "append-only".
+        let dropped = boot.contributions.task_providers.remove("trello");
+        assert_eq!(
+            boot.contributions.task_providers.len(),
+            seeded - usize::from(dropped)
         );
     }
 

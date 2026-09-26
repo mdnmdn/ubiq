@@ -14,6 +14,7 @@ use chrono::Utc;
 use gpui::{AppContext as _, Entity, TestAppContext, WindowHandle};
 use gpui_component::Root;
 use ubiq::app::{AppState, BusHub};
+use ubiq::ext::ids;
 use ubiq::state::dock::PanelKind;
 use ubiq::state::{RailMode, WindowRegistry, WorkbenchState};
 use ubiq_proto::bus::{self, FromClient, To};
@@ -174,10 +175,13 @@ fn the_menu_offers_the_applicable_tools_only() {
 /// either has nowhere to be seen — and starting one moves the window to the IDE.
 #[test]
 fn only_the_project_modes_hold_a_pane_region() {
+    // Control and Sink are the two *base* application modes with no pane region; the kitchen
+    // sink's own demo mode (M4, `X11`) is a third — it is about the extension mechanism, not
+    // about a project's folder, for the same reason Sink is not.
     for mode in RailMode::every() {
         assert_eq!(
             mode.has_pane_region(),
-            !matches!(mode, RailMode::Control | RailMode::Sink),
+            !matches!(mode, RailMode::CONTROL | RailMode::SINK) && mode.0 != ids::EXT_DEMO_RAIL,
             "{mode:?} answered the wrong thing about its pane region"
         );
     }
@@ -291,7 +295,7 @@ fn starting_a_runner_from_control_moves_to_the_ide(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
     fixture.answer_tools(vec![a_tool("Build", true)], cx);
     fixture.state.update(cx, |state, cx| {
-        state.set_rail_mode(RailMode::Control, cx);
+        state.set_rail_mode(RailMode::CONTROL, cx);
     });
     cx.run_until_parked();
 
@@ -301,7 +305,7 @@ fn starting_a_runner_from_control_moves_to_the_ide(cx: &mut TestAppContext) {
         fixture
             .state
             .read_with(cx, |state, _| state.workbench.rail_mode),
-        RailMode::Ide,
+        RailMode::IDE,
         "a run from Control left the window where a pane cannot be seen"
     );
     assert!(fixture.bottom_open(cx), "the pane region is on screen too");

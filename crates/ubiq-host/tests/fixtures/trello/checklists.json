@@ -1,0 +1,48 @@
+[
+  {
+    "id": "b0700800090a0b0c0021h601",
+    "name": "Release checklist",
+    "idBoard": "5f2a7b1c9d0e4a0012345601",
+    "idCard": "9d4e5f60700800090a00f401",
+    "pos": 32768,
+    "checkItems": [
+      {
+        "id": "c00800090a0b0c0d0031i701",
+        "idChecklist": "b0700800090a0b0c0021h601",
+        "name": "Reproduce it",
+        "state": "complete",
+        "pos": 16384
+      },
+      {
+        "id": "c00800090a0b0c0d0031i703",
+        "idChecklist": "b0700800090a0b0c0021h601",
+        "name": "Ship it",
+        "state": "incomplete",
+        "pos": 49152
+      },
+      {
+        "id": "c00800090a0b0c0d0031i702",
+        "idChecklist": "b0700800090a0b0c0021h601",
+        "name": "Write the test",
+        "state": "incomplete",
+        "pos": 32768
+      }
+    ]
+  },
+  {
+    "id": "b0700800090a0b0c0021h602",
+    "name": "A second checklist nothing touches",
+    "idBoard": "5f2a7b1c9d0e4a0012345601",
+    "idCard": "9d4e5f60700800090a00f401",
+    "pos": 65536,
+    "checkItems": [
+      {
+        "id": "c00800090a0b0c0d0031i704",
+        "idChecklist": "b0700800090a0b0c0021h602",
+        "name": "Left alone",
+        "state": "incomplete",
+        "pos": 16384
+      }
+    ]
+  }
+]

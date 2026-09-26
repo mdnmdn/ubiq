@@ -641,7 +641,7 @@ impl AppState {
                         .clone(),
                 )
             };
-            dock::default_layout(&dock, &mut build, window, cx, RailMode::Ide);
+            dock::default_layout(&dock, &mut build, window, cx, RailMode::IDE);
         }
 
         let mut subscriptions = Vec::new();
@@ -1743,7 +1743,6 @@ impl AppState {
             composer_rows: vec![None; COMPOSER_SLOTS],
             composer_drag: None,
             conversation_info: None,
-            conversation_info_capabilities: false,
             dump_copy_pending: None,
             file_filter,
             file_name,
@@ -1797,6 +1796,8 @@ impl AppState {
             kb_url_input,
             kb_filter_inputs: HashMap::new(),
             kb_filter_subs: HashMap::new(),
+            tasksrc: crate::state::tasksrc::TaskSrcState::default(),
+            tasksrc_subs: HashMap::new(),
             sink_buffers,
             a2ui_buffer,
             script_buffer,

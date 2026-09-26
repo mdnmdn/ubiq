@@ -128,7 +128,7 @@ fn ticking_adds_and_removes_without_closing_the_menu(cx: &mut gpui::TestAppConte
         .take()
         .expect("the window built its state");
 
-    state.update(cx, |state, cx| state.set_rail_mode(RailMode::Sink, cx));
+    state.update(cx, |state, cx| state.set_rail_mode(RailMode::SINK, cx));
     cx.run_until_parked();
 
     // What the specimen is preselected with, before anything is clicked.

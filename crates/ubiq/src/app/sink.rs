@@ -3,6 +3,7 @@ use super::*;
 use ubiq_proto::work::AgentId;
 
 use crate::state::conversation::Conversation;
+use crate::ui::sink::project::Form;
 
 impl AppState {
     pub fn set_sink_section(&mut self, section: SinkSection, cx: &mut Context<Self>) {
@@ -553,24 +554,16 @@ impl AppState {
     }
 
     pub fn set_sink_project_nav(&mut self, nav: ProjectNav, cx: &mut Context<Self>) {
-        // The live dialog keeps its own nav on `ProjectSettings`: the sink page must not
-        // reopen wherever the dialog was left. Only an existing project can carry tools, a task
-        // board, a drone origin, agent definitions or a knowledge base, so those five are the navs
-        // a live dialog
-        // answers to besides General — a folder not yet in the catalogue has no record to attach
-        // any of them to, and stays there. The same five `ui::sink::project::nav` draws enabled.
+        // The live dialog keeps its own nav on `ProjectSettings`: the sink page must not reopen
+        // wherever the dialog was left. Which navs a live dialog answers to is the section's own
+        // `gate` (`D180`) — the same answer `ui::sink::project::nav` draws enabled, asked once
+        // rather than written out in both places.
         if let Some(settings) = self.workbench.project_settings.as_mut() {
             let editing = matches!(settings.mode, ProjectSettingsMode::Edit { .. });
-            if nav == ProjectNav::General
-                || (matches!(
-                    nav,
-                    ProjectNav::Tools
-                        | ProjectNav::AgentDefinitions
-                        | ProjectNav::Tasks
-                        | ProjectNav::Remote
-                        | ProjectNav::Kb
-                ) && editing)
-            {
+            let offered = nav
+                .spec()
+                .is_some_and(|spec| spec.gate.enabled(Form::Live, editing));
+            if offered {
                 settings.nav = nav;
                 cx.notify();
             }
@@ -1447,6 +1440,13 @@ impl AppState {
 
     pub fn end_teamsim_carry(&mut self, cx: &mut Context<Self>) {
         self.sink.teamsim.carry = None;
+        cx.notify();
+    }
+
+    /// The extensions demo's own switch (`X11`, M4). In memory only — the demo has no project to
+    /// persist against, and nothing outside this window needs to agree on it.
+    pub fn toggle_ext_demo(&mut self, cx: &mut Context<Self>) {
+        self.sink.ext_demo_on = !self.sink.ext_demo_on;
         cx.notify();
     }
 }

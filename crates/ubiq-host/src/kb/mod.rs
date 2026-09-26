@@ -146,7 +146,8 @@ impl Kb {
     /// source is fetched onto a directory keyed on its own id, so two sources pointed at the same
     /// repository never collide — where, [`KbStore`] says: `Cache` under the machine's temporary
     /// area, `Internal` under the project's own area of the config root (the default, and `D30`'s
-    /// guarantee), `Project` under `.ubiq/kb` inside the project itself, the one arm that writes
+    /// guarantee), `Project` under `.ubiq/local/kb` inside the project itself — a clone is derived
+    /// and re-fetchable wherever it lands, so it is on the ignored side of `.ubiq/` — the one arm that writes
     /// there. `project_path` is the project's own folder; every caller carries one because it is
     /// only ever looked at for `Project`, never conditionally fetched for it.
     pub fn base_path(&self, project: ProjectId, source: &KbSource, project_path: &Path) -> PathBuf {
@@ -157,23 +158,21 @@ impl Kb {
                     .join("ubiq-kb")
                     .join(project.to_string())
                     .join(source.id.to_string()),
-                KbStore::Internal => self
-                    .root
-                    .join("projects")
-                    .join(project.to_string())
-                    .join("kb")
-                    .join(source.id.to_string()),
-                KbStore::Project => project_path
-                    .join(".ubiq")
-                    .join("kb")
-                    .join(source.id.to_string()),
+                KbStore::Internal => {
+                    crate::store::project_dir::ProjectData::under_config(&self.root, project)
+                        .kb_clones()
+                        .join(source.id.to_string())
+                }
+                KbStore::Project => {
+                    crate::store::project_dir::ProjectData::in_project(project_path)
+                        .kb_clones()
+                        .join(source.id.to_string())
+                }
             },
             KbOrigin::Internal => {
-                let wiki = self
-                    .root
-                    .join("projects")
-                    .join(project.to_string())
-                    .join("wiki");
+                let wiki =
+                    crate::store::project_dir::ProjectData::under_config(&self.root, project)
+                        .wiki();
                 if let Err(error) = std::fs::create_dir_all(&wiki) {
                     tracing::warn!(
                         "the wiki directory for project {project} could not be created: {error}"

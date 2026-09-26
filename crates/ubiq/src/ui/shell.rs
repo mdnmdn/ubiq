@@ -10,10 +10,11 @@
 use gpui::{Context, InteractiveElement, IntoElement, ParentElement, Styled, Window, div, px};
 
 use crate::app::{
-    AppState, FocusFileFilter, ImageRedo, ImageUndo, OpenHelp, PointAtSomething, ProjectSlot1,
-    ProjectSlot2, ProjectSlot3, ProjectSlot4, ProjectSlot5, ProjectSlot6, ProjectSlot7,
-    ProjectSlot8, ProjectSlot9, RailSlot1, RailSlot2, RailSlot3, RailSlot4, RailSlot5, RailSlot6,
-    RailSlot7, RailSlot8, RailSlot9, SubmitSearch, ZoomIn, ZoomOut,
+    AppState, FocusFileFilter, ImageRedo, ImageUndo, ImportRemoteTasks, OpenHelp, PointAtSomething,
+    ProjectSlot1, ProjectSlot2, ProjectSlot3, ProjectSlot4, ProjectSlot5, ProjectSlot6,
+    ProjectSlot7, ProjectSlot8, ProjectSlot9, RailSlot1, RailSlot2, RailSlot3, RailSlot4,
+    RailSlot5, RailSlot6, RailSlot7, RailSlot8, RailSlot9, SubmitSearch, SyncTasksNow, ZoomIn,
+    ZoomOut,
 };
 use crate::state::RailMode;
 use crate::theme;
@@ -56,6 +57,12 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         .on_action(cx.listener(AppState::forward))
         .on_action(cx.listener(AppState::toggle_bookmark))
         .on_action(cx.listener(AppState::open_navigator))
+        // Task sync. Both no-op on an unbound project, so neither chord is taken from anything
+        // else on a board that is nobody's mirror.
+        .on_action(
+            cx.listener(|this, _: &SyncTasksNow, window, cx| this.sync_task_source_now(window, cx)),
+        )
+        .on_action(cx.listener(|this, _: &ImportRemoteTasks, _, cx| this.open_task_import(cx)))
         // ⌘⌥Y and ⌘⌥N answer the permission prompt the conversation being read is blocked on.
         // Both no-op when nothing is asking, so neither key is taken from anything else.
         .on_action(cx.listener(AppState::allow_permission))
@@ -153,12 +160,12 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                         .min_w(px(0.))
                         .min_h(px(0.))
                         .children(
-                            (app.workbench.rail_mode == RailMode::Git && app.project(cx).is_some())
+                            (app.workbench.rail_mode == RailMode::GIT && app.project(cx).is_some())
                                 .then(|| git::toolbar(app, window, cx)),
                         )
                         .child(app.dock().clone())
                         .children(
-                            (app.workbench.rail_mode == RailMode::Git).then(ribbon::experimental),
+                            (app.workbench.rail_mode == RailMode::GIT).then(ribbon::experimental),
                         ),
                 ),
         )
@@ -332,6 +339,14 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .as_ref()
                 .map(|_| crate::ui::clone::render(app, window, cx)),
         )
+        // The task-import dialog, over the project settings page that raises it and over the board
+        // that raises it too.
+        .children(
+            app.tasksrc
+                .import
+                .as_ref()
+                .map(|_| crate::ui::tasksrc::import_dialog(app, window, cx)),
+        )
         // The feedback modal, over the clone modal on the same terms: raised from the titlebar,
         // from anywhere, and over whatever is already on screen — which is the window it just
         // photographed.
@@ -384,6 +399,15 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .image_zoom
                 .as_ref()
                 .map(|_| crate::ui::viewer::zoom_modal::render(app, window, cx)),
+        )
+        // What one ACP harness said it can do (T-207) — raised from the harnesses settings section
+        // and from a conversation's info modal, so it is painted at the window root over both
+        // rather than from either.
+        .children(
+            app.workbench
+                .capabilities
+                .as_ref()
+                .map(|_| crate::ui::acp_capabilities::dialog(app, window, cx)),
         )
         // The file question a gesture in the explorer or a save on an untitled buffer asked —
         // painted here rather than from either, because both raise the same one.

@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: Every folder in the workspace, what belongs in it, what must never go in it, and the two crates' division of labour.
 read_when: you are adding a file and are not certain where it goes, or you are new to the repository
-updated: 2026-09-25
-verified: 2026-09-25
+updated: 2026-09-26
+verified: 2026-09-26
 code_anchors: [Cargo.toml, crates/ubiq-host/src/store/usage.rs, crates/ubiq-host/src/store/project_dir.rs, crates/ubiq-host/src/kb/mod.rs, crates/ubiq-host/src/lib.rs, crates/ubiq/Cargo.toml, crates/ubiq-proto/Cargo.toml, crates/ubiq-host/Cargo.toml, crates/ubiq-app/Cargo.toml, crates/ubiq-drone/Cargo.toml, vendor/gpui-terminal/Cargo.toml, _tools/icns.py]
 depends_on: [tech-architecture]
 review_cycle: quarterly
@@ -74,15 +74,34 @@ project's own folder — `D30` — with one exception the person creating a proj
 ├── sessions/                what a finished run left behind: its meta, and the harness's transcript
 ├── isol8/                   the sandbox's own state, managed homes among it
 └── projects/
-    └── <project ulid>/
-        ├── tasks.toml       that project's tasks, the user's data
-        ├── view.toml        that project's view blob, opaque to the host
-        ├── kb.toml          that project's knowledge-base roots, the user's data
-        ├── kb/<root ulid>/  a cloned knowledge-base repository, re-fetchable
-        ├── plans/           one markdown plan per task that carries a level, and its sidecar
-        ├── missions/<task ulid>/ one mission: mission.toml, docs/, journal.jsonl
-        └── ui/              the interface's workarea — the host makes it and never looks in
+    └── <project ulid>/            a project's data directory
+        ├── tasks/
+        │   ├── tasks.toml         that project's tasks, the user's data
+        │   └── archive/           the archive pages, a hundred tasks each
+        ├── kb.toml                that project's knowledge-base roots, the user's data
+        ├── plans/                 one markdown plan per task that carries a level, and its sidecar
+        ├── missions/<task ulid>/  one mission: mission.toml, docs/, journal.jsonl
+        ├── wiki/                  knowledge-base pages the user wrote here
+        ├── agent-definitions/     that project's own agent definitions (D174)
+        └── local/                 everything one machine derives — never committed
+            ├── view.toml          that project's view blob, opaque to the host
+            ├── ui/                the interface's workarea — the host makes it and never looks in
+            ├── index/             the host's file index, deleted rather than repaired
+            └── kb/<root ulid>/    a cloned knowledge-base repository, re-fetchable
 ```
+
+**A project's data directory is two groups, not a list** (`G356`, closed). The question that sorts
+them is *would another person cloning this project want it?* — the shared half at the top, the
+whole derived half under `local/`. `crates/ubiq-host/src/store/project_dir.rs`'s `ProjectData` is
+the one place that knows which is which: no store joins a literal onto a project's directory, and
+a new per-project file is placed by answering that question rather than by picking a level.
+
+A tree written in the flat shape that came before — `tasks.toml`, `tasks-archive/`, `view.toml`,
+`ui/`, `index/`, `kb/` all at the top — is moved into this one by `project_dir::migrate`, once, as
+the catalogue loads and again the first time a store asks for a directory the catalogue did not
+name. Each entry is a rename within the directory, so it is never in neither place; an entry whose
+new name is already taken is left where it is and logged rather than merged over, which is what
+makes a half-migrated directory open rather than lose anything.
 
 `cache/` holds answers the host could re-derive by asking a harness again, never anything the user
 typed or a catalogue entry losing which would lose data — `harness-models.toml` is the one file in
@@ -95,20 +114,21 @@ file destroys data rather than costing work. It is a database rather than a file
 accumulates and is unbounded — `D78`, and
 [`../features/stats.md`](../features/stats.md) for what is in it.
 
-`kb/` is the one directory under a project that Ubiq fetches rather than the user writing: a
+`local/kb/` is the one directory under a project that Ubiq fetches rather than the user writing: a
 knowledge-base root cloned from a repository lands there and never inside the project's own folder,
-on `D30`. Losing it costs a re-clone, which is why it sits under the project rather than beside
-`kb.toml` in the catalogue — the list of roots is the user's data and the clone is not.
+on `D30`. Losing it costs a re-clone, which is what puts it under `local/` while `kb.toml` — the
+list of roots, the user's data — stays on the shared side.
 
 A `projects/<ulid>/` with no record in the catalogue is collected at the next successful load, which
-is what makes forgetting a project complete even after a crash halfway through it. The `ui/`
-directory goes with it, and that is the only thing the host ever does to it: everything under `ui/`
+is what makes forgetting a project complete even after a crash halfway through it. The `local/ui/`
+directory goes with it, and that is the only thing the host ever does to it: everything under it
 is the interface's, is disposable, and is reached by the path on `ProjectSnapshot` rather than over
 the bus — rule 6 in [`architecture.md`](./architecture.md).
 
 ## `.ubiq/` — a project that keeps its own data
 
-`ProjectRecord::storage` names one of two modes, chosen in the creation panel and nowhere else.
+`ProjectRecord::storage` names one of two modes, chosen in the creation panel and changed
+afterwards only by the move below.
 **Ubiq-managed** is the tree above and is what every project is unless it says otherwise.
 **Project-managed** is `D173`'s exception to `D30`: the project's data lives in a `.ubiq/` folder
 inside the project's own directory, so a team commits it and every clone arrives with it.
@@ -116,18 +136,24 @@ inside the project's own directory, so a team commits it and every clone arrives
 ```
 <project folder>/
 └── .ubiq/
-    ├── .gitignore      written once, and what keeps the per-machine half uncommitted
-    ├── project.toml    the project's name and metadata, in the project itself
-    └── tasks.toml      that project's tasks — the same file, in the other tree
+    ├── .gitignore        written once, and what keeps the per-machine half uncommitted
+    ├── project.toml      the project's name and metadata, in the project itself
+    ├── tasks/tasks.toml  that project's tasks — the same file, in the other tree
+    └── local/            the derived half, if anything here has derived any
 ```
 
-`.gitignore` is the whole of the split, and the question it answers is *would another person
-cloning this project want this?* Tracked: `project.toml`, `tasks.toml`, `tasks-archive/`,
-`kb.toml`, `plans/` and `missions/` — the project's settings, tasks and configuration. Ignored:
-`view.toml` and `ui/` (one person's panels), `index/`, `cache/` and `searches/` (derived), `kb/`
-(re-fetchable), and `runs/` and `sessions/` (what is running, or ran). It is written when the
-folder is made and never rewritten, so a user's own edit to it stands. The ignore list runs ahead
-of the code — `G355` is how far the data itself has followed.
+`.ubiq/` has the same layout as `projects/<ulid>/` above, and the split is the layout rather than a
+list: everything tracked is at the top, everything derived is under `local/`, so `.gitignore` is
+
+```
+local/
+*.bak.*
+*.tmp
+```
+
+and where a future entry belongs is a lookup rather than a judgement. It is written when the folder
+is made and never rewritten, so a user's own edit to it stands. How far the data itself has
+followed a project-managed project into `.ubiq/` is `G355`.
 
 The project still gets its `<config root>/projects/<ulid>/` directory, holding one file the tree
 above does not show — `storage.toml`, the pointer naming where the data went — and whatever has
@@ -140,6 +166,46 @@ folder's copy wins and the catalogue is corrected on load.
 
 Forget leaves `.ubiq/` alone. It is inside the user's tree and it is committed, so removing it
 would be a change to their repository rather than to what Ubiq remembers.
+
+### Moving a project between the two
+
+`SetProjectStorage` moves an existing project's data either way — into `.ubiq/` or back under the
+config root — and `project_dir::change_mode` is the whole of it. It is a migration, not a setting,
+which is why it is its own message and why `UpdateProject` still cannot express it (`D31`).
+
+The order is the design:
+
+1. **Copy** every entry of `project_dir::FOLLOWS` to the destination. That is the shared half that
+   actually resolves through `ProjectDirs` today — `project.toml`, `tasks/`, `tasksrc.toml`,
+   `studio.toml`. The rest of the shared half (`plans/`, `missions/`, `kb.toml`,
+   `agent-definitions/`) is still composed under the config root by its own store (`G355`), so
+   moving it would take it away from the only code that reads it. An allow-list is the side that
+   fails safely, and it is what `G355` shortens to nothing.
+2. **Rewrite or remove `storage.toml`.** This is the commit point, because the pointer is the only
+   thing a store reads. A crash before it leaves the project working exactly where it was, with a
+   destination nothing points at; a crash after leaves a copy at the source that is garbage, not
+   data. There is no moment in which a store resolves a directory that does not hold the data.
+3. **Remove the source.** Past the commit, so a failure here is a log line and a directory somebody
+   can delete, never a failed move. Moving *out* of `.ubiq/` also removes the `.gitignore` and then
+   the folder itself — but only when nothing is left in it but `local/`, because anything else in
+   there is the user's.
+
+**`local/` never moves.** It is what this machine derived — the view blob, the workarea, the index,
+the caches, cloned knowledge bases — and the destination derives it again by being asked. Copying a
+machine's index into a directory a team shares would be wrong even if it were free. Today it costs
+the user nothing either way: the preference store, the workarea and the index all resolve under the
+config root whichever mode the project is in, so view state survives a move that the Forget-and-add
+workaround loses.
+
+A destination that holds one of those entries — a `.ubiq/` cloned from a teammate — is
+refused rather than merged into. So is a project with a pane or a live conversation running in it:
+see [`transport-contract.md`](./transport-contract.md) for how the host knows.
+
+`ProjectDirs`' memo of a pointer it has read lasts exactly as long as that file: three instances of
+it live in the process — one in the task store, two in the task-source family — that no message
+could reach to invalidate, so each re-reads once the pointer is gone. The check is on a file under
+the config root rather than on the project's own folder, so an unmounted volume still resolves into
+the `.ubiq/` it belongs in.
 
 ## `vendor/`
 

@@ -64,6 +64,10 @@ pub enum Layer {
     DroneStop,
     /// The clone modal.
     Clone,
+    /// The task-import dialog: what the binding's filter currently offers, to tick. Above the
+    /// project settings page because the task-sync section raises it, and raisable from the board
+    /// as well, which is why it is a rung of its own rather than a part of that page.
+    TaskImport,
     /// The feedback modal.
     Feedback,
     /// An agent's question to the user. Above the feedback modal on the same terms — it is raised
@@ -83,6 +87,10 @@ pub enum Layer {
     /// picture in a markdown preview, wherever one is drawn, so it sits above both the standard
     /// viewer's tab and the plan surface's own rendered markdown.
     ImageZoom,
+    /// What one ACP harness said it can do (`T-207`) — raised from the harnesses settings section
+    /// and from a conversation's info modal. Above both, because it is a reading raised *over*
+    /// whichever of them asked for it, and Escape means "put the reading away" while it is up.
+    Capabilities,
     /// The file question — new, rename, save-as and the rest, and the plan modal's own Export
     /// prompt, painted over it on the same terms `FileDialog` already sits over everything else
     /// that can raise it.

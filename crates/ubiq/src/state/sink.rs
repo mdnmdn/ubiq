@@ -25,6 +25,8 @@ use ubiq_proto::projects::{DroneChange, DroneOrigin};
 use ubiq_proto::settings::DronePreset;
 use ubiq_proto::work::AgentId;
 
+use crate::ext::settings::SettingsSectionSpec;
+use crate::ext::{SlotId, ids};
 use crate::state::editor::{FileLanguage, ViewLayout, ViewerKind};
 use crate::state::file_picker::{
     Commit, PickKind, PickerCount, PickerNode, PickerOwner, PickerRequest, PickerView,
@@ -480,61 +482,33 @@ impl SettingsDemo {
 
 // ── Project settings ────────────────────────────────────────────────
 
-/// The left nav of the project settings dialog.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub enum ProjectNav {
-    #[default]
-    General,
-    Tools,
-    /// The setups a start inside this project is offered: the globals, or this project's own.
-    AgentDefinitions,
-    /// Which lanes this project's task board draws, and which of them shut themselves when empty.
-    Tasks,
-    /// Where the project's folder actually is: here, or behind a drone on another machine.
-    Remote,
-    /// Which folders and repositories the project's documents come from.
-    Kb,
-    Documentation,
-    Integrations,
+/// Which section of the project settings dialog the nav is on.
+///
+/// A `Copy` newtype over a [`SlotId`] rather than a closed enum (`D180`), and the same container
+/// kind the application overlay's [`crate::state::settings::SettingsSection`] is: the label, the
+/// icon, the body, the count beside the row and the "does this need a record behind it" test are
+/// fields on [`SettingsSectionSpec`], and the dialog's nav is
+/// [`ext::settings::project_sections()`](crate::ext::settings::project_sections).
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct ProjectNav(pub SlotId);
+
+impl Default for ProjectNav {
+    /// General, which is the row the dialog opens on.
+    fn default() -> Self {
+        ProjectNav(ids::PROJECT_GENERAL)
+    }
 }
 
 impl ProjectNav {
-    pub fn all() -> &'static [ProjectNav] {
-        &[
-            ProjectNav::General,
-            ProjectNav::Tools,
-            ProjectNav::AgentDefinitions,
-            ProjectNav::Tasks,
-            ProjectNav::Remote,
-            ProjectNav::Kb,
-            ProjectNav::Documentation,
-            ProjectNav::Integrations,
-        ]
-    }
-
     pub fn label(self) -> &'static str {
-        PROJECT_NAV_COPY[self as usize].0
+        crate::ext::settings::label(self.0)
     }
 
-    /// The count the nav prints, when the item has one.
-    pub fn count(self) -> Option<u32> {
-        PROJECT_NAV_COPY[self as usize].1
+    /// This section's spec, if it is registered.
+    pub fn spec(self) -> Option<&'static SettingsSectionSpec> {
+        crate::ext::settings::spec(self.0)
     }
 }
-
-/// Label and the count beside it, one row per [`ProjectNav`], in variant order.
-const PROJECT_NAV_COPY: [(&str, Option<u32>); 8] = [
-    ("General", None),
-    ("Tools", None),
-    ("Agent definitions", None),
-    ("Tasks", None),
-    ("Remote", None),
-    // The fixture's root count. The live dialog prints the project's own instead, because the
-    // number beside this row is what the section is a list of.
-    ("Knowledge base", Some(2)),
-    ("Documentation", Some(4)),
-    ("Integrations", Some(1)),
-];
 
 /// The project the dialog is about. A fixture: the sink has no project behind it.
 pub const PROJECT_NAME: &str = "agent-manager";
@@ -1368,6 +1342,10 @@ pub struct SinkState {
     /// [`crate::state::teamsim::TeamsimDemo`] — the geometry lives beside the scenario it is
     /// derived from, so this module never grows a second layout engine.
     pub teamsim: crate::state::teamsim::TeamsimDemo,
+    /// The extensions demo's own switch (`X11`, M4): on turns the demo rail mode on, read by its
+    /// `Availability::When` predicate in [`crate::ui::sink::ext_demo`]. In memory only, like every
+    /// other fixture in this struct — the demo has no project behind it either.
+    pub ext_demo_on: bool,
 }
 
 impl Default for SinkState {
@@ -1391,6 +1369,7 @@ impl Default for SinkState {
             a2ui: A2uiDemo::default(),
             script: ScriptDemo::default(),
             teamsim: crate::state::teamsim::TeamsimDemo::default(),
+            ext_demo_on: false,
         }
     }
 }
