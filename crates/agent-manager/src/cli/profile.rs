@@ -327,6 +327,10 @@ fn cmd_create(opts: CreateOpts) -> Result<()> {
         mode: None,
         max_subagents: None,
         mission_assistant: None,
+        mission_coordinator: None,
+        mission_worker: None,
+        disabled: None,
+        description: None,
     };
 
     let path = store.save(&profile)?;

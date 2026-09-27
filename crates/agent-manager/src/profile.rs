@@ -298,6 +298,14 @@ pub trait ProfileStore {
     fn put_base(&self, _id: &str, _harness: &str, _from: &Path) -> Result<()> {
         bail!("this profile store does not support writing config-overlay bases")
     }
+
+    /// The persistent harness config home for `id` + `harness` (`D193`): one directory per
+    /// profile, used as the harness's own config home by every run of that profile at once and
+    /// logged into directly. Feeds [`crate::spec::ConfigStrategy::Home`]. The path is computed,
+    /// never created here. Default: `None` — a store with no filesystem has no home to name.
+    fn home(&self, _id: &str, _harness: &str) -> Option<PathBuf> {
+        None
+    }
 }
 
 /// A [`ProfileStore`] with no profiles — the default for lib-mode embedders and
@@ -352,6 +360,13 @@ impl FsProfileStore {
     /// not create or populate it).
     pub fn base_dir(&self, id: &str, harness: &str) -> PathBuf {
         self.root.join(id).join("base").join(harness)
+    }
+
+    /// Path of the persistent harness config home for a profile + harness:
+    /// `<root>/<id>/home/<harness>`, a sibling of [`Self::base_dir`]. Only
+    /// computes the path.
+    pub fn home_dir(&self, id: &str, harness: &str) -> PathBuf {
+        self.root.join(id).join("home").join(harness)
     }
 }
 
@@ -415,6 +430,10 @@ impl ProfileStore for FsProfileStore {
     fn put_base(&self, id: &str, harness: &str, from: &Path) -> Result<()> {
         let dest = self.base_dir(id, harness);
         Source::Dir(from.to_path_buf()).materialize(&dest, LinkMode::Copy, true)
+    }
+
+    fn home(&self, id: &str, harness: &str) -> Option<PathBuf> {
+        Some(self.home_dir(id, harness))
     }
 }
 
@@ -488,6 +507,13 @@ impl ProfileStore for ScopedProfileStore<'_> {
         match self.project {
             Some(store) if self.in_project(id) => store.put_base(id, harness, from),
             _ => self.global.put_base(id, harness, from),
+        }
+    }
+
+    fn home(&self, id: &str, harness: &str) -> Option<PathBuf> {
+        match self.project {
+            Some(store) if self.in_project(id) => store.home(id, harness),
+            _ => self.global.home(id, harness),
         }
     }
 }
@@ -810,6 +836,22 @@ instructions = "/etc/work-instructions.md"
     }
 
     #[test]
+    fn fs_profile_store_home_is_a_sibling_of_base_and_is_not_created() -> Result<()> {
+        let temp = tempfile::TempDir::new()?;
+        let root = temp.path().join("profiles");
+        let store = FsProfileStore::new(&root);
+
+        let home = root.join("cap").join("home").join("claude-code");
+        assert_eq!(store.home_dir("cap", "claude-code"), home);
+        assert_eq!(store.home("cap", "claude-code"), Some(home.clone()));
+        assert!(!home.exists(), "the accessor only computes the path");
+        assert_eq!(EmptyProfileStore.home("cap", "claude-code"), None);
+
+        temp.close()?;
+        Ok(())
+    }
+
+    #[test]
     fn resolve_profiles_root_honors_explicit_over_env_and_default() {
         // An explicit path always wins over the `AM_PROFILES` env var and the
         // default, regardless of the ambient environment. (This crate forbids
@@ -962,6 +1004,25 @@ thinking = "high"
             FsProfileStore::new(global_root),
             FsProfileStore::new(project_root),
         ))
+    }
+
+    #[test]
+    fn scoped_store_answers_each_profiles_home_from_its_own_root() -> Result<()> {
+        let (temp, global, project) = scoped_roots()?;
+        write_profile(global.root.as_path(), "standard", "harness = \"claude\"\n");
+        write_profile(project.root.as_path(), "reviewer", "harness = \"claude\"\n");
+
+        let scoped = ScopedProfileStore::new(&global, Some(&project));
+        assert_eq!(
+            scoped.home("standard", "claude-code"),
+            Some(global.home_dir("standard", "claude-code"))
+        );
+        assert_eq!(
+            scoped.home("reviewer", "claude-code"),
+            Some(project.home_dir("reviewer", "claude-code"))
+        );
+        temp.close()?;
+        Ok(())
     }
 
     #[test]

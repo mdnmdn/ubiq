@@ -4726,7 +4726,7 @@ The library exposes the home through an accessor, so Ubiq still names no harness
 directory `<root>/runs/<key>` becomes a scratch directory beside it, holding per-run files passed by
 flag: MCP by `--mcp-config <scratch>/mcp.json --strict-mcp-config` (Ubiq's own MCP URLs embed the
 run key, so a shared file would cross runs); permissions, hooks and `apiKeyHelper` by `--settings
-<scratch>/settings.json`, with `--setting-sources` excluding shared user settings; instructions by
+<scratch>/settings.json`, layered over the home's user settings, which hold nothing per-run; instructions by
 `--append-system-prompt`; skills and MCP-as-skill by a per-run `--plugin-dir`, so a skill is named
 `plugin:skill`; the profile overlay folded into those. Onboarding flags and theme and TUI templates
 are written into the home once, at creation. The one per-run write the home still takes is the cwd

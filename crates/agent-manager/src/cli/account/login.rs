@@ -93,6 +93,7 @@ pub(super) fn cmd_login(
             dir: home.clone(),
             launch: plan.launch.clone(),
             ephemeral: false, // persistent home — never auto-deleted
+            home: None,
             // A capture writes the login; there is nothing seeded to harvest back.
             login_origin: None,
             resume: None,

@@ -7,7 +7,9 @@
 //! relocated with the `CLAUDE_CONFIG_DIR` environment variable. Provisioning
 //! points that variable at the ephemeral dir instead of the real `~/.claude`,
 //! so skills/settings/memory are injected without ever touching the user's
-//! real config.
+//! real config. Under a profile's shared home (`D193`) the variable names that
+//! home instead, and every per-run file reaches the run by flag from its
+//! scratch dir — see [`Claude::provision_home`](super::Harness::provision_home).
 
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -39,6 +41,10 @@ const ENV_HYGIENE: &[&str] = &[
 /// content (were any to coexist in the file) is distinguishable from ours.
 const MANAGED_BEGIN: &str = "<!-- agent-manager:begin -->";
 const MANAGED_END: &str = "<!-- agent-manager:end -->";
+
+/// The name of a shared-home run's per-run plugin, and so the prefix its skills are invoked by
+/// (`am:<skill>`). Stable, since a resumed transcript names skills by it.
+const PLUGIN_NAME: &str = "am";
 
 /// The npm bin the ACP variant launches — `@agentclientprotocol/claude-agent-acp`, the Agent
 /// Client Protocol org's adapter for the Claude Agent SDK. It drives the same `claude` the
@@ -74,6 +80,139 @@ impl Claude {
     /// Construct the ACP-speaking Claude Code harness descriptor (`claude-code-acp`).
     pub fn new_acp() -> Self {
         Claude { acp: true }
+    }
+
+    /// The launch shared by [`Harness::provision`] and [`Harness::provision_home`]:
+    /// `config_dir` becomes `CLAUDE_CONFIG_DIR`, and `config_args` — the flags naming this
+    /// run's own files — go right after the headless flags.
+    fn launch(
+        &self,
+        spec: &RunSpec,
+        config_dir: &Path,
+        config_args: Vec<String>,
+    ) -> Result<Launch> {
+        // 5. Build the launch. Structured mode launches Claude Code headless
+        // (`-p --output-format stream-json --input-format stream-json`),
+        // with the prompt delivered as an NDJSON line on stdin by the
+        // bridge rather than a trailing positional argument; passthrough
+        // mode keeps the interactive argv shape from P1.
+        let structured = spec.io == crate::spec::IoModes::Structured;
+        // The ACP variant's *structured* launch is the adapter, and the adapter takes no argv at
+        // all: the prompt is a `session/prompt`, a resume is `session/load` (from
+        // `Provisioned::resume`) and everything else it needs it reads from `CLAUDE_CONFIG_DIR`
+        // below, exactly as the native variant's child does. A passthrough run is unchanged —
+        // `claude-code-acp` is not a TUI, so a pane still gets the real `claude`.
+        // ponytail: no model, no thinking level and no `--mcp-config` reach the adapter — it
+        // takes those on `session/new`'s `_meta.claudeCode.options`, which the generic ACP
+        // bridge does not send. Skills, settings and memory still arrive through the config dir.
+        // Wire `_meta` options only if per-run model choice is wanted here.
+        let acp = self.acp && structured;
+
+        let mut args = Vec::new();
+        if structured {
+            args.extend(
+                [
+                    "-p",
+                    "--output-format",
+                    "stream-json",
+                    "--input-format",
+                    "stream-json",
+                    "--verbose",
+                ]
+                .map(str::to_string),
+            );
+        }
+        args.extend(config_args);
+        // Model selection: `--model <id>` works in both passthrough and
+        // structured invocation. Only added when a model is set, so runs
+        // without `--model` keep byte-identical argv.
+        if let Some(model) = &spec.model {
+            args.push("--model".to_string());
+            args.push(model.clone());
+        }
+        // Reasoning effort: `--effort <value>` right after the model pair. Only added when set,
+        // so runs without a chosen level keep byte-identical argv.
+        if let Some(thinking) = &spec.thinking {
+            args.push("--effort".to_string());
+            args.push(thinking.clone());
+        }
+        // Resume: `--resume <id>` works in both passthrough and headless
+        // (structured) invocation, so it's appended here rather than
+        // branching on `structured`. Only added when a resume id is set —
+        // resumeless runs keep byte-identical argv.
+        if let Some(id) = &spec.resume {
+            args.push("--resume".to_string());
+            args.push(id.clone());
+        }
+        if structured {
+            // The ask channel. Without `--permission-prompt-tool stdio` Claude emits no
+            // `control_request` at all in `-p` mode and auto-*denies* every gated tool (the
+            // refusal shows up only in `result.permission_denials[]`), so a caller that wants to
+            // approve anything has to opt in here — see `_docs/harness/claude-code.md`
+            // §"Tool approval in headless mode".
+            args.push("--permission-prompt-tool".to_string());
+            args.push("stdio".to_string());
+            // A mode `resolve` wrote onto `spec.policy` (from `--permission-mode` or a `--safe`
+            // preset) is still passed through, for the settings-level default it also renders.
+            // Nothing is passed when nothing chose a mode: `-p` runs report
+            // `permissionMode:"default"` whatever this flag says (verified against 2.1.258), so
+            // the old `bypassPermissions` default bought no bypass — it only hid the fact that
+            // the bridge, not the flag, decides what runs. With a prompt channel present that
+            // decision belongs to the caller.
+            let chosen_mode = spec
+                .policy
+                .as_ref()
+                .and_then(|p| p.permission_mode.as_deref());
+            if let Some(mode) = chosen_mode {
+                args.push("--permission-mode".to_string());
+                args.push(mode.to_string());
+            }
+            args.push("--disallowedTools".to_string());
+            args.push("AskUserQuestion".to_string());
+        }
+        args.extend(spec.passthrough_args.iter().cloned());
+
+        // Append prompt as trailing positional argument, passthrough mode
+        // only — structured mode's bridge sends it as NDJSON on stdin.
+        if !structured && let Some(prompt) = spec.initial.as_ref().and_then(|i| i.prompt.as_ref()) {
+            args.push(prompt.clone());
+        }
+
+        // 6. Account: inject credential *references* into the child's env.
+        let mut env = vec![(
+            "CLAUDE_CONFIG_DIR".to_string(),
+            config_dir.display().to_string(),
+        )];
+        if let Some(account) = &spec.account {
+            if let Some(base_url) = &account.base_url {
+                env.push(("ANTHROPIC_BASE_URL".to_string(), base_url.clone()));
+            }
+            if let Some(name) = &account.api_key_env {
+                let value = super::shared::account_env(account, name)?;
+                env.push(("ANTHROPIC_API_KEY".to_string(), value));
+            }
+            if let Some(name) = &account.auth_token_env {
+                let value = super::shared::account_env(account, name)?;
+                env.push(("ANTHROPIC_AUTH_TOKEN".to_string(), value));
+            }
+        }
+
+        // 7. The wire. The ACP variant's structured launch is the adapter, and the adapter
+        // takes no argv: the prompt is a `session/prompt`, a resume is `session/load` (from
+        // `Provisioned::resume`), and the rest it reads out of `CLAUDE_CONFIG_DIR` exactly as
+        // the native child does. A passthrough run is unchanged either way — `claude-code-acp`
+        // is not a TUI, so a pane still gets the real `claude`.
+        Ok(Launch {
+            program: if acp { ACP_COMMAND } else { "claude" }.to_string(),
+            args: if acp {
+                spec.passthrough_args.clone()
+            } else {
+                args
+            },
+            env,
+            env_remove: ENV_HYGIENE.iter().map(|s| s.to_string()).collect(),
+            env_clear: false,
+        })
     }
 }
 
@@ -297,57 +436,15 @@ impl Harness for Claude {
 
     fn provision(&self, spec: &RunSpec, dir: &Path) -> Result<Launch> {
         // 1. Skills: copy each skill folder into <dir>/skills/<id>/.
-        let skills_dir = dir.join("skills");
-        for skill in &spec.skills {
-            let dest = skills_dir.join(&skill.id);
-            skill
-                .source
-                .materialize(&dest, crate::source::LinkMode::Copy, true)
-                .with_context(|| format!("copying skill '{}' into {}", skill.id, dest.display()))?;
-        }
-        // 1b. MCP-as-skill: latent SKILL.md pointers (stepping stone; see
-        // harness::write_mcp_as_skill_pointers's doc). No-op when
-        // spec.mcp_as_skill is empty.
-        super::write_mcp_as_skill_pointers(spec, &skills_dir)?;
+        write_skills(spec, &dir.join("skills"))?;
 
         // 2. MCP: always write <dir>/mcp.json, even if empty, so
         // --strict-mcp-config yields a fully-controlled server set.
-        let mcp_json = build_mcp_json(&spec.mcps)?;
-        let mcp_path = dir.join("mcp.json");
-        std::fs::write(&mcp_path, serde_json::to_string_pretty(&mcp_json)?)
-            .with_context(|| format!("writing {}", mcp_path.display()))?;
+        let mcp_path = write_mcp_json(spec, dir)?;
 
         // 3. Policy + account helper + hooks: <dir>/settings.json, written
         // when any of a policy, an account helper, or hooks is present.
-        let mut settings_obj = serde_json::Map::new();
-        if let Some(policy) = &spec.policy {
-            let mut permissions = serde_json::Map::new();
-            if let Some(mode) = &policy.permission_mode {
-                permissions.insert("defaultMode".to_string(), json!(mode));
-            }
-            permissions.insert("allow".to_string(), json!(policy.allow));
-            permissions.insert("ask".to_string(), json!(policy.ask));
-            permissions.insert("deny".to_string(), json!(policy.deny));
-            settings_obj.insert("permissions".to_string(), Value::Object(permissions));
-        }
-        if let Some(account) = &spec.account
-            && let Some(helper) = &account.helper
-        {
-            // `am` never runs the helper or sees its output; it only wires
-            // the command string into Claude Code's native key-helper slot.
-            settings_obj.insert("apiKeyHelper".to_string(), json!(helper));
-        }
-        if !spec.hooks.is_empty() {
-            settings_obj.insert("hooks".to_string(), build_hooks_json(&spec.hooks));
-        }
-        if !settings_obj.is_empty() {
-            let settings_path = dir.join("settings.json");
-            std::fs::write(
-                &settings_path,
-                serde_json::to_string_pretty(&Value::Object(settings_obj))?,
-            )
-            .with_context(|| format!("writing {}", settings_path.display()))?;
-        }
+        write_settings_json(spec, dir)?;
 
         // 4. Instructions: <dir>/CLAUDE.md, wrapped in a managed block.
         if let Some(instr_text) = spec.initial.as_ref().and_then(|i| i.instructions.as_ref()) {
@@ -357,146 +454,101 @@ impl Harness for Claude {
                 .with_context(|| format!("writing {}", claude_md_path.display()))?;
         }
 
-        // 5. Build the launch. Structured mode launches Claude Code headless
-        // (`-p --output-format stream-json --input-format stream-json`),
-        // with the prompt delivered as an NDJSON line on stdin by the
-        // bridge rather than a trailing positional argument; passthrough
-        // mode keeps the interactive argv shape from P1.
-        let structured = spec.io == crate::spec::IoModes::Structured;
-        // The ACP variant's *structured* launch is the adapter, and the adapter takes no argv at
-        // all: the prompt is a `session/prompt`, a resume is `session/load` (from
-        // `Provisioned::resume`) and everything else it needs it reads from `CLAUDE_CONFIG_DIR`
-        // below, exactly as the native variant's child does. A passthrough run is unchanged —
-        // `claude-code-acp` is not a TUI, so a pane still gets the real `claude`.
-        // ponytail: no model, no thinking level and no `--mcp-config` reach the adapter — it
-        // takes those on `session/new`'s `_meta.claudeCode.options`, which the generic ACP
-        // bridge does not send. Skills, settings and memory still arrive through the config dir.
-        // Wire `_meta` options only if per-run model choice is wanted here.
-        let acp = self.acp && structured;
+        let config_args = vec![
+            "--mcp-config".to_string(),
+            mcp_path.display().to_string(),
+            "--strict-mcp-config".to_string(),
+        ];
+        let launch = self.launch(spec, dir, config_args)?;
 
-        let mut args = Vec::new();
-        if structured {
-            args.extend(
-                [
-                    "-p",
-                    "--output-format",
-                    "stream-json",
-                    "--input-format",
-                    "stream-json",
-                    "--verbose",
-                ]
-                .map(str::to_string),
-            );
-        }
-        args.push("--mcp-config".to_string());
-        args.push(mcp_path.display().to_string());
-        args.push("--strict-mcp-config".to_string());
-        // Model selection: `--model <id>` works in both passthrough and
-        // structured invocation. Only added when a model is set, so runs
-        // without `--model` keep byte-identical argv.
-        if let Some(model) = &spec.model {
-            args.push("--model".to_string());
-            args.push(model.clone());
-        }
-        // Reasoning effort: `--effort <value>` right after the model pair. Only added when set,
-        // so runs without a chosen level keep byte-identical argv.
-        if let Some(thinking) = &spec.thinking {
-            args.push("--effort".to_string());
-            args.push(thinking.clone());
-        }
-        // Resume: `--resume <id>` works in both passthrough and headless
-        // (structured) invocation, so it's appended here rather than
-        // branching on `structured`. Only added when a resume id is set —
-        // resumeless runs keep byte-identical argv.
-        if let Some(id) = &spec.resume {
-            args.push("--resume".to_string());
-            args.push(id.clone());
-        }
-        if structured {
-            // The ask channel. Without `--permission-prompt-tool stdio` Claude emits no
-            // `control_request` at all in `-p` mode and auto-*denies* every gated tool (the
-            // refusal shows up only in `result.permission_denials[]`), so a caller that wants to
-            // approve anything has to opt in here — see `_docs/harness/claude-code.md`
-            // §"Tool approval in headless mode".
-            args.push("--permission-prompt-tool".to_string());
-            args.push("stdio".to_string());
-            // A mode `resolve` wrote onto `spec.policy` (from `--permission-mode` or a `--safe`
-            // preset) is still passed through, for the settings-level default it also renders.
-            // Nothing is passed when nothing chose a mode: `-p` runs report
-            // `permissionMode:"default"` whatever this flag says (verified against 2.1.258), so
-            // the old `bypassPermissions` default bought no bypass — it only hid the fact that
-            // the bridge, not the flag, decides what runs. With a prompt channel present that
-            // decision belongs to the caller.
-            let chosen_mode = spec
-                .policy
-                .as_ref()
-                .and_then(|p| p.permission_mode.as_deref());
-            if let Some(mode) = chosen_mode {
-                args.push("--permission-mode".to_string());
-                args.push(mode.to_string());
-            }
-            args.push("--disallowedTools".to_string());
-            args.push("AskUserQuestion".to_string());
-        }
-        args.extend(spec.passthrough_args.iter().cloned());
-
-        // Append prompt as trailing positional argument, passthrough mode
-        // only — structured mode's bridge sends it as NDJSON on stdin.
-        if !structured && let Some(prompt) = spec.initial.as_ref().and_then(|i| i.prompt.as_ref()) {
-            args.push(prompt.clone());
-        }
-
-        // 6. Account: inject credential *references* into the child's env.
-        let mut env = vec![("CLAUDE_CONFIG_DIR".to_string(), dir.display().to_string())];
-        if let Some(account) = &spec.account {
-            if let Some(base_url) = &account.base_url {
-                env.push(("ANTHROPIC_BASE_URL".to_string(), base_url.clone()));
-            }
-            if let Some(name) = &account.api_key_env {
-                let value = super::shared::account_env(account, name)?;
-                env.push(("ANTHROPIC_API_KEY".to_string(), value));
-            }
-            if let Some(name) = &account.auth_token_env {
-                let value = super::shared::account_env(account, name)?;
-                env.push(("ANTHROPIC_AUTH_TOKEN".to_string(), value));
-            }
-            if let Some(login) = spec
+        // 6b. Account login: reuse a prior `am account login`.
+        if let Some(account) = &spec.account
+            && let Some(login) = spec
                 .account_login
                 .clone()
                 .or_else(|| account.home.clone().map(crate::source::Source::Dir))
-            {
-                // Reuse a prior `am account login` by *seeding* the ephemeral
-                // config dir with that account's credentials + identity —
-                // deliberately WITHOUT overriding the child's `HOME`.
-                //
-                // Overriding `HOME` (the previous behavior) had two fatal
-                // problems: (1) Claude Code ≥2.x relocates its *entire* config
-                // — `.claude.json` included, not just `.claude/.credentials.json`
-                // — into `CLAUDE_CONFIG_DIR`, which points at the *empty*
-                // ephemeral dir, so the HOME-resident creds were never read and
-                // every run re-triggered onboarding; and (2) a per-account HOME
-                // strips the user's real environment — `nvm`/`mise`/`pyenv`,
-                // shell rc, PATH shims — none of which exist under a bare
-                // account home. Seeding into `CLAUDE_CONFIG_DIR` fixes the auth
-                // half while leaving the real HOME (and toolchain) intact.
-                // The seed list is declared once in `config_anchor()`.
-                super::seed_login(dir, &login, &self.config_anchor().login_seed)?;
-            }
+        {
+            // Reuse a prior `am account login` by *seeding* the ephemeral
+            // config dir with that account's credentials + identity —
+            // deliberately WITHOUT overriding the child's `HOME`.
+            //
+            // Overriding `HOME` (the previous behavior) had two fatal
+            // problems: (1) Claude Code ≥2.x relocates its *entire* config
+            // — `.claude.json` included, not just `.claude/.credentials.json`
+            // — into `CLAUDE_CONFIG_DIR`, which points at the *empty*
+            // ephemeral dir, so the HOME-resident creds were never read and
+            // every run re-triggered onboarding; and (2) a per-account HOME
+            // strips the user's real environment — `nvm`/`mise`/`pyenv`,
+            // shell rc, PATH shims — none of which exist under a bare
+            // account home. Seeding into `CLAUDE_CONFIG_DIR` fixes the auth
+            // half while leaving the real HOME (and toolchain) intact.
+            // The seed list is declared once in `config_anchor()`.
+            super::seed_login(dir, &login, &self.config_anchor().login_seed)?;
         }
+        Ok(launch)
+    }
 
-        // 7. The wire. The ACP variant's structured launch is the adapter, and the adapter
-        // takes no argv: the prompt is a `session/prompt`, a resume is `session/load` (from
-        // `Provisioned::resume`), and the rest it reads out of `CLAUDE_CONFIG_DIR` exactly as
-        // the native child does. A passthrough run is unchanged either way — `claude-code-acp`
-        // is not a TUI, so a pane still gets the real `claude`.
+    /// The native variant runs from a shared home; `claude-code-acp` does not — its adapter
+    /// takes no argv, so no per-run file could reach it by flag (`G378`).
+    fn shares_home(&self) -> bool {
+        !self.acp
+    }
+
+    /// A run against a profile's shared `CLAUDE_CONFIG_DIR` (`D193`). Nothing per-run is written
+    /// into `home`; each per-run file goes into `scratch` and is passed by flag:
+    ///
+    /// - MCP → `<scratch>/mcp.json`, `--mcp-config … --strict-mcp-config`, as a fixed dir has it;
+    /// - permissions, hooks, `apiKeyHelper` → `<scratch>/settings.json`, `--settings <file>`. No
+    ///   `--setting-sources`: the home's own user settings (the theme and TUI templates) keep
+    ///   applying, and `--settings` layers over them;
+    /// - instructions → `--append-system-prompt <text>`, plain — the managed-block markers only
+    ///   separate `am`'s text from a user's inside a shared `CLAUDE.md`;
+    /// - skills and MCP-as-skill pointers → a per-run plugin, `<scratch>/plugin/` with
+    ///   `.claude-plugin/plugin.json` and `skills/<id>/`, passed by `--plugin-dir` only when
+    ///   there is a skill. Claude Code names a plugin's skill `<plugin>:<skill>`, so a skill
+    ///   here is `am:<id>` (layout checked against 2.1.283's `claude plugin details`).
+    ///
+    /// No login is seeded: it lives in the home, put there by [`Harness::login_home`].
+    fn provision_home(&self, spec: &RunSpec, home: &Path, scratch: &Path) -> Result<Launch> {
+        let mcp_path = write_mcp_json(spec, scratch)?;
+        let mut config_args = vec![
+            "--mcp-config".to_string(),
+            mcp_path.display().to_string(),
+            "--strict-mcp-config".to_string(),
+        ];
+        if let Some(settings_path) = write_settings_json(spec, scratch)? {
+            config_args.push("--settings".to_string());
+            config_args.push(settings_path.display().to_string());
+        }
+        if let Some(instr_text) = spec.initial.as_ref().and_then(|i| i.instructions.as_ref()) {
+            config_args.push("--append-system-prompt".to_string());
+            config_args.push(instr_text.clone());
+        }
+        let plugin_dir = scratch.join("plugin");
+        if write_skills(spec, &plugin_dir.join("skills"))? {
+            let manifest_path = plugin_dir.join(".claude-plugin").join("plugin.json");
+            std::fs::create_dir_all(manifest_path.parent().unwrap_or(&plugin_dir))
+                .with_context(|| format!("creating {}", plugin_dir.display()))?;
+            let manifest = json!({
+                "name": PLUGIN_NAME,
+                "description": "This run's skills, composed by agent-manager.",
+            });
+            std::fs::write(&manifest_path, serde_json::to_string_pretty(&manifest)?)
+                .with_context(|| format!("writing {}", manifest_path.display()))?;
+            config_args.push("--plugin-dir".to_string());
+            config_args.push(plugin_dir.display().to_string());
+        }
+        self.launch(spec, home, config_args)
+    }
+
+    /// `claude auth login` with `CLAUDE_CONFIG_DIR=<home>`, and the real `HOME` left alone: the
+    /// login lands where every run of the profile reads it, in the file or the Keychain item
+    /// Claude Code itself picks for that home, and Claude Code refreshes it from then on.
+    fn login_home(&self, home: &Path) -> Result<Launch> {
         Ok(Launch {
-            program: if acp { ACP_COMMAND } else { "claude" }.to_string(),
-            args: if acp {
-                spec.passthrough_args.clone()
-            } else {
-                args
-            },
-            env,
+            program: "claude".to_string(),
+            args: vec!["auth".to_string(), "login".to_string()],
+            env: vec![("CLAUDE_CONFIG_DIR".to_string(), home.display().to_string())],
             env_remove: ENV_HYGIENE.iter().map(|s| s.to_string()).collect(),
             env_clear: false,
         })
@@ -678,7 +730,13 @@ impl Harness for Claude {
     ///    `projects[cwd].hasTrustDialogAccepted`, keyed by the exact cwd
     ///    string. A fresh/ephemeral `CLAUDE_CONFIG_DIR` has no record of
     ///    `spec.cwd`, so every run would otherwise hit that dialog too.
+    ///
+    /// Under a shared home ([`crate::spec::ConfigStrategy::Home`], with `dir` the home) both
+    /// are added only when missing, under a lock — see `post_seed_shared_home`.
     fn post_seed(&self, spec: &RunSpec, dir: &Path) -> Result<()> {
+        if matches!(&spec.config, crate::spec::ConfigStrategy::Home { home, .. } if home == dir) {
+            return post_seed_shared_home(spec, dir);
+        }
         debug!(dir = %dir.display(), "post_seed: fixing up .claude.json");
         let path = dir.join(".claude.json");
         let mut doc: Value = match std::fs::read_to_string(&path) {
@@ -798,6 +856,123 @@ fn build_hooks_json(hooks: &[HookRef]) -> Value {
             .push(Value::Object(entry));
     }
     json!(by_event)
+}
+
+/// Copy each of `spec.skills` into `<skills_dir>/<id>/`, and write the MCP-as-skill pointers
+/// beside them (stepping stone; see `harness::write_mcp_as_skill_pointers`'s doc). Touches
+/// nothing when there is neither; answers whether anything was written.
+fn write_skills(spec: &RunSpec, skills_dir: &Path) -> Result<bool> {
+    for skill in &spec.skills {
+        let dest = skills_dir.join(&skill.id);
+        skill
+            .source
+            .materialize(&dest, crate::source::LinkMode::Copy, true)
+            .with_context(|| format!("copying skill '{}' into {}", skill.id, dest.display()))?;
+    }
+    super::write_mcp_as_skill_pointers(spec, skills_dir)?;
+    Ok(!spec.skills.is_empty() || !spec.mcp_as_skill.is_empty())
+}
+
+/// Write `<dir>/mcp.json` from `spec.mcps` — always, even if empty, so `--strict-mcp-config`
+/// yields a fully-controlled server set. Returns the path written.
+fn write_mcp_json(spec: &RunSpec, dir: &Path) -> Result<std::path::PathBuf> {
+    let mcp_json = build_mcp_json(&spec.mcps)?;
+    let mcp_path = dir.join("mcp.json");
+    std::fs::write(&mcp_path, serde_json::to_string_pretty(&mcp_json)?)
+        .with_context(|| format!("writing {}", mcp_path.display()))?;
+    Ok(mcp_path)
+}
+
+/// Write `<dir>/settings.json` when any of a policy, an account helper, or hooks is present.
+/// Returns the path written, or `None` when there was nothing to write.
+fn write_settings_json(spec: &RunSpec, dir: &Path) -> Result<Option<std::path::PathBuf>> {
+    let mut settings_obj = serde_json::Map::new();
+    if let Some(policy) = &spec.policy {
+        let mut permissions = serde_json::Map::new();
+        if let Some(mode) = &policy.permission_mode {
+            permissions.insert("defaultMode".to_string(), json!(mode));
+        }
+        permissions.insert("allow".to_string(), json!(policy.allow));
+        permissions.insert("ask".to_string(), json!(policy.ask));
+        permissions.insert("deny".to_string(), json!(policy.deny));
+        settings_obj.insert("permissions".to_string(), Value::Object(permissions));
+    }
+    if let Some(account) = &spec.account
+        && let Some(helper) = &account.helper
+    {
+        // `am` never runs the helper or sees its output; it only wires
+        // the command string into Claude Code's native key-helper slot.
+        settings_obj.insert("apiKeyHelper".to_string(), json!(helper));
+    }
+    if !spec.hooks.is_empty() {
+        settings_obj.insert("hooks".to_string(), build_hooks_json(&spec.hooks));
+    }
+    if settings_obj.is_empty() {
+        return Ok(None);
+    }
+    let settings_path = dir.join("settings.json");
+    std::fs::write(
+        &settings_path,
+        serde_json::to_string_pretty(&Value::Object(settings_obj))?,
+    )
+    .with_context(|| format!("writing {}", settings_path.display()))?;
+    Ok(Some(settings_path))
+}
+
+/// [`Claude::post_seed`] for a shared home: the onboarding flag and the cwd's trust entry are
+/// added to `<home>/.claude.json` **only when missing**, as a read-modify-write under an
+/// exclusive lock on a sibling lock file, written beside the file and renamed onto it. Every
+/// other key — the login's identity, other runs' projects, Claude Code's own state — is left
+/// as it was, and a document already holding both is not rewritten at all.
+fn post_seed_shared_home(spec: &RunSpec, home: &Path) -> Result<()> {
+    let lock_path = home.join(".claude.json.am-lock");
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&lock_path)
+        .with_context(|| format!("opening {}", lock_path.display()))?;
+    // Released when `lock` drops, at the end of this function.
+    lock.lock()
+        .with_context(|| format!("locking {}", lock_path.display()))?;
+
+    let path = home.join(".claude.json");
+    let mut doc: Value = match std::fs::read_to_string(&path) {
+        Ok(raw) => {
+            serde_json::from_str(&raw).with_context(|| format!("parsing {}", path.display()))?
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => json!({}),
+        Err(err) => return Err(err).with_context(|| format!("reading {}", path.display())),
+    };
+    let Value::Object(map) = &mut doc else {
+        warn!(path = %path.display(), "post_seed: .claude.json is not an object; left alone");
+        return Ok(());
+    };
+
+    let mut changed = false;
+    if !map.contains_key("hasCompletedOnboarding") {
+        map.insert("hasCompletedOnboarding".to_string(), json!(true));
+        changed = true;
+    }
+    let projects = map
+        .entry("projects")
+        .or_insert_with(|| Value::Object(serde_json::Map::new()));
+    if let Value::Object(projects) = projects {
+        let entry = projects
+            .entry(spec.cwd.display().to_string())
+            .or_insert_with(|| Value::Object(serde_json::Map::new()));
+        if let Value::Object(entry) = entry
+            && !entry.contains_key("hasTrustDialogAccepted")
+        {
+            entry.insert("hasTrustDialogAccepted".to_string(), json!(true));
+            changed = true;
+        }
+    }
+    if changed {
+        debug!(path = %path.display(), "post_seed: adding missing keys to a shared .claude.json");
+        super::write_credential(&path, serde_json::to_string_pretty(&doc)?.as_bytes())?;
+    }
+    Ok(())
 }
 
 /// Build the `{"mcpServers": {...}}` document from `spec.mcps`.
@@ -1724,6 +1899,190 @@ mod tests {
                 mode.id, launch.args
             );
         }
+    }
+
+    /// A spec carrying one of everything a shared-home run passes by flag.
+    fn home_spec(home: &Path, scratch: &Path, skill_dir: &Path) -> RunSpec {
+        use crate::spec::Instructions;
+
+        let mut spec = RunSpec::new("claude-code".to_string(), PathBuf::from("/tmp/project"));
+        spec.config = ConfigStrategy::Home {
+            home: home.to_path_buf(),
+            scratch: scratch.to_path_buf(),
+        };
+        spec.skills.push(SkillRef {
+            id: "my-skill".to_string(),
+            source: crate::source::Source::Dir(skill_dir.to_path_buf()),
+        });
+        spec.mcps.push(McpRef::Inline(McpServer {
+            id: "docs".to_string(),
+            transport: McpTransport::Http,
+            command: None,
+            args: vec![],
+            env: BTreeMap::new(),
+            url: Some("https://example.com/mcp/".to_string()),
+            headers: BTreeMap::new(),
+        }));
+        spec.policy = Some(Policy {
+            permission_mode: Some("plan".to_string()),
+            ..Default::default()
+        });
+        spec.initial = Some(Instructions {
+            instructions: Some("REMEMBER ME".to_string()),
+            prompt: None,
+        });
+        spec
+    }
+
+    fn flag_value<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
+        let at = args.iter().position(|a| a == flag)?;
+        args.get(at + 1).map(String::as_str)
+    }
+
+    #[test]
+    fn provision_home_puts_every_per_run_file_in_scratch_and_passes_it_by_flag() {
+        let home = tempfile::TempDir::new().unwrap();
+        let scratch = tempfile::TempDir::new().unwrap();
+        let skills_src = tempfile::TempDir::new().unwrap();
+        let skill_path = write_skill(skills_src.path(), "my-skill");
+        let spec = home_spec(home.path(), scratch.path(), &skill_path);
+
+        let launch = Claude::new()
+            .provision_home(&spec, home.path(), scratch.path())
+            .unwrap();
+
+        // Nothing per-run lands in the shared home.
+        let home_entries: Vec<_> = std::fs::read_dir(home.path()).unwrap().collect();
+        assert!(home_entries.is_empty(), "home got: {home_entries:?}");
+
+        let mcp_path = scratch.path().join("mcp.json");
+        let settings_path = scratch.path().join("settings.json");
+        let plugin_dir = scratch.path().join("plugin");
+        assert!(mcp_path.is_file());
+        assert!(settings_path.is_file());
+        assert!(plugin_dir.join("skills/my-skill/SKILL.md").is_file());
+        let manifest: Value = serde_json::from_str(
+            &std::fs::read_to_string(plugin_dir.join(".claude-plugin/plugin.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(manifest["name"].as_str(), Some(PLUGIN_NAME));
+        assert!(!scratch.path().join("CLAUDE.md").exists());
+
+        let args = &launch.args;
+        assert_eq!(
+            flag_value(args, "--mcp-config"),
+            Some(mcp_path.display().to_string().as_str())
+        );
+        assert!(args.contains(&"--strict-mcp-config".to_string()));
+        assert_eq!(
+            flag_value(args, "--settings"),
+            Some(settings_path.display().to_string().as_str())
+        );
+        assert_eq!(
+            flag_value(args, "--append-system-prompt"),
+            Some("REMEMBER ME")
+        );
+        assert_eq!(
+            flag_value(args, "--plugin-dir"),
+            Some(plugin_dir.display().to_string().as_str())
+        );
+        // The home's own user settings — the templates — must keep applying.
+        assert!(!args.contains(&"--setting-sources".to_string()));
+        assert!(
+            launch
+                .env
+                .iter()
+                .any(|(k, v)| k == "CLAUDE_CONFIG_DIR" && v == &home.path().display().to_string())
+        );
+    }
+
+    #[test]
+    fn provision_home_with_nothing_optional_passes_only_the_mcp_config() {
+        let home = tempfile::TempDir::new().unwrap();
+        let scratch = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("claude-code".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Home {
+            home: home.path().to_path_buf(),
+            scratch: scratch.path().to_path_buf(),
+        };
+
+        let launch = Claude::new()
+            .provision_home(&spec, home.path(), scratch.path())
+            .unwrap();
+
+        assert!(launch.args.contains(&"--mcp-config".to_string()));
+        for absent in ["--settings", "--append-system-prompt", "--plugin-dir"] {
+            assert!(!launch.args.contains(&absent.to_string()), "{absent}");
+        }
+        assert!(!scratch.path().join("plugin").exists());
+    }
+
+    #[test]
+    fn only_the_native_variant_shares_a_home() {
+        assert!(Claude::new().shares_home());
+        assert!(!Claude::new_acp().shares_home());
+    }
+
+    #[test]
+    fn login_home_logs_in_through_the_config_dir_and_leaves_home_alone() {
+        let home = tempfile::TempDir::new().unwrap();
+        let launch = Claude::new().login_home(home.path()).unwrap();
+
+        assert_eq!(launch.args, vec!["auth", "login"]);
+        assert_eq!(
+            launch.env,
+            vec![(
+                "CLAUDE_CONFIG_DIR".to_string(),
+                home.path().display().to_string()
+            )]
+        );
+    }
+
+    /// The shared `.claude.json` holds the login's identity and every other run's projects:
+    /// `post_seed` adds only what is missing and leaves the rest byte for byte.
+    #[test]
+    fn post_seed_under_a_home_adds_only_missing_keys_and_keeps_the_rest() {
+        let home = tempfile::TempDir::new().unwrap();
+        let scratch = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("claude-code".to_string(), PathBuf::from("/tmp/new"));
+        spec.config = ConfigStrategy::Home {
+            home: home.path().to_path_buf(),
+            scratch: scratch.path().to_path_buf(),
+        };
+        let path = home.path().join(".claude.json");
+        std::fs::write(
+            &path,
+            r#"{"oauthAccount":{"emailAddress":"a@b"},"hasCompletedOnboarding":false,"projects":{"/tmp/old":{"hasTrustDialogAccepted":false,"x":1}}}"#,
+        )
+        .unwrap();
+
+        Claude::new().post_seed(&spec, home.path()).unwrap();
+
+        let doc: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(doc["oauthAccount"]["emailAddress"].as_str(), Some("a@b"));
+        // Present, so not forced — a value the harness wrote is its own.
+        assert_eq!(doc["hasCompletedOnboarding"].as_bool(), Some(false));
+        assert_eq!(
+            doc["projects"]["/tmp/old"]["hasTrustDialogAccepted"].as_bool(),
+            Some(false)
+        );
+        assert_eq!(doc["projects"]["/tmp/old"]["x"].as_i64(), Some(1));
+        assert_eq!(
+            doc["projects"]["/tmp/new"]["hasTrustDialogAccepted"].as_bool(),
+            Some(true)
+        );
+
+        // A document holding both already is not rewritten at all.
+        let before = std::fs::read(&path).unwrap();
+        Claude::new().post_seed(&spec, home.path()).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        // Nothing but the file and its lock.
+        let mut names: Vec<_> = std::fs::read_dir(home.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        names.sort();
+        assert_eq!(names, vec![".claude.json", ".claude.json.am-lock"]);
     }
 
     #[test]

@@ -200,6 +200,32 @@ once from the real `~/.claude` (creds + `.claude.json`), persist it, reuse it
 forever after. First run bootstraps; every run after is logged-in with zero
 flags. Named profiles and per-run flags layer on top.
 
+### 6.2 The per-profile home (`D193`)
+
+A profile also owns one **persistent harness config home** per harness,
+`profiles/<name>/home/<harness>/` beside `base/` — `ProfileStore::home(id,
+harness)` names it (`FsProfileStore::home_dir` computes it; the default and a
+store with no filesystem answer `None`; `ScopedProfileStore` answers from the
+root that holds the profile). The login is performed straight into it by
+`Harness::login_home` (Claude: `CLAUDE_CONFIG_DIR=<home> claude auth login`),
+and the harness owns it and its refresh from then on: nothing is captured,
+seeded, harvested or read back.
+
+A run from it carries `ConfigStrategy::Home { home, scratch }`. `provision()`
+hands a harness whose `Harness::shares_home()` is true to
+`Harness::provision_home(spec, home, scratch)`, which writes every per-run file
+into `scratch` and passes it by flag, so concurrent runs of one profile share
+the home read-write and never see each other's MCP servers, settings or skills
+(Claude's composition: `_docs/harness/claude-code.md`). The home takes only the
+§14.1 templates, when this run creates it, and §14.2's fix-ups. No login is
+seeded (`Provisioned::login_origin` is `None`), `Provisioned::dir` is the
+scratch, `Provisioned::home` the home, and neither is `ephemeral`, so no
+cleanup reaches the home — which lives under the profiles root, where
+`sweep_old_runs` never looks. A harness that cannot share a home
+(`claude-code-acp`, every non-Claude harness today) is provisioned into
+`scratch` as under `ConfigStrategy::Fixed`. The profile overlay (§9) is not
+applied under a shared home.
+
 ## 7. Resolution & the default question
 
 Precedence (highest wins, replace-by-default, matching existing merge rules):
@@ -457,7 +483,8 @@ global profiles come first.
 - `src/harness/mod.rs` — `Relocate`/`SeedFile`/`ConfigAnchor`, `Harness::config_anchor`, generic `seed_login`; `TemplateFile`, `Harness::templates`, generic `apply_templates` (§14); `Harness::post_seed` (§14).
 - `src/harness/{claude,codex,opencode,grok,copilot}.rs` — per-harness `config_anchor()` + seed-not-relocate provision.
 - `src/harness/claude.rs` — `templates()` (theme/tui/Claude-in-Chrome defaults) + `post_seed()` (onboarding/trust-dialog fix-ups); see §14.
-- `src/profile.rs` — profile store + `extends` inheritance.
+- `src/profile.rs` — profile store + `extends` inheritance + `ProfileStore::home` (§6.2).
+- `src/harness/mod.rs` — `Harness::shares_home` / `provision_home` / `login_home` (§6.2).
 - `src/resolve.rs` — profile selection + 4-layer `pick` + `config_bases`.
 - `src/overlay.rs` — `materialize` + `sweep_old_runs`.
 - `src/provision.rs` — overlay materialize + GC hook + `seed_zero_config_login` + `apply_templates` + `post_seed` (§14).
@@ -526,6 +553,12 @@ to a user-editable file a stray edit could break:
   per-project trust dialog on this, keyed by the exact cwd string; a fresh
   `CLAUDE_CONFIG_DIR` has no record of any cwd, so every run would otherwise
   hit that dialog too.
+
+Under a shared home (§6.2) both are added **only when missing**, as a
+read-modify-write of `<home>/.claude.json` under an exclusive lock on
+`.claude.json.am-lock`, written beside the file and renamed onto it: the file
+holds the login's identity and every other run's projects, so it is never
+replaced by a fresh document, and a value already there is the harness's own.
 
 Rule of thumb for future additions: if a value is something a user might
 reasonably want to change, it's a **template** (§14.1). If unsetting it would

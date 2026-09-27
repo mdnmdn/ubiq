@@ -400,6 +400,10 @@ plus `ANTHROPIC_API_KEY` is the supported pattern.
 > harness's subscription login into an ephemeral run. This records file
 > **structure and non-secret metadata only** — token values are copied opaquely,
 > never parsed into `am`'s account store.
+>
+> **The legacy path.** Under `D193` a login lives in a profile's own home and is
+> never captured, seeded or harvested — see "Shared-home run" below. This section
+> describes the per-run seeding the ephemeral and fixed strategies still use.
 
 - **Bundle files (the credential snapshot):**
   - `~/.claude/.credentials.json` — **required**; the OAuth token blob (single
@@ -696,6 +700,35 @@ forever, if a future check finds otherwise.
 ### Skills at launch
 
 A coordinator materialises skills into `<workdir>/.claude/skills/<name>/SKILL.md` before launch (the project skills path). Always-on context is written into `<workdir>/CLAUDE.md`, ideally inside a managed marker block so user-authored content is preserved. (Cross-reference Skills and Policies/Rules/Memory.)
+
+### Shared-home run (agent-manager, `D193`)
+
+`ConfigStrategy::Home { home, scratch }` runs the native `claude-code` from a
+profile's persistent `CLAUDE_CONFIG_DIR` (`home`), shared read-write by every
+concurrent run of the profile (`Claude::provision_home`). Nothing per-run is
+written into `home`; each piece goes into the run's `scratch` and is passed by
+flag (verified against 2.1.283):
+
+| Piece | File | Flag |
+|---|---|---|
+| MCP servers | `<scratch>/mcp.json` | `--mcp-config <file> --strict-mcp-config` |
+| permissions, hooks, `apiKeyHelper` | `<scratch>/settings.json` | `--settings <file>` — layered over the home's own user settings; no `--setting-sources` |
+| instructions | — | `--append-system-prompt <text>`, plain text |
+| skills, MCP-as-skill | `<scratch>/plugin/` — `.claude-plugin/plugin.json` (`name: "am"`) plus `skills/<id>/` | `--plugin-dir <dir>`, only when there is a skill |
+
+A `--plugin-dir` whose top holds `.claude-plugin/plugin.json` is one plugin
+(`claude --plugin-dir <dir> plugin details am` lists its skills); its skills are
+named `am:<skill>`. With `--system-prompt-snapshot` on (the default), a resumed
+conversation reuses the prompt recorded on its first request, whatever
+`--append-system-prompt` a later launch passes.
+
+The login is `claude auth login` with `CLAUDE_CONFIG_DIR=<home>` and the real
+`HOME` untouched (`Claude::login_home`); Claude Code keeps it in the home or in
+the Keychain item keyed by that home, and refreshes it itself. The home takes
+the theme/TUI templates when a run creates it, and `.claude.json`'s onboarding
+flag and cwd trust entry only when missing, under a lock
+(`profiles.md` §14.2). `claude-code-acp` takes no argv, so it cannot share a
+home and is provisioned into `scratch` as a fixed dir.
 
 ### Tool approval in headless mode
 

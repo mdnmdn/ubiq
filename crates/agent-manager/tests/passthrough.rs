@@ -32,6 +32,7 @@ fn provisioned(dir: PathBuf, launch: Launch, ephemeral: bool) -> Provisioned {
         dir,
         launch,
         ephemeral,
+        home: None,
         login_origin: None,
         resume: None,
         model: None,

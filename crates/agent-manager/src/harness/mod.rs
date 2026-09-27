@@ -630,7 +630,7 @@ fn newest_login<'a>(
 }
 
 /// Write a credential blob to `path`, creating parents, `0600` on unix.
-fn write_credential(path: &Path, bytes: &[u8]) -> Result<()> {
+pub(crate) fn write_credential(path: &Path, bytes: &[u8]) -> Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("creating {}", parent.display()))?;
@@ -889,6 +889,31 @@ pub trait Harness {
     fn aliases(&self) -> &[&str];
     /// Populate `dir` (the ephemeral config dir) from `spec`; return how to launch.
     fn provision(&self, spec: &RunSpec, dir: &Path) -> Result<Launch>;
+    /// Whether this harness can run from a profile's shared config home with every per-run file
+    /// kept outside it, passed by flag ([`crate::spec::ConfigStrategy::Home`], `D193`). Default
+    /// `false`: [`crate::provision::provision`] then provisions into the run's scratch dir as it
+    /// would a [`crate::spec::ConfigStrategy::Fixed`] one.
+    fn shares_home(&self) -> bool {
+        false
+    }
+    /// Compose a run against the shared config `home`, writing nothing per-run into it: every
+    /// per-run file goes into `scratch` and reaches the harness by flag. Called only when
+    /// [`Self::shares_home`] answers `true`. Default: an error naming this harness.
+    fn provision_home(&self, _spec: &RunSpec, _home: &Path, _scratch: &Path) -> Result<Launch> {
+        anyhow::bail!(
+            "harness '{}' cannot run from a shared config home",
+            self.id()
+        )
+    }
+    /// An interactive login performed directly into `home`, a profile's shared config home
+    /// (`D193`). The harness keeps the login there and owns its refresh; nothing is captured
+    /// or read back. Default: an error naming this harness.
+    fn login_home(&self, _home: &Path) -> Result<Launch> {
+        anyhow::bail!(
+            "harness '{}' cannot log in into a shared config home",
+            self.id()
+        )
+    }
     /// How this harness relocates its config/credentials and which files make up
     /// a captured login. Backs generic credential seeding ([`seed_login`]), lazy
     /// default-profile capture, and the isolation model — see
@@ -1355,6 +1380,7 @@ mod tests {
                 env_clear: false,
             },
             ephemeral: true,
+            home: None,
             login_origin: None,
             resume: None,
             model: None,

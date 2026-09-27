@@ -40,7 +40,9 @@ use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, anyhow};
-use tracing::{debug, info};
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+use tracing::debug;
+use tracing::info;
 
 use crate::Result;
 use crate::harness::Launch;
@@ -1266,7 +1268,7 @@ fn confined_launch_running(confined: &Confined, instead: Option<Vec<String>>) ->
 
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
-        let _ = (env, effective);
+        let _ = (env, effective.profile, effective.cmd);
     }
 
     #[allow(unreachable_code)]

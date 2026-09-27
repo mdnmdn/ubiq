@@ -115,7 +115,7 @@ impl Instructions {
     }
 }
 
-/// Where the ephemeral config dir lives and whether to keep it.
+/// Where a run's harness config lives and whether to keep it.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ConfigStrategy {
     /// A throwaway dir created per run and removed on exit (default).
@@ -123,6 +123,20 @@ pub enum ConfigStrategy {
     Ephemeral,
     /// A fixed dir the caller chose (kept after the run; for debugging).
     Fixed(PathBuf),
+    /// A profile's persistent harness home plus this run's own scratch dir (`D193`).
+    ///
+    /// `home` is the harness's config home, shared read-write by every concurrent run of the
+    /// profile and never removed by a run ([`crate::profile::ProfileStore::home`] names it).
+    /// `scratch` holds this run's own files, passed to the harness by flag, and is kept after
+    /// the run. A harness that cannot run from a shared home
+    /// ([`crate::harness::Harness::shares_home`]) is provisioned into `scratch` as
+    /// [`ConfigStrategy::Fixed`] would.
+    Home {
+        /// The profile's persistent config home.
+        home: PathBuf,
+        /// This run's own directory for per-run files.
+        scratch: PathBuf,
+    },
 }
 
 /// Sandbox settings (isol8). Off by default.

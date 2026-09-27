@@ -10,7 +10,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::Result;
 use crate::harness::{Harness, Launch, TemplateStore};
@@ -25,13 +25,18 @@ use crate::spec::{ConfigStrategy, RunSpec};
 /// have single-owner shutdown-on-drop semantics and so aren't cloneable.
 #[derive(Debug)]
 pub struct Provisioned {
-    /// The (created, populated) ephemeral config dir.
+    /// The (created, populated) ephemeral config dir — under
+    /// [`ConfigStrategy::Home`], the run's scratch dir.
     pub dir: PathBuf,
     /// How to launch the harness against `dir`.
     pub launch: Launch,
     /// True if `dir` is a throwaway the runner should delete on exit
-    /// (`Ephemeral`); false if the user pinned it (`Fixed`).
+    /// (`Ephemeral`); false if the user pinned it (`Fixed`, `Home`).
     pub ephemeral: bool,
+    /// The profile's shared config home the harness runs from, when it runs
+    /// from one ([`ConfigStrategy::Home`] with a harness that
+    /// [`Harness::shares_home`]). Never removed by the run. `None` elsewhere.
+    pub home: Option<PathBuf>,
     /// Where this run's login was seeded *from*, when one was — the origin
     /// [`crate::harness::harvest_login`] writes a refreshed credential back to
     /// before `dir` is discarded. `None` when nothing was seeded (no login, or
@@ -62,6 +67,7 @@ impl Clone for Provisioned {
             dir: self.dir.clone(),
             launch: self.launch.clone(),
             ephemeral: self.ephemeral,
+            home: self.home.clone(),
             login_origin: self.login_origin.clone(),
             resume: self.resume.clone(),
             model: self.model.clone(),
@@ -84,13 +90,28 @@ impl Clone for Provisioned {
 /// read from (the CLI passes an [`crate::harness::FsTemplateStore`]; an embedder
 /// may pass its own) — the injection point that lets templates live somewhere
 /// other than `~/.config/agent-manager/templates`.
+///
+/// [`ConfigStrategy::Home`] runs a harness that [`Harness::shares_home`] from
+/// the profile's shared home (see `provision_shared_home`); any other harness
+/// is provisioned into the run's scratch dir as under [`ConfigStrategy::Fixed`].
 pub fn provision(
     harness: &dyn Harness,
     spec: &RunSpec,
     templates: &dyn TemplateStore,
 ) -> Result<Provisioned> {
+    if let ConfigStrategy::Home { home, scratch } = &spec.config {
+        if harness.shares_home() {
+            return provision_shared_home(harness, spec, templates, home, scratch);
+        }
+        debug!(
+            harness = %harness.id(),
+            scratch = %scratch.display(),
+            "harness cannot share a home; provisioning into the run's scratch dir"
+        );
+    }
     let (dir, ephemeral) = match &spec.config {
         ConfigStrategy::Fixed(path) => (path.clone(), false),
+        ConfigStrategy::Home { scratch, .. } => (scratch.clone(), false),
         ConfigStrategy::Ephemeral => (new_run_dir()?, true),
     };
 
@@ -118,6 +139,7 @@ pub fn provision(
             dir,
             launch,
             ephemeral,
+            home: None,
             login_origin,
             resume: spec.resume.clone(),
             model: spec.model.clone(),
@@ -137,11 +159,77 @@ pub fn provision(
             dir,
             launch,
             ephemeral,
+            home: None,
             login_origin,
             resume: spec.resume.clone(),
             model: spec.model.clone(),
         })
     }
+}
+
+/// Provision a run against a profile's shared config `home` (`D193`).
+///
+/// The harness writes every per-run file into `scratch` and passes it by flag
+/// ([`Harness::provision_home`]); `home` takes only the preference templates,
+/// once, when this run is the one that creates it, and whatever
+/// [`Harness::post_seed`] adds when missing. No login is seeded — the login
+/// lives in the home and the harness owns it — so `login_origin` is `None`.
+/// Neither dir is ephemeral: the scratch is kept for a resume, and the home is
+/// never removed by a run.
+fn provision_shared_home(
+    harness: &dyn Harness,
+    spec: &RunSpec,
+    templates: &dyn TemplateStore,
+    home: &Path,
+    scratch: &Path,
+) -> Result<Provisioned> {
+    // Decided before anything creates it: a home already in use keeps what its
+    // runs and its login left there.
+    let new_home = std::fs::read_dir(home).map_or(true, |mut it| it.next().is_none());
+    std::fs::create_dir_all(home)
+        .with_context(|| format!("creating config home {}", home.display()))?;
+    std::fs::create_dir_all(scratch)
+        .with_context(|| format!("creating scratch dir {}", scratch.display()))?;
+    info!(
+        home = %home.display(),
+        scratch = %scratch.display(),
+        harness = %harness.id(),
+        new_home,
+        "provisioned run against a shared home"
+    );
+    if !spec.config_bases.is_empty() {
+        // ponytail: the overlay links into a config dir, and a shared home is no
+        // run's to link into. Carried per run only once it is folded into the
+        // flag-passed files (`G377`).
+        warn!(
+            bases = spec.config_bases.len(),
+            "profile config overlay is not applied under a shared home"
+        );
+    }
+
+    #[cfg(feature = "inproc-mcp")]
+    let (owned_spec, inproc_servers) = host_inproc_mcps(spec)?;
+    #[cfg(feature = "inproc-mcp")]
+    let effective_spec = &owned_spec;
+    #[cfg(not(feature = "inproc-mcp"))]
+    let effective_spec = spec;
+
+    let launch = harness.provision_home(effective_spec, home, scratch)?;
+    if new_home {
+        crate::harness::apply_templates(home, &harness.id(), &harness.templates(), templates)?;
+    }
+    harness.post_seed(effective_spec, home)?;
+    Ok(Provisioned {
+        dir: scratch.to_path_buf(),
+        launch,
+        ephemeral: false,
+        home: Some(home.to_path_buf()),
+        login_origin: None,
+        resume: spec.resume.clone(),
+        model: spec.model.clone(),
+        #[cfg(feature = "inproc-mcp")]
+        inproc_servers,
+    })
 }
 
 /// Start a loopback HTTP MCP server for each `McpRef::InProcess` in
@@ -506,6 +594,193 @@ mod tests {
         assert_eq!(provisioned.dir, temp.path());
         assert!(!provisioned.ephemeral);
         assert!(provisioned.dir.exists());
+    }
+
+    fn http_mcp(id: &str, url: &str) -> crate::spec::McpRef {
+        crate::spec::McpRef::Inline(crate::config::McpServer {
+            id: id.to_string(),
+            transport: crate::config::McpTransport::Http,
+            command: None,
+            args: Vec::new(),
+            env: Default::default(),
+            url: Some(url.to_string()),
+            headers: Default::default(),
+        })
+    }
+
+    fn home_spec(home: &Path, scratch: &Path, cwd: &str) -> RunSpec {
+        let mut spec = RunSpec::new("claude-code".to_string(), PathBuf::from(cwd));
+        spec.config = ConfigStrategy::Home {
+            home: home.to_path_buf(),
+            scratch: scratch.to_path_buf(),
+        };
+        spec
+    }
+
+    fn names_in(dir: &Path) -> Vec<String> {
+        let mut names: Vec<_> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        names.sort();
+        names
+    }
+
+    /// `D193`: a shared home takes the templates and the trust entry and nothing else — no
+    /// per-run file, and no login seeded from an account, whatever the spec names.
+    #[test]
+    fn home_strategy_writes_only_templates_and_trust_into_a_new_home() {
+        let root = tempfile::TempDir::new().unwrap();
+        let home = root.path().join("home");
+        let scratch = root.path().join("scratch");
+        let account_home = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir_all(account_home.path().join(".claude")).unwrap();
+        std::fs::write(
+            account_home.path().join(".claude/.credentials.json"),
+            r#"{"claudeAiOauth":{"accessToken":"tok"}}"#,
+        )
+        .unwrap();
+
+        let mut spec = home_spec(&home, &scratch, "/tmp/project");
+        spec.mcps.push(http_mcp("docs", "https://example.com/mcp/"));
+        spec.policy = Some(crate::spec::Policy {
+            permission_mode: Some("plan".to_string()),
+            ..Default::default()
+        });
+        spec.initial = Some(crate::spec::Instructions {
+            instructions: Some("REMEMBER ME".to_string()),
+            prompt: None,
+        });
+        spec.account = Some(crate::account::Account {
+            id: "acct".to_string(),
+            home: Some(account_home.path().to_path_buf()),
+            ..Default::default()
+        });
+
+        let tmpl_dir = tempfile::TempDir::new().unwrap();
+        let templates = crate::harness::FsTemplateStore::new(tmpl_dir.path());
+        let provisioned = provision(&Claude::new(), &spec, &templates).unwrap();
+
+        assert_eq!(provisioned.dir, scratch);
+        assert_eq!(provisioned.home.as_deref(), Some(home.as_path()));
+        assert!(!provisioned.ephemeral, "no cleanup path may reach the home");
+        assert!(provisioned.login_origin.is_none());
+        assert_eq!(
+            names_in(&home),
+            vec![".claude.json", ".claude.json.am-lock", "settings.json"]
+        );
+        let home_settings: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(home.join("settings.json")).unwrap())
+                .unwrap();
+        assert!(home_settings.get("theme").is_some());
+        assert!(home_settings.get("permissions").is_none());
+        let claude_json: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(home.join(".claude.json")).unwrap())
+                .unwrap();
+        assert_eq!(
+            claude_json["projects"]["/tmp/project"]["hasTrustDialogAccepted"].as_bool(),
+            Some(true)
+        );
+        assert_eq!(names_in(&scratch), vec!["mcp.json", "settings.json"]);
+    }
+
+    /// A home somebody already logged into or ran from is not "new": its settings are its
+    /// user's, and the templates stay out of it.
+    #[test]
+    fn home_strategy_leaves_the_templates_out_of_a_home_in_use() {
+        let root = tempfile::TempDir::new().unwrap();
+        let home = root.path().join("home");
+        let scratch = root.path().join("scratch");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::write(
+            home.join(".claude.json"),
+            r#"{"hasCompletedOnboarding":true}"#,
+        )
+        .unwrap();
+
+        let tmpl_dir = tempfile::TempDir::new().unwrap();
+        let templates = crate::harness::FsTemplateStore::new(tmpl_dir.path());
+        provision(
+            &Claude::new(),
+            &home_spec(&home, &scratch, "/tmp/project"),
+            &templates,
+        )
+        .unwrap();
+
+        assert!(!home.join("settings.json").exists());
+        let claude_json: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(home.join(".claude.json")).unwrap())
+                .unwrap();
+        assert!(claude_json.get("claudeInChromeDefaultEnabled").is_none());
+    }
+
+    /// Two runs of one profile share its home but not their MCP servers: each run's URL (Ubiq's
+    /// embed the run key) stays in its own scratch dir.
+    #[test]
+    fn two_runs_in_one_home_keep_their_mcps_apart() {
+        let root = tempfile::TempDir::new().unwrap();
+        let home = root.path().join("home");
+        let (a, b) = (root.path().join("run-a"), root.path().join("run-b"));
+        let mut spec_a = home_spec(&home, &a, "/tmp/a");
+        spec_a
+            .mcps
+            .push(http_mcp("ubiq", "http://127.0.0.1:1/run-a"));
+        let mut spec_b = home_spec(&home, &b, "/tmp/b");
+        spec_b
+            .mcps
+            .push(http_mcp("ubiq", "http://127.0.0.1:1/run-b"));
+
+        let tmpl_dir = tempfile::TempDir::new().unwrap();
+        let templates = crate::harness::FsTemplateStore::new(tmpl_dir.path());
+        let first = provision(&Claude::new(), &spec_a, &templates).unwrap();
+        let second = provision(&Claude::new(), &spec_b, &templates).unwrap();
+
+        for (dir, own, other) in [(&a, "run-a", "run-b"), (&b, "run-b", "run-a")] {
+            let mcp = std::fs::read_to_string(dir.join("mcp.json")).unwrap();
+            assert!(mcp.contains(own) && !mcp.contains(other), "{mcp}");
+        }
+        assert!(!home.join("mcp.json").exists());
+        for launch in [&first.launch, &second.launch] {
+            assert!(
+                launch
+                    .env
+                    .iter()
+                    .any(|(k, v)| k == "CLAUDE_CONFIG_DIR" && v == &home.display().to_string())
+            );
+        }
+        let claude_json: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(home.join(".claude.json")).unwrap())
+                .unwrap();
+        assert!(claude_json["projects"]["/tmp/a"].is_object());
+        assert!(claude_json["projects"]["/tmp/b"].is_object());
+    }
+
+    /// `claude-code-acp` takes no argv, so it cannot share a home: it is provisioned into the
+    /// run's scratch dir exactly as a fixed dir would be, and the home is never touched.
+    #[test]
+    fn home_strategy_falls_back_to_scratch_for_a_harness_that_cannot_share() {
+        let root = tempfile::TempDir::new().unwrap();
+        let home = root.path().join("home");
+        let scratch = root.path().join("scratch");
+        let mut spec = home_spec(&home, &scratch, ".");
+        spec.harness = "claude-code-acp".to_string();
+
+        let tmpl_dir = tempfile::TempDir::new().unwrap();
+        let templates = crate::harness::FsTemplateStore::new(tmpl_dir.path());
+        let provisioned = provision(&Claude::new_acp(), &spec, &templates).unwrap();
+
+        assert_eq!(provisioned.dir, scratch);
+        assert!(provisioned.home.is_none());
+        assert!(!provisioned.ephemeral);
+        assert!(scratch.join("mcp.json").is_file());
+        assert!(!home.exists());
+        assert!(
+            provisioned
+                .launch
+                .env
+                .iter()
+                .any(|(k, v)| k == "CLAUDE_CONFIG_DIR" && v == &scratch.display().to_string())
+        );
     }
 
     #[test]
