@@ -979,6 +979,42 @@ A coordinator drives opencode headlessly by passing run-scoped MCP through the `
 
 A coordinator materialises skills into `<workdir>/.opencode/skills/<name>/SKILL.md` before launch (plural `skills/` dir). Always-on context goes into `AGENTS.md` in the working directory. (Cross-reference Skills and Policies/Rules/Memory.)
 
+### Shared-home run (agent-manager, `D193`)
+
+`ConfigStrategy::Home { home, scratch }` runs opencode with `XDG_DATA_HOME` set
+to a profile's persistent `home`, shared read-write by every concurrent run of
+the profile (`Opencode::provision_home`). That is opencode's data tier —
+`opencode/auth.json` and the session store (`opencode.db*`, `storage/`, …) —
+and opencode refreshes the login there itself; nothing is seeded or read back.
+Nothing per-run is written into `home`; the config tier goes into the run's
+`scratch`:
+
+| Piece | File | Lever |
+|---|---|---|
+| MCP servers, instructions path, permissions | `<scratch>/opencode.json` | `OPENCODE_CONFIG=<file>` |
+| skills, MCP-as-skill, `AGENTS.md` | `<scratch>/skills/<id>/`, `<scratch>/AGENTS.md` | `OPENCODE_CONFIG_DIR=<scratch>` |
+
+`OPENCODE_CONFIG_DIR` is a config layer only — auth and sessions live in the
+data tier (see Credential capture & reuse) — and it is loaded on top of the
+user's own `~/.config/opencode/`, which still applies, as it does to a fixed
+dir. An `opencode acp` run gets its MCP the same way: `AcpBridge` sends
+`mcpServers: []` in `session/new`, so the file named by `OPENCODE_CONFIG` is the
+only route.
+
+The login is `opencode auth login` with `XDG_DATA_HOME=<home>` and the real
+`HOME` untouched (`Opencode::login_home`, `am profile login`), or `/connect`
+inside the profile's first terminal run. opencode has no preference templates,
+so `provision::prepare_home` leaves only its `.am-home` marker.
+
+`ConfigStrategy::Native { scratch }` — a run with no profile — is the same
+launch with no `XDG_DATA_HOME` (an inherited one is kept), so opencode runs from
+the user's own data dir and login; the config tier still comes from `scratch`.
+
+Every process the run starts — a shell tool, a local MCP server — inherits
+`XDG_DATA_HOME`, so XDG-aware tools keep their data in the profile home too.
+opencode keeps every session in one database, not a file per session, so
+`session_transcripts` names none.
+
 ### Tool approval in headless mode
 
 `--dangerously-skip-permissions` runs every tool without confirmation in opencode's own `run --format json` mode; there is no on-stream approval handshake to answer there. `am`'s `opencode acp` runs are the opposite: permissions are real `session/request_permission` round trips, same as an attended session's `permission` block (see Permissions).

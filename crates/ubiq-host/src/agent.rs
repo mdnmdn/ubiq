@@ -3149,7 +3149,7 @@ mod tests {
         let store = FsProfileStore::new(root.path().join("definitions"));
         let scratch = root.path().join("runs").join("key");
         let claude = harness::resolve("claude-code").unwrap();
-        let codex = harness::resolve("codex").unwrap();
+        let grok = harness::resolve("grok").unwrap();
         let pick = |harness: &dyn harness::Harness,
                     definition: Option<&str>,
                     store: &dyn ProfileStore,
@@ -3180,8 +3180,8 @@ mod tests {
             ),
             fixed
         );
-        assert_eq!(pick(codex.as_ref(), Some("work"), &store, false), fixed);
-        assert_eq!(pick(codex.as_ref(), None, &store, false), fixed);
+        assert_eq!(pick(grok.as_ref(), Some("work"), &store, false), fixed);
+        assert_eq!(pick(grok.as_ref(), None, &store, false), fixed);
     }
 
     /// A run from a home the harness owns is never reconciled, harvested or scrubbed: its
@@ -3283,7 +3283,7 @@ mod tests {
                 .any(|(_, value)| value == &home.display().to_string()),
             "the login is pointed at the home"
         );
-        assert!(agents.begin_home_login("codex", "work", None).is_err());
+        assert!(agents.begin_home_login("grok", "work", None).is_err());
         assert!(
             agents
                 .begin_home_login("claude-code", "nobody", None)

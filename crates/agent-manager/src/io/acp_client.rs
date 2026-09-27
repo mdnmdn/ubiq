@@ -563,8 +563,8 @@ impl AcpBridge {
                 (
                     "session/load",
                     // `mcpServers` is always `[]` and never null: `am` injects
-                    // MCP servers through the harness's own config files at
-                    // provisioning time, not over the wire.
+                    // MCP servers at provisioning time — the harness's own config
+                    // files or a launch flag — not over the wire.
                     json!({"sessionId": session_id, "cwd": cwd, "mcpServers": []}),
                 )
             }

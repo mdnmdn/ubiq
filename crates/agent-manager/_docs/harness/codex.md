@@ -558,6 +558,34 @@ the best available store per platform.
   `shell_snapshots/`, `models_cache.json` — session/machine-bound state
   (`installation_id` is a machine identity, do not transplant).
 
+### Shared-home run (agent-manager, `D193`)
+
+> How `Codex::provision_home` runs from a profile's persistent `CODEX_HOME` instead of a per-run
+> copy. Only the native `codex` shares a home; `codex-acp` takes no argv, so it keeps the per-run
+> path above.
+
+- **Home:** the profile's `CODEX_HOME`, holding `auth.json`, `sessions/` and anything the
+  profile's user put there. Codex refreshes its own login; nothing is seeded or read back. With no
+  profile (`ConfigStrategy::Native`) `CODEX_HOME` is not set and Codex runs from `~/.codex`.
+- **Sign-in:** `CODEX_HOME=<home> codex login` (`Codex::login_home`). No `config.toml` is written
+  first, so the store is Codex's default for the platform (see "Token storage" above).
+- **Per-run settings by `-c key=value`,** ahead of any subcommand (`codex -c … app-server --listen
+  stdio://` or `codex -c … [prompt]`), each value an inline TOML value: `model`,
+  `model_reasoning_effort`, `sandbox_mode` + `approval_policy = "never"`, one
+  `mcp_servers.<id>` inline table per server, and the run's instructions as
+  `developer_instructions` (a config-layer key — see "Custom-agent TOML schema"). A `-c` layers
+  over the home's `config.toml`, so a server listed there still loads; there is no strict-MCP
+  switch. Nothing is written into `scratch`.
+- **Per-profile only:** skills (`.agents/skills/<id>/`, MCP-as-skill pointers included) and
+  `hooks.json` have no per-run route, so they are written into the home — each skill dir built
+  beside it and renamed over the old one, `hooks.json` staged and renamed, under a lock. `RunSpec`
+  does not mark which skills come from the profile, so two runs of one profile with different
+  skills or hooks overwrite each other, and a skill dropped from the profile stays in the home. A
+  native run drops skills and hooks with a warning. `AGENTS.md` and `config.toml` are never
+  written.
+- **Transcripts:** rollouts land in `<home>/sessions/YYYY/MM/DD/*.jsonl`, but this document does
+  not say how a file names its thread, so `session_transcripts` answers `None`.
+
 ## Permissions
 
 Codex has **two parallel systems**. Choose one per run; they do not
@@ -720,7 +748,8 @@ resume flag. The prompt is a `session/prompt` request over the wire, a resume is
 against the id the previous run reported, and the model/reasoning effort still reach the run
 through `config.toml` under `CODEX_HOME` (written exactly as for the native `codex` harness — see
 "Model & reasoning at launch" below). Passthrough argv is unchanged by any of this: `codex-acp` is
-not a TUI, so a pane still gets the real, interactive `codex`.
+not a TUI, so a pane still gets the real, interactive `codex`. Because nothing reaches the adapter
+by argv, `codex-acp` does not run from a shared home (see "Shared-home run" above).
 
 Verified against `@agentclientprotocol/codex-acp` 1.10.0: the bin is named `codex-acp`, and unlike
 Claude's `claude-agent-acp` it answers `--version` directly (prints `<name> <version>`, exits 0),
