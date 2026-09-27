@@ -396,82 +396,9 @@ plus `ANTHROPIC_API_KEY` is the supported pattern.
 
 ### Credential capture & reuse (agent-manager)
 
-> How `am account capture` / `am account login` snapshot and replay this
-> harness's subscription login into an ephemeral run. This records file
-> **structure and non-secret metadata only** — token values are copied opaquely,
-> never parsed into `am`'s account store.
->
-> **The legacy path.** Under `D193` a login lives in a profile's own home and is
-> never captured, seeded or harvested — see "Shared-home run" below. This section
-> describes the per-run seeding the ephemeral and fixed strategies still use.
-
-- **Bundle files (the credential snapshot):**
-  - `~/.claude/.credentials.json` — **required**; the OAuth token blob (single
-    top-level key `claudeAiOauth`). *(Doc historically calls this
-    `credentials.json`; the real file name has a leading dot — trust disk.)*
-  - `~/.claude.json` — *optional*; carries the `oauthAccount` identity block
-    (email/org/plan) and `userID`. Capture it for metadata; the harness re-fetches
-    most of it from the API on next launch.
-- **Relocation lever:** `CLAUDE_CONFIG_DIR` relocates Claude Code's **entire**
-  config into one dir — `.credentials.json`, `.claude.json`, `projects/`,
-  `sessions/`, `backups/` all move there; `HOME` is left untouched. *(Verified
-  empirically against Claude Code 2.1.206: with `CLAUDE_CONFIG_DIR` set to a
-  temp dir, `.claude.json` was created inside it and `HOME` stayed empty. This
-  supersedes older behavior where `CLAUDE_CONFIG_DIR` moved only `.claude/` and
-  `~/.claude.json` stayed HOME-relative.)* So `CLAUDE_CONFIG_DIR` alone is a
-  **full** snapshot lever — and the one `am` uses, because relocating `HOME`
-  instead would strip the user's toolchain (`nvm`/`mise`/`pyenv`, shell rc, PATH
-  shims). `HOME` relocation is reserved for full isol8-style isolation.
-- **Login reuse (seeding):** to reuse an `am account login` without re-onboarding,
-  `am` *copies* the captured `<home>/.claude/.credentials.json` →
-  `$CLAUDE_CONFIG_DIR/.credentials.json` and `<home>/.claude.json` →
-  `$CLAUDE_CONFIG_DIR/.claude.json` into the ephemeral run dir, leaving `HOME`
-  (and the real `~/.claude*`) untouched. See `_docs/profiles.md`.
-- **Force file storage (skip keychain):** Claude Code ≥ 2.1.218 no longer falls
-  back to the plaintext `.credentials.json` when the OS keychain is merely
-  unreachable (missing or relocated `HOME`). Instead, a missing default keychain
-  is a hard error ("A keychain cannot be found"), and login fails without
-  writing a credential file. The working approach: **deny keychain access at the
-  sandbox layer** using `am account login <id> --harness claude-code --isolate`.
-  isol8's deny-by-default sandbox (Seatbelt on macOS, hook DLL on Windows) makes the keychain
-  *inaccessible* (not missing), which triggers Claude's file-fallback path and
-  writes `.credentials.json` cleanly. Use bare `--isolate` for the default
-  layer set (`macos/system-runtime` plus the OAuth browser layers on macOS,
-  `windows/system-runtime` on Windows), or `--isolate=<name>` to select a named policy. Verify
-  post-capture that `$HOME/.claude/.credentials.json` exists in the account home.
-- **Default backend / observed:** macOS Keychain service `Claude Code-credentials`
-  (account attribute = `$USER`). The on-disk `~/.claude/.credentials.json` is
-  often an empty stub while Keychain holds the real tokens — which is why
-  zero-config file seed into `CLAUDE_CONFIG_DIR` can leave `am claude`
-  unauthenticated even when bare `claude auth status` is fine.
-- **`am account import --write` (macOS):** extracts the Keychain blob via
-  `security find-generic-password -a $USER -s 'Claude Code-credentials' -w`,
-  normalizes it to `{"claudeAiOauth":{…}}`, writes
-  `accounts/default/.claude/.credentials.json` (+ copies `~/.claude.json`
-  identity when present), records account id `default` with that home, and
-  sets `[defaults].account = "default"` so bare `am claude` seeds a real
-  session into the ephemeral dir (account id is always `default`). Re-run
-  to refresh tokens after re-login. First Keychain read may prompt for
-  allow; headless/ACL-denied sessions fail the extract step.
-- **Login command (fresh-auth-into-temp):** `HOME=/tmp/x claude auth login`
-  (browser OAuth). No device-code flow is documented; for CI prefer an
-  `ANTHROPIC_API_KEY` reference account over an OAuth snapshot.
-- **Extractable metadata (non-secret):**
-
-  | field | source | identifies |
-  |---|---|---|
-  | `subscriptionType` | `.credentials.json → claudeAiOauth.subscriptionType` | plan tier (e.g. `pro`) |
-  | `rateLimitTier` | `.credentials.json → claudeAiOauth.rateLimitTier` | rate-limit bucket |
-  | `scopes` | `.credentials.json → claudeAiOauth.scopes` | OAuth scopes → auth type = subscription OAuth |
-  | `expiresAt` / `refreshTokenExpiresAt` | `.credentials.json → claudeAiOauth.*` | token expiry (epoch ms) |
-  | `emailAddress` | `~/.claude.json → oauthAccount.emailAddress` | account email *(identifying — store hashed/redacted)* |
-  | `organizationName` / `organizationType` | `~/.claude.json → oauthAccount.*` | org name / plan class (e.g. `claude_pro`) |
-  | `billingType` | `~/.claude.json → oauthAccount.billingType` | billing (e.g. `stripe_subscription`) |
-
-- **Do not copy:** `projects/`, `history.jsonl`, `sessions/`, `session-env/`,
-  `shell-snapshots/`, `tasks/`, `telemetry/`, `cache/`, `backups/`,
-  `file-history/` — session/telemetry/machine-bound state. `~/.claude.json`'s
-  `machineID` is machine-bound; let the harness regenerate it.
+None. `am` neither captures, copies nor roams this login: the harness keeps it in a profile's own
+config home, signed in there by `am profile login` or the first run, and refreshes it itself
+(`D193` in Ubiq's `_docs/tech/decisions.md`).
 
 ### Usage limits (agent-manager)
 

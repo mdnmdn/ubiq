@@ -71,13 +71,6 @@ const CONVERSATION_POLL: Duration = Duration::from_millis(500);
 /// cannot be interrupted, so this bounds the wait rather than the work.
 const SUGGEST_DEADLINE: Duration = Duration::from_secs(60);
 
-/// How often a live run's login is reconciled with the account it was seeded from
-/// (`Agents::sync_logins`). A harness refreshes its token on the order of hours, so this is not
-/// a race being chased — it is a bound on how long a rotated-away credential may sit in a run
-/// directory before every other agent on that account can see it. Half a minute of file reads
-/// over a handful of small files is cheaper than the watcher the alternative would need.
-const LOGIN_SYNC_EVERY: Duration = Duration::from_secs(30);
-
 /// How often a project's `tasks.toml` is re-read so an edit that happened outside this process
 /// reaches a window that already has the board open.
 const TASK_SYNC_EVERY: Duration = Duration::from_secs(2);
@@ -314,9 +307,9 @@ struct Coordinator {
     /// [`Self::conversations`] one, holding the picks (`chosen_model` and friends) a relaunch must
     /// not lose.
     pending_conversations: HashMap<AgentId, PendingConversation>,
-    /// The logins running in a pane, keyed by it. Whether a login captured anything is only
-    /// answerable once its process has exited, so what the answer needs is parked here until
-    /// then — the same shape `active_searches` uses, and forgotten the same way.
+    /// The sign-ins running in a pane, keyed by it. Whether one worked is only answerable once
+    /// its process has exited, so what the answer needs is parked here until then — the same
+    /// shape `active_searches` uses, and forgotten the same way.
     logins: HashMap<PaneId, PendingLogin>,
     /// When this coordinator started, which is what the stats screen calls uptime. Nothing else
     /// measured elapsed time before, so this is where it comes from.
@@ -324,9 +317,6 @@ struct Coordinator {
     // the few milliseconds spent finding the config root, which nobody reading "uptime 4m" can
     // perceive; move it to `main` and pass it in if a figure in milliseconds ever matters.
     started: Instant,
-    /// When the logins were last reconciled with the accounts they were seeded from, which is
-    /// what paces [`Self::sync_logins_due`] off a run loop that wakes twice a second.
-    logins_synced: Instant,
     /// When the loaded task files were last compared to disk, which is what paces
     /// [`Self::sync_tasks_due`].
     tasks_synced: Instant,
@@ -1045,7 +1035,6 @@ impl Coordinator {
             pending_conversations,
             logins: HashMap::new(),
             started: Instant::now(),
-            logins_synced: Instant::now(),
             tasks_synced: Instant::now(),
             agents_this_run: 0,
             usage,
@@ -1108,15 +1097,6 @@ impl Coordinator {
             } else {
                 Some(due.map_or(CONVERSATION_POLL, |due| due.min(CONVERSATION_POLL)))
             };
-            // A pane running a harness in passthrough is not a conversation and may say nothing
-            // for hours, so neither deadline above would wake this loop — and its harness is
-            // rotating an OAuth token the whole time. `sync_logins_due` paces itself; this only
-            // has to guarantee it is reached. An empty host still blocks.
-            let wait = match wait {
-                _ if self.panes.is_empty() => wait,
-                Some(wait) => Some(wait.min(LOGIN_SYNC_EVERY)),
-                None => Some(LOGIN_SYNC_EVERY),
-            };
             let wait = match wait {
                 Some(wait) => Some(wait.min(TASK_SYNC_EVERY)),
                 None => Some(TASK_SYNC_EVERY),
@@ -1139,7 +1119,6 @@ impl Coordinator {
                 Some(FromClient::Gone(client)) => self.client_gone(client),
                 None => {}
             }
-            self.sync_logins_due();
             self.sync_tasks_due();
             self.remember_sessions();
             self.name_conversations();
@@ -1725,18 +1704,10 @@ impl Coordinator {
             ),
             Message::BeginHarnessLogin {
                 agent_type,
-                account,
-                probe,
                 definition,
                 project,
             } => {
-                self.begin_harness_login(client, agent_type, account, probe, definition, project);
-            }
-            Message::CheckHarnessLogin {
-                agent_type,
-                account,
-            } => {
-                self.check_harness_login(client, agent_type, account);
+                self.begin_harness_login(client, agent_type, definition, project);
             }
             Message::RenameAccount {
                 account,
@@ -1746,12 +1717,6 @@ impl Coordinator {
             }
             Message::DeleteAccount { account } => {
                 self.delete_account(client, account);
-            }
-            Message::DeleteHarnessLogin {
-                agent_type,
-                account,
-            } => {
-                self.delete_harness_login(client, agent_type, account);
             }
 
             // ── the feedback family ─────────────────────────────────
@@ -4394,21 +4359,6 @@ impl Coordinator {
             .watch(self.projects.records().iter().map(|held| held.id).collect());
     }
 
-    /// Every [`LOGIN_SYNC_EVERY`], hand each account's newest credential back to the account and
-    /// to every run still holding an older one ([`Agents::sync_logins`]).
-    ///
-    /// On the coordinator's own thread, which is only allowable because the common tick reads a
-    /// few hundred bytes per live run and writes nothing: a credential changes when a harness
-    /// refreshes, which is hours apart. If a keychain-backed origin is ever seen making this
-    /// stall, it is the write half that would move to a thread, not the read.
-    fn sync_logins_due(&mut self) {
-        if self.logins_synced.elapsed() < LOGIN_SYNC_EVERY {
-            return;
-        }
-        self.logins_synced = Instant::now();
-        self.agents.sync_logins();
-    }
-
     fn remember_sessions(&mut self) {
         let learned: Vec<(AgentId, String)> = self
             .conversations
@@ -6057,8 +6007,8 @@ impl Coordinator {
         });
     }
 
-    /// Tell one window which accounts exist. References only — an id and the harnesses it
-    /// covers — because a credential has no business on the bus the log sink listens to.
+    /// Tell one window which accounts exist. References only — an id — because a credential
+    /// has no business on the bus the log sink listens to.
     fn send_accounts(&mut self, client: ClientId) {
         match self.agents.accounts() {
             Ok(accounts) => self
@@ -6116,48 +6066,35 @@ impl Coordinator {
         }
     }
 
-    /// Open a pane running a harness's own login flow, and remember what finishing it means.
+    /// Open a pane running a harness's own sign-in into an agent definition's config home
+    /// (`D193`, [`Agents::begin_home_login`]), and remember which definition it is for.
     ///
     /// A login pane is a pane in every respect but one: it belongs to no project, so it
     /// changes no project's count and closing it is not closing a workspace. What makes it a
-    /// login is the entry in `logins` — read when the pane ends, and the only thing that
-    /// turns an exited process into a captured account.
-    ///
-    /// `probe` runs a plain shell under the login's own policy instead of the harness — a
-    /// diagnostic for inspecting what that sandbox permits, not a way to sign in. It reaches
-    /// [`Self::login_gone`], which is what actually refuses to treat its exit as an outcome.
-    ///
-    /// `definition` signs that agent definition's own config home in instead of an account
-    /// (`D193`, [`Agents::begin_home_login`]): the same pane, nothing captured, and the outcome
-    /// read from how the login exited.
+    /// login is the entry in `logins` — read when the pane ends, whose exit is the outcome.
     fn begin_harness_login(
         &mut self,
         client: ClientId,
         agent_type: String,
-        account: String,
-        probe: bool,
-        definition: Option<String>,
+        definition: String,
         project: Option<ProjectId>,
     ) {
         let refuse = |coordinator: &mut Self, error: String| {
-            tracing::warn!(harness = %agent_type, account = %account, "login refused: {error}");
+            tracing::warn!(harness = %agent_type, definition = %definition, "sign-in refused: {error}");
             coordinator.host.send(
                 To::Client(client),
                 Message::HarnessLoginFailed {
                     agent_type: agent_type.clone(),
-                    account: account.clone(),
+                    definition: definition.clone(),
                     error,
                 },
             );
         };
 
-        let pending = match &definition {
-            Some(definition) => self
-                .agents
-                .begin_home_login(&agent_type, definition, project),
-            None => self.agents.begin_login(&agent_type, &account, probe),
-        };
-        let pending = match pending {
+        let pending = match self
+            .agents
+            .begin_home_login(&agent_type, &definition, project)
+        {
             Ok(pending) => pending,
             Err(error) => return refuse(self, format!("{error:#}")),
         };
@@ -6192,145 +6129,58 @@ impl Coordinator {
 
         tracing::info!(
             harness = %agent_type,
-            account = %account,
-            "login started in pane {pane_id} for {client}"
+            definition = %definition,
+            "sign-in started in pane {pane_id} for {client}"
         );
         mailbox.send(Message::HarnessLoginStarted {
             pane_id,
             agent_type,
-            account,
             cols: INITIAL_COLS,
             rows: INITIAL_ROWS,
         });
     }
 
-    /// A login pane has ended: say whether it logged anybody in.
-    ///
-    /// Three outcomes and one message each, because the difference matters to the user: the
-    /// credential appeared and is fresh, so the account exists; it was left untouched, so the
-    /// harness exited without logging anyone in; or it is not there, so the flow was
-    /// abandoned — which is exactly what pressing abort does, and is not an error.
-    ///
-    /// A probe pane is none of those three: it never ran the harness, so its credential (if
-    /// any) never moved, and reading that as an outcome would be answering a question nobody
-    /// asked. Its exit records no account and gets no `HarnessLoginCaptured`/`HarnessLoginFailed`
-    /// — the window already knows its own pane closed from the ordinary `PaneExited` it just
-    /// forwarded as `CloseWorkspace`, and reads that as done by itself.
+    /// A sign-in pane has ended: say whether it signed the definition's home in. Nothing is
+    /// captured or read back — the harness either finished its own login there, or it did not,
+    /// and how the process exited is the answer.
     fn login_gone(&mut self, client: ClientId, pane_id: PaneId) {
         let Some(pending) = self.logins.remove(&pane_id) else {
             return;
         };
-        if pending.probe {
-            tracing::info!(
-                harness = %pending.agent_type,
-                account = %pending.account,
-                "probe shell closed; nothing captured"
-            );
-            return;
-        }
         let agent_type = pending.agent_type.clone();
-        let account = pending.account.clone();
-
-        // A sign-in into a definition's home captured nothing and has nothing to read back: the
-        // harness either finished its own login there, or it did not.
-        if let Some(definition) = pending.definition.clone() {
-            let message = match pending.exit_code() {
-                Some(0) => {
-                    tracing::info!(harness = %agent_type, definition = %definition, "home signed in");
-                    Message::HarnessHomeSignedIn {
-                        agent_type,
-                        definition,
-                    }
+        let definition = pending.definition.clone();
+        let message = match pending.exit_code() {
+            Some(0) => {
+                tracing::info!(harness = %agent_type, definition = %definition, "home signed in");
+                Message::HarnessHomeSignedIn {
+                    agent_type,
+                    definition,
                 }
-                code => {
-                    let error = match code {
-                        Some(code) => format!("the sign-in exited with code {code}"),
-                        None => "the sign-in was closed before it finished".to_string(),
-                    };
-                    tracing::info!(harness = %agent_type, definition = %definition, "{error}");
-                    Message::HarnessLoginFailed {
-                        agent_type,
-                        account,
-                        error,
-                    }
+            }
+            code => {
+                let error = match code {
+                    Some(code) => format!("the sign-in exited with code {code}"),
+                    None => "the sign-in was closed before it finished".to_string(),
+                };
+                tracing::info!(harness = %agent_type, definition = %definition, "{error}");
+                Message::HarnessLoginFailed {
+                    agent_type,
+                    definition,
+                    error,
                 }
-            };
-            self.host.send(To::Client(client), message);
-            return;
-        }
-
-        match self.agents.finish_login(&pending) {
-            Ok(()) => {
-                tracing::info!(harness = %agent_type, account = %account, "login captured");
-                self.host.send(
-                    To::Client(client),
-                    Message::HarnessLoginCaptured {
-                        agent_type,
-                        account,
-                    },
-                );
-                // The list the settings screen draws has changed, and it is the same answer
-                // for every window, so nobody has to ask again.
-                self.send_accounts(client);
             }
-            Err(error) => {
-                tracing::info!(
-                    harness = %agent_type,
-                    account = %account,
-                    "login captured nothing: {error:#}"
-                );
-                self.host.send(
-                    To::Client(client),
-                    Message::HarnessLoginFailed {
-                        agent_type,
-                        account,
-                        error: format!("{error:#}"),
-                    },
-                );
-            }
-        }
+        };
+        self.host.send(To::Client(client), message);
     }
 
-    /// Whether `account` has a login currently mid-capture — the whole of that harness's for a
-    /// sign-out, any harness for a rename or a delete, since either would race the filesystem
-    /// against a login the pane owning it has not finished writing.
-    fn login_running(&self, account: &str, agent_type: Option<&str>) -> bool {
-        self.logins.values().any(|pending| {
-            pending.account == account && agent_type.is_none_or(|t| pending.agent_type == t)
-        })
-    }
-
-    /// A stored credential could not be checked, renamed or deleted; say so to the window that
-    /// asked, and nobody else — the same routing `refuse` in [`Self::begin_harness_login`] uses.
+    /// An account could not be renamed or deleted; say so to the window that asked, and nobody
+    /// else — the same routing `refuse` in [`Self::begin_harness_login`] uses.
     fn account_error(&self, client: ClientId, error: String) {
         self.host
             .send(To::Client(client), Message::AccountError { error });
     }
 
-    /// Answer whether `account` has a usable credential for `agent_type`. Always answered —
-    /// an unknown harness or account reads as [`ubiq_proto::messages::LoginStatus::Missing`],
-    /// not an error.
-    fn check_harness_login(&mut self, client: ClientId, agent_type: String, account: String) {
-        let now_ms = now_ms();
-        let status = self.agents.check_login(&agent_type, &account, now_ms);
-        tracing::debug!(harness = %agent_type, %account, ?status, "login checked");
-        self.host.send(
-            To::Client(client),
-            Message::HarnessLoginStatus {
-                agent_type,
-                account,
-                status,
-            },
-        );
-    }
-
     fn rename_account(&mut self, client: ClientId, account: String, new_account: String) {
-        if self.login_running(&account, None) {
-            return self.account_error(
-                client,
-                format!("a sign-in for account '{account}' is still running"),
-            );
-        }
         match self.agents.rename_account(&account, &new_account) {
             Ok(()) => self.send_accounts(client),
             Err(error) => self.account_error(client, format!("{error:#}")),
@@ -6338,26 +6188,7 @@ impl Coordinator {
     }
 
     fn delete_account(&mut self, client: ClientId, account: String) {
-        if self.login_running(&account, None) {
-            return self.account_error(
-                client,
-                format!("a sign-in for account '{account}' is still running"),
-            );
-        }
         match self.agents.delete_account(&account) {
-            Ok(()) => self.send_accounts(client),
-            Err(error) => self.account_error(client, format!("{error:#}")),
-        }
-    }
-
-    fn delete_harness_login(&mut self, client: ClientId, agent_type: String, account: String) {
-        if self.login_running(&account, Some(&agent_type)) {
-            return self.account_error(
-                client,
-                format!("a sign-in for account '{account}' is still running"),
-            );
-        }
-        match self.agents.delete_harness_login(&agent_type, &account) {
             Ok(()) => self.send_accounts(client),
             Err(error) => self.account_error(client, format!("{error:#}")),
         }
@@ -7434,47 +7265,7 @@ mod tests {
             .expect("the project was added")
     }
 
-    // ── probe logins ──────────────────────────────────────────────────
-
-    /// A probe pane's exit must never be read as a login outcome. The fixture is built so a
-    /// real login *would* have captured — a fresh credential, and `captured_before: None` (a
-    /// first-ever login, the case `finish_login`'s mtime rule always lets through) — precisely
-    /// so this proves the skip is `pending.probe`'s doing, not an accident of the fixture.
-    #[test]
-    fn a_probes_exit_records_no_account_and_sends_no_login_outcome() {
-        let (mut coordinator, client) = test_coordinator();
-        let home = tempfile::TempDir::new().unwrap();
-        let cred = PathBuf::from("cred.json");
-        std::fs::write(home.path().join(&cred), b"fresh").unwrap();
-
-        let pane_id = PaneId::generate();
-        let pending = PendingLogin::for_test(
-            "work",
-            "claude-code",
-            home.path().to_path_buf(),
-            vec![cred],
-            None,
-            true,
-        );
-        coordinator.logins.insert(pane_id, pending);
-
-        coordinator.login_gone(client.id(), pane_id);
-
-        assert!(
-            !coordinator.logins.contains_key(&pane_id),
-            "the pending entry is consumed either way"
-        );
-        assert!(
-            coordinator.agents.accounts().unwrap().is_empty(),
-            "a probe must never record an account, even though this fixture would have \
-             captured one"
-        );
-        let messages = drain_all(&client);
-        assert!(
-            messages.is_empty(),
-            "a probe sends neither HarnessLoginCaptured nor HarnessLoginFailed: {messages:?}"
-        );
-    }
+    // ── definition sign-ins ─────────────────────────────────────────────
 
     /// A sign-in into a definition's home (`D193`) is judged by how it exited and nothing else:
     /// a clean exit is `HarnessHomeSignedIn`, anything else — a failing code, or a pane closed
@@ -7504,9 +7295,9 @@ mod tests {
                         ("claude-code", "work")
                     );
                 }
-                Message::HarnessLoginFailed { account, .. } => {
+                Message::HarnessLoginFailed { definition, .. } => {
                     assert!(!signed_in, "{code:?} is a sign-in");
-                    assert!(account.is_empty());
+                    assert_eq!(definition, "work");
                 }
                 other => panic!("unexpected outcome {other:?}"),
             }

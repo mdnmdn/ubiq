@@ -668,47 +668,9 @@ secret stays in the runner's secret store.
 
 ### Credential capture & reuse (agent-manager)
 
-> How `am account capture` / `am account login` snapshot and replay this
-> harness's login into an ephemeral run. Records file **structure and non-secret
-> metadata only** — token values are copied opaquely.
-
-- **Bundle files (the credential snapshot):**
-  - `~/.local/share/opencode/auth.json` — **required**; the sole auth store,
-    a JSON map `providerID → {type, …}`.
-- **Relocation lever:** `XDG_DATA_HOME` relocates the data dir
-  (`$XDG_DATA_HOME/opencode/auth.json`); `OPENCODE_CONFIG_DIR`/`XDG_CONFIG_HOME`
-  move only the *config* tier, not the auth store. **VERIFIED empirically against
-  opencode 1.17.18** (macOS): with `XDG_DATA_HOME` set, `opencode auth list`
-  reads `$XDG_DATA_HOME/opencode/auth.json` and it *overrides* the HOME-relative
-  `~/.local/share/opencode/auth.json` default (control: with the lever unset it
-  falls back to that default). This resolves `_docs/profiles.md` open
-  decision **B-1 as Class A-clean**: `am` sets both `OPENCODE_CONFIG_DIR` and
-  `XDG_DATA_HOME` to the ephemeral dir and *seeds* the captured `auth.json` in —
-  no child-`HOME` relocation (the user's real toolchain stays intact).
-- **Force file storage (skip keychain):** N/A — `auth.json` is **always
-  plaintext** (mode `0600`); opencode has no keychain backend of its own. The
-  ideal capture case. *(Exception: the Anthropic-OAuth path can auto-discover
-  Claude Code's macOS Keychain entry — then there is no opencode file to copy;
-  capture via the Claude Code recipe instead.)*
-- **Login command (fresh-auth-into-temp):** `opencode auth login` under a
-  relocated `XDG_DATA_HOME` (interactive TUI: pick provider, paste key or OAuth).
-  API-key / `{env:…}` providers are fully headless and never write `auth.json`.
-- **Default backend / observed:** plaintext file on every OS. *(Doc claim of
-  `~/Library/Application Support/opencode/` on macOS is stale — disk uses the XDG
-  path uniformly. Trust disk.)*
-- **Extractable metadata (non-secret):**
-
-  | field | source | identifies |
-  |---|---|---|
-  | top-level key | `auth.json` → key | provider id (`anthropic`, `openai`, `github-copilot`, …) |
-  | `type` | `auth.json → <provider>.type` | auth type: `oauth` / `api` / `wellknown` |
-  | `expires` | `auth.json → <provider>.expires` | token expiry (epoch ms, oauth) |
-  | `enterpriseUrl` | `auth.json → <provider>.enterpriseUrl` | enterprise/self-hosted endpoint |
-
-  No email / account-uuid / plan-tier is stored — opencode leaves that to the
-  upstream provider.
-- **Do not copy:** `opencode.db*` (session history — can be huge), `log/`,
-  `storage/`, `snapshot/`, `repos/`, `tool-output/`.
+None. `am` neither captures, copies nor roams this login: the harness keeps it in a profile's own
+config home, signed in there by `am profile login` or the first run, and refreshes it itself
+(`D193` in Ubiq's `_docs/tech/decisions.md`).
 
 ## Permissions
 

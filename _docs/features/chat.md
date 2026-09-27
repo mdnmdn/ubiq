@@ -882,7 +882,7 @@ field the filter. A grouped, searchable, partly-inert list was already what that
 | A permission request offers no option of the reading ⌘⌥Y or ⌘⌥N asks for | The keyboard does nothing; the buttons the harness did offer are still there to press |
 | A conversation reports a total but no cached figure, or a total of zero | The cache ring is not drawn; a ring at nothing over nothing is not a reading |
 | The conversation runs as no account, or its provider names no limit | No quota ring; there is no window to draw, and a zero ring would claim one that is empty |
-| The host has cached nothing and the harness has pushed nothing | No quota ring. The reading arrives when a turn runs or the accounts page asks, and until then nothing is stated |
+| The host has cached nothing and the harness has pushed nothing | No quota ring. The reading arrives when a turn runs or the settings page asks, and until then nothing is stated |
 | The cached snapshot is old | The ring still draws — a stale reading is a real one — and the tooltip says how old it is rather than implying it is current |
 | A conversation has no spend, no context reading and no quota — a freshly launched agent | The footer draws nothing at all. The row collapses rather than reserving its padding, which otherwise showed as an empty strip along the bottom edge of every surface hosting the conversation |
 | The turn is cancelled while asks are up | The outstanding set is dropped, the prompts and the strip go with it, and the host answers every one of them as cancelled before the cancel reaches the harness |

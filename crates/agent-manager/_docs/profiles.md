@@ -4,7 +4,9 @@
 > defaults, and a default isolation policy — from which every run makes a
 > **throwaway overlay**. An **agent** is a profile with its composition frozen.
 > This doc defines the model, the cross-harness "cleanest solution" it rests on,
-> and the phased path to get there.
+> and the phased path to get there. A login lives in a profile's own config home
+> (§6.2, `D193`); nothing in `am` captures, seeds or roams one. §4 and §5 record
+> the seeding design that preceded it.
 
 ## 1. Why: two config lifetimes
 
@@ -36,12 +38,12 @@ exactly **how much of `HOME` they give up**:
 
 | Tier | Who | Typical command | Auth | HOME | Isolation |
 |---|---|---|---|---|---|
-| **A — casual** | just run an agent | `am claude --mcps a,b --model haiku --prompt 'hi'` | default login (real `~/.claude`), lazy-captured into the implicit `default` profile | **real** | occasional `--isolate` |
+| **A — casual** | just run an agent | `am claude --mcps a,b --model haiku --prompt 'hi'` | the harness's own login, in its own config (`Native`, §6.2) | **real** | occasional `--isolate` |
 | **B — expert** | curated, repeatable setups | `am claude --profile work` (+ per-run overrides) | named profiles, possibly **multiple accounts**, `--account` overrides | **always real** | opt-in per profile/run |
 | **C — hardcore** | full sandboxes | `am claude --profile ci --isolate=locked` | multiple accounts, each in its own **replaced** HOME | **replaced** on request (`home = "ephemeral"` / `"managed"`), toolchain reconstructed | always |
 
 **The central dividing line: A and B never touch `HOME`.** They rely entirely on
-the seed-into-relocated-config-dir mechanism (§5), so the user's toolchain always
+the harness's config-dir levers (§5), so the user's toolchain always
 survives — switching accounts or profiles never costs `nvm`/`mise`/`pyenv`.
 **C is the only tier that replaces `HOME`,** and does so deliberately, accepting
 that the toolchain must be reconstructed inside the sandbox (§8). HOME
@@ -50,16 +52,14 @@ an account.
 
 How each tier uses the machinery:
 
-- **A (casual).** No profile authored. The implicit `default` profile lazily
-  captures the existing login on first use (§6.1); composition is 100% per-run
-  flags. `--isolate` wraps the launch (§8) without changing auth or HOME.
+- **A (casual).** No profile authored. The run uses the harness's own config and
+  login in place (§6.1); composition is 100% per-run flags. `--isolate` wraps the launch (§8) without changing auth or HOME.
 - **B (expert).** Authors `profiles/<name>/profile.toml` fixing an account +
   defaults; may keep several accounts and switch via `--account`/`--profile`.
-  Because every account is reused by **seeding**, switching is free of any
-  toolchain cost. Per-run flags still override the profile — the sweet spot the
+  Because each profile's login lives in its own config home, switching is free
+  of any toolchain cost. Per-run flags still override the profile — the sweet spot the
   whole "cleanest solution" is built for.
-- **C (hardcore).** Runs under isol8 with a replaced HOME per account/profile,
-  seeding the login into the *sandbox* HOME. This is also the only correct home
+- **C (hardcore).** Runs under isol8 with a replaced HOME per account/profile. This is also the only correct home
   for Class-C harnesses like grok, which have no config lever (§5).
 
 ## 3. The hard constraint: don't touch `HOME`
@@ -74,8 +74,8 @@ under a synthetic `HOME` loses everything anchored there:
 All of it is reconstructable, but only *deliberately*. So the governing rule:
 
 > **Never relocate `HOME` merely to inject config. Relocate the harness's own
-> config/data dirs via its native env levers, seed captured credentials into
-> those relocated dirs, and leave the real `HOME` (and the toolchain) intact.**
+> config/data dirs via its native env levers — a profile's own config home — and
+> leave the real `HOME` (and the toolchain) intact.**
 
 `HOME` relocation is reserved for the **explicit `home` mode** a confined run may
 ask for (isol8, §8), where reconstructing the environment is the whole point. A
@@ -103,13 +103,7 @@ empty directory — [`cli.md`](./cli.md) §"Settings file + flag merge" owns tha
 end-to-end: a headless run against a fresh seeded config dir returns `AUTH_OK`
 with no onboarding, real `HOME` intact.
 
-**Claude Code ≥ 2.1.218 credential capture:** Claude Code no longer falls back
-to plaintext `.credentials.json` when a keychain is missing or unreachable; it
-errors instead. For `am account login` on macOS to force file-based capture, pair
-with `--isolate` to deny keychain access at the sandbox layer — the sandbox blocks
-the keychain API (not merely missing), triggering the clean file-fallback path.
-This is integrated into the generalized credential seeding (§5) via `Harness::post_seed`
-and optional per-harness isolation logic.
+Seeding was replaced by a login kept in each profile's own home (`D193`, §6.2).
 
 ## 5. The cleanest solution, generalized across harnesses
 
@@ -148,24 +142,12 @@ struct ConfigAnchor {
     ///       ("XDG_DATA_HOME", Relocate::Data)]      (Class B)
     ///      []                                        (Class C → relocate HOME)
     levers: Vec<(String, Relocate)>,
-    /// Files that constitute a captured login, seeded generically:
-    /// src is relative to `account.home`; dst is relative to the relocated dir.
-    login_seed: Vec<SeedFile>,   // e.g. .claude/.credentials.json → .credentials.json
     /// True only for Class C: no lever, HOME must be relocated (toolchain caveat).
     requires_home_relocation: bool,
 }
 ```
 
-A single `seed_login(dir, account.home, harness.config_anchor().login_seed)`
-then serves every Class A/B harness. (The Claude `seed_account_login` we landed
-is the concrete first instance of this — generalize it here.)
-
-Each `SeedFile` says whether it *is* the credential (`SeedFile::credential`) or
-a companion the login also needs (`SeedFile::new`, e.g. Claude's `.claude.json`).
-Only the former travels back: `harvest_login` is `seed_login`'s mirror, writing a
-credential the run refreshed to the `Source` it was seeded from before the run dir
-is discarded — see `_docs/open-points.md` §9 for why (an OAuth refresh rotates the
-refresh token, so the origin is dead the moment the run rewrites its copy).
+The login itself is no part of it: it lives in a profile's own home (`D193`, §6.2).
 
 ## 6. The profile model
 
@@ -194,13 +176,9 @@ composition) → wrap for isolation (§8) → launch.** Consequences that fall o
 
 ### 6.1 Zero-config default (make "it just works" the default)
 
-`am claude` with no `--profile` uses an implicit `default` profile that **lazily
-captures your existing login on first use**: seed `profiles/default/base/claude/`
-once from the real `~/.claude` (creds + `.claude.json`), persist it, reuse it
-forever after. First run bootstraps; every run after is logged-in with zero
-flags. Named profiles and per-run flags layer on top. A harness that runs from
-a config home (Claude Code) takes none of this: with no profile it runs from
-the user's own config in place (§6.2, `ConfigStrategy::Native`).
+`am claude` with no `--profile` runs from the harness's own default config and
+login in place (§6.2, `ConfigStrategy::Native`); named profiles and per-run flags
+layer on top.
 
 ### 6.2 The per-profile home (`D193`)
 
@@ -212,8 +190,8 @@ root that holds the profile). The login lands in it one of two ways: the
 profile's first terminal run shows the harness's own login screen, or an
 explicit sign-in runs `Harness::login_home` (Claude: `CLAUDE_CONFIG_DIR=<home>
 claude auth login`; the CLI's `am profile login`). Either way the harness owns
-the login and its refresh from then on: nothing is captured, seeded, harvested
-or read back.
+the login and its refresh from then on: nothing is captured, seeded or read
+back.
 
 `provision::prepare_home(harness, home, templates)` makes a home ready for
 either: it creates it and applies the §14.1 templates **once in its life**,
@@ -229,8 +207,8 @@ true to `Harness::provision_home(spec, Some(home), scratch)`, which writes
 every per-run file into `scratch` and passes it by flag, so concurrent runs of
 one profile share the home read-write and never see each other's MCP servers,
 settings or skills (Claude's composition: `_docs/harness/claude-code.md`).
-Beyond `prepare_home`, the home takes only §14.2's fix-ups. No login is seeded
-(`Provisioned::login_origin` is `None`), `Provisioned::dir` is the scratch and
+Beyond `prepare_home`, the home takes only §14.2's fix-ups. No login is seeded,
+`Provisioned::dir` is the scratch and
 `Provisioned::home` the home. `ephemeral` only ever removes `dir`: `provision`
 leaves it false, and a caller that made the scratch for one run (the CLI) sets
 it — no cleanup reaches the home, which lives under the profiles root, where
@@ -245,9 +223,8 @@ harness's own default config, in place. A sharing harness gets
 the launch, and an inherited one is left alone, since a user who exported it
 made it their default — and nothing is written outside `scratch`: no
 templates, no onboarding or trust entry, no login. Print mode skips Claude's
-trust dialog; a terminal run shows Claude's own. An account's captured OAuth
-login is not used there (a `warn!` says so); API-key, auth-token and helper
-accounts still apply, by env and `--settings`. A harness that cannot share a
+trust dialog; a terminal run shows Claude's own. API-key, auth-token and helper
+accounts apply, by env and `--settings`. A harness that cannot share a
 home runs a `Native` spec in `scratch` as under `ConfigStrategy::Fixed`.
 
 A **confined** `Home` or `Native` run is granted the home it runs from
@@ -257,8 +234,7 @@ or `$CLAUDE_CONFIG_DIR`, plus `~/.claude.json` when that is unset; Codex
 `$CODEX_HOME` or `~/.codex`; Copilot `$COPILOT_HOME` or `~/.copilot`; opencode
 its XDG data and config dirs; grok `~/.grok`). On macOS it also keeps the whole
 `integrations/keychain` layer: the item Claude keys to the home is the login
-itself. Only a per-run dir (`Ephemeral`, `Fixed`) of a `KEYCHAIN_DENIED`
-harness still has the keychain withheld (§8).
+itself.
 
 `Harness::session_transcripts(config_home, cwd, session_id)` names ONE
 session's files in a shared or native home, where `transcripts` would answer
@@ -421,47 +397,18 @@ Either way the two axes compose cleanly:
   overrides.
 - **Class C harnesses (grok) are where the axes meet.** Their non-isolated form
   must relocate `HOME` (lossy). Under isol8 the sandbox HOME is reconstructed
-  deliberately, so seed the login into that sandbox HOME and the toolchain
+  deliberately, so the login lives in that sandbox HOME and the toolchain
   caveat becomes an explicit, understood cost rather than a silent breakage.
 - Even for Class A, full isolation is available: run inside an isol8 HOME and let
-  `CLAUDE_CONFIG_DIR` point inside it. The seeding step is identical; only the
-  `HOME` the child sees changes.
-- **A login needs real-home grants a run does not, because nothing reconstructs its HOME.**
-  A run keeps the real HOME unless it asks for a replaced one, and a replaced one is
-  deliberately rebuilt (§8's "sandbox HOME is reconstructed") — either way the toolchain
-  question is answered on purpose. `login_confined`'s HOME is just the capture
-  directory — no reconstruction step runs for it — so isol8's rule that a replaced HOME
-  auto-grants nothing from the real one leaves a login unable to read anything outside a
-  directory this policy already names. A self-contained binary (Claude Code) is fine; a
-  script run through an interpreter (Codex, `#!/usr/bin/env node`) is not, because
-  `confine_executable` grants the script and its npm package but never reads the shebang.
-  `login_runtime_grants` (`isolate.rs`) closes that gap: it walks the resolved program's own
-  symlink chain, resolves and walks the interpreter's chain when the program is a script, and
-  adds a short list of well-known runtime-manager roots (`mise`, `nvm`, `volta`, …) under the
-  real home — every entry existence-guarded, so a machine without a given manager pays
-  nothing.
-- **A login's policy can be inspected empirically, by running something other than the login
-  in it.** `login_confined`'s grants are computed from `plan.launch.program` — never from what a
-  caller actually execs — so a caller may build the `Confined` from the harness's real
-  `LoginPlan` and call `isolate::confined_probe_launch(confined, argv)` in place of
-  `confined_launch`: it resolves the policy and grants the harness binary exactly as a real login
-  would, then swaps in the given command only after that resolution, so the sandbox itself is
-  untouched by the swap. Ubiq's harness-settings `Shell` button uses it to run an interactive shell
-  (`-i`) under a login's exact policy, so a person can run `which node`, `ls ~/.local/share/mise`,
-  etc. inside the *exact* sandbox a login would have run under — which is how a login that failed
-  inside the sandbox for reasons only reachable this way was diagnosed. See `isolate.rs`'s
-  `confined_probe_launch` and `crates/ubiq-host/src/agent.rs`'s call to it.
+  `CLAUDE_CONFIG_DIR` point inside it; only the `HOME` the child sees changes.
 
 ## 9. Materializing the overlay (symlink-else-copy, GC, Windows)
 
 - **`materialize` abstraction:** identity files (creds, `.claude.json`) are
   linked back to `profiles/<name>/base/` when possible; composition files
   (mcp.json, skills) are freshly written and **owned** by the run.
-- **Copy vs symlink:** credentials that the harness *rewrites in place* (OAuth
-  refresh) are currently **copied** (safe, but a refreshed token is discarded at
-  cleanup). Persisting refreshes back to `base/` is a profile-layer follow-up
-  (copy-back on exit, or symlink with care — harnesses that replace the file via
-  rename break a symlink).
+- **No credentials:** a login is never materialized into a run; it lives in the
+  profile's own home (`D193`, §6.2).
 - **Manifest:** record linked-vs-owned per file so cleanup can never delete a
   profile's real base by following a link.
 - **Cleanup / GC:** delete the overlay on exit; a periodic sweep removes
@@ -510,24 +457,23 @@ global profiles come first.
   (`auth list` read `$XDG_DATA_HOME/opencode/auth.json` and overrode the
   HOME-relative default). So opencode seeds like Claude/Codex and drops HOME
   relocation. Recorded in `_docs/harness/opencode.md`.
-- **B-2 → copy (for now).** Credentials are *copied* into the run dir; a
-  refreshed OAuth token stays in the ephemeral dir and is discarded at cleanup.
-  Copy-back-on-exit persistence is a future refinement. The config *overlay*
-  (non-credential) is symlinked.
+- **B-2 → no copy (`D193`).** Credentials are not copied anywhere: the login
+  stays in the profile's own home. The config *overlay* (non-credential) is
+  symlinked.
 - **B-3 → independent.** Accounts stay their own store; a profile *references* an
   account by id, and `--account` remains a per-run override that wins over the
   profile's account (implemented in `resolve.rs`).
 
 ## 13. Where it lives (implementation map)
 
-- `src/harness/mod.rs` — `Relocate`/`SeedFile`/`ConfigAnchor`, `Harness::config_anchor`, generic `seed_login`; `TemplateFile`, `Harness::templates`, generic `apply_templates` (§14); `Harness::post_seed` (§14).
-- `src/harness/{claude,codex,opencode,grok,copilot}.rs` — per-harness `config_anchor()` + seed-not-relocate provision.
+- `src/harness/mod.rs` — `Relocate`/`ConfigAnchor`, `Harness::config_anchor`; `TemplateFile`, `Harness::templates`, generic `apply_templates` (§14); `Harness::post_seed` (§14).
+- `src/harness/{claude,codex,opencode,grok,copilot}.rs` — per-harness `config_anchor()` + provision.
 - `src/harness/claude.rs` — `templates()` (theme/tui/Claude-in-Chrome defaults) + `post_seed()` (onboarding/trust-dialog fix-ups); see §14.
 - `src/profile.rs` — profile store + `extends` inheritance + `ProfileStore::home` (§6.2).
 - `src/harness/mod.rs` — `Harness::shares_home` / `provision_home` / `login_home` / `session_transcripts` (§6.2).
 - `src/resolve.rs` — profile selection (`effective_profile`) + 4-layer `pick` + `config_bases`.
 - `src/overlay.rs` — `materialize` + `sweep_old_runs`.
-- `src/provision.rs` — overlay materialize + GC hook + `seed_zero_config_login` + `apply_templates` + `post_seed` (§14); `prepare_home` and the `Home` / `Native` path (§6.2).
+- `src/provision.rs` — overlay materialize + GC hook + `apply_templates` + `post_seed` (§14); `prepare_home` and the `Home` / `Native` path (§6.2).
 - `src/cli/{profile,agent}.rs` + `src/cli/mod.rs` — `am profile` / `am agent`.
 - `src/settings.rs` — `[defaults].profile`.
 
@@ -552,7 +498,7 @@ filename with a `fn() -> serde_json::Value` used only to seed the template the
 first time it's read.
 
 `crate::harness::apply_templates(dir, harness_id, templates)` (called
-generically from `provision::provision()`, after all login seeding, for every
+generically from `provision::provision()`, after the overlay, for every
 harness — most have an empty `templates()` and it's a no-op):
 
 1. Resolves the template store root (`~/.config/agent-manager/templates` by
@@ -564,7 +510,7 @@ harness — most have an empty `templates()` and it's a no-op):
    to discover.
 3. Shallow-merges that template's keys into the run's `dir/<name>`,
    **gap-filling only**: any key the run itself already generated (policy,
-   `apiKeyHelper`, hooks, seeded credentials, …) wins; the template supplies
+   `apiKeyHelper`, hooks, …) wins; the template supplies
    only keys nothing else set.
 
 Editing `~/.config/agent-manager/templates/claude-code/settings.json` (e.g.
@@ -585,10 +531,9 @@ similar but are **not** preferences — they're correctness requirements of
 `am`'s always-ephemeral-config model that must always be forced, never left
 to a user-editable file a stray edit could break:
 
-- `hasCompletedOnboarding: true` — a login captured non-interactively (§4,
-  `am account login`) never runs the wizard that normally sets this, so a
-  fully-authenticated seeded config would otherwise still show the onboarding
-  UI.
+- `hasCompletedOnboarding: true` — a login made non-interactively (`claude auth
+  login`, `am profile login`) never runs the wizard that normally sets this, so a
+  fully-authenticated config would otherwise still show the onboarding UI.
 - `projects[spec.cwd].hasTrustDialogAccepted: true` — Claude Code gates a
   per-project trust dialog on this, keyed by the exact cwd string; a fresh
   `CLAUDE_CONFIG_DIR` has no record of any cwd, so every run would otherwise

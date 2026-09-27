@@ -514,49 +514,9 @@ the best available store per platform.
 
 ### Credential capture & reuse (agent-manager)
 
-> How `am account capture` / `am account login` snapshot and replay this
-> harness's login into an ephemeral run. Records file **structure and non-secret
-> metadata only** — token values are copied opaquely, never parsed into `am`'s
-> account store.
-
-- **Bundle files (the credential snapshot):**
-  - `~/.codex/auth.json` — **required**; the sole credential file (`auth_mode`,
-    `OPENAI_API_KEY`, `tokens.{id_token,access_token,refresh_token,account_id}`,
-    `last_refresh`).
-  - `~/.codex/config.toml` — *optional*; only if `cli_auth_credentials_store` /
-    model overrides should travel with the identity. **Strip `[projects.*]`**
-    (machine/path-bound trust entries) before reuse.
-- **Relocation lever:** `CODEX_HOME` (default `~/.codex/`) moves the entire tree
-  including `auth.json` — the clean, first-class isolation lever.
-- **Force file storage (skip keychain):** `cli_auth_credentials_store = "file"`
-  in `$CODEX_HOME/config.toml` — the documented, explicit knob. Write it *before*
-  `codex login` so the token lands in `auth.json` instead of the OS keychain
-  (critical under isol8/iter8 where the keychain is unavailable). Values:
-  `auto` | `file` | `keyring`.
-- **Default backend / observed:** macOS Keychain service `Codex Auth`
-  (`keyring`) per doc; **observed file-based on this machine** (no Keychain
-  entry; token present in `auth.json`) — trust disk.
-- **Login command (fresh-auth-into-temp):**
-  `CODEX_HOME=/tmp/x codex login` (browser OAuth), or headless
-  `codex login --device-code` (prints URL + code — the sandbox-friendly path),
-  or `codex login --api-key "$OPENAI_API_KEY"` (writes `auth.json` directly, no
-  browser). Set `cli_auth_credentials_store = "file"` first.
-- **Extractable metadata (non-secret):**
-
-  | field | source | identifies |
-  |---|---|---|
-  | `auth_mode` | `auth.json → auth_mode` | auth type: `chatgpt` (subscription OAuth) vs API key |
-  | `OPENAI_API_KEY` presence | `auth.json → OPENAI_API_KEY` | API-key path in use vs `null` |
-  | `tokens.account_id` | `auth.json → tokens.account_id` | ChatGPT account id *(identifying — redact)* |
-  | `last_refresh` | `auth.json → last_refresh` | token freshness (>30 days forces re-login) |
-
-  Codex stores **less** plan/org metadata locally than Claude — subscription
-  tier/org lives only inside the JWT `id_token`/`access_token` claims, which are
-  treated as opaque secrets and **not decoded**.
-- **Do not copy:** `history.jsonl`, `sessions/`, `logs_*.sqlite*`,
-  `state_*.sqlite*`, `memories_*.sqlite*`, `installation_id`, `cache/`,
-  `shell_snapshots/`, `models_cache.json` — session/machine-bound state
-  (`installation_id` is a machine identity, do not transplant).
+None. `am` neither captures, copies nor roams this login: the harness keeps it in a profile's own
+config home, signed in there by `am profile login` or the first run, and refreshes it itself
+(`D193` in Ubiq's `_docs/tech/decisions.md`).
 
 ### Shared-home run (agent-manager, `D193`)
 

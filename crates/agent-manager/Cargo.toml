@@ -123,12 +123,6 @@ win32job = "2"
 name = "conpty_confine_probe"
 required-features = ["pty"]
 
-# Diagnostic: run a harness's real confined login on a pseudoconsole and stream
-# what it says, for when a login pane opens and closes before anyone can read it.
-[[example]]
-name = "login_confined_probe"
-required-features = ["pty"]
-
 # Diagnostic: which shells survive a confined pane. A harness spawns `pwsh`,
 # `bash` and `cmd` as children, and a policy that kills one of them reads, from
 # inside the agent, as "my shell is broken" with no denial to point at.

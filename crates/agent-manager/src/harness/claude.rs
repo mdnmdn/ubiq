@@ -20,14 +20,13 @@ use std::process::{Command, Stdio};
 
 use anyhow::{Context, bail};
 use serde_json::{Value, json};
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 use crate::Result;
 use crate::config::{McpServer, McpTransport};
-use crate::source::Source;
 use crate::spec::{HookRef, McpRef, RunSpec};
 
-use super::{ConfigAnchor, Harness, Launch, ModelInfo, Relocate, SeedFile};
+use super::{ConfigAnchor, Harness, Launch, ModelInfo, Relocate};
 
 /// Environment variables stripped from the child so a nested `am`/Claude Code
 /// invocation doesn't inherit the parent session's identity.
@@ -336,36 +335,14 @@ impl Harness for Claude {
     }
 
     /// Class A: `CLAUDE_CONFIG_DIR` relocates the entire config — credentials
-    /// and `.claude.json` included (verified against Claude Code 2.1.206) — so
-    /// a captured login is the two files below, seeded into the ephemeral dir
-    /// while the real `HOME` stays intact. See `_docs/profiles.md` §5.
-    ///
-    /// **`.credentials.json` is only the credential of record while the login
-    /// keychain is out of reach.** Claude Code carries two backends and picks
-    /// at launch, with no setting to force either:
-    ///
-    /// - keychain reachable — the login lives in a generic password named
-    ///   `Claude Code-credentials-<sha256($CLAUDE_CONFIG_DIR)[:8]>`. A seeded
-    ///   `.credentials.json` is migrated into it and **deleted**, and every
-    ///   refresh thereafter writes the keychain item only;
-    /// - keychain unreachable — `$CONFIG_DIR/.credentials.json` is read *and
-    ///   rewritten on refresh*, which is the contract
-    ///   [`SeedFile::credential`] and [`crate::harness::sync_login`] assume.
-    ///
-    /// So the seed below is a one-way door unless the policy withholds the
-    /// keychain, which is why `claude-code` is in `isolate::KEYCHAIN_DENIED`.
-    /// Removing it there does not merely widen the sandbox: it silently moves
-    /// the credential somewhere nothing in this crate reads, and a run's
-    /// keychain key is per-run because the config dir is a fresh ULID.
-    /// Measured against 2.1.270; `_docs/wip/claude-auth-problem.md` holds the
-    /// evidence and the discarded hypotheses.
+    /// and `.claude.json` included (verified against Claude Code 2.1.206) —
+    /// while the real `HOME` stays intact. See `_docs/profiles.md` §5. With the
+    /// keychain reachable, Claude Code keeps the login in a generic password
+    /// named `Claude Code-credentials-<sha256($CLAUDE_CONFIG_DIR)[:8]>`, stable
+    /// for a profile's fixed home (`D193`); otherwise in `.credentials.json`.
     fn config_anchor(&self) -> ConfigAnchor {
         ConfigAnchor {
             levers: vec![("CLAUDE_CONFIG_DIR".to_string(), Relocate::All)],
-            login_seed: vec![
-                SeedFile::credential(".claude/.credentials.json", ".credentials.json"),
-                SeedFile::new(".claude.json", ".claude.json"),
-            ],
             requires_home_relocation: false,
         }
     }
@@ -556,31 +533,6 @@ impl Harness for Claude {
             "--strict-mcp-config".to_string(),
         ];
         let launch = self.launch(spec, Some(dir), config_args)?;
-
-        // 6b. Account login: reuse a prior `am account login`.
-        if let Some(account) = &spec.account
-            && let Some(login) = spec
-                .account_login
-                .clone()
-                .or_else(|| account.home.clone().map(crate::source::Source::Dir))
-        {
-            // Reuse a prior `am account login` by *seeding* the ephemeral
-            // config dir with that account's credentials + identity —
-            // deliberately WITHOUT overriding the child's `HOME`.
-            //
-            // Overriding `HOME` (the previous behavior) had two fatal
-            // problems: (1) Claude Code ≥2.x relocates its *entire* config
-            // — `.claude.json` included, not just `.claude/.credentials.json`
-            // — into `CLAUDE_CONFIG_DIR`, which points at the *empty*
-            // ephemeral dir, so the HOME-resident creds were never read and
-            // every run re-triggered onboarding; and (2) a per-account HOME
-            // strips the user's real environment — `nvm`/`mise`/`pyenv`,
-            // shell rc, PATH shims — none of which exist under a bare
-            // account home. Seeding into `CLAUDE_CONFIG_DIR` fixes the auth
-            // half while leaving the real HOME (and toolchain) intact.
-            // The seed list is declared once in `config_anchor()`.
-            super::seed_login(dir, &login, &self.config_anchor().login_seed)?;
-        }
         Ok(launch)
     }
 
@@ -673,50 +625,12 @@ impl Harness for Claude {
         })
     }
 
-    /// Log Claude Code into `home`, capturing the resulting credential file.
-    ///
-    /// Verified against `claude auth --help`: `claude auth login` is a real
-    /// subcommand ("Sign in to your Anthropic account"), so this launches
-    /// that rather than the bare interactive `/login` fallback.
-    ///
-    /// HOME relocation moves the whole `~/.claude` tree (creds +
-    /// `~/.claude.json`) into the capture home; running login with the OS
-    /// keychain unreachable (no real `HOME`) forces the plaintext
-    /// `.credentials.json` (no documented file-storage knob). Deliberately
-    /// does NOT set `CLAUDE_CONFIG_DIR` here — we want the default
-    /// HOME-relative layout (`<home>/.claude/.credentials.json`,
-    /// `<home>/.claude.json`) so the reuse path can find and seed those files:
-    /// `provision()` above copies them into the ephemeral `CLAUDE_CONFIG_DIR`
-    /// (via [`super::seed_login`] driven by [`Claude::config_anchor`]) rather
-    /// than relocating the child's `HOME`.
-    fn login(&self, home: &Path) -> Result<super::LoginPlan> {
-        let env = vec![("HOME".to_string(), home.display().to_string())];
-        let args = vec!["auth".to_string(), "login".to_string()];
-        Ok(super::LoginPlan {
-            launch: Launch {
-                program: "claude".to_string(),
-                args,
-                env,
-                env_remove: ENV_HYGIENE.iter().map(|s| s.to_string()).collect(),
-                env_clear: false,
-            },
-            credential_files: vec![
-                std::path::PathBuf::from(".claude/.credentials.json"), // required
-                std::path::PathBuf::from(".claude.json"),              // optional metadata
-            ],
-        })
-    }
-
-    /// One request against the account's own OAuth token. Unofficial and rate-limited, so a
-    /// failure is a sentence the user reads and never a number — `crate::quota::claude` owns the
-    /// endpoint, the header and the defensive parse, because naming a provider's URL is this
-    /// library's job and nobody else's.
-    fn quota(
-        &self,
-        account: &crate::account::Account,
-        login: Option<&crate::Source>,
-    ) -> Result<crate::quota::QuotaSnapshot> {
-        crate::quota::claude(&account.id, &self.id(), login)
+    /// One request against the OAuth token Claude Code keeps in `home`. Unofficial and
+    /// rate-limited, so a failure is a sentence the user reads and never a number —
+    /// `crate::quota::claude` owns the endpoint, the header and the defensive parse, because
+    /// naming a provider's URL is this library's job and nobody else's.
+    fn quota(&self, account: &str, home: Option<&Path>) -> Result<crate::quota::QuotaSnapshot> {
+        crate::quota::claude(account, &self.id(), home)
     }
 
     fn structured_bridge(
@@ -736,83 +650,6 @@ impl Harness for Claude {
             )?));
         }
         Ok(Box::new(crate::io::JsonlBridge::new(child)?))
-    }
-
-    /// Renew by re-reading the live Claude Code session from the OS Keychain.
-    ///
-    /// Claude Code has no headless token-refresh subcommand — the current
-    /// OAuth session lives in the macOS Keychain (service
-    /// [`crate::account::CLAUDE_KEYCHAIN_SERVICE`]), which `am` reads but never
-    /// writes. "Renew" therefore re-reads that blob and returns it as the
-    /// credential set (plus the `.claude.json` identity companion from the real
-    /// `HOME`, when present), so a `SecretStore` gets whatever the user's live
-    /// login currently holds. Errors off macOS / with no readable entry, same
-    /// as `am account import`. The `creds` argument (the currently-stored set)
-    /// is unused — the Keychain is the source of truth.
-    fn renew_credentials(
-        &self,
-        _creds: &[crate::credentials::CredentialBlob],
-    ) -> Result<Vec<crate::credentials::CredentialBlob>> {
-        use crate::credentials::CredentialBlob;
-        let (creds, identity) = read_ambient_keychain_login()?;
-        let mut blobs = vec![CredentialBlob {
-            name: ".credentials.json".to_string(),
-            rel_path: std::path::PathBuf::from(".claude/.credentials.json"),
-            bytes: creds,
-        }];
-        if let Some(bytes) = identity {
-            blobs.push(CredentialBlob {
-                name: ".claude.json".to_string(),
-                rel_path: std::path::PathBuf::from(".claude.json"),
-                bytes,
-            });
-        }
-        Ok(blobs)
-    }
-
-    /// The user's live Claude Code session, as it actually lives on macOS: the
-    /// OAuth token in the Keychain (see [`Claude::renew_credentials`]'s doc),
-    /// not a file under `$HOME` — so [`crate::provision::seed_zero_config_login`]'s
-    /// file-copy tier finds nothing and a direct run reports "Not logged in"
-    /// even though `claude` itself would find the session fine. Returns the
-    /// same two files [`Claude::config_anchor`] names as a `Source::Files`, so
-    /// [`super::seed_login`] places them exactly as a copied file would be.
-    /// Off macOS, or with no readable Keychain entry, this is the same as no
-    /// login: `None`, never an error surfaced to the run.
-    fn ambient_login(&self) -> Option<Source> {
-        let (creds, identity) = match read_ambient_keychain_login() {
-            Ok(pair) => pair,
-            Err(err) => {
-                warn!(error = %err, "ambient_login: no Keychain credential found");
-                return None;
-            }
-        };
-        info!(digest = %crate::credentials::login_digest(&creds), "ambient_login: found Keychain credential");
-        let mut files = vec![(std::path::PathBuf::from(".claude/.credentials.json"), creds)];
-        if let Some(bytes) = identity {
-            files.push((std::path::PathBuf::from(".claude.json"), bytes));
-        }
-        Some(Source::Files(files))
-    }
-
-    /// Put a refreshed login back in the macOS Keychain — the write side of
-    /// [`Claude::ambient_login`]. Only the credential is stored: `.claude.json`
-    /// is identity/onboarding state, never a [`super::SeedFile::credential`],
-    /// so [`super::harvest_login`] never offers it here.
-    fn adopt_login(&self, src: &Path, bytes: &[u8]) -> Result<()> {
-        if src != Path::new(".claude/.credentials.json") {
-            anyhow::bail!("claude-code cannot store {} outside a run", src.display());
-        }
-        info!(
-            digest = %crate::credentials::login_digest(bytes),
-            "adopt_login: writing refreshed login to the macOS Keychain"
-        );
-        let result = crate::account::write_claude_keychain_credentials(bytes);
-        match &result {
-            Ok(()) => info!("adopt_login: Keychain write succeeded"),
-            Err(err) => warn!(error = %err, "adopt_login: Keychain write failed"),
-        }
-        result
     }
 
     /// User-editable preference defaults, merged into the run by
@@ -836,17 +673,14 @@ impl Harness for Claude {
         ]
     }
 
-    /// Structural fix-ups to the seeded `.claude.json`, always forced
+    /// Structural fix-ups to `.claude.json`, always forced
     /// (never template-overridable, unlike [`Claude::templates`] — these
     /// aren't preferences, they're correctness requirements for `am`'s
     /// ephemeral-config model):
     ///
-    /// 1. A login captured via `claude auth login` (the non-interactive path
-    ///    `am account login` drives, under a HOME-relocated,
-    ///    keychain-unreachable capture home — see [`Claude::login`]) never
-    ///    runs the interactive onboarding wizard, so the file lacks
-    ///    `hasCompletedOnboarding`. Seeded as-is, Claude Code is fully
-    ///    authenticated but still opens its onboarding UI on launch.
+    /// 1. A login made by `claude auth login` never runs the interactive
+    ///    onboarding wizard, so the file lacks `hasCompletedOnboarding`, and
+    ///    Claude Code, fully authenticated, still opens its onboarding UI.
     /// 2. Claude Code gates a per-project trust dialog on
     ///    `projects[cwd].hasTrustDialogAccepted`, keyed by the exact cwd
     ///    string. A fresh/ephemeral `CLAUDE_CONFIG_DIR` has no record of
@@ -889,34 +723,6 @@ impl Harness for Claude {
             .with_context(|| format!("writing {}", path.display()))?;
         Ok(())
     }
-}
-
-/// Read the user's live Claude Code session as it lives on disk/Keychain
-/// today: the OAuth credential blob from the macOS Keychain (required —
-/// errors propagate), plus the `.claude.json` identity companion from the
-/// real `HOME`, when one is set and the file exists (optional — a missing or
-/// unreadable companion is silently `None`, never an error). Shared by
-/// [`Claude::renew_credentials`] and [`Claude::ambient_login`], which differ
-/// only in how they wrap this pair.
-fn read_ambient_keychain_login() -> Result<(Vec<u8>, Option<Vec<u8>>)> {
-    let creds = match crate::account::read_claude_keychain_credentials() {
-        Ok(creds) => creds,
-        Err(err) => {
-            warn!(error = %err, "read_ambient_keychain_login: security call failed");
-            return Err(err);
-        }
-    };
-    let identity = std::env::var_os("HOME")
-        .map(std::path::PathBuf::from)
-        .map(|home| home.join(".claude.json"))
-        .filter(|path| path.is_file())
-        .and_then(|path| std::fs::read(&path).ok());
-    info!(
-        digest = %crate::credentials::login_digest(&creds),
-        has_identity = identity.is_some(),
-        "read_ambient_keychain_login: Keychain credential found"
-    );
-    Ok((creds, identity))
 }
 
 /// Claude Code's config dir when `am` names none: `$CLAUDE_CONFIG_DIR` when the environment
@@ -1756,107 +1562,6 @@ mod tests {
     }
 
     #[test]
-    fn provision_account_seeds_login_into_config_dir_without_touching_home() {
-        use crate::account::Account;
-
-        // A persistent per-account "home" holding a captured login, laid out
-        // exactly as `login()` writes it: `<home>/.claude/.credentials.json`
-        // and `<home>/.claude.json`.
-        let account_home = tempfile::TempDir::new().unwrap();
-        std::fs::create_dir_all(account_home.path().join(".claude")).unwrap();
-        std::fs::write(
-            account_home
-                .path()
-                .join(".claude")
-                .join(".credentials.json"),
-            r#"{"claudeAiOauth":{"accessToken":"tok"}}"#,
-        )
-        .unwrap();
-        std::fs::write(
-            account_home.path().join(".claude.json"),
-            r#"{"hasCompletedOnboarding":true}"#,
-        )
-        .unwrap();
-
-        let config_dir = tempfile::TempDir::new().unwrap();
-        let mut spec = RunSpec::new("claude-code".to_string(), PathBuf::from("."));
-        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
-        spec.account = Some(Account {
-            id: "gateway".to_string(),
-            base_url: Some("https://gw/".to_string()),
-            helper: Some("get-key".to_string()),
-            home: Some(account_home.path().to_path_buf()),
-            ..Default::default()
-        });
-
-        let claude = Claude::new();
-        let launch = claude.provision(&spec, config_dir.path()).unwrap();
-
-        // base_url + apiKeyHelper still wired as before.
-        assert!(
-            launch
-                .env
-                .iter()
-                .any(|(k, v)| k == "ANTHROPIC_BASE_URL" && v == "https://gw/")
-        );
-        let settings_path = config_dir.path().join("settings.json");
-        assert!(settings_path.exists());
-        let settings: Value =
-            serde_json::from_str(&std::fs::read_to_string(&settings_path).unwrap()).unwrap();
-        assert_eq!(
-            settings.get("apiKeyHelper").unwrap().as_str(),
-            Some("get-key")
-        );
-
-        // The captured login is seeded INTO the ephemeral config dir...
-        let seeded_creds = config_dir.path().join(".credentials.json");
-        let seeded_json = config_dir.path().join(".claude.json");
-        assert!(
-            seeded_creds.exists(),
-            "credentials should be seeded into CLAUDE_CONFIG_DIR"
-        );
-        assert!(
-            seeded_json.exists(),
-            ".claude.json should be seeded into CLAUDE_CONFIG_DIR"
-        );
-        assert!(
-            std::fs::read_to_string(&seeded_creds)
-                .unwrap()
-                .contains("claudeAiOauth")
-        );
-
-        // ...and the child's HOME is left untouched, so the user's real
-        // toolchain (nvm/mise/pyenv, shell rc, PATH shims) still resolves.
-        assert!(
-            !launch.env.iter().any(|(k, _)| k == "HOME"),
-            "HOME must not be overridden by a `home` account: {:?}",
-            launch.env
-        );
-    }
-
-    #[test]
-    fn provision_account_with_missing_home_files_still_launches() {
-        use crate::account::Account;
-
-        // A `home` that exists but has no captured login yet: seeding is a
-        // no-op, provisioning still succeeds (reference-only / partial account).
-        let account_home = tempfile::TempDir::new().unwrap();
-        let config_dir = tempfile::TempDir::new().unwrap();
-        let mut spec = RunSpec::new("claude-code".to_string(), PathBuf::from("."));
-        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
-        spec.account = Some(Account {
-            id: "empty-home".to_string(),
-            home: Some(account_home.path().to_path_buf()),
-            ..Default::default()
-        });
-
-        let claude = Claude::new();
-        let launch = claude.provision(&spec, config_dir.path()).unwrap();
-        assert!(!config_dir.path().join(".credentials.json").exists());
-        assert!(!launch.env.iter().any(|(k, _)| k == "HOME"));
-    }
-
-    #[test]
     fn provision_account_api_key_env_is_passed_through_without_touching_disk() {
         use crate::account::Account;
 
@@ -2441,27 +2146,6 @@ mod tests {
             .collect();
         names.sort();
         assert_eq!(names, vec![".claude.json", ".claude.json.am-lock"]);
-    }
-
-    #[test]
-    fn login_points_home_at_capture_dir_and_names_credentials_file() {
-        let home = tempfile::TempDir::new().unwrap();
-
-        let plan = Claude::new().login(home.path()).unwrap();
-
-        assert!(
-            plan.launch
-                .env
-                .iter()
-                .any(|(k, v)| k == "HOME" && v == &home.path().display().to_string())
-        );
-        assert!(!plan.credential_files.is_empty());
-        assert!(
-            plan.credential_files[0]
-                .to_str()
-                .unwrap()
-                .ends_with(".credentials.json")
-        );
     }
 
     #[test]

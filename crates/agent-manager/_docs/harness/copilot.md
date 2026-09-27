@@ -749,59 +749,9 @@ the three env vars — only fine-grained PATs and OAuth tokens are.
 
 ### Credential capture & reuse (agent-manager)
 
-> How `am account capture` / `am account login` snapshot and replay this
-> harness's login into an ephemeral run. Records file **structure and non-secret
-> metadata only** — token values are copied opaquely.
-
-> **Corrected against the installed binary (1.0.69), 2026-07-19.** The
-> relocation lever, login command, and env-var precedence below were wrong in
-> an earlier draft of this doc (`COPILOT_CONFIG_DIR` doesn't exist and
-> neither does `copilot auth login`) — this caused a real, reported
-> `am account login --harness copilot` failure. See `src/harness/copilot.rs`'s
-> module doc for the full verification trail (the actual `Harness` impl is
-> the source of truth for anything re-verified since; this doc section is
-> kept in sync with it, not the other way around).
-
-- **Bundle files (the credential snapshot):**
-  - `~/.copilot/config.json` — **required**; the CLI's plaintext
-    credential-fallback file per `copilot login --help` ("if a credential
-    store is not found... stored in a plain text config file under
-    `~/.copilot/`"). The *filename* `config.json` is carried over from this
-    doc's original research and is plausible but **not independently
-    confirmed** — no plaintext fallback file was observed to name for
-    certain during re-verification (that environment authenticated via the
-    OS keychain / an env var instead). Re-verify the next time a real
-    plaintext-fallback capture is exercised.
-  - ~~`~/.config/gh/hosts.yml`~~ — **dropped.** `copilot login --help`'s
-    documented env-var precedence (`COPILOT_GITHUB_TOKEN`, `GH_TOKEN`,
-    `GITHUB_TOKEN`) reads only environment variables, not this file
-    directly, so capturing it in isolation doesn't help reuse a login.
-- **Relocation lever:** `COPILOT_HOME` — **verified, corrects "no dedicated
-  override" in an earlier draft.** `COPILOT_HOME` relocates the CLI's entire
-  config/state tree and **is** the `~/.copilot`-equivalent directory itself
-  (not a parent whose child is `.copilot/`) — confirmed by writing an MCP
-  server under a fresh `COPILOT_HOME` and observing it land directly at
-  `<dir>/mcp-config.json`, never touching the real `~/.copilot/`. This makes
-  Copilot CLI Class A (unified root, like Claude/Codex), not Class C — no
-  `HOME` relocation, no toolchain-stripping cost.
-- **Force file storage (skip keychain):** file storage is the default
-  fallback when no OS credential store is reachable; there is no dedicated
-  config knob to force it (matches the original doc's claim; no correction
-  needed here).
-- **Login command (fresh-auth-into-temp), corrected:**
-  `COPILOT_HOME=/tmp/x copilot login` — **not** `copilot auth login` (no
-  `auth` namespace exists in 1.0.69). Headless/CI: inject
-  `COPILOT_GITHUB_TOKEN` as a reference account instead of snapshotting (no
-  `setup-token`-style minting command exists — mint a fine-grained PAT
-  instead, see "Headless / CI" above). Env precedence: `COPILOT_GITHUB_TOKEN`
-  → `GH_TOKEN` → `GITHUB_TOKEN` → OS credential store.
-- **Extractable metadata (non-secret):** not independently re-verified this
-  pass (no real `config.json` credential-fallback file was available to
-  inspect) — treat the original doc's `lastLoggedInUser`/`loggedInUsers`/
-  `copilotTokens`-keys claims as unconfirmed until checked against a real
-  plaintext capture.
-- **Do not copy:** `session-state/`, `session-store.db*`,
-  `command-history-state.json`, `logs/` — session/machine-bound state.
+None. `am` neither captures, copies nor roams this login: the harness keeps it in a profile's own
+config home, signed in there by `am profile login` or the first run, and refreshes it itself
+(`D193` in Ubiq's `_docs/tech/decisions.md`).
 
 ### Shared-home run (agent-manager, `D193`)
 

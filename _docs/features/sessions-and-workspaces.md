@@ -69,8 +69,8 @@ zero-config start the library resolves whole.
 for that run, and the harness is launched against it with the environment the library computed —
 what that composition reads and writes is the harness library's, in
 [`../tech/agent-manager.md`](../tech/agent-manager.md). The directory belongs to
-the pane: it is named by it, and it is deleted when the pane closes, credentials seeded into it
-included. One left behind by a process that was killed is deleted at the next start.
+the pane: it is named by it, and it is deleted when the pane closes. No login is in it — a
+harness keeps its login in a definition's own home (`D193`). One left behind by a process that was killed is deleted at the next start.
 
 **The record outlives the run directory.** A run is recorded under Ubiq's own root the moment it is
 composed — one directory per run, named by the pane's or the agent's id, holding the metadata of
@@ -86,8 +86,7 @@ directory is not scaffolding around the conversation — it holds the harness's 
 because every harness's config lever is pinned to it — so keeping it is what lets `--resume`, or
 ACP's `session/load`, work after Ubiq has been quit and reopened. A marked conversation is therefore
 *parked* rather than retired when its window closes or its harness exits: the harness stops, the
-directory stays, and every credential seeded into it is scrubbed on the way out and re-seeded at the
-next launch. Ubiq's own row beside the metadata carries what a relaunch needs and the library's
+directory stays. Ubiq's own row beside the metadata carries what a relaunch needs and the library's
 record does not — the agent definition, the picks, where the message sequence had reached, the title, and the
 flag itself. Copying that directory instead of keeping it is what forks a conversation onto a second
 agent. `D97` is the decision and its costs.

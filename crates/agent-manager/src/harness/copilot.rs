@@ -90,7 +90,7 @@ use crate::Result;
 use crate::config::{McpServer, McpTransport};
 use crate::spec::{McpRef, RunSpec};
 
-use super::{ConfigAnchor, Harness, Launch, Relocate, SeedFile};
+use super::{ConfigAnchor, Harness, Launch, Relocate};
 
 /// The GitHub Copilot CLI harness provisioner.
 #[derive(Debug, Clone, Default)]
@@ -204,13 +204,11 @@ impl Harness for Copilot {
     }
 
     /// Class A: `COPILOT_HOME` relocates the CLI's entire config/state tree —
-    /// verified against the installed binary (see the module doc). A captured
-    /// login's `config.json` is seeded into the ephemeral dir the same way
-    /// Claude/Codex do; `HOME` is never touched.
+    /// verified against the installed binary (see the module doc); `HOME` is
+    /// never touched.
     fn config_anchor(&self) -> ConfigAnchor {
         ConfigAnchor {
             levers: vec![("COPILOT_HOME".to_string(), Relocate::All)],
-            login_seed: vec![SeedFile::credential("config.json", "config.json")],
             requires_home_relocation: false,
         }
     }
@@ -283,19 +281,6 @@ impl Harness for Copilot {
 
         // 5. Build the launch against `dir` as `$COPILOT_HOME`.
         let launch = self.launch(spec, Some(dir), Vec::new())?;
-
-        // 6. Reuse a prior `am account login` by *seeding* the captured
-        // `config.json` into the relocated `$COPILOT_HOME`. No-op when the
-        // account home holds no captured login yet. The seed list is declared
-        // once in `config_anchor()`.
-        if let Some(account) = &spec.account
-            && let Some(login) = spec
-                .account_login
-                .clone()
-                .or_else(|| account.home.clone().map(crate::source::Source::Dir))
-        {
-            super::seed_login(dir, &login, &self.config_anchor().login_seed)?;
-        }
         Ok(launch)
     }
 
@@ -373,30 +358,6 @@ impl Harness for Copilot {
             env: vec![("COPILOT_HOME".to_string(), home.display().to_string())],
             env_remove: Vec::new(),
             env_clear: false,
-        })
-    }
-
-    /// Log Copilot CLI into `home`, capturing the resulting `config.json`.
-    ///
-    /// Verified against the installed binary (`copilot login --help`,
-    /// copilot CLI 1.0.69): the command is `copilot login` — **not**
-    /// `copilot auth login`, which this version rejects (`Invalid command
-    /// format`; there is no `auth` subcommand namespace at all here). File
-    /// storage is the default fallback when no OS credential store is
-    /// reachable — no force-file-storage config write is needed here, unlike
-    /// Codex's `cli_auth_credentials_store = "file"`.
-    fn login(&self, home: &Path) -> Result<super::LoginPlan> {
-        let env = vec![("COPILOT_HOME".to_string(), home.display().to_string())];
-        let args = vec!["login".to_string()];
-        Ok(super::LoginPlan {
-            launch: Launch {
-                program: "copilot".to_string(),
-                args,
-                env,
-                env_remove: Vec::new(),
-                env_clear: false,
-            },
-            credential_files: vec![std::path::PathBuf::from("config.json")],
         })
     }
 
@@ -825,54 +786,6 @@ mod tests {
     }
 
     #[test]
-    fn provision_account_home_seeds_config_json_without_touching_home_env() {
-        use crate::account::Account;
-
-        // A persistent per-account "home" holding a captured login, laid out
-        // exactly as `login()` writes it: `<home>/config.json`.
-        let account_home = tempfile::TempDir::new().unwrap();
-        std::fs::write(
-            account_home.path().join("config.json"),
-            r#"{"lastLoggedInUser":{"login":"octocat"}}"#,
-        )
-        .unwrap();
-
-        let config_dir = tempfile::TempDir::new().unwrap();
-        let mut spec = RunSpec::new("copilot".to_string(), PathBuf::from("."));
-        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
-        spec.account = Some(Account {
-            id: "private-home".to_string(),
-            home: Some(account_home.path().to_path_buf()),
-            ..Default::default()
-        });
-
-        let copilot = Copilot::new();
-        let launch = copilot.provision(&spec, config_dir.path()).unwrap();
-
-        // COPILOT_HOME relocates to the ephemeral dir, NOT the account's home.
-        assert!(
-            launch
-                .env
-                .iter()
-                .any(|(k, v)| k == "COPILOT_HOME" && v == &config_dir.path().display().to_string())
-        );
-        assert!(!launch.env.iter().any(|(k, _)| k == "HOME"));
-
-        // The captured login is SEEDED into the ephemeral dir directly (no
-        // `.copilot/` prefix).
-        let seeded = config_dir.path().join("config.json");
-        assert!(
-            seeded.exists(),
-            "config.json should be seeded into the ephemeral dir"
-        );
-        assert!(
-            std::fs::read_to_string(&seeded)
-                .unwrap()
-                .contains("octocat")
-        );
-    }
-
-    #[test]
     fn provision_structured_is_acp_without_prompt_resume_or_model() {
         let config_dir = tempfile::TempDir::new().unwrap();
         let mut spec = RunSpec::new("copilot".to_string(), PathBuf::from("."));
@@ -925,27 +838,6 @@ mod tests {
         assert_eq!(
             launch.args.get(i_idx + 1),
             Some(&"say hello world".to_string())
-        );
-    }
-
-    #[test]
-    fn login_points_copilot_home_at_capture_dir_and_names_config_json() {
-        let home = tempfile::TempDir::new().unwrap();
-
-        let plan = Copilot::new().login(home.path()).unwrap();
-
-        assert_eq!(plan.launch.program, "copilot");
-        assert_eq!(plan.launch.args, vec!["login".to_string()]);
-        assert!(
-            plan.launch
-                .env
-                .iter()
-                .any(|(k, v)| k == "COPILOT_HOME" && v == &home.path().display().to_string())
-        );
-        assert!(!plan.launch.env.iter().any(|(k, _)| k == "HOME"));
-        assert_eq!(
-            plan.credential_files[0],
-            std::path::PathBuf::from("config.json")
         );
     }
 

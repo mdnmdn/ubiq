@@ -223,15 +223,6 @@ pub struct RunSpec {
     /// (env-var names, a base URL, a helper command, a private home dir) —
     /// never a secret value; see [`Account`].
     pub account: Option<Account>,
-    /// The account's captured-login content, resolved from the account store
-    /// ([`crate::account::AccountStore::login_source`]). A [`Source::Dir`] for
-    /// the filesystem store (the account's `home`), or [`Source::Files`] for a
-    /// database-backed one. Seeded into the harness's relocated config dir by
-    /// the provisioner per the harness's [`crate::harness::ConfigAnchor`]. Kept
-    /// separate from [`Account`] (a serde-on-disk reference record) so the spec
-    /// stays self-contained and secret-free at rest. `None` when the account
-    /// has no captured login (env/key/helper accounts, or no account).
-    pub account_login: Option<Source>,
     /// Resolved permission/policy preset (from `--safe`), if any.
     pub policy: Option<Policy>,
     /// Always-on instructions / first prompt. (P2)
@@ -283,7 +274,6 @@ impl RunSpec {
             mcp_as_skill: Vec::new(),
             hooks: Vec::new(),
             account: None,
-            account_login: None,
             policy: None,
             initial: None,
             config: ConfigStrategy::Ephemeral,

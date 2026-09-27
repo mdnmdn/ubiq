@@ -13,7 +13,6 @@ use anyhow::Context;
 
 use crate::Result;
 use crate::quota::QuotaSource;
-use crate::source::Source;
 use crate::spec::{HarnessId, McpAsSkill, RunSpec};
 
 mod claude;
@@ -179,20 +178,6 @@ pub struct ModeInfo {
     pub description: Option<String>,
 }
 
-/// A plan for an interactive credential login into a relocated home dir,
-/// produced by [`Harness::login`]. The launch runs in passthrough (the user
-/// completes the harness's native login); afterwards the caller verifies
-/// `credential_files[0]` appeared under the home dir and records the account.
-#[derive(Debug, Clone)]
-pub struct LoginPlan {
-    /// Interactive login launch. Its env points the harness's credential store
-    /// at the capture home and forces file-based storage where supported.
-    pub launch: Launch,
-    /// Credential file paths RELATIVE TO the capture home dir. `[0]` is required
-    /// (absent after login = capture failed); any others are optional metadata.
-    pub credential_files: Vec<std::path::PathBuf>,
-}
-
 /// Which I/O modes a harness can support. Only passthrough is used in P1.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct IoSupport {
@@ -244,389 +229,18 @@ pub enum Relocate {
     Data,
 }
 
-/// One captured-login file to copy from an account's persistent home into a
-/// harness's relocated config dir. `src`/`dst` are the two ends of that copy.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SeedFile {
-    /// Source path RELATIVE TO the account home (as written by
-    /// [`Harness::login`], e.g. `.claude/.credentials.json`).
-    pub src: PathBuf,
-    /// Destination path RELATIVE TO the relocated dir (e.g. `.credentials.json`).
-    pub dst: PathBuf,
-    /// This file *is* the credential, so a harness that rewrites it mid-run
-    /// (an OAuth refresh rotates the refresh token and revokes the old one)
-    /// has produced the only live copy — [`harvest_login`] writes it back to
-    /// where it was seeded from before the run dir is thrown away.
-    ///
-    /// False for the identity/onboarding companions a login also needs
-    /// (Claude's `.claude.json`): the harness rewrites those too, with a run's
-    /// worth of project history and onboarding state that must never land back
-    /// on the user's real file.
-    pub credential: bool,
-}
-
-impl SeedFile {
-    /// A seed-file mapping from an account-home-relative `src` to a
-    /// relocated-dir-relative `dst`. Not a credential — never written back.
-    pub fn new(src: impl Into<PathBuf>, dst: impl Into<PathBuf>) -> Self {
-        SeedFile {
-            src: src.into(),
-            dst: dst.into(),
-            credential: false,
-        }
-    }
-
-    /// Same mapping, for the file that *is* the login: [`harvest_login`] writes
-    /// a refreshed one back to its origin.
-    pub fn credential(src: impl Into<PathBuf>, dst: impl Into<PathBuf>) -> Self {
-        SeedFile {
-            credential: true,
-            ..SeedFile::new(src, dst)
-        }
-    }
-}
-
-/// A declarative description of how a harness relocates its config/credentials
-/// and which files constitute a captured login. This is what makes credential
-/// seeding generic across harnesses (rather than bespoke per provisioner) and
-/// what lazy default-profile capture and the isolation model read. See
-/// `_docs/profiles.md` §5.1.
+/// A declarative description of how a harness relocates its config/credentials,
+/// which the isolation model reads. See `_docs/profiles.md` §5.1.
 #[derive(Debug, Clone)]
 pub struct ConfigAnchor {
     /// Env vars (with their relocation semantics) that point the harness's
     /// config/data at a dir `am` controls while leaving `HOME` real. Empty for
     /// Class-C harnesses that have no lever (see `requires_home_relocation`).
     pub levers: Vec<(String, Relocate)>,
-    /// The files that make a session "logged in", seeded from an account home
-    /// into the relocated dir by [`seed_login`].
-    pub login_seed: Vec<SeedFile>,
     /// True only for Class-C harnesses (no config lever): the credential store
     /// is reachable only by relocating `HOME`, which strips the toolchain — so
     /// these should be paired with isol8. False for Class A/B.
     pub requires_home_relocation: bool,
-}
-
-/// Seed captured-login files from an account's login [`Source`] into a
-/// harness's relocated config `dir`, per a [`ConfigAnchor::login_seed`].
-///
-/// Writes (never symlinks — a run is ephemeral and the harness rewrites some of
-/// these in place), creating parent dirs, and **skips any source file that
-/// doesn't exist** so a reference-only or partially-captured account still
-/// launches. Works over a [`Source`] rather than a raw path, so a
-/// database-backed account store seeds its credential *bytes* exactly as the
-/// filesystem store seeds files from the account `home`. Deliberately leaves
-/// `HOME` untouched (see `_docs/profiles.md` §3).
-pub(crate) fn seed_login(dir: &Path, login: &Source, seed: &[SeedFile]) -> Result<()> {
-    for file in seed {
-        let Some(bytes) = login.read(&file.src)? else {
-            tracing::debug!(
-                src = %file.src.display(),
-                "login seed file absent at the origin"
-            );
-            continue;
-        };
-        let dst = dir.join(&file.dst);
-        if let Some(parent) = dst.parent() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("creating {}", parent.display()))?;
-        }
-        std::fs::write(&dst, &bytes)
-            .with_context(|| format!("seeding login to {}", dst.display()))?;
-        #[cfg(unix)]
-        if file.credential {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&dst, std::fs::Permissions::from_mode(0o600))
-                .with_context(|| format!("chmod 600 {}", dst.display()))?;
-        }
-        if file.credential {
-            tracing::info!(
-                dst = %dst.display(),
-                digest = %crate::credentials::login_digest(&bytes),
-                "seeded a login file"
-            );
-        } else {
-            tracing::info!(dst = %dst.display(), "seeded a login file");
-        }
-    }
-    Ok(())
-}
-
-/// The mirror of [`seed_login`]: write a login the run *refreshed* back to the
-/// [`Source`] it was seeded from, before the run dir is discarded.
-///
-/// A harness that refreshes an OAuth token mid-run rewrites the seeded copy —
-/// and the refresh **rotates** the refresh token, so the original the copy came
-/// from is now revoked. Throwing the run dir away therefore logs the user out
-/// everywhere; harvesting is what keeps the origin the live credential.
-///
-/// Only [`SeedFile::credential`] files are considered, and only when their
-/// bytes actually changed. A [`Source::Dir`] origin is written in place (mode
-/// `0600` on unix); anything else came from somewhere that is not a directory
-/// (Claude Code's macOS Keychain) and is handed to [`Harness::adopt_login`].
-///
-/// Two things a changed blob is **not** allowed to be, because writing either
-/// one logs the account out for good and both were observed doing it:
-///
-/// - **Empty.** A harness whose refresh failed rewrites its credential with
-///   blank tokens rather than deleting it
-///   ([`login_is_usable`](crate::credentials::login_is_usable)). Harvesting
-///   that copies the sign-out onto the account home — and, for an ambient
-///   origin, into the user's own macOS Keychain.
-/// - **Older than what is already there.** Two agents on one account each get
-///   their own copy of the credential. If one refreshes, the origin now holds
-///   a token *newer* than the other's untouched copy, which still compares as
-///   "changed" and would be written back over it. Whichever run tears down
-///   last would win, so the comparison is on the expiry each blob claims
-///   ([`expiry_of`](crate::credentials::expiry_of)), not on teardown order.
-///
-/// Never fails the caller: this runs on teardown paths, and a write-back that
-/// could not happen is a warning, not a reason to break a run that is over.
-pub fn harvest_login(harness: &dyn Harness, dir: &Path, origin: &Source) -> Result<()> {
-    tracing::info!(
-        harness = %harness.id(),
-        dir = %dir.display(),
-        "harvesting a login on teardown"
-    );
-    sync_login(harness, std::slice::from_ref(&dir), origin)
-}
-
-/// [`harvest_login`] for every run sharing one origin at once: take whichever
-/// copy of the credential is newest, write it to the origin, and hand it back
-/// to every run still holding an older one.
-///
-/// The second half is what harvesting alone cannot do. A refresh **rotates**
-/// the refresh token, and each run was seeded its own copy of the one token, so
-/// the moment one run refreshes every *other* run is holding a token the
-/// provider has already revoked — they will each fail their own next refresh
-/// with "OAuth session expired", whatever the origin now says. Writing the
-/// winner back into their config dirs is what keeps a second concurrent agent
-/// alive; the harness reads the file again at its next refresh.
-///
-/// Called on a timer while runs are live (a refresh happens hours into a run,
-/// not at its end) and on every teardown path through [`harvest_login`]. Both
-/// are the same operation, so both go through here: the loser of a race is
-/// whichever blob claims the earlier expiry, never whichever call happened
-/// last.
-///
-/// A run dir that does not already hold the file is skipped rather than seeded
-/// — placing a login where the harness was never given one is
-/// [`seed_login`]'s decision to make, at provisioning, and
-/// `provision::seed_zero_config_login` reads the file's absence as its own
-/// signal.
-pub fn sync_login(harness: &dyn Harness, dirs: &[&Path], origin: &Source) -> Result<()> {
-    for file in harness
-        .config_anchor()
-        .login_seed
-        .iter()
-        .filter(|f| f.credential)
-    {
-        let origin_kind = match origin {
-            Source::Dir(path) => format!("dir({})", path.display()),
-            Source::Files(_) => "files".to_string(),
-        };
-        tracing::info!(
-            harness = %harness.id(),
-            file = %file.src.display(),
-            run_dirs = dirs.len(),
-            origin = %origin_kind,
-            "syncing a login across the origin and every run holding it"
-        );
-
-        let stored = origin.read(&file.src)?;
-        match &stored {
-            Some(bytes) => tracing::info!(
-                harness = %harness.id(),
-                file = %file.src.display(),
-                digest = %crate::credentials::login_digest(bytes),
-                "origin login"
-            ),
-            None => tracing::info!(
-                harness = %harness.id(),
-                file = %file.src.display(),
-                "origin login absent"
-            ),
-        }
-
-        // Every copy that exists, the origin's included, with the origin first
-        // so it keeps a tie: a run that has not refreshed holds a byte-identical
-        // blob, and nothing should move for it.
-        let held: Vec<Held<'_>> = dirs
-            .iter()
-            .filter_map(|dir| {
-                let path = dir.join(&file.dst);
-                Some(Held {
-                    dir,
-                    bytes: std::fs::read(&path).ok()?,
-                    written: std::fs::metadata(&path).and_then(|m| m.modified()).ok(),
-                })
-            })
-            .collect();
-
-        for held in &held {
-            tracing::info!(
-                harness = %harness.id(),
-                dir = %held.dir.display(),
-                digest = %crate::credentials::login_digest(&held.bytes),
-                written = ?held.written,
-                "held login copy"
-            );
-        }
-
-        let Some(best) = newest_login(harness, &file.src, stored.as_deref(), &held) else {
-            continue;
-        };
-
-        let winner_is_origin = stored.as_deref() == Some(best);
-        tracing::info!(
-            harness = %harness.id(),
-            file = %file.src.display(),
-            winner = if winner_is_origin { "origin" } else { "run" },
-            digest = %crate::credentials::login_digest(best),
-            "picked the login to keep"
-        );
-
-        if stored.as_deref() != Some(best) {
-            let outcome = match origin {
-                Source::Dir(home) => write_credential(&home.join(&file.src), best),
-                Source::Files(_) => harness.adopt_login(&file.src, best),
-            };
-            match outcome {
-                Ok(()) => tracing::info!(
-                    harness = %harness.id(),
-                    file = %file.src.display(),
-                    digest = %crate::credentials::login_digest(best),
-                    "wrote a refreshed login back to its origin"
-                ),
-                Err(error) => tracing::warn!(
-                    harness = %harness.id(),
-                    file = %file.src.display(),
-                    "a refreshed login could not be written back, so the original may now be \
-                     revoked: {error:#}"
-                ),
-            }
-        } else {
-            tracing::info!(
-                harness = %harness.id(),
-                file = %file.src.display(),
-                "skipped writing back to the origin, already matches the winner"
-            );
-        }
-
-        for held in &held {
-            if held.bytes[..] == *best {
-                continue;
-            }
-            let path = held.dir.join(&file.dst);
-            match write_credential(&path, best) {
-                Ok(()) => tracing::info!(
-                    harness = %harness.id(),
-                    dir = %held.dir.display(),
-                    digest = %crate::credentials::login_digest(best),
-                    "handed a refreshed login back into a stale run dir"
-                ),
-                Err(error) => tracing::warn!(
-                    harness = %harness.id(),
-                    path = %path.display(),
-                    "a run is holding a rotated-away login and could not be handed the current \
-                     one, so its next refresh will fail: {error:#}"
-                ),
-            }
-        }
-    }
-    Ok(())
-}
-
-/// One live run's copy of a credential: where it is, what it says, and when it
-/// was last written.
-struct Held<'a> {
-    dir: &'a Path,
-    bytes: Vec<u8>,
-    /// `None` when the file could not be stat'd, which puts it last among
-    /// equals rather than first — see [`newest_login`]'s second rule.
-    written: Option<std::time::SystemTime>,
-}
-
-/// Which of `stored` (the origin's copy) and `held` (each live run's) is the
-/// login to keep. `None` when there is nothing usable anywhere, which is the
-/// "leave everything alone" answer.
-///
-/// A blob that is not [`login_is_usable`](crate::credentials::login_is_usable)
-/// is out of the running entirely — that is the blank-token shell a harness
-/// writes when its refresh fails, and it would otherwise be copied over a
-/// working credential.
-///
-/// Two rules, in order, because harnesses do not agree on what a credential
-/// says about itself. **By the expiry it claims**, when anything claims one:
-/// Claude Code's blob dates its own access token, so the later date is the
-/// later refresh whatever the clock on the file says, and a copy claiming no
-/// expiry cannot outrank one that does. **By when it was written**, when
-/// nothing claims one: Codex's `auth.json` carries no expiry at all, and
-/// ranking it by expiry alone would mean no Codex refresh was ever harvested.
-/// The origin keeps every tie, so a run that has not refreshed moves nothing.
-fn newest_login<'a>(
-    harness: &dyn Harness,
-    src: &Path,
-    stored: Option<&'a [u8]>,
-    held: &'a [Held<'a>],
-) -> Option<&'a [u8]> {
-    use crate::credentials::{expiry_of, login_is_usable};
-
-    if let Some(bytes) = stored {
-        tracing::debug!(
-            harness = %harness.id(),
-            file = %src.display(),
-            expiry = ?expiry_of(bytes),
-            usable = login_is_usable(bytes),
-            "candidate: origin"
-        );
-    }
-    for held in held {
-        tracing::debug!(
-            harness = %harness.id(),
-            file = %src.display(),
-            dir = %held.dir.display(),
-            expiry = ?expiry_of(&held.bytes),
-            usable = login_is_usable(&held.bytes),
-            "candidate: run"
-        );
-    }
-
-    let usable: Vec<&Held<'a>> = held
-        .iter()
-        .filter(|held| {
-            login_is_usable(&held.bytes) || {
-                tracing::warn!(
-                    harness = %harness.id(),
-                    file = %src.display(),
-                    "a run left an empty login behind (a failed refresh, or a sign-out), so the \
-                     stored credential is kept as it is"
-                );
-                false
-            }
-        })
-        .collect();
-
-    let stored = stored.filter(|bytes| login_is_usable(bytes));
-    let stored_expiry = stored.and_then(expiry_of);
-    if stored_expiry.is_some() || usable.iter().any(|held| expiry_of(&held.bytes).is_some()) {
-        let mut best = stored;
-        let mut best_expiry = stored_expiry;
-        for held in usable {
-            let expiry = expiry_of(&held.bytes);
-            if best.is_none() || (expiry.is_some() && expiry > best_expiry) {
-                best = Some(&held.bytes);
-                best_expiry = expiry;
-            }
-        }
-        return best;
-    }
-
-    usable
-        .into_iter()
-        .filter(|held| Some(&held.bytes[..]) != stored)
-        .max_by_key(|held| held.written)
-        .map(|held| &held.bytes[..])
-        .or(stored)
 }
 
 /// `$var` when the environment sets it, else `~/<default>` under the user's home: how a harness
@@ -710,11 +324,9 @@ pub(crate) fn write_credential(path: &Path, bytes: &[u8]) -> Result<()> {
             .with_context(|| format!("creating {}", parent.display()))?;
     }
     // Written beside the target and renamed onto it, rather than truncated in
-    // place. [`sync_login`] writes into the config dir of a harness that is
-    // *running*, and a truncate-then-write leaves a window in which that
-    // harness reads half a credential and decides it is logged out. The
-    // temporary name carries the pid so two processes reconciling one account
-    // cannot collide on it.
+    // place: the file may sit in a home a running harness reads, and a
+    // truncate-then-write leaves a window in which it reads half a file. The
+    // temporary name carries the pid so two processes cannot collide on it.
     let staged = path.with_file_name(format!(
         ".{}.{}.tmp",
         path.file_name().unwrap_or_default().to_string_lossy(),
@@ -730,92 +342,6 @@ pub(crate) fn write_credential(path: &Path, bytes: &[u8]) -> Result<()> {
     std::fs::rename(&staged, path).with_context(|| format!("writing {}", path.display()))?;
     tracing::debug!(path = %path.display(), bytes = bytes.len(), "wrote a credential file");
     Ok(())
-}
-
-/// The default [`Harness::renew_credentials`] path: seed `creds` into a temp
-/// config dir, launch the harness with its [`Harness::credential_renew_command`]
-/// (which is expected to refresh and rewrite the stored token), then read the
-/// seed files back out as the renewed blobs.
-///
-/// Errors (without launching) when the harness declares no
-/// `credential_renew_command`. The temp dir is removed on the way out. Uses
-/// the harness's [`ConfigAnchor::levers`] to relocate config into the temp dir
-/// (never touching the real `HOME`), exactly as provisioning does; a Class-C
-/// harness (no levers) relocates `HOME` to the temp dir instead.
-pub fn default_renew_via_launch<H: Harness + ?Sized>(
-    harness: &H,
-    creds: &[crate::credentials::CredentialBlob],
-) -> Result<Vec<crate::credentials::CredentialBlob>> {
-    let Some(renew_args) = harness.credential_renew_command() else {
-        anyhow::bail!(
-            "credential renewal for harness '{}' is not implemented",
-            harness.id()
-        );
-    };
-    let anchor = harness.config_anchor();
-
-    // A private temp dir (tempfile is dev-only, so build the path by hand).
-    let dir = std::env::temp_dir().join(format!(
-        "am-renew-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis()
-    ));
-    std::fs::create_dir_all(&dir)
-        .with_context(|| format!("creating renew temp dir {}", dir.display()))?;
-
-    let result = (|| -> Result<Vec<crate::credentials::CredentialBlob>> {
-        let login = crate::credentials::source_from_blobs(creds);
-        seed_login(&dir, &login, &anchor.login_seed)?;
-
-        let mut cmd = std::process::Command::new(harness.command());
-        cmd.args(&renew_args);
-        if anchor.levers.is_empty() {
-            // Class C: no config lever — relocate HOME (toolchain caveat).
-            cmd.env("HOME", &dir);
-        } else {
-            for (var, _relocate) in &anchor.levers {
-                cmd.env(var, &dir);
-            }
-        }
-        // Renewal runs the harness headlessly just to let it refresh its own token, so it has no
-        // window to show — see `shared::no_window`.
-        #[cfg(windows)]
-        shared::no_window(&mut cmd);
-        let status = cmd
-            .status()
-            .with_context(|| format!("running `{} {}`", harness.command(), renew_args.join(" ")))?;
-        if !status.success() {
-            anyhow::bail!(
-                "harness '{}' renew command exited with {status}",
-                harness.id()
-            );
-        }
-
-        // Read the (possibly refreshed) seed files back out, keyed by the
-        // source-relative path so the blobs round-trip back into the store.
-        let mut blobs = Vec::new();
-        for seed in &anchor.login_seed {
-            let path = dir.join(&seed.dst);
-            if let Ok(bytes) = std::fs::read(&path) {
-                blobs.push(crate::credentials::CredentialBlob {
-                    name: seed
-                        .dst
-                        .file_name()
-                        .map(|n| n.to_string_lossy().into_owned())
-                        .unwrap_or_default(),
-                    rel_path: seed.src.clone(),
-                    bytes,
-                });
-            }
-        }
-        Ok(blobs)
-    })();
-
-    let _ = std::fs::remove_dir_all(&dir);
-    result
 }
 
 /// A JSON file, relative to a harness's relocated config root, whose content
@@ -1003,18 +529,15 @@ pub trait Harness {
             self.id()
         )
     }
-    /// How this harness relocates its config/credentials and which files make up
-    /// a captured login. Backs generic credential seeding ([`seed_login`]), lazy
-    /// default-profile capture, and the isolation model — see
-    /// `_docs/profiles.md` §5.
+    /// How this harness relocates its config/credentials, for the isolation
+    /// model — see `_docs/profiles.md` §5.
     ///
-    /// The default is a conservative empty anchor (no levers, no seed, no HOME
+    /// The default is a conservative empty anchor (no levers, no HOME
     /// relocation); **every real harness overrides it**. It exists only so the
     /// crate keeps compiling while harness ports land incrementally.
     fn config_anchor(&self) -> ConfigAnchor {
         ConfigAnchor {
             levers: Vec::new(),
-            login_seed: Vec::new(),
             requires_home_relocation: false,
         }
     }
@@ -1132,90 +655,12 @@ pub trait Harness {
         let modes = self.modes();
         modes.is_empty() || modes.iter().any(|m| m.id.eq_ignore_ascii_case(mode))
     }
-    /// Build a [`LoginPlan`] to interactively log this harness into `home` (a
-    /// persistent per-account dir) and capture the resulting credential file(s).
-    /// Implementations may write force-file-storage config into `home` before
-    /// returning. Default: an error — no login-capture support for this harness.
-    fn login(&self, _home: &Path) -> Result<LoginPlan> {
-        anyhow::bail!(
-            "credential login-capture for harness '{}' is not implemented",
-            self.id()
-        )
-    }
-    /// The user's live login as this harness itself would find it, when that
-    /// login is **not a file under `$HOME`** that
-    /// [`crate::provision`]'s zero-config fallback could copy.
-    ///
-    /// The fallback exists so a direct run — no account, no profile — reuses
-    /// the session the user already has. It copies
-    /// [`ConfigAnchor::login_seed`] out of the real `HOME`, which is enough
-    /// for every harness that keeps a plaintext credential on disk. It is not
-    /// enough for one that keeps it in the OS keychain: there is no file to
-    /// copy, the run directory stays empty, and the harness reports itself
-    /// logged out from inside the transcript.
-    ///
-    /// A harness in that position overrides this and returns its credential
-    /// as a [`Source::Files`] keyed by the same `login_seed` `src` paths, so
-    /// [`seed_login`] places it exactly as an account's captured login would
-    /// be. Reading must be cheap and side-effect free — this runs on every
-    /// launch, unlike [`Self::renew_credentials`], whose default *spawns the
-    /// harness*. Errors are the same as no login: return `None` and let the
-    /// run start logged out rather than fail.
-    ///
-    /// Default: `None` — the file copy is the whole story.
-    fn ambient_login(&self) -> Option<Source> {
-        None
-    }
-    /// Store a login this run *refreshed* back where [`Self::ambient_login`]
-    /// found it — the write side of a credential that is not a file under
-    /// `$HOME`, called by [`harvest_login`] for a non-[`Source::Dir`] origin.
-    ///
-    /// `src` is the [`ConfigAnchor::login_seed`] source path that names which
-    /// credential this is; `bytes` are what the run left behind. Default: an
-    /// error, which [`harvest_login`] logs — a harness whose login came from
-    /// bytes rather than a directory and that cannot put them back is exactly
-    /// the case worth a warning.
-    fn adopt_login(&self, src: &Path, _bytes: &[u8]) -> Result<()> {
-        anyhow::bail!(
-            "harness '{}' has no way to store a refreshed login ({})",
-            self.id(),
-            src.display()
-        )
-    }
-    /// Fix up `dir` after all login seeding (account-based and zero-config)
-    /// has landed. Default: no-op. Overridden by harnesses whose captured
-    /// login needs a tweak beyond a byte-for-byte file copy — e.g. Claude
-    /// Code, whose non-interactive `claude auth login` capture never runs
-    /// the interactive onboarding wizard, so the seeded `.claude.json` is
-    /// missing `hasCompletedOnboarding`, and the harness still shows its
-    /// onboarding UI on an otherwise fully-authenticated run; the same file
-    /// also gates the per-project trust dialog, which every run — seeded
-    /// login or not — should preempt for `spec.cwd`.
+    /// Fix up `dir` once the run's config has been written. Default: no-op.
+    /// Overridden by Claude Code, whose `.claude.json` gates both the
+    /// onboarding wizard and the per-project trust dialog, which every run
+    /// should preempt for `spec.cwd`.
     fn post_seed(&self, _spec: &RunSpec, _dir: &Path) -> Result<()> {
         Ok(())
-    }
-    /// Argv fragment for the default credential-renew path
-    /// ([`default_renew_via_launch`]): a short, non-billing subcommand that
-    /// forces the harness to refresh and rewrite its stored token (e.g. an
-    /// `auth status`/`whoami`-style probe). `None` (the default) means this
-    /// harness has no headless refresh, so [`Self::renew_credentials`]'s
-    /// default errors rather than launching anything.
-    fn credential_renew_command(&self) -> Option<Vec<String>> {
-        None
-    }
-    /// Renew a captured login and return the updated blobs (for
-    /// [`crate::credentials::SecretStore::set`]).
-    ///
-    /// Default: [`default_renew_via_launch`] — seed `creds` into a temp config
-    /// dir, run the harness with [`Self::credential_renew_command`], and read
-    /// the (possibly refreshed) seed files back out. Harnesses whose token
-    /// refresh isn't a headless command (e.g. Claude Code, whose live session
-    /// is in the OS Keychain) override this with their own path.
-    fn renew_credentials(
-        &self,
-        creds: &[crate::credentials::CredentialBlob],
-    ) -> Result<Vec<crate::credentials::CredentialBlob>> {
-        default_renew_via_launch(self, creds)
     }
     /// Build a structured-I/O bridge for a provisioned run.
     ///
@@ -1234,10 +679,9 @@ pub trait Harness {
 
     /// How much of `account`'s plan is left, asked of the provider now.
     ///
-    /// `login` is the account's captured-login source
-    /// ([`crate::account::AccountStore::login_source`]), which is how an implementation reaches
-    /// the credential without knowing whether the store keeps a home directory or the bytes
-    /// themselves. `None` where the account references an environment variable instead.
+    /// `home` is the config home the harness itself keeps its login in for this account's runs —
+    /// a profile's shared home, or `None` for the harness's own default. The implementation reads
+    /// the credential there and copies or writes nothing (`G380`).
     ///
     /// Default: an error naming this harness, exactly as [`Self::discover_models`] and
     /// [`Self::structured_bridge`] do — and, for the three harnesses whose providers publish no
@@ -1247,11 +691,7 @@ pub trait Harness {
     /// **The credential never comes back out.** An implementation reads the token, spends it on
     /// one request and returns percentages; nothing token-shaped reaches a [`QuotaSnapshot`], a
     /// log, or the caller.
-    fn quota(
-        &self,
-        _account: &crate::account::Account,
-        _login: Option<&crate::Source>,
-    ) -> Result<crate::quota::QuotaSnapshot> {
+    fn quota(&self, _account: &str, _home: Option<&Path>) -> Result<crate::quota::QuotaSnapshot> {
         Err(crate::quota::unreported(&self.id()))
     }
 }
@@ -1483,7 +923,6 @@ mod tests {
             },
             ephemeral: true,
             home: None,
-            login_origin: None,
             resume: None,
             model: None,
             mcp_servers: Vec::new(),
@@ -1552,7 +991,6 @@ cat > /dev/null"#;
                 launch: fake_acp_agent(&capture),
                 ephemeral: false,
                 home: None,
-                login_origin: None,
                 resume: resume.map(str::to_string),
                 model: None,
                 mcp_servers: vec![server.clone()],
@@ -1577,350 +1015,5 @@ cat > /dev/null"#;
                 assert_eq!(servers[0]["url"], "http://127.0.0.1:1/run");
             }
         }
-    }
-
-    /// A harness whose login is one credential file plus one companion that is
-    /// deliberately not a credential — the shape `harvest_login` has to tell
-    /// apart. No `adopt_login`, so a non-directory origin takes the trait's
-    /// default error.
-    struct SeedHarness;
-
-    impl Harness for SeedHarness {
-        fn id(&self) -> crate::spec::HarnessId {
-            "seedy".to_string()
-        }
-        fn display_name(&self) -> &str {
-            "seedy"
-        }
-        fn command(&self) -> &str {
-            "seedy"
-        }
-        fn aliases(&self) -> &[&str] {
-            &[]
-        }
-        fn io_support(&self) -> IoSupport {
-            IoSupport {
-                passthrough: true,
-                structured: false,
-                multi_turn: false,
-                acp: false,
-                quota: Default::default(),
-            }
-        }
-        fn config_anchor(&self) -> ConfigAnchor {
-            ConfigAnchor {
-                levers: Vec::new(),
-                login_seed: vec![
-                    SeedFile::credential(".creds/token.json", "token.json"),
-                    SeedFile::new(".claude.json", ".claude.json"),
-                ],
-                requires_home_relocation: false,
-            }
-        }
-        fn provision(&self, _spec: &crate::spec::RunSpec, _dir: &Path) -> Result<Launch> {
-            anyhow::bail!("seedy provision not implemented")
-        }
-    }
-
-    /// Seed both files from `home` into a fresh run dir, and hand back the two.
-    fn seeded() -> (tempfile::TempDir, tempfile::TempDir) {
-        let home = tempfile::TempDir::new().unwrap();
-        let run = tempfile::TempDir::new().unwrap();
-        std::fs::create_dir_all(home.path().join(".creds")).unwrap();
-        std::fs::write(home.path().join(".creds/token.json"), "OLD-TOKEN").unwrap();
-        std::fs::write(home.path().join(".claude.json"), "OLD-IDENTITY").unwrap();
-        seed_login(
-            run.path(),
-            &Source::Dir(home.path().to_path_buf()),
-            &SeedHarness.config_anchor().login_seed,
-        )
-        .unwrap();
-        (home, run)
-    }
-
-    #[test]
-    fn harvest_leaves_an_unchanged_credential_alone() {
-        let (home, run) = seeded();
-        let origin = home.path().join(".creds/token.json");
-        // A write-back would also chmod to 0600, so the mode is what tells
-        // "left alone" apart from "written with identical bytes".
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&origin, std::fs::Permissions::from_mode(0o644)).unwrap();
-        }
-
-        harvest_login(
-            &SeedHarness,
-            run.path(),
-            &Source::Dir(home.path().to_path_buf()),
-        )
-        .unwrap();
-
-        assert_eq!(std::fs::read_to_string(&origin).unwrap(), "OLD-TOKEN");
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mode = std::fs::metadata(&origin).unwrap().permissions().mode();
-            assert_eq!(mode & 0o777, 0o644, "an untouched credential was rewritten");
-        }
-    }
-
-    #[test]
-    fn harvest_writes_a_refreshed_credential_back_to_its_origin() {
-        let (home, run) = seeded();
-        std::fs::write(run.path().join("token.json"), "NEW-TOKEN").unwrap();
-
-        harvest_login(
-            &SeedHarness,
-            run.path(),
-            &Source::Dir(home.path().to_path_buf()),
-        )
-        .unwrap();
-
-        assert_eq!(
-            std::fs::read_to_string(home.path().join(".creds/token.json")).unwrap(),
-            "NEW-TOKEN"
-        );
-    }
-
-    #[test]
-    fn harvest_never_writes_back_a_non_credential_seed_file() {
-        let (home, run) = seeded();
-        // What Claude Code's `.claude.json` picks up during a run: project
-        // history and onboarding state that must not reach the user's own file.
-        std::fs::write(run.path().join(".claude.json"), "RUN-IDENTITY").unwrap();
-
-        harvest_login(
-            &SeedHarness,
-            run.path(),
-            &Source::Dir(home.path().to_path_buf()),
-        )
-        .unwrap();
-
-        assert_eq!(
-            std::fs::read_to_string(home.path().join(".claude.json")).unwrap(),
-            "OLD-IDENTITY"
-        );
-    }
-
-    #[test]
-    fn harvest_logs_rather_than_fails_when_the_origin_is_not_a_directory() {
-        let run = tempfile::TempDir::new().unwrap();
-        let origin = Source::Files(vec![(
-            PathBuf::from(".creds/token.json"),
-            b"OLD-TOKEN".to_vec(),
-        )]);
-        seed_login(run.path(), &origin, &SeedHarness.config_anchor().login_seed).unwrap();
-        std::fs::write(run.path().join("token.json"), "NEW-TOKEN").unwrap();
-
-        // `SeedHarness` has no `adopt_login`, so the write-back errors — and
-        // harvesting still succeeds, because a teardown must not break.
-        harvest_login(&SeedHarness, run.path(), &origin).unwrap();
-    }
-
-    /// Seed a good credential (a set access token, given expiry) from `home`
-    /// into a fresh run dir, and hand back the two.
-    fn seeded_with_credential(expiry_ms: i64) -> (tempfile::TempDir, tempfile::TempDir) {
-        let home = tempfile::TempDir::new().unwrap();
-        let run = tempfile::TempDir::new().unwrap();
-        std::fs::create_dir_all(home.path().join(".creds")).unwrap();
-        std::fs::write(
-            home.path().join(".creds/token.json"),
-            format!("{{\"accessToken\":\"ORIGINAL\",\"expiresAt\":{expiry_ms}}}"),
-        )
-        .unwrap();
-        std::fs::write(home.path().join(".claude.json"), "OLD-IDENTITY").unwrap();
-        seed_login(
-            run.path(),
-            &Source::Dir(home.path().to_path_buf()),
-            &SeedHarness.config_anchor().login_seed,
-        )
-        .unwrap();
-        (home, run)
-    }
-
-    #[test]
-    fn harvest_leaves_origin_unchanged_when_run_dir_holds_a_blanked_credential() {
-        let (home, run) = seeded_with_credential(5_000_000_000_000);
-        // The run dir's copy comes back blanked, as a failed refresh leaves it.
-        std::fs::write(
-            run.path().join("token.json"),
-            "{\"accessToken\":\"\",\"expiresAt\":0}",
-        )
-        .unwrap();
-
-        harvest_login(
-            &SeedHarness,
-            run.path(),
-            &Source::Dir(home.path().to_path_buf()),
-        )
-        .unwrap();
-
-        assert_eq!(
-            std::fs::read_to_string(home.path().join(".creds/token.json")).unwrap(),
-            "{\"accessToken\":\"ORIGINAL\",\"expiresAt\":5000000000000}"
-        );
-    }
-
-    #[test]
-    fn harvest_leaves_origin_unchanged_when_run_dirs_expiry_is_older() {
-        let (home, run) = seeded_with_credential(5_000_000_000_000);
-        // Another run already refreshed the origin to a later expiry; this
-        // run's own copy, with an older expiry, must not overwrite it.
-        std::fs::write(
-            run.path().join("token.json"),
-            "{\"accessToken\":\"STALE\",\"expiresAt\":3000000000000}",
-        )
-        .unwrap();
-
-        harvest_login(
-            &SeedHarness,
-            run.path(),
-            &Source::Dir(home.path().to_path_buf()),
-        )
-        .unwrap();
-
-        assert_eq!(
-            std::fs::read_to_string(home.path().join(".creds/token.json")).unwrap(),
-            "{\"accessToken\":\"ORIGINAL\",\"expiresAt\":5000000000000}"
-        );
-    }
-
-    #[test]
-    fn harvest_writes_back_when_run_dirs_expiry_is_newer() {
-        let (home, run) = seeded_with_credential(3_000_000_000_000);
-        let fresh = "{\"accessToken\":\"REFRESHED\",\"expiresAt\":5000000000000}";
-        std::fs::write(run.path().join("token.json"), fresh).unwrap();
-
-        harvest_login(
-            &SeedHarness,
-            run.path(),
-            &Source::Dir(home.path().to_path_buf()),
-        )
-        .unwrap();
-
-        let origin = home.path().join(".creds/token.json");
-        assert_eq!(std::fs::read_to_string(&origin).unwrap(), fresh);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mode = std::fs::metadata(&origin).unwrap().permissions().mode();
-            assert_eq!(
-                mode & 0o777,
-                0o600,
-                "a written-back credential must be 0600"
-            );
-        }
-    }
-
-    #[test]
-    fn sync_login_hands_the_winner_to_every_other_run_holding_the_old_one() {
-        let (home, run_a) = seeded_with_credential(3_000_000_000_000);
-        let run_b = tempfile::TempDir::new().unwrap();
-        seed_login(
-            run_b.path(),
-            &Source::Dir(home.path().to_path_buf()),
-            &SeedHarness.config_anchor().login_seed,
-        )
-        .unwrap();
-        let refreshed = "{\"accessToken\":\"REFRESHED\",\"expiresAt\":5000000000000}";
-        std::fs::write(run_a.path().join("token.json"), refreshed).unwrap();
-
-        // The whole point of `sync_login` over lone `harvest_login` calls: a
-        // second run still holding the pre-rotation token must be handed the
-        // winner too, or its next refresh fails against a revoked token.
-        sync_login(
-            &SeedHarness,
-            &[run_a.path(), run_b.path()],
-            &Source::Dir(home.path().to_path_buf()),
-        )
-        .unwrap();
-
-        assert_eq!(
-            std::fs::read_to_string(home.path().join(".creds/token.json")).unwrap(),
-            refreshed
-        );
-        assert_eq!(
-            std::fs::read_to_string(run_b.path().join("token.json")).unwrap(),
-            refreshed
-        );
-    }
-
-    #[test]
-    fn sync_login_never_lets_a_blanked_run_copy_win_over_another_runs_untouched_one() {
-        let (home, run_a) = seeded_with_credential(5_000_000_000_000);
-        let run_b = tempfile::TempDir::new().unwrap();
-        seed_login(
-            run_b.path(),
-            &Source::Dir(home.path().to_path_buf()),
-            &SeedHarness.config_anchor().login_seed,
-        )
-        .unwrap();
-        std::fs::write(
-            run_a.path().join("token.json"),
-            "{\"accessToken\":\"\",\"expiresAt\":0}",
-        )
-        .unwrap();
-
-        // A blank never wins, even with other live copies in play: the origin
-        // and the untouched run must both come out exactly as they went in.
-        sync_login(
-            &SeedHarness,
-            &[run_a.path(), run_b.path()],
-            &Source::Dir(home.path().to_path_buf()),
-        )
-        .unwrap();
-
-        assert_eq!(
-            std::fs::read_to_string(home.path().join(".creds/token.json")).unwrap(),
-            "{\"accessToken\":\"ORIGINAL\",\"expiresAt\":5000000000000}"
-        );
-        assert_eq!(
-            std::fs::read_to_string(run_b.path().join("token.json")).unwrap(),
-            "{\"accessToken\":\"ORIGINAL\",\"expiresAt\":5000000000000}"
-        );
-    }
-
-    #[test]
-    fn sync_login_writes_the_origins_newer_blob_into_a_stale_run_dir() {
-        let (home, run) = seeded_with_credential(5_000_000_000_000);
-        std::fs::write(
-            run.path().join("token.json"),
-            "{\"accessToken\":\"STALE\",\"expiresAt\":3000000000000}",
-        )
-        .unwrap();
-
-        // The origin is not just a write target: a run dragging an older copy
-        // (another sync already advanced the origin) must be brought forward.
-        sync_login(
-            &SeedHarness,
-            &[run.path()],
-            &Source::Dir(home.path().to_path_buf()),
-        )
-        .unwrap();
-
-        assert_eq!(
-            std::fs::read_to_string(run.path().join("token.json")).unwrap(),
-            "{\"accessToken\":\"ORIGINAL\",\"expiresAt\":5000000000000}"
-        );
-    }
-
-    #[test]
-    fn sync_login_skips_a_run_dir_that_never_held_the_credential() {
-        let (home, _run) = seeded_with_credential(5_000_000_000_000);
-        let bare = tempfile::TempDir::new().unwrap();
-
-        // Placing a login where the harness was never given one is
-        // `seed_login`'s decision, not `sync_login`'s — a run with no file
-        // must stay that way, not be seeded as a side effect of syncing.
-        sync_login(
-            &SeedHarness,
-            &[bare.path()],
-            &Source::Dir(home.path().to_path_buf()),
-        )
-        .unwrap();
-
-        assert!(!bare.path().join("token.json").exists());
     }
 }

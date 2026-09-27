@@ -160,25 +160,16 @@ const CLAUDE_USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
 /// The beta header the endpoint requires, as Claude Code sends it.
 const CLAUDE_OAUTH_BETA: &str = "oauth-2025-04-20";
 
-/// Where a captured Claude login keeps its credentials, relative to the account home — the same
-/// path [`crate::harness::SeedFile::credential`] seeds from in `harness::claude`.
-const CLAUDE_CREDENTIALS_REL: &str = ".claude/.credentials.json";
+/// The macOS Keychain item Claude Code keeps its default config dir's login in.
+const CLAUDE_KEYCHAIN_SERVICE: &str = "Claude Code-credentials";
 
-/// Ask Claude what is left for `account`.
+/// Ask Claude what is left for `account`, with the login Claude Code itself keeps in `home` — a
+/// profile's shared config home, or its own default when `None` (`D193`).
 ///
-/// `login` is the account's captured-login source ([`crate::account::AccountStore::login_source`]),
-/// which is how the credential is reached without this module knowing whether the store keeps a
-/// home directory or the bytes themselves. Where there is none, the macOS Keychain entry the
-/// import path already reads stands in.
-///
-/// The access token is read here, spent on one request and dropped. It is never returned, never
-/// logged and never reaches a [`QuotaSnapshot`].
-pub fn claude(
-    account: &str,
-    harness: &str,
-    login: Option<&crate::Source>,
-) -> Result<QuotaSnapshot> {
-    let creds = claude_credentials(login)?;
+/// The access token is read here, in place, spent on one request and dropped. Nothing is copied
+/// or written; the token is never returned, never logged and never reaches a [`QuotaSnapshot`].
+pub fn claude(account: &str, harness: &str, home: Option<&Path>) -> Result<QuotaSnapshot> {
+    let creds = claude_credentials(home)?;
     let value: serde_json::Value =
         serde_json::from_slice(&creds).context("parsing Claude credentials JSON")?;
     let oauth = value.get("claudeAiOauth").unwrap_or(&value);
@@ -214,17 +205,32 @@ pub fn claude(
     })
 }
 
-/// Read the credential bytes for a captured Claude login.
-fn claude_credentials(login: Option<&crate::Source>) -> Result<Vec<u8>> {
-    if let Some(source) = login
-        && let Some(bytes) = source.read(Path::new(CLAUDE_CREDENTIALS_REL))?
-    {
+/// Read the credential bytes Claude Code keeps for `home`: its `.credentials.json`, or — for the
+/// default config dir on macOS, where Claude Code keeps the login in the Keychain instead — that
+/// Keychain item. A profile home's Keychain item is keyed by a hash of its path, which is not
+/// read here (`G380`).
+fn claude_credentials(home: Option<&Path>) -> Result<Vec<u8>> {
+    let dir = match home {
+        Some(home) => home.to_path_buf(),
+        None => crate::harness::env_dir_or_home("CLAUDE_CONFIG_DIR", ".claude")
+            .context("no home directory to find Claude Code's login in")?,
+    };
+    if let Ok(bytes) = std::fs::read(dir.join(".credentials.json")) {
         return Ok(bytes);
     }
-    // No captured home: the secure-store path records the account without materializing files
-    // (`account::record_default_claude_from_keychain`), and the Keychain entry is the login.
-    crate::account::read_claude_keychain_credentials()
-        .context("no captured Claude login to read the usage limits with")
+    if home.is_none() && cfg!(target_os = "macos") {
+        let output = std::process::Command::new("security")
+            .args(["find-generic-password", "-s", CLAUDE_KEYCHAIN_SERVICE, "-w"])
+            .output()
+            .context("running `security find-generic-password`")?;
+        if output.status.success() {
+            return Ok(output.stdout);
+        }
+    }
+    anyhow::bail!(
+        "Claude Code holds no readable login in {} to read the usage limits with",
+        dir.display()
+    )
 }
 
 /// Turn a transport or status failure into a sentence a user reads, never a code.

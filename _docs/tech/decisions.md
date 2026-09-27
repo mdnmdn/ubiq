@@ -2313,6 +2313,10 @@ hovers learns the threshold from the colour alone — which is why the colour ca
 is one glyph over a snapshot that may hold several gauges, so it reports the fullest window and the
 tooltip is where the others are; a reader who wants all of them goes to Settings.
 
+**Half reversed by `D193`.** The Settings panel moved from under each account's captured login,
+which `D193` removes, to under each agent definition, whose home holds the login the reading is
+taken from. The ring and its rules stand.
+
 ### D112 — A repository inside a project is ignored until the project takes it on
 
 `D99` settled that a repository found below the project is walked and merged into the project's one
@@ -2655,8 +2659,8 @@ the child is given, not what OpenSSH does with them.
 ### D126 — A confined Claude Code run is denied the login keychain, so its credential stays on the file backend
 
 **Superseded by `D193`.** What follows is the reasoning as it stood while every run had a fresh
-config dir and a captured login. The denial is kept only for a run on a per-run dir
-(`Ephemeral`, `Fixed`); a `Home` or `Native` run gets the whole Keychain layer.
+config dir and a captured login. The denial, `KEYCHAIN_DENIED` and its override layer are gone: a
+confined run gets the whole Keychain layer.
 
 Claude Code on macOS picks between two credential backends at launch: the login keychain when
 `~/Library/Keychains` is reachable, or `.credentials.json` in `$CLAUDE_CONFIG_DIR` when it is not,
@@ -2690,7 +2694,7 @@ backend.
 `D193` the home is fixed per profile, so Claude Code's item name — a hash of `CLAUDE_CONFIG_DIR` —
 is fixed too, and nothing outside the harness reads the credential, so the file backend has no
 reader left to keep it on. A confined run is granted that one item instead of being denied all of
-them (`G376`).
+them.
 
 ### D127 — QuickJS is compiled into the interface behind a feature the binary defaults on
 
@@ -4754,7 +4758,7 @@ relocates only `HOME`, so its home is a persistent fake `HOME` per profile, skil
 does correctly — keeping a rotating OAuth grant consistent across its own processes — and each place
 the copy was made became a way to log someone out: a rotated token not written back (`D97`'s first
 cost), a Keychain item keyed to a directory teardown deletes (`D126`), a store-backed login written
-to the wrong Keychain entry (`G233`), one refresh token fanned out to homes that each redeem it. A
+to the wrong Keychain entry, one refresh token fanned out to homes that each redeem it. A
 fixed home removes the copy, so there is nothing to reconcile. Per profile rather than per account is
 what keeps two homes from holding the same refresh token — the one sharing the harness cannot see.
 
@@ -4767,7 +4771,7 @@ The shared `.claude.json` takes a concurrent per-run write, safe only by the loc
 only-when-missing rule. The home's `projects/` grows with every run of the profile, and `D97`'s fork
 by directory copy stops carrying the conversation. And one token read is kept knowingly:
 `quota::claude` reads `accessToken` from the login to ask for usage (`G380`). The gaps between this
-and the tree are `G376` to `G380`.
+and the tree are `G377` to `G381`.
 
 ## Related docs
 

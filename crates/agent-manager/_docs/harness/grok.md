@@ -321,41 +321,9 @@ mode, so headless/CI runs only need the env vars set.
 
 ### Credential capture & reuse (agent-manager)
 
-> How `am account capture` / `am account login` snapshot and replay this
-> harness's login into an ephemeral run. Records file **structure and non-secret
-> metadata only** — token values are copied opaquely.
-
-> **Disk correction:** the sections above describe an API-key model
-> (`~/.grok/user-settings.json → apiKey`). On disk the live login is OAuth 2.0
-> (OIDC to `https://auth.x.ai`) stored in **`~/.grok/auth.json`** — trust disk.
-> The API-key path still works via `GROK_API_KEY` but is not what an interactive
-> subscription login writes.
-
-- **Bundle files (the credential snapshot):**
-  - `~/.grok/auth.json` — **required**; JSON keyed by `<oidc_issuer>::<user_id>`
-    (e.g. `https://auth.x.ai::<uuid>`), each entry holding `key` (JWT),
-    `refresh_token`, `expires_at`, plus identity fields.
-  - `~/.grok/user-settings.json` — *optional*; only if an `apiKey` / model
-    override is in use.
-- **Relocation lever:** no config-dir override env var — set `HOME` to relocate
-  the whole `~/.grok/` tree.
-- **Force file storage (skip keychain):** N/A — Grok is **always plaintext file**
-  (mode `0600`), no OS keychain integration. The ideal case for capture.
-- **Login command (fresh-auth-into-temp):** no documented `grok auth login`
-  verb; the interactive TUI triggers the OAuth flow on first run under a fresh
-  `HOME`. Headless: inject `GROK_API_KEY` instead of snapshotting OAuth.
-- **Extractable metadata (non-secret):**
-
-  | field | source | identifies |
-  |---|---|---|
-  | `email` | `auth.json → <entry>.email` | account email *(identifying — redact)* |
-  | `user_id` / `principal_id` | `auth.json → <entry>.user_id` | user account id (UUID) |
-  | `team_id` | `auth.json → <entry>.team_id` | team/org membership (UUID) |
-  | `expires_at` | `auth.json → <entry>.expires_at` | token expiry (ISO 8601) |
-  | `auth_mode` / `oidc_issuer` | `auth.json → <entry>.*` | auth type (`oidc`) + provider |
-
-- **Do not copy:** `sessions/`, `projects/`, `logs/`, `worktrees.db`,
-  `models_cache.json`, `agent_id`, `*.lock` — session/machine-bound state.
+None. `am` neither captures, copies nor roams this login: the harness keeps it in a profile's own
+config home, signed in there by `am profile login` or the first run, and refreshes it itself
+(`D193` in Ubiq's `_docs/tech/decisions.md`).
 
 ## Permissions
 

@@ -1,12 +1,11 @@
-//! Credential storage: a small, pluggable seam for harness login secrets.
+//! Credential storage: a small, pluggable seam for secrets an embedder keeps.
 //!
-//! `am` already separates credential *references* (env-var names, a helper
-//! command, a path to a private home dir — see [`crate::account`]) from
-//! secret material. This module is the other half: a place to actually
-//! *store* captured login bytes (the files [`crate::harness::seed_login`]
-//! copies into a relocated config dir) behind a small trait, so the CLI's
-//! plain-files layout and an embedder's encrypted vault can share the same
-//! call sites.
+//! `am` separates credential *references* (env-var names, a helper command —
+//! see [`crate::account`]) from secret material. This module is the other
+//! half: a place to actually *store* secret bytes behind a small trait, so a
+//! plain-files layout and an embedder's encrypted vault share the same call
+//! sites. A harness login is not one of them: it stays in the harness's own
+//! config home and nothing here reads or copies it (`D193`).
 //!
 //! [`SecretStore`] is deliberately narrow: list/get/set/delete/rename over
 //! `(harness, name)` pairs, each holding zero or more [`CredentialBlob`]s (a
@@ -37,8 +36,6 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use crate::Result;
-use crate::harness::SeedFile;
-use crate::source::Source;
 
 mod file;
 mod keychain;
@@ -67,8 +64,7 @@ pub struct CredentialId {
 
 /// One file of a stored credential: a path relative to the credential's
 /// root, and its raw bytes. Mirrors [`crate::source::Source::Files`]'s
-/// `(PathBuf, Vec<u8>)` pairs so the two convert freely (see
-/// [`source_from_blobs`] / [`blobs_from_seed`]).
+/// `(PathBuf, Vec<u8>)` pairs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CredentialBlob {
     /// The file's own name (last path component), for display/listing.
@@ -182,9 +178,8 @@ fn is_expiry(key: &str) -> bool {
 /// `"refreshToken": ""` and `"expiresAt": 0` when a refresh fails — the file
 /// stays, the account keeps looking logged in, and the surviving
 /// `refreshTokenExpiresAt` even dates it a month into the future. Treating
-/// that as a login is what let an empty blob be copied over a working one, so
-/// both [`credential_validity`] and
-/// [`harvest_login`](crate::harness::harvest_login) ask this first.
+/// that as a login would report a signed-out credential as live, so
+/// [`credential_validity`] asks this first.
 ///
 /// Harness-agnostic: any JSON object with `*token*` keys is unusable when
 /// **every** one of them is an empty string. Non-JSON bytes, and JSON naming
@@ -218,99 +213,6 @@ pub fn login_is_usable(bytes: &[u8]) -> bool {
     let (mut found, mut any_set) = (false, false);
     tokens(&v, &mut found, &mut any_set);
     !found || any_set
-}
-
-/// The expiry a credential's bytes claim, in epoch millis, or `None` when they
-/// are not JSON or name no expiry. The single-blob form of what
-/// [`credential_validity`] computes, for callers comparing two versions of the
-/// same credential (see [`harvest_login`](crate::harness::harvest_login)).
-pub fn expiry_of(bytes: &[u8]) -> Option<i64> {
-    max_expiry_ms(&serde_json::from_slice::<serde_json::Value>(bytes).ok()?)
-}
-
-/// A non-secret one-line summary of a credential blob, for the log.
-///
-/// Every token action — a seed, a harvest, a hand-back, a keychain read — logs
-/// one of these instead of the bytes. It carries what an investigation needs
-/// and nothing a log file may not hold: the expiries the blob claims, how long
-/// the access token has left from *now*, and an 8-hex fingerprint of each token
-/// string. The fingerprint is the point: a refresh **rotates** both tokens, so
-/// two digests naming different fingerprints are two different logins, and that
-/// is the only way to see a rotation that was written somewhere and lost.
-///
-/// The hash is `DefaultHasher` — a fingerprint, not a digest anyone should
-/// treat as one-way. It never leaves the log, and the tokens it summarises are
-/// bearer credentials whose bytes must never be logged in any form.
-pub fn login_digest(bytes: &[u8]) -> String {
-    fn now_ms() -> i64 {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as i64)
-            .unwrap_or_default()
-    }
-
-    let Ok(value) = serde_json::from_slice::<serde_json::Value>(bytes) else {
-        return format!("bytes={} not-json", bytes.len());
-    };
-
-    let mut tokens: Vec<String> = Vec::new();
-    let mut expiries: Vec<String> = Vec::new();
-    fn walk(v: &serde_json::Value, tokens: &mut Vec<String>, expiries: &mut Vec<String>) {
-        match v {
-            serde_json::Value::Object(map) => {
-                for (k, val) in map {
-                    let lower = k.to_lowercase();
-                    if lower.contains("token")
-                        && let Some(s) = val.as_str()
-                    {
-                        tokens.push(format!("{k}={}", fingerprint_of(s)));
-                    } else if lower.contains("expire")
-                        && let Some(n) = val.as_i64()
-                    {
-                        expiries.push(format!("{k}={n}"));
-                    }
-                    walk(val, tokens, expiries);
-                }
-            }
-            serde_json::Value::Array(items) => {
-                for item in items {
-                    walk(item, tokens, expiries);
-                }
-            }
-            _ => {}
-        }
-    }
-    walk(&value, &mut tokens, &mut expiries);
-
-    let left = expiry_of(bytes)
-        .map(|at| {
-            let secs = (at - now_ms()) / 1000;
-            if secs >= 0 {
-                format!(" valid_for={}h{}m", secs / 3600, (secs % 3600) / 60)
-            } else {
-                format!(" expired_for={}h{}m", -secs / 3600, (-secs % 3600) / 60)
-            }
-        })
-        .unwrap_or_default();
-
-    format!(
-        "bytes={} usable={} {} {}{left}",
-        bytes.len(),
-        login_is_usable(bytes),
-        tokens.join(" "),
-        expiries.join(" "),
-    )
-}
-
-/// The 8-hex fingerprint [`login_digest`] prints for one token string.
-pub(crate) fn fingerprint_of(s: &str) -> String {
-    use std::hash::{Hash, Hasher};
-    if s.is_empty() {
-        return "empty".to_string();
-    }
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    s.hash(&mut hasher);
-    format!("{:08x}", hasher.finish() as u32)
 }
 
 /// Recursively find the maximum numeric [`is_expiry`] value in `v`, normalized
@@ -377,55 +279,9 @@ pub trait SecretStore: Send + Sync {
     fn rename(&self, from: &CredentialId, to_name: &str) -> Result<()>;
 }
 
-/// Build blobs from a login [`Source`] per a harness's
-/// [`crate::harness::ConfigAnchor::login_seed`] — the credential-store
-/// counterpart of [`crate::harness::seed_login`] (which writes such files
-/// into a relocated run dir instead of a [`SecretStore`]).
-///
-/// For each [`SeedFile`], reads `source` at `seed.src`; entries whose source
-/// file is absent are silently skipped (a partially-captured login still
-/// yields the blobs it has). Each resulting blob's `name` is the last path
-/// component of `seed.src` (lossy string); `rel_path` is `seed.src` itself
-/// (so a later [`source_from_blobs`] round-trips it back to the same
-/// source-relative layout the seed files describe).
-pub fn blobs_from_seed(source: &Source, seed: &[SeedFile]) -> Result<Vec<CredentialBlob>> {
-    let mut blobs = Vec::new();
-    for file in seed {
-        let Some(bytes) = source.read(&file.src)? else {
-            continue;
-        };
-        let name = file
-            .src
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| file.src.to_string_lossy().into_owned());
-        blobs.push(CredentialBlob {
-            name,
-            rel_path: file.src.clone(),
-            bytes,
-        });
-    }
-    Ok(blobs)
-}
-
-/// Convert stored blobs back into a [`Source::Files`] (each blob's
-/// `rel_path` → `bytes`), for handing to [`crate::harness::seed_login`] or
-/// [`Source::materialize`](crate::source::Source::materialize).
-pub fn source_from_blobs(blobs: &[CredentialBlob]) -> Source {
-    Source::Files(
-        blobs
-            .iter()
-            .map(|b| (b.rel_path.clone(), b.bytes.clone()))
-            .collect(),
-    )
-}
-
 /// Resolve which [`SecretStore`] engine to build from (highest precedence
 /// first): the `AM_CREDENTIALS_ENGINE` env var (if non-empty), else
 /// `settings.credentials.engine`, else the auto default (`"files"`).
-///
-/// Callers that need to branch on *where* secrets land (e.g. `am account
-/// import` avoiding plaintext files under a secure engine) can read this.
 pub fn resolve_engine(settings: &crate::settings::Settings) -> String {
     std::env::var("AM_CREDENTIALS_ENGINE")
         .ok()
@@ -505,78 +361,9 @@ pub fn build_secret_store(settings: &crate::settings::Settings) -> Result<Box<dy
     }
 }
 
-/// An [`crate::account::AccountStore`] whose login *bodies* come from a
-/// [`SecretStore`], keyed by `(harness, name)`, while the account *index*
-/// (list / lookup / login capture) stays delegated to an inner store.
-///
-/// This is the wiring that makes credentials **harness-scoped**: the harness
-/// is fixed for the duration of one run (an `am <harness>` invocation), so it's
-/// captured here at construction time and combined with the account id (the
-/// credential *name*) to form a [`CredentialId`]. [`login_source`] tries the
-/// secret store first and falls back to the inner store's own login source —
-/// so a legacy `accounts/<name>/` home (from `am account login` or the old
-/// Keychain import) still resolves for names not yet migrated into the
-/// [`SecretStore`]. See `_docs/inbox/os-secret-store.md` §6, §10.
-///
-/// [`login_source`]: SecretBackedAccountStore::login_source
-pub struct SecretBackedAccountStore {
-    inner: Box<dyn crate::account::AccountStore>,
-    secrets: Box<dyn SecretStore>,
-    harness: String,
-}
-
-impl SecretBackedAccountStore {
-    /// Wrap `inner` (the index + legacy login source) so login bodies for
-    /// `harness` are served from `secrets`.
-    pub fn new(
-        inner: Box<dyn crate::account::AccountStore>,
-        secrets: Box<dyn SecretStore>,
-        harness: impl Into<String>,
-    ) -> Self {
-        SecretBackedAccountStore {
-            inner,
-            secrets,
-            harness: harness.into(),
-        }
-    }
-}
-
-impl crate::account::AccountStore for SecretBackedAccountStore {
-    fn accounts(&self) -> Result<Vec<crate::account::Account>> {
-        self.inner.accounts()
-    }
-
-    fn account(&self, id: &str) -> Result<Option<crate::account::Account>> {
-        self.inner.account(id)
-    }
-
-    fn login_source(&self, id: &str) -> Result<Option<Source>> {
-        let cid = CredentialId {
-            harness: self.harness.clone(),
-            name: id.to_string(),
-        };
-        if let Some(blobs) = self.secrets.get(&cid)?
-            && !blobs.is_empty()
-        {
-            return Ok(Some(source_from_blobs(&blobs)));
-        }
-        // Not in the secret store — fall back to the legacy on-disk home.
-        self.inner.login_source(id)
-    }
-
-    fn login_home(&self, id: &str) -> Result<PathBuf> {
-        self.inner.login_home(id)
-    }
-
-    fn capture_login(&self, id: &str, from: &std::path::Path, files: &[PathBuf]) -> Result<()> {
-        self.inner.capture_login(id, from, files)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::harness::SeedFile;
 
     fn blob(bytes: &[u8]) -> CredentialBlob {
         CredentialBlob {
@@ -719,82 +506,6 @@ mod tests {
     }
 
     #[test]
-    fn expiry_of_returns_access_expiry_not_refresh_expiry() {
-        let access = 1_700_000_000_000i64;
-        let refresh = 5_000_000_000_000i64;
-        let bytes = format!(
-            "{{\"claudeAiOauth\":{{\"expiresAt\":{access},\"refreshTokenExpiresAt\":{refresh}}}}}"
-        );
-        assert_eq!(expiry_of(bytes.as_bytes()), Some(access));
-    }
-
-    #[test]
-    fn expiry_of_none_for_non_json() {
-        assert_eq!(expiry_of(b"not json"), None);
-    }
-
-    #[test]
-    fn blobs_from_seed_round_trips_claude_style_paths() -> Result<()> {
-        let source = Source::Files(vec![
-            (
-                PathBuf::from(".claude/.credentials.json"),
-                b"{\"claudeAiOauth\":{}}".to_vec(),
-            ),
-            (PathBuf::from(".claude.json"), b"{\"id\":1}".to_vec()),
-        ]);
-        let seed = vec![
-            SeedFile::new(".claude/.credentials.json", ".credentials.json"),
-            SeedFile::new(".claude.json", ".claude.json"),
-        ];
-
-        let blobs = blobs_from_seed(&source, &seed)?;
-        assert_eq!(blobs.len(), 2);
-
-        let creds = blobs
-            .iter()
-            .find(|b| b.rel_path == std::path::Path::new(".claude/.credentials.json"))
-            .expect("credentials blob present");
-        assert_eq!(creds.name, ".credentials.json");
-        assert_eq!(creds.bytes, b"{\"claudeAiOauth\":{}}");
-
-        let identity = blobs
-            .iter()
-            .find(|b| b.rel_path == std::path::Path::new(".claude.json"))
-            .expect("identity blob present");
-        assert_eq!(identity.name, ".claude.json");
-
-        // source_from_blobs round-trips back to a readable Source.
-        let rebuilt = source_from_blobs(&blobs);
-        assert_eq!(
-            rebuilt
-                .read(&PathBuf::from(".claude/.credentials.json"))?
-                .as_deref(),
-            Some(&b"{\"claudeAiOauth\":{}}"[..])
-        );
-        assert_eq!(
-            rebuilt.read(&PathBuf::from(".claude.json"))?.as_deref(),
-            Some(&b"{\"id\":1}"[..])
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn blobs_from_seed_skips_absent_sources() -> Result<()> {
-        let source = Source::Files(vec![(
-            PathBuf::from(".claude/.credentials.json"),
-            b"present".to_vec(),
-        )]);
-        let seed = vec![
-            SeedFile::new(".claude/.credentials.json", ".credentials.json"),
-            SeedFile::new(".claude.json", ".claude.json"),
-        ];
-        let blobs = blobs_from_seed(&source, &seed)?;
-        assert_eq!(blobs.len(), 1);
-        assert_eq!(blobs[0].name, ".credentials.json");
-        Ok(())
-    }
-
-    #[test]
     fn build_secret_store_files_engine_via_settings() -> Result<()> {
         let temp = tempfile::TempDir::new()?;
         let mut settings = crate::settings::Settings::default();
@@ -828,42 +539,6 @@ mod tests {
             Ok(_) => panic!("expected an error"),
             Err(err) => assert!(err.to_string().contains("bogus"), "{err}"),
         }
-    }
-
-    #[test]
-    fn secret_backed_store_serves_login_from_secrets_and_falls_back() -> Result<()> {
-        use crate::account::{AccountStore, EmptyAccountStore};
-
-        let secrets = MemorySecretStore::new();
-        secrets.set(
-            &CredentialId {
-                harness: "claude-code".to_string(),
-                name: "default".to_string(),
-            },
-            &[CredentialBlob {
-                name: ".credentials.json".to_string(),
-                rel_path: PathBuf::from(".claude/.credentials.json"),
-                bytes: b"tok".to_vec(),
-            }],
-        )?;
-
-        let store = SecretBackedAccountStore::new(
-            Box::new(EmptyAccountStore),
-            Box::new(secrets),
-            "claude-code",
-        );
-
-        // Hit: served from the secret store as Source::Files.
-        let src = store.login_source("default")?.expect("login source");
-        assert_eq!(
-            src.read(&PathBuf::from(".claude/.credentials.json"))?
-                .as_deref(),
-            Some(&b"tok"[..])
-        );
-
-        // Miss: falls through to the inner store (empty → None).
-        assert!(store.login_source("nonexistent")?.is_none());
-        Ok(())
     }
 
     #[test]

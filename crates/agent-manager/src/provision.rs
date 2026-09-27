@@ -14,7 +14,6 @@ use tracing::{debug, info, warn};
 
 use crate::Result;
 use crate::harness::{Harness, Launch, TemplateStore};
-use crate::source::Source;
 use crate::spec::{ConfigStrategy, RunSpec};
 
 /// The result of provisioning: where the config was written and how to launch.
@@ -39,11 +38,6 @@ pub struct Provisioned {
     /// [`Harness::shares_home`]). Never removed by the run. `None` elsewhere,
     /// a native run's own config included.
     pub home: Option<PathBuf>,
-    /// Where this run's login was seeded *from*, when one was — the origin
-    /// [`crate::harness::harvest_login`] writes a refreshed credential back to
-    /// before `dir` is discarded. `None` when nothing was seeded (no login, or
-    /// a profile overlay placed it and there is no single origin to name).
-    pub login_origin: Option<Source>,
     /// The conversation id this run resumes, when it resumes one — copied from
     /// [`crate::spec::RunSpec::resume`]. Most harnesses put a resume in argv and
     /// never read this; an ACP harness resumes over the wire (`session/load`), so
@@ -77,7 +71,6 @@ impl Clone for Provisioned {
             launch: self.launch.clone(),
             ephemeral: self.ephemeral,
             home: self.home.clone(),
-            login_origin: self.login_origin.clone(),
             resume: self.resume.clone(),
             model: self.model.clone(),
             mcp_servers: self.mcp_servers.clone(),
@@ -149,8 +142,6 @@ pub fn provision(
         let launch = harness.provision(&effective_spec, &dir)?;
         // Layer the profile config overlay on top of the harness-written config.
         crate::overlay::materialize(&dir, &spec.config_bases)?;
-        let account_origin = account_login_origin(harness, spec, &dir);
-        let login_origin = account_origin.or(seed_zero_config_login(harness, spec, &dir)?);
         crate::harness::apply_templates(&dir, &harness.id(), &harness.templates(), templates)?;
         harness.post_seed(&effective_spec, &dir)?;
         Ok(Provisioned {
@@ -158,7 +149,6 @@ pub fn provision(
             launch,
             ephemeral,
             home: None,
-            login_origin,
             resume: spec.resume.clone(),
             model: spec.model.clone(),
             mcp_servers: Vec::new(),
@@ -170,8 +160,6 @@ pub fn provision(
         let launch = harness.provision(spec, &dir)?;
         // Layer the profile config overlay on top of the harness-written config.
         crate::overlay::materialize(&dir, &spec.config_bases)?;
-        let account_origin = account_login_origin(harness, spec, &dir);
-        let login_origin = account_origin.or(seed_zero_config_login(harness, spec, &dir)?);
         crate::harness::apply_templates(&dir, &harness.id(), &harness.templates(), templates)?;
         harness.post_seed(spec, &dir)?;
         Ok(Provisioned {
@@ -179,7 +167,6 @@ pub fn provision(
             launch,
             ephemeral,
             home: None,
-            login_origin,
             resume: spec.resume.clone(),
             model: spec.model.clone(),
             mcp_servers: Vec::new(),
@@ -223,7 +210,7 @@ pub fn prepare_home(
 /// ([`Harness::provision_home`]); `home` takes only what [`prepare_home`] puts there once and
 /// whatever [`Harness::post_seed`] adds when missing. A native run (`home` `None`) writes
 /// nothing outside `scratch` at all. No login is seeded — it lives in the home, or is the
-/// user's own — so `login_origin` is `None`. Neither dir is ephemeral here: the home is never
+/// user's own. Neither dir is ephemeral here: the home is never
 /// removed by a run, and a caller that made the scratch for one run marks it.
 fn provision_shared_home(
     harness: &dyn Harness,
@@ -234,13 +221,6 @@ fn provision_shared_home(
 ) -> Result<Provisioned> {
     if let Some(home) = home {
         prepare_home(harness, home, templates)?;
-    } else if spec.account_login.is_some()
-        || spec.account.as_ref().is_some_and(|a| a.home.is_some())
-    {
-        warn!(
-            account = spec.account.as_ref().map(|a| a.id.as_str()).unwrap_or(""),
-            "the account's captured login is not used by a run with no profile; the harness's own login applies"
-        );
     }
     std::fs::create_dir_all(scratch)
         .with_context(|| format!("creating scratch dir {}", scratch.display()))?;
@@ -276,7 +256,6 @@ fn provision_shared_home(
         launch,
         ephemeral: false,
         home: home.map(Path::to_path_buf),
-        login_origin: None,
         resume: spec.resume.clone(),
         model: spec.model.clone(),
         // An `InProcess` left here (the feature off) was already refused by any harness that
@@ -331,135 +310,6 @@ fn host_inproc_mcps(spec: &RunSpec) -> Result<(RunSpec, Vec<crate::mcp::server::
     Ok((effective, servers))
 }
 
-/// Zero-config login reuse (tier A "just works"): when a bare `am <harness>`
-/// run got no login from an account home or a profile overlay, seed the
-/// harness's captured login so it reuses the existing session instead of
-/// onboarding. Two tiers, tried in order:
-///
-/// 1. Copy [`crate::harness::ConfigAnchor::login_seed`] out of the user's
-///    **real** `HOME` — correct for every harness that keeps its credential
-///    as a plain file, since that's the same file the harness itself would
-///    read.
-/// 2. If that copy placed nothing, fall back to [`Harness::ambient_login`] —
-///    the harness's own account of its live login, for the harnesses (Claude
-///    Code, via the OS Keychain) whose credential isn't a `HOME`-relative
-///    file at all, so tier 1 can never find it.
-///
-/// No-op when: the harness declares no `login_seed`; a login was already placed
-/// (an account home or overlay seeded it — that wins over both tiers below);
-/// or the account supplies env/key/helper credentials (those manage their own
-/// auth). Missing source files are skipped (see [`crate::harness::seed_login`]),
-/// so this only ever *adds* an existing login and never fails a run for the lack
-/// of one. Never overrides `HOME`.
-///
-/// Returns the [`Source`] it seeded from, so the run can write a refreshed
-/// credential back to it at teardown ([`crate::harness::harvest_login`]).
-fn seed_zero_config_login(
-    harness: &dyn Harness,
-    spec: &RunSpec,
-    dir: &Path,
-) -> Result<Option<Source>> {
-    let anchor = harness.config_anchor();
-    if anchor.login_seed.is_empty() {
-        return Ok(None);
-    }
-    // A login was already materialized (account home or overlay) — respect it.
-    // Only a *credential* counts: the identity companions (Claude's
-    // `.claude.json`) are onboarding state, and letting one of those stand in
-    // for a login is how a keychain-only machine ends up with an authenticated
-    // identity and no token.
-    if anchor
-        .login_seed
-        .iter()
-        .any(|s| s.credential && dir.join(&s.dst).exists())
-    {
-        info!("zero-config login skipped: a credential already landed in the run dir");
-        return Ok(None);
-    }
-    // Env/key/helper accounts manage their own auth; don't seed a stale OAuth login.
-    if let Some(acct) = &spec.account
-        && (acct.api_key_env.is_some() || acct.auth_token_env.is_some() || acct.helper.is_some())
-    {
-        info!("zero-config login skipped: account supplies env/key/helper credentials");
-        return Ok(None);
-    }
-    // Tier 1: a real file under the real HOME wins — it's what the harness
-    // itself would read.
-    if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
-        let home_src = Source::Dir(home.clone());
-        crate::harness::seed_login(dir, &home_src, &anchor.login_seed)?;
-        // Again, only the credential settles it. On macOS Claude Code keeps its
-        // session in the Keychain, so `~/.claude/.credentials.json` is absent
-        // while `~/.claude.json` is not: counting the companion here would
-        // return before tier 2 ever reads the Keychain.
-        if let Some(seed) = anchor
-            .login_seed
-            .iter()
-            .find(|s| s.credential && dir.join(&s.dst).exists())
-        {
-            let digest = std::fs::read(dir.join(&seed.dst))
-                .map(|b| crate::credentials::login_digest(&b))
-                .unwrap_or_default();
-            info!(
-                tier = "A",
-                source = %home.display(),
-                digest = %digest,
-                "zero-config login seeded from real HOME"
-            );
-            return Ok(Some(home_src));
-        }
-    }
-    // Tier 2: no credential landed — ask the harness for its own account of the
-    // live login (e.g. Claude Code's OS-Keychain session).
-    if let Some(ambient) = harness.ambient_login() {
-        crate::harness::seed_login(dir, &ambient, &anchor.login_seed)?;
-        let digest = anchor
-            .login_seed
-            .iter()
-            .find(|s| s.credential)
-            .and_then(|seed| std::fs::read(dir.join(&seed.dst)).ok())
-            .map(|b| crate::credentials::login_digest(&b))
-            .unwrap_or_default();
-        info!(
-            tier = "B",
-            digest = %digest,
-            "zero-config login seeded from harness ambient_login (e.g. macOS Keychain)"
-        );
-        return Ok(Some(ambient));
-    }
-    info!("zero-config login produced no login for this run");
-    Ok(None)
-}
-
-/// Which [`Source`] an *account's* login was seeded from, when one was.
-///
-/// That seeding happens inside each harness's own `provision` (from
-/// `spec.account_login`, else the account's `home`), so it is recognised here
-/// by its result: the login files are already in `dir` before the zero-config
-/// fallback runs. A profile overlay can place the same files and names no
-/// origin — those yield `None` rather than a guess at the account's. Only a
-/// [`SeedFile::credential`] counts, since the credential is the only thing
-/// [`crate::harness::harvest_login`] ever writes back.
-fn account_login_origin(harness: &dyn Harness, spec: &RunSpec, dir: &Path) -> Option<Source> {
-    let anchor = harness.config_anchor();
-    if !anchor
-        .login_seed
-        .iter()
-        .any(|s| s.credential && dir.join(&s.dst).exists())
-    {
-        return None;
-    }
-    let origin = spec
-        .account_login
-        .clone()
-        .or_else(|| Some(Source::Dir(spec.account.as_ref()?.home.clone()?)));
-    if let Some(origin) = &origin {
-        let account = spec.account.as_ref().map(|a| a.id.as_str()).unwrap_or("");
-        info!(account = %account, origin = ?origin, "account login origin resolved");
-    }
-    origin
-}
-
 /// Generate a fresh `<runs-root>/<run-id>/` path for an ephemeral run.
 ///
 /// `<runs-root>` is the `AM_RUNS` env var if set, else
@@ -493,157 +343,12 @@ pub(crate) fn new_run_dir() -> Result<PathBuf> {
     debug!(dir = %run_dir.display(), "new ephemeral run dir");
     Ok(run_dir)
 }
-
-/// A harness stand-in for [`seed_zero_config_login`]'s tier-2 (ambient
-/// login) tests: a single `login_seed` file whose `src` name is unique
-/// enough that no real `$HOME` on the test machine could ever contain it, so
-/// tier 1's file copy always finds nothing and the test doesn't depend on —
-/// or need to mock — the process's real `HOME`.
-#[cfg(test)]
-#[derive(Debug, Clone)]
-struct AmbientDummyHarness {
-    ambient: Option<Source>,
-}
-
-#[cfg(test)]
-impl Harness for AmbientDummyHarness {
-    fn id(&self) -> crate::spec::HarnessId {
-        "ambient-dummy".to_string()
-    }
-    fn display_name(&self) -> &str {
-        "ambient dummy"
-    }
-    fn command(&self) -> &str {
-        "ambient-dummy"
-    }
-    fn aliases(&self) -> &[&str] {
-        &[]
-    }
-    fn io_support(&self) -> crate::harness::IoSupport {
-        crate::harness::IoSupport {
-            passthrough: false,
-            structured: false,
-            multi_turn: false,
-            acp: false,
-            quota: Default::default(),
-        }
-    }
-    fn config_anchor(&self) -> crate::harness::ConfigAnchor {
-        crate::harness::ConfigAnchor {
-            levers: Vec::new(),
-            login_seed: vec![
-                crate::harness::SeedFile::credential(
-                    "am-test-ambient-login-src-2f0c1e6a.json",
-                    "ambient-login-dst.json",
-                ),
-                // The identity companion, mirroring Claude's `.claude.json`:
-                // seeded alongside the credential but never a login by itself.
-                crate::harness::SeedFile::new(
-                    "am-test-ambient-identity-src-2f0c1e6a.json",
-                    "ambient-identity-dst.json",
-                ),
-            ],
-            requires_home_relocation: false,
-        }
-    }
-    fn ambient_login(&self) -> Option<Source> {
-        self.ambient.clone()
-    }
-    fn provision(&self, _spec: &RunSpec, _dir: &Path) -> Result<Launch> {
-        anyhow::bail!("ambient-dummy harness provision not implemented")
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::harness::Claude;
     use crate::spec::RunSpec;
     use std::path::PathBuf;
-
-    /// Tier 2: no file landed from `$HOME` (the seed `src` name is unique to
-    /// this test, so tier 1 finds nothing on any real machine) — the
-    /// harness's own `ambient_login()` gets seeded instead.
-    #[test]
-    fn seed_zero_config_login_falls_back_to_ambient_login_when_home_has_no_file() {
-        let config_dir = tempfile::TempDir::new().unwrap();
-        let spec = RunSpec::new("ambient-dummy".to_string(), PathBuf::from("."));
-        let harness = AmbientDummyHarness {
-            ambient: Some(Source::Files(vec![(
-                PathBuf::from("am-test-ambient-login-src-2f0c1e6a.json"),
-                b"AMBIENT-LOGIN".to_vec(),
-            )])),
-        };
-
-        seed_zero_config_login(&harness, &spec, config_dir.path()).unwrap();
-
-        let dst = config_dir.path().join("ambient-login-dst.json");
-        assert!(
-            dst.exists(),
-            "ambient login should be seeded when HOME has no file"
-        );
-        assert_eq!(std::fs::read(&dst).unwrap(), b"AMBIENT-LOGIN");
-    }
-
-    /// A login already materialized into `dir` (by an account home or a
-    /// profile overlay, run before this function) wins outright: the
-    /// harness's `ambient_login()` is never consulted, let alone allowed to
-    /// overwrite it.
-    #[test]
-    fn seed_zero_config_login_does_not_call_ambient_login_when_a_file_already_landed() {
-        let config_dir = tempfile::TempDir::new().unwrap();
-        std::fs::write(
-            config_dir.path().join("ambient-login-dst.json"),
-            b"REAL-LOGIN",
-        )
-        .unwrap();
-        let spec = RunSpec::new("ambient-dummy".to_string(), PathBuf::from("."));
-        let harness = AmbientDummyHarness {
-            ambient: Some(Source::Files(vec![(
-                PathBuf::from("am-test-ambient-login-src-2f0c1e6a.json"),
-                b"AMBIENT-LOGIN".to_vec(),
-            )])),
-        };
-
-        seed_zero_config_login(&harness, &spec, config_dir.path()).unwrap();
-
-        let dst = config_dir.path().join("ambient-login-dst.json");
-        assert_eq!(
-            std::fs::read(&dst).unwrap(),
-            b"REAL-LOGIN",
-            "a pre-existing file must not be overwritten by ambient_login"
-        );
-    }
-
-    /// The regression: only the login's *identity companion* landed (tier 1
-    /// copied `~/.claude.json`, because the credential itself lives in the
-    /// macOS Keychain and no `~/.claude/.credentials.json` exists). That is
-    /// not a login, so tier 2 must still be consulted.
-    #[test]
-    fn seed_zero_config_login_still_asks_ambient_when_only_the_identity_landed() {
-        let config_dir = tempfile::TempDir::new().unwrap();
-        std::fs::write(
-            config_dir.path().join("ambient-identity-dst.json"),
-            b"IDENTITY-ONLY",
-        )
-        .unwrap();
-        let spec = RunSpec::new("ambient-dummy".to_string(), PathBuf::from("."));
-        let harness = AmbientDummyHarness {
-            ambient: Some(Source::Files(vec![(
-                PathBuf::from("am-test-ambient-login-src-2f0c1e6a.json"),
-                b"AMBIENT-LOGIN".to_vec(),
-            )])),
-        };
-
-        seed_zero_config_login(&harness, &spec, config_dir.path()).unwrap();
-
-        let dst = config_dir.path().join("ambient-login-dst.json");
-        assert_eq!(
-            std::fs::read(&dst).unwrap(),
-            b"AMBIENT-LOGIN",
-            "an identity companion must not stand in for the credential"
-        );
-    }
 
     #[test]
     fn fixed_strategy_uses_the_given_dir_and_is_not_ephemeral() {
@@ -692,19 +397,12 @@ mod tests {
     }
 
     /// `D193`: a shared home takes the templates and the trust entry and nothing else — no
-    /// per-run file, and no login seeded from an account, whatever the spec names.
+    /// per-run file.
     #[test]
     fn home_strategy_writes_only_templates_and_trust_into_a_new_home() {
         let root = tempfile::TempDir::new().unwrap();
         let home = root.path().join("home");
         let scratch = root.path().join("scratch");
-        let account_home = tempfile::TempDir::new().unwrap();
-        std::fs::create_dir_all(account_home.path().join(".claude")).unwrap();
-        std::fs::write(
-            account_home.path().join(".claude/.credentials.json"),
-            r#"{"claudeAiOauth":{"accessToken":"tok"}}"#,
-        )
-        .unwrap();
 
         let mut spec = home_spec(&home, &scratch, "/tmp/project");
         spec.mcps.push(http_mcp("docs", "https://example.com/mcp/"));
@@ -718,7 +416,6 @@ mod tests {
         });
         spec.account = Some(crate::account::Account {
             id: "acct".to_string(),
-            home: Some(account_home.path().to_path_buf()),
             ..Default::default()
         });
 
@@ -729,7 +426,6 @@ mod tests {
         assert_eq!(provisioned.dir, scratch);
         assert_eq!(provisioned.home.as_deref(), Some(home.as_path()));
         assert!(!provisioned.ephemeral, "no cleanup path may reach the home");
-        assert!(provisioned.login_origin.is_none());
         assert_eq!(
             names_in(&home),
             vec![
@@ -823,13 +519,6 @@ mod tests {
     fn native_strategy_writes_nothing_outside_scratch_and_names_no_config_dir() {
         let root = tempfile::TempDir::new().unwrap();
         let scratch = root.path().join("scratch");
-        let account_home = tempfile::TempDir::new().unwrap();
-        std::fs::create_dir_all(account_home.path().join(".claude")).unwrap();
-        std::fs::write(
-            account_home.path().join(".claude/.credentials.json"),
-            r#"{"claudeAiOauth":{"accessToken":"tok"}}"#,
-        )
-        .unwrap();
         let mut spec = RunSpec::new("claude-code".to_string(), PathBuf::from("/tmp/project"));
         spec.config = ConfigStrategy::Native {
             scratch: scratch.clone(),
@@ -841,7 +530,6 @@ mod tests {
         });
         spec.account = Some(crate::account::Account {
             id: "acct".to_string(),
-            home: Some(account_home.path().to_path_buf()),
             ..Default::default()
         });
 
@@ -851,7 +539,6 @@ mod tests {
 
         assert_eq!(provisioned.dir, scratch);
         assert!(provisioned.home.is_none());
-        assert!(provisioned.login_origin.is_none());
         assert_eq!(names_in(root.path()), vec!["scratch"]);
         assert_eq!(names_in(&scratch), vec!["mcp.json", "settings.json"]);
         assert!(names_in(tmpl_dir.path()).is_empty(), "no template was read");

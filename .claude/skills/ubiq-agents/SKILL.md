@@ -72,8 +72,8 @@ and overrides exactly **four** fields of what comes back — the configuration s
 `D193`: a harness that `shares_home` runs `Home` on the definition's own home, or `Native` on the
 user's own config with no definition, confined or not — a confined one is granted that home through
 `IsolateOptions::grant_config_home`; only a non-sharing harness keeps `Fixed` on the run directory,
-and no built-in one is such — a `Home`/`Native` run is never seeded, synced, harvested or
-scrubbed, and a definition signs its home in through `BeginHarnessLogin { definition }`), the I/O
+and no built-in one is such — no run is seeded with a login, and a definition signs its home in
+through `BeginHarnessLogin { definition }`), the I/O
 mode, the isolation, and, when a run is isolated, the permission mode: the sandbox contains it, so
 it asks nothing, and `Harness::unattended_mode` is the library's word for which mode that is (an
 explicit mode picked for the run outranks it; a profile's does not). Everything else (account, model, skills, MCP servers, config overlays) is

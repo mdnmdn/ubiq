@@ -75,29 +75,9 @@ explaining why (e.g. Gemini CLI has no per-agent memory above `AGENTS.md`).
     troubleshooting at the end of the section.
 
     This section **must end** with a mandatory H3 subsection
-    `### Credential capture & reuse (agent-manager)` documenting how
-    `am account capture` (snapshot the live login) and `am account login`
-    (authenticate into a throwaway config dir, then snapshot) reproduce this
-    harness's subscription/login in an ephemeral run. It is `am`-specific
-    (like §15 Renderer notes) and records **structure and non-secret metadata
-    only — never token values**. Cover, as a bullet list, in this order:
-    - **Bundle files** — the minimal set of credential files to snapshot to
-      reproduce the login (mark each required / optional).
-    - **Relocation lever** — the env var that moves the whole credential tree
-      to a throwaway dir (`CODEX_HOME`, `XDG_DATA_HOME`, `HOME`, …).
-    - **Force file storage (skip keychain)** — the config key / env var that
-      forces a file backend instead of the OS keychain (critical under the
-      isol8/iter8 sandbox where the keychain is unavailable), or "always file",
-      or "none" with the fallback behavior spelled out.
-    - **Default backend / observed** — the documented per-OS default and what
-      the live disk on a real machine actually does (trust disk; note conflicts).
-    - **Login command (fresh-auth-into-temp)** — the exact command(s) to
-      authenticate into the relocated dir, plus any headless/device-code path.
-    - **Extractable metadata (non-secret)** — a compact table of
-      `field | source | identifies` for user id / email / plan-tier / auth type
-      / token expiry, with all secret values redacted.
-    - **Do not copy** — session/telemetry/machine-bound files that must be
-      excluded from the snapshot.
+    `### Credential capture & reuse (agent-manager)` saying, in one line, that
+    `am` captures and copies no login: the harness keeps it in a profile's own
+    config home (`D193`).
 11. **Permissions** — locations, rule syntax, the actions or decisions
     the harness supports (`allow` / `deny` / `ask`, or whatever the
     harness calls them), evaluation order, and any sandbox or approval

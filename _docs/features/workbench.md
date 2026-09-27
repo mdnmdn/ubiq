@@ -890,8 +890,8 @@ explorer** (whether a
 single click opens a preview tab, and the two folders a clone lands in — the default project folder
 and the ephemeral folder, each with a chooser and a clear button, and each showing the host's own
 default as a placeholder rather than a path the interface invented), **Editor** (whether a new markdown file opens in preview or
-source), **Harnesses** (the accounts
-registered here, and an `Add harness` above them), **Agent definitions** (the saved setups, with
+source), **Harnesses** (every harness the
+host offers, with its command, then the accounts registered here), **Agent definitions** (the saved setups, with
 `Add agent` above them), **Isolation** (whether an
 agent is confined, whose home it runs in, and the directories it may reach beyond its policy),
 **Search** (what every project's search skips, and what a project is indexed to), **Connectors**
@@ -937,92 +937,42 @@ something that no longer exists. Nothing here imports or exports a theme file, f
 appearance, or is per project — a theme is a property of the person, like every other appearance
 value (`D151`, `D152`).
 
-**An account is a home, drawn as one block per identity, with a harness line under it for each
-one it can start.** That is the whole of what the interface knows about an identity: no
-credential and no path reaches it, because neither crosses the bus. A block with an empty
-harness list says "not signed in" rather than nothing at all — an account can reference an
-environment variable instead of a captured session, and the two are different answers. The list
-is asked for on every open, so an account signed in from elsewhere appears without a restart.
+**The Harnesses section lists every harness the host offers, then the accounts.** One row per
+harness — its display name, drawn faint when its binary is not on this machine, a **Command** button
+and, for a harness that speaks ACP, the icon that opens what it said it can do. A harness login is
+not here: it belongs to an agent definition, which signs itself in (`D193`, below).
 
-A block's header carries the account id and two icon actions — **Rename** and **Delete** — that
-act on the identity as a whole, because renaming or deleting an account renames or deletes every
-harness signed in there with it: an account is a home, not a per-harness reference. Each harness
-line under it carries the harness's own display name (resolved through what the host offers for
-that harness, falling back to the raw id when it no longer lists one), its last-checked status,
-and three actions that act on that one login alone: **Check** asks the host whether the stored
-credential still works and updates the status line in place, with no modal; **Re-authenticate**
-runs an ordinary login against the harness's own flow, exactly as a first sign-in does, and does
-not pre-empt what the harness says — it may well answer that the identity is already signed in,
-and the user reads that in the terminal and decides; **Sign out** removes just that harness's
-credential, leaving the account and its other harnesses untouched. Deleting the account is the one
-action with nothing left behind afterward, which is why the confirmation says so and why the word
-is "Delete" rather than "Forget".
+**Command opens the login modal on its one question: the command Ubiq starts that harness with.**
+The picker lists every harness, installed or not, because an override is what makes an absent one
+startable — a row for a harness whose binary this machine lacks draws faint but stays pickable. A
+**Custom command** ghost toggle shows a text field pre-filled with whatever override this machine
+already holds for that harness (placeholder-only when there is none, showing what the library would
+otherwise run) and a **Check** button beside it that asks the host to try the typed command and
+answers with one line, shown under the field, without saving anything. The value is committed —
+folded into the settings the interface holds, and `ListAgentTypes` re-asked so every row's
+availability reflects it — when the field is closed and when **Save** is pressed; an emptied field
+removes the override.
 
-A status line reads `valid · expires in 3 days`, `expired 2 days ago`, `signed in · no expiry
-recorded` for a credential with no embedded expiry, or `no credential stored` for one the host
-found nothing for — an expired credential's line is drawn in the danger colour, everything else
-muted. No entry is drawn until a check has answered, rather than guessing. A refusal from any of
-these actions — a rename to a name already taken, a delete or sign-out the host would not do — is
-not a dialog of its own: it surfaces as a dismissible banner over the harnesses section, in the
-same warning shape a project's own row confirmations use, and clears itself the next time the user
-opens a dialog, starts a login, or dismisses it by hand.
+**An account is drawn as one block per identity: its name, and Rename and Delete.** An account is a
+set of credential references — environment-variable names, a base URL, a key helper — written as a
+file; no credential and no path reaches the interface, because neither crosses the bus. The list is
+asked for on every open, so an account written elsewhere appears without a restart. Deleting is the
+one action with nothing left behind afterward, which is why the confirmation says so and why the
+word is "Delete" rather than "Forget". A refusal — a rename to a name already taken, a delete the
+host would not do — is not a dialog of its own: it surfaces as a dismissible banner over the
+section, in the same warning shape a project's own row confirmations use, and clears itself the
+next time the user opens a dialog, starts a sign-in, or dismisses it by hand.
 
-**Under each harness line sits how much of that plan is left.** One row per window the provider
-states — its own label, a meter, the reading, and when it resets — then the plan, how old the
-reading is, and a Refresh. This is the surface that answers when nothing is running, which is the
-moment the question is actually asked, so it is filled by asking the host for every login on the
-page when settings opens; Refresh is the one control that makes the provider be asked again, because
-the endpoint behind Claude's is unofficial and rate-limits.
-
-**Every negative answer is drawn in place rather than hidden**, because an absent readout reads as a
-missing feature and for most harnesses this is a permanent fact about the provider instead. A
-harness whose provider publishes no queryable limit says so in one sentence. A provider that
-answered and named no limit says that, which is a different sentence. A failure is drawn as the
-sentence the host sent, since it is written to be read — "Claude is rate-limiting the usage
-endpoint" is not the same news as "this harness does not report usage limits". A reading with no
-denominator anybody stated — a count against no ceiling, a credit balance — draws the figure and
-**no meter**, on the rule the Control screen already keeps: a meter needs a denominator, and a
-fraction of an invented total is drawn with more confidence than the number behind it deserves.
-Meters take their colour from the same `theme::usage_tone` thresholds the conversation footer's ring
-does, so the two surfaces cannot disagree about where "nearly out" begins.
-
-**Signing in is a modal with a real terminal in it, because the harness runs its own login.** Add
-harness asks two things — which harness, and what to call the identity — and then the harness's own
-flow runs in a pane inside the modal, browser round-trip included. That running step alone draws
-in a wider, taller surface than the rest of the flow — some harnesses' logins are full-screen TUIs,
-not a line-based prompt, and need real room to redraw correctly; the picker and the brief
-Signing-in step in between stay at the ordinary modal size, because they are just a question. The
-shape itself is `tech/ui-and-design.md`'s to state. Between asking and the harness
-actually answering, the modal shows a **Signing in** step with nothing to interact with but Cancel
-— the same step a re-authentication starts on directly, skipping the picker because both the
-harness and the identity are already known. A modal rather than a tab on purpose: an OAuth flow
-wants the whole of the user's attention for the half-minute it takes, and a login that scrolled
-away behind a pane is a login nobody finishes. Abort is always available and always safe — a flow
-that wrote no credential captured nothing, and the host says so rather than recording a half-made
-account, so starting again is free.
-
-**The picker lists every harness, installed or not, because an override is what makes an absent one
-startable.** A row for a harness whose binary this machine lacks draws faint but stays pickable,
-the way an absent harness reads elsewhere in this settings page, rather than being withheld the way
-the new-agent menu withholds one. Picking a harness reveals a **Custom command** ghost toggle; open,
-it shows a text field pre-filled with whatever override this machine already holds for that harness
-(placeholder-only when there is none, showing what the library would otherwise run) and a **Check**
-button beside it that asks the host to try the typed command and answers with one line, shown under
-the field, without saving anything. The value is committed — folded into the settings the interface
-holds, and `ListAgentTypes` re-asked so every row's availability reflects it — when the field is
-closed and again when **Sign in** or **Shell** is pressed; an emptied field removes the override.
-
-**A `Shell` button beside `Sign in` runs a plain shell under the login's own sandbox, and signs
-nobody in.** Same harness and identity picker, but the pane it opens runs the user's shell rather
-than the harness — under byte-for-byte the same policy the harness's login would get, computed the
-same way, from the harness's own program rather than the shell. This exists so a human can
-empirically check what that sandbox actually permits (`which node`, `ls ~/.local/share/mise`, …)
-instead of only reasoning about it — a real Codex login failure inside the sandbox is what this
-diagnostic was built to let someone see for themselves. Its button wears the ghost treatment
-rather than the primary one, with a tooltip saying so, and the running/starting/done steps say
-"shell" rather than "signing in" while a probe is up. A probe never writes a credential, never
-records an account, and its pane's close is read entirely from the ordinary `PaneExited` a real
-login also gets — the host answers a probe with nothing else at all.
+**Signing in is a modal with a real terminal in it, because the harness runs its own login.** The
+harness's own flow runs in a pane inside the modal, browser round-trip included. That running step
+alone draws in a wider, taller surface than the rest of the flow — some harnesses' logins are
+full-screen TUIs, not a line-based prompt, and need real room to redraw correctly; the command
+editor and the brief Signing-in step before the pane answers stay at the ordinary modal size,
+because they are just a question. The shape itself is `tech/ui-and-design.md`'s to state. A modal
+rather than a tab on purpose: an OAuth flow wants the whole of the user's attention for the
+half-minute it takes, and a login that scrolled away behind a pane is a login nobody finishes.
+Abort is always available and always safe — the host reads a closed pane as a sign-in that did not
+finish, so starting again is free.
 
 The host scans the login pane's own output for a URL and offers each one as a row below the
 terminal — a button carrying the URL itself (truncated so a long one cannot widen the modal, the
@@ -1035,8 +985,8 @@ The login modal is painted from the window root rather than from the settings pa
 for the reason every overlay there is: a login outlives the page. Closing settings mid-flow must
 not take the harness's sign-in with it. Its pane belongs to no project and gets no dock panel — the
 modal is the only thing that draws it, which is also what keeps one emulator from being rendered in
-two places at once. The rename, delete and sign-out questions are painted the same way, over
-whatever raised them, for the same reason.
+two places at once. The rename and delete questions are painted the same way, over whatever raised
+them, for the same reason.
 
 **Agent definitions is its own section, and it is where a conversation's setup gets a name.** A
 harness is a tool this machine has and a definition is a recipe written against one; the two lists
@@ -1059,12 +1009,31 @@ means saving over its id, and typing a different name saves a second agent defin
 
 **A definition whose harness keeps its login in the definition's own home signs itself in.** For
 a harness whose `AgentTypeInfo::shares_home` is true — Claude Code — and installed here, the row
-carries `Sign in` before `Clone`: it raises the same login modal an account's sign-in uses, and
-the harness's own login runs straight into that definition's home (`D193`), where every run of the
-definition reads it and the harness refreshes it. Nothing is captured and no account appears; the
-modal says the definition is signed in when the login exits cleanly, and not signed in otherwise.
-It is the explicit route — the definition's first terminal run shows the harness's own login and
-lands in the same home. A project's own definition signs in its project-scoped home.
+carries `Sign in` before `Clone`: it raises the login modal, and the harness's own login runs
+straight into that definition's home (`D193`), where every run of the definition reads it and the
+harness refreshes it. Nothing is captured and no account appears; the modal says the definition is
+signed in when the login exits cleanly, and not signed in otherwise. It is the explicit route — the
+definition's first terminal run shows the harness's own login and lands in the same home. A
+project's own definition signs in its project-scoped home.
+
+**Under each definition whose provider states a limit sits how much of that login's plan is
+left.** One row per window the provider states — its own label, a meter, the reading, and when it
+resets — then the plan, how old the reading is, and a Refresh. It is keyed by the harness and the
+account the definition names, empty for none, and read from the login the harness keeps in that
+definition's home (`G380`). This is the surface that answers when nothing is running, which is the
+moment the question is actually asked, so it is filled by asking the host for every definition on
+the page when the definitions arrive; Refresh is the one control that makes the provider be asked
+again, because the endpoint behind Claude's is unofficial and rate-limits.
+
+**Every negative answer is drawn in place rather than hidden.** A provider that answered and named
+no limit says so. A failure is drawn as the sentence the host sent, since it is written to be read —
+"Claude is rate-limiting the usage endpoint" is not the same news as "this harness does not report
+usage limits". A reading with no denominator anybody stated — a count against no ceiling, a credit
+balance — draws the figure and **no meter**, on the rule the Control screen already keeps: a meter
+needs a denominator, and a fraction of an invented total is drawn with more confidence than the
+number behind it deserves. Meters take their colour from the same `theme::usage_tone` thresholds
+the conversation footer's ring does, so the two surfaces cannot disagree about where "nearly out"
+begins.
 
 **`Clone` names the copy itself.** The host refuses a clone onto a name already taken — a clone
 never overwrites a saved setup — so the interface sends `CloneAgentDefinition` with the first free

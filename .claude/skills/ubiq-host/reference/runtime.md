@@ -52,8 +52,8 @@ Focus ─────────► owns() ──► focused.insert(client, pan
 
 CloseWorkspace ─► owns() ──► owners.remove, panes.remove + kill, focused clear, pane_gone
 PaneExited ─────► (the UI closes the tab, which sends CloseWorkspace)
-pane_gone ──────► agents.retire(pane_id)   the run directory, credentials seeded into it included
-                  login_gone(client, pane)  the only moment "did this login capture anything" exists
+pane_gone ──────► agents.retire(pane_id)   the run directory
+                  login_gone(client, pane)  the only moment "did this sign-in work" exists
                   projects.pane_closed      the picker's count
 ```
 

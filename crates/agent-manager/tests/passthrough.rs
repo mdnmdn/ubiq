@@ -33,7 +33,6 @@ fn provisioned(dir: PathBuf, launch: Launch, ephemeral: bool) -> Provisioned {
         launch,
         ephemeral,
         home: None,
-        login_origin: None,
         resume: None,
         model: None,
         mcp_servers: Vec::new(),
@@ -130,14 +129,7 @@ fn ephemeral_dir_is_removed_after_a_run() {
     let provisioned = provisioned(dir.clone(), base_launch(), true);
 
     let cwd = std::env::current_dir().unwrap();
-    let code = run(
-        &agent_manager::harness::Claude::new(),
-        &provisioned,
-        &cwd,
-        false,
-        None,
-    )
-    .expect("run");
+    let code = run(&provisioned, &cwd, false, None).expect("run");
     assert_eq!(code, 0);
     assert!(!dir.exists(), "ephemeral dir should have been removed");
 }
@@ -150,14 +142,7 @@ fn keep_config_preserves_the_ephemeral_dir() {
     let provisioned = provisioned(dir.clone(), base_launch(), true);
 
     let cwd = std::env::current_dir().unwrap();
-    let code = run(
-        &agent_manager::harness::Claude::new(),
-        &provisioned,
-        &cwd,
-        true,
-        None,
-    )
-    .expect("run");
+    let code = run(&provisioned, &cwd, true, None).expect("run");
     assert_eq!(code, 0);
     assert!(dir.exists(), "keep_config should have preserved the dir");
 
@@ -172,14 +157,7 @@ fn pinned_dir_is_never_removed() {
     let provisioned = provisioned(dir.clone(), base_launch(), false);
 
     let cwd = std::env::current_dir().unwrap();
-    let code = run(
-        &agent_manager::harness::Claude::new(),
-        &provisioned,
-        &cwd,
-        false,
-        None,
-    )
-    .expect("run");
+    let code = run(&provisioned, &cwd, false, None).expect("run");
     assert_eq!(code, 0);
     assert!(dir.exists(), "a pinned (non-ephemeral) dir must survive");
 

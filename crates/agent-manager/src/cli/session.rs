@@ -327,7 +327,6 @@ mod tests {
             finished_at: Some(1),
             exit_code: Some(0),
             harness_session_id: Some("harness-abc".to_string()),
-            login_home: None,
             config: None,
         }
     }

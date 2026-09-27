@@ -117,13 +117,12 @@ pub(super) fn run(args: &[String]) -> Result<()> {
 fn cmd_login(name: &str, harness_key: Option<&str>) -> Result<()> {
     let store = build_store();
     let templates = crate::harness::FsTemplateStore::from_default();
-    let (harness, home, launch) = login_plan(store.as_ref(), name, harness_key, &templates)?;
+    let (_, home, launch) = login_plan(store.as_ref(), name, harness_key, &templates)?;
     let provisioned = crate::provision::Provisioned {
         dir: home.clone(),
         launch,
         ephemeral: false, // the profile's home — never removed
         home: Some(home.clone()),
-        login_origin: None,
         resume: None,
         model: None,
         mcp_servers: Vec::new(),
@@ -131,7 +130,7 @@ fn cmd_login(name: &str, harness_key: Option<&str>) -> Result<()> {
         inproc_servers: Vec::new(),
     };
     let cwd = std::env::current_dir()?;
-    let code = crate::run::run(harness.as_ref(), &provisioned, &cwd, true, None)?;
+    let code = crate::run::run(&provisioned, &cwd, true, None)?;
     if code != 0 {
         bail!("harness login exited with code {code}");
     }

@@ -61,62 +61,9 @@ unbuilt, and the stepping stone is easy to mistake for the finished feature.
 
 ---
 
-## 2. Credential login-capture — follow-ups
+## 2. Credential login-capture — dropped
 
-The `am account login <id> --harness <h>` flow is implemented (contract +
-command + all four harness `login()` impls + reuse). Remaining:
-
-- **Two-tier gap (now documented, not unified).** This crate has two physically
-  separate credential trees: `AccountStore`/`FsAccountStore` (`<root>/<id>/`, a
-  per-account HOME each harness writes its own files into — what `am account
-  login` and the Ubiq embedder's `capture_login` actually use) and
-  `SecretStore`/`FileSecretStore` (`<root>/<name>/<harness>/<rel_path>` — what
-  `am account rename|delete|check` operate on). An account created by `am
-  account login` therefore couldn't be renamed, deleted, or checked by anything
-  in this crate. `AccountStore` now has its own `rename_account`/
-  `delete_account`/`sign_out`/`login_validity` (see `account.rs`,
-  `_docs/am-as-library.md` §5) so an embedder can offer those operations on the
-  tier the login flow actually writes — but the two tiers are still separate
-  storage, and the CLI's `account rename|delete|check` still only see the
-  `SecretStore` tier. Unifying them (one storage model, or a bridge that keeps
-  both in sync) remains open.
-- **`login_validity` / `effective_harnesses` / `has_capture` triplication.**
-  Three call sites now compute essentially the same "is there a login here"
-  fact, independently: `account::login_validity` (this change, `AccountStore`
-  tier, full `Validity`), `cli::account::effective_harnesses`
-  (`cli/account/mod.rs`, `AccountStore` tier, boolean-only, predates this
-  change and wasn't refactored onto `login_validity` to keep this change's
-  diff scoped to library API), and `ubiq-host`'s `Agents::has_capture`
-  (`crates/ubiq-host/src/agent.rs`, boolean-only, outside this crate). All
-  three read the same `ConfigAnchor::login_seed` files off an account home.
-  Worth collapsing onto `login_validity` (== `Validity::Empty` for the boolean
-  case) in a follow-up that touches both crates.
-- **Metadata extraction (the documented "plus") is not built.** `Account.captured:
-  BTreeMap<String,String>` exists but is never populated. The per-harness
-  "Extractable metadata" tables in `_docs/harness/<h>.md` list the non-secret
-  fields to parse (auth type, plan tier, redacted identity, expiry). Implement a
-  per-harness parse of the *captured* credential file into `captured`, **redacting
-  identifying fields** (email, account uuid) per those tables. Never store token
-  values.
-- **Login argv unverified for opencode & grok.** The dev sandbox has no
-  `opencode` binary, so `opencode auth login` is transcribed-from-docs, not run.
-  grok 1.0.13 is installed and its ACP path is captured, but it has no login verb
-  at all — a captured `~/.grok/auth.json` is the whole account story — so its
-  bare-run OAuth is equally unrun. Verify on a real machine.
-- **Codex headless flag doc drift.** `_docs/harness/codex.md` says `codex login
-  --device-code`; the installed codex-cli 0.142.5 actually uses `--device-auth`
-  (flagged in a `codex.rs` code comment). Fix the doc, and decide whether
-  `cmd_login` should offer a `--device`/headless mode for sandboxed (no-browser)
-  logins.
-- **grok reuse tradeoff.** To make captured grok creds reusable, `Grok::provision`
-  now honors `account.home` (HOME → the account home), which **co-locates per-run
-  injected config with the persistent creds** (user-settings rewritten each run,
-  skills accumulate in the home). Confirm this is acceptable or scope injected
-  config into a subdir / clean it per run.
-- **Codex config.toml clobber on reuse.** Reuse re-provisions `config.toml` into
-  `CODEX_HOME = account.home`, overwriting the login-time
-  `cli_auth_credentials_store="file"` (and any other keys). `auth.json` reuse is
-  unaffected, but verify nothing else important is lost.
+Capture is gone: a login lives in a profile's own config home (`D193`).
 
 ---
 
@@ -162,12 +109,8 @@ catalog, sessions, runs), each with its own env override
 
 ---
 
-## 6. Account model / import
+## 6. Account model
 
-- **`import --write` merges by skip, not by field.** It's now idempotent (never
-  appends a duplicate id — `partition_new`), but it only *adds new* ids; it does
-  not update an existing account whose references changed. Consider a structured
-  TOML merge if that's wanted.
 - **opencode account is provider-agnostic-by-blast.** `Opencode::provision` sets
   **both** `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` from one env ref, and
   `base_url`→provider config is a `TODO`. Make it provider-aware.
@@ -190,15 +133,9 @@ catalog, sessions, runs), each with its own env override
 
 ---
 
-## 9. OAuth token refresh in the copy-on-use approach ✅
+## 9. OAuth token refresh — dropped
 
-**What exists today.** At launch a captured login is **copied** from the persistent account/profile base into the ephemeral run dir (`harness::seed_login` in `src/harness/mod.rs`; the non-credential profile config overlay is symlinked-else-copied by `overlay::materialize`, but credential files are always copied because the harness rewrites them in place). At teardown a credential the run **changed** is copied back: `harness::harvest_login` is the mirror of `seed_login`, called from `run::cleanup` before the run dir goes (and from `Agents::archive` in `crates/ubiq-host/src/agent.rs`, which is where Ubiq's per-pane run dirs go).
-
-Only files marked `SeedFile::credential` are written back — the identity/onboarding companions a login also seeds (Claude's `.claude.json`) are not, because a run rewrites those with its own project history. The origin is whatever `Source` the login was seeded from, recorded on `provision::Provisioned::login_origin`: a `Source::Dir` is written in place (`0600` on unix), and anything else goes to `Harness::adopt_login`, whose only implementation today is Claude Code writing the macOS Keychain back through `account::write_claude_keychain_credentials`. A write-back that fails is a `tracing::warn!`, never an error — a run must not break at teardown.
-
-**Why it mattered.** An OAuth refresh **rotates** the refresh token, so the copy the run left behind was the only live credential and the original it came from was already revoked: discarding the run dir logged the user out everywhere.
-
-**What is still open.** The harvest happens at teardown, so a token rotated mid-run is lost if the process is killed. A watcher on the credential file, writing back as it changes, is the upgrade path (both call sites carry a `ponytail:` note saying so).
+Nothing is copied or written back: the harness refreshes its login in a profile's own home (`D193`).
 
 ---
 

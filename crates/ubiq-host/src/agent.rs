@@ -15,10 +15,8 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use agent_manager::Validity;
-use agent_manager::account::{AccountStore, FsAccountStore, login_validity};
+use agent_manager::account::{AccountStore, FsAccountStore};
 use agent_manager::config::{McpServer, McpTransport};
-use agent_manager::credentials::login_digest;
 use agent_manager::harness::{self, Launch, ModelInfo};
 use agent_manager::io::IoBridge;
 use agent_manager::isolate::{self, Confined, IsolateOptions};
@@ -30,12 +28,11 @@ use agent_manager::registry::FsRegistry;
 use agent_manager::resolve;
 use agent_manager::session;
 use agent_manager::settings::Settings;
-use agent_manager::source::Source;
 use agent_manager::spec::{ConfigStrategy, IoModes, Isolation, McpRef, Policy};
 use anyhow::{Context, Result, anyhow, bail};
 use ubiq_proto::conversation::ConfigChoice;
 use ubiq_proto::ids::{PaneId, ProjectId};
-use ubiq_proto::messages::{AccountInfo, AgentDefinition, AgentTypeInfo, LoginStatus};
+use ubiq_proto::messages::{AccountInfo, AgentDefinition, AgentTypeInfo};
 use ubiq_proto::settings::{AgentHome, Grant};
 use ubiq_proto::work::AgentId;
 
@@ -157,10 +154,6 @@ pub struct Composed {
     provisioned: provision::Provisioned,
     /// The id of the account this run resolved to, when a definition named one.
     spec_account: Option<String>,
-    /// Whether the harness runs from a config home it owns — the definition's, or with no
-    /// definition the user's own (`D193`) — so its login is the harness's own, never seeded into
-    /// `dir`.
-    owns_login: bool,
     /// A stale catalog reference (an mcp id, a skill id, an account id, a hook id) that the
     /// definition or the run's flags named and `resolve` could not find — dropped from the spec
     /// rather than failing this run. See [`agent_manager::spec::RunSpec::problems`]. Reported by
@@ -214,48 +207,32 @@ pub struct ConverseOptions {
     pub mcps: Vec<String>,
 }
 
-/// A login that has been prepared and not yet finished: what to run, and what finishing it
-/// would mean.
+/// A sign-in into an agent definition's config home (`D193`) that has been prepared and not yet
+/// finished: what to run, and which definition it is for.
 ///
-/// Held by the coordinator against the pane it opened, because the answer to "did this log
-/// anyone in" is only available once that pane's process has exited.
+/// Held by the coordinator against the pane it opened, because the answer to "did this sign
+/// anyone in" is how that pane's process exits.
 pub struct PendingLogin {
-    /// The account this login is for.
-    pub account: String,
-    /// The harness being logged in, for the message that reports the outcome.
+    /// The harness being signed in, for the message that reports the outcome.
     pub agent_type: String,
-    /// The account's capture home: the login's `$HOME`, and where its credential lands.
+    /// The agent definition whose config home this login signs in.
+    pub definition: String,
+    /// That home: where the login runs and where the harness keeps it.
     home: PathBuf,
-    /// The credential files the harness said it would write, relative to `home`. The first
-    /// is required; the rest are metadata.
-    files: Vec<PathBuf>,
-    /// When the required credential was last written before the login ran, so a harness
-    /// that exits without refreshing it cannot pass for a success.
-    captured_before: Option<std::time::SystemTime>,
-    /// The confined launch to spawn under a pseudo-terminal.
+    /// The launch to spawn under a pseudo-terminal, confined when runs are.
     launch: Launch,
-    /// A plain shell running under this login's policy, standing in for the harness — asked
-    /// for empirically inspecting the sandbox rather than signing anyone in. A probe pane's
-    /// exit must never be read as a login outcome; that is `coordinator::Coordinator::
-    /// login_gone`'s branch on this flag.
-    pub probe: bool,
-    /// The agent definition whose config home this login signs in (`D193`), instead of an
-    /// account: `home` is that home, nothing is captured, and the outcome is
-    /// [`Self::exit_code`].
-    pub definition: Option<String>,
     /// The login process's exit code, written by the pane's reaper before the window hears the
     /// pane ended — so it is there by the time the pane is closed and the outcome is read.
     exit: std::sync::Arc<std::sync::OnceLock<i32>>,
 }
 
 impl PendingLogin {
-    /// What to spawn. A login is an ordinary process to Ubiq — the policy that makes it
-    /// capturable is already rendered into this launch.
+    /// What to spawn.
     pub fn launch(&self) -> &Launch {
         &self.launch
     }
 
-    /// Where the login runs, which is also the only directory it may write.
+    /// Where the login runs.
     pub fn home(&self) -> &Path {
         &self.home
     }
@@ -271,34 +248,8 @@ impl PendingLogin {
         self.exit.get().copied()
     }
 
-    /// A fixture `PendingLogin`, for `coordinator`'s own tests of `login_gone` — which needs one
-    /// parked in `Coordinator::logins` without going through `begin_login`'s real isolation
-    /// stack (that needs a harness binary this crate's tests must not depend on having
-    /// installed).
-    #[cfg(test)]
-    pub(crate) fn for_test(
-        account: impl Into<String>,
-        agent_type: impl Into<String>,
-        home: PathBuf,
-        files: Vec<PathBuf>,
-        captured_before: Option<std::time::SystemTime>,
-        probe: bool,
-    ) -> Self {
-        Self {
-            account: account.into(),
-            agent_type: agent_type.into(),
-            home,
-            files,
-            captured_before,
-            launch: Launch::default(),
-            probe,
-            definition: None,
-            exit: Default::default(),
-        }
-    }
-
     /// A fixture sign-in into `definition`'s home that exited with `code` (`None`: still
-    /// running when its pane closed), for the same tests.
+    /// running when its pane closed), for `coordinator`'s own tests of `login_gone`.
     #[cfg(test)]
     pub(crate) fn for_home_test(
         agent_type: impl Into<String>,
@@ -306,8 +257,11 @@ impl PendingLogin {
         code: Option<i32>,
     ) -> Self {
         let pending = Self {
-            definition: Some(definition.into()),
-            ..Self::for_test("", agent_type, PathBuf::new(), Vec::new(), None, false)
+            agent_type: agent_type.into(),
+            definition: definition.into(),
+            home: PathBuf::new(),
+            launch: Launch::default(),
+            exit: Default::default(),
         };
         if let Some(code) = code {
             let _ = pending.exit.set(code);
@@ -514,7 +468,7 @@ impl Agents {
     /// The account store, over Ubiq's own root.
     ///
     /// Built per call rather than held, because it is a path wrapper and holding it would
-    /// mean a login captured by another process stayed invisible until a restart.
+    /// mean an account written by another process stayed invisible until a restart.
     fn account_store(&self) -> FsAccountStore {
         FsAccountStore::new(self.root.join("accounts"))
     }
@@ -540,37 +494,16 @@ impl Agents {
         quota_of(&self.root, account, agent_type)
     }
 
-    /// Every account Ubiq knows, each with the harnesses it can actually log in.
-    ///
-    /// Which harnesses an account serves is *derived*, not recorded: an account is a home,
-    /// and a harness is logged in there when the files its own `login_seed` names are
-    /// present. So one account can serve several harnesses without saying so anywhere, and
-    /// a capture that half-failed reports the harness it did not cover.
+    /// Every account Ubiq knows. An account is a set of credential references; a harness login
+    /// is not one of them — it lives in a definition's home (`D193`).
     pub fn accounts(&self) -> Result<Vec<AccountInfo>> {
-        let store = self.account_store();
-        let harnesses = harness::all();
-
-        store
+        Ok(self
+            .account_store()
             .accounts()
             .context("reading the accounts Ubiq knows")?
             .into_iter()
-            .map(|account| {
-                let logged_in = match &account.home {
-                    Some(home) => harnesses
-                        .iter()
-                        .filter(|harness| Self::has_capture(harness.as_ref(), home))
-                        .map(|harness| harness.id())
-                        .collect(),
-                    // An account that references an environment variable or a helper
-                    // instead of a captured home has no files to look for.
-                    None => Vec::new(),
-                };
-                Ok(AccountInfo {
-                    id: account.id,
-                    logged_in,
-                })
-            })
-            .collect()
+            .map(|account| AccountInfo { id: account.id })
+            .collect())
     }
 
     /// The global definition store, over Ubiq's own root. Built per call, for the same reason
@@ -853,35 +786,6 @@ impl Agents {
         Ok(true)
     }
 
-    /// Whether `account` has a usable, current credential for `agent_type`, as the credential
-    /// itself claims. An unknown harness or an account with no home for it is
-    /// [`LoginStatus::Missing`], not an error — a check that finds nothing is an answer.
-    pub fn check_login(&self, agent_type: &str, account: &str, now_ms: i64) -> LoginStatus {
-        let Some(harness) = harness::resolve(agent_type) else {
-            return LoginStatus::Missing;
-        };
-        let home = self
-            .account_store()
-            .account(account)
-            .ok()
-            .flatten()
-            .and_then(|account| account.home);
-        let Some(home) = home else {
-            return LoginStatus::Missing;
-        };
-        match login_validity(harness.as_ref(), &home, now_ms) {
-            Validity::Empty => LoginStatus::Missing,
-            Validity::Valid {
-                expires_at_ms: Some(expires_at_ms),
-            } => LoginStatus::Valid { expires_at_ms },
-            Validity::Valid {
-                expires_at_ms: None,
-            }
-            | Validity::Unknown => LoginStatus::Unknown,
-            Validity::Expired { expires_at_ms } => LoginStatus::Expired { expires_at_ms },
-        }
-    }
-
     /// Rename an account, and every harness's login inside it. The store validates the new
     /// name; this only forwards what it decides.
     pub fn rename_account(&self, from: &str, to: &str) -> Result<()> {
@@ -891,21 +795,6 @@ impl Agents {
     /// Delete an account and every harness login inside it.
     pub fn delete_account(&self, id: &str) -> Result<()> {
         self.account_store().delete_account(id)
-    }
-
-    /// Sign one harness out of `account`, leaving the account and its other harnesses'
-    /// logins alone. The harness names its own credential files — the store never learns a
-    /// harness's layout, and Ubiq never hard-codes one.
-    pub fn delete_harness_login(&self, agent_type: &str, account: &str) -> Result<()> {
-        let harness = harness::resolve(agent_type)
-            .ok_or_else(|| anyhow!("unknown agent type '{agent_type}'"))?;
-        let files: Vec<PathBuf> = harness
-            .config_anchor()
-            .login_seed
-            .iter()
-            .map(|seed| seed.src.clone())
-            .collect();
-        self.account_store().sign_out(account, &files)
     }
 
     /// Rewrite `launch`'s program to what `agent_type` should actually run.
@@ -938,28 +827,10 @@ impl Agents {
         }
     }
 
-    /// Whether `home` holds what makes `harness` logged in. A harness that names no login
-    /// files cannot be answered this way, so it does not count as captured.
-    fn has_capture(harness: &dyn harness::Harness, home: &Path) -> bool {
-        let seed = harness.config_anchor().login_seed;
-        !seed.is_empty() && seed.iter().any(|file| home.join(&file.src).exists())
-    }
-
-    /// What an interactive login for `account` into `agent_type` has to run, and what
-    /// finishing it means.
-    ///
-    /// The launch is confined, and that is not the usual reason. A harness asked to log in
-    /// with a merely *unreachable* keychain reports an error rather than writing the
-    /// plaintext credential a capture needs, so the policy denies the keychain instead —
-    /// see [`agent_manager::isolate::login_confined`]. Ubiq names none of that: it asks the
-    /// library for the policy and spawns what comes back, exactly as it does for a pane.
-    /// `probe` runs a plain shell under the login's policy instead of the harness:
-    /// [`agent_manager::isolate::confined_probe_launch`] resolves the policy from the harness
-    /// and only then swaps the command, so the sandbox is the one a real login would get.
     /// This machine's own variables, added to a launch the harness has already described.
     /// Never over a name the harness itself set: a confined launch's `env` is the whole
     /// environment, and `CLAUDE_CONFIG_DIR` and its siblings are what pin a run — or a
-    /// login's capture home — to the directory it was composed for.
+    /// sign-in — to the directory it was composed for.
     fn add_machine_env(&self, launch: &mut Launch) {
         for (key, value) in &self.environment.env {
             if !launch.env.iter().any(|(name, _)| name == key) {
@@ -996,62 +867,6 @@ impl Agents {
             }
         }
         options
-    }
-
-    pub fn begin_login(
-        &self,
-        agent_type: &str,
-        account: &str,
-        probe: bool,
-    ) -> Result<PendingLogin> {
-        let harness = harness::resolve(agent_type)
-            .ok_or_else(|| anyhow!("unknown agent type '{agent_type}'"))?;
-        let home = self
-            .account_store()
-            .login_home(account)
-            .with_context(|| format!("preparing a home for account '{account}'"))?;
-        let mut plan = harness
-            .login(&home)
-            .with_context(|| format!("asking {agent_type} how it logs in"))?;
-        self.resolve_program(agent_type, &mut plan.launch);
-        // Before the policy is planned, so a grant can be read off these — the same order
-        // `compose` keeps.
-        self.add_machine_env(&mut plan.launch);
-
-        // The credential's timestamp before the login runs. A harness that exits cleanly
-        // without refreshing its credential has not logged anyone in, and this is the only
-        // thing that tells the two apart. A probe never reaches `finish_login`, but it costs
-        // nothing to compute unconditionally rather than branch this too.
-        let captured_before = Self::credential_mtime(&home, &plan.credential_files);
-
-        // The policy is rendered from `plan` — the harness's own program — before anything
-        // about `probe` is looked at, so a probe inspects exactly the sandbox a real login
-        // would run under, not a policy computed for a shell.
-        let confined = isolate::login_confined(&home, &plan, None, &self.isolate_options())
-            .with_context(|| format!("resolving the policy a {agent_type} login runs under"))?;
-        let launch = match probe {
-            // A shell instead of the harness, under the policy just resolved for
-            // the harness: `isolate` owns what a confined launch looks like, so
-            // the swap names a command and never an argument list.
-            true => isolate::confined_probe_launch(
-                &confined,
-                vec![crate::shells::default_program(), "-i".to_string()],
-            ),
-            false => isolate::confined_launch(&confined),
-        }
-        .with_context(|| format!("preparing a confined {agent_type} login"))?;
-
-        Ok(PendingLogin {
-            account: account.to_string(),
-            agent_type: agent_type.to_string(),
-            home,
-            files: plan.credential_files,
-            captured_before,
-            launch,
-            probe,
-            definition: None,
-            exit: Default::default(),
-        })
     }
 
     /// What signing an agent definition's config home in has to run (`D193`): the harness's own
@@ -1099,7 +914,7 @@ impl Agents {
         if self.isolate {
             let mut spec = agent_manager::spec::RunSpec::new(harness.id(), home.clone());
             spec.isolation = Isolation::Sandboxed(String::new());
-            // A run from this home, not a per-run dir: the keychain is reached, not denied.
+            // A run from this home, not a per-run dir: its Keychain item is reachable.
             spec.config = ConfigStrategy::Home {
                 home: home.clone(),
                 scratch: home.clone(),
@@ -1115,53 +930,12 @@ impl Agents {
         }
 
         Ok(PendingLogin {
-            account: String::new(),
             agent_type: agent_type.to_string(),
+            definition: definition.to_string(),
             home,
-            files: Vec::new(),
-            captured_before: None,
             launch,
-            probe: false,
-            definition: Some(definition.to_string()),
             exit: Default::default(),
         })
-    }
-
-    /// Record a finished login, or say why it captured nothing.
-    ///
-    /// Three outcomes, and only the first is a login: the required credential appeared and
-    /// is newer than it was; it is there but untouched, so the harness exited without
-    /// logging anyone in; or it is absent, so the flow was abandoned. The middle case is
-    /// why the timestamp is taken before the launch — without it, a stale credential left
-    /// by an earlier attempt would read as a fresh success.
-    pub fn finish_login(&self, pending: &PendingLogin) -> Result<()> {
-        let Some(required) = pending.files.first() else {
-            bail!(
-                "{} names no credential file, so a login cannot be captured",
-                pending.agent_type
-            );
-        };
-        let path = pending.home.join(required);
-        if !path.exists() {
-            bail!("the login wrote no credential, so nothing was captured");
-        }
-        if Self::credential_mtime(&pending.home, &pending.files) <= pending.captured_before {
-            bail!("the login left its credential untouched, so nobody was logged in");
-        }
-
-        self.account_store()
-            .capture_login(&pending.account, &pending.home, &pending.files)
-            .with_context(|| format!("recording account '{}'", pending.account))
-    }
-
-    /// When the credential a login is meant to write was last written, or `None` when it is
-    /// not there at all — which is what an account being logged in for the first time looks
-    /// like.
-    fn credential_mtime(home: &Path, files: &[PathBuf]) -> Option<std::time::SystemTime> {
-        let required = files.first()?;
-        std::fs::metadata(home.join(required))
-            .and_then(|meta| meta.modified())
-            .ok()
     }
 
     /// Compose the run for `pane`: provision the harness's configuration into a
@@ -1229,44 +1003,6 @@ impl Agents {
             IoModes::Structured,
             options,
         )?;
-        // A harness with no credential in its run directory reports itself logged out, from
-        // inside the transcript, where it reads as the agent talking rather than as a setup
-        // problem. Saying it here is what makes that actionable. A run from a home the harness
-        // owns has its login there, where Ubiq does not look.
-        if composed.owns_login {
-            tracing::debug!(
-                harness = %agent_type,
-                "converse: the harness runs from a home it owns, and its login is its own"
-            );
-        } else if Self::has_login(harness.as_ref(), &composed.dir) {
-            if let Some(file) = Self::found_login(harness.as_ref(), &composed.dir) {
-                tracing::info!(
-                    harness = %agent_type,
-                    file = %file.display(),
-                    "converse: this run's credential was found"
-                );
-            }
-        } else {
-            match composed.account() {
-                // A definition named an account and its login still did not land, so the
-                // account itself is the thing that is not logged in.
-                Some(account) => tracing::warn!(
-                    harness = %agent_type,
-                    account = %account,
-                    "no credential reached this run: the account named for this harness has no \
-                     captured login to seed from. Log it in to write one."
-                ),
-                // Nothing named an account, so the run fell back to the user's own home and
-                // found nothing there either.
-                None => tracing::warn!(
-                    harness = %agent_type,
-                    "no credential reached this run: no account was named, and the harness \
-                     found nothing to seed from in the user's own home. A login kept in the \
-                     operating system's keychain is not a file, so there is nothing to copy."
-                ),
-            }
-        }
-
         // What the bridge spawns is what a pane would spawn: the harness under its policy when
         // the run is confined, the harness itself when it is not. Resolving it here rather than
         // at composition is what materializes the run's home.
@@ -1433,7 +1169,7 @@ impl Agents {
             &definitions,
             self.run_dir_for(key),
         );
-        let owns_login = matches!(
+        let shared_home = matches!(
             spec.config,
             ConfigStrategy::Home { .. } | ConfigStrategy::Native { .. }
         );
@@ -1483,14 +1219,6 @@ impl Agents {
             ),
             None => {}
         }
-
-        // A resume composes over a directory that is already there, and
-        // provisioning re-seeds the login into it — so anything the previous
-        // process refreshed and never got to hand back is about to be
-        // overwritten. Harvest it first and the seed that lands is the newest
-        // credential rather than a revoked one. A first launch has no record
-        // here and this is a no-op.
-        self.refresh_login(key);
 
         let templates = harness::FsTemplateStore::new(self.root.join("harness-templates"));
         let mut provisioned = provision::provision(harness.as_ref(), &spec, &templates)
@@ -1543,31 +1271,16 @@ impl Agents {
         // it is what a teardown has in hand, and the harness's own session id
         // never reaches this process.
         meta.id = key.to_string();
-        // Where the login came from, so the teardown can write a refreshed one
-        // back. It is recorded here rather than kept in memory because nothing
-        // holds the `Composed` that long: a pane's run is torn down by
-        // `retire`, which has an id and this record and nothing else.
-        meta.login_home = match &provisioned.login_origin {
-            Some(Source::Dir(home)) => Some(home.clone()),
-            _ => None,
-        };
-        // A run from a home the harness owns records which one, so the teardown knows there is
-        // no login to write back and only this run's session to archive (`D193`).
-        meta.config = owns_login.then(|| spec.config.clone());
+        // A run from a shared home records which one, so the teardown archives only this run's
+        // session from it (`D193`).
+        meta.config = shared_home.then(|| spec.config.clone());
         let _ = session::save(&self.sessions_dir(), &meta);
 
-        // The digest of what this run actually started with — never the bytes — so every
-        // launch records the token it was seeded, for the investigation to compare against
-        // whatever it finds hours later.
-        let digest = std::fs::read(provisioned.dir.join(".credentials.json"))
-            .ok()
-            .map(|bytes| login_digest(&bytes));
         tracing::info!(
             run = %key,
             dir = %provisioned.dir.display(),
             account = spec.account.as_ref().map(|a| a.id.as_str()).unwrap_or("<none>"),
             harness = %agent_type,
-            credential = digest.as_deref().unwrap_or("<none>"),
             "compose_run: provisioned a run"
         );
 
@@ -1577,7 +1290,6 @@ impl Agents {
             dir: provisioned.dir.clone(),
             provisioned,
             spec_account: spec.account.as_ref().map(|a| a.id.clone()),
-            owns_login,
             problems: spec.problems.clone(),
         })
     }
@@ -1590,35 +1302,14 @@ impl Agents {
         self.root.join("sessions")
     }
 
-    /// Copy the harness's own record of the conversation out of a run
-    /// directory, and put a login the run refreshed back where it came from,
-    /// when that run ends — whether or not the directory is then deleted.
+    /// Copy the harness's own record of the conversation out of a run directory when that run
+    /// ends — whether or not the directory is then deleted.
     ///
     /// Which files those are is the harness's answer, not Ubiq's — a path
     /// literal here would be the boundary this module's header names. Entirely
     /// best effort: this runs on teardown paths, and no session that cannot be
     /// archived is a reason to fail a close. A run with no meta is a plain
     /// shell pane, which is the common case rather than an error.
-    ///
-    /// The harvest belongs here rather than in [`retire`](Self::retire),
-    /// [`sweep`](Self::sweep) and [`park_agent`](Self::park_agent) separately
-    /// because it is the one thing all three do when a run ends, and the
-    /// session record is where the origin was written down — none of them
-    /// holds the run's `Provisioned` any more. A run whose login was not
-    /// seeded from a directory records no origin, and the harness's own
-    /// account of its live login (a keychain) is what finds it again.
-    ///
-    /// It has to run on the *parking* path too, where the directory is kept.
-    /// An OAuth refresh rotates the token and **revokes** the one it was
-    /// seeded from, so a run that harvested nothing leaves the account home
-    /// holding a dead credential — and every other agent on that account
-    /// starts logged out. Keeping the directory does not keep the origin
-    /// valid; only the write-back does.
-    ///
-    /// Teardown is not the only moment that matters, and it is not even the
-    /// important one — see [`sync_logins`](Self::sync_logins), which runs the
-    /// same write-back while the run is still live. This call stays because a
-    /// run that ends between two ticks would otherwise lose its last refresh.
     fn archive(&self, key: &str) {
         let sessions = self.sessions_dir();
         let Ok(mut meta) = session::load(&sessions, key) else {
@@ -1627,10 +1318,6 @@ impl Agents {
         let Some(harness) = harness::resolve(&meta.harness) else {
             return;
         };
-
-        if let Some(origin) = login_origin(harness.as_ref(), &meta) {
-            let _ = harness::harvest_login(harness.as_ref(), &self.run_dir_for(key), &origin);
-        }
 
         let dest = sessions.join(key).join("harness");
         // A home the harness owns holds every run's sessions, so only this run's own is taken —
@@ -1651,7 +1338,7 @@ impl Agents {
             let _ = std::fs::create_dir_all(&dest);
             // A session's companion directory (its subagents' transcripts) comes whole.
             if src.is_dir() {
-                let _ = copy_tree(&src, &dest.join(name), Path::new(""), &[]);
+                let _ = copy_tree(&src, &dest.join(name), Path::new(""));
             } else {
                 let _ = std::fs::copy(&src, dest.join(name));
             }
@@ -1664,178 +1351,6 @@ impl Agents {
                 .as_secs(),
         );
         let _ = session::save(&sessions, &meta);
-    }
-
-    /// Put the newest copy of every account's login back where it came from,
-    /// and hand it to every run still holding an older one.
-    ///
-    /// Called on a timer from the coordinator's loop, because the moment that
-    /// matters is not a teardown. A harness refreshes its OAuth token hours
-    /// into a run — Claude Code's access token lives about four — and the
-    /// refresh **rotates** the refresh token, revoking the one the run was
-    /// seeded from. Until that new token reaches the account home, every agent
-    /// launched from it seeds a credential the provider has already thrown
-    /// away and dies with "OAuth session expired and could not be refreshed";
-    /// every agent already running on its own older copy dies the same way at
-    /// its own next refresh. Harvesting only at teardown left both windows
-    /// open for as long as a pane stayed open, which is the whole of the bug
-    /// this closes.
-    ///
-    /// Runs sharing one origin are reconciled together, in one call, so the
-    /// winner is whichever blob claims the later expiry rather than whichever
-    /// run this loop reached last. What that means for a blob is
-    /// `agent_manager::harness::sync_login`'s to say, not Ubiq's.
-    ///
-    /// Best effort throughout, like every other traversal here: a run with no
-    /// meta is a plain shell pane, and an origin that cannot be written is a
-    /// warning the library logs.
-    pub fn sync_logins(&self) {
-        let sessions = self.sessions_dir();
-        let Ok(entries) = std::fs::read_dir(self.root.join("runs")) else {
-            return;
-        };
-        // Keyed by the harness and the account home, which is what makes two
-        // agents on one account one group and two accounts two groups. An
-        // ambient origin has no home to key on, so the harness id alone is it —
-        // there is only ever one keychain entry behind it.
-        let mut groups: BTreeMap<(String, Option<PathBuf>), Vec<PathBuf>> = BTreeMap::new();
-        for entry in entries.flatten() {
-            let key = entry.file_name().to_string_lossy().into_owned();
-            let Ok(meta) = session::load(&sessions, &key) else {
-                continue;
-            };
-            // Its login is the harness's own, in a home it refreshes itself (`D193`).
-            if owns_login(&meta) {
-                continue;
-            }
-            groups
-                .entry((meta.harness.clone(), meta.login_home.clone()))
-                .or_default()
-                .push(entry.path());
-        }
-        if groups.is_empty() {
-            tracing::debug!("sync_logins: no live run directories to reconcile");
-            return;
-        }
-        let dir_count: usize = groups.values().map(Vec::len).sum();
-        tracing::info!(
-            accounts = groups.len(),
-            dirs = dir_count,
-            "sync_logins: reconciling accounts against their live run directories"
-        );
-        for ((harness_id, home), dirs) in groups {
-            let account = home
-                .as_deref()
-                .and_then(Path::file_name)
-                .map(|name| name.to_string_lossy().into_owned());
-            tracing::info!(
-                harness = %harness_id,
-                account = account.as_deref().unwrap_or("<none>"),
-                dirs = ?dirs,
-                "sync_logins: reconciling account"
-            );
-            let Some(harness) = harness::resolve(&harness_id) else {
-                continue;
-            };
-            let Some(origin) = home.map(Source::Dir).or_else(|| harness.ambient_login()) else {
-                continue;
-            };
-            let dirs: Vec<&Path> = dirs.iter().map(PathBuf::as_path).collect();
-            if let Err(error) = harness::sync_login(harness.as_ref(), &dirs, &origin) {
-                tracing::warn!(
-                    harness = %harness_id,
-                    account = account.as_deref().unwrap_or("<none>"),
-                    %error,
-                    "sync_logins: reconciling this account's login failed"
-                );
-            }
-        }
-    }
-
-    /// Reconcile one run's login with its origin *before* that run is composed
-    /// again, so what a resume is handed is the newest credential known.
-    ///
-    /// A resume re-seeds the run directory from the account home
-    /// (`Claude::provision` writes the seed list every time it composes), and
-    /// the copy it overwrites may be the newer of the two: a run that
-    /// refreshed and then died with Ubiq — a crash, a kill — never reached a
-    /// teardown, so its directory is holding the only live token. Harvesting
-    /// first turns that overwrite from a loss into a no-op.
-    pub fn refresh_login(&self, key: &str) {
-        let Ok(meta) = session::load(&self.sessions_dir(), key) else {
-            return;
-        };
-        let Some(harness) = harness::resolve(&meta.harness) else {
-            return;
-        };
-        let Some(origin) = login_origin(harness.as_ref(), &meta) else {
-            return;
-        };
-        let dir = self.run_dir_for(key);
-        for (file, digest) in Self::credential_digests(harness.as_ref(), &dir) {
-            tracing::info!(
-                run = %key,
-                harness = %meta.harness,
-                file = %file,
-                digest = %digest,
-                "refresh_login: harvesting this run's credential before re-seeding"
-            );
-        }
-        let _ = harness::harvest_login(harness.as_ref(), &dir, &origin);
-    }
-
-    /// The [`login_digest`] of every credential file `harness` seeds that exists in `dir`,
-    /// named by its destination filename. Never the bytes themselves — see the module doc on
-    /// [`login_digest`] for what the digest carries instead.
-    fn credential_digests(harness: &dyn harness::Harness, dir: &Path) -> Vec<(String, String)> {
-        harness
-            .config_anchor()
-            .login_seed
-            .iter()
-            .filter(|file| file.credential)
-            .filter_map(|file| {
-                let bytes = std::fs::read(dir.join(&file.dst)).ok()?;
-                Some((
-                    file.dst.to_string_lossy().into_owned(),
-                    login_digest(&bytes),
-                ))
-            })
-            .collect()
-    }
-
-    /// Whether anything that makes a session logged in landed in `dir`.
-    ///
-    /// The library seeds a harness's own login files into the run it composes — from the account a
-    /// definition named, or failing that from the user's real home. It cannot seed what is not a file,
-    /// so a login held in the operating system's keychain leaves nothing behind and the run starts
-    /// unauthenticated. A harness that declares no login files at all is not answerable this way,
-    /// so it counts as fine.
-    ///
-    /// Only the credential answers the question. A login's identity companion (Claude Code's
-    /// `.claude.json`) is seeded from the real home whether or not the token was, so counting it
-    /// would report a keychain-only machine as logged in and swallow the warning.
-    fn has_login(harness: &dyn harness::Harness, dir: &Path) -> bool {
-        let seed = harness.config_anchor().login_seed;
-        let mut creds = seed.iter().filter(|file| file.credential).peekable();
-        if creds.peek().is_none() {
-            return true;
-        }
-        creds.any(|file| dir.join(&file.dst).exists())
-    }
-
-    /// Which credential file [`has_login`] found in `dir`, for the log line that says a run
-    /// started with one. `None` both when nothing was found and when the harness declares no
-    /// credential file at all — [`has_login`] tells those two apart.
-    fn found_login(harness: &dyn harness::Harness, dir: &Path) -> Option<PathBuf> {
-        harness
-            .config_anchor()
-            .login_seed
-            .iter()
-            .filter(|file| file.credential)
-            .find_map(|file| {
-                let path = dir.join(&file.dst);
-                path.exists().then_some(path)
-            })
     }
 
     /// Write down the harness's own id for a conversation, while it is still
@@ -1858,66 +1373,21 @@ impl Agents {
         let _ = session::save(&sessions, &meta);
     }
 
-    /// Delete every login file the library seeded into a run directory that is
-    /// being kept.
-    ///
-    /// All of them, not only the ones marked credential:
-    /// `provision::seed_zero_config_login` early-returns the moment *any*
-    /// `login_seed` destination already exists, on the reasoning that a login
-    /// already materialized (an account home, a definition overlay) wins over the
-    /// zero-config fallback. So one leftover file — for Claude Code that is
-    /// the non-credential `.claude.json` — is enough to make the next launch
-    /// skip seeding entirely: the credential is never refreshed, and the
-    /// `login_origin` it would have returned comes back `None`, which also
-    /// disables the next [`archive`](Self::archive) harvest.
-    ///
-    /// Which files those are stays the harness's answer, read through the same
-    /// access path as [`has_login`](Self::has_login).
-    ///
-    /// Nothing for a run from a home the harness owns: nothing was seeded into its scratch dir,
-    /// and its login is the harness's own, in that home (`D193`).
-    pub fn scrub_login(&self, key: &str) {
-        let Ok(meta) = session::load(&self.sessions_dir(), key) else {
-            return;
-        };
-        if owns_login(&meta) {
-            return;
-        }
-        let Some(harness) = harness::resolve(&meta.harness) else {
-            return;
-        };
-        let dir = self.run_dir_for(key);
-        for file in harness.config_anchor().login_seed {
-            let path = dir.join(&file.dst);
-            if std::fs::remove_file(&path).is_ok() {
-                tracing::info!(
-                    run = %key,
-                    harness = %meta.harness,
-                    file = %path.display(),
-                    "scrub_login: removed a seeded login file so the next launch reseeds it fresh"
-                );
-            }
-        }
-    }
-
     /// End an agent's run but keep its directory: the process is gone, the
     /// conversation may come back.
     ///
     /// The run directory *is* the harness's session store — Claude's
     /// `projects/<slug>/*.jsonl`, Codex's rollouts, opencode's data dir — so
     /// keeping it is the whole of what lets a resume find the conversation
-    /// again. What must not be kept is the login: it is seeded fresh at every
-    /// launch, and a stale copy left here would suppress that seeding (see
-    /// [`scrub_login`](Self::scrub_login)).
+    /// again.
     pub fn park_agent(&self, agent: AgentId) {
         let key = agent.to_string();
         tracing::info!(
             run = %key,
             dir = %self.agent_dir(agent).display(),
-            "park_agent: conversation ended; keeping its run directory and scrubbing its login"
+            "park_agent: conversation ended; keeping its run directory"
         );
         self.archive(&key);
-        self.scrub_login(&key);
         // Its process has gone, so the MCP listener has nobody left to answer for at that
         // address. A parked conversation registers again when it is revived.
         self.mcp_agents.forget(&key);
@@ -1926,9 +1396,7 @@ impl Agents {
     /// Copy one agent's run directory onto another's, so the second resumes
     /// from the first's conversation instead of starting empty.
     ///
-    /// The login files are excluded — they are seeded again at launch, and a
-    /// copy of them would be the stale login `scrub_login` exists to avoid.
-    /// So is `sessions/`: [`compose_run`](Self::compose_run) writes the fork's
+    /// `sessions/` is excluded: [`compose_run`](Self::compose_run) writes the fork's
     /// own meta, and the source's would name the wrong run.
     ///
     /// Refused for a harness with no config lever. That is grok, which writes
@@ -1953,12 +1421,10 @@ impl Agents {
                 meta.harness
             );
         }
-        let skip: Vec<PathBuf> = anchor.login_seed.iter().map(|f| f.dst.clone()).collect();
         copy_tree(
             &self.run_dir_for(&key),
             &self.run_dir_for(&to.to_string()),
             Path::new(""),
-            &skip,
         )
     }
 
@@ -2013,9 +1479,7 @@ impl Agents {
     ///
     /// A persistent conversation's directory is parked instead of deleted: it
     /// holds the harness's session store, which is the only reason the
-    /// conversation can be resumed at all. It is still parked rather than
-    /// simply left alone — the crash is precisely the case where the account
-    /// home is holding a token the run already rotated away.
+    /// conversation can be resumed at all.
     pub fn sweep(&self) {
         let runs = self.root.join("runs");
         let Ok(entries) = std::fs::read_dir(&runs) else {
@@ -2029,7 +1493,6 @@ impl Agents {
             let key = entry.file_name().to_string_lossy().into_owned();
             self.archive(&key);
             if self.is_persistent(&key) {
-                self.scrub_login(&key);
                 parked += 1;
                 continue;
             }
@@ -2077,35 +1540,6 @@ impl Agents {
     }
 }
 
-/// Where a run's login came from, and therefore where a refreshed one goes.
-///
-/// The account home the run was seeded from, written down when it was composed
-/// because nothing holds the `Provisioned` that long. A run whose login was not
-/// seeded from a directory records none, and the harness's own account of its
-/// live login — a keychain — is what finds it again.
-///
-/// None at all for a run from a home the harness owns (`D193`): its login lives there and the
-/// harness refreshes it, so there is nothing to write back and nowhere else it belongs.
-fn login_origin(harness: &dyn harness::Harness, meta: &session::SessionMeta) -> Option<Source> {
-    if owns_login(meta) {
-        return None;
-    }
-    meta.login_home
-        .clone()
-        .map(Source::Dir)
-        .or_else(|| harness.ambient_login())
-}
-
-/// Whether `meta`'s run ran from a config home the harness owns — a definition's, or the
-/// user's own — rather than from a run directory Ubiq seeded (`D193`). A meta written before
-/// that records no strategy, and reads as the seeded run it was.
-fn owns_login(meta: &session::SessionMeta) -> bool {
-    matches!(
-        meta.config,
-        Some(ConfigStrategy::Home { .. } | ConfigStrategy::Native { .. })
-    )
-}
-
 /// The files `harness` wrote for this run's one session in a shared config home — `home`, or
 /// the user's own when `None`. Empty when the harness never named its session, or cannot name
 /// one session's files.
@@ -2124,7 +1558,7 @@ fn session_transcripts(
 /// the definition's own home when the run has one and the store names it, and otherwise the
 /// user's own config in place, every per-run file in `scratch` either way — confined or not,
 /// since the sandbox is granted that home ([`IsolateOptions::grant_config_home`]). Only a
-/// harness that cannot share a home keeps the per-run directory, seeded as it always was.
+/// harness that cannot share a home keeps the per-run directory.
 fn run_config(
     harness: &dyn harness::Harness,
     definition: Option<&str>,
@@ -2140,24 +1574,21 @@ fn run_config(
     }
 }
 
-/// Copy `src` onto `dst`, recursively, skipping the run-dir-relative paths in
-/// `skip` and anything under `sessions/`. `rel` is where in the tree the
-/// recursion currently is, which is what makes a nested skip entry (grok's
-/// `.grok/auth.json`) match.
+/// Copy `src` onto `dst`, recursively, skipping the top-level `sessions/`. `rel` is where in
+/// the tree the recursion currently is, so only the top-level one is skipped.
 ///
-/// Here rather than from a crate because std has no recursive copy and this is
-/// the only caller — [`Agents::fork_run`].
-fn copy_tree(src: &Path, dst: &Path, rel: &Path, skip: &[PathBuf]) -> Result<()> {
+/// Here rather than from a crate because std has no recursive copy.
+fn copy_tree(src: &Path, dst: &Path, rel: &Path) -> Result<()> {
     std::fs::create_dir_all(dst).with_context(|| format!("creating {}", dst.display()))?;
     for entry in std::fs::read_dir(src).with_context(|| format!("reading {}", src.display()))? {
         let entry = entry?;
         let here = rel.join(entry.file_name());
-        if here == Path::new("sessions") || skip.contains(&here) {
+        if here == Path::new("sessions") {
             continue;
         }
         let to = dst.join(entry.file_name());
         if entry.file_type()?.is_dir() {
-            copy_tree(&entry.path(), &to, &here, skip)?;
+            copy_tree(&entry.path(), &to, &here)?;
         } else {
             std::fs::copy(entry.path(), &to)
                 .with_context(|| format!("copying to {}", to.display()))?;
@@ -2329,11 +1760,13 @@ fn command_outcome(
 ///
 /// A free function over the config root rather than a method, for the reason `probe_catalogue`
 /// is one: the quota worker has no `&self` to borrow and a probe is a blocking HTTPS call that
-/// must not happen on the coordinator's thread. The store is built here, per call, on the same
-/// bargain [`Agents::account_store`] makes.
+/// must not happen on the coordinator's thread.
 ///
-/// The credential never comes back out: the library reads the token, spends it on one request
-/// and returns percentages.
+/// The login read is the one the harness keeps for a run of `account` (`D193`, `G380`): the home
+/// of the first global definition of this harness that names `account` — an empty `account`
+/// matching a definition that names none — and with none, the harness's own default home. The
+/// credential never comes back out: the library reads the token in place, spends it on one
+/// request and returns percentages.
 pub fn quota_of(
     root: &Path,
     account: &str,
@@ -2341,16 +1774,22 @@ pub fn quota_of(
 ) -> Result<ubiq_proto::quota::QuotaSnapshot> {
     let harness =
         harness::resolve(agent_type).ok_or_else(|| anyhow!("unknown agent type '{agent_type}'"))?;
-    let store = FsAccountStore::new(root.join("accounts"));
-    let record = store
-        .account(account)
-        .with_context(|| format!("reading the account '{account}'"))?
-        .ok_or_else(|| anyhow!("no account named '{account}'"))?;
-    let login = store
-        .login_source(account)
-        .with_context(|| format!("locating the login of '{account}'"))?;
+    let definitions = FsProfileStore::new(definitions_dir(root));
+    let home = definitions
+        .profiles()
+        .context("reading the agent definitions")?
+        .into_iter()
+        .filter(|definition| {
+            definition
+                .harness
+                .as_deref()
+                .and_then(harness::resolve)
+                .is_some_and(|it| it.id() == harness.id())
+                && definition.account.as_deref().unwrap_or("") == account
+        })
+        .find_map(|definition| definitions.home(&definition.id, &harness.id()));
     let snapshot = harness
-        .quota(&record, login.as_ref())
+        .quota(account, home.as_deref())
         .with_context(|| format!("asking {agent_type} what '{account}' has left"))?;
     Ok(quota_snapshot(snapshot))
 }
@@ -3030,19 +2469,12 @@ mod tests {
         }
     }
 
-    /// Write a definition naming an account, and the account's own captured-login home,
-    /// under a Ubiq config root. This is the fixture `am account login` produces.
+    /// Write a definition naming an account, and the account's record, under a Ubiq config root.
     fn given_an_account(root: &Path, definition: &str, account: &str) {
-        let home = root.join("accounts").join(account);
-        std::fs::create_dir_all(home.join(".claude")).unwrap();
-        std::fs::write(
-            home.join(".claude/.credentials.json"),
-            b"{\"from\":\"account\"}",
-        )
-        .unwrap();
+        std::fs::create_dir_all(root.join("accounts")).unwrap();
         std::fs::write(
             root.join("accounts").join(format!("{account}.toml")),
-            format!("id = \"{account}\"\nhome = \"{}\"\n", home.display()),
+            format!("id = \"{account}\"\n"),
         )
         .unwrap();
 
@@ -3057,11 +2489,10 @@ mod tests {
 
     /// `D193`: a definition named `default` — the one a bare start resolves — runs Claude Code
     /// from the definition's own home, with the run directory as its scratch beside it. The
-    /// account still names who the run answers as, but its captured credential is seeded
-    /// nowhere: the login is the one in the home. Retiring the run takes the scratch and never
-    /// the home.
+    /// account still names who the run answers as; the login is the one in the home. Retiring
+    /// the run takes the scratch and never the home.
     #[test]
-    fn a_definition_runs_from_its_own_home_and_seeds_no_account_login() {
+    fn a_definition_runs_from_its_own_home() {
         let root = tempfile::TempDir::new().unwrap();
         let cwd = tempfile::TempDir::new().unwrap();
         given_an_account(root.path(), "default", "work");
@@ -3085,10 +2516,7 @@ mod tests {
             agents.run_dir(pane),
             "the scratch is the pane's own"
         );
-        assert!(composed.owns_login);
         assert!(home.is_dir(), "the home was prepared");
-        assert!(!composed.dir.join(".credentials.json").exists());
-        assert!(!home.join(".credentials.json").exists());
         let meta = session::load(&agents.sessions_dir(), &pane.to_string()).unwrap();
         assert_eq!(
             meta.config,
@@ -3097,7 +2525,6 @@ mod tests {
                 scratch: agents.run_dir(pane),
             })
         );
-        assert_eq!(meta.login_home, None);
 
         agents.retire(pane);
         assert!(!composed.dir.exists());
@@ -3105,7 +2532,7 @@ mod tests {
     }
 
     /// A run with no definition runs from the user's own config in place, and says so in its
-    /// record; nothing is seeded into its scratch.
+    /// record.
     #[test]
     fn no_definition_runs_on_the_user_s_own_config() {
         let root = tempfile::TempDir::new().unwrap();
@@ -3124,8 +2551,7 @@ mod tests {
             )
             .expect("composing a claude-code run with no definition");
 
-        assert!(composed.owns_login);
-        assert!(!logged_in(&composed.dir));
+        assert_eq!(composed.dir, agents.agent_dir(agent));
         let meta = session::load(&agents.sessions_dir(), &agent.to_string()).unwrap();
         assert_eq!(
             meta.config,
@@ -3137,8 +2563,8 @@ mod tests {
     }
 
     /// Which strategy a run gets (`D193`): the definition's home, the user's own config with no
-    /// definition or a store that names no home, and the seeded run directory only for a harness
-    /// that cannot share a home — never for a built-in one.
+    /// definition or a store that names no home, and the run directory only for a harness that
+    /// cannot share a home — never for a built-in one.
     #[test]
     fn run_config_picks_the_home_native_or_the_run_directory() {
         let root = tempfile::TempDir::new().unwrap();
@@ -3278,38 +2704,6 @@ mod tests {
         agents.retire(pane);
     }
 
-    /// A run from a home the harness owns is never reconciled, harvested or scrubbed: its
-    /// login is the harness's own. The fixture seeds login files into its scratch anyway, as
-    /// a legacy run's would be, and a meta with a login origin — so any of those passes would
-    /// have something to touch.
-    #[test]
-    fn a_run_from_a_home_is_never_synced_harvested_or_scrubbed() {
-        let root = tempfile::TempDir::new().unwrap();
-        let agents = Agents::new(root.path(), false);
-        let agent = AgentId::generate();
-        let key = agent.to_string();
-        let dir = given_a_run(&agents, &key, "claude-code");
-        let home = root.path().join("home");
-        let mut meta = session::load(&agents.sessions_dir(), &key).unwrap();
-        let origin = meta.login_home.clone().unwrap();
-        meta.config = Some(ConfigStrategy::Home {
-            home,
-            scratch: dir.clone(),
-        });
-        session::save(&agents.sessions_dir(), &meta).unwrap();
-
-        agents.sync_logins();
-        agents.refresh_login(&key);
-        agents.park_agent(agent);
-
-        assert!(logged_in(&dir), "scrub_login left the scratch alone");
-        assert_eq!(
-            std::fs::read_dir(&origin).unwrap().count(),
-            0,
-            "nothing was written back to the origin"
-        );
-    }
-
     /// Archiving a run from a shared home takes this run's one session out of it — the
     /// transcript and its companion directory — and none of the other runs' beside it.
     #[test]
@@ -3366,9 +2760,7 @@ mod tests {
         let home = agents.definition_store().home_dir("work", "claude-code");
         assert_eq!(pending.home(), home);
         assert!(home.is_dir(), "prepare_home made the home");
-        assert_eq!(pending.definition.as_deref(), Some("work"));
-        assert!(pending.account.is_empty());
-        assert!(pending.files.is_empty(), "nothing is captured");
+        assert_eq!(pending.definition, "work");
         assert!(
             pending
                 .launch()
@@ -3449,107 +2841,9 @@ mod tests {
         agents.retire(pane);
     }
 
-    /// A login prepared against `account`, as `begin_login` would leave it — without needing
-    /// the harness's binary, which a test machine may not have.
-    fn a_pending_login(agents: &Agents, account: &str) -> PendingLogin {
-        let home = agents
-            .account_store()
-            .login_home(account)
-            .expect("a capture home");
-        PendingLogin {
-            account: account.to_string(),
-            agent_type: "claude-code".to_string(),
-            files: vec![PathBuf::from(".claude/.credentials.json")],
-            captured_before: Agents::credential_mtime(
-                &home,
-                &[PathBuf::from(".claude/.credentials.json")],
-            ),
-            home,
-            launch: Launch::default(),
-            probe: false,
-            definition: None,
-            exit: Default::default(),
-        }
-    }
-
-    /// Write a credential under a login's home, as the harness's own flow would.
-    fn the_login_writes_a_credential(pending: &PendingLogin) {
-        let path = pending.home.join(".claude/.credentials.json");
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(&path, b"{\"token\":\"fresh\"}").unwrap();
-    }
-
-    /// The happy path: the harness wrote its credential, so the account exists and names the
-    /// home the credential is in. That reference is the whole of what is recorded — the
-    /// credential itself is never copied anywhere.
+    /// An account referencing an environment variable is listed by its id.
     #[test]
-    fn a_login_that_wrote_a_credential_becomes_an_account() {
-        let root = tempfile::TempDir::new().unwrap();
-        let agents = Agents::new(root.path(), false);
-        let pending = a_pending_login(&agents, "work");
-
-        the_login_writes_a_credential(&pending);
-        agents
-            .finish_login(&pending)
-            .expect("the login is captured");
-
-        let accounts = agents.accounts().expect("listing accounts");
-        assert_eq!(accounts.len(), 1);
-        assert_eq!(accounts[0].id, "work");
-        assert!(
-            accounts[0].logged_in.contains(&"claude-code".to_string()),
-            "the harness whose credential landed is reported logged in: {accounts:?}"
-        );
-    }
-
-    /// Abort: the pane was closed before the flow finished, so no credential exists. Not an
-    /// error in Ubiq, but emphatically not an account either — which is what makes pressing
-    /// abort and starting again safe.
-    #[test]
-    fn an_abandoned_login_captures_nothing() {
-        let root = tempfile::TempDir::new().unwrap();
-        let agents = Agents::new(root.path(), false);
-        let pending = a_pending_login(&agents, "work");
-
-        assert!(agents.finish_login(&pending).is_err());
-        assert!(
-            agents.accounts().expect("listing accounts").is_empty(),
-            "an abandoned login must leave no account behind"
-        );
-    }
-
-    /// The case the timestamp exists for: a credential is already there from an earlier
-    /// attempt, and the harness exits cleanly without touching it. Without the before-shot
-    /// that stale file would read as a fresh success and the account would claim a login
-    /// nobody performed.
-    #[test]
-    fn a_login_that_left_a_stale_credential_captures_nothing() {
-        let root = tempfile::TempDir::new().unwrap();
-        let agents = Agents::new(root.path(), false);
-
-        // An earlier attempt's credential, in place *before* this login is prepared.
-        let early = a_pending_login(&agents, "work");
-        the_login_writes_a_credential(&early);
-
-        let pending = a_pending_login(&agents, "work");
-        assert!(
-            pending.captured_before.is_some(),
-            "the before-shot must see the credential that is already there"
-        );
-
-        let error = agents
-            .finish_login(&pending)
-            .expect_err("an untouched credential is not a login");
-        assert!(
-            format!("{error:#}").contains("untouched"),
-            "the reason says the credential was not refreshed: {error:#}"
-        );
-    }
-
-    /// An account referencing an environment variable has no captured home, so no harness is
-    /// reported logged in — rather than every harness being claimed because a home is absent.
-    #[test]
-    fn an_account_with_no_captured_home_reports_no_logins() {
+    fn an_account_is_listed_by_its_id() {
         let root = tempfile::TempDir::new().unwrap();
         let accounts_root = root.path().join("accounts");
         std::fs::create_dir_all(&accounts_root).unwrap();
@@ -3565,7 +2859,6 @@ mod tests {
 
         assert_eq!(accounts.len(), 1);
         assert_eq!(accounts[0].id, "byenv");
-        assert!(accounts[0].logged_in.is_empty());
     }
 
     /// The sweep clears what a previous process left in the runs directory, and
@@ -3585,26 +2878,13 @@ mod tests {
     }
 
     /// A run directory as a crashed or parked process leaves one: the session
-    /// record the storage paths read, every login file the library would have
-    /// seeded, and one file standing in for the harness's own session store.
-    ///
-    /// `login_home` is always set to a directory of its own, so `archive`'s
-    /// harvest writes back there rather than reaching for the machine's real
-    /// ambient login (Claude Code's keychain) from a test.
+    /// record the storage paths read, and one file standing in for the harness's
+    /// own session store.
     fn given_a_run(agents: &Agents, key: &str, harness_id: &str) -> PathBuf {
         let dir = agents.run_dir_for(key);
         std::fs::create_dir_all(dir.join("projects")).unwrap();
         std::fs::write(dir.join("projects").join("store.jsonl"), "a turn").unwrap();
 
-        let harness = harness::resolve(harness_id).unwrap();
-        for file in harness.config_anchor().login_seed {
-            let dst = dir.join(&file.dst);
-            std::fs::create_dir_all(dst.parent().unwrap()).unwrap();
-            std::fs::write(&dst, "a login").unwrap();
-        }
-
-        let origin = agents.root.join("origins").join(key);
-        std::fs::create_dir_all(&origin).unwrap();
         let mut meta = session::SessionMeta::new(
             harness_id.to_string(),
             PathBuf::from("/tmp"),
@@ -3614,51 +2894,13 @@ mod tests {
             dir.clone(),
         );
         meta.id = key.to_string();
-        meta.login_home = Some(origin);
         session::save(&agents.sessions_dir(), &meta).unwrap();
         dir
     }
 
-    /// Whether a Claude Code run directory still holds anything that makes it
-    /// logged in, asked the same way the composer asks.
-    fn logged_in(dir: &Path) -> bool {
-        Agents::has_login(harness::resolve("claude-code").unwrap().as_ref(), dir)
-    }
-
-    /// Every seed destination goes, not only the credential: leaving Claude's
-    /// non-credential `.claude.json` behind would make the next launch's
-    /// `seed_zero_config_login` decide a login was already there.
+    /// Parking keeps the harness's session store — that is the whole point.
     #[test]
-    fn scrubbing_a_login_removes_every_seed_destination() {
-        let root = tempfile::TempDir::new().unwrap();
-        let agents = Agents::new(root.path(), false);
-        let dir = given_a_run(&agents, "agent-1", "claude-code");
-
-        let seed = harness::resolve("claude-code")
-            .unwrap()
-            .config_anchor()
-            .login_seed;
-        assert!(
-            seed.iter().any(|f| f.credential) && seed.iter().any(|f| !f.credential),
-            "this test is only meaningful with both kinds present"
-        );
-
-        agents.scrub_login("agent-1");
-
-        for file in seed {
-            assert!(
-                !dir.join(&file.dst).exists(),
-                "{} survived",
-                file.dst.display()
-            );
-        }
-        assert!(dir.join("projects").join("store.jsonl").exists());
-    }
-
-    /// Parking keeps the harness's session store — that is the whole point —
-    /// and takes the login with it.
-    #[test]
-    fn parking_keeps_the_store_and_drops_the_login() {
+    fn parking_keeps_the_store() {
         let root = tempfile::TempDir::new().unwrap();
         let agents = Agents::new(root.path(), false);
         let agent = AgentId::generate();
@@ -3667,7 +2909,6 @@ mod tests {
         agents.park_agent(agent);
 
         assert!(dir.join("projects").join("store.jsonl").exists());
-        assert!(!logged_in(&dir));
     }
 
     /// Retiring is unchanged: the directory goes.
@@ -3684,9 +2925,9 @@ mod tests {
     }
 
     /// A fork copies the store, so the second agent resumes the first's
-    /// conversation, and leaves the login behind to be seeded fresh.
+    /// conversation.
     #[test]
-    fn forking_copies_the_store_and_not_the_login() {
+    fn forking_copies_the_store() {
         let root = tempfile::TempDir::new().unwrap();
         let agents = Agents::new(root.path(), false);
         let from = AgentId::generate();
@@ -3702,7 +2943,6 @@ mod tests {
             std::fs::read_to_string(forked.join("projects").join("store.jsonl")).unwrap(),
             "a turn"
         );
-        assert!(!logged_in(&forked));
     }
 
     /// grok has no config lever, so its sessions land in the real home
@@ -3720,66 +2960,8 @@ mod tests {
         assert!(agents.fork_run(from, AgentId::generate()).is_err());
     }
 
-    /// Two runs seeded from the same account home, one of them holding a
-    /// refreshed credential the other never saw. `sync_logins` must pick the
-    /// later expiry as the winner, write it back to the account home the pair
-    /// was seeded from, and hand it to the run still holding the older
-    /// blob — the whole reason this runs on a timer rather than only at
-    /// teardown (see [`Agents::sync_logins`]).
-    #[test]
-    fn sync_logins_writes_the_refreshed_login_back_and_hands_it_to_the_other_run() {
-        let root = tempfile::TempDir::new().unwrap();
-        let agents = Agents::new(root.path(), false);
-        let home = tempfile::TempDir::new().unwrap();
-
-        let seeded =
-            b"{\"claudeAiOauth\":{\"accessToken\":\"seeded\",\"expiresAt\":3000000000000}}";
-        let refreshed =
-            b"{\"claudeAiOauth\":{\"accessToken\":\"refreshed\",\"expiresAt\":5000000000000}}";
-
-        std::fs::create_dir_all(home.path().join(".claude")).unwrap();
-        std::fs::write(home.path().join(".claude/.credentials.json"), seeded).unwrap();
-
-        // Run A refreshed its copy to a later expiry; run B still holds the
-        // token both were seeded.
-        let dir_a = agents.run_dir_for("agent-a");
-        let dir_b = agents.run_dir_for("agent-b");
-        std::fs::create_dir_all(&dir_a).unwrap();
-        std::fs::create_dir_all(&dir_b).unwrap();
-        std::fs::write(dir_a.join(".credentials.json"), refreshed).unwrap();
-        std::fs::write(dir_b.join(".credentials.json"), seeded).unwrap();
-
-        for key in ["agent-a", "agent-b"] {
-            let mut meta = session::SessionMeta::new(
-                "claude-code".to_string(),
-                PathBuf::from("/tmp"),
-                vec!["true".to_string()],
-                None,
-                "structured".to_string(),
-                agents.run_dir_for(key),
-            );
-            meta.id = key.to_string();
-            meta.login_home = Some(home.path().to_path_buf());
-            session::save(&agents.sessions_dir(), &meta).unwrap();
-        }
-
-        agents.sync_logins();
-
-        assert_eq!(
-            std::fs::read(home.path().join(".claude/.credentials.json")).unwrap(),
-            refreshed,
-            "the account home must be advanced to run A's refreshed token"
-        );
-        assert_eq!(
-            std::fs::read(dir_b.join(".credentials.json")).unwrap(),
-            refreshed,
-            "run B must be handed the winner, not left on its stale seeded copy"
-        );
-    }
-
     /// The sweep spares a persistent conversation's directory — that is where
-    /// its harness's session store lives — but still parks it, because a crash
-    /// is exactly when the origin is left holding a rotated-away token.
+    /// its harness's session store lives.
     #[test]
     fn the_sweep_parks_a_persistent_run_and_deletes_the_rest() {
         let root = tempfile::TempDir::new().unwrap();
@@ -3798,7 +2980,6 @@ mod tests {
         agents.sweep();
 
         assert!(kept.join("projects").join("store.jsonl").exists());
-        assert!(!logged_in(&kept));
         assert!(!gone.exists());
     }
 }

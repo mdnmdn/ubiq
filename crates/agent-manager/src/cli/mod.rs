@@ -72,7 +72,7 @@ fn print_usage() {
     println!("USAGE:");
     println!("    am <harness> [flags] [-- <harness-args>…]   wrap & run a harness");
     println!("    am catalog   <ls|import|show|path> …         manage the catalog");
-    println!("    am account   <ls|use|import> …                manage accounts");
+    println!("    am account   <ls|use> …                       manage accounts");
     println!("    am profile   <ls|show|use|create|login> …     manage profiles");
     println!("    am agent     <name> [-- <harness-args>…]       run a profile as a frozen agent");
     println!("    am session   <ls|show|resume> …               manage session history");

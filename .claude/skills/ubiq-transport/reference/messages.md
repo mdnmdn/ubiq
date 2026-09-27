@@ -205,16 +205,15 @@ hits, no timer; `SearchProgress` every 100 files. Ceilings: `HITS_PER_FILE` 100,
 
 ### 10. Account — the identities a harness runs as
 
-`ListAccounts`/`Accounts`, `BeginHarnessLogin`, `HarnessLoginStarted`, `HarnessLoginCaptured`,
-`HarnessLoginFailed`, `HarnessLoginLink`, `CheckHarnessLogin`/`HarnessLoginStatus`,
-`RenameAccount`, `DeleteAccount`, `DeleteHarnessLogin`, `AccountError`.
+`ListAccounts`/`Accounts`, `BeginHarnessLogin` (a definition's sign-in, `D193`),
+`HarnessLoginStarted`, `HarnessHomeSignedIn`, `HarnessLoginFailed`, `HarnessLoginLink`,
+`RenameAccount`, `DeleteAccount`, `AccountError`.
 
 **References only, never material.** No credential and no path crosses. *The log sink listens to
 the same bus, so a secret here would be a secret in a log the user might paste into an issue.*
-A login runs in a real pane that belongs to no project. **The outcome is decided by the
-credential's mtime, not the exit code** — a harness can exit cleanly having done nothing.
-**Creating an account is logging one in**; there is no `AddAccount`. Status is what the stored
-credential says about itself, so `Valid` means "not expired", not "will work".
+A sign-in runs in a real pane that belongs to no project, straight into a definition's config
+home; nothing is captured, and **the outcome is the exit code**. An account is written as a file;
+there is no `AddAccount`.
 
 ### 11. Profile — saved setups
 

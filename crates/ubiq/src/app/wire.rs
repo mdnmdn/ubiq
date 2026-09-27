@@ -584,25 +584,10 @@ impl AppState {
                 tracing::info!("pane {pane_id} exited with {code}");
                 // A login pane belongs to no project, so `close_pane` would return early and
                 // the host would never be told the pane is over — and being told is what makes
-                // it look for the credential. Ending it here is the whole of the successful
-                // path: a harness that finishes its own sign-in exits by itself.
-                //
-                // A probe never writes a credential, so the host's `login_gone` sends nothing
-                // back for it — no `HarnessLoginCaptured`/`HarnessLoginFailed` will ever arrive
-                // to drive `login_ended`. This exit is the only signal a probe gets, so it is
-                // read here, locally, instead of waiting on an answer that is never coming.
+                // it report the outcome. Ending it here is the whole of the successful path: a
+                // harness that finishes its own sign-in exits by itself.
                 if self.login_pane() == Some(pane_id) {
-                    let probe = self
-                        .workbench
-                        .settings
-                        .login
-                        .as_ref()
-                        .is_some_and(|login| login.probe);
-                    if probe {
-                        self.login_ended(false, "The shell exited.".to_string(), cx);
-                    } else {
-                        self.bus.send(Message::CloseWorkspace { pane_id });
-                    }
+                    self.bus.send(Message::CloseWorkspace { pane_id });
                     return None;
                 }
                 if let Some(project_id) = project {
@@ -2508,44 +2493,7 @@ impl AppState {
     ) -> Option<Message> {
         match message {
             Message::Accounts { accounts } => {
-                // Prune whatever `statuses` and `dialog` named that this answer no longer
-                // carries, so a renamed or deleted account cannot leak an entry forever.
-                self.workbench
-                    .settings
-                    .statuses
-                    .retain(|(agent_type, account), _| {
-                        accounts.iter().any(|info| {
-                            info.id == *account && info.logged_in.iter().any(|id| id == agent_type)
-                        })
-                    });
-                // The quota maps are keyed the same way and go stale the same way, so they are
-                // pruned against the same answer.
-                self.workbench
-                    .settings
-                    .quotas
-                    .retain(|(agent_type, account), _| {
-                        accounts.iter().any(|info| {
-                            info.id == *account && info.logged_in.iter().any(|id| id == agent_type)
-                        })
-                    });
-                self.workbench
-                    .settings
-                    .quota_errors
-                    .retain(|(agent_type, account), _| {
-                        accounts.iter().any(|info| {
-                            info.id == *account && info.logged_in.iter().any(|id| id == agent_type)
-                        })
-                    });
                 self.workbench.settings.accounts = accounts;
-                // The accounts page is what the answer was asked for: it arrives after the page
-                // is already open, so this is where the readouts are filled rather than in the
-                // open handler, which had no list to walk yet. Cached answers only — a fresh
-                // read is what the refresh control is for.
-                if self.workbench.settings.open
-                    && self.workbench.settings.nav == SettingsSection(ext_ids::HARNESSES)
-                {
-                    self.ask_quotas();
-                }
                 cx.notify();
             }
             // How much of one login's plan is left, in answer to one `QueryQuota`. The two
@@ -2597,6 +2545,12 @@ impl AppState {
                 self.workbench.settings.definitions = global;
                 self.workbench.settings.project_definitions = scoped;
                 self.workbench.settings.definition_form = None;
+                // The definitions page draws what each definition's login has left: it arrives
+                // after the page is already open, so this is where the readouts are filled.
+                // Cached answers only — a fresh read is what the refresh control is for.
+                if self.workbench.settings.open {
+                    self.ask_quotas();
+                }
                 cx.notify();
             }
             // What this build can inject into a harness. Replaced whole, the same way the harness
@@ -2609,20 +2563,13 @@ impl AppState {
             Message::HarnessLoginStarted {
                 pane_id,
                 agent_type,
-                account,
                 cols,
                 rows,
             } => {
                 // A login pane belongs to no project, so this is the only place it is ever
                 // recorded as belonging to a host at all.
                 self.bus.note_pane(pane_id, host);
-                self.login_started(pane_id, agent_type, account, cols, rows, cx);
-            }
-            Message::HarnessLoginCaptured {
-                agent_type,
-                account,
-            } => {
-                self.login_ended(true, format!("{account} is signed in to {agent_type}."), cx);
+                self.login_started(pane_id, agent_type, cols, rows, cx);
             }
             Message::HarnessHomeSignedIn {
                 agent_type,
@@ -2636,25 +2583,14 @@ impl AppState {
             }
             Message::HarnessLoginFailed {
                 agent_type,
-                account,
+                definition,
                 error,
             } => {
-                tracing::info!("login for {account} on {agent_type} captured nothing: {error}");
+                tracing::info!("sign-in of {definition} to {agent_type} did not finish: {error}");
                 self.login_ended(false, error, cx);
             }
             Message::HarnessLoginLink { pane_id, url } => {
                 self.login_link(pane_id, url, cx);
-            }
-            Message::HarnessLoginStatus {
-                agent_type,
-                account,
-                status,
-            } => {
-                self.workbench
-                    .settings
-                    .statuses
-                    .insert((agent_type, account), status);
-                cx.notify();
             }
             Message::AccountError { error } => {
                 self.workbench.settings.error = Some(error);

@@ -417,15 +417,6 @@ pub fn resolve(
     spec.mcps = mcps;
     spec.mcp_as_skill = mcp_as_skill;
     spec.hooks = hooks;
-    // Resolve the account's captured-login content (references stay in
-    // `account`; the login bytes/dir come from the store so the spec is
-    // self-contained and a DB-backed store seeds the same way the FS one does).
-    spec.account_login = match &account {
-        Some(acct) => accounts
-            .login_source(&acct.id)
-            .with_context(|| format!("resolving login for account '{}'", acct.id))?,
-        None => None,
-    };
     spec.account = account;
     spec.policy = policy;
     // --- the permission mode: flag > profile, checked against the harness's own list ---

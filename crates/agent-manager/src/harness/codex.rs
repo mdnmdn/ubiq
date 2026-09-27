@@ -10,10 +10,8 @@
 //! (default `~/.codex`). Provisioning points that variable at the ephemeral
 //! dir instead of the real `~/.codex`, so MCP servers/permissions/skills/
 //! memory are injected without ever touching the user's real config. Codex is
-//! Class A (`CODEX_HOME` relocates the whole tree, `auth.json` included): a
-//! private-home account's captured `auth.json` is *seeded* into the ephemeral
-//! dir (see [`Codex::config_anchor`] and the account block in [`Codex::provision`]),
-//! mirroring Claude, while the child's real `HOME` is left intact.
+//! Class A (`CODEX_HOME` relocates the whole tree, `auth.json` included), and
+//! the child's real `HOME` is left intact.
 //!
 //! The shared-home run (`D193`, [`Codex::provision_home`]) is the other shape: `CODEX_HOME` is
 //! the profile's own persistent home, which holds `auth.json` and `sessions/` and which Codex
@@ -32,7 +30,7 @@ use crate::Result;
 use crate::config::{McpServer, McpTransport};
 use crate::spec::{HookRef, McpRef, RunSpec};
 
-use super::{ConfigAnchor, Harness, Launch, Relocate, SeedFile};
+use super::{ConfigAnchor, Harness, Launch, Relocate};
 
 /// The markers that wrap `am`-managed `[mcp_servers.*]` tables in
 /// `config.toml`, so any hand-authored tables in the same file (were any to
@@ -178,17 +176,11 @@ impl Harness for Codex {
         }
     }
 
-    /// Class A: `CODEX_HOME` relocates the entire tree — `auth.json` included
-    /// (see `_docs/harness/codex.md` "Credential capture & reuse") — so a
-    /// captured login is the single `auth.json` file below, seeded into the
-    /// ephemeral dir while the real `HOME` stays intact. Only `auth.json` is
-    /// seeded (not the account's `config.toml`), because `am` writes its own
-    /// `config.toml` for MCP/skills/permissions on every run. See
-    /// `_docs/profiles.md` §5.
+    /// Class A: `CODEX_HOME` relocates the entire tree — `auth.json` included —
+    /// while the real `HOME` stays intact. See `_docs/profiles.md` §5.
     fn config_anchor(&self) -> ConfigAnchor {
         ConfigAnchor {
             levers: vec![("CODEX_HOME".to_string(), Relocate::All)],
-            login_seed: vec![SeedFile::credential("auth.json", "auth.json")],
             requires_home_relocation: false,
         }
     }
@@ -269,11 +261,7 @@ impl Harness for Codex {
         // The ephemeral `dir` is ALWAYS the config home (`$CODEX_HOME`), so
         // all injected config — `config.toml`, skills, `AGENTS.md`, hooks —
         // lands in the throwaway dir and never pollutes an account's
-        // persistent home (nor collides across concurrent runs). Codex is
-        // Class A: `CODEX_HOME` relocates the whole tree, `auth.json`
-        // included, so a private-home account's captured login is *seeded*
-        // into `dir` further below (mirroring Claude's split), rather than
-        // pointing `CODEX_HOME` at the account home directly.
+        // persistent home (nor collides across concurrent runs).
         let config_home = dir.to_path_buf();
         std::fs::create_dir_all(&config_home)
             .with_context(|| format!("creating {}", config_home.display()))?;
@@ -323,23 +311,6 @@ impl Harness for Codex {
         // 5. The launch, with `CODEX_HOME` at the ephemeral dir and every
         // setting already in its config.toml, so no `-c` override.
         let launch = self.launch(spec, Some(&config_home), Vec::new())?;
-
-        // 6. Account login.
-        if let Some(account) = &spec.account
-            && let Some(login) = spec
-                .account_login
-                .clone()
-                .or_else(|| account.home.clone().map(crate::source::Source::Dir))
-        {
-            // Reuse a prior `am account login` by *seeding* the ephemeral
-            // config dir (`$CODEX_HOME` = `dir`) with that account's
-            // captured `auth.json` — deliberately WITHOUT overriding the
-            // child's `HOME`. Injected config (config.toml/skills/AGENTS.md)
-            // already went into `dir` above; seeding only the credential
-            // file keeps `am`'s own config.toml authoritative. The seed
-            // list is declared once in `config_anchor()`.
-            super::seed_login(dir, &login, &self.config_anchor().login_seed)?;
-        }
         Ok(launch)
     }
 
@@ -416,49 +387,6 @@ impl Harness for Codex {
             env: vec![("CODEX_HOME".to_string(), home.display().to_string())],
             env_remove: Vec::new(),
             env_clear: false,
-        })
-    }
-
-    /// Log Codex into `home`, capturing the resulting `auth.json`.
-    ///
-    /// Per codex.md "Credential capture & reuse": `CODEX_HOME` is the clean
-    /// relocation lever (moves the whole tree, including `auth.json`), so
-    /// pointing it at `home` here mirrors exactly what the reuse path
-    /// (`provision()` above) does for a private-home account. Before
-    /// launching login, force file-based credential storage by writing
-    /// `cli_auth_credentials_store = "file"` into `home/config.toml` — this
-    /// is the documented knob to skip the OS keychain (critical under
-    /// sandboxes where no keychain is reachable), and it must be written
-    /// *before* `codex login` runs so the token lands in `auth.json` rather
-    /// than the keychain. `home` is fresh at capture time (a new account's
-    /// login dir), so a plain overwrite is fine here; the reuse path's
-    /// `provision()` re-provisions `config.toml` on every run anyway, so
-    /// this file isn't "owned" by login in any lasting sense.
-    ///
-    /// Verified against the installed `codex login --help` (codex-cli
-    /// 0.142.5): plain `codex login` (browser OAuth) is used here. Note
-    /// codex.md's "Login command" line mentions a headless `codex login
-    /// --device-code`, but the installed CLI's actual flag for the
-    /// browserless path is `--device-auth` (no `--device-code` exists in
-    /// this version) — that's the sandbox-friendly alternative to swap in
-    /// if a headless capture flow is needed later.
-    fn login(&self, home: &Path) -> Result<super::LoginPlan> {
-        std::fs::create_dir_all(home).with_context(|| format!("creating {}", home.display()))?;
-        let config_toml_path = home.join("config.toml");
-        std::fs::write(&config_toml_path, "cli_auth_credentials_store = \"file\"\n")
-            .with_context(|| format!("writing {}", config_toml_path.display()))?;
-
-        let env = vec![("CODEX_HOME".to_string(), home.display().to_string())];
-        let args = vec!["login".to_string()];
-        Ok(super::LoginPlan {
-            launch: Launch {
-                program: "codex".to_string(),
-                args,
-                env,
-                env_remove: Vec::new(),
-                env_clear: false,
-            },
-            credential_files: vec![std::path::PathBuf::from("auth.json")],
         })
     }
 
@@ -1150,95 +1078,6 @@ mod tests {
     }
 
     #[test]
-    fn provision_account_seeds_auth_json_into_config_dir_without_touching_home() {
-        use crate::account::Account;
-
-        // A persistent per-account "home" holding a captured login, laid out
-        // exactly as `login()` writes it: `<home>/auth.json`.
-        let account_home = tempfile::TempDir::new().unwrap();
-        std::fs::write(
-            account_home.path().join("auth.json"),
-            r#"{"OPENAI_API_KEY":null,"tokens":{"access_token":"tok"}}"#,
-        )
-        .unwrap();
-
-        let config_dir = tempfile::TempDir::new().unwrap();
-        let mut spec = RunSpec::new("codex".to_string(), PathBuf::from("."));
-        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
-        spec.account = Some(Account {
-            id: "private-home".to_string(),
-            home: Some(account_home.path().to_path_buf()),
-            ..Default::default()
-        });
-
-        let codex = Codex::new();
-        let launch = codex.provision(&spec, config_dir.path()).unwrap();
-
-        // CODEX_HOME is the ephemeral dir, NOT the account home.
-        assert!(
-            launch
-                .env
-                .iter()
-                .any(|(k, v)| k == "CODEX_HOME" && v == &config_dir.path().display().to_string())
-        );
-
-        // Injected config.toml landed in the ephemeral dir, not the account home.
-        assert!(config_dir.path().join("config.toml").exists());
-        assert!(!account_home.path().join("config.toml").exists());
-
-        // The captured login is seeded INTO the ephemeral config dir.
-        let seeded_auth = config_dir.path().join("auth.json");
-        assert!(
-            seeded_auth.exists(),
-            "auth.json should be seeded into CODEX_HOME"
-        );
-        assert!(
-            std::fs::read_to_string(&seeded_auth)
-                .unwrap()
-                .contains("access_token")
-        );
-
-        // The child's HOME is left untouched, so the user's real toolchain
-        // (nvm/mise/pyenv, shell rc, PATH shims) still resolves.
-        assert!(
-            !launch.env.iter().any(|(k, _)| k == "HOME"),
-            "HOME must not be overridden by a `home` account: {:?}",
-            launch.env
-        );
-    }
-
-    #[test]
-    fn provision_account_with_missing_auth_json_still_launches() {
-        use crate::account::Account;
-
-        // A `home` that exists but has no captured login yet: seeding is a
-        // no-op, provisioning still succeeds (reference-only / partial account).
-        let account_home = tempfile::TempDir::new().unwrap();
-        let config_dir = tempfile::TempDir::new().unwrap();
-        let mut spec = RunSpec::new("codex".to_string(), PathBuf::from("."));
-        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
-        spec.account = Some(Account {
-            id: "empty-home".to_string(),
-            home: Some(account_home.path().to_path_buf()),
-            ..Default::default()
-        });
-
-        let codex = Codex::new();
-        let launch = codex.provision(&spec, config_dir.path()).unwrap();
-
-        // No auth.json to seed → none appears in the config dir, but the run
-        // still launches with CODEX_HOME pointed at the ephemeral dir.
-        assert!(!config_dir.path().join("auth.json").exists());
-        assert!(
-            launch
-                .env
-                .iter()
-                .any(|(k, v)| k == "CODEX_HOME" && v == &config_dir.path().display().to_string())
-        );
-        assert!(!launch.env.iter().any(|(k, _)| k == "HOME"));
-    }
-
-    #[test]
     fn provision_resume_is_a_noop_argv_stays_unchanged() {
         let config_dir = tempfile::TempDir::new().unwrap();
 
@@ -1376,29 +1215,6 @@ mod tests {
                 mode.id
             );
         }
-    }
-
-    #[test]
-    fn login_points_codex_home_at_capture_dir_names_auth_json_and_forces_file_store() {
-        let home = tempfile::TempDir::new().unwrap();
-
-        let plan = Codex::new().login(home.path()).unwrap();
-
-        assert_eq!(plan.launch.program, "codex");
-        assert!(plan.launch.args.contains(&"login".to_string()));
-        assert!(
-            plan.launch
-                .env
-                .iter()
-                .any(|(k, v)| k == "CODEX_HOME" && v == &home.path().display().to_string())
-        );
-        assert_eq!(
-            plan.credential_files.first(),
-            Some(&PathBuf::from("auth.json"))
-        );
-
-        let config_toml = std::fs::read_to_string(home.path().join("config.toml")).unwrap();
-        assert!(config_toml.contains("cli_auth_credentials_store = \"file\""));
     }
 
     #[test]

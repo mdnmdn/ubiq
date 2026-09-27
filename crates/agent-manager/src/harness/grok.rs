@@ -26,11 +26,7 @@
 //! Because relocating `HOME` strips the user's real toolchain
 //! (`nvm`/`mise`/`pyenv`, shell rc, PATH shims), this Class-C harness sets
 //! `ConfigAnchor::requires_home_relocation = true` (the isol8-pairing
-//! signal). When the run's account carries a private `home` holding a
-//! captured login, provisioning does NOT point `HOME` at that home; instead
-//! it **seeds** the captured `~/.grok/auth.json` into `<dir>/.grok/auth.json`
-//! (via [`super::seed_login`] driven by [`Grok::config_anchor`]), so grok
-//! finds its credentials under the relocated HOME at launch.
+//! signal).
 //!
 //! **Known non-invasiveness gap:** relocating `HOME` has been observed to
 //! isolate config/skill reads (`user-settings.json`, `.agents/skills/`) but
@@ -86,7 +82,7 @@ use crate::Result;
 use crate::config::{McpServer, McpTransport};
 use crate::spec::{IoModes, McpRef, RunSpec};
 
-use super::{ConfigAnchor, Harness, Launch, SeedFile};
+use super::{ConfigAnchor, Harness, Launch};
 
 /// The Grok CLI harness provisioner.
 #[derive(Debug, Clone, Default)]
@@ -257,13 +253,11 @@ impl Harness for Grok {
     /// Class C: Grok has **no config-dir lever** — its only relocation seam is
     /// `HOME`, from which both `~/.grok/` and `~/.agents/skills/` derive. So
     /// `levers` is empty and `requires_home_relocation` is true (relocating
-    /// HOME strips the user's toolchain — the isol8-pairing signal). A captured
-    /// login is the single plaintext `~/.grok/auth.json`, seeded into the
-    /// relocated HOME's `.grok/auth.json`. See `_docs/profiles.md` §5.
+    /// HOME strips the user's toolchain — the isol8-pairing signal). The login
+    /// is the single plaintext `~/.grok/auth.json`. See `_docs/profiles.md` §5.
     fn config_anchor(&self) -> ConfigAnchor {
         ConfigAnchor {
             levers: vec![],
-            login_seed: vec![SeedFile::credential(".grok/auth.json", ".grok/auth.json")],
             requires_home_relocation: true,
         }
     }
@@ -379,11 +373,7 @@ impl Harness for Grok {
         // opencode's `OPENCODE_CONFIG_DIR`/HOME-relative-auth split) — its
         // only lever is relocating `HOME` wholesale, and both `.grok/` and
         // `.agents/skills/` resolve from it. So the ephemeral `dir` is the
-        // write target for injected config AND the `HOME` the child sees; a
-        // captured account login is *seeded* into it below (rather than
-        // pointing HOME at the account home) so the throwaway dir stays grok's
-        // home and the account's persistent home is never used as a write
-        // target.
+        // write target for injected config AND the `HOME` the child sees.
 
         // 1. Skills: copy each skill folder into
         // <dir>/.agents/skills/<id>/. With HOME relocated to `dir`, this is
@@ -414,22 +404,7 @@ impl Harness for Grok {
 
         // 3. Build the launch, with HOME relocated to the ephemeral `dir` so
         // Grok's `~/.grok` and `~/.agents/skills` resolve inside it.
-        let launch = self.launch(spec, Some(dir))?;
-
-        // 4. Reuse a prior `am account login` by *seeding* the captured
-        // `~/.grok/auth.json` into `<dir>/.grok/auth.json` (the relocated
-        // HOME), so grok finds its credentials at launch. No-op when the
-        // account home holds no captured login yet. The seed list is
-        // declared once in `config_anchor()`.
-        if let Some(account) = &spec.account
-            && let Some(login) = spec
-                .account_login
-                .clone()
-                .or_else(|| account.home.clone().map(crate::source::Source::Dir))
-        {
-            super::seed_login(dir, &login, &self.config_anchor().login_seed)?;
-        }
-        Ok(launch)
+        self.launch(spec, Some(dir))
     }
 
     /// grok runs from a profile's persistent fake `HOME` (`D193`).
@@ -492,38 +467,6 @@ impl Harness for Grok {
             env: vec![("HOME".to_string(), home.display().to_string())],
             env_remove: Vec::new(),
             env_clear: false,
-        })
-    }
-
-    /// Log Grok CLI into `home`, capturing the resulting OAuth `auth.json`.
-    ///
-    /// Per grok.md "Credential capture & reuse": `~/.grok/auth.json` is the
-    /// sole OAuth credential file and is **always plaintext** (no keychain,
-    /// so no force-file-storage knob is needed here, unlike Claude Code/
-    /// Codex). `HOME` is the only relocation lever Grok exposes (no
-    /// `GROK_CONFIG_DIR`-style override), so login relocates HOME to the
-    /// capture `home` to write `<home>/.grok/auth.json`. `provision()`'s reuse
-    /// path then *seeds* that file into the ephemeral dir's `.grok/auth.json`
-    /// (via [`super::seed_login`] driven by [`Grok::config_anchor`]) rather
-    /// than pointing the child's HOME at the account home.
-    ///
-    /// There is no documented `grok auth login` verb: the interactive TUI
-    /// triggers the OAuth flow on first run under a fresh `HOME`, so the
-    /// launch is bare (no subcommand args). Not verified against the
-    /// installed binary in this environment (grok is not on `PATH` here) —
-    /// this matches grok.md's documented behavior and should be re-verified
-    /// against `grok --help` when the binary is available.
-    fn login(&self, home: &Path) -> Result<super::LoginPlan> {
-        let env = vec![("HOME".to_string(), home.display().to_string())];
-        Ok(super::LoginPlan {
-            launch: Launch {
-                program: "grok".to_string(),
-                args: Vec::new(),
-                env,
-                env_remove: Vec::new(),
-                env_clear: false,
-            },
-            credential_files: vec![std::path::PathBuf::from(".grok/auth.json")],
         })
     }
 
@@ -988,104 +931,6 @@ mod tests {
     }
 
     #[test]
-    fn provision_account_home_seeds_creds_and_keeps_ephemeral_dir_as_home() {
-        use crate::account::Account;
-
-        // A persistent per-account "home" holding a captured login, laid out
-        // exactly as `login()` writes it: `<home>/.grok/auth.json`.
-        let account_home = tempfile::TempDir::new().unwrap();
-        std::fs::create_dir_all(account_home.path().join(".grok")).unwrap();
-        std::fs::write(
-            account_home.path().join(".grok").join("auth.json"),
-            r#"{"access_token":"tok"}"#,
-        )
-        .unwrap();
-
-        let config_dir = tempfile::TempDir::new().unwrap();
-        let mut spec = RunSpec::new("grok".to_string(), PathBuf::from("."));
-        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
-        spec.account = Some(Account {
-            id: "private-home".to_string(),
-            home: Some(account_home.path().to_path_buf()),
-            ..Default::default()
-        });
-        spec.mcps.push(McpRef::Catalog(McpServer {
-            id: "postgres".to_string(),
-            transport: McpTransport::Stdio,
-            command: Some("postgres-mcp".to_string()),
-            args: vec![],
-            env: BTreeMap::new(),
-            url: None,
-            headers: BTreeMap::new(),
-        }));
-
-        let grok = Grok::new();
-        let launch = grok.provision(&spec, config_dir.path()).unwrap();
-
-        // HOME relocates to the ephemeral dir, NOT the account's private home —
-        // the throwaway dir stays grok's home (config + sessions land there).
-        assert!(
-            launch
-                .env
-                .iter()
-                .any(|(k, v)| k == "HOME" && v == &config_dir.path().display().to_string())
-        );
-        assert!(
-            !launch
-                .env
-                .iter()
-                .any(|(k, v)| k == "HOME" && v == &account_home.path().display().to_string())
-        );
-
-        // The captured login is SEEDED into the ephemeral dir's relocated HOME
-        // so grok finds `~/.grok/auth.json` (= <dir>/.grok/auth.json) at launch.
-        let seeded = config_dir.path().join(".grok/auth.json");
-        assert!(
-            seeded.exists(),
-            "auth.json should be seeded into the ephemeral dir"
-        );
-        assert!(
-            std::fs::read_to_string(&seeded)
-                .unwrap()
-                .contains("access_token")
-        );
-
-        // Injected config (.grok/user-settings.json) also lands in the
-        // ephemeral dir, alongside the seeded creds.
-        assert!(config_dir.path().join(".grok/user-settings.json").exists());
-    }
-
-    #[test]
-    fn provision_account_home_without_captured_creds_still_launches() {
-        use crate::account::Account;
-
-        // A `home` that exists but has no captured login yet: seeding is a
-        // no-op, provisioning still succeeds and HOME is still the ephemeral dir.
-        let account_home = tempfile::TempDir::new().unwrap();
-        let config_dir = tempfile::TempDir::new().unwrap();
-        let mut spec = RunSpec::new("grok".to_string(), PathBuf::from("."));
-        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
-        spec.account = Some(Account {
-            id: "empty-home".to_string(),
-            home: Some(account_home.path().to_path_buf()),
-            ..Default::default()
-        });
-
-        let grok = Grok::new();
-        let launch = grok.provision(&spec, config_dir.path()).unwrap();
-
-        // Seeding is a no-op — no auth.json seeded.
-        assert!(!config_dir.path().join(".grok/auth.json").exists());
-        // HOME still relocates to the ephemeral dir.
-        assert!(
-            launch
-                .env
-                .iter()
-                .any(|(k, v)| k == "HOME" && v == &config_dir.path().display().to_string())
-        );
-    }
-
-    #[test]
     fn provision_mcp_as_skill_writes_skill_md_under_agents_skills() {
         use crate::spec::McpAsSkill;
 
@@ -1128,24 +973,6 @@ mod tests {
         assert_eq!(super::super::resolve("grok").unwrap().id(), "grok");
     }
 
-    #[test]
-    fn login_points_home_at_capture_dir_and_names_auth_json() {
-        let home = tempfile::TempDir::new().unwrap();
-
-        let plan = Grok::new().login(home.path()).unwrap();
-
-        assert!(
-            plan.launch
-                .env
-                .iter()
-                .any(|(k, v)| k == "HOME" && v == &home.path().display().to_string())
-        );
-        assert_eq!(
-            plan.credential_files[0],
-            std::path::PathBuf::from(".grok/auth.json")
-        );
-    }
-
     fn env_of(launch: &Launch) -> BTreeMap<String, String> {
         launch.env.iter().cloned().collect()
     }
@@ -1178,10 +1005,6 @@ mod tests {
 
         let (home, auth, login) = logged_in_home();
         let scratch = tempfile::TempDir::new().unwrap();
-        // An account with a captured login of its own: it is not seeded.
-        let account_home = tempfile::TempDir::new().unwrap();
-        std::fs::create_dir_all(account_home.path().join(".grok")).unwrap();
-        std::fs::write(account_home.path().join(".grok/auth.json"), "captured").unwrap();
         let mut spec = RunSpec::new("grok".to_string(), PathBuf::from("."));
         spec.config = ConfigStrategy::Home {
             home: home.path().to_path_buf(),
@@ -1195,7 +1018,6 @@ mod tests {
         });
         spec.account = Some(Account {
             id: "xai".to_string(),
-            home: Some(account_home.path().to_path_buf()),
             base_url: Some("https://gw.example/v1".to_string()),
             ..Default::default()
         });

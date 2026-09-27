@@ -1934,94 +1934,48 @@ error. A machine with none of the three tools answers `SearchError::Walk` naming
 
 ## The account family
 
-The ninth family. An **account** is one authentication a harness runs as, and this family is how
-one comes into being and how the interface learns which exist.
+The ninth family. An **account** is a set of credential references a harness runs as —
+environment-variable names, a base URL, a key helper — and this family is how the interface learns
+which exist, and how an agent definition's own config home is signed in (`D193`).
 
 | Message | Direction | Payload | Responds with |
 |---|---|---|---|
 | `ListAccounts` | UI → host | — | `Accounts` |
 | `Accounts` | host → UI | `accounts` | — |
-| `BeginHarnessLogin` | UI → host | `agent_type`, `account`, `probe`, `definition?`, `project?` | `HarnessLoginStarted`, or `HarnessLoginFailed` |
-| `HarnessLoginStarted` | host → UI | `pane_id`, `agent_type`, `account`, `cols`, `rows` | — |
-| `HarnessLoginCaptured` | host → UI | `agent_type`, `account` | — |
+| `BeginHarnessLogin` | UI → host | `agent_type`, `definition`, `project?` | `HarnessLoginStarted`, or `HarnessLoginFailed` |
+| `HarnessLoginStarted` | host → UI | `pane_id`, `agent_type`, `cols`, `rows` | — |
 | `HarnessHomeSignedIn` | host → UI | `agent_type`, `definition` | — |
-| `HarnessLoginFailed` | host → UI | `agent_type`, `account`, `error` | — |
+| `HarnessLoginFailed` | host → UI | `agent_type`, `definition`, `error` | — |
 | `HarnessLoginLink` | host → UI | `pane_id`, `url` | — |
-| `CheckHarnessLogin` | UI → host | `agent_type`, `account` | `HarnessLoginStatus` |
-| `HarnessLoginStatus` | host → UI | `agent_type`, `account`, `status` | — |
 | `RenameAccount` | UI → host | `account`, `new_account` | `Accounts`, or `AccountError` |
 | `DeleteAccount` | UI → host | `account` | `Accounts`, or `AccountError` |
-| `DeleteHarnessLogin` | UI → host | `agent_type`, `account` | `Accounts`, or `AccountError` |
 | `AccountError` | host → UI | `error` | — |
 
-**References only, never material.** `AccountInfo` is an id and the harness ids it has a captured
-login for. No credential and no path cross this family — that is the domain rule about accounts
-carrying credential references, and this family is where it is kept or lost. The log sink listens
-to the same bus, so a secret here would be a secret in a log the user might paste into an issue.
+**References only, never material.** `AccountInfo` is an id. No credential and no path cross this
+family — that is the domain rule about accounts carrying credential references, and this family is
+where it is kept or lost. The log sink listens to the same bus, so a secret here would be a secret
+in a log the user might paste into an issue. An account is written as a file, not through this
+family; the interface renames and deletes one.
 
-**Which harnesses an account covers is derived, not recorded.** An account is a home; a harness is
-logged in there when the files its own `login_seed` names are present. So `logged_in` is computed
-per request, one account can serve several harnesses without saying so anywhere, and an empty list
-means the account references an environment variable rather than a captured session.
+**A harness login is a definition's, not an account's (`D193`).** `BeginHarnessLogin` runs the
+harness's own login straight into that agent definition's config home — `project` names the
+project when the definition is one of a project's own — for a harness whose
+`AgentTypeInfo::shares_home` is true. The harness keeps the login there and refreshes it; nothing
+is captured, read back or copied, and no account is made. The definition's first terminal run,
+showing the harness's own login screen, reaches the same home without this message.
 
 **A login runs in a pane, and that pane belongs to no project.** `HarnessLoginStarted` names a
 `PaneId` that behaves like any other — it carries `TerminalOutput`, takes `TerminalInput`, resizes
 by `TerminalResize` — but it joins no project's pane count and gets no dock panel. The window draws
 it in a modal instead. Ending it is an ordinary `CloseWorkspace`.
 
-**The outcome is decided by the credential, not the exit code.** The host records the credential's
-timestamp before the login starts, and on the pane's end there are exactly three answers: the file
-appeared and is newer, so an account exists; it is there but untouched, so the harness exited
-without logging anyone in; or it is absent, so the flow was abandoned. Only the first sends
-`HarnessLoginCaptured`, and `Accounts` follows it so no window has to ask again. This is what makes
-abandoning a login safe, and it is why an exit code alone would not do: a harness can exit cleanly
-having done nothing.
-
-**Creating an account is logging one in.** There is no `AddAccount`. `BeginHarnessLogin` with an
-unknown id creates that identity if and only if the login captures something, so a half-finished
-flow leaves nothing behind to clean up.
-
-**An account is a home, so renaming and deleting are account-wide.** Several harnesses log in to
-one account by writing into one directory, which is why `logged_in` is a list. `RenameAccount`
-renames that home and every login inside it keeps working under the new name; `DeleteAccount`
-removes them all. Signing a single harness out is the narrower operation — `DeleteHarnessLogin`
-deletes only the files that harness itself declared, and leaves the rest of the home untouched.
-
-**Signing out is not the same as deleting.** An account with an empty `logged_in` still exists — it
-is a name with no login, and the next `BeginHarnessLogin` naming it fills it back in.
-`DeleteAccount` is the one that leaves nothing.
-
-**Validity is what the credential says about itself.** `HarnessLoginStatus`'s `status` is read out
-of the stored credential's own expiry field; nothing calls the provider. So `Valid` means "not
-expired", not "will work" — a token the provider revoked early still reads as `Valid` here.
+**The outcome is the exit code.** A clean exit answers `HarnessHomeSignedIn`; any other exit, or a
+pane closed before the login ended, answers `HarnessLoginFailed` with the reason. Re-authenticating
+is the same message again.
 
 **A link is an affordance, not a filter.** The host forwards a URL it saw in the login's output; it
 does not remove it from the stream. The pane still shows the harness's real output, and the
 `HarnessLoginLink` button only saves the user selecting text in a terminal.
-
-**Re-authentication is an ordinary login.** There is no separate message: `BeginHarnessLogin`
-naming an account that already exists re-runs the harness's flow, and the mtime rule that decides
-capture (above) already distinguishes a fresh credential from the old one.
-
-**`probe` swaps what runs, never what it runs under.** The policy rendered for a login is the
-harness's own — computed from its program's symlink and shebang chain, see `agent_manager::
-isolate::login_confined` — and `probe: true` only replaces the argv exec'd *after* that policy is
-resolved with the user's plain shell, so a human can inspect exactly what the login sandbox
-permits. It answers with the same `HarnessLoginStarted`/`HarnessLoginFailed` pair, but a probe
-pane's exit is never treated as a login outcome: nothing is written to the credential's mtime, so
-the host records no account and sends neither `HarnessLoginCaptured` nor `HarnessLoginFailed` for
-it — the pane simply closes, which the UI reads for itself from `PaneExited` rather than waiting on
-a host answer that will not come.
-
-**A definition signs in its own home, and there the exit code is the outcome (`D193`).**
-`BeginHarnessLogin` with `definition` set (and `project` when the definition is one of a
-project's own) runs the harness's login straight into that agent definition's config home, for a
-harness whose `AgentTypeInfo::shares_home` is true; `account` is unused and sent empty. Nothing is
-captured and no account is made, so the credential rule above has nothing to read: a clean exit
-answers `HarnessHomeSignedIn`, and any other exit — or a pane closed before the login ended — the
-ordinary `HarnessLoginFailed` with an empty `account`. `HarnessLoginStarted` is the same pane as
-ever. The definition's first terminal run, showing the harness's own login screen, reaches the
-same home without this message.
 
 ## The quota family
 
@@ -2045,7 +1999,9 @@ each identity's plan is left before the next long run.
 two agents signed in as the same account read the same window, each holding its own copy would be
 two copies of one fact, and an account with nothing running holds none at all — which is exactly
 the moment the question gets asked. The harness is a field on the snapshot rather than part of the
-key's meaning, because one account can serve several harnesses and each states its own limits.
+key's meaning, because one account can serve several harnesses and each states its own limits. The
+account is the one a run's definition names, empty for none; the host reads the login from the
+home of a definition of that harness naming it, or the harness's default home (`G380`).
 
 **A snapshot is a list of gauges, not a struct of every provider's fields.** The providers do not
 agree on what a limit is, so a union struct would grow a field per provider and read absent on most
@@ -2073,8 +2029,8 @@ run back ten seconds so a start that re-asks about every login on a cold cache d
 burst, and drops an ask about a login already probed within the last sixty seconds rather than
 probing it again — that ask is answered with `QuotaRead { snapshot: None, error: None }`, neither a
 reading nor an error, because the earlier probe's `QuotaChanged` already reached every window and a
-second probe would only repeat it. A window opening the accounts page, which asks about every login
-at once, is exactly the case this holds back.
+second probe would only repeat it. A window opening the settings page, which asks about every
+definition's login at once, is exactly the case this holds back.
 
 **`QuotaChanged` is broadcast, on `ProjectFilesChanged`'s precedent.** Every window showing that
 account is looking at the same fact, so a reading a running agent pushed reaches all of them rather
